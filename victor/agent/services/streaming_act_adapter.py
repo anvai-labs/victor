@@ -149,4 +149,10 @@ class StreamingActAdapter:
             async for chunk in stream:
                 yield chunk
 
+        from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
+
+        if not isinstance(act_result.turn_result, TurnResult):
+            raise TypeError("Streaming ACT must produce a canonical TurnResult")
+        if not isinstance(act_result.turn_result.disposition, TurnDisposition):
+            raise TypeError("Streaming ACT disposition must be a TurnDisposition")
         outcome.turn_result = act_result.turn_result

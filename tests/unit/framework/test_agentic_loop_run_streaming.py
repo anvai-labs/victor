@@ -689,3 +689,57 @@ async def test_streaming_external_cancellation_waits_for_cleanup():
     with pytest.raises(asyncio.CancelledError):
         await advancing
     await stream.aclose()
+
+
+@pytest.mark.parametrize("disposition", ["recovery_exhausted", "budget_exhausted", "forced_stop"])
+@pytest.mark.parametrize("decision", [EvaluationDecision.CONTINUE, EvaluationDecision.COMPLETE])
+async def test_real_adapter_terminal_act_cannot_retry_or_claim_success(disposition, decision):
+    from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
+    from victor.agent.services.streaming_act_adapter import StreamActSession, StreamingActAdapter
+    from victor.providers.base import CompletionResponse
+
+    turns = []
+
+    async def execute(*args, result, **kwargs):
+        turns.append(1)
+        yield StreamChunk(content="partial")
+        result.turn_result = TurnResult(
+            response=CompletionResponse(content="partial"), disposition=TurnDisposition(disposition)
+        )
+
+    adapter = StreamingActAdapter(
+        SimpleNamespace(execute_turn_streaming=execute),
+        StreamActSession(None, None, SimpleNamespace(total_iterations=0), None, None, None),
+    )
+    loop = _loop(adapter, evaluations=[EvaluationResult(decision=decision, score=1.0)] * 5)
+    chunks = [chunk async for chunk in loop.run_streaming("q")]
+    assert len(turns) == 1
+    assert chunks[-1].metadata["agentic_loop_success"] is False
+    assert disposition in chunks[-1].metadata["agentic_loop_error"]
+
+
+async def test_recovery_status_cannot_complete_but_next_answer_can():
+    from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
+    from victor.agent.services.streaming_act_adapter import StreamActSession, StreamingActAdapter
+    from victor.providers.base import CompletionResponse
+
+    turns = []
+
+    async def execute(*args, result, **kwargs):
+        turns.append(1)
+        retry = len(turns) == 1
+        result.turn_result = TurnResult(
+            response=CompletionResponse(content="" if retry else "actual answer"),
+            disposition=TurnDisposition.RECOVERY_RETRY if retry else TurnDisposition.CONTINUE,
+        )
+        yield StreamChunk(content="retrying" if retry else "actual answer")
+
+    adapter = StreamingActAdapter(
+        SimpleNamespace(execute_turn_streaming=execute),
+        StreamActSession(None, None, SimpleNamespace(total_iterations=0), None, None, None),
+    )
+    loop = _loop(adapter, evaluations=[EvaluationResult(EvaluationDecision.COMPLETE, 1.0)] * 2)
+    chunks = [c async for c in loop.run_streaming("q")]
+    assert len(turns) == 2
+    assert chunks[-1].metadata["agentic_loop_success"] is True
+    assert chunks[-1].metadata["agentic_loop_iterations"] == 2

@@ -1738,3 +1738,9 @@ async def test_empty_recovery_records_one_fallback_message(failed_tools):
         expected,
         metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
     )
+
+
+@pytest.mark.parametrize("invalid", ["continue", None, object()])
+def test_turn_result_rejects_untyped_disposition(invalid):
+    with pytest.raises(TypeError, match="TurnDisposition"):
+        TurnResult(response=CompletionResponse(content="claimed done"), disposition=invalid)

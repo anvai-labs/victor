@@ -16,11 +16,11 @@
 
 Tool governance already shares the non-streaming ToolPipeline; these tests
 cover the message gate wired into StreamingChatExecutor: the REQUEST gate at
-the top of run() and the RESPONSE gate (_govern_final_response) applied to the
+the top of run() and the RESPONSE gate (ChatGovernance.govern_response) applied to the
 final assistant output.
 """
 
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -43,26 +43,9 @@ from victor.framework.policies import (
 )
 
 
-def _executor(gate=None) -> StreamingChatExecutor:
-    runtime_owner = MagicMock()
-    runtime_owner.services = SimpleNamespace(governance=ChatGovernance(gate=gate))
-    return StreamingChatExecutor(runtime_owner=runtime_owner)
-
-
-# -- _govern_final_response (RESPONSE phase) ---------------------------------
-
-
-async def test_govern_final_response_passthrough_when_no_gate():
-    exe = _executor()
-    text = await exe._govern_final_response("hello")
-    assert text == "hello"
-
-
-async def test_govern_final_response_passthrough_empty_text():
+async def test_govern_response_passthrough_empty_text():
     gate = MessagePolicyGate(PolicyEngine([RedactContentPolicy([r"secret"])]))
-    exe = _executor(gate)
-    text = await exe._govern_final_response("")
-    assert text == ""
+    assert await ChatGovernance(gate=gate).govern_response("") == ""
 
 
 # -- REQUEST gate at top of run() -------------------------------------------
@@ -141,9 +124,9 @@ def _live_act_executor(gate):
     return executor, runtime
 
 
-@pytest.mark.parametrize("forced", [False, True])
+@pytest.mark.parametrize("mode", ["ordinary", "forced", "recovered"])
 @pytest.mark.parametrize("policy", ["absent", "redact", "block", "empty"])
-async def test_act_governs_candidate_before_history_and_delivery(policy, forced):
+async def test_act_governs_candidate_before_history_and_delivery(policy, mode):
     gate = None
     if policy == "redact":
         gate = MessagePolicyGate(
@@ -161,16 +144,39 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, forced)
         gate.gate_response = AsyncMock(wraps=gate.gate_response)
     executor, runtime = _live_act_executor(gate)
     orch = SimpleNamespace(add_message=MagicMock())
+    recovery = None
+    provider_calls = []
+    if mode == "recovered":
+        from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
+
+        async def recover_stream(**kwargs):
+            provider_calls.append(1)
+            yield StreamChunk(content="the key is sk-abc123")
+
+        orch.provider = SimpleNamespace(stream=recover_stream)
+        orch.model = "test"
+        orch.max_tokens = 1024
+        orch.thinking = False
+        orch.get_assembled_messages = lambda **kwargs: []
+        runtime._orchestrator = orch
+        runtime._handle_empty_response_recovery = MethodType(
+            ChatStreamHelperMixin._handle_empty_response_recovery, runtime
+        )
+        executor._stream_provider_turn.return_value = (None, "", None, False)
+        recovery = SimpleNamespace(
+            check_natural_completion=lambda *args, **kwargs: None,
+            handle_empty_response=lambda *args: (None, False),
+        )
     result = StreamingActResult()
     stream = executor.execute_turn_streaming(
         orch,
         runtime,
-        SimpleNamespace(user_message="", is_qa_task=False),
+        SimpleNamespace(user_message="", is_qa_task=False, goals=None, planned_tools=None),
         user_message="q",
         goals=None,
-        recovery=None,
-        create_recovery_context=None,
-        forced_task_completion=forced,
+        recovery=recovery,
+        create_recovery_context=lambda ctx: ctx,
+        forced_task_completion=mode == "forced",
         result=result,
     )
     if policy in {"block", "empty"}:
@@ -178,7 +184,8 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, forced)
         with pytest.raises(AgentError, match=reason) as exc:
             await _drain(stream)
         assert exc.value.recoverable is False
-        orch.add_message.assert_not_called()
+        assert not any(call.args[0] == "assistant" for call in orch.add_message.call_args_list)
+        assert result.turn_result is None
     else:
         chunks = await _drain(stream)
         expected = {"absent": "the key is sk-abc123", "redact": "the key is [KEY]", "empty": ""}[
@@ -194,3 +201,5 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, forced)
     if gate:
         gate.gate_response.assert_awaited_once_with("the key is sk-abc123")
     executor._stream_provider_turn.assert_awaited_once()
+    if mode == "recovered":
+        assert provider_calls == [1]

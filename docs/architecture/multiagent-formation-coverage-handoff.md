@@ -2034,12 +2034,24 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   controller stop dispatch and repairs a newly confirmed false-success path:
   buffered search convergence could overwrite an explicit evaluator/effect failure.
   Convergence never executes synthesis or proves completion; preserve evaluator
-  evidence and require the existing verifier. The `fix/shared-loop-deadline` follow-up (in review) bounds owned awaits and
+  evidence and require the existing verifier. ✅ [#1340](https://github.com/anvai-labs/victor/pull/1340) bounds owned awaits and
   terminal/cache success in both modes against one cooperative elapsed budget.
   Context and timeout scopes never span streaming yields; expiry is failure, not
   safe-to-retry evidence. Awaited cleanup can exceed the budget; remote effects
-  and thread work are not proven stopped. Controller nudge dispatch, recovery
-  disposition, adaptive extension and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
+  and thread work are not proven stopped. The `fix/typed-turn-disposition` increment
+  (in review) addresses source-classified recovery/tool stops, preserves recovered
+  text and prevents a permissive evaluator or verifier retry from dispatching another
+  ACT after a terminal stop. It also makes evaluator escalation terminal in both live
+  modes. Review also confirmed that `chat_stream_helpers` recovered final content
+  bypassed RESPONSE governance before persistence. The same increment moves normal
+  and recovered publication to one governance capability, outside retry handling,
+  and qualifies denial/redaction/history without another provider call. Other
+  forced-summary/tool-bearing emissions still need publication qualification. Source
+  audit also found buffered post-loop synthesis outside ACT; include it in whole-run
+  attempt/deadline ownership rather than claiming the ACT stop covers every provider call.
+  Controller nudge
+  dispatch, run-wide attempt accounting, adaptive extension and full experimental
+  StateGraph/iteration parity remain open; phase-method reuse is not execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

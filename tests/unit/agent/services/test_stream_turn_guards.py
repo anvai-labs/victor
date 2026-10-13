@@ -22,6 +22,7 @@ from victor.agent.services import chat_stream_executor
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
 from victor.agent.services.chat_runtime_services import (
+    ChatGovernance,
     ChatRuntimeIntelligence,
     ChatStreamLifecycle,
 )
@@ -329,7 +330,6 @@ async def test_execute_tools_turn_streams_and_records_outcome():
         async def execute_tools_streaming(self, **kwargs):
             seen["exec_kwargs"] = kwargs
             kwargs["result"].tool_calls_executed = 2
-            kwargs["result"].should_return = False
             for c in ("chunk-a", "chunk-b"):
                 yield c
 
@@ -428,10 +428,6 @@ def _emit_executor():
     executor = _provider_turn_executor()
     executor._prepare_visible_content = lambda fc, *, user_message: fc
 
-    async def _govern(text):
-        return text
-
-    executor._govern_final_response = _govern
     return executor
 
 
@@ -449,6 +445,7 @@ async def _collect_emit(
 ):
     executor._runtime_owner = SimpleNamespace(
         services=SimpleNamespace(
+            governance=ChatGovernance(),
             delivery=ChatDelivery(chunks=orch._chunk_generator, sanitizer=orch.sanitizer),
             intelligence=ChatRuntimeIntelligence(
                 runtime=SimpleNamespace(record_outcome=orch._record_runtime_intelligence_outcome)
@@ -546,6 +543,8 @@ async def test_emit_empty_natural_completion_returns():
 
     assert chunks == [final]
     assert decision.should_return is True
+    assert decision.disposition.value == "completion_candidate"
+    assert decision.recovery_content == "natural done"
 
 
 async def test_emit_empty_recovery_chunk_continues():
@@ -621,6 +620,56 @@ async def test_emit_empty_recovery_failure_yields_fallback_and_returns():
         runtime_owner=runtime_owner,
     )
 
+    assert decision.disposition.value == "recovery_exhausted"
+    assert decision.recovery_content == "fallback message"
     assert chunks[0].content == "fallback message"
     assert chunks[0].is_final is True
     assert decision.should_return is True
+
+
+async def test_emit_recovered_final_content_is_a_candidate_not_success():
+    final = SimpleNamespace(content="recovered answer", is_final=True)
+    recovery = SimpleNamespace(
+        check_natural_completion=lambda *a, **k: None,
+        handle_empty_response=lambda ctx: (None, False),
+    )
+
+    async def recover(*args):
+        return True, None, final
+
+    chunks, decision = await _collect_emit(
+        _emit_executor(),
+        orch=_emit_orch([]),
+        full_content="",
+        tool_calls=None,
+        recovery=recovery,
+        runtime_owner=SimpleNamespace(_handle_empty_response_recovery=recover),
+    )
+    assert chunks == [final]
+    assert decision.disposition.value == "completion_candidate"
+    assert decision.recovery_content == "recovered answer"
+
+
+@pytest.mark.parametrize("both", [False, True])
+async def test_emit_rejects_ambiguous_successful_recovery(both):
+    recovery = SimpleNamespace(
+        check_natural_completion=lambda *a, **k: None,
+        handle_empty_response=lambda ctx: (None, False),
+    )
+
+    async def recover(*args):
+        return (
+            True,
+            [{"name": "shell"}] if both else None,
+            SimpleNamespace(content="answer") if both else None,
+        )
+
+    with pytest.raises(ValueError, match="either content or tools"):
+        await _collect_emit(
+            _emit_executor(),
+            orch=_emit_orch([]),
+            full_content="",
+            tool_calls=None,
+            recovery=recovery,
+            runtime_owner=SimpleNamespace(_handle_empty_response_recovery=recover),
+        )

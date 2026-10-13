@@ -118,6 +118,26 @@ class ChatGovernance:
             return None
         return self._require_result(await self.gate.gate_response(content), "response")
 
+    async def govern_response(self, text: str) -> str:
+        """Apply RESPONSE policy once before persisting or publishing a candidate.
+
+        A denial or total redaction is nonrecoverable. An absent gate preserves bytes.
+        """
+        from victor.core.errors import AgentError
+
+        if not text:
+            return text
+        result = await self.check_response(text)
+        if result is None:
+            return text
+        if not result.allowed:
+            raise AgentError(
+                result.reason or "The response was withheld by policy.", recoverable=False
+            )
+        if text.strip() and not result.content.strip():
+            raise AgentError("Response policy produced no deliverable content.", recoverable=False)
+        return result.content
+
 
 class CompletionDetector(Protocol):
     """Completion signals consumed by the streaming execution path."""

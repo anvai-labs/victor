@@ -45,6 +45,7 @@ import asyncio
 import hashlib
 import inspect
 import logging
+from enum import Enum
 
 import re
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
@@ -66,6 +67,25 @@ if TYPE_CHECKING:
         StatePassedExplorationProtocol,
         ToolContextProtocol,
     )
+
+
+class TurnDisposition(str, Enum):
+    """ACT control outcome; a completion candidate is never proof of success."""
+
+    CONTINUE = "continue"
+    RECOVERY_RETRY = "recovery_retry"
+    COMPLETION_CANDIDATE = "completion_candidate"
+    RECOVERY_EXHAUSTED = "recovery_exhausted"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    FORCED_STOP = "forced_stop"
+
+    @property
+    def stops_run(self) -> bool:
+        return self not in (self.CONTINUE, self.RECOVERY_RETRY)
+
+    @property
+    def is_failure(self) -> bool:
+        return self.stops_run and self is not self.COMPLETION_CANDIDATE
 
 
 @dataclass
@@ -93,6 +113,11 @@ class TurnResult:
     tool_calls_count: int = 0
     all_tools_blocked: bool = False
     is_qa_response: bool = False
+    disposition: TurnDisposition = TurnDisposition.CONTINUE
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.disposition, TurnDisposition):
+            raise TypeError("TurnResult.disposition must be a TurnDisposition")
 
     @property
     def content(self) -> str:
@@ -145,7 +170,7 @@ from victor.agent.services.runtime_overrides import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["TurnExecutor", "TurnResult"]
+__all__ = ["TurnExecutor", "TurnResult", "TurnDisposition"]
 
 # Module-level guard to prevent recursive subagent exploration
 _EXPLORATION_IN_PROGRESS = False

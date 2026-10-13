@@ -131,7 +131,27 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_streaming_act_port.py",
         "tests/unit/agent/services/test_streaming_act_adapter.py",
     ),
+    **dict.fromkeys(
+        (
+            "victor/agent/services/turn_execution_runtime.py",
+            "victor/agent/services/streaming_act_adapter.py",
+            "victor/agent/streaming/tool_execution.py",
+        ),
+        (
+            "tests/unit/agent/services/test_turn_execution_runtime.py",
+            "tests/unit/agent/services/test_streaming_act_adapter.py",
+            "tests/unit/agent/services/test_streaming_act_port.py",
+            "tests/unit/agent/test_streaming_tool_execution_handler.py",
+            "tests/unit/framework/test_agentic_loop_run_streaming.py",
+            "tests/unit/framework/test_agentic_loop_verification.py",
+            "tests/unit/framework/test_agentic_loop_effect_gate.py",
+        ),
+    ),
+    "victor/agent/services/chat_runtime_services.py": (
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+    ),
     "victor/agent/services/chat_stream_helpers.py": (
+        "tests/unit/agent/services/test_chat_stream_governance.py",
         "tests/unit/agent/services/test_chat_runtime_services_boundary.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",
         "tests/unit/agent/services/test_chat_stream_helpers_gateway_retry.py",
