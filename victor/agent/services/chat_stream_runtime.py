@@ -428,6 +428,10 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                 executor.run_unified(user_message, **kwargs)
             ) as stream:
                 async for chunk in stream:
+                    if chunk.metadata and chunk.metadata.get("agentic_loop_success") is False:
+                        # The loop verdict outranks quality heuristics in audit/resume
+                        # finalizers. Later ancillary chunks cannot restore success.
+                        stream_failed = True
                     yield chunk
         except Exception:
             stream_failed = True

@@ -16,6 +16,7 @@ import hashlib
 import logging
 
 from victor.core.async_utils import aclosing_if_supported
+from victor.core.errors import AgentError
 from victor.agent.services.tool_selection_runtime import (
     hydrate_demand_tools,
 )
@@ -158,6 +159,7 @@ class _EmitDecision:
     toward a shared ``stream_turn()``.
     """
 
+    response_governed: bool = False
     should_return: bool = False
     should_continue: bool = False
     assistant_content_yielded: bool = False
@@ -176,8 +178,9 @@ class StreamingActResult:
 
     - ``turn_result``: the ``TurnResult`` (same primitive ``turn_executor.execute_turn`` returns
       for the buffered path) built from this turn's content + tool results.
-    - ``full_content`` / ``tool_calls`` / ``tools``: the raw provider outputs, surfaced for the
-      caller's evaluation (``tools`` is needed for empty-response recovery).
+    - ``full_content`` / ``tool_calls`` / ``tools``: provider outputs (no-tool content is
+      response-governed before publication), surfaced for the caller's evaluation
+      (``tools`` is needed for empty-response recovery).
     - ``tool_exec_result``: the streaming ``ToolExecutionResult`` (``None`` when no tools ran).
     - ``garbage_detected`` / ``assistant_content_yielded``: per-turn signals the streaming
       EVALUATE band reads (garbage→force completion; whether visible content was streamed).
@@ -375,23 +378,25 @@ class StreamingChatExecutor:
 
         return "", None
 
-    async def _govern_final_response(self, text: str) -> tuple[str, bool]:
-        """RESPONSE-phase gate for the streaming path's final assistant output.
+    async def _govern_final_response(self, text: str) -> str:
+        """Govern no-tool candidates before publication, history and completion detection.
 
-        Returns ``(text_to_use, blocked)``. When no message policy gate is
-        configured the text is returned unchanged. Streaming cannot un-send
-        tokens that were already emitted incrementally, so this governs the
-        persisted history copy and the final delivered chunk (the documented
-        limitation of message governance on the streaming path).
+        No gate preserves content bytes. Denial or complete redaction ends execution
+        with a nonrecoverable error, never model recovery or inferred success. This
+        does not govern tool-bearing intermediate narration or provider telemetry.
         """
         if not text:
-            return text, False
+            return text
         result = await self.services.governance.check_response(text)
         if result is None:
-            return text, False
+            return text
         if not result.allowed:
-            return result.reason or "The response was withheld by policy.", True
-        return result.content, False
+            raise AgentError(
+                result.reason or "The response was withheld by policy.", recoverable=False
+            )
+        if text.strip() and not result.content.strip():
+            raise AgentError("Response policy produced no deliverable content.", recoverable=False)
+        return result.content
 
     async def _build_terminal_delivery_chunk(
         self,
@@ -410,7 +415,7 @@ class StreamingChatExecutor:
 
         if terminal_content:
             # RESPONSE-phase governance on the terminal (final) assistant output.
-            terminal_content, _blocked = await self._govern_final_response(terminal_content)
+            terminal_content = await self._govern_final_response(terminal_content)
 
             from victor.agent.conversation.types import (
                 MESSAGE_SOURCE_METADATA_KEY,
@@ -1243,11 +1248,11 @@ class StreamingChatExecutor:
                     MessageSource,
                 )
 
-                # RESPONSE-phase governance only on the final emit; intermediate
-                # content turns continue the loop and must not be blocked.
+                # ACT already governed ordinary no-tool candidates. Direct forced
+                # delivery callers still pass through the same checked boundary.
                 _is_final_emit = forced_task_completion and not tool_calls
-                if _is_final_emit:
-                    sanitized, _ = await self._govern_final_response(sanitized)
+                if _is_final_emit and not decision.response_governed:
+                    sanitized = await self._govern_final_response(sanitized)
                 orch.add_message(
                     "assistant",
                     sanitized,
@@ -1278,8 +1283,8 @@ class StreamingChatExecutor:
                     )
 
                     _is_final_emit = forced_task_completion and not tool_calls
-                    if _is_final_emit:
-                        plain_text, _ = await self._govern_final_response(plain_text)
+                    if _is_final_emit and not decision.response_governed:
+                        plain_text = await self._govern_final_response(plain_text)
                     orch.add_message(
                         "assistant",
                         plain_text,
@@ -1486,6 +1491,9 @@ class StreamingChatExecutor:
 
         # ACT — emit the assistant response (handles tool-call-only / empty-response recovery).
         _emit = _EmitDecision()
+        if full_content and not tool_calls:
+            full_content = await self._govern_final_response(full_content)
+            _emit.response_governed = True
         async with aclosing_if_supported(
             self._emit_assistant_turn(
                 orch,
@@ -1589,10 +1597,15 @@ class StreamingChatExecutor:
         req = await self.services.governance.check_request(user_message)
         if req is not None:
             if not req.allowed:
-                yield self.services.delivery.content_chunk(
-                    req.reason or "Your message was blocked by policy.",
-                    is_final=True,
-                )
+                reason = req.reason or "Your message was blocked by policy."
+                chunk = self.services.delivery.content_chunk(reason, is_final=True)
+                chunk.metadata = {
+                    **(chunk.metadata or {}),
+                    "agentic_loop_success": False,
+                    "agentic_loop_iterations": 0,
+                    "agentic_loop_error": reason,
+                }
+                yield chunk
                 return
             user_message = req.content
 

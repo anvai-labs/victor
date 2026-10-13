@@ -94,6 +94,13 @@ RELATED_TESTS = {
         "tests/unit/protocols/test_protocol_adapters.py",
         "tests/unit/api/test_vscode_extension_contract.py",
     ),
+    "victor/agent/services/chat_stream_executor.py": (
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_chat_delivery.py",
+        "tests/unit/agent/services/test_stream_turn_guards.py",
+        "tests/unit/agent/services/test_streaming_act_port.py",
+        "tests/unit/agent/services/test_streaming_act_adapter.py",
+    ),
     "victor/agent/services/chat_stream_helpers.py": (
         "tests/unit/agent/services/test_chat_runtime_services_boundary.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",

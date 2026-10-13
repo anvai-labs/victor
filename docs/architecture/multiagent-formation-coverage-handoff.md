@@ -2005,7 +2005,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   eviction at the floor. The [canonical tracker](victor-agent-service-plan.md#current-checkpoint)
   records source, test, review and live acceptance status for
   [PR #1336](https://github.com/anvai-labs/victor/pull/1336).
-  Local candidate also shares genuine-user detection with recent-turn assembly and
+  The merged #1336 repair also shares genuine-user detection with recent-turn assembly and
   tags task guidance/verifier feedback. Follow-ups remain: context-limit final-summary
   slices can lose task/tool pairing; CLI terminal errors
   can return exit zero; buffered tool rendering may lose call IDs and pair by name.
@@ -2021,11 +2021,13 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   judges and online learning require measured benefit, not automatic inclusion.
   The [agentic-loop audit](victor-agent-service-plan.md#agentic-loop-fitness-audit-g97g98-2026-10-13)
   inventories responsibilities and LOOP-01–06 gates. G97 owns the immediate
-  task-provenance, context-retention and CLI/result-publication failures. Local
-  G98 repairs reset completion scores across runs and record post-backslide decisions
-  even without a verifier. Streaming RESPONSE governance, explicit terminal status,
-  recovery disposition, adaptive extension and typed ACT contracts remain open in
-  the audit table; do not equate phase-method reuse with execution-mode parity.
+  task-provenance, context-retention and CLI/result-publication failures. ✅ #1336
+  resets completion scores across runs and records post-backslide decisions even
+  without a verifier (41 CI checks passed; merge `cd018968e`). Streaming RESPONSE
+  governance and explicit terminal status are the active LOOP-02/03 increment in
+  the canonical tracker, including failed audit finalization and empty-redaction
+  regeneration. Recovery disposition, shared guards/controller, adaptive extension
+  and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

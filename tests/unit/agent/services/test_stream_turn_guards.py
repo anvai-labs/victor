@@ -429,7 +429,7 @@ def _emit_executor():
     executor._prepare_visible_content = lambda fc, *, user_message: fc
 
     async def _govern(text):
-        return text, False
+        return text
 
     executor._govern_final_response = _govern
     return executor

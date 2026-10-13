@@ -67,7 +67,33 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **G97 retention / G98 run isolation ACTIVE, [PR #1336](https://github.com/anvai-labs/victor/pull/1336)** — owner: Victor
+- **LOOP-02/03 terminal delivery ACTIVE** — owner: Victor co-design session;
+  branch `fix/stream-terminal-delivery`, baseline `cd018968e` (`origin/develop`).
+  Governs normal no-tool assistant candidates before history, publication and
+  completion detection; a denied or completely removed answer terminates with a
+  nonrecoverable error, never another provider attempt. No gate preserves output
+  bytes. Tool-bearing intermediate narration and provider telemetry remain outside
+  this RESPONSE boundary. Streaming COMPLETE/FAIL/exhaustion use the existing
+  buffered `agentic_loop_success/iterations/error` metadata; framework events,
+  VictorClient and runtime finalizers preserve failure and suppress stale summary
+  fallback. Existing owners cover regression cases; no new loop/status registry.
+  Tests first reproduced 15 policy/status/client failures; independent review found
+  empty-redaction regeneration and contradictory runtime finalization, now covered
+  by real pipeline/provider-count and runtime finalization regressions. Qualification
+  is complete locally: 538 CI-selected tests passed, 47/51 changed runtime lines
+  covered (92%), 34,659 tests collected, Black/Ruff and configured strict MyPy
+  passed (2,114 files; legacy suppressions remain). Independent final review is
+  clean with 109 focused tests; its interrupted mixed run is not parity evidence.
+  The parent's full affected cohort passed 431 cases including the real parity
+  harness, followed by the final 538-case selection after helper consolidation.
+  Two redundant helper-level policy tests were replaced by the actual ACT matrix;
+  CI maps the existing delivery/ACT/guard/governance owners explicitly. PR/CI/merge
+  remain pending; this is not release, performance or full parity evidence.
+  Next after this increment: CLI exit semantics, shared controller/guard dispatch,
+  recovery dispositions and run-wide attempt accounting. Reboot evidence will be
+  preserved in `var/codegraph-victor-20261012/` before stopping.
+
+- **G97 retention / G98 run isolation MERGED, [PR #1336](https://github.com/anvai-labs/victor/pull/1336)** — owner: Victor
   co-design session; branch `fix/retain-active-task`, baseline
   `5e2afec204d046d979354166f2048d74259262d6` (freshly fetched; unchanged).
   The original subscription self-audit lost its task at the history count boundary.
@@ -101,8 +127,10 @@ edit. A mock test is not live provider or C5 evidence.
   18 service-publication tests and six stream-metrics/add-message tests passed;
   34,642 tests collected. Black, Ruff, repository hygiene/docs drift, configured
   MyPy and `mypy --strict` pass (2,114 files; legacy suppressions remain). Independent
-  final loop cohort: 71 passed; scoped production/test review approved. CI/merge
-  remain pending; no release or full lifecycle/C5 claim.
+  final loop cohort: 71 passed; scoped production/test review approved. Squash merged
+  as `cd018968e51d559ba64115e92000a355caa3f201`; all 41 CI checks passed, including
+  1,109 selected-owner tests and coverage of all 64 changed runtime lines. Merge tree
+  equals the reviewed final head. No release or full lifecycle/C5 claim.
   Initial CI stopped before pytest because three source modules lacked selector
   mappings to their existing descriptive test owners. The correction adds those
   mappings, not duplicate suites; three RED selector cases reproduced it, all 53
@@ -111,8 +139,8 @@ edit. A mock test is not live provider or C5 evidence.
   covered. Local coverage used the changed service-publication owner instead of
   repeating the previously passed full orchestrator suite; CI still selects that
   full suite without exclusions. Collection after the selector cases: 34,642.
-  Next: finish this candidate; then LOOP-02/03 terminal governance/status, shared
-  controller/guard dispatch, and context-limit final-summary retention.
+  Worktree and branch removed after merge. Next: LOOP-02/03 terminal governance/status,
+  shared controller/guard dispatch, and context-limit final-summary retention.
   Evidence and reboot patch: `var/codegraph-victor-20261012/` (private, ignored).
 
 - **Weighted allowance foundation ✅ MERGED [Sandhi #370](https://github.com/anvai-labs/sandhi/pull/370)** —
@@ -1575,9 +1603,9 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 
 | Increment | Status | Acceptance before advancing |
 | --- | --- | --- |
-| LOOP-01 / G97 | LOCAL FIX, qualification in progress | One retention owner and provenance predicate; guidance/verifier producers repaired; exact-candidate live retention audit passes; review/local checks pass, CI pending |
-| LOOP-02 / G97 | TODO | Terminal error reaches CLI exit/status; concurrent/repeated tool names reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL LOCAL FIX | Shared run reset and truthful recorded evaluation repaired; terminal governance/status, controller/guard dispatch and StateGraph parity remain open |
+| LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
+| LOOP-02 / G97 | ACTIVE: terminal event/client verdict | Terminal error reaches CLI exit/status; concurrent/repeated tool names reconcile by ID; no false success |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ACTIVE | Normal RESPONSE governance and terminal result qualification underway; controller/guard dispatch and StateGraph parity remain open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
@@ -1593,11 +1621,11 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 
 | Severity / status | Code owner and evidence | Required repair / acceptance |
 | --- | --- | --- |
-| P1 — LOCAL FIX | `AgenticLoop._reset_run_state`: completion scores survived consecutive calls; all four buffered/streaming mode pairs failed before repair | Reset once per run; retain within-run score history; no change to thresholds |
-| P1 — LOCAL FIX | Buffered DECIDE recorded pre-backslide COMPLETE without a verifier; existing verifier test expanded to prove false success | Always record the actual decision; both verifier configurations pass |
-| P1 — LOCAL FIX | `_inject_verify_feedback` used an unrecognized source and could replace the protected task | Shared internal-metadata helper; real verification retry + history eviction tests in both modes |
-| P1 — OPEN | `StreamingChatExecutor._emit_assistant_turn` governs RESPONSE only for forced completion; normal unified COMPLETE returns later without that call | One post-decision terminal delivery owner; test normal unified completion with allow/redact/block. Previously emitted deltas cannot be retracted; strict output policy must buffer before exposure |
-| P1 — OPEN | `run_streaming` emits identical content for COMPLETE, FAIL and CONTINUE at cap (independent fixture reproduction) | Existing stream contract must carry a typed run outcome distinct from a provider turn's finish reason; CLI/API/UI consume it consistently |
+| P1 — ✅ MERGED #1336 | `AgenticLoop._reset_run_state`: completion scores survived consecutive calls; all four buffered/streaming mode pairs failed before repair | Reset once per run; retain within-run score history; no change to thresholds |
+| P1 — ✅ MERGED #1336 | Buffered DECIDE recorded pre-backslide COMPLETE without a verifier; existing verifier test expanded to prove false success | Always record the actual decision; both verifier configurations pass |
+| P1 — ✅ MERGED #1336 | `_inject_verify_feedback` used an unrecognized source and could replace the protected task | Shared internal-metadata helper; real verification retry + history eviction tests in both modes |
+| P1 — ACTIVE | Normal no-tool streaming candidates previously bypassed RESPONSE governance | Check the candidate once before publication/history/detection; real unified allow/redact/deny/empty tests. Completely removed content is an explicit failure, not inferred completion or retry. Intermediate tool-bearing output remains separately scoped |
+| P1 — ACTIVE | `run_streaming` emits identical content for COMPLETE, FAIL and CONTINUE at cap (independent fixture reproduction) | Existing stream contract must carry a typed run outcome distinct from a provider turn's finish reason; CLI/API/UI consume it consistently |
 | P1 — OPEN | Buffered `run` evaluates `TurnEvaluationController`; token streaming resets it but omits evaluation | One shared post-turn decision helper over canonical `TurnResult`/`TurnObservation`; negative repetition/search-novelty parity tests |
 | P1 — OPEN | `LoopGuards` is installed/enforced only by buffered driver; deadline checks between phases do not interrupt an in-flight await | Share guard lifetime and cancellation cleanup; qualify blocked await, timeout, perception runaway and generator close; do not claim a hard deadline from a phase-boundary check |
 | P2 — OPEN | Streaming ACT produces recovery return/continue signals but adapter only forwards `turn_result` | Declare recovery disposition in canonical turn contract; one DECIDE consumption; test no extra provider request after terminal recovery |
@@ -1642,8 +1670,8 @@ is claimed: only correctness, less duplicated reset code and stronger regression
 coverage have been established. Optional planner/judge/learning removal or native
 acceleration still requires representative end-to-end measurements.
 
-No new loop implementation was promoted by this audit. The retention worktree and
-patch are preserved; no failed smoke was relabelled as passed. Sandhi #370 is a
+PR #1336 promoted retention/reset/recorded-result repairs; its worktree was removed
+and immutable evidence preserved. No failed smoke was relabelled as passed. Sandhi #370 is a
 separate merged arithmetic foundation, not live weighted-policy or C5 acceptance.
 
 ## Repository-wide typing qualification (G96)

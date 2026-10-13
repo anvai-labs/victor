@@ -1798,6 +1798,19 @@ class AgenticLoop:
         except Exception as exc:
             logger.debug("Prompt candidate outcome attribution skipped: %s", exc)
 
+    @staticmethod
+    def _terminal_stream_outcome(
+        *, success: bool, iterations: int, error: str | None = None
+    ) -> StreamChunk:
+        """Publish the buffered response's run verdict contract without repeating content."""
+        metadata: Dict[str, Any] = {
+            "agentic_loop_success": success,
+            "agentic_loop_iterations": iterations,
+        }
+        if error:
+            metadata["agentic_loop_error"] = error
+        return StreamChunk(is_final=True, metadata=metadata)
+
     async def run_streaming(
         self,
         query: str,
@@ -1911,12 +1924,23 @@ class AgenticLoop:
                 # Streaming parity: attribute the turn outcome to served prompt
                 # candidates before ending the stream (FEP-0017; mirrors run()).
                 self._emit_prompt_reward_outcome(evaluation, state)
+                success = evaluation.decision == EvaluationDecision.COMPLETE
+                yield self._terminal_stream_outcome(
+                    success=success,
+                    iterations=i,
+                    error=None if success else evaluation.reason or "Agentic loop failed",
+                )
                 return
             self._inject_decide_nudges(evaluation, i, effective_max)
 
         # Loop exhausted without a terminal decision — attribute the final turn's
         # evaluation too (FEP-0017 streaming parity; mirrors run()'s epilogue).
         self._emit_prompt_reward_outcome(evaluation, state)
+        yield self._terminal_stream_outcome(
+            success=False,
+            iterations=max(0, effective_max),
+            error=f"Maximum iterations ({effective_max}) reached without completion",
+        )
 
     async def stream(
         self,

@@ -67,6 +67,17 @@ def test_selector_changes_select_its_own_regressions():
     ("source", "owners"),
     [
         (
+            "victor/agent/services/chat_stream_executor.py",
+            {
+                "tests/unit/agent/services/test_chat_stream_executor_lifetime.py",
+                "tests/unit/agent/services/test_chat_stream_governance.py",
+                "tests/unit/agent/services/test_chat_delivery.py",
+                "tests/unit/agent/services/test_stream_turn_guards.py",
+                "tests/unit/agent/services/test_streaming_act_port.py",
+                "tests/unit/agent/services/test_streaming_act_adapter.py",
+            },
+        ),
+        (
             "victor/agent/message_history.py",
             ["tests/unit/agent/test_agent_conversation.py"],
         ),

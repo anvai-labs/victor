@@ -450,8 +450,10 @@ async def test_service_streaming_runtime_create_stream_context_applies_topology_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
 async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     monkeypatch,
+    failed,
 ):
     class FakeToolService:
         def __init__(self, budget: int, used: int = 0):
@@ -533,15 +535,20 @@ async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     )
     orch._current_stream_context = ctx
 
+    terminal = StreamChunk(
+        content="service", is_final=True, metadata={"agentic_loop_success": not failed}
+    )
+
     class DummyExecutor:
         async def run_unified(self, user_message: str, **kwargs):
-            yield StreamChunk(content="service", is_final=True)
+            yield terminal
+            yield StreamChunk()  # Later ancillary chunks cannot restore success.
 
     runtime._streaming_executor = DummyExecutor()
 
     chunks = [item async for item in runtime.stream_chat("hello")]
 
-    assert chunks == [StreamChunk(content="service", is_final=True)]
+    assert chunks == [terminal, StreamChunk()]
     assert orch.tool_budget == 9
     assert orch.task_coordinator.tool_budget == 9
     assert orch._tool_service.budget == 9
@@ -550,7 +557,7 @@ async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     assert "_runtime_tool_context_overrides" not in orch.__dict__
     orch._runtime_intelligence.record_topology_outcome.assert_called_once()
     feedback_payload = orch._runtime_intelligence.record_topology_outcome.call_args.args[0]
-    assert feedback_payload["status"] == "completed"
+    assert feedback_payload["status"] == ("error" if failed else "completed")
     assert feedback_payload["completion_score"] == pytest.approx(0.81)
     assert ctx.topology_events[-1]["outcome"]["runtime"] == "streaming"
     assert ctx.runtime_override_snapshot is None
