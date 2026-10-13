@@ -67,6 +67,26 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **TYPE-02 shared event/stream contracts LOCAL_PASS** — owner: Victor co-design
+  session; branch `fix/typed-event-stream-contracts`, baseline
+  `69c119454e773fc33ea98f9bcfb8c52206a0e687`. The user authorized this isolated
+  next increment while the frozen #1323 promotion finishes; do not merge it into
+  develop before that checkpoint is settled. Resolve the event timestamp return
+  annotation, type dataclass initialization hooks and remove the invalid protocol
+  ignore while preserving the existing async-generator shape and runtime defaults.
+  Both modules now have explicit unsuppressed MyPy overrides. TDD reproduced four
+  MyPy diagnostics and two failing runtime/consumer tests; two modules now pass
+  strict MyPy and the configured 2,113-file gate passes. Affected suites pass 226
+  tests; independent review passes 59; final focused cases pass 22; collection
+  finds 34,584 tests. New timestamp and stream consumer checks reject incompatible
+  return/await usage. Existing test owners and collaborator assertions remain;
+  the MyPy subprocess helper is shared rather than duplicated. No existing test
+  cases were removed. The CI-selected cohort passes 182 tests with 83% changed-line
+  coverage (the unchanged protocol placeholder yield is checked statically, not
+  invoked just for coverage). Feature CI and merge remain pending;
+  this does not close repository-wide typing or lifecycle acceptance. Evidence:
+  `var/codegraph-victor-20261012/type02-shared-*`.
+
 - **Promotion checkpoint ACTIVE [#1323](https://github.com/anvai-labs/victor/pull/1323)** —
   owner: Victor co-design session. Main ancestry sync [#1324](https://github.com/anvai-labs/victor/pull/1324)
   merged as `7e7ad5462b63b70c8b931e921f0de6e86d9846f5`, preserving production behavior
@@ -84,9 +104,13 @@ edit. A mock test is not live provider or C5 evidence.
   across 1,796 coverage files. Disabling canonical session binding makes the new
   facade case fail, preserving negative regression evidence. Initial failures and
   the interrupted broad baseline are retained separately from completed evidence.
-  Next: independent repair review, feature CI/merge, then full promotion CI on the
-  new develop head and required GitHub approval before main, with no admin bypass.
-  Broader typing and unrelated dependency updates stay outside this batch.
+  Repair [#1326](https://github.com/anvai-labs/victor/pull/1326) merged at
+  `69c119454e773fc33ea98f9bcfb8c52206a0e687` with 39 successful checks, two configured
+  skips and neutral Trivy; its tree matches reviewed candidate `ad5d2340a`.
+  The second full matrix (`38320270669`) is running against that frozen head.
+  All four previously failing shards now pass; full CI and required GitHub approval
+  still gate main, with no admin bypass.
+  The new isolated typing increment and unrelated dependency updates stay outside this promotion.
   Cumulative runtime review passes 645 tests. Client/release review passes 219
   Python checks, 113 TypeScript tests and 11 real HTTP tests (overlapping counts).
   The existing VAS-06/G62/G70 approval-continuation lock gap reproduces on main and
@@ -1377,7 +1401,7 @@ errors is not an acceptance result for this program.
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
-| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK slice merged #1319; 11 SDK/compatibility diagnostics repaired, real export and type-identity regressions covered; remaining definition-layer work open |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK slice merged #1319; 11 SDK/compatibility diagnostics repaired, real export and type-identity regressions covered; shared event/stream contract slice LOCAL_PASS; remaining definition-layer work open |
 | TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
