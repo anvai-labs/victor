@@ -164,16 +164,22 @@ async def test_retry_budget_resets_when_loop_is_reused(streaming):
     assert verifier.verify.await_count == 4
 
 
-async def test_controller_completion_cannot_leave_stale_success_after_verification():
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_controller_completion_cannot_leave_stale_success_after_verification(streaming):
     loop = make_loop(MagicMock(verify=AsyncMock(return_value=VerificationResult(0, 1))), retries=0)
     loop.turn_evaluation_controller.evaluate = MagicMock(
         return_value=SimpleNamespace(
             stop=True, terminal_success=True, stop_reason="search_saturation"
         )
     )
-    result = await loop.run("task")
-    assert result.success is False
-    assert result.iterations[-1].evaluation.decision == EvaluationDecision.FAIL
+    result = await execute(loop, streaming)
+    final, state = loop._emit_prompt_reward_outcome.call_args.args
+    assert final.decision == EvaluationDecision.FAIL
+    assert state["verification"]["verified"] is False
+    loop.turn_evaluation_controller.evaluate.assert_called_once()
+    if result is not None:
+        assert result.success is False
+        assert result.iterations[-1].evaluation is final
 
 
 @pytest.mark.parametrize("with_verifier", [False, True])

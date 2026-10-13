@@ -2013,7 +2013,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   transcript recovery, overlapping unfinished tool batches, member continuation or C5.
 
 - **G98 — agent-loop termination and continuation lack complete execution-mode parity (open).**
-  Source audit finds buffered-only loop guards/controller evaluation/adaptive checks,
+  Initial source audit found buffered-only loop guards/controller evaluation/adaptive checks,
   multiple completion authorities and generic write-oriented budget nudges without
   original task intent. A model continuation is not renewed authorization or proof
   of progress. Qualify one typed transition/terminal contract and run-wide attempt
@@ -2027,12 +2027,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   qualifies normal no-tool streaming RESPONSE governance and explicit terminal
   status through framework/client events and audit finalizers, with no regeneration
   after denial or complete redaction. The canonical tracker records exact runtime
-  review, local and CI evidence; CLI exit status is implemented in the current
-  `fix/cli-terminal-failure` review increment (see the canonical tracker for landing
-  status). One-shot failure, partial buffered/JSON output and interactive streaming
+  review, local and CI evidence. ✅ [#1338](https://github.com/anvai-labs/victor/pull/1338)
+  carries failed terminal events and thinking aborts through CLI exit 1. One-shot failure, partial buffered/JSON output and interactive streaming
   continuation are covered; non-streaming/planning and approval presentation remain
-  separate. Recovery disposition, shared guards/controller, adaptive extension
-  and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
+  separate. The follow-up `fix/shared-loop-controller` increment (in review) shares
+  controller stop dispatch and repairs a newly confirmed false-success path:
+  buffered search convergence could overwrite an explicit evaluator/effect failure.
+  Convergence never executes synthesis or proves completion; preserve evaluator
+  evidence and require the existing verifier. Run guards, controller nudge dispatch,
+  recovery disposition, adaptive extension and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -406,8 +406,8 @@ a latent buffered-`run()` bug (a tool-only turn's empty content fell through to 
 cleanup, not new design):
 
 1. **Reconcile the run()-only preamble/DECIDE bands into `run_streaming`.** The fast-slow
-   planning gate, semantic response cache, paradigm/topology routing, the content-repetition
-   controller feed, and adaptive termination each still have their sole production call site in
+   planning gate, semantic response cache, paradigm/topology routing, run guards
+   and adaptive termination still have their sole production call site in
    the buffered `run()`'s inline body — the streaming path shares PERCEIVE/ACT/EVALUATE
    (fulfillment, effect gate, auditor, backslide/verify) but not yet those bands.
 2. Delete the deprecated `StreamingChatExecutor.run()` alias (zero production callers; the only
@@ -484,5 +484,11 @@ The CLI failure increment (`fix/cli-terminal-failure`, tracked in LOOP-02) carri
 terminal events and local thinking aborts through renderer finalization to one-shot
 exit 1, while interactive streaming waits for new input. JSON failures retain the
 existing error/details envelope. This is deterministic CLI evidence, not live C5.
-Shared guards/controllers, recovery disposition and
+The shared stop-controller increment (`fix/shared-loop-controller`, LOOP-03)
+feeds one typed observation per completed ACT in both modes with spin recording
+disabled because ACT already recorded it. It never upgrades a non-complete
+assessment to success; a clean stop retains only existing COMPLETE, which still
+passes backslide and verification. Degraded stops fail with evaluator diagnostics,
+metrics and metadata preserved. Search convergence is a stop signal, not synthesis.
+Shared run guards, controller nudge dispatch, recovery disposition and
 iteration/StateGraph parity remain open obligations.

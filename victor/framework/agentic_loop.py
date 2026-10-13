@@ -60,7 +60,7 @@ from victor.core.errors import ProviderPolicyError
 
 import inspect
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -1209,71 +1209,9 @@ class AgenticLoop:
                 # Track progress (SubSearch intermediate rewards)
                 self._progress_scores.append(evaluation.score)
 
-                # Content-repetition detection via the shared TurnEvaluationController (the same
-                # hash/overlap detector the streaming loop uses — replaces the cruder
-                # content-length heuristic). The loop already fed the spin detector in _act, so
-                # don't re-record. Plateau/nudge stay owned by this loop below.
-                _action_content = self._extract_turn_content(action_result)
-                _tool_results = getattr(action_result, "tool_results", None) or []
-                _turn_obs = TurnObservation(
-                    content=_action_content,
-                    productive_count=int(getattr(action_result, "successful_tool_count", 0) or 0),
-                    has_tool_calls=bool(getattr(action_result, "has_tool_calls", False)),
-                    all_blocked=bool(getattr(action_result, "all_tools_blocked", False)),
-                    tool_names={
-                        (r.get("tool_name") or r.get("name") or "")
-                        for r in _tool_results
-                        if isinstance(r, dict)
-                    },
-                    tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0),
-                    tool_signatures=getattr(action_result, "tool_signatures", None),
-                    tool_results=_tool_results,
-                    iteration=i,
-                    max_iterations=effective_max,
+                evaluation = self._apply_turn_controller(
+                    action_result, evaluation, state, iteration=i, max_iterations=effective_max
                 )
-                turn_decision = self.turn_evaluation_controller.evaluate(
-                    _turn_obs, record_spin=False
-                )
-                if turn_decision.stop and turn_decision.terminal_success:
-                    # Search-saturation (or other clean stop) -> COMPLETE so the loop synthesizes
-                    # the gathered context instead of thrashing to the iteration cap.
-                    logger.info(
-                        "Converged at iteration %d (%s) - completing to synthesize",
-                        i,
-                        turn_decision.stop_reason,
-                    )
-                    evaluation = EvaluationResult(
-                        decision=EvaluationDecision.COMPLETE,
-                        score=evaluation.score,
-                        reason=f"Converged: {turn_decision.stop_reason} (iteration {i})",
-                    )
-                elif turn_decision.stop:
-                    state.setdefault("degradation_events", []).append(
-                        {
-                            "source": "agentic_loop",
-                            "kind": turn_decision.stop_reason or "content_repetition",
-                            "failure_type": "STUCK_LOOP",
-                            "iteration": i,
-                            "task_type": state.get("task_type"),
-                            "post_degraded": True,
-                            "recovered": False,
-                            "adaptation_cost": float(i),
-                            "degradation_reasons": [
-                                turn_decision.stop_reason or "content_repetition"
-                            ],
-                        }
-                    )
-                    logger.warning(
-                        "Content degradation detected (%s) at iteration %d - stopping loop",
-                        turn_decision.stop_reason,
-                        i,
-                    )
-                    evaluation = EvaluationResult(
-                        decision=EvaluationDecision.FAIL,
-                        score=evaluation.score,
-                        reason=f"Content repetition detected (iteration {i})",
-                    )
-                    # Continue to exit logic below
 
                 # FULFILLMENT CHECK (optional)
                 if self.enable_fulfillment_check:
@@ -1500,6 +1438,69 @@ class AgenticLoop:
         resp = getattr(action_result, "response", "")
         content = resp if isinstance(resp, str) else getattr(resp, "content", "")
         return content if isinstance(content, str) else ""
+
+    def _apply_turn_controller(
+        self,
+        action_result: Any,
+        evaluation: EvaluationResult,
+        state: Dict[str, Any],
+        *,
+        iteration: int,
+        max_iterations: int,
+    ) -> EvaluationResult:
+        """Apply one shared stop decision without manufacturing task success.
+
+        Adapt the existing ACT/legacy result boundary to the controller's typed
+        observation. ACT already recorded spin. A clean controller stop is not
+        proof of completion: only the evaluator (including effect/audit gates)
+        can establish that, and backslide/verification still run afterward.
+        """
+        tool_results = getattr(action_result, "tool_results", None) or []
+        observation = TurnObservation(
+            content=self._extract_turn_content(action_result),
+            productive_count=int(getattr(action_result, "successful_tool_count", 0) or 0),
+            has_tool_calls=bool(getattr(action_result, "has_tool_calls", False)),
+            all_blocked=bool(getattr(action_result, "all_tools_blocked", False)),
+            tool_names={
+                (result.get("tool_name") or result.get("name") or "")
+                for result in tool_results
+                if isinstance(result, dict)
+            },
+            tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0),
+            tool_signatures=getattr(action_result, "tool_signatures", None),
+            tool_results=tool_results,
+            iteration=iteration,
+            max_iterations=max_iterations,
+        )
+        decision = self.turn_evaluation_controller.evaluate(observation, record_spin=False)
+        if not decision.stop or evaluation.should_fail:
+            return evaluation
+        if decision.terminal_success and evaluation.should_complete:
+            return evaluation
+
+        reason = decision.stop_reason or "turn_controller_stop"
+        state.setdefault("degradation_events", []).append(
+            {
+                "source": "agentic_loop",
+                "kind": reason,
+                "failure_type": "STUCK_LOOP",
+                "iteration": iteration,
+                "task_type": state.get("task_type"),
+                "post_degraded": True,
+                "recovered": False,
+                "adaptation_cost": float(iteration),
+                "degradation_reasons": [reason],
+            }
+        )
+        logger.warning("Turn controller stopped run (%s) at iteration %d", reason, iteration)
+        return replace(
+            evaluation,
+            decision=EvaluationDecision.FAIL,
+            reason=(
+                f"Turn controller stopped before verified completion: {reason} "
+                f"(iteration {iteration}); evaluator: {evaluation.reason}"
+            ),
+        )
 
     def _populate_session_ledger(self, action_result: Any, turn_index: int) -> None:
         """Record a completed turn onto the live SessionLedger (FEP-0023 Phase 1).
@@ -1817,24 +1818,26 @@ class AgenticLoop:
         context: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncIterator[StreamChunk]:
-        """Stream the agentic loop — the SAME loop as run(), differing only in I/O.
+        """Stream ACT output through the shared agentic-loop phases and stop policy.
 
         FEP-0007 Addendum A (framing B): ``run_streaming`` drives the identical
         PERCEIVE -> PLAN -> ACT -> EVALUATE -> DECIDE sequence as the buffered ``run()``. It
         reuses the same non-yielding ``_analyze_turn`` / ``_plan`` / ``_evaluate`` phase methods
-        and the shared ``turn_evaluation_controller`` / ``nudge_policy``. The ONLY difference is
-        ACT: instead of a buffered ``_act`` returning a ``TurnResult``, it drives the injected
+        and the shared ``turn_evaluation_controller`` / ``nudge_policy``. In ACT,
+        instead of a buffered ``_act`` returning a ``TurnResult``, it drives the injected
         streaming ACT port, which yields ``StreamChunk``s for live delivery and produces the same
-        ``TurnResult`` the shared EVALUATE phase consumes. Streaming thus becomes a pure I/O mode
-        of the one research-rooted loop rather than a separate, thinner loop.
+        ``TurnResult`` the shared EVALUATE phase consumes. Both modes apply one controller
+        observation per completed turn; controller convergence cannot bypass evaluation,
+        effect/audit gates or the subsequent verifier. Remaining differences are listed below.
 
         This is the LIVE streaming path as of the FEP-0007 step-3 cutover: ``run_streaming`` is
         driven via ``StreamingChatExecutor.run_unified`` (``ChatStreamRuntime``'s stream entry
         point), with the service-layer ``StreamingActAdapter`` wired as the ``streaming_act_port``.
         Still owned by the buffered ``run()``'s preamble only (reconciling them here is the
         remaining FEP-0007 follow-up): the fast-slow planning gate, the semantic response cache,
-        paradigm/topology routing, the content-repetition controller feed, and adaptive
-        termination. Run/stream behavioral parity is pinned by
+        paradigm/topology routing, run guards and adaptive termination. Controller nudge
+        output and intent-aware nudge dispatch are not consolidated by the shared stop helper.
+        Covered run/stream behavioral parity is pinned by
         ``tests/integration/streaming/test_run_stream_parity.py``.
 
         Args:
@@ -1910,6 +1913,10 @@ class AgenticLoop:
             # EVALUATE (shared, non-yielding)
             evaluation = await self._evaluate(perception, action_result, state)
             self._progress_scores.append(evaluation.score)
+
+            evaluation = self._apply_turn_controller(
+                action_result, evaluation, state, iteration=i, max_iterations=effective_max
+            )
 
             # DECIDE — terminal decisions end the stream; non-terminal nudge + continue.
             if evaluation.decision == EvaluationDecision.COMPLETE:

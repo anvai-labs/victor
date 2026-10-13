@@ -58,6 +58,14 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # Controller policy and its two loop consumers share stop precedence.
+    "victor/framework/agentic_loop.py": ("tests/unit/agent/test_turn_evaluation_controller.py",),
+    "victor/agent/turn_policy.py": (
+        "tests/unit/agent/test_turn_evaluation_controller.py",
+        "tests/unit/framework/test_agentic_loop.py",
+        "tests/unit/framework/test_agentic_loop_run_streaming.py",
+        "tests/unit/framework/test_agentic_loop_verification.py",
+    ),
     # Terminal rendering crosses the shared handler and CLI exit/REPL owners.
     **dict.fromkeys(
         (
