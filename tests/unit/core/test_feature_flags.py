@@ -15,6 +15,8 @@
 """Tests for the feature flag system."""
 
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -576,3 +578,64 @@ class TestConsolidationFeatureFlags:
             manager = FeatureFlagManager(config)
 
             assert manager.is_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP)
+
+
+def test_unit_fixture_isolates_overrides_across_cases(tmp_path: Path) -> None:
+    """Real pytest lifecycles clear collection, passing and failing case state."""
+    fixture_file = Path(__file__).resolve().parents[1] / "conftest.py"
+    (tmp_path / "conftest.py").write_text(
+        "import runpy\n"
+        f"reset_feature_flags = runpy.run_path({str(fixture_file)!r})['reset_feature_flags']\n"
+        "from victor.core import feature_flags\n"
+        "def pytest_sessionfinish(session, exitstatus):\n"
+        "    assert feature_flags._global_manager is None\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_isolation.py").write_text(
+        """from pathlib import Path
+import pytest
+from victor.core.feature_flags import (
+    FeatureFlag, FeatureFlagConfig, get_feature_flag_manager,
+)
+CONFIG = FeatureFlagConfig(
+    config_path=Path(__file__).with_name("absent.yaml"), default_enabled=False,
+)
+FLAG = FeatureFlag.USE_STRATEGY_BASED_TOOL_REGISTRATION
+get_feature_flag_manager(CONFIG).enable(FLAG)  # Simulate collection-time pollution.
+
+@pytest.mark.parametrize("case", ["passing", "failing", "after_failure"])
+def test_clean_start(case, monkeypatch):
+    monkeypatch.delenv(FLAG.get_env_var_name(), raising=False)
+    manager = get_feature_flag_manager(CONFIG)
+    assert not manager.is_enabled(FLAG), "override leaked across pytest lifecycles"
+    manager.enable(FLAG)
+    assert get_feature_flag_manager() is manager
+    assert manager.is_enabled(FLAG)
+    if case == "failing":
+        pytest.fail("intentional failure after enabling flag")
+""",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            os.devnull,
+            f"--confcutdir={tmp_path}",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            str(tmp_path / "test_isolation.py"),
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PYTEST_ADDOPTS": "", "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "1 failed, 2 passed" in output, output
+    assert "intentional failure after enabling flag" in output, output
