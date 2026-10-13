@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-from victor.core.errors import ProviderPolicyError
+from victor.core.errors import ErrorCategory, ProviderPolicyError
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
     BaseProvider,
@@ -343,6 +343,46 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
                 receipt=receipt,
                 status_code=status if isinstance(status, int) else None,
             )
+    for candidate in candidates:
+        # A live gateway can accept the client key while its bound credential
+        # was not activated at startup. The transport wraps that terminal 502
+        # in a retryable upstream_error; retain the inner setup diagnosis.
+        # Match the complete legacy envelope, never arbitrary upstream prose.
+        if (
+            candidate.get("code") == "invalid_request"
+            and candidate.get("http_status") == 502
+            and candidate.get("message") == "no upstream registered for this key"
+            and candidate.get("retryable") is False
+        ):
+            hint = (
+                "Gateway operator: inspect the key's upstream_ref and startup credential "
+                "activation logs. Provision that exact provider/label in the gateway's active "
+                "credential backend, then register it with authenticated POST "
+                "/admin/keys/reference. For a read-only credstore, provision the service "
+                "credential externally and ensure the running service can read it before "
+                "registration. "
+            )
+            if provider_name == "openai":
+                hint += (
+                    "For a Codex subscription route: run `codex login status` on the login-owner "
+                    "machine; run `codex login` if signed out. Restore the bounded access-lease "
+                    "publisher and register the same provider/label with scheme=oauth. The "
+                    "publisher must refresh the active credential backend and gateway handle; "
+                    "a one-time registration expires. "
+                )
+            hint += (
+                "Retry after registration succeeds. Procedure: "
+                "docs/architecture/sandhi-subscription-gateway.md#missing-upstream-recovery"
+            )
+            return ProviderError(
+                "Sandhi accepted the client credential, but its configured upstream is not "
+                "registered. The request cannot run until gateway setup is repaired.",
+                provider=provider_name,
+                category=ErrorCategory.CONFIG_MISSING,
+                recoverable=False,
+                status_code=502,
+                recovery_hint=hint,
+            )
     detail = str(typed.get("message") or exc)
     # Sandhi carries the full (capped) upstream error body in details["upstream_body"]
     # (the message holds only a short display snippet). Append it so provider
@@ -359,7 +399,14 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     if code == "authentication_error":
         return ProviderAuthError(detail, provider=provider_name, status_code=int(status or 401))
     if code == "timeout":
-        return ProviderTimeoutError(detail, provider=provider_name, timeout=timeout)
+        # Sandhi may have hit a stream-idle or upstream deadline shorter than
+        # Victor's configured overall timeout. Preserve its diagnosis without
+        # claiming that the unrelated overall budget actually elapsed.
+        return ProviderTimeoutError(
+            detail,
+            provider=provider_name,
+            status_code=status if isinstance(status, int) else None,
+        )
     if code in {"circuit_open", "transport_error"}:
         # "error sending request" wraps both real network failures and TLS
         # trust failures; the default recovery hint is wrong for the latter.
@@ -982,7 +1029,10 @@ class SandhiTypedProviderMixin:
             raise
         except BaseException as exc:  # pyo3 panics may subclass BaseException
             mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
-            if isinstance(mapped, ProviderPolicyError):
+            if (
+                isinstance(mapped, ProviderPolicyError)
+                or mapped.category == ErrorCategory.CONFIG_MISSING
+            ):
                 raise mapped from None
             raise mapped from exc
 
@@ -1144,7 +1194,10 @@ class SandhiTypedProviderMixin:
             raise
         except BaseException as exc:
             mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
-            if isinstance(mapped, ProviderPolicyError):
+            if (
+                isinstance(mapped, ProviderPolicyError)
+                or mapped.category == ErrorCategory.CONFIG_MISSING
+            ):
                 raise mapped from None
             raise mapped from exc
 

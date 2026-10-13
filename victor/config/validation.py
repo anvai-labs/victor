@@ -206,11 +206,18 @@ class ConfigValidator:
     def __init__(self):
         """Initialize the validator."""
         self._validators = {
+            "dependencies": self._validate_dependencies,
             "providers": self._validate_providers,
             "api_keys": self._validate_api_keys,
             "profiles": self._validate_profiles,
             "paths": self._validate_paths,
         }
+
+    def _validate_dependencies(self, settings, result: ConfigValidationResult) -> None:
+        from victor.config.dependencies import check_dependencies
+
+        for issue in check_dependencies():
+            result.add_warning("dependencies", issue.message, issue.suggestion)
 
     def validate(self, settings) -> ConfigValidationResult:
         """Validate all aspects of configuration.

@@ -1884,6 +1884,13 @@ async def run_oneshot(
                         formatter.error("Configuration validation failed", formatted_validation)
                     raise typer.Exit(1)
                 elif validation_result.has_warnings():
+                    # Dependency drift needs the repair command, not just a count.
+                    for issue in validation_result.warnings:
+                        if issue.category == "dependencies":
+                            diagnostic_console = (
+                                console if show_cli_chrome else Console(stderr=True)
+                            )
+                            diagnostic_console.print(str(issue), markup=False, highlight=False)
                     # Configuration has warnings but is valid - show summary
                     warning_count = len(validation_result.warnings)
                     if show_cli_chrome and warning_count > 0:

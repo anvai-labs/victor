@@ -99,6 +99,61 @@ client process, or pass `gateway={url, virtual_key}` to `SandhiOpenAIProvider`.
 Do not set `OPENAI_API_KEY` to the subscription access token. Do not let global
 routing settings silently move message-hub's private triage to a cloud provider.
 
+## Missing upstream recovery
+
+`502: no upstream registered for this key` means Sandhi resolved the client
+credential, but could not find its bound upstream in the live provider registry.
+It occurs before model dispatch. A passing Victor configuration check or a valid
+Codex login does not prove that the gateway has activated that upstream. Victor
+reports this as a terminal configuration error with recovery instructions.
+
+The gateway operator should follow this procedure:
+
+1. Inspect the existing client key's `upstream_ref` through authenticated
+   `GET /admin/keys/virtual`, and inspect gateway startup logs for
+   `credential not activated`. Use the exact provider and label from the binding;
+   creating another label does not repair the existing key. For example,
+   `openai:codex` requires provider `openai` and label `codex`.
+2. For a Codex subscription route, run `codex login status` on the login-owner
+   machine. If signed out, run `codex login`. Follow the
+   [official authentication instructions](https://developers.openai.com/codex/auth/).
+   Verify the publisher's interpreter still exists and its account check succeeds.
+   The publisher should publish only bounded access-token leases; Codex retains
+   refresh ownership.
+3. Provision the lease into the **active** gateway credential backend. With
+   `SANDHI_VAULT_BACKEND=credstore`, inspect `SANDHI_CREDENTIALS_DIR` and the service's
+   credential declarations. Provision the exact credential as a regular file
+   readable by the service, using the deployment's credential delivery mechanism.
+   Writing to the old keyring or SentinelPass backend will not update credstore.
+   Sandhi's credstore backend is read-only and skips symlink candidates.
+4. Ensure the publisher can refresh both the credential visible to the running
+   service and the cached gateway provider handle. A systemd `LoadCredentialEncrypted`
+   snapshot alone is not a subscription-lease rotation mechanism: updating the
+   source encrypted file does not update the running service's credential snapshot.
+   A one-time five-minute lease or repeated gateway restart is not a durable repair.
+   If the deployment has no supported rotation path, keep the route unavailable
+   until one is configured.
+5. After delivery, register the reference using the gateway's authenticated admin
+   interface: `POST /admin/keys/reference`. For the example binding above, send:
+
+   ```json
+   {"provider":"openai","label":"codex","scheme":"oauth"}
+   ```
+
+   This body contains no credential. The operation reads the configured backend,
+   validates the lease, and installs the live provider handle. Confirm success;
+   `vault_missing` means delivery is still incomplete, while an invalid/expired
+   credential error requires fixing the lease before retrying. A non-subscription
+   upstream must use its own authentication scheme and endpoint configuration.
+6. Retry a small synthetic request with the existing client key and selected model.
+   Verify publication continues across a renewal interval and after gateway restart
+   before treating recovery as complete. Preserve the client's model allowlist,
+   attribution, and budget.
+
+Do not change the selected provider as recovery from this setup failure. A client
+key and a Codex login have separate roles: the client key authorizes the gateway
+request, and the published access lease enables the gateway's upstream dispatch.
+
 ## TDD and acceptance gates
 
 Red tests first demonstrated local OAuth discovery in gateway mode, acceptance
