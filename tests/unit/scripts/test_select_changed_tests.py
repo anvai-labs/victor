@@ -410,7 +410,34 @@ def test_mcp_schema_owners_include_legacy_location_and_end_to_end_contract(sourc
 
 def test_stream_helper_changes_select_retry_and_boundary_regressions():
     assert {
+        "tests/unit/agent/services/test_chat_stream_governance.py",
         "tests/unit/agent/services/test_chat_runtime_services_boundary.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",
         "tests/unit/agent/services/test_chat_stream_helpers_gateway_retry.py",
     } <= set(select(["victor/agent/services/chat_stream_helpers.py"]))
+
+
+def test_governance_capability_changes_select_actual_publication_regression():
+    assert "tests/unit/agent/services/test_chat_stream_governance.py" in select(
+        ["victor/agent/services/chat_runtime_services.py"]
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "victor/agent/services/turn_execution_runtime.py",
+        "victor/agent/services/streaming_act_adapter.py",
+        "victor/agent/streaming/tool_execution.py",
+    ],
+)
+def test_turn_contract_changes_select_producer_consumer_regressions(source):
+    assert {
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/agent/services/test_streaming_act_adapter.py",
+        "tests/unit/agent/services/test_streaming_act_port.py",
+        "tests/unit/agent/test_streaming_tool_execution_handler.py",
+        "tests/unit/framework/test_agentic_loop_run_streaming.py",
+        "tests/unit/framework/test_agentic_loop_verification.py",
+        "tests/unit/framework/test_agentic_loop_effect_gate.py",
+    } <= set(select([source]))

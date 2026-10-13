@@ -1307,7 +1307,9 @@ class AgenticLoop:
                 # drop from the previous turn means the model regressed and should not
                 # be considered done yet.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
-                    evaluation = self._apply_backslide_guard(evaluation)
+                    evaluation = self._apply_turn_disposition(
+                        action_result, self._apply_backslide_guard(evaluation)
+                    )
                     iteration.evaluation = evaluation
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await _loop_guards.run(
@@ -1318,8 +1320,8 @@ class AgenticLoop:
                     logger.info("Task complete - exiting loop")
                     break
 
-                if evaluation.decision == EvaluationDecision.FAIL:
-                    logger.warning("Task failed - exiting loop")
+                if evaluation.decision in (EvaluationDecision.FAIL, EvaluationDecision.ESCALATE):
+                    logger.warning("Task failed or needs escalation - exiting loop")
                     break
 
                 # NUDGE INJECTION via shared NudgePolicy (consistent with streaming).
@@ -1460,6 +1462,35 @@ class AgenticLoop:
         content = resp if isinstance(resp, str) else getattr(resp, "content", "")
         return content if isinstance(content, str) else ""
 
+    @staticmethod
+    def _apply_turn_disposition(
+        action_result: Any, evaluation: EvaluationResult
+    ) -> EvaluationResult:
+        """Honor ACT control without treating a stop or recovery prompt as success."""
+        from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
+
+        if not isinstance(action_result, TurnResult):
+            return evaluation  # Legacy buffered adapters retain their existing behavior.
+        disposition = action_result.disposition
+        if disposition is TurnDisposition.CONTINUE or evaluation.decision in (
+            EvaluationDecision.FAIL,
+            EvaluationDecision.ESCALATE,
+        ):
+            return evaluation
+        if disposition is TurnDisposition.RECOVERY_RETRY:
+            return replace(
+                evaluation,
+                decision=EvaluationDecision.RETRY,
+                reason="ACT requested recovery_retry; completion has not been established",
+            )
+        if disposition is TurnDisposition.COMPLETION_CANDIDATE and evaluation.should_complete:
+            return evaluation
+        return replace(
+            evaluation,
+            decision=EvaluationDecision.FAIL,
+            reason=f"ACT stopped ({disposition.value}); evaluator: {evaluation.reason}",
+        )
+
     def _apply_turn_controller(
         self,
         action_result: Any,
@@ -1476,6 +1507,7 @@ class AgenticLoop:
         proof of completion: only the evaluator (including effect/audit gates)
         can establish that, and backslide/verification still run afterward.
         """
+        evaluation = self._apply_turn_disposition(action_result, evaluation)
         tool_results = getattr(action_result, "tool_results", None) or []
         observation = TurnObservation(
             content=self._extract_turn_content(action_result),
@@ -1719,6 +1751,13 @@ class AgenticLoop:
             return False
         evaluation.score = 0.0
         evaluation.reason = vr.feedback or "Verification did not pass all checks"
+        from victor.agent.services.turn_execution_runtime import TurnResult
+
+        action_result = state.get("action_result")
+        if isinstance(action_result, TurnResult) and action_result.disposition.stops_run:
+            evaluation.decision = EvaluationDecision.FAIL
+            evaluation.reason += f"; ACT stopped ({action_result.disposition.value})"
+            return False
         if self._verify_retries < self._max_verify_retries:
             evaluation.decision = EvaluationDecision.RETRY
             self._inject_verify_feedback(vr)
@@ -1961,7 +2000,9 @@ class AgenticLoop:
 
                 # DECIDE — terminal decisions end the stream; non-terminal nudge + continue.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
-                    evaluation = self._apply_backslide_guard(evaluation)
+                    evaluation = self._apply_turn_disposition(
+                        action_result, self._apply_backslide_guard(evaluation)
+                    )
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await _loop_guards.run(
                         lambda: self._maybe_verify_and_retry(i, evaluation, state, streaming=True)
@@ -1970,6 +2011,7 @@ class AgenticLoop:
                 if evaluation.decision in (
                     EvaluationDecision.COMPLETE,
                     EvaluationDecision.FAIL,
+                    EvaluationDecision.ESCALATE,
                 ):
                     # Streaming parity: attribute the turn outcome to served prompt
                     # candidates before ending the stream (FEP-0017; mirrors run()).
@@ -3147,7 +3189,18 @@ class AgenticLoop:
         gate = getattr(self, "effect_gate", None)
         if gate is not None:
             gate.record(action_result, state)
-        evaluation = await self._evaluate_core(perception, action_result, state)
+        from victor.agent.services.turn_execution_runtime import TurnResult
+
+        if isinstance(action_result, TurnResult) and action_result.disposition.is_failure:
+            # Retain effect receipts, but do not spend another model call judging
+            # a source-classified failure or let fallback prose establish success.
+            evaluation = EvaluationResult(
+                decision=EvaluationDecision.FAIL,
+                score=0.0,
+                reason=f"ACT stopped ({action_result.disposition.value})",
+            )
+        else:
+            evaluation = await self._evaluate_core(perception, action_result, state)
         if gate is not None:
             evaluation = await gate.apply(evaluation, action_result, state)
         # EVR-6: online per-turn auditor — a second post-filter on the same seam (no-op when off).

@@ -12,6 +12,7 @@ from victor.agent.streaming.tool_execution import (
     create_tool_execution_handler,
 )
 from victor.providers.base import StreamChunk
+from victor.agent.services.turn_execution_runtime import TurnDisposition
 
 
 def test_factory_prefers_canonical_recovery_context_builder():
@@ -726,6 +727,7 @@ async def test_execute_tools_budget_exhaustion_emits_fallback_and_synthetic_tool
     )
 
     assert result.should_return is True
+    assert result.disposition is TurnDisposition.BUDGET_EXHAUSTED
     assert [chunk.content for chunk in result.chunks] == [
         "[tool] Tool budget reached (10); skipped 2 queued tool call(s).\n",
         (
@@ -833,3 +835,18 @@ async def test_execute_tools_grants_progress_based_budget_relief_from_current_tr
         == "[tool] Progress detected; extending tool budget to 6 calls for this turn.\n"
         for chunk in result.chunks
     )
+
+
+async def test_forced_tool_finalization_is_not_a_success_signal():
+    handler = ToolExecutionHandler.__new__(ToolExecutionHandler)
+    handler._handle_force_completion_with_handler = lambda ctx: StreamChunk(content="stopping")
+
+    async def final_response(ctx):
+        yield StreamChunk(content="partial summary", is_final=True)
+
+    handler._handle_force_final_response = final_response
+    result = await handler._check_force_completion(StreamingChatContext(user_message="task"))
+    assert result.disposition is TurnDisposition.FORCED_STOP
+    assert result.should_return is True
+    assert result.tool_calls_executed == 0
+    assert [c.content for c in result.chunks] == ["stopping", "partial summary"]

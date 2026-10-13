@@ -515,3 +515,33 @@ remote inference or committed effects. Cleanup can extend return latency; synchr
 are not rolled back. Unknown effects require reconciliation, never blind replay. The perception backstop is
 still checked between iterations. Nudge/recovery dispatch, attempt accounting,
 adaptive iteration limits and full lifecycle/C5 acceptance remain open.
+
+
+### Typed ACT disposition follow-up (LOOP-03)
+
+`TurnResult.disposition` is the canonical ACT control signal. The internal emit and
+streaming tool results classify it at the source; stop/retry compatibility properties
+are derived, not independently mutable. `StreamingActAdapter` rejects a missing or
+malformed turn contract. Ordinary turns default to `CONTINUE` and retain existing
+content, evaluation and verifier retry behavior.
+
+| Disposition | Shared loop behavior |
+|---|---|
+| `CONTINUE` | Existing evaluator/controller/verification policy |
+| `RECOVERY_RETRY` | Never completion; existing failure/escalation takes precedence |
+| `COMPLETION_CANDIDATE` | Existing evaluator/effect/audit/backslide/verifier gates; rejection stops without another ACT |
+| `RECOVERY_EXHAUSTED`, `BUDGET_EXHAUSTED`, `FORCED_STOP` | Retain partial receipts, skip model evaluation, stop unsuccessfully |
+
+Recovered final text is carried with its disposition instead of evaluating the
+original empty response. Recovery status chunks are not answer evidence. Escalation
+ends buffered and token-streamed execution; a continuation prompt grants no authority.
+The internal `ToolExecutionResult(should_return=...)` constructor and writable emit
+hint fields are replaced with `disposition`; no public client wire fields change.
+
+Normal and recovered final text share `ChatGovernance.govern_response`. Recovery
+publication is outside provider retry handling: denial, total redaction or persistence
+failure cannot cause another provider attempt. Policy precedes assistant history,
+delivery and evaluation; the adapter does not repeat it. Other forced summaries and
+tool-bearing emissions, remote effect rollback, durable replay safety, whole-run
+attempt accounting and live C5 still require qualification.
+The canonical tracker and G98 own those remaining acceptance gates.

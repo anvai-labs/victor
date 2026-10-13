@@ -1579,28 +1579,7 @@ class ChatStreamHelperMixin:
                     return True, recovered_tool_calls, None
 
                 if full_content.strip():
-                    logger.info(
-                        f"Recovery at temperature {temp} produced content "
-                        f"({len(full_content)} chars)"
-                    )
-                    sanitized = self.services.delivery.sanitize(full_content)
-                    if sanitized:
-                        from victor.agent.conversation.types import (
-                            MESSAGE_SOURCE_METADATA_KEY,
-                            MessageSource,
-                        )
-
-                        orch.add_message(
-                            "assistant",
-                            sanitized,
-                            metadata={
-                                MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value
-                            },
-                        )
-                    final_chunk = self.services.delivery.content_chunk(
-                        sanitized or full_content, is_final=True
-                    )
-                    return True, None, final_chunk
+                    break
 
             except ProviderPolicyError:
                 raise
@@ -1610,4 +1589,18 @@ class ChatStreamHelperMixin:
                 logger.warning(f"Recovery attempt at temperature {temp} failed: {exc}")
                 continue
 
-        return False, None, None
+        else:
+            return False, None, None
+
+        # Publication is outside the retry ladder: a policy or persistence failure
+        # cannot authorize another provider attempt or expose ungoverned content.
+        logger.info("Empty-response recovery produced content (%d chars)", len(full_content))
+        sanitized = self.services.delivery.sanitize(full_content)
+        governed = await self.services.governance.govern_response(sanitized or full_content)
+        orch.add_message(
+            "assistant",
+            governed,
+            metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+        )
+        final_chunk = self.services.delivery.content_chunk(governed, is_final=True)
+        return True, None, final_chunk

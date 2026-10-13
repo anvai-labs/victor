@@ -67,7 +67,46 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-03 shared cooperative deadlines — implementation in review** — owner:
+- **LOOP-03 typed ACT disposition — implementation in review** — owner: Victor
+  co-design session; branch `fix/typed-turn-disposition`, baseline `02f888109`.
+  The canonical `TurnResult` carries source-classified continuation, recovery retry,
+  completion candidate, recovery exhaustion, tool-budget exhaustion or forced stop.
+  Internal stop/retry boolean views derive from that value. Streaming no longer
+  drops the stop channel or the delivered recovery content; malformed/missing ACT
+  contracts fail at the adapter boundary. Exhausted/forced turns retain effect
+  receipts and fail without another model-based evaluation. Candidates still need
+  evaluator/effect/audit/backslide/verifier acceptance; rejection cannot authorize
+  another ACT. A recovery retry cannot override FAIL/ESCALATE, and escalation ends
+  both live loops pending caller intervention. Ordinary turns retain their current
+  retry behavior and cooperative deadline/cancellation guarantees.
+  TDD initially reproduced ten failures in existing source/adapter/loop test owners.
+  Independent review additionally reproduced three recovery RESPONSE-policy
+  failures. Normal and recovered final publication now share `ChatGovernance`;
+  recovery policy/persistence runs outside the retry ladder, before history or
+  delivery. Denial/empty redaction does not make another provider call. Redacted
+  bytes agree across history, delivery and evaluation. No new test suite or runtime
+  dispatcher was introduced. One duplicate no-gate example was removed against
+  the real ACT matrix; before/after owner coverage is recorded with validation.
+  Final local qualification: 686 affected cases passed, 106 integration/boundary
+  cases passed and 64 selector cases passed. Changed runtime-line coverage is
+  112/121 (92%); 34,759 tests collect. Configured strict MyPy passed 2,114 files
+  (legacy suppressions remain), with Black/Ruff, repository hygiene and docs drift
+  passing. Independent review passed 168 focused and 100 capability/recovery/selector
+  cases, then approved the final selector and recovery-retry test additions.
+  The duplicate removal preserved exactly 206 capability lines and 62 branches.
+  A stale local coverage database failed aggregation; an isolated final run passed.
+  Final CI/landing follows the PR for this branch; local qualification is not
+  release or live C5 acceptance. Preserved evidence location:
+  `var/codegraph-victor-20261012/disposition-evidence.json`.
+  Next: intent-aware nudge dispatch and remaining forced-summary/publication
+  qualification, then run-wide provider-attempt accounting and lifecycle acceptance.
+  Include buffered `TurnExecutor` post-loop presentation synthesis in the attempt/
+  deadline audit: it can call `_ensure_complete_response` after a failed loop and
+  is not an ACT, so the new no-further-ACT guarantee alone does not bound that call.
+  Unknown/partial external effects still require durable reconciliation; a
+  terminal disposition does not roll them back or establish replay safety.
+
+- **LOOP-03 shared cooperative deadlines ✅ MERGED, [PR #1340](https://github.com/anvai-labs/victor/pull/1340)** — owner:
   Victor co-design session; branch `fix/shared-loop-deadline`, baseline `aa2d2a744`.
   Existing `LoopGuards` owns the elapsed budget and bounds each owned await in
   buffered and token-streamed execution. Timeout/context scopes end before outward
@@ -85,8 +124,10 @@ edit. A mock test is not live provider or C5 evidence.
   coverage is 109/115 lines (94%); 34,717 tests collect. Configured strict MyPy
   passed 2,114 files (legacy suppressions remain), with Black/Ruff, repository
   hygiene and docs drift checks passing. Independent review passed 118 lifecycle
-  cases plus 33 final guard/matrix cases without blockers. PR CI and landing remain
-  pending; the PR for this branch is the landing authority. Evidence is preserved at
+  cases plus 33 final guard/matrix cases without blockers. CI passed 40 checks,
+  with two intentional skips and a neutral historical SARIF comparison (the blocking
+  security gate passed). Squash merge `02f888109` matches reviewed tree `9a880878c`;
+  root develop synchronized and the completed worktree removed. Evidence is preserved at
   `var/codegraph-victor-20261012/deadline-evidence.json`.
   Limits: cancellation is cooperative; awaited cleanup can extend return latency.
   Synchronous callbacks are not rolled back. Threads, native work and remote

@@ -38,6 +38,7 @@ from victor.agent.services.chat_runtime_services import (
 )
 from victor.agent.streaming.tool_execution import ToolExecutionResult
 from victor.providers.base import StreamChunk
+from victor.agent.services.turn_execution_runtime import TurnDisposition
 
 
 class _PassThroughToolRuntime:
@@ -171,7 +172,7 @@ async def test_execute_turn_streaming_skips_tools_when_emit_returns():
         return (None, "done", tool_calls, False)
 
     async def fake_emit(orch, runtime_owner, stream_ctx, *, decision, tool_calls, **_):
-        decision.should_return = True  # emit decided to end the stream this turn
+        decision.disposition = TurnDisposition.RECOVERY_EXHAUSTED
         decision.tool_calls = tool_calls
         return
         yield  # unreachable; marks this as an async generator
@@ -187,7 +188,7 @@ async def test_execute_turn_streaming_skips_tools_when_emit_returns():
     result = StreamingActResult()
     await _drain(ex, _orch(), SimpleNamespace(is_qa_task=False), result)
 
-    assert result.emit_should_return is True
+    assert result.turn_result.disposition is TurnDisposition.RECOVERY_EXHAUSTED
     assert result.tool_exec_result is None
     # The model requested tools, but emit short-circuited before execution.
     assert result.turn_result.has_tool_calls is True
@@ -350,3 +351,55 @@ def test_detect_high_confidence_completion_non_high_and_no_detector_return_false
         ex._detect_high_confidence_completion(SimpleNamespace(), full_content="x", tool_calls=None)
         is False
     )
+
+
+@pytest.mark.parametrize("disposition", ["budget_exhausted", "forced_stop"])
+def test_mapper_preserves_terminal_tool_disposition(disposition):
+    from victor.agent.services.turn_execution_runtime import TurnDisposition
+
+    tool_result = ToolExecutionResult(disposition=TurnDisposition(disposition))
+    turn = StreamingChatExecutor._build_streaming_turn_result(
+        SimpleNamespace(),
+        full_content="partial",
+        tool_calls=[{"name": "read"}],
+        tool_exec_result=tool_result,
+    )
+    assert turn.disposition == tool_result.disposition
+    assert tool_result.should_return is True
+
+
+@pytest.mark.parametrize(
+    "disposition", [TurnDisposition.RECOVERY_EXHAUSTED, TurnDisposition.COMPLETION_CANDIDATE]
+)
+async def test_act_preserves_recovery_content_and_does_not_reclassify_it(disposition):
+    ex = _executor()
+
+    async def provider(*args):
+        return None, "", None, False
+
+    async def emit(*args, decision, **kwargs):
+        decision.disposition = disposition
+        decision.recovery_content = "recovered payload"
+        yield StreamChunk(content="recovered payload", is_final=True)
+
+    ex._stream_provider_turn = provider
+    ex._emit_assistant_turn = emit
+    ex._detect_high_confidence_completion = lambda *a, **k: pytest.fail(
+        "terminal recovery must not be reclassified"
+    )
+    result = StreamingActResult()
+    chunks = await _drain(ex, _orch(), SimpleNamespace(), result)
+    assert result.turn_result.disposition is disposition
+    assert result.turn_result.content == result.full_content == chunks[0].content
+    assert result.forced_completion is False
+
+
+def test_mapper_rejects_tools_after_a_terminal_emit():
+    with pytest.raises(ValueError, match="cannot follow"):
+        StreamingChatExecutor._build_streaming_turn_result(
+            SimpleNamespace(),
+            full_content="partial",
+            tool_calls=[{"name": "read"}],
+            tool_exec_result=ToolExecutionResult(),
+            disposition=TurnDisposition.RECOVERY_EXHAUSTED,
+        )

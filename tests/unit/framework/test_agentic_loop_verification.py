@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from victor.agent.services.turn_execution_runtime import TurnResult
+from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.task_analyzer import TaskAnalysis, TaskAnalyzer
 from victor.framework.agentic_loop import AgenticLoop
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
@@ -291,3 +291,38 @@ async def test_unsupported_mode_rejects_configured_deadline_before_execution(mon
         with pytest.raises(NotImplementedError, match="deadlines"):
             await anext(loop.stream("q"))
     loop._act.assert_not_called()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("rejection", ["evaluator", "backslide", "verifier", "none"])
+async def test_terminal_candidate_is_checked_without_authorizing_another_act(streaming, rejection):
+    verify = AsyncMock(return_value=VerificationResult(0 if rejection == "verifier" else 1, 1))
+    loop = make_loop(MagicMock(verify=verify), retries=2)
+    loop._act.return_value.disposition = TurnDisposition.COMPLETION_CANDIDATE
+    if rejection == "evaluator":
+        loop._evaluate.side_effect = lambda *a: EvaluationResult(EvaluationDecision.CONTINUE, 0.4)
+    if rejection == "backslide":
+        loop._apply_backslide_guard = lambda e: EvaluationResult(EvaluationDecision.CONTINUE, 0.4)
+    result = await execute(loop, streaming)
+    assert loop._evaluate.await_count == 1
+    assert verify.await_count == (1 if rejection in ("none", "verifier") else 0)
+    final, _ = loop._emit_prompt_reward_outcome.call_args.args
+    assert final.decision == (
+        EvaluationDecision.COMPLETE if rejection == "none" else EvaluationDecision.FAIL
+    )
+    if result is not None:
+        assert result.success is (rejection == "none")
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("decision", [EvaluationDecision.FAIL, EvaluationDecision.ESCALATE])
+async def test_recovery_retry_cannot_override_failure_or_escalation(streaming, decision):
+    loop = make_loop(None, retries=2)
+    loop._act.return_value.disposition = TurnDisposition.RECOVERY_RETRY
+    loop._evaluate.side_effect = lambda *a: EvaluationResult(decision, 0.1, "needs human")
+    result = await execute(loop, streaming)
+    assert loop._evaluate.await_count == 1
+    final, _ = loop._emit_prompt_reward_outcome.call_args.args
+    assert final.decision is decision
+    if result is not None:
+        assert result.success is False
