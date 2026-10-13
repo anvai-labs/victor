@@ -1988,7 +1988,10 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   suite initially isolated both owners locally. The TYPE-06 follow-up repairs
   shared setup/failure teardown with the canonical reset API and removes duplicate
   registration/formatter flag resets. Qualification and merge status live in the
-  tracker; this does not close the broader G96 typing program.
+  tracker; the fixture repair is merged in #1330. Coordination assembly is the
+  next TYPE-03 slice, retaining canonical service protocols and lazy dispatch.
+  This does not close adapter dynamic forwarding, optional host capabilities or
+  the broader G96 typing program.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

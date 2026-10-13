@@ -32,6 +32,7 @@ def test_create_coordination_runtime_components_lazy_materialization():
     assert runtime.tool_planner.initialized is False
     assert runtime.task_coordinator.initialized is False
     assert runtime.coordination_advisor_runtime.initialized is False
+    assert factory.mock_calls == []
 
     assert runtime.recovery_coordinator.get_instance() is recovery_coordinator
     assert runtime.chunk_generator.get_instance() is chunk_generator
@@ -45,6 +46,13 @@ def test_create_coordination_runtime_components_lazy_materialization():
     assert runtime.task_coordinator.initialized is True
     assert runtime.coordination_advisor_runtime.initialized is True
 
+    # Repeated materialization preserves identity without dispatching again.
+    assert runtime.recovery_coordinator.get_instance() is recovery_coordinator
+    assert runtime.chunk_generator.get_instance() is chunk_generator
+    assert runtime.tool_planner.get_instance() is tool_planner
+    assert runtime.task_coordinator.get_instance() is task_coordinator
+    assert runtime.coordination_advisor_runtime.get_instance() is coordination_advisor_runtime
+
     factory.create_recovery_coordinator.assert_called_once_with()
     factory.create_chunk_generator.assert_called_once_with()
     factory.create_tool_planner.assert_called_once_with()
@@ -56,14 +64,20 @@ def test_create_coordination_runtime_components_binds_recovery_service_on_materi
     factory = MagicMock()
     recovery_coordinator = MagicMock()
     recovery_service = MagicMock()
+    get_recovery_service = MagicMock()
     factory.create_recovery_coordinator.return_value = recovery_coordinator
 
     runtime = create_coordination_runtime_components(
         factory=factory,
-        get_recovery_service=lambda: recovery_service,
+        get_recovery_service=get_recovery_service,
     )
 
+    get_recovery_service.assert_not_called()
+    recovery_coordinator.bind_recovery_service.assert_not_called()
+    get_recovery_service.return_value = recovery_service
     assert runtime.recovery_coordinator.get_instance() is recovery_coordinator
+    assert runtime.recovery_coordinator.get_instance() is recovery_coordinator
+    get_recovery_service.assert_called_once_with()
     recovery_coordinator.bind_recovery_service.assert_called_once_with(recovery_service)
 
 

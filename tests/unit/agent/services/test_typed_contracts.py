@@ -122,6 +122,51 @@ def invalid(registry: ToolRegistrationStrategyRegistry) -> None:
 
 
 @pytest.mark.timeout(260)
+def test_coordination_assembly_preserves_component_types(tmp_path: Path) -> None:
+    """Factories and materialized handles retain all five canonical contracts."""
+    components = {
+        "recovery_coordinator": "StreamingRecoveryRuntimeProtocol",
+        "chunk_generator": "ChunkRuntimeProtocol",
+        "tool_planner": "ToolPlanningRuntimeProtocol",
+        "task_coordinator": "TaskRuntimeProtocol",
+        "coordination_advisor_runtime": "CoordinationAdvisorRuntimeProtocol",
+    }
+    valid = """from victor.agent.orchestrator_factory import OrchestratorFactory
+from victor.agent.runtime.coordination_runtime import (
+    CoordinationRuntimeComponents, create_coordination_runtime_components,
+)
+from victor.agent.services.protocols import (
+    StreamingRecoveryRuntimeProtocol, ChunkRuntimeProtocol, ToolPlanningRuntimeProtocol,
+    TaskRuntimeProtocol, CoordinationAdvisorRuntimeProtocol,
+)
+
+def assemble(factory: OrchestratorFactory) -> CoordinationRuntimeComponents:
+    return create_coordination_runtime_components(factory=factory)
+"""
+    for field, contract in components.items():
+        valid += (
+            f"\ndef {field}(runtime: CoordinationRuntimeComponents) -> {contract}:\n"
+            f"    return runtime.{field}.get_instance()\n"
+        )
+    invalid = valid + """
+def bad_factory() -> CoordinationRuntimeComponents:
+    return create_coordination_runtime_components(factory=object())
+"""
+    for field in components:
+        invalid += (
+            f"\ndef wrong_{field}(runtime: CoordinationRuntimeComponents) -> int:\n"
+            f"    return runtime.{field}.get_instance()\n"
+        )
+    fixture = tmp_path / "coordination_assembly_probe.py"
+    positive = _check_types(fixture, valid)
+    assert positive.returncode == 0, positive.stdout + positive.stderr
+    negative = _check_types(fixture, invalid)
+    assert negative.returncode == 1, negative.stdout + negative.stderr
+    assert negative.stdout.count("[return-value]") == len(components), negative.stdout
+    assert negative.stdout.count("[arg-type]") == 1, negative.stdout
+
+
+@pytest.mark.timeout(260)
 def test_tool_execution_collaborators_are_statically_checked(tmp_path: Path) -> None:
     """The real constructor rejects missing dependencies and incompatible contracts."""
     fixture = tmp_path / "tool_contract_probe.py"

@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-12
-baseline_develop: f8b252cc2b7877393f8cf546227a704b747c6467
+baseline_develop: 9d94135679410a530271f13566d69e8dd936c10e
 next_task: VAS-17
 ---
 
@@ -67,7 +67,27 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **TYPE-06 shared feature-flag fixture LOCAL_PASS** — owner: Victor co-design session;
+- **TYPE-03 coordination assembly LOCAL_PASS** — owner: Victor co-design session;
+  branch `fix/typed-runtime-assembly`, baseline
+  `9d94135679410a530271f13566d69e8dd936c10e`. Qualify the five lazy coordination
+  handles and their factory using canonical service protocols. Preserve factory
+  dispatch, component identity, lazy initialization and recovery binding timing.
+  Reuse existing assembly and static-consumer test owners; reject incompatible
+  factories/components without casts or new fallback paths. TDD reproduced five
+  `no-any-return` errors; the new consumer accepts the real factory and rejects
+  an incompatible factory and all five incompatible component return types.
+  Final qualification: 58 affected tests, 33 CI-selected tests and 28 independent
+  review tests pass (overlapping cohorts); 34,599 tests collect. Strict MyPy passes
+  both assembly/proxy modules; the configured 2,113-file gate passes separately.
+  Changed executable-line coverage is 100%. Independent adversarial review is
+  clean. Existing runtime cases now verify deferred dispatch, stable identity and
+  recovery accessor timing; no runtime cases were duplicated or removed.
+  Next: feature CI and squash merge. Adapter dynamic forwarding, the optional
+  recovery accessor and remaining protocol payload `Any` boundaries remain open;
+  this is not full adapter/SA-04 qualification, release or C5 acceptance.
+  Evidence: `var/codegraph-victor-20261012/assembly-*`.
+
+- **TYPE-06 shared feature-flag fixture ✅ MERGED [#1330](https://github.com/anvai-labs/victor/pull/1330)** — owner: Victor co-design session;
   branch `fix/feature-flag-test-isolation`, baseline
   `f8b252cc2b7877393f8cf546227a704b747c6467`. The shared fixture now uses the
   canonical lock-protected reset before and after each case, including failures,
@@ -82,8 +102,10 @@ edit. A mock test is not live provider or C5 evidence.
   CI's cached-model approach. Interrupted online/setup runs remain separate evidence.
   Full collection: 34,598 tests; configured MyPy: 2,113 files. Independent review
   is clean with 284 owner tests passing (overlapping cohort); its incorrect-default
-  probe finding is fixed. Next: final docs/review, all feature CI gates and squash
-  merge. Evidence: `var/codegraph-victor-20261012/feature-flags-*`. SA-04, broader
+  probe finding is fixed. Merge `9d94135679410a530271f13566d69e8dd936c10e` matches
+  reviewed `9a7badca15a9bf000859a577f82aad88a397827a`. All 39 CI checks passed,
+  with two configured skips and neutral Trivy; CI-selected tests: 80 passed.
+  Evidence: `var/codegraph-victor-20261012/feature-flags-*`. SA-04, broader
   unsuppressed typing, release and C5 remain open.
 
 - **TYPE-02 tool-registration exports ✅ MERGED [#1329](https://github.com/anvai-labs/victor/pull/1329)** — owner: Victor co-design session;
@@ -1445,10 +1467,10 @@ errors is not an acceptance result for this program.
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
 | TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK #1319, shared event/stream #1327 and mutable registry #1328 merged; registration compatibility exports #1329 merged (checkpoint above); remaining definition-layer work open |
-| TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
+| TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | LOCAL_PASS: coordination assembly slice (checkpoint above); broader adapter qualification remains open: required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
-| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; shared feature-flag fixture prerequisite LOCAL_PASS (checkpoint above); use canonical reset and remove duplicated flag isolation; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
+| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; shared feature-flag fixture prerequisite merged #1330 (checkpoint above); use canonical reset and remove duplicated flag isolation; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
 
 Each increment records exact source SHA, diagnostics before/after, tests, independent
 review and CI. Correct types at their owning boundary; do not replace errors with

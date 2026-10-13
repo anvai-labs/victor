@@ -925,6 +925,8 @@ ignore_errors = true
 module = [
     "victor.agent.services.tool_execution_contracts",
     "victor.agent.services.tool_execution_runtime",
+    "victor.agent.runtime.coordination_runtime",
+    "victor.agent.runtime.provider_runtime",
     "victor.core.events.protocols",
     "victor.core.registry.protocols",
     "victor.tools.registration",
