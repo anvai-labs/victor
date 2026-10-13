@@ -1981,6 +1981,12 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [G96 typing sequence](victor-agent-service-plan.md#repository-wide-typing-qualification-g96)
   owns ordered remediation and acceptance; this gap stays open until the final
   unsuppressed matrix passes.
+  Definition-layer increments #1319, #1327 and #1328 are merged; the tracker
+  records subsequent qualification. Registration-test review also found that
+  `tests/unit/conftest.py::reset_feature_flags` checks a manager `_instance`
+  although the singleton owner is module `_global_manager`. The registration
+  suite now isolates both owners locally; the broader shared-fixture audit remains
+  a TYPE-06 follow-up, not a claim of repository-wide isolation.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tool registration strategy base module.
+"""Compatibility exports for the canonical tool registration strategies.
 
-Exports all strategy classes for convenience.
+Keep historical imports bound to the same classes used by the strategy registry.
 """
 
-from victor.tools.registration.strategies.base import (
+from victor.tools.registration.strategies.strategies import (
     ToolRegistrationStrategy,
     FunctionDecoratorStrategy,
     BaseToolSubclassStrategy,

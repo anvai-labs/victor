@@ -14,17 +14,52 @@
 
 """Tests for tool registration strategy pattern."""
 
+import subprocess
+import sys
+from typing import Any
+
 import pytest
 from unittest import mock
 
-from victor.tools.registration.strategies import (
+from victor.tools.registration.strategies.base import (
     ToolRegistrationStrategy,
     FunctionDecoratorStrategy,
     BaseToolSubclassStrategy,
-    DuckTypedToolStrategy,
     MCPDictStrategy,
 )
+from victor.tools.registration.strategies import DuckTypedToolStrategy
 from victor.tools.registration.registry import ToolRegistrationStrategyRegistry
+
+
+@pytest.fixture(autouse=True)
+def isolate_strategy_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Restore both shared strategy and feature-flag state after every case."""
+    from victor.core import feature_flags
+
+    monkeypatch.setattr(ToolRegistrationStrategyRegistry, "_instance", None)
+    monkeypatch.setattr(feature_flags, "_global_manager", None)
+
+
+def test_legacy_strategy_exports_resolve_in_a_fresh_interpreter() -> None:
+    """The old import path resolves first and preserves canonical class identities."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """import victor.tools.registration.strategies.base as legacy
+from victor.tools.registration.strategies import strategies as canonical
+names = ('ToolRegistrationStrategy', 'FunctionDecoratorStrategy',
+         'BaseToolSubclassStrategy', 'MCPDictStrategy')
+assert set(legacy.__all__) == set(names)
+for name in names:
+    assert getattr(legacy, name) is getattr(canonical, name), name
+""",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 class TestFunctionDecoratorStrategy:
@@ -73,22 +108,21 @@ class TestBaseToolSubclassStrategy:
     """Tests for BaseToolSubclassStrategy."""
 
     def test_can_handle_basetool_subclass(self):
-        """Test identifying BaseTool subclass instances."""
+        """Distinguish a real BaseTool instance from other plugin/tool shapes."""
+        from victor.tools.base import BaseTool, ToolResult
+
+        class ConcreteTool(BaseTool):
+            name = "test_tool"
+            description = "Test registration"
+            parameters: dict[str, Any] = {}
+
+            async def execute(self, _exec_ctx: dict[str, Any], **kwargs: Any) -> ToolResult:
+                return ToolResult(success=True, output="ok")
+
         strategy = BaseToolSubclassStrategy()
-
-        # Create a mock BaseTool instance
-        mock_tool = mock.Mock()
-        mock_tool.name = "test_tool"
-
-        # Mock the import check
-        with mock.patch.dict("sys.modules", {"victor.tools.base": mock.Mock()}):
-            from victor.tools.base import BaseTool as MockBaseTool
-
-            MockBaseTool = type("BaseTool", (object,), {})
-            mock_tool.__class__ = MockBaseTool
-
-        # For testing, we'll just check the structure
-        # In real scenario, isinstance check would work
+        assert strategy.can_handle(ConcreteTool()) is True
+        assert strategy.can_handle(_DuckTypedTool()) is False
+        assert strategy.can_handle(object()) is False
 
     def test_register_basetool_instance(self):
         """Test registering a BaseTool instance."""
@@ -244,14 +278,10 @@ class TestToolRegistrationStrategyRegistry:
     """Tests for ToolRegistrationStrategyRegistry."""
 
     def test_singleton_instance(self):
-        """Test singleton pattern."""
-        registry1 = ToolRegistrationStrategyRegistry()
-        registry2 = ToolRegistrationStrategyRegistry.get_instance()
-
-        # get_instance should return the same instance
-        assert (
-            registry2 is registry1 or registry2 is ToolRegistrationStrategyRegistry.get_instance()
-        )
+        """get_instance shares one registry; explicit construction remains independent."""
+        registry = ToolRegistrationStrategyRegistry.get_instance()
+        assert ToolRegistrationStrategyRegistry.get_instance() is registry
+        assert ToolRegistrationStrategyRegistry() is not registry
 
     def test_default_strategies_registered(self):
         """Test that default strategies are registered."""
@@ -283,17 +313,6 @@ class TestToolRegistrationStrategyRegistry:
         registry.register_strategy(custom)
 
         assert "CustomStrategy" in registry.list_strategies()
-
-    def test_get_strategy_for_decorated_tool(self):
-        """Test getting strategy for decorated function."""
-        registry = ToolRegistrationStrategyRegistry()
-
-        mock_tool = mock.Mock()
-        mock_tool._is_victor_tool = True
-
-        strategy = registry.get_strategy_for(mock_tool)
-
-        assert isinstance(strategy, FunctionDecoratorStrategy)
 
     def test_get_strategy_for_dict_tool(self):
         """Test getting strategy for MCP dict."""
@@ -339,20 +358,6 @@ class TestToolRegistrationStrategyRegistry:
 class TestStrategyPatternIntegration:
     """Integration tests for strategy pattern with ToolRegistry."""
 
-    def test_tool_registry_with_strategy_flag_enabled(self):
-        """Test ToolRegistry uses strategy pattern when flag is enabled."""
-        from victor.tools.registry import ToolRegistry
-        from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager
-
-        # Enable the flag
-        get_feature_flag_manager().enable(FeatureFlag.USE_STRATEGY_BASED_TOOL_REGISTRATION)
-
-        # Create a tool registry
-        registry = ToolRegistry()
-
-        # Verify that strategy registry is initialized
-        assert registry._strategy_registry is not None
-
     def test_custom_strategy_registration(self):
         """Test adding custom strategy to ToolRegistry."""
         from victor.tools.registry import ToolRegistry
@@ -373,21 +378,31 @@ class TestStrategyPatternIntegration:
             def priority(self):
                 return 75
 
+        from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager
+
+        get_feature_flag_manager().enable(FeatureFlag.USE_STRATEGY_BASED_TOOL_REGISTRATION)
         registry = ToolRegistry()
-        registry.add_custom_strategy(CustomStrategy())
-
-        # Now CustomTool instances can be registered
+        strategy = CustomStrategy()
+        registry.add_custom_strategy(strategy)
         custom = CustomTool()
-        # This would use the custom strategy
-        # (in real usage, would call registry.register(custom))
+        assert registry._strategy_registry.get_strategy_for(custom) is strategy
+        registry.register(custom)
+        assert registry.get("custom_tool") is custom
+        with pytest.raises(TypeError, match="No registration strategy found"):
+            registry.register(object())
 
-    def test_register_decorated_function_via_strategy(self):
-        """Test registering @tool decorated function via strategy."""
+    @pytest.mark.parametrize("use_strategy", [False, True])
+    def test_register_decorated_function_via_strategy(self, use_strategy: bool):
+        """Legacy and opt-in strategy dispatch register the same tool instance."""
         from victor.tools.registry import ToolRegistry
         from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager
 
-        # Enable strategy flag
-        get_feature_flag_manager().enable(FeatureFlag.USE_STRATEGY_BASED_TOOL_REGISTRATION)
+        manager = get_feature_flag_manager()
+        flag = FeatureFlag.USE_STRATEGY_BASED_TOOL_REGISTRATION
+        if use_strategy:
+            manager.enable(flag)
+        else:
+            manager.disable(flag)
 
         # Create a mock @tool decorated function
         def my_tool():
@@ -401,5 +416,5 @@ class TestStrategyPatternIntegration:
         registry = ToolRegistry()
         registry.register(my_tool)
 
-        # Verify it was registered
-        assert "my_tool" in registry._tools
+        assert (registry._strategy_registry is not None) is use_strategy
+        assert registry._tools["my_tool"] is registry.get("my_tool") is my_tool.Tool

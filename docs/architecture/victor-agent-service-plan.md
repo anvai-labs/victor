@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-12
-baseline_develop: e9db76a9d4e05752413dc33aa82b0d8ea40ee167
+baseline_develop: 04162f583167ad16ba08ed39a87756ada2cdd926
 next_task: VAS-17
 ---
 
@@ -67,7 +67,24 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **TYPE-02 mutable registry contract LOCAL_PASS** — owner: Victor co-design session;
+- **TYPE-02 tool-registration exports LOCAL_PASS** — owner: Victor co-design session;
+  branch `fix/registration-contract-exports`, baseline
+  `04162f583167ad16ba08ed39a87756ada2cdd926`. Repaired the compatibility module's
+  self-import by re-exporting the four canonical strategy classes. No duplicate
+  implementation, dispatch change or opt-in default change. TDD reproduced the
+  cold-import failure, four strict typing diagnostics and an untyped constructor
+  escaping the compatibility boundary. The registration package now passes strict
+  MyPy (five files); the configured 2,113-file gate is separately qualified and
+  does not imply full unsuppressed compliance. All 144 affected tests pass and
+  34,597 tests collect. The existing owner retains 29 cases after replacing vacuous
+  assertions and consolidating overlaps; sequential coverage comparison loses no
+  executed lines or branches across 1,796 production files. Independent review
+  found shared feature-flag state leakage in the test fixture; the local fixture
+  now restores both singleton owners, and 79 independent review tests pass.
+  Next: final review reconciliation, feature CI and squash merge. TYPE-02, SA-04
+  and C5 remain open. Evidence: `var/codegraph-victor-20261012/type02-registration-*`.
+
+- **TYPE-02 mutable registry contract ✅ MERGED [#1328](https://github.com/anvai-labs/victor/pull/1328)** — owner: Victor co-design session;
   branch `fix/typed-registry-contracts`, baseline
   `80fd59fcfabb08a7151cbee224ea9b5991e618d6`. The registry both accepts and returns
   keys and values, but its contravariant key/covariant value declarations allow
@@ -80,8 +97,10 @@ edit. A mock test is not live provider or C5 evidence.
   review tests pass (overlapping cohorts); 34,584 tests collect. Strict MyPy passes
   the protocol and the configured 2,113-file gate. All four unsafe aliases are now
   rejected. The removed duplicate loses no executed production lines or branches
-  across 1,796 measured files. Independent adversarial review is clean. Feature CI
-  and merge remain. This is one bounded definition-layer repair, not completion
+  across 1,796 measured files. Independent adversarial review is clean. All 39 CI
+  checks pass, with two configured skips and neutral Trivy. Merge
+  `04162f583167ad16ba08ed39a87756ada2cdd926` matches the reviewed source tree.
+  This is one bounded definition-layer repair, not completion
   of TYPE-02, SA-04 or C5.
   Evidence: `var/codegraph-victor-20261012/type02-registry-*`.
 
@@ -1404,11 +1423,11 @@ errors is not an acceptance result for this program.
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
-| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK slice merged #1319; 11 SDK/compatibility diagnostics repaired, real export and type-identity regressions covered; shared event/stream contract slice LOCAL_PASS; remaining definition-layer work open |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK #1319, shared event/stream #1327 and mutable registry #1328 merged; registration compatibility exports LOCAL_PASS (checkpoint above); remaining definition-layer work open |
 | TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
-| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
+| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; audit shared `reset_feature_flags` fixture: it checks a manager `_instance` instead of module `_global_manager` (contained locally in registration tests); retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
 
 Each increment records exact source SHA, diagnostics before/after, tests, independent
 review and CI. Correct types at their owning boundary; do not replace errors with
