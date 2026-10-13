@@ -126,7 +126,7 @@ class TestStateGraphExecutor:
         from victor.framework.agentic_graph.executor import AgenticLoopGraphExecutor
 
         mock_context = MagicMock()
-        mock_turn_executor = AsyncMock()
+        mock_turn_executor = MagicMock()
         mock_turn_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Done",

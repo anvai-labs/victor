@@ -67,7 +67,42 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-03 intent-aware nudge dispatch — implementation in review** — owner:
+- **LOOP-03 buffered publication governance — implementation in review** — owner:
+  Victor co-design session; branch `fix/buffered-response-governance`, baseline
+  `0ccabda6d814801e067e666665601de389766b73` (current `origin/develop`).
+  Offline reproducers confirmed that buffered model/recovery text entered assistant
+  history before the outer response gate, and that swallowed policy exceptions could
+  cause synthesis. Governance now belongs to raw candidate producers: ordinary model
+  turns, deterministic read summaries, recovery/fallback summaries and team aggregates.
+  They reuse `ChatGovernance`; the late outer gate is removed. Redaction precedes
+  history/evaluation/publication, usage is recorded before denial, and tool-bearing
+  narrative is checked before requested tools execute. Existing effects are retained.
+  Denial, total redaction, invalid gate fields and policy implementation errors are
+  terminal; cancellation propagates. Neither retries nor completion evaluation can
+  turn these failures into another generation. No-gate responses preserve bytes and
+  identity. Tool-only envelopes retain their existing separate tool-policy boundary.
+  Configured message policy with StateGraph is explicitly unsupported: the wrapper,
+  loop and direct graph executor reject before prompt/history/dispatch, independent
+  of environment selection for direct graph calls. This is not StateGraph parity.
+  TDD retained 24 baseline failures and six malformed-field failures. Replaced two
+  late-return-only examples with producer/history checks; extended existing synthesis
+  and streaming parity matrices rather than introducing another governance suite.
+  Final local qualification: 801 affected/graph/integration/boundary tests pass,
+  with all 36 changed runtime lines covered; 34,844 tests collect. MyPy passes 2,003
+  files (existing suppressions remain), and Black/Ruff, docs drift and repository
+  hygiene pass. Independent adversarial review passed 178 executions and found no
+  remaining blockers after malformed-field and direct-graph fixes. The first broader
+  run exposed two stale graph test doubles; the final cohort includes their repairs
+  and removes unawaited-mock warnings. Exact-commit review/CI/landing follow the PR;
+  local qualification does not establish release or live acceptance.
+  Remaining: streaming team/forced-summary/tool-bearing publication, whole-run provider
+  attempts/deadlines including buffered post-loop synthesis, adaptive bounds,
+  StateGraph/iteration lifecycle parity, durable reconciliation and released live C5.
+  Raw `execute_single_turn`, arbitrary custom ACT/legacy orchestration, reasoning and
+  tool argument/result filtering are outside this assistant-text guarantee.
+  Evidence: `var/codegraph-victor-20261012/buffered-governance-evidence.json`.
+
+- **LOOP-03 intent-aware nudge dispatch — ✅ MERGED [#1342](https://github.com/anvai-labs/victor/pull/1342)** — owner:
   Victor co-design session; branch `fix/intent-aware-loop-nudges`, baseline `e58329d42`.
   Both live loop modes capture the first `Perception.intent` for guidance, including
   unknown intent, without adopting later model reinterpretation or caller state.
@@ -90,8 +125,10 @@ edit. A mock test is not live provider or C5 evidence.
   The broader run caught stale intent fixtures and wording assertions; all repaired
   cases pass in the final cohort. A dotted-source coverage run deadlocked during
   telemetry import; the standard repository coverage configuration passed instead.
-  Exact-commit review, CI and landing follow the PR for this branch; local
-  qualification is not release or live acceptance.
+  Merge `0ccabda6d`: independent exact-commit review passed; 40 checks succeeded,
+  two were intentionally skipped and the Trivy historical comparison was neutral.
+  Required CI/vertical aggregates passed. Reviewed and merged trees match; this is
+  not release or live acceptance.
   Remaining: forced-summary/tool-bearing publication, whole-run attempt/deadline
   ownership including buffered post-loop synthesis, adaptive bounds, StateGraph/
   iteration parity, durable unknown-effect reconciliation and full live C5.
@@ -1766,7 +1803,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch in review; StateGraph parity remains open |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance in review; StateGraph parity remains open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
@@ -1790,12 +1827,13 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 | P1 — ✅ MERGED #1339 | Streaming omitted controller evaluation; buffered convergence could overwrite evaluator failure | Shared stop helper over `TurnObservation`; convergence never promotes non-COMPLETE; mode precedence, real repetition/reset and downstream verifier tests |
 | P1 — ✅ MERGED #1340 | Shared guard now bounds owned awaits in both modes, restoring context before outward yield | Qualify blocked phases, timeout/underlying-error distinction, consumer pause, cancellation, awaited cleanup and stale verification success. Perception counts remain checked between iterations; no remote-cancellation guarantee |
 | P2 — ✅ MERGED #1341 | Streaming ACT previously lost source recovery/stop decisions | Canonical typed disposition, no further ACT after terminal recovery, governed recovered text; post-loop synthesis remains separate |
+| P1 — IN REVIEW (`fix/buffered-response-governance`) | Buffered assistant history preceded response policy; terminal/malformed policy failures could trigger synthesis | Govern each raw producer once, account usage before denial, retain effects, reject unqualified graph policy execution and prevent regeneration |
 | P2 — OPEN | Adaptive extension changes the bound after `range` construction | A bounded driver must consult the current limit; real executed-turn-count test, including absolute cap |
 | P2 — PARTIAL #1341 | Production `StreamingActAdapter` now rejects missing/malformed results; custom-port/outcome and ACT session fields still use `Any` | Narrow remaining protocols and declare current dynamic fields; preserve the qualified production-boundary rejection |
 | P2 — PARTIAL #1341 | ESCALATE now terminates both live loops; string/enum decision normalization remains open | Normalize supported decisions once; preserve documented custom graph routing outside the loop; no autonomous retry on escalation |
 | P2 — OPEN | Executor resolver constructs fresh `AgenticLoopSettings()` instead of accepting the resolved session config | One factory/config authority, invalid-value rejection, explicit unsupported-capability error; no new flag path |
 | P2 — OPEN | Iteration `stream` independently replans and omits reset/guards/nudges; StateGraph rejects verifier | Treat iteration output as an observer of the same lifecycle; keep unsupported combinations explicit until qualified |
-| P2 — IN REVIEW (`fix/intent-aware-loop-nudges`) | Read-only audits previously received write-oriented nudges and a second policy decision | Capture initial intent and dispatch one typed decision; guidance grants no permission. Run-wide provider attempts remain open |
+| P2 — ✅ MERGED #1342 | Read-only audits previously received write-oriented nudges and a second policy decision | Capture initial intent and dispatch one typed decision; guidance grants no permission. Run-wide provider attempts remain open |
 
 | Pattern / principle | Fit | Concrete application |
 | --- | --- | --- |

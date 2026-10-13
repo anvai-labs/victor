@@ -347,7 +347,7 @@ class TestAgenticLoopGraphExecutor:
             execution_context=mock_context,
             max_iterations=1,
         )
-        executor.turn_executor = AsyncMock()
+        executor.turn_executor = MagicMock()
         executor.turn_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Done",

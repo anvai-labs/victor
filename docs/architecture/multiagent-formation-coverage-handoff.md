@@ -2048,11 +2048,25 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   forced-summary/tool-bearing emissions still need publication qualification. Source
   audit also found buffered post-loop synthesis outside ACT; include it in whole-run
   attempt/deadline ownership rather than claiming the ACT stop covers every provider call.
-  The `fix/intent-aware-loop-nudges` increment (in review) captures initial task
+  ✅ [#1342](https://github.com/anvai-labs/victor/pull/1342) captures initial task
   intent once per run and dispatches the controller-selected nudge without a second
   policy evaluation. Unknown/read/display guidance cannot request mutations; effect
   feedback takes precedence and terminal decisions suppress prompts. Internal
   provenance remains distinct from permission; tool authorization is unchanged.
+  The `fix/buffered-response-governance` increment (in review) records a newly
+  reproduced gap: buffered ordinary/recovery text entered assistant history before
+  the response gate; swallowed terminal or malformed policy failures could synthesize
+  again. Candidate producers now share governance before history/publication/evaluation,
+  preserving usage and prior effects. Tool-bearing narration is gated before dispatch;
+  tool-only envelopes retain tool authorization. Canonical result field validation
+  rejects truthy non-booleans and non-text content; cancellation remains cancellation.
+  Configured message policy with StateGraph fails explicitly before work, including
+  direct graph executors. No StateGraph parity, raw-model primitive, reasoning or
+  tool-result filtering guarantee is claimed. Streaming forced-summary/tool-bearing
+  publication remains a separate qualification gate. Follow-up source audit also
+  found `_execute_prepared_team` storing/returning its aggregate before response
+  governance; include streaming team output in that next producer audit. This is a
+  source finding, not live evidence or a claim that member effects were rolled back.
   Run-wide attempt accounting, adaptive extension and full experimental
   StateGraph/iteration parity remain open; phase-method reuse is not execution-mode parity.
 

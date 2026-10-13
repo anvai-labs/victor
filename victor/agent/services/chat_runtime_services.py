@@ -104,7 +104,13 @@ class ChatGovernance:
 
     @staticmethod
     def _require_result(result: Any, phase: str) -> GateResult:
-        if not isinstance(result, GateResult):
+        if (
+            not isinstance(result, GateResult)
+            or not isinstance(result.allowed, bool)
+            or not isinstance(result.content, str)
+            or not isinstance(result.reason, str)
+            or not isinstance(result.blocked_by, str)
+        ):
             raise TypeError(f"Configured chat governance gate returned an invalid {phase} result")
         return result
 
@@ -127,7 +133,12 @@ class ChatGovernance:
 
         if not text:
             return text
-        result = await self.check_response(text)
+        try:
+            result = await self.check_response(text)
+        except Exception as exc:
+            # Policy implementation/contract failures are terminal, never recovery hints.
+            # CancelledError remains outside Exception and propagates unchanged.
+            raise AgentError("Response policy evaluation failed.", recoverable=False) from exc
         if result is None:
             return text
         if not result.allowed:

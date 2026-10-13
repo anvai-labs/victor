@@ -92,8 +92,12 @@ async def test_parity_battery_is_non_empty():
     assert SCENARIOS, "expected a non-empty QA battery"
 
 
-@pytest.mark.parametrize("policy", ["absent", "redact", "block", "empty"])
-async def test_unified_response_policy_and_terminal_verdict(policy, monkeypatch):
+@pytest.mark.parametrize("mode", ["buffered", "streaming"])
+@pytest.mark.parametrize(
+    "policy",
+    ["absent", "redact", "block", "empty", "malformed", "bad-content", "bad-allowed", "failure"],
+)
+async def test_unified_response_policy_and_terminal_verdict(mode, policy, monkeypatch):
     """Real service/ACT/loop/event wiring: withheld output never causes a second call."""
     from unittest.mock import AsyncMock
     from victor.framework.agentic_loop import AgenticLoop
@@ -122,6 +126,22 @@ async def test_unified_response_policy_and_terminal_verdict(policy, monkeypatch)
     monkeypatch.setattr(
         "victor.agent.factory.coordination_builders.build_message_policy_gate", lambda *args: gate
     )
+    if policy in {"malformed", "bad-content", "bad-allowed", "failure"}:
+        from types import SimpleNamespace
+        from victor.framework.policies import GateResult
+
+        gate = SimpleNamespace(
+            gate_request=AsyncMock(side_effect=lambda text: GateResult(allowed=True, content=text)),
+            gate_response=AsyncMock(return_value=None),
+        )
+        if policy == "bad-content":
+            gate.gate_response.return_value = GateResult(allowed=True, content=None)
+        elif policy == "bad-allowed":
+            gate.gate_response.return_value = GateResult(allowed="false", content=original)
+        if policy == "failure":
+            gate.gate_response.side_effect = RuntimeError("policy backend unavailable")
+    if gate is not None and policy not in {"malformed", "bad-content", "bad-allowed", "failure"}:
+        gate.gate_response = AsyncMock(wraps=gate.gate_response)
     orch = build_streaming_orchestrator(provider)
     evaluate = AsyncMock(
         return_value=EvaluationResult(
@@ -130,18 +150,33 @@ async def test_unified_response_policy_and_terminal_verdict(policy, monkeypatch)
     )
     monkeypatch.setattr(AgenticLoop, "_evaluate", evaluate)
 
-    events = [event async for event in stream_with_events(orch, "Give the result.")]
-    content = "".join(event.content for event in events if event.type == EventType.CONTENT)
-    ends = [event for event in events if event.type == EventType.STREAM_END]
-    assert len(ends) == 1
+    denied = policy in {"block", "empty", "malformed", "bad-content", "bad-allowed", "failure"}
+    if mode == "streaming":
+        events = [event async for event in stream_with_events(orch, "Give the result.")]
+        content = "".join(event.content for event in events if event.type == EventType.CONTENT)
+        ends = [event for event in events if event.type == EventType.STREAM_END]
+        assert len(ends) == 1
+        assert ends[0].success is not denied
+        assert len([event for event in events if event.type == EventType.ERROR]) == int(denied)
+    else:
+        from victor.core.errors import AgentError
+
+        if denied:
+            with pytest.raises(AgentError) as error:
+                await orch.chat("Give the result.")
+            assert error.value.recoverable is False
+            content = ""
+        else:
+            response = await orch.chat("Give the result.")
+            content = response.content
+            assert response.metadata["agentic_loop_success"] is True
     assert provider.turn_index == 1
-    if policy in {"block", "empty"}:
-        assert ends[0].success is False
+    if gate is not None:
+        gate.gate_response.assert_awaited_once_with(original)
+    if denied:
         assert not content
-        assert len([event for event in events if event.type == EventType.ERROR]) == 1
         evaluate.assert_not_awaited()
     else:
-        assert ends[0].success is True
         expected = original.replace("sk-abc123", "[KEY]") if policy == "redact" else original
         assert content.strip() == expected.strip()
         evaluate.assert_awaited_once()

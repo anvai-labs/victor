@@ -418,9 +418,11 @@ def test_stream_helper_changes_select_retry_and_boundary_regressions():
 
 
 def test_governance_capability_changes_select_actual_publication_regression():
-    assert "tests/unit/agent/services/test_chat_stream_governance.py" in select(
-        ["victor/agent/services/chat_runtime_services.py"]
-    )
+    selected = select(["victor/agent/services/chat_runtime_services.py"])
+    assert {
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+    } <= set(selected)
 
 
 @pytest.mark.parametrize(
@@ -441,3 +443,11 @@ def test_turn_contract_changes_select_producer_consumer_regressions(source):
         "tests/unit/framework/test_agentic_loop_verification.py",
         "tests/unit/framework/test_agentic_loop_effect_gate.py",
     } <= set(select([source]))
+
+
+def test_agentic_graph_executor_selects_actual_owner_not_unrelated_executors():
+    assert set(select(["victor/framework/agentic_graph/executor.py"])) == {
+        "tests/unit/framework/agentic_graph/test_builder.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/providers/test_gateway_policy_resilience.py",
+    }

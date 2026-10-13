@@ -56,7 +56,7 @@ Example:
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.core.errors import AgentError, ProviderPolicyError
 
 import inspect
 import logging
@@ -846,6 +846,8 @@ class AgenticLoop:
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
         if use_stategraph_executor():
+            if self.turn_executor is not None:
+                self.turn_executor.require_supported_loop_executor(stategraph=True)
             if self.config.total_timeout is not None:
                 raise NotImplementedError("StateGraph execution does not support run deadlines")
             if getattr(self, "_verifier", None) is not None:
@@ -1429,6 +1431,9 @@ class AgenticLoop:
             # A denial must not become an empty result that triggers LLM recovery.
             raise
         except Exception as e:
+            if isinstance(e, AgentError) and not e.recoverable:
+                # A terminal failure is not an empty result eligible for synthesis.
+                raise
             logger.error(f"Agentic loop error: {e}", exc_info=True)
             duration = time.time() - start_time
             self._record_provider_degradation_event(
@@ -2075,6 +2080,8 @@ class AgenticLoop:
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
         if use_stategraph_executor():
+            if self.turn_executor is not None:
+                self.turn_executor.require_supported_loop_executor(stategraph=True)
             async for iteration in self._stream_with_stategraph(
                 query=query,
                 context=context,
@@ -2920,6 +2927,8 @@ class AgenticLoop:
                 "total_tool_calls": team_result.total_tool_calls,
             },
         )
+        if self.turn_executor is not None:
+            response = await self.turn_executor.govern_response(response)
         return TurnResult(
             response=response,
             tool_results=[],

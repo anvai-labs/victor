@@ -56,6 +56,7 @@ from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, Message
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
+from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
 from victor.providers.base import CompletionResponse
 
 if TYPE_CHECKING:
@@ -203,7 +204,7 @@ class TurnExecutor:
         provider_context: "ProviderContextProtocol",
         execution_provider: Any,  # ExecutionProvider protocol
         exploration_coordinator: Optional[Any] = None,
-        message_policy_gate: Optional[Any] = None,
+        message_policy_gate: Optional[MessagePolicyGate] = None,
         runtime_context: Optional[RuntimeContextResolver] = None,
     ) -> None:
         """Initialize the TurnExecutor.
@@ -232,7 +233,7 @@ class TurnExecutor:
         self._execution_provider = execution_provider
         self._exploration_coordinator = exploration_coordinator
         self._runtime_context = runtime_context
-        self._message_policy_gate = message_policy_gate
+        self._governance = ChatGovernance(gate=message_policy_gate)
         self._exploration_done = False  # Instance-level: fires once per conversation
         self._last_tool_follow_up_guidance_signature: Optional[tuple[str, ...]] = None
 
@@ -479,11 +480,13 @@ class TurnExecutor:
         Returns:
             CompletionResponse with complete response
         """
+        self.require_supported_loop_executor()
+
         # Governance REQUEST phase: gate/redact the user message before it
         # enters history or reaches the LLM. A block short-circuits the turn
         # (no LLM call, nothing stored); a redaction substitutes the text.
-        if self._message_policy_gate is not None:
-            gate_result = await self._message_policy_gate.gate_request(user_message)
+        gate_result = await self._governance.check_request(user_message)
+        if gate_result is not None:
             if not gate_result.allowed:
                 return CompletionResponse(
                     content=gate_result.reason or "Your message was blocked by policy.",
@@ -511,24 +514,29 @@ class TurnExecutor:
             runtime_context_overrides=runtime_context_overrides,
         )
 
-        # Governance RESPONSE phase: gate/redact the assistant's final output.
-        if self._message_policy_gate is not None and response is not None:
-            response = await self._gate_final_response(response)
         return response
 
-    async def _gate_final_response(self, response: CompletionResponse) -> CompletionResponse:
-        """Apply the RESPONSE-phase policy gate to a final assistant response."""
-        original = response.content or ""
-        gate_result = await self._message_policy_gate.gate_response(original)
-        if not gate_result.allowed:
-            return response.model_copy(
-                update={
-                    "content": gate_result.reason or "The response was withheld by policy.",
-                    "tool_calls": None,
-                }
-            )
-        if gate_result.content != original:
-            return response.model_copy(update={"content": gate_result.content})
+    def require_supported_loop_executor(self, *, stategraph: bool | None = None) -> None:
+        """Reject unqualified graph-loop recovery before accepting a governed run.
+
+        StateGraph's nested exception handlers do not yet preserve terminal message
+        policy failures. The canonical buffered loop supports governed publication.
+        """
+        from victor.framework.agentic_loop_executor import use_stategraph_executor
+
+        selected = use_stategraph_executor() if stategraph is None else stategraph
+        if self._governance.gate is not None and selected:
+            raise NotImplementedError("StateGraph execution does not support message governance")
+
+    async def govern_response(self, response: CompletionResponse) -> CompletionResponse:
+        """Govern one raw candidate before history, evaluation or publication.
+
+        Producers call once; callers receive publication-ready content. Usage and
+        tool envelopes are preserved. Tool authorization remains a separate boundary.
+        """
+        content = await self._governance.govern_response(response.content or "")
+        if content != (response.content or ""):
+            return response.model_copy(update={"content": content})
         return response
 
     async def prepare_runtime_topology(
@@ -578,7 +586,8 @@ class TurnExecutor:
         """Execute a single model turn (raw LLM call, no tool execution).
 
         This is the lowest-level execution path — a single LLM API call.
-        For a full turn with tool execution, use execute_turn().
+        No message governance or publication is performed here. For a governed
+        turn with tool execution, use execute_turn().
 
         Args:
             messages: Conversation history
@@ -700,6 +709,7 @@ class TurnExecutor:
 
             # Track tokens
             self._accumulate_token_usage(response)
+            response = await self.govern_response(response)
 
             # Add assistant response/tool-call envelope to conversation history.
             # OpenAI-compatible providers require every subsequent tool message
@@ -851,11 +861,13 @@ class TurnExecutor:
         tool_results = await self._execute_tool_calls(tool_calls)
         response_content = self._summarize_deterministic_tool_results(tool_calls, tool_results)
         return TurnResult(
-            response=CompletionResponse(
-                content=response_content,
-                role="assistant",
-                tool_calls=tool_calls,
-                metadata={"deterministic_tool_execution": True},
+            response=await self.govern_response(
+                CompletionResponse(
+                    content=response_content,
+                    role="assistant",
+                    tool_calls=tool_calls,
+                    metadata={"deterministic_tool_execution": True},
+                )
             ),
             tool_results=tool_results,
             has_tool_calls=True,
@@ -1861,14 +1873,14 @@ class TurnExecutor:
         to generate a response or use a fallback.
 
         Args:
-            final_response: Response from agentic loop (may be None)
+            final_response: Raw candidate, not yet governed (may be None)
             failure_context: Tool failure context for fallback messages
 
         Returns:
             CompletionResponse with content
         """
         if final_response is not None and final_response.content:
-            return final_response
+            return await self.govern_response(final_response)
 
         # Use response completer to generate a response
         completion_result = await self._provider_context.response_completer.ensure_response(
@@ -1894,16 +1906,19 @@ class TurnExecutor:
                     failure_context
                 )
 
+        response = await self.govern_response(
+            CompletionResponse(
+                content=content,
+                role="assistant",
+                tool_calls=None,
+            )
+        )
         self._chat_context.add_message(
             "assistant",
-            content,
+            response.content,
             metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
         )
-        return CompletionResponse(
-            content=content,
-            role="assistant",
-            tool_calls=None,
-        )
+        return response
 
     # =====================================================================
     # Static Heuristics

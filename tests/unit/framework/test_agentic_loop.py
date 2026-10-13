@@ -986,6 +986,7 @@ class TestAgenticLoop:
         perception = _make_perception()
         perception.confidence = 0.9
         turn_executor = MagicMock()
+        turn_executor.govern_response = AsyncMock(side_effect=lambda response: response)
         turn_executor.prepare_runtime_topology = AsyncMock(
             return_value={
                 "action": "team_plan",
