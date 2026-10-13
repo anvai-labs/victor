@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import sys
 import warnings
@@ -656,6 +657,75 @@ class TestSetupSignalHandlers:
 class TestRunOneshot:
     """Tests for run_oneshot async function."""
 
+    @pytest.mark.parametrize("stream_flag", ["--stream", "--no-stream", "--json"])
+    @pytest.mark.parametrize("failed", [True, False])
+    def test_oneshot_exit_matches_terminal_verdict(self, monkeypatch, stream_flag, failed):
+        from victor.framework.events import AgentExecutionEvent, EventType
+        from victor.framework.client import _to_stream_event
+        from victor.ui.cli import app
+
+        messages = []
+        closed = []
+
+        class Client:
+            def __init__(self, config):
+                pass
+
+            async def initialize(self):
+                return SimpleNamespace(_skill_matcher=None)
+
+            async def start_embedding_preload(self):
+                pass
+
+            async def get_session_metrics(self):
+                return {}
+
+            async def stream(self, message):
+                messages.append(message)
+                try:
+                    yield AgentExecutionEvent(type=EventType.CONTENT, content="Partial evidence")
+                    yield _to_stream_event(
+                        AgentExecutionEvent(
+                            type=EventType.STREAM_END,
+                            success=not failed,
+                            error="Run rejected" if failed else None,
+                        )
+                    )
+                finally:
+                    await asyncio.sleep(0)
+                    closed.append("stream")
+
+            async def close(self):
+                closed.append("client")
+
+        monkeypatch.setattr("victor.framework.session_runner.create_victor_client", Client)
+        monkeypatch.setattr("victor.ui.commands.chat.graceful_shutdown", AsyncMock())
+        result = CliRunner().invoke(
+            app,
+            [
+                "chat",
+                "--provider",
+                "ollama",
+                "--model",
+                "test-model",
+                "--renderer",
+                "text",
+                stream_flag,
+                "Inspect this",
+            ],
+        )
+        assert result.exit_code == (1 if failed else 0), result.output
+        assert "Partial evidence" in result.output
+        assert result.output.count("Run rejected") == (1 if failed else 0)
+        if stream_flag == "--json":
+            payload = json.loads(result.stdout)
+            if failed:
+                assert payload == {"error": "Run rejected", "details": "Partial evidence"}
+            else:
+                assert payload["content"] == "Partial evidence"
+        assert messages == ["Inspect this"]
+        assert closed == ["stream", "client"]
+
     @pytest.mark.asyncio
     async def test_run_oneshot_import_works(self):
         """Test that run_oneshot can be imported."""
@@ -887,7 +957,8 @@ class TestChatReplRendering:
     """Tests for CLI REPL rendering ownership."""
 
     @pytest.mark.asyncio
-    async def test_formatter_renderer_response_is_not_reprinted(self):
+    @pytest.mark.parametrize("failed_first", [False, True])
+    async def test_formatter_renderer_response_is_not_reprinted(self, failed_first):
         """The REPL must not print stream_response() content a second time."""
         from victor.ui.commands import chat as chat_module
 
@@ -901,14 +972,28 @@ class TestChatReplRendering:
         class FakePromptSession:
             def __init__(self):
                 self.key_bindings = FakeKeyBindings()
-                self._inputs = iter(["hello", "/exit"])
+                self._inputs = iter(["hello", "next task", "/exit"])
 
             async def prompt_async(self, _prompt):
                 return next(self._inputs)
 
         cmd_handler = MagicMock()
         cmd_handler.is_command.return_value = False
-        agent = MagicMock()
+        from victor.framework.events import AgentExecutionEvent, EventType
+
+        messages = []
+
+        class Source:
+            async def stream(self, message):
+                messages.append(message)
+                yield AgentExecutionEvent(type=EventType.CONTENT, content="dup content")
+                yield AgentExecutionEvent(
+                    type=EventType.STREAM_END,
+                    success=not (failed_first and message == "hello"),
+                    error="Run rejected" if failed_first and message == "hello" else None,
+                )
+
+        agent = Source()
         settings = MagicMock()
         profile_config = MagicMock(provider="test-provider", model="test-model")
 
@@ -920,11 +1005,10 @@ class TestChatReplRendering:
                 return_value=(FakePromptSession(), {"ref": None}),
             ),
             patch.object(chat_module.console, "print") as mock_print,
-            patch(
-                "victor.ui.rendering.stream_response",
-                new=AsyncMock(return_value="dup content"),
-            ),
+            patch.object(chat_module, "_maybe_prompt_outcome") as feedback,
+            patch("victor.ui.rendering.FormatterRenderer") as renderer_type,
         ):
+            renderer_type.return_value.finalize.return_value = "dup content"
             await chat_module._run_cli_repl(
                 agent=agent,
                 settings=settings,
@@ -938,6 +1022,11 @@ class TestChatReplRendering:
             str(call_args.args[0]) for call_args in mock_print.call_args_list if call_args.args
         ]
         assert not any("dup content" in item for item in rendered)
+
+        assert messages == ["hello", "next task"]
+        assert feedback.call_count == (1 if failed_first else 2)
+        assert renderer_type.return_value.on_content.call_count == 2
+        assert not any("Run rejected" in item for item in rendered)
 
     @pytest.mark.asyncio
     async def test_provider_error_recovery_does_not_raise_unbound_provider(self):

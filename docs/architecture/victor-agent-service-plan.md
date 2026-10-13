@@ -67,11 +67,39 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-02/03 terminal delivery ✅ implementation qualified, [PR #1337](https://github.com/anvai-labs/victor/pull/1337)** — owner: Victor co-design session;
+- **LOOP-02 CLI terminal failures — implementation in review** — owner: Victor
+  co-design session; branch `fix/cli-terminal-failure`, baseline `c00fad7150`.
+  Extends #1337's verdict through the shared CLI handler: ERROR, failed STREAM_END
+  and excessive-thinking abort finalize partial output and raise a UI-specific
+  `AgentError` subtype. One-shot commands exit 1; interactive streaming returns to
+  new user input without retry or duplicate error rendering. Buffered output is
+  flushed on failure; JSON uses the existing error/details envelope and preserves
+  partial evidence without a success response. VictorClient's metadata error text
+  is retained. A configuration-warning arity bug found by the JSON smoke is fixed.
+  Five initial failing regressions reproduced the silent-success paths; review
+  additionally exposed terminal metadata reason loss, and JSON/abort regressions
+  reproduced before repair. The affected rendering/CLI cohort passed 577 tests
+  (7 existing skips). Existing handler, CLI and renderer owners were extended;
+  one ineffective generator-close test with no assertions was removed, while real
+  asynchronous close and cancellation coverage remains. CI selection now includes
+  these legacy owners for handler/dispatcher/chat changes. Independent review is
+  clean: 269 runtime/CLI cases passed with 7 existing skips; two selector expectation
+  failures were corrected without reducing selection, then all 57 selector cases
+  passed. Parent selection passed 290 cases before those same two test-only repairs;
+  changed runtime coverage is 40/41 lines (97%). Full collection found 34,672 tests;
+  configured strict MyPy passed 2,003 source files (legacy suppressions remain),
+  with Black/Ruff, repo hygiene and documentation drift checks passing. No provider
+  was called in these deterministic CLI smokes. Final PR CI and landing must complete
+  before this row is marked merged; the PR for the named branch is the landing authority. Reboot evidence: `var/codegraph-victor-20261012/cli-failure-evidence.json`.
+  Next: shared controller/guard dispatch, recovery dispositions and run-wide
+  attempt accounting. Interactive non-streaming/planning result semantics, durable
+  approval presentation and complete lifecycle/C5 acceptance remain open.
+
+- **LOOP-02/03 terminal delivery ✅ MERGED, [PR #1337](https://github.com/anvai-labs/victor/pull/1337)** — owner: Victor co-design session;
   branch `fix/stream-terminal-delivery`, rebased onto `e52b771a0` after #1335.
   Reviewed runtime commit `c75a8c91468ac4a83193e3941fee783e8310f515`;
   all 18 reviewed files survived rebase unchanged and 139 post-rebase tests passed.
-  PR status is the landing authority; this checkpoint qualifies the implementation.
+  Squash-merged as `c00fad7150`; local develop synchronized and worktree removed.
   Governs normal no-tool assistant candidates before history, publication and
   completion detection; a denied or completely removed answer terminates with a
   nonrecoverable error, never another provider attempt. No gate preserves output
@@ -97,8 +125,8 @@ edit. A mock test is not live provider or C5 evidence.
   security-quick category and release-only container); the blocking security scan
   passed under `repository-dependencies`. This advisory comparison remains a CI
   hygiene follow-up, not a completed release-container scan. Documentation-only
-  checkpoint updates still require their final-head gates. No release, performance
-  or full parity claim.
+  checkpoint passed 41 final-head checks (deployment skipped; same Trivy advisory).
+  No release, performance or full parity claim.
   Next after this increment: CLI exit semantics, shared controller/guard dispatch,
   recovery dispositions and run-wide attempt accounting. Reboot evidence will be
   preserved in `var/codegraph-victor-20261012/terminal-delivery-evidence.json`, with
@@ -1615,7 +1643,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | Increment | Status | Acceptance before advancing |
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
-| LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | Terminal error reaches CLI exit/status; concurrent/repeated tool names reconcile by ID; no false success |
+| LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status increment in review (`fix/cli-terminal-failure`); concurrent/repeated tool names must reconcile by ID; no false success |
 | LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; controller/guard dispatch and StateGraph parity remain open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
@@ -1636,7 +1664,7 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 | P1 — ✅ MERGED #1336 | Buffered DECIDE recorded pre-backslide COMPLETE without a verifier; existing verifier test expanded to prove false success | Always record the actual decision; both verifier configurations pass |
 | P1 — ✅ MERGED #1336 | `_inject_verify_feedback` used an unrecognized source and could replace the protected task | Shared internal-metadata helper; real verification retry + history eviction tests in both modes |
 | P1 — ✅ qualified #1337 | Normal no-tool streaming candidates previously bypassed RESPONSE governance | Check the candidate once before publication/history/detection; real unified allow/redact/deny/empty tests. Completely removed content is an explicit failure, not inferred completion or retry. Intermediate tool-bearing output remains separately scoped |
-| P1 — PARTIAL #1337 | `run_streaming` previously emitted identical content for COMPLETE, FAIL and CONTINUE at cap | Explicit run verdict now reaches framework/client events and audit finalizers. CLI process exit status remains open; provider finish reason is not a verdict |
+| P1 — PARTIAL #1337 | `run_streaming` previously emitted identical content for COMPLETE, FAIL and CONTINUE at cap | Explicit run verdict now reaches framework/client events and audit finalizers. CLI process exit status is implemented in the current review increment; provider finish reason is not a verdict |
 | P1 — OPEN | Buffered `run` evaluates `TurnEvaluationController`; token streaming resets it but omits evaluation | One shared post-turn decision helper over canonical `TurnResult`/`TurnObservation`; negative repetition/search-novelty parity tests |
 | P1 — OPEN | `LoopGuards` is installed/enforced only by buffered driver; deadline checks between phases do not interrupt an in-flight await | Share guard lifetime and cancellation cleanup; qualify blocked await, timeout, perception runaway and generator close; do not claim a hard deadline from a phase-boundary check |
 | P2 — OPEN | Streaming ACT produces recovery return/continue signals but adapter only forwards `turn_result` | Declare recovery disposition in canonical turn contract; one DECIDE consumption; test no extra provider request after terminal recovery |

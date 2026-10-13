@@ -2027,7 +2027,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   qualifies normal no-tool streaming RESPONSE governance and explicit terminal
   status through framework/client events and audit finalizers, with no regeneration
   after denial or complete redaction. The canonical tracker records exact runtime
-  review, local and CI evidence; CLI exit status remains open. Recovery disposition, shared guards/controller, adaptive extension
+  review, local and CI evidence; CLI exit status is implemented in the current
+  `fix/cli-terminal-failure` review increment (see the canonical tracker for landing
+  status). One-shot failure, partial buffered/JSON output and interactive streaming
+  continuation are covered; non-streaming/planning and approval presentation remain
+  separate. Recovery disposition, shared guards/controller, adaptive extension
   and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
