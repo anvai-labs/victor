@@ -18,6 +18,7 @@ These lock the behavior that the headless (AgenticLoop) and streaming (Streaming
 loops both delegate to, so the consolidation is verifiably faithful.
 """
 
+from victor.agent.action_authorizer import ActionIntent
 from victor.agent.turn_policy import (
     ContentRepetitionDetector,
     PlateauDetector,
@@ -145,7 +146,9 @@ def test_controller_write_intent_plateau_message():
     for n in range(3):
         decision = c.evaluate(
             TurnObservation(
-                content=f"looking at file {n}", productive_count=0, intent_is_write=True
+                content=f"looking at file {n}",
+                productive_count=0,
+                intent=ActionIntent.WRITE_ALLOWED,
             )
         )
     assert "edit(" in (decision.nudge_message or "")

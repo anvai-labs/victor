@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
+from victor.agent.action_authorizer import ActionIntent
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.tools.tool_names import get_canonical_name
 
@@ -273,7 +274,7 @@ class NudgePolicy:
         detector: SpinDetector,
         iteration: int = 0,
         max_iterations: int = 10,
-        intent: Optional[Any] = None,
+        intent: Optional[ActionIntent] = None,
     ) -> NudgeDecision:
         """Evaluate whether a nudge is needed.
 
@@ -287,6 +288,10 @@ class NudgePolicy:
             NudgeDecision with nudge type and message
         """
         state = detector.state
+        write_task = intent is ActionIntent.WRITE_ALLOWED
+        tool_examples = (
+            "read, edit, write, shell, code_search" if write_task else "read, code_search"
+        )
 
         # All tools blocked by dedup
         if state == SpinState.BLOCKED:
@@ -295,8 +300,8 @@ class NudgePolicy:
                 message=(
                     "Your last tool calls were blocked because you already "
                     "called them with the same arguments. Try a DIFFERENT "
-                    "tool or different arguments. If you've made your fix, "
-                    "provide your final answer."
+                    "permitted tool or different arguments within the original request. "
+                    "If the task is complete, provide your final answer."
                 ),
                 role="user",
             )
@@ -310,7 +315,7 @@ class NudgePolicy:
                     message=(
                         f"STOP. You have not called any tools in {detector.consecutive_no_tool_turns} turns. "
                         f"This is a repetition loop. You MUST:\n"
-                        f"1. Use a tool NOW (read, edit, write, shell, code_search)\n"
+                        f"1. Use a permitted tool within the original request ({tool_examples})\n"
                         f"2. OR provide your final answer if the task is complete\n"
                         f"Do NOT respond with more text analysis. Take action or conclude."
                     ),
@@ -323,7 +328,7 @@ class NudgePolicy:
                     message=(
                         f"You have not called any tools in the last "
                         f"{detector.consecutive_no_tool_turns} turns. You MUST "
-                        f"use a tool now (read, edit, write, shell) to make "
+                        f"use a permitted tool within the original request ({tool_examples}) to make "
                         f"progress on the task. Do not respond with text only."
                     ),
                     role="user",
@@ -332,10 +337,7 @@ class NudgePolicy:
 
         # Too many read-only turns: tailor based on intent
         if detector.consecutive_read_only_turns >= self._config.read_only_escalation_threshold:
-            _is_write_task = (
-                intent is not None and hasattr(intent, "value") and intent.value == "write_allowed"
-            )
-            if _is_write_task:
+            if write_task:
                 # Model has gathered enough context — push it to edit, not search
                 return NudgeDecision(
                     nudge_type=NudgeType.CODE_SEARCH,
@@ -365,23 +367,30 @@ class NudgePolicy:
         self,
         iteration: int,
         max_iterations: int,
+        *,
+        intent: Optional[ActionIntent] = None,
     ) -> NudgeDecision:
         """Check if a budget warning should be issued.
 
         Args:
             iteration: Current iteration
             max_iterations: Maximum iterations
+            intent: Original task intent; absence never implies permission to edit.
 
         Returns:
             NudgeDecision with budget warning if past halfway
         """
         if iteration > max_iterations // 2:
             remaining = max_iterations - iteration
+            guidance = (
+                "Make your edits NOW."
+                if intent is ActionIntent.WRITE_ALLOWED
+                else "Conclude from available evidence within the original request."
+            )
             return NudgeDecision(
                 nudge_type=NudgeType.BUDGET_WARNING,
                 message=(
-                    f"WARNING: {remaining} turns remaining out of "
-                    f"{max_iterations}. Make your edits NOW."
+                    f"WARNING: {remaining} turns remaining out of " f"{max_iterations}. {guidance}"
                 ),
                 role="user",
             )
@@ -671,8 +680,7 @@ class TurnObservation:
     tool_signatures: Optional[Set[str]] = None
     iteration: int = 1
     max_iterations: int = 1
-    intent_is_write: bool = False
-    intent: Optional[Any] = None
+    intent: Optional[ActionIntent] = None
     tool_results: Optional[List[Dict[str, Any]]] = None
 
 
@@ -708,8 +716,8 @@ class TurnEvaluationController:
     Composes the already-shared guards (:class:`SpinDetector`, :class:`NudgePolicy`) with the
     :class:`ContentRepetitionDetector`, :class:`PlateauDetector` and search novelty.
     Both AgenticLoop modes feed one :class:`TurnObservation` and apply the stop verdict.
-    Turn execution stays loop-local; controller nudge dispatch is not yet consolidated
-    with AgenticLoop's separate DECIDE nudge path.
+    Turn execution stays loop-local; the loop dispatches the selected nudge after its
+    terminal gates without re-evaluating this policy.
     """
 
     def __init__(
@@ -912,11 +920,11 @@ class TurnEvaluationController:
             nudge_message = synthesize_nudge_message()
             nudge_kind = "synthesize"
         elif plateau_should_nudge:
-            nudge_message = self._plateau_message(observation.intent_is_write)
+            nudge_message = self._plateau_message(observation.intent is ActionIntent.WRITE_ALLOWED)
             nudge_kind = "plateau"
         elif self._enable_budget_warning:
             budget_nudge = self.nudge_policy.budget_warning(
-                observation.iteration, observation.max_iterations
+                observation.iteration, observation.max_iterations, intent=observation.intent
             )
             if budget_nudge.should_inject:
                 nudge_message, nudge_role = budget_nudge.message, budget_nudge.role

@@ -2038,8 +2038,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   terminal/cache success in both modes against one cooperative elapsed budget.
   Context and timeout scopes never span streaming yields; expiry is failure, not
   safe-to-retry evidence. Awaited cleanup can exceed the budget; remote effects
-  and thread work are not proven stopped. The `fix/typed-turn-disposition` increment
-  (in review) addresses source-classified recovery/tool stops, preserves recovered
+  and thread work are not proven stopped. ✅ [#1341](https://github.com/anvai-labs/victor/pull/1341) addresses source-classified recovery/tool stops, preserves recovered
   text and prevents a permissive evaluator or verifier retry from dispatching another
   ACT after a terminal stop. It also makes evaluator escalation terminal in both live
   modes. Review also confirmed that `chat_stream_helpers` recovered final content
@@ -2049,8 +2048,12 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   forced-summary/tool-bearing emissions still need publication qualification. Source
   audit also found buffered post-loop synthesis outside ACT; include it in whole-run
   attempt/deadline ownership rather than claiming the ACT stop covers every provider call.
-  Controller nudge
-  dispatch, run-wide attempt accounting, adaptive extension and full experimental
+  The `fix/intent-aware-loop-nudges` increment (in review) captures initial task
+  intent once per run and dispatches the controller-selected nudge without a second
+  policy evaluation. Unknown/read/display guidance cannot request mutations; effect
+  feedback takes precedence and terminal decisions suppress prompts. Internal
+  provenance remains distinct from permission; tool authorization is unchanged.
+  Run-wide attempt accounting, adaptive extension and full experimental
   StateGraph/iteration parity remain open; phase-method reuse is not execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.

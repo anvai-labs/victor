@@ -326,3 +326,56 @@ async def test_recovery_retry_cannot_override_failure_or_escalation(streaming, d
     assert final.decision is decision
     if result is not None:
         assert result.success is False
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize(
+    "initial_intent", [None, "read_only", "write_allowed", "ambiguous", "display_only"]
+)
+async def test_continuation_consumes_one_controller_decision_with_original_intent(
+    streaming, initial_intent
+):
+    from victor.agent.action_authorizer import ActionIntent
+    from victor.agent.turn_policy import TurnDecision
+
+    loop = make_loop(None, retries=0, iterations=3)
+    original = ActionIntent(initial_intent) if initial_intent else None
+    perceptions = [
+        SimpleNamespace(intent=original, to_dict=lambda: {}),
+        SimpleNamespace(intent=ActionIntent.WRITE_ALLOWED, to_dict=lambda: {}),
+        SimpleNamespace(intent=ActionIntent.WRITE_ALLOWED, to_dict=lambda: {}),
+    ]
+    # A later, separately invoked run can use its own initial scope.
+    loop._analyze_turn = AsyncMock(side_effect=perceptions + [perceptions[-1]] * 3)
+    loop._plan = AsyncMock(return_value={})
+    loop._evaluate = AsyncMock(
+        side_effect=[
+            EvaluationResult(EvaluationDecision.CONTINUE, 0.4),
+            EvaluationResult(EvaluationDecision.CONTINUE, 0.5),
+            EvaluationResult(EvaluationDecision.COMPLETE, 1.0),
+        ]
+        * 2
+    )
+    loop.turn_evaluation_controller.evaluate = MagicMock(
+        return_value=TurnDecision(
+            nudge_message="Preserve the original request.",
+            nudge_kind="plateau",
+            nudge_role="system",
+        )
+    )
+    loop.nudge_policy.evaluate = MagicMock(side_effect=AssertionError("second policy evaluation"))
+    loop.nudge_policy.budget_warning = MagicMock(
+        side_effect=AssertionError("second budget decision")
+    )
+    await execute(loop, streaming)
+    await execute(loop, streaming)
+    observations = [
+        call.args[0] for call in loop.turn_evaluation_controller.evaluate.call_args_list
+    ]
+    assert len(observations) == 6
+    assert all(obs.intent is original for obs in observations[:3])
+    assert all(obs.intent is ActionIntent.WRITE_ALLOWED for obs in observations[3:])
+    messages = loop.turn_executor._chat_context.add_message.call_args_list
+    assert len(messages) == 4
+    assert all(call.args == ("system", "Preserve the original request.") for call in messages)
+    assert all(call.kwargs["metadata"]["interactive_history"] is False for call in messages)

@@ -194,7 +194,7 @@ async def test_deadline_interrupts_blocked_phase(phase, streaming):
     from types import SimpleNamespace
 
     loop._analyze_turn = AsyncMock(
-        return_value=SimpleNamespace(task_analysis=None, to_dict=lambda: {})
+        return_value=SimpleNamespace(intent=None, task_analysis=None, to_dict=lambda: {})
     )
     loop._plan = AsyncMock(return_value={})
     closed = asyncio.Event()
