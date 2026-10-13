@@ -87,8 +87,8 @@ Mixins:
 
 Documentation:
     - MIGRATION_GUIDE.md: Step-by-step migration instructions
-    - RELEASE_NOTES.md: Release notes and changes
-    - CONSOLIDATION.md: Architecture consolidation details
+    - docs/guides/MULTI_AGENT_TEAMS.md: Current team architecture
+    - docs/development/completed-work.md: Consolidation history
 """
 
 from __future__ import annotations

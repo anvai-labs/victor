@@ -16,6 +16,7 @@ import re
 import socket
 import ssl
 import uuid
+from contextlib import aclosing
 from json import JSONDecodeError
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
 from urllib.parse import urlparse
@@ -382,6 +383,9 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     return ProviderError(
         detail,
         provider=provider_name,
+        # A malformed structured response is terminal, even though its HTTP
+        # status is 502. Do not turn Sandhi's contract refusal into a retry hint.
+        recoverable=code != "invalid_response",
         status_code=(
             int(status) if status is not None else (400 if code == "invalid_request" else None)
         ),
@@ -998,7 +1002,18 @@ class SandhiTypedProviderMixin:
             "ollama",
         }:
             native = extensions.get("openai")
-        reasoning = extensions.get("reasoning")
+        # Minor 11 supplies displayable text independently of the native echo.
+        # Older bindings retain their explicit legacy extension/native-body path.
+        reasoning = output.get("reasoning")
+        if reasoning is not None and not isinstance(reasoning, str):
+            raise ProviderError(
+                "Sandhi output.reasoning must be text or null",
+                provider=self._sandhi_slug(),
+                recoverable=False,
+            )
+        typed_reasoning_present = reasoning is not None
+        if reasoning is None:
+            reasoning = extensions.get("reasoning")
         if reasoning is None and isinstance(native, dict):
             reasoning = (
                 (native.get("choices") or [{}])[0].get("message", {}).get("reasoning_content")
@@ -1009,7 +1024,7 @@ class SandhiTypedProviderMixin:
             slug="anthropic" if self._sandhi_slug() == "anthropic" else self._sandhi_slug(),
         )
         metadata: Dict[str, Any] = {}
-        if reasoning:
+        if reasoning or typed_reasoning_present:
             metadata["reasoning_content"] = reasoning
         diagnostics = dict(_usage_diagnostics(response.get("usage")) or {})
         diagnostics.update(_latency_fields(response.get("usage")))
@@ -1123,7 +1138,7 @@ class SandhiTypedProviderMixin:
                 usage=usage,
                 metadata={"sandhi_usage": usage_diagnostics} if usage_diagnostics else None,
             )
-        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit, GeneratorExit):
             raise
         except ProviderError:
             raise
@@ -1136,6 +1151,11 @@ class SandhiTypedProviderMixin:
 
 class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
     """OpenAI-compatible Victor policy hooks backed by Sandhi typed execution."""
+
+    @staticmethod
+    def _validate_call_options(options: Dict[str, Any]) -> None:
+        if "text_response_mode" in options:
+            raise ValueError("text_response_mode is a constructor-only provider option")
 
     async def _refresh_host_credentials(self) -> None:
         refresh = getattr(self, "_ensure_valid_token", None)
@@ -1152,6 +1172,7 @@ class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
+        self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         cleaner = getattr(self, "_clean_model_name", None)
         model = cleaner(model) if callable(cleaner) else model
@@ -1171,14 +1192,18 @@ class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
+        self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         cleaner = getattr(self, "_clean_model_name", None)
         model = cleaner(model) if callable(cleaner) else model
         payload = self._build_request_payload(
             messages, model, temperature, max_tokens, tools, True, **kwargs
         )
-        async for chunk in self._sandhi_stream(_typed_request_from_openai_payload(payload)):
-            yield chunk
+        async with aclosing(
+            self._sandhi_stream(_typed_request_from_openai_payload(payload))
+        ) as upstream:
+            async for chunk in upstream:
+                yield chunk
 
 
 class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):

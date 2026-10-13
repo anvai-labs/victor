@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { VictorClient } from './victorClient';
+import { VictorClient, requireCompletedChat, ChatOutcomeError } from './victorClient';
 
 export interface PasteContext {
     language: string;
@@ -154,6 +154,10 @@ export class SmartPasteProvider implements vscode.Disposable {
 
         } catch (error) {
             this._log?.appendLine(`[SmartPaste] Error: ${error}`);
+            if (error instanceof ChatOutcomeError) {
+                void vscode.window.showWarningMessage(error.message);
+                return;
+            }
             // Fallback to regular paste with error notification
             vscode.window.showWarningMessage(
                 `Smart Paste error: ${error instanceof Error ? error.message : 'Unknown error'}. Using regular paste.`
@@ -285,7 +289,7 @@ Respond with ONLY the adapted code, properly indented to match the context. No e
                 return null;
             }
 
-            let adapted = response.content?.trim() || code;
+            let adapted = requireCompletedChat(response).content?.trim() || code;
 
             // Clean up markdown code blocks
             if (adapted.startsWith('```')) {
@@ -307,6 +311,7 @@ Respond with ONLY the adapted code, properly indented to match the context. No e
                 changes,
             };
         } catch (error) {
+            if (error instanceof ChatOutcomeError) { throw error; }
             this._log?.appendLine(`[SmartPaste] Adaptation error: ${error}`);
             return null;
         }

@@ -363,3 +363,41 @@ class TestIsPathExcluded:
                 root_path / "external" / "llama.cpp" / "ggml.c",
             ):
                 assert is_path_excluded(path, root_path, patterns), path
+
+
+@pytest.mark.parametrize("source", ["victor/deps/manager.py", "app/coverage/parser.py"])
+def test_ambiguous_source_directories_are_not_universally_excluded(tmp_path, source):
+    assert not is_path_excluded(tmp_path / source, tmp_path, get_exclusion_patterns(tmp_path))
+
+
+@pytest.mark.parametrize("config", ["mix.exs", "rebar.config"])
+def test_ecosystem_dependencies_are_scoped_to_project_root(tmp_path, config):
+    (tmp_path / config).write_text("")
+    patterns = get_exclusion_patterns(tmp_path)
+    assert is_path_excluded(tmp_path / "deps/library/source.ex", tmp_path, patterns)
+    assert not is_path_excluded(tmp_path / "src/deps/manager.py", tmp_path, patterns)
+
+
+def test_root_anchored_gitignore_preserves_nested_source_directories(tmp_path):
+    (tmp_path / ".gitignore").write_text("/models/\ncoverage/\n")
+    patterns = get_exclusion_patterns(tmp_path)
+    assert is_path_excluded(tmp_path / "models/download.py", tmp_path, patterns)
+    assert not is_path_excluded(tmp_path / "victor/models/__init__.py", tmp_path, patterns)
+    assert is_path_excluded(tmp_path / "web/coverage/report.js", tmp_path, patterns)
+
+
+@pytest.mark.parametrize(
+    "pattern,path,excluded",
+    [
+        ("/*.py", "root.py", True),
+        ("/*.py", "src/keep.py", False),
+        ("/models/**", "models/a/b/model.py", True),
+        ("/models/**", "src/models/keep.py", False),
+        ("/build-*/**", "build-debug/nested/generated.py", True),
+        ("/models/**/index.py", "models/index.py", True),
+        ("/*/generated/**", "web/generated/nested/output.js", True),
+        ("/*/generated/**", "web/src/generated/keep.js", False),
+    ],
+)
+def test_rooted_wildcards_match_path_segments(tmp_path, pattern, path, excluded):
+    assert is_path_excluded(tmp_path / path, tmp_path, [pattern]) is excluded

@@ -48,7 +48,7 @@ def test_session_runtime_get_recent_sessions_delegates_after_sync():
 
 
 def test_session_runtime_recover_session_syncs_memory_session_id_on_success():
-    host = _make_runtime_host(_memory_session_id=None)
+    host = _make_runtime_host(_memory_session_id=None, active_session_id="old-active")
     host._session_service.recover_session.return_value = True
     runtime = SessionRuntime(OrchestratorProtocolAdapter(host))
 
@@ -56,6 +56,7 @@ def test_session_runtime_recover_session_syncs_memory_session_id_on_success():
 
     assert result is True
     assert host._memory_session_id == "session-9"
+    assert host.active_session_id == "session-9"
     host._session_service.recover_session.assert_called_once_with("session-9")
 
 
@@ -84,3 +85,55 @@ def test_session_runtime_get_session_stats_delegates_after_sync():
 
     assert result == {"enabled": True}
     host._session_service.get_session_stats.assert_called_once_with()
+
+
+def test_session_runtime_recovery_preflight_blocks_member_crossing_before_mutation():
+    import pytest
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    state = SimpleNamespace(active_session_id="root", _memory_session_id=None)
+    identity = RuntimeIdentity(state)
+    child = identity.resolve().derive_child(
+        agent_id="a", display_name="Member", role="researcher", member_id="m"
+    )
+    identity.bind_member(child)
+    host = _make_runtime_host(active_session_id=child.session_id)
+    runtime = SessionRuntime(
+        OrchestratorProtocolAdapter(host), validate_session=identity.validate_session_transition
+    )
+    with pytest.raises(ValueError, match="member session"):
+        runtime.recover_session("other-member")
+    host._session_service.bind_runtime_components.assert_not_called()
+    host._session_service.recover_session.assert_not_called()
+    assert host.active_session_id == child.session_id
+    assert host._memory_session_id == "session-123"
+
+
+def test_failed_session_recovery_preserves_both_session_ids():
+    host = _make_runtime_host(active_session_id="active")
+    host._session_service.recover_session.return_value = False
+    runtime = SessionRuntime(OrchestratorProtocolAdapter(host))
+    assert runtime.recover_session("unavailable") is False
+    assert host.active_session_id == "active"
+    assert host._memory_session_id == "session-123"
+
+
+async def test_recovery_rejects_active_turn_before_sync_or_hydration():
+    import asyncio
+    import pytest
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    host = _make_runtime_host(active_session_id="active")
+    identity = RuntimeIdentity(host)
+    lock = asyncio.Lock()
+    identity.bind_turn_lock(lock)
+    runtime = SessionRuntime(host, validate_session=identity.validate_session_transition)
+    async with lock:
+        with pytest.raises(RuntimeError, match="active turn"):
+            runtime.recover_session("resumed")
+        host._session_service.bind_runtime_components.assert_not_called()
+        host._session_service.recover_session.assert_not_called()
+        assert host.active_session_id == "active"
+    host._session_service.recover_session.return_value = True
+    assert runtime.recover_session("resumed")
+    assert identity.resolve().session_id == "resumed"

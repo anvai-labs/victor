@@ -7,7 +7,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { VictorClient } from './victorClient';
+import { VictorClient, requireCompletedChat, ChatApprovalRequiredError, PausedChatResponse } from './victorClient';
 import { DiffViewProvider, FileChange } from './diffView';
 
 export interface ComposerFile {
@@ -23,7 +23,8 @@ export interface ComposerSession {
     prompt: string;
     files: ComposerFile[];
     changes: FileChange[];
-    status: 'idle' | 'analyzing' | 'generating' | 'ready' | 'applying' | 'completed' | 'error';
+    status: 'idle' | 'analyzing' | 'generating' | 'ready' | 'applying' | 'completed' | 'error' | 'awaiting_approval';
+    pausedResponse?: PausedChatResponse;
     error?: string;
     timestamp: Date;
 }
@@ -118,6 +119,7 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider, vscode.
             timestamp: new Date(),
         };
 
+        const session = this._session;
         this._updateView();
 
         try {
@@ -125,37 +127,41 @@ export class ComposerViewProvider implements vscode.WebviewViewProvider, vscode.
             const files = filePaths?.length
                 ? await this._loadFiles(filePaths)
                 : await this._getContextFiles();
+            if (this._session !== session) { return; }
 
             if (files.length === 0) {
-                this._session.status = 'error';
-                this._session.error = 'No files selected. Add files to the composer first.';
+                session.status = 'error';
+                session.error = 'No files selected. Add files to the composer first.';
                 this._updateView();
                 return;
             }
 
-            this._session.files = files;
-            this._session.status = 'generating';
+            session.files = files;
+            session.status = 'generating';
             this._updateView();
 
             // Generate changes using AI
             const changes = await this._generateChanges(prompt, files);
+            if (this._session !== session) { return; }
 
             if (changes.length === 0) {
-                this._session.status = 'error';
-                this._session.error = 'No changes generated. Try a more specific prompt.';
+                session.status = 'error';
+                session.error = 'No changes generated. Try a more specific prompt.';
                 this._updateView();
                 return;
             }
 
-            this._session.changes = changes;
-            this._session.status = 'ready';
+            session.changes = changes;
+            session.status = 'ready';
             this._updateView();
 
             this._log?.appendLine(`[Composer] Generated ${changes.length} changes for ${files.length} files`);
 
         } catch (error) {
-            this._session.status = 'error';
-            this._session.error = `Error: ${error}`;
+            if (this._session !== session) { return; }
+            session.status = error instanceof ChatApprovalRequiredError ? 'awaiting_approval' : 'error';
+            if (error instanceof ChatApprovalRequiredError) { session.pausedResponse = error.response; }
+            session.error = error instanceof Error ? error.message : String(error);
             this._updateView();
             this._log?.appendLine(`[Composer] Error: ${error}`);
         }
@@ -397,7 +403,7 @@ Generate the modified files.`;
                 { role: 'user', content: userPrompt },
             ]);
 
-            const content = response.content || '';
+            const content = requireCompletedChat(response).content || '';
             return this._parseGeneratedChanges(content, selectedFiles);
 
         } catch (error) {
@@ -838,9 +844,13 @@ Generate the modified files.`;
                 ready: '<div class="status ready">Changes ready for review</div>',
                 applying: '<div class="status analyzing"><span class="spinner"></span> Applying changes...</div>',
                 completed: '<div class="status completed">Changes applied successfully!</div>',
-                error: \`<div class="status error">\${session.error || 'An error occurred'}</div>\`,
+                error: '<div class="status error"></div>',
+                awaiting_approval: '<div class="status analyzing"></div>',
             };
             statusArea.innerHTML = statusMessages[session.status] || '';
+            if (session.status === 'error' || session.status === 'awaiting_approval') {
+                statusArea.firstElementChild.textContent = session.error || 'An error occurred';
+            }
 
             // Update changes
             if (session.changes.length > 0) {

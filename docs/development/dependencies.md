@@ -10,7 +10,8 @@ It does not install Victor itself or enable every optional feature.
 
 | Deployment | Installation | Additional dependency surface |
 | --- | --- | --- |
-| CLI, TUI, framework, MCP | `pip install victor-ai` | Core providers, terminal UI and generic tools |
+| CLI, framework, MCP | `pip install victor-ai` | Core providers, command-line UI and generic tools |
+| Textual TUI | `pip install 'victor-ai[tui]'` | Optional Textual dashboard (`victor tui`) |
 | HTTP / GraphQL API | `pip install 'victor-ai[api]'` | FastAPI, Uvicorn, Strawberry |
 | Local text embeddings | `pip install 'victor-ai[embeddings]'` | Sentence Transformers, Torch, LanceDB, Arrow |
 | Google provider | `pip install 'victor-ai[google]'` | Google GenAI SDK |
@@ -23,10 +24,11 @@ It does not install Victor itself or enable every optional feature.
 
 The `all` extra includes development, documentation and build tooling. Use the
 specific feature extras for deployment. The Apple Silicon extra is restricted to
-Darwin ARM64. NumPy remains a core dependency because runtime inference and
-similarity fallbacks use it. BeautifulSoup's `lxml` parser is an indirect runtime
+Darwin ARM64. NumPy is optional in the core runtime; embeddings and other
+numeric extras declare it where required. BeautifulSoup's `lxml` parser is an indirect runtime
 consumer, so a zero direct-import count does not justify removing `lxml`.
-Git operations use the system Git executable; GitPython is unnecessary. Coverage
+Git operations use the system Git executable and the declared GitPython dependency;
+check the current consumers before pruning either. Coverage
 uploads use the pinned GitHub Action, so the unused Python `codecov` CLI is
 removed from the CI extra. RAG
 package discovery keeps storage libraries lazy; requesting a document store,
@@ -165,3 +167,23 @@ The remaining proposed upgrades are deliberately deferred, not represented as me
 The original bot CI failures are evidence of incompatibility, not reasons to disable
 security alerts. Future routine updates still follow the existing grouped schedule;
 reopening any deferred migration requires resolving its listed completion gate.
+
+
+## Packaging follow-ups
+
+Source checked October 8, 2026. These remain proposals or verification gates,
+not completed migrations. The [completed-work record](completed-work.md) preserves
+prior release results; [ADR-016](../architecture/adr/016-distribution-packaging-strategy.md)
+and the [release procedure](releasing/publishing.md) own supported packaging.
+
+| Remaining item | Evidence / next gate |
+| --- | --- |
+| Provider SDK extras | `anthropic` and `openai` remain core dependencies in `pyproject.toml`. Inventory direct/native provider consumers and prove transport, usage and token parity before moving either SDK to an extra; Sandhi availability alone is insufficient. |
+| Interactive input cost | `prompt-toolkit` remains a core dependency serving interactive input; Rich serves rendering. Measure cold-start/install impact and preserve input behavior before changing laziness/packaging. Do not delete one as a duplicate of the other. |
+| Linux ARM64 dependency/artifact qualification | Recheck the exact pinned Sandhi release's wheel inventory and Victor's install/frozen artifact smoke. The old handoff named the wrong Sandhi version, so its platform-gap assertion is unverified rather than accepted fact. |
+| TestPyPI rehearsal | Verify trusted publisher registration for `anvai-labs/victor`, `release.yml`, environment `testpypi`, then run a rehearsal. Historical missing registration remains unverified until checked; production release success does not establish rehearsal readiness. |
+| Broader deployment and lifecycle | VAS-17 and G53/G60–G65 retain released runtime, settlement, ownership and cancellation acceptance. A source pin or release tag does not identify a serving process. |
+
+Do not revive speculative `victor-ai-core` extraction or blanket replacements of
+`json`, `packaging`, or CLI libraries from the retired phase-6 analysis. Changes
+need a current use case and the measured [native/performance policy](../architecture/native-acceleration-strategy.md).

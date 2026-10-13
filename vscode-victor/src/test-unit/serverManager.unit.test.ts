@@ -3,8 +3,10 @@ import * as cp from 'child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ServerManager } from '../serverManager';
 
+type ChildProcessModule = typeof import('child_process');
+
 vi.mock('child_process', async (importOriginal) => ({
-    ...await importOriginal<typeof import('child_process')>(),
+    ...await importOriginal<ChildProcessModule>(),
     spawn: vi.fn(),
 }));
 

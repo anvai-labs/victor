@@ -16,7 +16,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING, Union, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -303,6 +303,10 @@ class ToolMetadataProvider(Protocol):
         ...
 
 
+if TYPE_CHECKING:
+    from victor.framework.action_recovery import ActionRecovery
+
+
 class BaseTool(ABC):
     """Abstract base class for all tools.
 
@@ -310,6 +314,9 @@ class BaseTool(ABC):
     Optionally, tools can override the metadata property to provide
     semantic information for dynamic tool selection.
     """
+
+    # Trusted application/plugin configuration; never exposed as a model argument.
+    action_recovery: "ActionRecovery | None" = None
 
     @property
     @abstractmethod

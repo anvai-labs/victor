@@ -14,7 +14,7 @@ import victor.providers.httpx_openai_compat as httpx_compat
 import victor.providers.openai_compat_model_policy as provider_config
 import victor.providers.sandhi_transport as sandhi_transport
 from victor.framework.session_config import ProviderOverrideConfig
-from victor.providers.base import Message
+from victor.providers.base import Message, StreamChunk
 from victor.providers.cerebras_provider import CerebrasProvider
 from victor.providers.deepseek_provider import DeepSeekProvider
 from victor.providers.sandhi_openai_compat_policy import SandhiOpenAICompatPolicy
@@ -41,6 +41,204 @@ CONFIGURED_CLASSES = (
     ZAIProvider,
     QwenProvider,
 )
+
+
+@pytest.mark.parametrize("provider_cls", (DeepSeekProvider, CerebrasProvider))
+@pytest.mark.parametrize("mode", (None, False, "automatic", []))
+def test_text_response_mode_rejects_invalid_value_before_key_resolution(
+    provider_cls, mode, monkeypatch
+) -> None:
+    def unexpected_key_lookup(*args, **kwargs):
+        pytest.fail("invalid text response mode must not resolve credentials")
+
+    monkeypatch.setattr(
+        "victor.providers.sandhi_openai_compat_policy.UnifiedApiKeyResolver.get_api_key",
+        unexpected_key_lookup,
+    )
+    with pytest.raises(ValueError, match="text_response_mode"):
+        provider_cls(text_response_mode=mode)
+
+
+_DSML_TEXT = (
+    '<｜DSML｜tool_calls><｜DSML｜invoke name="lookup">'
+    '<｜DSML｜parameter name="q" string="true">hello</｜DSML｜parameter>'
+    "</｜DSML｜invoke></｜DSML｜tool_calls>"
+)
+
+
+@pytest.mark.parametrize(
+    "provider_cls,model,content",
+    (
+        (DeepSeekProvider, "deepseek-chat", _DSML_TEXT),
+        (
+            CerebrasProvider,
+            "qwen-3-235b-a22b-instruct-2507",
+            "First I need your order number.\n\nPlease enter it in the form.",
+        ),
+    ),
+)
+@pytest.mark.parametrize("native_tools", (False, True))
+async def test_structured_text_mode_streams_exact_chunks_without_prose_interpretation(
+    provider_cls, model, content, native_tools, monkeypatch
+) -> None:
+    chunks = [
+        StreamChunk(content=content, metadata={"reasoning_content": "explicit reasoning"}),
+        StreamChunk(
+            content="",
+            is_final=True,
+            stop_reason="stop",
+            usage={"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10},
+            metadata={
+                "sandhi_usage": {"cache_read_observation": {"status": "reported", "tokens": 0}}
+            },
+            tool_calls=(
+                [{"id": "native", "name": "lookup", "arguments": {"q": "native"}}]
+                if native_tools
+                else None
+            ),
+        ),
+    ]
+    snapshots = [chunk.model_dump() for chunk in chunks]
+    exhausted = False
+
+    async def upstream(*args, **kwargs):
+        nonlocal exhausted
+        for chunk in chunks:
+            yield chunk
+        exhausted = True
+
+    monkeypatch.setattr(SandhiOpenAICompatPolicy, "stream", upstream)
+    provider = provider_cls(api_key="test-key", text_response_mode="structured")
+    stream = provider.stream([], model=model)
+    first = await anext(stream)
+    assert not exhausted, "first visible chunk must not wait for upstream exhaustion"
+    assert first is chunks[0]
+    actual = [first, *[chunk async for chunk in stream]]
+    assert [chunk.model_dump() for chunk in actual] == snapshots
+    assert [chunk.model_dump() for chunk in chunks] == snapshots
+    assert provider.text_response_mode == "structured"
+
+
+@pytest.mark.parametrize("mode", (None, "legacy"))
+@pytest.mark.parametrize("provider_cls", (DeepSeekProvider, CerebrasProvider))
+async def test_legacy_text_mode_preserves_existing_stream_behavior(provider_cls, mode, monkeypatch):
+    content = (
+        _DSML_TEXT
+        if provider_cls is DeepSeekProvider
+        else "First I need your order number.\n\nPlease enter it in the form."
+    )
+
+    async def upstream(*args, **kwargs):
+        yield StreamChunk(content=content)
+        yield StreamChunk(content="", is_final=True, stop_reason="stop", usage={"total_tokens": 10})
+
+    monkeypatch.setattr(SandhiOpenAICompatPolicy, "stream", upstream)
+    options = {} if mode is None else {"text_response_mode": mode}
+    provider = provider_cls(api_key="test-key", **options)
+    chunks = [chunk async for chunk in provider.stream([], model="qwen-3")]
+    assert provider.text_response_mode == "legacy"
+    if provider_cls is DeepSeekProvider:
+        assert len(chunks) == 1
+        assert chunks[0].content == ""
+        assert chunks[0].tool_calls[0]["name"] == "lookup"
+        # Documented legacy limitation, intentionally unchanged by this opt-in mode.
+        assert chunks[0].usage is None
+    else:
+        assert chunks[0].content == "Please enter it in the form."
+        assert chunks[0].metadata == {"reasoning_content": "First I need your order number."}
+        assert chunks[-1].usage == {"total_tokens": 10}
+
+
+@pytest.mark.parametrize("provider_cls", (DeepSeekProvider, CerebrasProvider))
+@pytest.mark.parametrize("typed", (False, True))
+def test_structured_text_mode_preserves_completion_text_and_native_metadata(provider_cls, typed):
+    content = (
+        _DSML_TEXT
+        if provider_cls is DeepSeekProvider
+        else "First I need your order number.\n\nPlease enter it in the form."
+    )
+    provider = provider_cls(api_key="test-key", text_response_mode="structured")
+    if typed:
+        response = provider._completion_from_typed(
+            {
+                "output": {"content": content},
+                "finish_reason": "stop",
+                "usage": {"tokens_in": 7, "tokens_out": 3},
+                "extensions": {
+                    "reasoning": "native reasoning",
+                    "openai": {"time_info": {"total_time": 0.02}},
+                },
+            },
+            "qwen-3",
+        )
+    else:
+        response = provider._parse_response(
+            {
+                "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10},
+                "time_info": {"total_time": 0.02},
+            },
+            "qwen-3",
+        )
+    assert response.content == content
+    assert not response.tool_calls
+    assert response.usage["total_tokens"] == 10
+    if provider_cls is CerebrasProvider:
+        assert response.usage["total_time_ms"] == 20
+    if typed:
+        assert response.metadata["reasoning_content"] == "native reasoning"
+
+
+@pytest.mark.parametrize("provider_cls", (DeepSeekProvider, CerebrasProvider))
+async def test_text_response_mode_is_host_policy_not_a_wire_parameter(provider_cls, monkeypatch):
+    requests = []
+
+    async def complete(request):
+        requests.append(request)
+        return {"output": {"content": "ok"}, "finish_reason": "stop"}
+
+    async def stream(request):
+        requests.append(request)
+        yield StreamChunk(content="ok", is_final=True)
+
+    provider = provider_cls(api_key="test-key", text_response_mode="structured")
+    monkeypatch.setattr(provider, "_sandhi_complete", complete)
+    monkeypatch.setattr(provider, "_sandhi_stream", stream)
+    await provider.chat([Message(role="user", content="hello")], model=provider.get_default_model())
+    assert [
+        chunk
+        async for chunk in provider.stream(
+            [Message(role="user", content="hello")], model=provider.get_default_model()
+        )
+    ]
+    assert len(requests) == 2
+    assert all("text_response_mode" not in json.dumps(request) for request in requests)
+    assert "text_response_mode" not in provider.extra_config
+
+
+@pytest.mark.parametrize("provider_cls", (DeepSeekProvider, CerebrasProvider))
+@pytest.mark.parametrize("call_kind", ("chat", "stream"))
+@pytest.mark.parametrize("mode", ("structured", "unknown"))
+async def test_text_response_mode_cannot_leak_through_per_call_options(
+    provider_cls, call_kind, mode, monkeypatch
+):
+    provider = provider_cls(api_key="test-key")
+
+    async def unexpected_refresh():
+        pytest.fail("constructor-only option must be rejected before credential refresh")
+
+    monkeypatch.setattr(provider, "_refresh_host_credentials", unexpected_refresh)
+    with pytest.raises(ValueError, match="text_response_mode.*constructor"):
+        call = getattr(provider, call_kind)(
+            [Message(role="user", content="hello")],
+            model=provider.get_default_model(),
+            text_response_mode=mode,
+        )
+        if call_kind == "chat":
+            await call
+        else:
+            await anext(call)
+    assert provider.text_response_mode == "legacy"
 
 
 def test_parity_safe_adapters_share_one_configured_implementation() -> None:

@@ -39,8 +39,98 @@ source-evidence snapshot, measurements and revised execution order. The
 findings. FEP-0031/0032/0033/0034/0035 retain Draft frontmatter: design, partial
 implementation and release are separate states.
 
-Pages last published from `main` on 2026-10-04. PR builds do not deploy; newer
-documentation reaches the public site through the next main promotion.
+Pages last verified published from `main` on 2026-10-07 (`f9515e98e`); see the
+[publishing record](development/docs-publishing.md). PR builds do not deploy;
+newer documentation reaches the public site through the next main promotion.
+
+### Shared agent-service delivery plan
+
+Reusable runtime/API/auth/SDK/UI building blocks stay in Victor OSS. AnvaiOps
+owns the commercial offering and its shell, managed operations, billing and
+entitlements. Its integration milestone VAS-21c does not gate OSS release VAS-20.
+
+The [technology decision](architecture/victor-agent-service-technology.md) keeps
+TypeScript interactive clients, async Python orchestration and measured Rust
+compute. VAS-21 extends the shared AnvaiOps/Sandesha theme to Sandhi as well as
+Victor. VAS-21d–g extend reuse to ProximaDB and AnvaiOps's existing workflow/code
+editor/notebook surfaces: inventory first, minimal OSS component contracts next,
+then repository-owned adapters and installed acceptance. AnvaiOps customer journeys
+and reconciled specs drive generic OSS requirements; new rich components align on
+TypeScript/React, with measured compatibility gates and standalone acceptance. Database graphs and agent
+workflows retain separate semantics; commercial workspace operations stay in
+AnvaiOps. See the [pinned source inventory and adoption sequence](architecture/victor-agent-service-technology.md#reuse-with-proximadb-and-the-anvaiops-workspace).
+VAS-22 owns technology qualification. The tracker maps all accumulated
+requests to owners and gates, including cross-repository release/live evidence.
+
+The [canonical VAS tracker](architecture/victor-agent-service-plan.md) owns the
+cross-session plan for one API shared by web UI, VS Code and automation: stable
+task IDs, dependencies, TDD/smoke gates, evidence and reboot recovery. FEP-0039 is in
+Review, not Accepted; the audit is completed evidence, while API consolidation, deployment and
+C5 remain separate delivery gates. Read/reconcile the tracker before resuming;
+do not infer completion from this roadmap or duplicate its task statuses here.
+
+The scoped UI journey now includes visual workflow/formation authoring, Kanidm
+login, agent-as-service execution, scoped API-key automation and authorized Sandhi
+provider mapping. The [auth/co-design contract](architecture/victor-agent-service-auth-policy.md)
+distinguishes initiator, gateway actor and upstream credential; a shared workload
+key does not prove human delegation. VAS-05a–f and VAS-14a–e own policy, deployment,
+drag/drop and accessible editing, shared AnvaiOps/Sandesha ink-and-teal theme
+(VAS-14e), AgentBrowser capability gaps and the headed
+end-to-end acceptance matrix. Foundation identity/ownership and durable execution
+precede the visual demo; provider release/C5 acceptance remains separately gated.
+
+### VS Code dependency and runtime checkpoint
+
+Node 24.21.0 LTS is pinned once for local work and extension CI. The
+[dependency/activation record](development/completed-work.md)
+tracks the VSCE 4 packaging migration, zero-vulnerability lock audits, real-host
+activation repair, and removal of six inactive command advertisements. Main
+promotion, default-branch rescanning and extension publication remain release
+milestones; restoring dormant commands needs separate reviewed integration.
+
+### Multiagent continuation — October 7 checkpoint
+
+The original WS-A–WS-I implementation increments are **9/9 landed**. This does not
+mean every workload/model or lifecycle contract has passed. The canonical
+[formation ledger](architecture/multiagent-formation-coverage-handoff.md#15-completion-audit-updated-2026-10-07-cohort-dates-retained)
+retains separate cohort counts and the open mixed-team C5 verdict.
+
+Completed source milestones include interrupted-batch evidence (#1208) and opt-in
+single-action observations (#1209, included in v0.12.0). Asynchronous journal writes
+and transaction rollback (#1249) are a later main change. They do not establish
+backend receipt reconciliation or complete member continuation.
+
+Sandhi's strict buffered usage qualification merged in
+[#337](https://github.com/anvai-labs/sandhi/pull/337). Tracked buffered HTTP ownership
+and bounded recovery merged in [#338](https://github.com/anvai-labs/sandhi/pull/338).
+Two tracked SIGKILL/restart cases merged in
+[#339](https://github.com/anvai-labs/sandhi/pull/339) after clean review and green CI.
+[#340](https://github.com/anvai-labs/sandhi/pull/340) merged with all 11 applicable
+checks green and adds terminal publication under
+SQLite contention/process death: retained recovery commits one receipt; a lost RAM
+observation leaves unknown liability. Metrics are observations, not proof of spend.
+The next foundation checks cover tracked TLS/OIDC and streaming.
+These increments do not change serving 0.11.0
+or add live acceptance.
+
+Next, in dependency order:
+
+1. Reconcile main/develop, resolve recorded CI failures, and verify released gateway
+   and origin identities/readiness after restart; complete their settlement and
+   lifecycle gates before live formation acceptance.
+2. Qualify production G62 receipt adapters on the bound reconciliation capability
+   merged in #1255; preserve unknown outcomes and verify crash/restart behavior.
+3. Complete principal/member approval binding and member continuation (G61/G70),
+   restoring completed work without repeating uncertain effects.
+4. Run reviewed six-Qwen/one-ZAI C5 with unchanged accounting, session correlation,
+   timeout and deliverable gates; then finish matched local-model formation cohorts.
+5. Address strict hierarchical selection/delegation (G72) as an opt-in contract;
+   keep peer formations independent of a mandatory supervisor.
+
+The [canonical restart tracker](architecture/victor-agent-service-plan.md)
+contains concrete entry points and acceptance conditions. Broader Stage C,
+deployment-size and optional-SDK work retain their own owners; no new formation
+or default change is required to finish these safety milestones.
 
 ## Evaluation roadmap — existing gates and remaining work
 
@@ -173,7 +263,7 @@ extension, checksums, SBOM, GitHub Release, and Docker image. Source:
 
 | TD-20 | Framework stdout log volume | A stuck real-agent calibration wrote **~350 GB** to one redirected log and filled the disk (2026-07-06; held open by the live PID so `rm` freed nothing until killed). Root cause on investigation was *not* a single fat log line — every content log is already bounded (`reasoning[:500]`, `content[:300]`) or a short breadcrumb. It was a **wedged loop** (PID stuck 7.5 h) emitting the steady stream of per-turn INFO breadcrumbs across the flood-logger set into an unbounded file. Volume + accumulation are handled: `configure_logging` (calibration runner, quiet-by-default, #428) raises flood loggers to ERROR, and `os._exit` (#431) stops a wedged loop accumulating. **Residual gap #428 did not cover:** it raises to ERROR (not OFF), and several ERROR/WARNING error-path logs interpolated *untruncated* content (full ollama HTTP error bodies, full tool exception text/tracebacks) — so an error-spinning loop still floods in quiet mode. Fixed by capping those via `truncate_for_log` (`victor/core/utils/log_helpers.py`, 500-char ceiling) at the ollama provider + tool-retry/tool-service error paths. The per-turn breadcrumbs stay at INFO by design (cheap, useful interactively, already gated by #428 for batch runs); DB-migration logs are already guarded (`if migrated > 0`, `if version <`), firing once per DB open — cosmetic, not flood-scale. | Medium | Resolved | `victor/core/utils/log_helpers.py`, `victor/providers/ollama_provider.py`, `victor/agent/services/` |
 
-| TD-21 | Usage attribution + typed provider boundary | `sandhi` owns typed provider transport, usage/cache metering, virtual keys, budgets and proxy ingress. Victor pins `sandhi-gateway==0.10.1`; the 0.11.0 release includes the later streaming-accounting repair. Per-call reasoning accounting, totals and timing provenance reach the stream accumulator and session pricer; see the [consumer handoff](architecture/inferflux-reasoning-separation-handoff.md). Distinct protocol providers retain explicitly classified native paths. Canonical ledger: Sandhi `docs/td/TD-0002-typed-provider-runtime.md`; decisions: FEP-0020 and ADR-018. | High | Consumer correction published in v0.9.5; broader typed-runtime work continues | `victor/providers/`, `sandhi/crates/sandhi-{core,providers,proxy}/` |
+| TD-21 | Usage attribution + typed provider boundary | `sandhi` owns typed provider transport, usage/cache metering, virtual keys, budgets and proxy ingress. Victor pins `sandhi-gateway==0.13.0`; this release adds opt-in bounded standalone OpenAI Chat streaming settlement/recovery while retaining buffered accounting and Linux arm64 wheels. The embedded binding does not acquire proxy ledger enforcement. Consumer and deployment acceptance remain separately tracked in the [canonical ledger](architecture/victor-agent-service-plan.md). Per-call reasoning accounting, totals and timing provenance reach the stream accumulator and session pricer; see the [consumer handoff](architecture/inferflux-reasoning-separation-handoff.md). Distinct protocol providers retain explicitly classified native paths. Canonical ledger: Sandhi `docs/td/TD-0002-typed-provider-runtime.md`; decisions: FEP-0020 and ADR-018. | High | Consumer correction published in v0.9.5; broader typed-runtime work continues | `victor/providers/`, `sandhi/crates/sandhi-{core,providers,proxy}/` |
 
 | TD-22 | Interactive Terminal TUI | Build a first-class interactive **Textual** TUI (conversation pane, tool/diff pane, agent-state sidebar, keyboard nav) as a peer surface to the REPL and Chainlit web UI, driven by the existing `RenderAction` event stream — no new event vocabulary. Today only `victor/ui/tui/wire_timeline.py` (171 lines) exists and it merely *replays* a recorded JSONL stream; there is no live TUI, so terminal users must open a browser for the rich experience. Select via terminal-capability detection with the plain REPL as fallback. Decision: [ADR-020](architecture/adr/020-interactive-terminal-tui.md). **v1 shipped 2026-07-30** (`victor tui` / `victor chat --tui`, opt-in): `VictorTUIApp` with sidebar/conversation/status panes, live `feed_action` streaming, theming, capability-gated selection. **Diff pane shipped 2026-07-30** (`diff_pane.py`: unified colored diff auto-revealed on `edit`/`patch`/`replace_in_file`, F3 toggle / F4 cycle, reuses the `ToolPreviewRenderer` diff strategy). **Themes shipped 2026-07-30** (`themes.py`: dark/light/high-contrast registered Textual themes, `styles.tcss` variable-ized, `victor tui --theme`, F6 runtime cycle). TUI surface complete; the last ADR-020 item (per-member team streaming lanes) shipped via ADR-023/TD-25 (Done). | High | Done | `victor/ui/tui/` |
 

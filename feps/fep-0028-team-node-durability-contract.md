@@ -4,7 +4,7 @@ title: "Team-Node Durability Contract"
 type: Standards Track
 status: Accepted
 created: 2026-07-30
-modified: 2026-08-01
+modified: 2026-10-08
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -116,6 +116,33 @@ and `resume_completed` (seeds a resumed run). With neither set, the formation lo
 
 The identity/state shape above is the *base* contract, written verbatim by the sequential
 formations; each formation maps it onto its own **durable unit**:
+
+#### Checkpoint I/O failure boundary
+
+When an opt-in checkpointer and thread ID are configured, authoritative load or
+save errors must stop execution with a reconciliation error rather than silently
+start fresh or claim success. Pause markers and approval lane events follow the
+acknowledged pause save. A failed concurrent member save closes queued admission
+and retries. Opt-in concurrent execution closes admission before signalling workers
+on caller cancellation, then joins owned coroutines before propagating cancellation.
+Repeated stop requests do not interrupt that join. Pending cancellation is checked
+before and after checkpoint reads/saves, including translated store failures, so a
+late acknowledgement cannot publish approval or admit work. Materialized worktrees
+survive storage exceptions and cancellation even when cleanup was requested. Storage
+errors include paths in the dictionary result; cancellation still raises
+`CancelledError` and reports retained paths through best-effort `team.cancelled`
+telemetry. Telemetry is not durable terminal state. Checkpointer-free execution
+retains its existing behavior.
+
+A save error or cancellation may follow a successful commit. Neither permits
+member replay or a new side effect. These guarantees cover owned coroutines and
+pending `Task.cancelling()` requests, not adapters that explicitly clear cancellation,
+detached threads/provider work, process crashes or a bounded shutdown time for
+callbacks that never finish. Production receipt adapters, durable in-flight intents
+and safe whole-member continuation remain separate. Implementation and acceptance
+evidence belong to [VAS-12a/12b](../docs/architecture/victor-agent-service-plan.md) and
+[G79](../docs/architecture/multiagent-formation-coverage-handoff.md), not the original
+acceptance record above.
 
 #### Per-formation durability granularity
 

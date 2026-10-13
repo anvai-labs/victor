@@ -349,6 +349,7 @@ async def test_graph_indexing_pipeline_refreshes_module_metrics_after_changed_gr
     store = MagicMock()
     store.initialize = AsyncMock()
     store.delete_by_repo = AsyncMock()
+    store.stats = AsyncMock(return_value={"nodes": 1, "edges": 0})
     events: list[tuple[str, object]] = []
 
     config = GraphIndexConfig(

@@ -275,15 +275,17 @@ export class ToolExecutionService implements vscode.Disposable {
             return false;
         }
 
-        // Send cancellation request to backend
-        if (this.victorClient) {
-            try {
-                await this.victorClient.cancelToolExecution(id);
-            } catch (error) {
-                // Log but continue - we'll still update local state
-                console.warn('Failed to cancel tool execution on backend:', error);
-            }
+        // Only a confirmed pending-approval cancellation can be shown as
+        // cancelled. Missing transport/negative acknowledgement leaves it active.
+        if (!this.victorClient) return false;
+        try {
+            if (!await this.victorClient.cancelToolExecution(id)) return false;
+        } catch {
+            return false;
         }
+
+        // Completion/failure or a replacement may have arrived while awaiting HTTP.
+        if (this.executions.get(id) !== execution) return false;
 
         execution.status = 'cancelled';
         execution.endTime = Date.now();
@@ -501,10 +503,14 @@ export function registerToolExecutionCommands(
             );
 
             if (confirm === 'Cancel All') {
+                let cancelled = 0;
                 for (const exec of active) {
-                    await service.cancelExecution(exec.id);
+                    if (await service.cancelExecution(exec.id)) cancelled++;
                 }
-                vscode.window.showInformationMessage('All tool executions cancelled.');
+                vscode.window.showInformationMessage(
+                    `Cancellation confirmed for ${cancelled} of ${active.length} tool executions. ` +
+                    'Unconfirmed executions may still be running.'
+                );
             }
         })
     );

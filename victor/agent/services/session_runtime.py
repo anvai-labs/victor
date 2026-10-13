@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,11 @@ logger = logging.getLogger(__name__)
 class SessionRuntime:
     """Bridge orchestrator runtime state to the canonical session service."""
 
-    def __init__(self, runtime_host: Any) -> None:
+    def __init__(
+        self, runtime_host: Any, *, validate_session: Optional[Callable[[str], None]] = None
+    ) -> None:
         self._runtime = runtime_host
+        self._validate_session = validate_session
 
     def sync_runtime_state(self) -> None:
         """Keep SessionService bound to the current live runtime state."""
@@ -44,10 +47,13 @@ class SessionRuntime:
     def recover_session(self, session_id: str) -> bool:
         """Recover a previous conversation session."""
         runtime = self._runtime
+        if self._validate_session is not None:
+            self._validate_session(session_id)
         self.sync_runtime_state()
         success = runtime._session_service.recover_session(session_id)
         if success:
             runtime._memory_session_id = session_id
+            runtime.active_session_id = session_id
         return success
 
     def get_memory_context(self, max_tokens: Optional[int] = None) -> List[Dict[str, Any]]:

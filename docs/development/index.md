@@ -1,5 +1,8 @@
 # Development Guide
 
+[Repository map and module owners](repository-map.md) · [Completed and superseded work](completed-work.md)
+
+
 **Everything you need to contribute to Victor.**
 
 ## Quick Start

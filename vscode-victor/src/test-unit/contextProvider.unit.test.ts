@@ -2,8 +2,10 @@ import * as cp from 'child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ContextProvider } from '../contextProvider';
 
+type ChildProcessModule = typeof import('child_process');
+
 vi.mock('child_process', async (importOriginal) => ({
-    ...await importOriginal<typeof import('child_process')>(),
+    ...await importOriginal<ChildProcessModule>(),
     exec: vi.fn(),
     execFile: vi.fn(),
 }));

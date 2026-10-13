@@ -81,6 +81,7 @@ _BODY_REQUIRED_NODES = {"struct_specifier", "class_specifier", "enum_specifier"}
 # Symbol types that can contain other symbols (for CONTAINS resolution).
 _CONTAINER_SYMBOL_TYPES = frozenset(
     {
+        CodeSymbolType.MODULE,
         CodeSymbolType.CLASS,
         CodeSymbolType.STRUCT,
         CodeSymbolType.INTERFACE,
@@ -219,6 +220,8 @@ def _collect_calls(node, owner: CodeSymbol, src: bytes, file_path: str, relation
             if callee:
                 raw = _text(callee_node, src) if callee_node is not None else callee
                 qualifier = raw.rsplit(".", 1)[0] if "." in raw else None
+                if owner.language == "rust" and "::" in raw and "." not in raw:
+                    qualifier = raw.rsplit("::", 1)[0]
                 args = n.child_by_field_name("arguments")
                 arity = None
                 if args is not None:
@@ -337,6 +340,7 @@ def _handle_impl_item(child, src, file_path, language, frames, symbols, relation
         impl_traits.append((name, trait_name))
 
     body = child.child_by_field_name("body")
+    first_member = len(symbols)
     _walk_collect(
         body if body is not None else child,
         src,
@@ -347,6 +351,13 @@ def _handle_impl_item(child, src, file_path, language, frames, symbols, relation
         relations,
         impl_traits,
     )
+    # Same-named methods in different trait/generic impls are distinct symbols.
+    # Preserve type containment while discriminating identity with impl context.
+    impl_type = _text(type_node, src) if type_node is not None else name
+    impl_trait = _text(trait_node, src) if trait_node is not None else ""
+    for member in symbols[first_member:]:
+        if member.scope_chain == [*_scope_names(frames), name]:
+            member.signature = f"impl {impl_trait} for {impl_type} {member.signature or ''}"
 
 
 def _handle_go_type_spec(child, src, file_path, language, frames, symbols, relations):
@@ -415,7 +426,65 @@ def _go_receiver_type(node, src: bytes) -> str | None:
 def _walk_collect(node, src, file_path, language, frames, symbols, relations, impl_traits):
     for child in _children(node):
         t = child.type
-        if t == "impl_item":
+        if t == "object" and child.is_named and language in {"javascript", "typescript", "tsx"}:
+            # TypeScript also uses an unnamed `object` keyword in type positions.
+            # Only named object expressions introduce a literal scope.
+            # Anonymous object literals have a structural AST path, not a line ID.
+            # Comments/whitespace do not participate; inserting a sibling object
+            # can change the ordinal and requires a fresh graph generation.
+            path = []
+            current = child
+            while current.parent is not None and not (
+                current.parent.type in _FUNC_NODES and _name_of(current.parent, src) is not None
+            ):
+                parent = current.parent
+                peers = [n for n in parent.named_children if n.type != "comment"]
+                path.append(f"{current.type}:{peers.index(current)}")
+                current = parent
+            name = "<" + "/".join(reversed(path)) + ">"
+            _walk_collect(
+                child,
+                src,
+                file_path,
+                language,
+                [*frames, (name, "object")],
+                symbols,
+                relations,
+                impl_traits,
+            )
+        elif t == "mod_item" and language == "rust":
+            name = _name_of(child, src)
+            if name is None:
+                continue
+            module = _mk(
+                child,
+                src,
+                file_path,
+                language,
+                name,
+                CodeSymbolType.MODULE,
+                _scope_names(frames),
+            )
+            body = child.child_by_field_name("body")
+            module.metadata["rust_inline_module"] = body is not None
+            sibling = child.prev_named_sibling
+            while sibling is not None and sibling.type == "attribute_item":
+                if _rust_attribute_name(sibling, src) in {"path", "cfg_attr"}:
+                    module.metadata["rust_path_attribute"] = True
+                sibling = sibling.prev_named_sibling
+            symbols.append(module)
+            if body is not None:
+                _walk_collect(
+                    body,
+                    src,
+                    file_path,
+                    language,
+                    [*frames, (name, "module")],
+                    symbols,
+                    relations,
+                    impl_traits,
+                )
+        elif t == "impl_item":
             _handle_impl_item(
                 child, src, file_path, language, frames, symbols, relations, impl_traits
             )
@@ -452,7 +521,7 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                     child, src, file_path, language, frames, symbols, relations, impl_traits
                 )
                 continue
-            in_class = bool(frames) and frames[-1][1] == "class"
+            in_class = bool(frames) and frames[-1][1] in {"class", "object"}
             stype = CodeSymbolType.METHOD if in_class else CodeSymbolType.FUNCTION
             if name in ("constructor", "__init__", "new"):
                 stype = CodeSymbolType.CONSTRUCTOR
@@ -527,16 +596,126 @@ def _param_signature(node, src) -> str | None:
     return None
 
 
+def _rust_attribute_name(node, src: bytes) -> str | None:
+    for attribute in node.named_children:
+        if attribute.type == "attribute" and attribute.named_children:
+            return _text(attribute.named_children[0], src)
+    return None
+
+
+def _rust_cfg_attributes(node, src: bytes) -> list[str]:
+    attributes: list[str] = []
+    ancestor = node
+    while ancestor is not None:
+        sibling = ancestor.prev_named_sibling
+        while sibling is not None and sibling.type == "attribute_item":
+            if _rust_attribute_name(sibling, src) in {"cfg", "cfg_attr"}:
+                attributes.append(_text(sibling, src))
+            sibling = sibling.prev_named_sibling
+        for child in ancestor.named_children:
+            if child.type == "inner_attribute_item" and _rust_attribute_name(child, src) in {
+                "cfg",
+                "cfg_attr",
+            }:
+                attributes.append(_text(child, src))
+        ancestor = ancestor.parent
+    return attributes
+
+
+def _javascript_bound_names(node, src: bytes) -> list[str]:
+    """Record parameter and assignment shadowing in enclosing lexical scopes."""
+    names: set[str] = set()
+    value = node.child_by_field_name("value")
+    ancestor = value if value is not None and value.type in _FUNC_NODES else node
+    while ancestor is not None:
+        if ancestor.type in _FUNC_NODES or ancestor.type == "program":
+            stack = list(ancestor.named_children)
+            parameter = (
+                ancestor.child_by_field_name("parameter")
+                if ancestor.type == "arrow_function"
+                else None
+            )
+            if parameter is not None:
+                names.add(_text(parameter, src))
+            while stack:
+                item = stack.pop()
+                if (
+                    item.type in _FUNC_NODES and _name_of(item, src) is not None
+                ) or item.type in _CLASS_NODES:
+                    continue
+                field = None
+                if item.type == "arrow_function":
+                    field = item.child_by_field_name("parameter")
+                elif item.type == "catch_clause":
+                    field = item.child_by_field_name("parameter")
+                elif item.type in {"required_parameter", "optional_parameter"}:
+                    field = item.child_by_field_name("pattern")
+                elif item.type in {"assignment_expression", "augmented_assignment_expression"}:
+                    field = item.child_by_field_name("left")
+                elif item.type == "variable_declarator":
+                    value = item.child_by_field_name("value")
+                    owner = item.parent
+                    while owner is not None and owner.type not in _FUNC_NODES:
+                        owner = owner.parent
+                    if value is None or value.type not in _FUNC_NODES or owner is not None:
+                        field = item.child_by_field_name("name")
+                elif (
+                    item.parent is not None
+                    and item.parent.type == "formal_parameters"
+                    and item.type == "identifier"
+                ):
+                    field = item
+                if field is not None:
+                    pending = [field]
+                    while pending:
+                        part = pending.pop()
+                        if part.type in {"identifier", "shorthand_property_identifier_pattern"}:
+                            names.add(_text(part, src))
+                        elif part.type != "member_expression":
+                            pending.extend(part.named_children)
+                stack.extend(item.named_children)
+        ancestor = ancestor.parent
+    return sorted(names)
+
+
+def _javascript_conditional(node) -> bool:
+    ancestor = node.parent
+    while ancestor is not None:
+        if ancestor.type in {
+            "if_statement",
+            "else_clause",
+            "switch_case",
+            "for_statement",
+            "for_in_statement",
+            "while_statement",
+            "do_statement",
+            "catch_clause",
+        }:
+            return True
+        if ancestor.type == "statement_block" and (
+            ancestor.parent is None or ancestor.parent.type not in _FUNC_NODES
+        ):
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
     start_line = node.start_point[0] + 1
     end_line = node.end_point[0] + 1
     fqn = "::".join([file_path.replace("/", "."), *scope, name])
+    signature = None if stype == CodeSymbolType.MODULE else _param_signature(node, src)
+    attributes: list[str] = []
+    if language == "rust":
+        attributes = _rust_cfg_attributes(node, src)
+        if attributes:
+            signature = " ".join([*reversed(attributes), signature or ""])
     return CodeSymbol(
         id=deterministic_symbol_id(file_path, name, start_line, node.start_point[1]),
         symbol_type=stype,
         fully_qualified_name=fqn,
         simple_name=name,
-        signature=_param_signature(node, src),
+        signature=signature,
         location=SourceLocation(
             file_path=file_path,
             start_line=start_line,
@@ -550,6 +729,14 @@ def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
         language=language,
         scope_chain=list(scope),
         complexity={"lines": end_line - start_line + 1},
+        metadata=(
+            {
+                "javascript_bound_names": _javascript_bound_names(node, src),
+                "javascript_conditional": _javascript_conditional(node),
+            }
+            if language in {"javascript", "typescript", "tsx"}
+            else {"rust_conditional": True} if attributes else {}
+        ),
     )
 
 
@@ -583,9 +770,13 @@ def _build_contains(symbols: list[CodeSymbol]) -> list[CodeRelation]:
 
     for s in symbols:
         if s.scope_chain:
-            parent = by_path.get(tuple(s.scope_chain))
-            if parent is not None:
-                _emit(parent, s.id)
+            scope = list(s.scope_chain)
+            while scope:
+                parent = by_path.get(tuple(scope))
+                if parent is not None:
+                    _emit(parent, s.id)
+                    break
+                scope.pop()
         receiver = s.metadata.get("receiver")
         if receiver:
             parent = by_path.get((*s.scope_chain, receiver))
@@ -620,7 +811,8 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
 
     for child in _children(root):
         if child.type in _IMPORT_NODES:
-            imports.append(_text(child, src))
+            prefix = _rust_cfg_attributes(child, src) if language == "rust" else []
+            imports.append(" ".join([*prefix, _text(child, src)]))
         elif child.type == "export_statement":
             exported = _text(child, src)
             # Re-exports create a module dependency; plain declarations do not.

@@ -121,8 +121,8 @@ are verified independently of that retained historical material.
 | `docs/guides/task_completion.md` | 278 | ASCII candidate | Architecture | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
 | `docs/guides/vertical-quickstart.md` | 102 | Mermaid | Vertical Architecture | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
 | `docs/guides/vertical-quickstart.md` | 149 | Mermaid | Multi-Stage Vertical | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
-| `docs/guides/workflow-development/examples.md` | 17 | ASCII candidate | Current Architecture Diagram | D1 historical archive: original diagram retained in workflow-consolidation-plan-historical.md |
-| `docs/guides/workflow-development/examples.md` | 174 | ASCII candidate | Phase 4: Single Execution Engine (SRP) | D1 historical archive: original diagram retained in workflow-consolidation-plan-historical.md |
+| `docs/guides/workflow-development/examples.md` | 17 | ASCII candidate | Current Architecture Diagram | D1 historical archive: original diagram preserved in [immutable historical source](https://github.com/anvai-labs/victor/blob/76384b0e455bcaea29c4046a15ff0092cfe6df1d/docs/architecture/workflow-consolidation-plan-historical.md) |
+| `docs/guides/workflow-development/examples.md` | 174 | ASCII candidate | Phase 4: Single Execution Engine (SRP) | D1 historical archive: original diagram preserved in [immutable historical source](https://github.com/anvai-labs/victor/blob/76384b0e455bcaea29c4046a15ff0092cfe6df1d/docs/architecture/workflow-consolidation-plan-historical.md) |
 | `docs/guides/workflow-development/scheduling.md` | 69 | ASCII candidate | Cron Expressions | Retain file-tree or notation block; not a runtime topology |
 | `docs/guides/workflow-quickstart.md` | 41 | ASCII candidate | Workflow Structure | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
 | `docs/index.md` | 22 | Mermaid | Architecture at a Glance | Refresh Mermaid or replace duplicate topology with a canonical diagram link |

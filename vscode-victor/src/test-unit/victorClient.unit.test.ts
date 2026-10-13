@@ -96,6 +96,25 @@ describe('VictorClient API methods', () => {
         client = new VictorClient('http://localhost:8765');
     });
 
+    it.each([false, 'true', 1, undefined])('does not confirm cancellation from %s', async (cancelled) => {
+        mockClient.post.mockResolvedValueOnce({ data: { tool_call_id: 'call-1', cancelled } });
+        expect(await client.cancelToolExecution('call-1')).toBe(false);
+    });
+
+    it('uses the acknowledged HTTP operation even with an open WebSocket', async () => {
+        const send = vi.fn();
+        Object.assign(client, { wsConnection: { readyState: 1, send } });
+        mockClient.post.mockResolvedValueOnce({ data: { tool_call_id: 'call-1', cancelled: true } });
+        expect(await client.cancelToolExecution('call-1')).toBe(true);
+        expect(mockClient.post).toHaveBeenCalledExactlyOnceWith('/tools/cancel', { tool_call_id: 'call-1' });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it('rejects a cancellation acknowledgement for another tool call', async () => {
+        mockClient.post.mockResolvedValueOnce({ data: { tool_call_id: 'other', cancelled: true } });
+        expect(await client.cancelToolExecution('call-1')).toBe(false);
+    });
+
     it('chat() POSTs to /chat and normalizes the response payload', async () => {
         mockClient.post.mockResolvedValue({ data: { role: 'assistant', content: 'hi', tool_calls: [{ id: 't1' }] } });
         const res = await client.chat([{ role: 'user', content: 'hello' } as any]);
@@ -110,6 +129,41 @@ describe('VictorClient API methods', () => {
         expect(res.role).toBe('assistant');
         expect(res.content).toBe('');
     });
+
+    it('preserves a paused run without treating its content as a final answer', async () => {
+        const paused = {
+            role: 'assistant', content: 'partial draft', status: 'awaiting_approval',
+            run_id: 'run-approval', approval_request: { id: 'approval-1', metadata: { hash: 'abc' } },
+        };
+        mockClient.post.mockResolvedValueOnce({ status: 202, data: paused });
+        expect(await client.chat([{ role: 'user', content: 'write' }])).toMatchObject(paused);
+        expect(mockClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        { status: 'awaiting_approval', approval_request: {} },
+        { status: 'awaiting_approval', run_id: ' ', approval_request: {} },
+        { status: 'awaiting_approval', run_id: 'run', approval_request: null },
+        { status: 'awaiting_approval', run_id: 'run', approval_request: [] },
+        { status: 'ok' }, {},
+    ])('rejects incomplete or contradictory HTTP 202 outcomes: %j', async data => {
+        mockClient.post.mockResolvedValueOnce({ status: 202, data });
+        await expect(client.chat([{ role: 'user', content: 'write' }])).rejects.toMatchObject({
+            name: 'ChatOutcomeError',
+        });
+        expect(mockClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([null, [], { status: 'failed' }, { status: null },
+        { status: 'ok', run_id: 'run', approval_request: { id: 'a1' } }])(
+        'rejects unsupported chat outcomes without retry: %j', async data => {
+            mockClient.post.mockResolvedValueOnce({ status: 200, data });
+            await expect(client.chat([{ role: 'user', content: 'write' }])).rejects.toMatchObject({
+                name: 'ChatOutcomeError',
+            });
+            expect(mockClient.post).toHaveBeenCalledTimes(1);
+        }
+    );
 
     it('semanticSearch() POSTs to /search/semantic and returns results', async () => {
         mockClient.post.mockResolvedValue({ data: { results: [{ file: 'a.ts' }] } });

@@ -49,11 +49,19 @@ from victor_contracts.workflow_runtime import (
 
 
 def test_processing_runtime_exports_host_helpers() -> None:
+    from victor.native.protocols import (
+        ChunkInfo as HostChunkInfo,
+        TextChunkerProtocol as HostChunker,
+    )
+    from victor_contracts.processing_runtime import ChunkInfo, TextChunkerProtocol
+
     assert EditTransaction.__name__ == "EditTransaction"
     assert CompletionItem.__name__ == "CompletionItem"
     assert Position.__name__ == "Position"
     assert CompletionItemKind.__name__ == "CompletionItemKind"
     assert callable(get_default_text_chunker)
+    assert ChunkInfo is HostChunkInfo
+    assert TextChunkerProtocol is HostChunker
 
 
 def test_lsp_runtime_exports_host_helpers() -> None:
@@ -182,8 +190,13 @@ def test_graph_runtime_deprecated_but_resolves() -> None:
 
 
 def test_handler_runtime_deprecated_but_resolves() -> None:
+    from victor_contracts import handler_runtime
+
     with pytest.warns(DeprecationWarning, match=r"handler_runtime is deprecated.*0\.10\.0"):
         from victor_contracts.handler_runtime import BaseHandler, handler_decorator
+
+        for name in handler_runtime.__all__:
+            assert getattr(handler_runtime, name) is not None
 
     assert BaseHandler.__name__ == "BaseHandler"
     assert callable(handler_decorator)

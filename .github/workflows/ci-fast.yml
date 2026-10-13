@@ -136,10 +136,10 @@ jobs:
           cache: pip
 
       - name: Install MyPy
-        run: pip install mypy types-pyyaml types-aiofiles
+        run: python -m pip install "$(python scripts/ci/release_contract.py mypy)" types-pyyaml types-aiofiles
 
       - name: Type check with MyPy
-        run: mypy victor
+        run: mypy
 
   strict-typecheck:
     name: Global Strict Type Gate (MyPy)
@@ -154,16 +154,14 @@ jobs:
           cache: pip
 
       - name: Install MyPy
-        run: pip install mypy types-pyyaml types-aiofiles
+        run: python -m pip install "$(python scripts/ci/release_contract.py mypy)" types-pyyaml types-aiofiles
 
       - name: Enforce global strict type checking
         run: |
-          # M3 achievement (2026-03-10): Global strict mode enabled
-          # M1 baseline: 6 modules
-          # M1 expansion: +5 modules (total 11)
-          # M2 expansion: +4 modules (total 15)
-          # M3: Global strict enabled for entire codebase
-          mypy victor --strict
+          # pyproject owns the source targets: core plus the unsuppressed SDK.
+          # G96 tracks remaining legacy core suppression; this is not yet
+          # whole-repository unsuppressed qualification.
+          mypy --strict
 
   imports:
     name: Import Check
@@ -411,7 +409,7 @@ jobs:
           else
             changed=true
           fi
-          if printf '%s\n' "${files:-}" | grep -Eq '^(vscode-victor/|\.github/workflows/(build|ci-fast|release)\.yml$)'; then
+          if printf '%s\n' "${files:-}" | grep -Eq '^(vscode-victor/|web/server/|victor/integrations/api/|victor/config/|victor/framework/wire_events\.py$|tests/unit/framework/test_wire_events[^/]*\.py$|tests/unit/api/test_vscode_extension_contract\.py$|tests/unit/framework/test_web_server_boundary\.py$|\.github/workflows/(build|ci-fast|release)\.yml$)'; then
             changed=true
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
@@ -420,7 +418,7 @@ jobs:
         if: steps.vscode-changes.outputs.changed == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version-file: vscode-victor/.nvmrc
           cache: npm
           cache-dependency-path: |
             vscode-victor/package-lock.json
@@ -441,6 +439,16 @@ jobs:
           cd ..
           xvfb-run -a npm test
           npx vsce package --no-dependencies
+
+      - name: Verify compiled VS Code client against real HTTP routers
+        if: steps.vscode-changes.outputs.changed == 'true'
+        env:
+          VICTOR_REQUIRE_VSCODE_HTTP_SMOKE: "1"
+          VICTOR_ENABLE_MLX_PROVIDER: "0"
+        run: |
+          python -m venv .venv-codesign
+          .venv-codesign/bin/python -m pip install -e ./victor-contracts -e ".[api]" pytest pytest-asyncio pytest-cov
+          .venv-codesign/bin/python -m pytest tests/unit/api/test_vscode_extension_contract.py tests/unit/framework/test_web_server_boundary.py --no-cov -q
 
       - name: Check archive/victor-legacy guard
         if: github.event_name == 'pull_request'
@@ -557,7 +565,7 @@ jobs:
             exit 0
           fi
           echo "Running ${#TARGETS[@]} changed-file test target(s):"; printf '  %s\n' "${TARGETS[@]}"
-          pytest "${TARGETS[@]}" \
+          python -m pytest "${TARGETS[@]}" \
             -m "not slow" \
             --tb=short \
             -q \

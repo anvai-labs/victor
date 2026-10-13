@@ -15,6 +15,48 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
+@pytest.mark.timeout(260)
+def test_tool_execution_collaborators_are_statically_checked(tmp_path):
+    """The real constructor rejects missing dependencies and incompatible contracts."""
+    import subprocess
+    import sys
+
+    fixture = tmp_path / "tool_contract_probe.py"
+    valid = """from victor.agent.services.tool_execution_runtime import ToolExecutionRuntime
+from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
+from victor.agent.services.tool_execution_contracts import ToolBatchExecution, ToolResultPublication
+
+def bind(adapter: OrchestratorProtocolAdapter) -> ToolExecutionRuntime:
+    execution: ToolBatchExecution = adapter
+    publication: ToolResultPublication = adapter
+    return ToolExecutionRuntime(adapter, execution=execution, publication=publication)
+"""
+
+    def check(source):
+        fixture.write_text(source)
+        return subprocess.run(
+            [sys.executable, "-m", "mypy", "--strict", "--follow-imports=silent", str(fixture)],
+            text=True,
+            capture_output=True,
+            timeout=120,
+        )
+
+    positive = check(valid)
+    assert positive.returncode == 0, positive.stdout + positive.stderr
+    negative = check(valid + """
+def invalid(adapter: OrchestratorProtocolAdapter) -> None:
+    ToolExecutionRuntime(adapter)
+    ToolExecutionRuntime(adapter, execution=object(), publication=object())
+""")
+    assert negative.returncode == 1, negative.stdout + negative.stderr
+    assert 'Missing named argument "execution"' in negative.stdout
+    assert 'Missing named argument "publication"' in negative.stdout
+    assert 'Argument "execution"' in negative.stdout and '"ToolBatchExecution"' in negative.stdout
+    assert (
+        'Argument "publication"' in negative.stdout and '"ToolResultPublication"' in negative.stdout
+    )
+
+
 class TestISPRoleProtocols:
     """ISP role-protocols defined in protocols.py must be satisfied by OrchestratorCapabilityMixin."""
 

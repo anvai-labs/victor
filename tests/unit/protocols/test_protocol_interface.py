@@ -410,9 +410,12 @@ class TestChatResponse:
             usage={"total_tokens": 150},
         )
         d = resp.to_dict()
-        assert d["content"] == "Done"
-        assert d["finish_reason"] == "stop"
-        assert d["usage"]["total_tokens"] == 150
+        assert d == {
+            "content": "Done",
+            "tool_calls": [],
+            "finish_reason": "stop",
+            "usage": {"total_tokens": 150},
+        }
 
     def test_from_dict(self):
         """Test from_dict deserialization."""
@@ -444,6 +447,38 @@ class TestChatResponse:
         resp = ChatResponse.from_dict(data)
         assert resp.finish_reason == "stop"
         assert resp.usage == {}
+
+    def test_paused_metadata_survives_roundtrip_without_stop(self):
+        payload = {
+            "content": "partial draft",
+            "tool_calls": None,
+            "status": "awaiting_approval",
+            "run_id": "run-1",
+            "approval_request": {"id": "approval-1", "metadata": {"hash": "abc"}},
+        }
+        response = ChatResponse.from_dict(payload)
+        assert response.status == "awaiting_approval"
+        assert response.run_id == "run-1"
+        assert response.approval_request == payload["approval_request"]
+        assert response.finish_reason == "awaiting_approval"
+        assert ChatResponse.from_dict(response.to_dict()) == response
+
+    @pytest.mark.parametrize(
+        "metadata",
+        [
+            {"status": "unknown"},
+            {"status": None},
+            {"status": "ok", "approval_request": {}},
+            {"run_id": 9},
+            {"status": "awaiting_approval", "run_id": " ", "approval_request": {}},
+            {"status": "awaiting_approval", "run_id": "r", "approval_request": []},
+            {"status": "awaiting_approval", "run_id": "r"},
+            {"status": "awaiting_approval", "approval_request": {}},
+        ],
+    )
+    def test_rejects_invalid_outcome_metadata(self, metadata):
+        with pytest.raises(ValueError):
+            ChatResponse.from_dict({"content": "partial", **metadata})
 
 
 # =============================================================================

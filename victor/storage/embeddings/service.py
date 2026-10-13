@@ -48,6 +48,11 @@ from victor.agent.debug_logger import TRACE
 # This prevents "bad value(s) in fds_to_keep" errors in async contexts
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from victor_codegraph.embeddings import EmbeddingProfile
+
 logger = logging.getLogger(__name__)
 
 np = None  # type: ignore[assignment]
@@ -196,6 +201,7 @@ class EmbeddingService:
         """
         with cls._lock:
             if cls._instance is not None:
+                cls._instance.clear_cache()
                 cls._instance._model = None
                 cls._instance = None
                 logger.info("Reset EmbeddingService singleton")
@@ -271,6 +277,7 @@ class EmbeddingService:
                             self.model_name,
                             device=self.device,
                         )
+                    self.clear_cache()
                     self._dimension = self._model.get_sentence_embedding_dimension()
                     self._initialized = True
                     load_time = time.perf_counter() - load_start
@@ -302,6 +309,26 @@ class EmbeddingService:
                 self.model_name,
                 last_err,
             )
+
+    @property
+    def profile(self) -> "EmbeddingProfile":
+        """Report the loaded model's actual immutable graph-embedding contract.
+
+        Lazy import keeps the optional codegraph package off other service paths.
+        Unknown/local unversioned models cannot claim reusable semantic provenance.
+        """
+        from victor_codegraph.embeddings import EmbeddingProfile
+
+        self._ensure_model_loaded()
+        if self._model is None:
+            raise RuntimeError("semantic model is unavailable")
+        revision = getattr(self._model[0].auto_model.config, "_commit_hash", None)
+        return EmbeddingProfile(
+            model_id=self.model_name,
+            revision=revision or "",
+            dimension=int(self._model.get_sentence_embedding_dimension()),
+            max_tokens=int(self._model.max_seq_length),
+        )
 
     @staticmethod
     def _is_transient_load_error(exc: Exception) -> bool:

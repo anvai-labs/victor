@@ -21,6 +21,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private _activeToolCalls: ToolCall[] = [];
     private _trackedToolCalls: Map<string, ToolCall> = new Map();
     private readonly _eventBridge: EventBridgeClient;
+    private _eventBridgeStarted = false;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -28,6 +29,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly _log?: vscode.OutputChannel
     ) {
         this._eventBridge = getEventBridgeClient();
+        this._disposables.push(this._client.onConnectionChange(() => {
+            if (this._eventBridgeStarted) this._ensureEventBridgeConnected();
+        }));
         this._disposables.push(this._eventBridge.onAny((event) => {
             this._handleEventBridgeEvent(event);
         }));
@@ -45,9 +49,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public dispose(): void {
+        this._eventBridgeStarted = false;
+        this._view = undefined;
         // Clean up all registered event listeners
         this._disposables.forEach(d => d.dispose());
         this._disposables = [];
+        this._eventBridge.disconnect();
     }
 
     public resolveWebviewView(
@@ -240,9 +247,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private _ensureEventBridgeConnected(): void {
-        this._eventBridge.connect(this._client.getServerUrl(), {
+        this._eventBridgeStarted = true;
+        const { serverUrl, apiToken } = this._client.getConnectionConfig();
+        this._eventBridge.connect(serverUrl, {
             categories: ['tool.start', 'tool.progress', 'tool.complete', 'tool.error'],
-        });
+        }, apiToken);
     }
 
     private _handleStreamEvent(event: StreamEvent): void {

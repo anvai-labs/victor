@@ -31,6 +31,7 @@ needs on top of the transcript.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from copy import deepcopy
 import sqlite3
@@ -197,7 +198,8 @@ class ProjectDbPausedRunStore:
 
     Self-manages the ``paused_run`` table (idempotent ``CREATE TABLE IF NOT EXISTS``) against the
     project database, mirroring ``ConversationStore`` (the pause is a property of a project-scoped
-    conversation). Uses a thread-local connection. JSON-encodes the approval request / pending tool /
+    conversation). Methods may run on worker threads; subclasses must preserve this
+    thread-safe contract. Uses a thread-local connection. JSON-encodes the approval request / pending tool /
     metadata. Accepts an explicit ``db_path`` so tests can point at a temporary database.
     """
 
@@ -237,11 +239,19 @@ class ProjectDbPausedRunStore:
                 conn.rollback()
                 raise
 
-    def begin_action(self, run_id: str, binding: Dict[str, Any]) -> Dict[str, Any]:
+    def begin_action(
+        self, run_id: str, binding: Dict[str, Any], *, recovery: Dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         """Atomically persist intent; an existing intent never authorizes replay."""
         from victor.agent.action_observation import begin_record
 
-        return self._change_action(run_id, lambda run: begin_record(run, binding))
+        return self._change_action(run_id, lambda run: begin_record(run, binding, recovery))
+
+    def retain_receipt(self, run_id: str, request: Any, receipt: Any) -> Dict[str, Any]:
+        """Compare and retain immutable backend evidence; never reopen or dispatch."""
+        from victor.agent.action_observation import retain_receipt_record
+
+        return self._change_action(run_id, lambda run: retain_receipt_record(run, request, receipt))
 
     def observe_action(
         self, run_id: str, action_id: str, state: str, reported_success: Optional[bool]
@@ -392,6 +402,36 @@ class ProjectDbPausedRunStore:
             conn.commit()
 
 
+def _claim_for_resume(store: PausedRunStoreProtocol, run_id: str) -> PausedRun:
+    """Expire, load and claim once through the captured store's existing methods."""
+    store.expire_pending(max_age_seconds=DEFAULT_PAUSE_TTL_SECONDS)
+    paused = store.get(run_id)
+    if paused is None:
+        raise ValueError(f"Unknown paused run: {run_id}")
+    if getattr(paused, "status", None) == "expired":
+        raise ValueError(f"Paused run expired: {run_id}")
+    if not store.mark_resumed(run_id):
+        raise ValueError(f"Paused run already resumed or not pending: {run_id}")
+    return paused
+
+
+async def claim_for_resume(store: PausedRunStoreProtocol, run_id: str) -> PausedRun:
+    """Keep built-in persistent admission off the event loop, without replay.
+
+    ProjectDbPausedRunStore (and its subclasses) owns thread-local connections
+    and synchronized writes. Other injected stores retain caller-thread behavior;
+    the protocol does not impose a new thread-safety requirement on them.
+
+    Cancelling the waiter cannot stop an already-running database worker. Its
+    single-use claim may still commit; it is never reopened here. Session restore
+    and dispatch belong to the caller only after a successful await. Store errors
+    propagate without retry or synchronous fallback.
+    """
+    if isinstance(store, ProjectDbPausedRunStore):
+        return await asyncio.to_thread(_claim_for_resume, store, run_id)
+    return _claim_for_resume(store, run_id)
+
+
 _store: Optional[PausedRunStoreProtocol] = None
 _store_lock = threading.Lock()
 
@@ -427,21 +467,15 @@ def reset_paused_run_store() -> None:
         _store = None
 
 
-def record_pause_from_approval(
+def _pause_values(
     request: Any,
     *,
     session_id: Optional[str],
     agent_id: Optional[str],
     created_at: float = 0.0,
     metadata: Optional[Dict[str, Any]] = None,
-) -> Tuple[str, Dict[str, Any]]:
-    """Persist a pause from an :class:`ApprovalPause`'s request (FEP-0029). Shared helper.
-
-    Extracts the pending gated tool (name/args) from the approval request's context and writes a
-    ``paused_run`` via :func:`get_paused_run_store`. Used by BOTH the turn boundary (a fresh ASK,
-    ``message_execution``) and resume continuation (a chained ASK, ``durable_resume``) so the
-    extraction + store write live in one place. Returns ``(run_id, approval_request_dict)``.
-    """
+) -> Dict[str, Any]:
+    """Snapshot approval, binding and metadata before persistence can yield."""
     req_dict: Dict[str, Any] = request.to_dict() if hasattr(request, "to_dict") else {}
     ctx = getattr(request, "context", {}) or {}
     tool_name = ctx.get("tool_name") or ctx.get("tool")
@@ -461,12 +495,63 @@ def record_pause_from_approval(
             "request_id": req_dict.get("id"),
             "expires_at": req_dict.get("created_at", 0) + req_dict.get("timeout_seconds", 0),
         }
-    run_id = get_paused_run_store().save(
+    return deepcopy(
+        {
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "approval_request": req_dict,
+            "pending_tool": pending_tool,
+            "created_at": created_at,
+            "metadata": metadata,
+        }
+    )
+
+
+def record_pause_from_approval(
+    request: Any,
+    *,
+    session_id: Optional[str],
+    agent_id: Optional[str],
+    created_at: float = 0.0,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """Persist a pause synchronously through the shared approval snapshot owner."""
+    values = _pause_values(
+        request,
         session_id=session_id,
         agent_id=agent_id,
-        approval_request=req_dict,
-        pending_tool=pending_tool,
         created_at=created_at,
         metadata=metadata,
     )
-    return run_id, req_dict
+    return get_paused_run_store().save(**values), values["approval_request"]
+
+
+async def record_pause_from_approval_async(
+    request: Any,
+    *,
+    session_id: Optional[str],
+    agent_id: Optional[str],
+    created_at: float = 0.0,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """Persist before publishing a pause, without blocking on built-in SQLite I/O.
+
+    Snapshot inputs and capture the store before yielding. Only the built-in
+    persistent backend (including its thread-safe subclasses) runs in a worker;
+    injected stores retain caller-thread semantics. Errors propagate without retry.
+    Cancellation cannot stop an in-flight SQLite commit: one pending pause may
+    remain, but this helper never publishes, resaves or dispatches after cancellation.
+    """
+    values = _pause_values(
+        request,
+        session_id=session_id,
+        agent_id=agent_id,
+        created_at=created_at,
+        metadata=metadata,
+    )
+    store = get_paused_run_store()
+    if isinstance(store, ProjectDbPausedRunStore):
+        run_id = await asyncio.to_thread(store.save, **values)
+    else:
+        run_id = store.save(**values)
+    return run_id, values["approval_request"]

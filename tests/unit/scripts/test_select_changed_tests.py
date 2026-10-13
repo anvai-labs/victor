@@ -66,6 +66,17 @@ def test_selector_changes_select_its_own_regressions():
 @pytest.mark.parametrize(
     ("source", "owners"),
     [
+        *[
+            (
+                f"victor/providers/{provider}_provider.py",
+                [
+                    "tests/unit/providers/test_provider_stream_aclosing.py",
+                    "tests/unit/providers/test_sandhi_openai_compat_policy.py",
+                ]
+                + (["tests/unit/providers/test_groq_provider.py"] if provider == "groq" else []),
+            )
+            for provider in ("deepseek", "cerebras", "groq")
+        ],
         (
             "victor/agent/orchestrator_creation.py",
             ["tests/unit/agent/test_profile_reasoning.py"],
@@ -75,11 +86,45 @@ def test_selector_changes_select_its_own_regressions():
             ["tests/unit/framework/test_model_effort.py"],
         ),
         (
+            "victor/agent/services/orchestrator_protocol_adapter.py",
+            [
+                "tests/unit/agent/services/test_orchestrator_service_delegation.py",
+                "tests/unit/agent/services/test_protocol_adapter_kwarg_strip.py",
+                "tests/unit/agent/services/test_service_runtime_parity.py",
+            ],
+        ),
+        (
+            "victor/agent/services/tool_execution_contracts.py",
+            [
+                "tests/unit/agent/services/test_tool_execution_runtime.py",
+                "tests/unit/agent/services/test_typed_contracts.py",
+            ],
+        ),
+        (
             "victor/agent/services/chat_persistence.py",
             [
                 "tests/unit/agent/services/test_chat_service.py",
                 "tests/unit/agent/test_orchestrator_core.py",
                 "tests/unit/runtime/test_hotspot_size_guard.py",
+            ],
+        ),
+        (
+            "victor/agent/paused_run_store.py",
+            [
+                "tests/unit/framework/test_durable_chat_pause.py",
+                "tests/unit/framework/test_streaming_pause.py",
+                "tests/unit/agent/test_paused_run_persistence.py",
+                "tests/unit/agent/test_paused_run_expiry.py",
+                "tests/unit/agent/test_durable_resume.py",
+                "tests/unit/framework/test_client_resume.py",
+            ],
+        ),
+        (
+            "victor/framework/action_recovery.py",
+            [
+                "tests/unit/agent/test_durable_resume.py",
+                "tests/unit/agent/test_paused_run_persistence.py",
+                "tests/unit/framework/test_client_resume.py",
             ],
         ),
         (
@@ -100,6 +145,24 @@ def test_selector_changes_select_its_own_regressions():
             ],
         ),
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
+        (
+            "victor/integrations/protocol/__init__.py",
+            [
+                "tests/unit/protocols/test_protocol_interface.py",
+                "tests/unit/protocols/test_protocol_adapters.py",
+            ],
+        ),
+        (
+            "victor/integrations/protocol/interface.py",
+            ["tests/unit/protocols/test_protocol_interface.py"],
+        ),
+        (
+            "victor/integrations/protocol/adapters.py",
+            [
+                "tests/unit/protocols/test_protocol_adapters.py",
+                "tests/unit/api/test_vscode_extension_contract.py",
+            ],
+        ),
         (
             "victor/agent/strategies/provider_strategies.py",
             ["tests/unit/providers/test_provider_components.py"],
@@ -159,6 +222,10 @@ def test_selector_changes_select_its_own_regressions():
                 "tests/unit/agent/test_continuation_loop_fix.py",
                 "tests/unit/agent/test_tool_pipeline.py",
             ],
+        ),
+        (
+            "victor/storage/vector_stores/models.py",
+            ["tests/unit/embeddings/test_embedding_models.py"],
         ),
         (
             "victor/framework/policies/gate.py",

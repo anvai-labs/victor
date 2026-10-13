@@ -63,8 +63,9 @@ install:
 	pip install -e .
 
 install-dev:
-	# Contracts first (see `install`) — keeps dev/CI on the in-repo SDK, not PyPI.
+	# Shared packages first: source consumers must not resolve older PyPI contracts.
 	pip install -e ./victor-contracts
+	pip install -e ./victor-codegraph
 	pip install -e ".[dev,docs,build]"
 	pip install pre-commit pytest-split
 	pre-commit install || true
@@ -93,6 +94,7 @@ install-standalone:
 	# Contracts FIRST (see `install`) so victor-ai resolves the local
 	# victor-contracts, not the last PyPI release.
 	"$(VENV)/bin/python" -m pip install -e ./victor-contracts
+	"$(VENV)/bin/python" -m pip install -e ./victor-codegraph
 	"$(VENV)/bin/python" -m pip install -e ".[dev,docs,build]"
 	"$(VENV)/bin/python" -m pip install pre-commit pytest-split
 	@for v in $(VERTICALS); do \
@@ -218,7 +220,7 @@ test-split:
 lint:
 	ruff check victor tests
 	black --check victor tests
-	mypy victor
+	mypy victor victor-contracts/victor_contracts victor-contracts/victor_sdk
 	python scripts/ci/repo_hygiene_check.py
 
 check-repo-hygiene:

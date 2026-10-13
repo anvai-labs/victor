@@ -391,52 +391,8 @@ suite('VictorClient Test Suite', () => {
         });
     });
 
-    // Streaming tests
-    suite('Streaming', () => {
-        test('Should parse SSE events', () => {
-            const parseSSE = (line: string): { event?: string; data?: string } | null => {
-                if (line.startsWith('event:')) {
-                    return { event: line.slice(6).trim() };
-                }
-                if (line.startsWith('data:')) {
-                    return { data: line.slice(5).trim() };
-                }
-                return null;
-            };
-
-            assert.deepStrictEqual(parseSSE('event: message'), { event: 'message' });
-            assert.deepStrictEqual(parseSSE('data: {"text": "hello"}'), { data: '{"text": "hello"}' });
-            assert.strictEqual(parseSSE(''), null);
-        });
-
-        test('Should detect stream completion', () => {
-            const isStreamComplete = (data: string): boolean => {
-                return data === '[DONE]' || data.includes('"done": true');
-            };
-
-            assert.ok(isStreamComplete('[DONE]'));
-            assert.ok(isStreamComplete('{"done": true}'));
-            assert.ok(!isStreamComplete('{"text": "hello"}'));
-        });
-
-        test('Should accumulate stream chunks', () => {
-            const chunks: string[] = [];
-
-            const addChunk = (chunk: string) => {
-                chunks.push(chunk);
-            };
-
-            const getFullContent = (): string => {
-                return chunks.join('');
-            };
-
-            addChunk('Hello');
-            addChunk(' ');
-            addChunk('World');
-
-            assert.strictEqual(getFullContent(), 'Hello World');
-        });
-    });
+    // Streaming behavior is exercised through the real client in
+    // test-unit/victorClientStream.unit.test.ts and the HTTP contract smoke.
 
     // WebSocket Event Handling tests
     suite('WebSocket Events', () => {

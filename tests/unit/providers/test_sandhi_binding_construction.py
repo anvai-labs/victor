@@ -17,9 +17,11 @@ sg = pytest.importorskip("sandhi_gateway")
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.deepseek_provider import DeepSeekProvider
 from victor.providers.google_provider import GoogleProvider
+from victor.providers.inferflux_provider import InferfluxProvider
 from victor.providers.moonshot_provider import MoonshotProvider
 from victor.providers.openai_provider import OpenAIProvider
 from victor.providers.sandhi_transport import resolve_transport_class
+from victor.providers.zai_provider import ZAIProvider
 
 GATEWAY = {"url": "http://127.0.0.1:9/v1", "virtual_key": "vk_conformance"}
 
@@ -29,6 +31,8 @@ CASES = [
     ("deepseek", DeepSeekProvider, "deepseek-chat"),
     ("anthropic", AnthropicProvider, "claude-test"),
     ("google", GoogleProvider, "gemini-test"),
+    ("inferflux", InferfluxProvider, "qwen3-coder-30b"),
+    ("zai", ZAIProvider, "glm-5.3"),
 ]
 
 

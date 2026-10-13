@@ -58,7 +58,7 @@ dependencies = [
     "typing-extensions>=4.9",  # Shared typing helpers used by runtime and contracts
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
-    "sandhi-gateway==0.11.0",
+    "sandhi-gateway==0.13.0",
     # Imported on the `import victor` path (core.verticals.version_matrix) and for
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.
@@ -107,7 +107,7 @@ dependencies = [
     "lxml>=5.0",
 
     # Code Analysis (core) — base library only; language grammars are optional
-    "tree-sitter>=0.23",  # 0.23+ required for QueryCursor API
+    "tree-sitter>=0.26.0",  # Aligned with the locked runtime and codegraph parser
     "pygments>=2.20.0",
 
     # Caching
@@ -218,7 +218,7 @@ dev = [
 
     # Linting/Formatting
     "ruff==0.16.7",
-    "mypy>=1.10",
+    "mypy==2.4.0",
     "black==26.5.1",
 
     # Code complexity analysis
@@ -229,6 +229,7 @@ dev = [
     "types-aiofiles",
 
     # Integration test dependencies
+    "uvicorn>=0.27",  # Real HTTP consumer/provider tests require the server runner
     "strawberry-graphql[fastapi]>=0.243",  # For GraphQL API integration tests
     # All tree-sitter grammar wheels, inlined (repo hygiene forbids
     # victor-ai[lang-all] self-references in dev/ci — nested extras do not
@@ -288,7 +289,7 @@ ci = [
 
     # Linting/Formatting/Typing
     "ruff==0.16.7",
-    "mypy>=1.10",
+    "mypy==2.4.0",
     "black==26.5.1",
     "radon>=6.0",
     "types-pyyaml",
@@ -565,6 +566,18 @@ native = [
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
+graph = [
+    "victor-codegraph[treesitter]==0.10.2",
+    "tree-sitter-python>=0.23",
+    "tree-sitter-javascript>=0.23",
+    "tree-sitter-typescript>=0.23",
+    "tree-sitter-go>=0.23",
+    "tree-sitter-rust>=0.23",
+    "tree-sitter-java>=0.23",
+    "tree-sitter-c>=0.23",
+    "tree-sitter-cpp>=0.23",
+]
+
 coding = [
     "victor-coding>=0.6.0,<1.0.0",
     # Language grammars required by victor-coding's tree-sitter indexer
@@ -718,6 +731,8 @@ victor = [
     # TUI stylesheet: App.CSS_PATH loads this at startup; a wheel without it
     # crashes the TUI with StylesheetError (see test_packaging_asset_contracts).
     "ui/tui/*.tcss",
+    "integrations/api/templates/*.html",
+    "integrations/api/templates/vendor/*",
     "verticals/contrib/*/*.yaml",
     "verticals/contrib/*/*.toml",
     "verticals/contrib/*/*.svg",
@@ -816,7 +831,9 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
-# Type checking configuration - M3: Global strict mode enabled (2026-03-10)
+# Strict flags apply globally, but the legacy ignore_errors override below still
+# suppresses most diagnostics. G96 tracks removal; configured success is not full
+# repository compliance (see docs/architecture/victor-agent-service-plan.md).
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -831,13 +848,14 @@ exclude = [
     "^tests/",
     "^scripts/",
 ]
-files = ["victor"]
+files = ["victor", "victor-contracts/victor_contracts", "victor-contracts/victor_sdk"]
+mypy_path = ["victor-contracts"]
 
 # Strict modules milestone tracking (M1-M3)
 # M1 baseline (2026-03-10): 6 modules
 # M1 expansion (2026-03-10): +5 modules (total 11)
 # M2 expansion (2026-03-10): +4 modules (total 15)
-# M3 achievement (2026-03-10): Global strict enabled
+# Historical M3 milestone enabled strict flags, not unsuppressed qualification.
 [[tool.mypy.overrides]]
 module = [
     # These modules paved the way for global strict adoption
@@ -863,11 +881,11 @@ module = [
 # Note: These modules now inherit strict=true from global config
 # Keeping this override for documentation and milestone tracking
 
-# M4: Technical debt remediation in progress (2026-03-11)
-# Modules verified as type-safe (removed from ignore_errors):
+# Historical M4 inventory (2026-03-11). These no-op overrides do not cancel the
+# catch-all ignore_errors below; do not interpret them as current type-safety proof.
 [[tool.mypy.overrides]]
 module = [
-    # Verified type-safe in M4
+    # Recorded M4 targets; requalification belongs to G96
     "victor.providers.*",  # 41 files
     "victor.codebase.*",  # victor/contrib/codebase: 5, victor/verticals/contrib/coding/codebase: 20
     "victor.tools.*",  # 86 files - Fixed 74 errors in language_analyzer.py
@@ -901,13 +919,18 @@ module = [
 ]
 ignore_errors = true
 
-# M4 Status Summary (2026-03-11):
-# - Removed ignore_errors for 13 modules (946 files)
-# - Fixed 76 type errors:
-#   * 74 in language_analyzer.py
-#   * 2 in ui/commands/init.py
-# - All major modules now verified type-safe
-# - Remaining: Catch-all for any new/unvisited modules
+# SA-04: required execution/publication contracts must actually be checked,
+# rather than inheriting the historical victor.* error-suppression exception.
+[[tool.mypy.overrides]]
+module = [
+    "victor.agent.services.tool_execution_contracts",
+    "victor.agent.services.tool_execution_runtime",
+]
+ignore_errors = false
+
+# G96 audit (2026-10-12): disabling legacy ignore_errors exposes 7,794 core
+# errors across 1,082 files. Only the exact SA-04 modules above are requalified
+# in this increment; independent packages and remaining modules stay open.
 
 [tool.black]
 line-length = 100

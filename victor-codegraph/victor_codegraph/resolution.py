@@ -19,7 +19,7 @@ symbol table directly) pass through untouched.
 
 from __future__ import annotations
 
-from .model import CodeRelation, CodeRelationType, CodeSymbol, SymbolReference
+from .model import CodeRelation, CodeRelationType, CodeSymbol, CodeSymbolType, SymbolReference
 
 # Relation types whose ``to_symbol_id`` starts life as a textual name.
 _NAME_TARGETED = frozenset(
@@ -62,12 +62,75 @@ def resolve_relations(
         candidates = list(by_name.get(ref.name, ()))
         source = by_id.get(r.from_symbol_id)
 
-        if ref.arity is not None:
+        if ref.arity is not None and (
+            source is None or source.language not in {"python", "javascript", "typescript", "tsx"}
+        ):
             arity_matches = [c for c in candidates if len(c.parameters) == ref.arity]
             if arity_matches:
                 candidates = arity_matches
 
-        if source is not None and candidates:
+        if source is not None and source.language == "rust":
+            candidates = _rust_candidates(source, ref, candidates, symbols)
+        elif source is not None and source.language == "python":
+            definition_scope = source.metadata.get("python_definition_scopes", {}).get(ref.name)
+            if source.metadata.get("python_wildcard_import"):
+                candidates = []
+            elif ref.qualifier in {"self", "cls"}:
+                candidates = [
+                    c
+                    for c in candidates
+                    if source.scope_chain
+                    and ref.qualifier == source.metadata.get("python_receiver")
+                    and ref.qualifier not in source.metadata.get("python_rebound_names", [])
+                    and c.scope_chain == source.scope_chain
+                    and c.symbol_type == CodeSymbolType.METHOD
+                ]
+            elif (
+                ref.qualifier
+                or ref.name in source.metadata.get("python_bound_names", [])
+                or (
+                    ref.name in source.metadata.get("python_import_names", [])
+                    and definition_scope is None
+                )
+            ):
+                candidates = []
+            else:
+                # Python class namespaces are not enclosing function namespaces.
+                candidates = [
+                    c
+                    for c in candidates
+                    if c.symbol_type != CodeSymbolType.METHOD
+                    and not any(
+                        parent.symbol_type == CodeSymbolType.CLASS
+                        and [*parent.scope_chain, parent.simple_name] == c.scope_chain
+                        for parent in symbols
+                    )
+                    and [*source.scope_chain, source.simple_name][: len(c.scope_chain)]
+                    == c.scope_chain
+                ]
+                # A lexical definition shadows imports and outer definitions even
+                # when its conditional body is not represented by this parser.
+                if definition_scope is not None:
+                    candidates = [c for c in candidates if c.scope_chain == definition_scope]
+                nearest = max((len(c.scope_chain) for c in candidates), default=-1)
+                candidates = [c for c in candidates if len(c.scope_chain) == nearest]
+        elif source is not None and source.language in {"javascript", "typescript", "tsx"}:
+            candidates = [c for c in candidates if not c.metadata.get("javascript_conditional")]
+            if ref.qualifier == "this" and source.symbol_type == CodeSymbolType.METHOD:
+                candidates = [c for c in candidates if c.scope_chain == source.scope_chain]
+            elif ref.qualifier or ref.name in source.metadata.get("javascript_bound_names", []):
+                candidates = []
+            else:
+                candidates = [
+                    c
+                    for c in candidates
+                    if c.symbol_type != CodeSymbolType.METHOD
+                    and [*source.scope_chain, source.simple_name][: len(c.scope_chain)]
+                    == c.scope_chain
+                ]
+                nearest = max((len(c.scope_chain) for c in candidates), default=-1)
+                candidates = [c for c in candidates if len(c.scope_chain) == nearest]
+        elif source is not None and candidates:
             qualifier = (ref.qualifier or "").split(".")[-1]
             if qualifier in {"self", "cls", "this", "super"}:
                 same_scope = [c for c in candidates if c.scope_chain == source.scope_chain]
@@ -98,3 +161,57 @@ def resolve_relations(
             )
         )
     return resolved
+
+
+def _rust_candidates(
+    source: CodeSymbol,
+    ref: SymbolReference,
+    candidates: list[CodeSymbol],
+    symbols: list[CodeSymbol],
+) -> list[CodeSymbol]:
+    """Respect explicit Rust paths; unknown receivers never imply a local type."""
+    qualifier = ref.qualifier
+    if source.metadata.get("rust_conditional"):
+        return []
+    candidates = [c for c in candidates if not c.metadata.get("rust_conditional")]
+    scope = source.scope_chain
+    module_scope: list[str] = []
+    for symbol in symbols:
+        path = [*symbol.scope_chain, symbol.simple_name]
+        if (
+            symbol.symbol_type == CodeSymbolType.MODULE
+            and scope[: len(path)] == path
+            and len(path) > len(module_scope)
+        ):
+            module_scope = path
+    if qualifier in {"self", "Self"} and ref.text and "." in ref.text:
+        return [c for c in candidates if c.scope_chain == scope]
+    if qualifier and ref.text and "." in ref.text:
+        return []
+    if qualifier:
+        parts = qualifier.split("::")
+        if parts[0] == "crate":
+            if source.location.file_path.rsplit("/", 1)[-1] not in {"lib.rs", "main.rs"}:
+                return []
+            paths = [parts[1:]]
+        elif parts[0] == "self":
+            paths = [module_scope + parts[1:]]
+        elif parts[0] == "Self":
+            paths = [scope + parts[1:]]
+        elif parts[0] == "super":
+            base = list(module_scope)
+            while parts and parts[0] == "super":
+                if not base:
+                    return []
+                base.pop()
+                parts.pop(0)
+            paths = [base + parts]
+        else:
+            paths = [module_scope + parts]
+    else:
+        paths = [scope, module_scope]
+    for path in paths:
+        matches = [c for c in candidates if c.scope_chain == path]
+        if matches:
+            return matches
+    return []

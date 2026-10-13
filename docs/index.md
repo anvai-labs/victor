@@ -1,5 +1,8 @@
 # Victor AI Framework — Documentation
 
+[Repository map and module owners](development/repository-map.md) · [Completed and superseded work](development/completed-work.md)
+
+
 !!! abstract "Start here"
 
     Victor is a contract-first agent framework for tool use, compiled workflows and

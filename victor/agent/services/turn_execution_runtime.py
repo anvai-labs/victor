@@ -52,7 +52,7 @@ from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 from dataclasses import dataclass, field, replace
 
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
-from victor.agent.runtime.context import AgentRuntimeContext
+from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.providers.base import CompletionResponse
@@ -144,7 +144,6 @@ from victor.agent.services.runtime_overrides import (
 )
 
 logger = logging.getLogger(__name__)
-_MISSING = object()
 
 __all__ = ["TurnExecutor", "TurnResult"]
 
@@ -180,6 +179,7 @@ class TurnExecutor:
         execution_provider: Any,  # ExecutionProvider protocol
         exploration_coordinator: Optional[Any] = None,
         message_policy_gate: Optional[Any] = None,
+        runtime_context: Optional[RuntimeContextResolver] = None,
     ) -> None:
         """Initialize the TurnExecutor.
 
@@ -198,12 +198,15 @@ class TurnExecutor:
                 :class:`~victor.framework.policies.gate.MessagePolicyGate` that
                 gates the REQUEST (user message pre-LLM) and RESPONSE (assistant
                 output) phases. None disables message-phase governance (default).
+            runtime_context: Shared identity resolver, required when lifecycle
+                compaction is enabled. Resolved at the operation boundary.
         """
         self._chat_context = chat_context
         self._tool_context = tool_context
         self._provider_context = provider_context
         self._execution_provider = execution_provider
         self._exploration_coordinator = exploration_coordinator
+        self._runtime_context = runtime_context
         self._message_policy_gate = message_policy_gate
         self._exploration_done = False  # Instance-level: fires once per conversation
         self._last_tool_follow_up_guidance_signature: Optional[tuple[str, ...]] = None
@@ -381,51 +384,6 @@ class TurnExecutor:
             for parameter in parameters
         )
 
-    def _snapshot_agentic_loop_state(self) -> Dict[str, Any]:
-        """Capture mutable state before delegated AgenticLoop execution."""
-        conversation = getattr(self._chat_context, "conversation", None)
-        messages = getattr(conversation, "messages", None) if conversation is not None else None
-        if messages is None:
-            messages = getattr(self._chat_context, "messages", None)
-
-        return {
-            "messages": list(messages) if messages is not None else None,
-            "conversation_system_added": (
-                getattr(conversation, "_system_added", _MISSING)
-                if conversation is not None
-                else _MISSING
-            ),
-            "chat_context_system_added": getattr(self._chat_context, "_system_added", _MISSING),
-            "tool_calls_used": getattr(self._tool_context, "tool_calls_used", _MISSING),
-        }
-
-    def _restore_agentic_loop_state(self, snapshot: Dict[str, Any]) -> None:
-        """Restore state before resuming the legacy execution loop."""
-        conversation = getattr(self._chat_context, "conversation", None)
-        if conversation is not None and snapshot.get("messages") is not None:
-            restored_messages = list(snapshot["messages"])
-            if hasattr(conversation, "_messages"):
-                conversation._messages = restored_messages
-            else:
-                current_messages = getattr(conversation, "messages", None)
-                if isinstance(current_messages, list):
-                    current_messages[:] = restored_messages
-
-        conversation_system_added = snapshot.get("conversation_system_added", _MISSING)
-        if conversation is not None and conversation_system_added is not _MISSING:
-            conversation._system_added = conversation_system_added
-
-        chat_context_system_added = snapshot.get("chat_context_system_added", _MISSING)
-        if chat_context_system_added is _MISSING:
-            if hasattr(self._chat_context, "_system_added"):
-                delattr(self._chat_context, "_system_added")
-        else:
-            self._chat_context._system_added = chat_context_system_added
-
-        tool_calls_used = snapshot.get("tool_calls_used", _MISSING)
-        if tool_calls_used is not _MISSING and hasattr(self._tool_context, "tool_calls_used"):
-            self._tool_context.tool_calls_used = tool_calls_used
-
     async def _execute_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Execute tool calls through the canonical tool-context surface."""
         from victor.agent.background_tasks import BackgroundTaskDef
@@ -519,17 +477,14 @@ class TurnExecutor:
             user_message,
             metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.USER_TYPED.value},
         )
-        agentic_loop_state = self._snapshot_agentic_loop_state()
-
-        try:
-            response = await self._execute_via_agentic_loop(
-                user_message,
-                max_iterations,
-                runtime_context_overrides=runtime_context_overrides,
-            )
-        except Exception:
-            self._restore_agentic_loop_state(agentic_loop_state)
-            raise
+        # Accepted execution history and consumed budget are evidence, not
+        # speculative state: restoring them cannot undo an external tool effect.
+        # Propagate delegated failures without erasing that evidence or replaying.
+        response = await self._execute_via_agentic_loop(
+            user_message,
+            max_iterations,
+            runtime_context_overrides=runtime_context_overrides,
+        )
 
         # Governance RESPONSE phase: gate/redact the assistant's final output.
         if self._message_policy_gate is not None and response is not None:
@@ -1169,20 +1124,13 @@ class TurnExecutor:
                 if hasattr(turn_result, "response"):
                     response = turn_result.response
                     if not loop_success and has_tool_evidence and not response.content:
-                        synthesized = await self._ensure_complete_response(
-                            None,
-                            ToolFailureContext(),
+                        # Synthesis recovers presentation, not task completion.
+                        # Preserve the loop/verifier verdict even when an earlier
+                        # read succeeded and the summary claims the work is done.
+                        synthesized = await self.synthesize_from_tool_evidence(
+                            recovery_reason=loop_error,
                         )
-                        if synthesized.content and not synthesized.content.startswith(
-                            "I was unable to generate a complete response."
-                        ):
-                            metadata = dict(getattr(synthesized, "metadata", None) or {})
-                            metadata["agentic_loop_success"] = True
-                            metadata["agentic_loop_recovered"] = True
-                            metadata["agentic_loop_recovery_reason"] = loop_error
-                            metadata["agentic_loop_iterations"] = loop_iterations
-                            synthesized.metadata = metadata
-                            return synthesized
+                        response = synthesized.response
 
                     metadata = dict(getattr(response, "metadata", None) or {})
                     metadata["agentic_loop_success"] = loop_success
@@ -1235,120 +1183,6 @@ class TurnExecutor:
             for result in getattr(action_result, "tool_results", []) or []:
                 if isinstance(result, dict) and result.get("success"):
                     return True
-        return False
-
-    # =====================================================================
-    # Q&A Detection
-    # =====================================================================
-
-    @staticmethod
-    def _is_question_only(message: str) -> bool:
-        """Detect messages that are pure Q&A and unlikely to need tools.
-
-        Enhanced to detect more Q&A patterns:
-        - Direct questions
-        - Explanation requests
-        - Definition requests
-        - Concept explanations
-
-        Returns True for conversational/knowledge questions like:
-        - "What is 2+2?"
-        - "Explain Python decorators"
-        - "How does X work?"
-
-        Returns False for messages that imply code/file work:
-        - "Fix the bug in main.py"
-        - "Create a new file"
-        - "Refactor the database module"
-        """
-        import re
-
-        msg = message.strip().lower()
-
-        # Short messages ending with ? are almost always Q&A
-        if len(msg) < 120 and msg.endswith("?"):
-            # Unless they contain action words implying code work
-            action_words = (
-                "fix",
-                "create",
-                "write",
-                "edit",
-                "refactor",
-                "add",
-                "implement",
-                "update",
-                "delete",
-                "remove",
-                "change",
-                "modify",
-                "build",
-                "deploy",
-                "run",
-                "test",
-                "debug",
-                "install",
-                "configure",
-                "setup",
-                "migrate",
-            )
-            words = set(msg.split())
-            if not words.intersection(action_words):
-                return True
-
-        # Explicit "explain", "what is", "how does" patterns
-        qa_prefixes = (
-            "what is",
-            "what are",
-            "what's",
-            "who is",
-            "who are",
-            "how does",
-            "how do",
-            "how is",
-            "how can",
-            "why does",
-            "why do",
-            "why is",
-            "when does",
-            "when is",
-            "explain",
-            "describe",
-            "define",
-            "tell me about",
-            "can you explain",
-            "what does",
-            "reply with",
-            "answer",
-            "say ",
-        )
-        if any(msg.startswith(p) for p in qa_prefixes):
-            return True
-
-        # NEW: Add more Q&A patterns with regex
-        qa_patterns = [
-            r"^(what|how|why|when|where|who|which|whose|explain|describe|define)",
-            r"tell me (about|how|why)",
-            r"what('s| is| are) the (difference|definition)",
-            r"how do (you|you think|I)",
-            r"can you (explain|describe|tell me)",
-            r"^(pros and cons|advantages|disadvantages)",
-        ]
-
-        combined_pattern = "|".join(qa_patterns)
-        if re.match(combined_pattern, msg):
-            # Additional check: exclude if it contains implementation keywords
-            implementation_keywords = ["implement", "code", "write", "create", "build"]
-            if not any(kw in msg for kw in implementation_keywords):
-                return True
-
-        # Check for explanation/definition keywords
-        explanation_keywords = ["explain", "describe", "define", "what is", "how does"]
-        if any(keyword in msg for keyword in explanation_keywords):
-            # But exclude if it also includes implementation keywords
-            implementation_keywords = ["implement", "code", "write", "create", "build"]
-            if not any(kw in msg for kw in implementation_keywords):
-                return True
-
         return False
 
     # =====================================================================
@@ -1959,7 +1793,7 @@ class TurnExecutor:
         if not callable(after_agent_turn):
             return False
 
-        runtime_context = self._root_runtime_context(orchestrator)
+        runtime_context = require_runtime_context(self._runtime_context)
         result = after_agent_turn(
             runtime_context,
             messages=self._root_runtime_messages(orchestrator),
@@ -1973,28 +1807,6 @@ class TurnExecutor:
                 result.get("messages_removed", 0),
             )
         return True
-
-    @staticmethod
-    def _root_runtime_context(orchestrator: Any) -> AgentRuntimeContext:
-        existing = getattr(orchestrator, "_agent_runtime_context", None) or getattr(
-            orchestrator,
-            "agent_runtime_context",
-            None,
-        )
-        if isinstance(existing, AgentRuntimeContext):
-            return existing
-        session_id = (
-            getattr(orchestrator, "active_session_id", None)
-            or getattr(orchestrator, "session_id", None)
-            or getattr(orchestrator, "_memory_session_id", None)
-            or "session_root"
-        )
-        return AgentRuntimeContext(
-            agent_id=str(getattr(orchestrator, "agent_id", None) or "root_agent"),
-            display_name=str(getattr(orchestrator, "display_name", None) or "Root Agent"),
-            role=str(getattr(orchestrator, "role", None) or "manager"),
-            session_id=str(session_id),
-        )
 
     def _root_runtime_messages(self, orchestrator: Any) -> List[Any]:
         get_messages = getattr(orchestrator, "get_messages", None)

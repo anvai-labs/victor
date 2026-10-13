@@ -2,7 +2,6 @@ import base64
 import hashlib
 import hmac
 import logging
-import secrets
 import asyncio
 import uuid
 import subprocess
@@ -10,7 +9,7 @@ import tempfile
 import time
 import os
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple
+from typing import AsyncIterator, Callable, Dict, Any, Optional, Tuple
 from pydantic import BaseModel
 from fastapi import (
     Depends,
@@ -73,14 +72,23 @@ except Exception as e:
     sys.exit(1)  # Fail fast - don't start with broken config
 
 # Security and limits (configurable via settings / env vars)
-API_KEY = settings.server_api_key
-SESSION_SECRET = settings.server_session_secret or secrets.token_hex(32)
-SESSION_TTL = settings.server_session_ttl_seconds
-MAX_SESSIONS = settings.server_max_sessions
-MAX_MESSAGE_BYTES = settings.server_max_message_bytes
-RENDER_MAX_BYTES = settings.render_max_payload_bytes
-RENDER_TIMEOUT = settings.render_timeout_seconds
-RENDER_SEMAPHORE = asyncio.Semaphore(settings.render_max_concurrency)
+server_settings = settings.server
+if server_settings is None:
+    raise RuntimeError("Server settings are required")
+API_KEY = (
+    server_settings.server_api_key.get_secret_value() if server_settings.server_api_key else None
+)
+# ServerSettings owns default secret generation; never sign with SecretStr's
+# masked representation or silently generate a second, unrelated secret here.
+if not server_settings.server_session_secret:
+    raise RuntimeError("Server session signing secret is required")
+SESSION_SECRET = server_settings.server_session_secret.get_secret_value()
+SESSION_TTL = server_settings.server_session_ttl_seconds
+MAX_SESSIONS = server_settings.server_max_sessions
+MAX_MESSAGE_BYTES = server_settings.server_max_message_bytes
+RENDER_MAX_BYTES = server_settings.render_max_payload_bytes
+RENDER_TIMEOUT = server_settings.render_timeout_seconds
+RENDER_SEMAPHORE = asyncio.Semaphore(server_settings.render_max_concurrency)
 
 # Session management: typed, self-locking, injectable store (P0-B).
 # Swap backends (service-backed, Redis) via set_session_store() at startup.
@@ -154,7 +162,7 @@ def _validate_render_payload(payload: str) -> None:
         )
 
 
-async def _render_with_limits(render_fn, payload: str) -> str:
+async def _render_with_limits(render_fn: Callable[[str, int], str], payload: str) -> str:
     """Apply size, concurrency, and timeout limits to renderers."""
     _validate_render_payload(payload)
     async with RENDER_SEMAPHORE:
@@ -334,7 +342,7 @@ async def render_graphviz(
     Query param 'engine' can be: dot (default), neato, fdp, circo, twopi, sfdp
     """
     svg = await _render_with_limits(
-        lambda text, timeout=RENDER_TIMEOUT: _render_graphviz_svg(text, engine, timeout),
+        lambda text, timeout: _render_graphviz_svg(text, engine, timeout),
         payload,
     )
     return Response(content=svg, media_type="image/svg+xml")
@@ -515,7 +523,7 @@ async def chat_stream(
             await _shutdown_session_agent(WebSession(session_id=session_id, agent=agent))
             raise HTTPException(status_code=429, detail="Session limit reached") from exc
 
-    async def event_source():
+    async def event_source() -> AsyncIterator[str]:
         try:
             async for frame in stream_sse(agent, payload.message):
                 yield frame

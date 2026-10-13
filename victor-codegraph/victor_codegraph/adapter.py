@@ -145,6 +145,15 @@ def symbol_to_record(
         },
         "embeddings": [],
     }
+    # Preserve compiler-owned ambiguity evidence without exposing arbitrary metadata.
+    for key in (
+        "identity_collisions",
+        "projection_status",
+        "omitted_symbol_count",
+        "omitted_relation_count",
+    ):
+        if key in symbol.metadata:
+            record["props"][key] = symbol.metadata[key]
     if embedder is not None and not symbol.metadata.get("embedding_excluded"):
         record["embeddings"].append(
             {
@@ -241,14 +250,24 @@ def to_proxima_records(
 
     id_map: dict[str, str] = {}
     use_stable = _stable_oid_enabled(stable_oid)
+    seen_symbols: set[str] = set()
+    seen_oids: set[str] = set()
     for symbol in parsed.symbols:
         primary = (
             _canonical_symbol_oid(repo_graph_id, symbol)
             if use_stable
             else _legacy_symbol_oid(repo_graph_id, symbol)
         )
+        # Validate before invoking either embedding callback. A legacy OID
+        # preference must not hide ambiguous canonical symbol identities.
+        if symbol.id in seen_symbols or primary in seen_oids:
+            raise ValueError("canonical symbol identity collision in adapter input")
+        seen_symbols.add(symbol.id)
+        seen_oids.add(primary)
         for key in (symbol.id, symbol.legacy_id):
             if key:
+                if key in id_map and id_map[key] != primary:
+                    raise ValueError("symbol alias identity collision in adapter input")
                 id_map[key] = primary
     records = [
         symbol_to_record(
@@ -286,10 +305,6 @@ def to_proxima_records(
                     "values": _validate_vector(values, dim),
                 }
             )
-    by_oid = [r["oid"] for r in records]
-    if len(by_oid) != len(set(by_oid)):
-        raise ValueError("canonical symbol identity collision in adapter input")
-
     external_records: dict[str, dict[str, Any]] = {}
     for relation in parsed.relations:
         if relation.target_ref is None:

@@ -35,7 +35,9 @@ class PlanningChatRuntime:
         state_dict = getattr(state_host, "__dict__", {})
         planning_coordinator = state_dict.get("_service_planning_coordinator")
         if planning_coordinator is None:
-            planning_coordinator = PlanningRuntimeService(runtime)
+            planning_coordinator = PlanningRuntimeService(
+                runtime, direct_chat=runtime._chat_service.execute_direct_in_turn
+            )
             runtime._service_planning_coordinator = planning_coordinator
 
         task_analysis = runtime.task_analyzer.analyze(user_message)

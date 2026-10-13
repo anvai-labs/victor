@@ -15,6 +15,7 @@
  */
 
 import * as vscode from 'vscode';
+import { encodeSymbolTarget } from './codeActionProvider';
 import type { VictorClient } from './victorClient';
 
 /**
@@ -234,17 +235,17 @@ export class VictorHoverProvider implements vscode.HoverProvider {
 
             // Explain action
             content.appendMarkdown(
-                `[$(question) Explain](command:victor.explainSymbol?${JSON.stringify([document.uri, wordRange, word])}) | `
+                `[$(question) Explain](command:victor.explainSymbol?${encodeSymbolTarget(document.uri, wordRange, word)}) | `
             );
 
             // Test action
             content.appendMarkdown(
-                `[$(beaker) Test](command:victor.generateTestsForSymbol?${JSON.stringify([document.uri, wordRange, word])}) | `
+                `[$(beaker) Test](command:victor.generateTestsForSymbol?${encodeSymbolTarget(document.uri, wordRange, word)}) | `
             );
 
             // Optimize action
             content.appendMarkdown(
-                `[$(zap) Optimize](command:victor.optimizeSymbol?${JSON.stringify([document.uri, wordRange, word])})`
+                `[$(zap) Optimize](command:victor.optimizeSymbol?${encodeSymbolTarget(document.uri, wordRange, word)})`
             );
 
             content.appendMarkdown('\n\n');

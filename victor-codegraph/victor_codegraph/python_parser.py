@@ -8,6 +8,8 @@ signatures, docstrings, decorators, parameters, cyclomatic complexity, and CALLS
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator, Sequence
+from typing import NotRequired, TypedDict
 
 from .model import (
     CodeRelation,
@@ -47,13 +49,20 @@ def _cyclomatic(node: ast.AST) -> dict[str, int]:
     return {"cyclomatic": count, "lines": end - lineno + 1}
 
 
-def _params(args: ast.arguments) -> list[dict]:
-    out: list[dict] = []
+class _Parameter(TypedDict):
+    name: str
+    type: NotRequired[str]
+    is_variadic: NotRequired[bool]
+    is_kwonly: NotRequired[bool]
+
+
+def _params(args: ast.arguments) -> list[_Parameter]:
+    out: list[_Parameter] = []
     posonly = getattr(args, "posonlyargs", [])
     for a in [*posonly, *args.args]:
         if a.arg in ("self", "cls"):
             continue
-        p: dict = {"name": a.arg}
+        p: _Parameter = {"name": a.arg}
         if a.annotation is not None:
             p["type"] = ast.unparse(a.annotation)
         out.append(p)
@@ -109,7 +118,7 @@ def _callee_ref(call: ast.Call) -> SymbolReference | None:
     return None
 
 
-def _calls_owned_by(node: ast.AST):
+def _calls_owned_by(node: ast.AST) -> Iterator[ast.Call]:
     """Yield calls owned by ``node`` without stealing calls from nested definitions."""
 
     stack = list(ast.iter_child_nodes(node))
@@ -122,6 +131,30 @@ def _calls_owned_by(node: ast.AST):
         stack.extend(ast.iter_child_nodes(child))
 
 
+def _lexical_bindings(nodes: Sequence[ast.AST]) -> tuple[set[str], set[str]]:
+    """Collect writes and definition bindings without entering nested namespaces."""
+    names: set[str] = set()
+    definitions: set[str] = set()
+    stack = list(nodes)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            definitions.add(node.name)
+            continue
+        if isinstance(node, ast.arg):
+            names.add(node.arg)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        if isinstance(node, (ast.MatchAs, ast.MatchStar, ast.ExceptHandler)) and node.name:
+            names.add(node.name)
+        if isinstance(node, ast.MatchMapping) and node.rest:
+            names.add(node.rest)
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(a.asname or a.name.split(".")[0] for a in node.names)
+        stack.extend(ast.iter_child_nodes(node))
+    return names, definitions
+
+
 class _Visitor:
     def __init__(self, file_path: str, source: str) -> None:
         self.file_path = file_path
@@ -129,6 +162,10 @@ class _Visitor:
         self.symbols: list[CodeSymbol] = []
         self.relations: list[CodeRelation] = []
         self.imports: list[str] = []
+        self._enclosing_bindings: list[set[str]] = []
+        self._definition_scopes: list[dict[str, list[str]]] = [{}]
+        self._import_names: set[str] = set()
+        self._wildcard_import = False
         self._fqn_prefix = file_path.replace("/", ".").replace("\\", ".")
         self._source_bytes = source.encode("utf-8")
         self._line_byte_starts: list[int] = [0]
@@ -165,7 +202,7 @@ class _Visitor:
         symbol_type: CodeSymbolType,
         scope: list[str],
         signature: str | None = None,
-        params: list[dict] | None = None,
+        params: list[_Parameter] | None = None,
         return_type: str | None = None,
         modifiers: list[str] | None = None,
     ) -> CodeSymbol:
@@ -195,7 +232,7 @@ class _Visitor:
             signature=signature,
             modifiers=modifiers or [],
             scope_chain=list(scope),
-            parameters=params or [],
+            parameters=[dict(parameter) for parameter in params or []],
             return_type=return_type,
             complexity=_cyclomatic(node),
         )
@@ -222,15 +259,44 @@ class _Visitor:
             return_type=ast.unparse(node.returns) if node.returns is not None else None,
             modifiers=_modifiers(name, node.decorator_list, isinstance(node, ast.AsyncFunctionDef)),
         )
+        # Bindings in a function apply throughout its lexical scope, even before
+        # the assignment. Record shadowing so neither resolver guesses a global.
+        bound = {a.arg for a in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]}
+        if node.args.vararg:
+            bound.add(node.args.vararg.arg)
+        if node.args.kwarg:
+            bound.add(node.args.kwarg.arg)
+        writes, definitions = _lexical_bindings(node.body)
+        inner = [*scope, name]
+        definition_scopes = {
+            **self._definition_scopes[-1],
+            **{definition: inner for definition in definitions},
+        }
+        enclosing = set().union(*self._enclosing_bindings)
+        sym.metadata["python_bound_names"] = sorted(bound | writes | enclosing)
+        sym.metadata["python_rebound_names"] = sorted(writes | enclosing)
+        sym.metadata["python_definition_scopes"] = definition_scopes
+        sym.metadata["python_import_names"] = sorted(self._import_names)
+        sym.metadata["python_wildcard_import"] = self._wildcard_import
+        sym.metadata["python_receiver"] = (
+            node.args.args[0].arg
+            if in_class
+            and node.args.args
+            and not any(
+                ast.unparse(d).split(".")[-1] == "staticmethod" for d in node.decorator_list
+            )
+            else None
+        )
         self.symbols.append(sym)
         # CALLS edges. ``to_symbol_id`` is the textual callee here; ``parse_python``
         # resolves it to a real in-file symbol id when the callee is defined locally
         # and otherwise keeps it as a bare name (so cross-file/external calls — e.g.
         # a CPG's blast radius — are not silently dropped). ``call_site`` records the
         # call line for consumers that need it.
-        for child in _calls_owned_by(node):
-            ref = _callee_ref(child)
+        for call in _calls_owned_by(node):
+            ref = _callee_ref(call)
             if ref:
+                line, col, end_line, end_col, offset, length = self._span(call)
                 self.relations.append(
                     CodeRelation(
                         from_symbol_id=sym.id,
@@ -240,12 +306,17 @@ class _Visitor:
                         target_ref=ref,
                         call_site=SourceLocation(
                             file_path=self.file_path,
-                            start_line=getattr(child, "lineno", 0),
-                            start_column=getattr(child, "col_offset", 0),
+                            start_line=line,
+                            start_column=col,
+                            end_line=end_line,
+                            end_column=end_col,
+                            byte_offset=offset,
+                            byte_length=length,
                         ),
                     )
                 )
-        inner = [*scope, name]
+        self._enclosing_bindings.append(bound | writes)
+        self._definition_scopes.append(definition_scopes)
         for child in node.body:
             nested: CodeSymbol | None = None
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -260,6 +331,8 @@ class _Visitor:
                         relation_type=CodeRelationType.CONTAINS,
                     )
                 )
+        self._enclosing_bindings.pop()
+        self._definition_scopes.pop()
         return sym
 
     def visit_class(self, node: ast.ClassDef, scope: list[str]) -> CodeSymbol:
@@ -268,6 +341,8 @@ class _Visitor:
         if bases:
             mods.append(f"extends({','.join(bases)})")
         cls = self._make_symbol(node, node.name, CodeSymbolType.CLASS, scope, modifiers=mods)
+        cls.metadata["python_definition_scopes"] = self._definition_scopes[-1]
+        cls.metadata["python_rebound_names"] = sorted(set().union(*self._enclosing_bindings))
         self.symbols.append(cls)
         for base in bases:
             self.relations.append(
@@ -276,7 +351,11 @@ class _Visitor:
                     to_symbol_id=base,
                     relation_type=CodeRelationType.EXTENDS,
                     context=base,
-                    target_ref=SymbolReference(name=base.split(".")[-1], text=base),
+                    target_ref=SymbolReference(
+                        name=base.split(".")[-1],
+                        qualifier=base.rsplit(".", 1)[0] if "." in base else None,
+                        text=base,
+                    ),
                 )
             )
         inner = [*scope, node.name]
@@ -297,6 +376,20 @@ class _Visitor:
         return cls
 
     def run(self, tree: ast.Module) -> None:
+        module_writes, _ = _lexical_bindings(
+            [n for n in tree.body if not isinstance(n, (ast.Import, ast.ImportFrom))]
+        )
+        self._enclosing_bindings = [module_writes]
+        self._definition_scopes = [{}]
+        self._import_names = set()
+        for declaration in tree.body:
+            if isinstance(declaration, (ast.Import, ast.ImportFrom)):
+                self._import_names.update(
+                    a.asname or a.name.split(".")[0] for a in declaration.names
+                )
+            elif isinstance(declaration, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self._import_names.discard(declaration.name)
+        self._wildcard_import = "*" in self._import_names
         for node in tree.body:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 self.imports.append(ast.unparse(node))

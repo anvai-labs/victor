@@ -107,3 +107,18 @@ def test_deterministic_ids():
 def test_syntax_error_falls_back_to_no_symbols():
     parsed = parse("def broken(:\n", file_path="bad.py")
     assert parsed.symbols == []
+
+
+def test_call_site_preserves_multiline_utf8_byte_span():
+    from victor_codegraph import parse
+
+    source = 'def target(x): return x\ndef caller():\n    label = "é"; return target(\n        "你好"\n    )\n'
+    parsed = parse(source, file_path="a.py")
+    call = next(r for r in parsed.relations if r.relation_type.name == "CALLS")
+    raw = source.encode("utf-8")
+    expected = 'target(\n        "你好"\n    )'.encode("utf-8")
+    span = call.call_site
+    assert span.byte_offset == raw.rindex(expected)
+    assert span.byte_length == len(expected)
+    assert raw[span.byte_offset : span.byte_offset + span.byte_length] == expected
+    assert (span.start_line, span.end_line, span.end_column) == (3, 5, 5)

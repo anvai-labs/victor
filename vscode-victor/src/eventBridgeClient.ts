@@ -69,6 +69,11 @@ export class EventBridgeClient {
     private reconnectTimer: NodeJS.Timeout | null = null;
     private pingInterval: NodeJS.Timeout | null = null;
     private subscription: EventBridgeSubscription = { categories: ['all'] };
+    private apiToken?: string;
+    private generation = 0;
+    private desired = false;
+    private disposed = false;
+    private terminalFailure = false;
 
     constructor(reconnectConfig: ReconnectConfig = DEFAULT_RECONNECT_CONFIG) {
         this.reconnectConfig = reconnectConfig;
@@ -80,44 +85,77 @@ export class EventBridgeClient {
      *
      * @param serverUrl Base URL of the Victor server (e.g., http://127.0.0.1:8765)
      */
-    connect(serverUrl: string, subscription?: EventBridgeSubscription): void {
-        const serverChanged = this.serverUrl !== '' && this.serverUrl !== serverUrl;
-        this.serverUrl = serverUrl;
+    connect(serverUrl: string, subscription?: EventBridgeSubscription, apiToken?: string): void {
+        if (this.disposed) {
+            return;
+        }
+        let wsUrl: string;
+        try {
+            const url = new URL(serverUrl);
+            if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+                url.search || url.hash || (apiToken && /[\r\n]/.test(apiToken))) {
+                throw new Error('Invalid EventBridge connection configuration');
+            }
+            url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+            url.pathname = url.pathname.replace(/\/+$/, '') + '/ws/events';
+            wsUrl = url.toString();
+        } catch {
+            this.disconnect();
+            if (this.desired || this.disposed) {
+                return;
+            }
+            this.log('Invalid EventBridge connection configuration');
+            this.setState(ConnectionState.Error);
+            return;
+        }
         if (subscription) {
             this.subscription = {
-                categories: subscription.categories && subscription.categories.length > 0
-                    ? subscription.categories
-                    : ['all'],
+                categories: [...(subscription.categories?.length ? subscription.categories : ['all'])],
                 correlationId: subscription.correlationId,
             };
         }
-
-        if (serverChanged) {
-            this.disconnect();
-            this.serverUrl = serverUrl;
+        const changed = this.serverUrl !== wsUrl || this.apiToken !== apiToken || !this.desired;
+        if (changed) {
+            this.retireSocket();
+            this.serverUrl = wsUrl;
+            this.apiToken = apiToken;
+            this.desired = true;
+            this.terminalFailure = false;
+            this.reconnectAttempt = 0;
         }
-
-        if (this.state === ConnectionState.Connected && this.ws?.readyState === WebSocket.OPEN) {
+        if (this.terminalFailure) {
+            return;
+        }
+        if (this.ws || this.reconnectTimer) {
             this.sendSubscription();
             return;
         }
-
         this.doConnect();
     }
 
-    /**
-     * Disconnect from the EventBridge.
-     */
+    /** Stop intentionally; stale socket callbacks cannot restart the connection. */
     disconnect(): void {
+        this.desired = false;
+        this.retireSocket();
+        this.serverUrl = '';
+        this.apiToken = undefined;
+        this.setState(ConnectionState.Disconnected);
+    }
+
+    private retireSocket(): void {
+        ++this.generation;
         this.stopReconnect();
         this.stopPing();
-
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
+        const old = this.ws;
+        this.ws = null;
+        if (old?.readyState === WebSocket.CONNECTING) {
+            old.terminate();
         }
+        else {old?.close();}
+    }
 
-        this.setState(ConnectionState.Disconnected);
+    private isActive(generation: number): boolean {
+        return this.desired && !this.disposed && this.generation === generation;
     }
 
     /**
@@ -136,7 +174,7 @@ export class EventBridgeClient {
 
     subscribe(categories: string[] = ['all'], correlationId?: string): void {
         this.subscription = {
-            categories: categories.length > 0 ? categories : ['all'],
+            categories: categories.length > 0 ? [...categories] : ['all'],
             correlationId,
         };
         this.sendSubscription();
@@ -197,6 +235,10 @@ export class EventBridgeClient {
      * Dispose of resources.
      */
     dispose(): void {
+        if (this.disposed) {
+            return;
+        }
+        this.disposed = true;
         this.disconnect();
         this.eventHandlers.clear();
         this.globalHandlers.clear();
@@ -207,109 +249,142 @@ export class EventBridgeClient {
     // --- Private Methods ---
 
     private doConnect(): void {
-        if (this.state === ConnectionState.Connected || this.state === ConnectionState.Connecting) {
+        if (!this.desired || this.disposed || this.terminalFailure || this.ws) {
             return;
         }
-
+        this.stopReconnect();
+        const generation = ++this.generation;
         this.setState(ConnectionState.Connecting);
-
-        // Convert HTTP URL to WebSocket URL
-        const wsUrl = this.serverUrl.replace(/^http/, 'ws') + '/ws/events';
-        this.log(`Connecting to EventBridge: ${wsUrl}`);
-
+        // A synchronous state listener may disconnect or replace configuration.
+        if (!this.isActive(generation)) {
+            return;
+        }
+        this.log('Connecting to EventBridge');
         try {
-            this.ws = new WebSocket(wsUrl);
-
-            this.ws.on('open', () => {
+            const socket = new WebSocket(this.serverUrl, {
+                headers: this.apiToken ? { Authorization: `Bearer ${this.apiToken}` } : {},
+                followRedirects: false,
+                handshakeTimeout: 10000,
+            });
+            this.ws = socket;
+            const current = () => this.isActive(generation) && this.ws === socket;
+            socket.on('open', () => {
+                if (!current()) {
+                    return;
+                }
                 this.log('Connected to EventBridge');
-                this.setState(ConnectionState.Connected);
                 this.reconnectAttempt = 0;
-                this.startPing();
+                this.setState(ConnectionState.Connected);
+                if (!current()) {
+                    return;
+                }
+                this.startPing(socket, current);
                 this.sendSubscription();
             });
-
-            this.ws.on('message', (data: WebSocket.Data) => {
+            socket.on('message', (data: WebSocket.Data) => {
+                if (!current()) {
+                    return;
+                }
                 try {
                     const message = JSON.parse(data.toString());
-                    if (message.type === 'event') {
-                        this.handleEvent(message.event);
-                    } else if (message.type === 'pong') {
-                        // Ping response received
-                    } else if (message.type === 'subscribed') {
-                        this.log(
-                            `Subscribed to EventBridge categories=${JSON.stringify(message.categories || ['all'])}` +
-                            ` correlation_id=${message.correlation_id || 'none'}`
-                        );
+                    if (message?.type === 'event' && message.event && typeof message.event.type === 'string') {
+                        this.handleEvent(message.event, current);
+                    } else if (message?.type === 'subscribed') {
+                        this.log('EventBridge subscription acknowledged');
                     }
-                } catch (error) {
-                    this.log(`Error parsing message: ${error}`);
+                } catch {
+                    this.log('Invalid EventBridge message');
                 }
             });
-
-            this.ws.on('close', (code, reason) => {
-                this.log(`Disconnected from EventBridge (code: ${code}, reason: ${reason})`);
+            socket.on('unexpected-response', (request, response) => {
+                if (!current()) {
+                    response.destroy();
+                    request.destroy();
+                    return;
+                }
+                const status = response.statusCode ?? 0;
+                this.terminalFailure = status >= 300 && status < 500;
+                // Taking ownership of unexpected-response requires releasing both
+                // streams; otherwise ws leaves the handshake pending indefinitely.
+                this.retireSocket();
+                response.destroy();
+                request.destroy();
+                this.log(`EventBridge upgrade rejected (HTTP ${status})`);
+                if (this.terminalFailure) {this.setState(ConnectionState.Error);}
+                else {this.scheduleReconnect();}
+            });
+            socket.on('close', (code) => {
+                if (!current()) {
+                    return;
+                }
                 this.ws = null;
                 this.stopPing();
-
-                if (this.state !== ConnectionState.Disconnected) {
+                this.log(`EventBridge connection closed (code ${code})`);
+                if ([1008, 4401, 4403].includes(code)) {
+                    this.terminalFailure = true;
+                    ++this.generation;
+                    this.setState(ConnectionState.Error);
+                } else {
                     this.scheduleReconnect();
                 }
             });
-
-            this.ws.on('error', (error) => {
-                this.log(`WebSocket error: ${error.message}`);
+            socket.on('error', () => {
+                if (!current()) {
+                    return;
+                }
+                // Remote diagnostics may echo credentials; keep transport logs structural.
+                this.log('EventBridge transport error');
                 this.setState(ConnectionState.Error);
             });
-
-        } catch (error) {
-            this.log(`Failed to connect: ${error}`);
-            this.setState(ConnectionState.Error);
+        } catch {
+            if (!this.isActive(generation)) {
+                return;
+            }
+            this.log('EventBridge connection failed');
             this.scheduleReconnect();
         }
     }
 
-    private handleEvent(event: VictorEvent): void {
-        this.log(`Event: ${event.type} - ${JSON.stringify(event.data)}`);
-
-        // Call type-specific handlers
-        const handlers = this.eventHandlers.get(event.type);
-        if (handlers) {
-            for (const handler of handlers) {
-                try {
-                    handler(event);
-                } catch (error) {
-                    this.log(`Error in event handler: ${error}`);
-                }
+    private handleEvent(event: VictorEvent, current: () => boolean): void {
+        this.log('EventBridge event received');
+        for (const handler of [...(this.eventHandlers.get(event.type) ?? []), ...this.globalHandlers]) {
+            if (!current()) {
+                return;
             }
-        }
-
-        // Call global handlers
-        for (const handler of this.globalHandlers) {
             try {
                 handler(event);
-            } catch (error) {
-                this.log(`Error in global handler: ${error}`);
+            } catch {
+                this.log('EventBridge event handler failed');
             }
         }
     }
 
     private scheduleReconnect(): void {
+        if (!this.desired || this.disposed || this.terminalFailure) {
+            return;
+        }
+        this.stopReconnect();
+        const generation = this.generation;
         if (this.reconnectAttempt >= this.reconnectConfig.maxRetries) {
-            this.log(`Max reconnection attempts (${this.reconnectConfig.maxRetries}) reached`);
+            this.log('EventBridge reconnection attempts exhausted');
+            this.terminalFailure = true;
             this.setState(ConnectionState.Error);
             return;
         }
-
         this.reconnectAttempt++;
         const delay = Math.min(
             this.reconnectConfig.initialDelayMs * Math.pow(this.reconnectConfig.multiplier, this.reconnectAttempt - 1),
             this.reconnectConfig.maxDelayMs
         );
-
-        this.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt}/${this.reconnectConfig.maxRetries})`);
         this.setState(ConnectionState.Reconnecting);
-
+        if (!this.isActive(generation)) {
+            return;
+        }
         this.reconnectTimer = setTimeout(() => {
+            if (!this.isActive(generation)) {
+                return;
+            }
+            this.reconnectTimer = null;
             this.doConnect();
         }, delay);
     }
@@ -321,12 +396,12 @@ export class EventBridgeClient {
         }
     }
 
-    private startPing(): void {
+    private startPing(socket: WebSocket, current: () => boolean): void {
         this.stopPing();
         // Send ping every 30 seconds to keep connection alive
         this.pingInterval = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({ type: 'ping' }));
+            if (current() && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: 'ping' }));
             }
         }, 30000);
     }
@@ -357,10 +432,13 @@ export class EventBridgeClient {
         if (this.state !== state) {
             this.state = state;
             for (const handler of this.stateChangeHandlers) {
+                if (this.state !== state) {
+                    break;
+                }
                 try {
                     handler(state);
-                } catch (error) {
-                    this.log(`Error in state change handler: ${error}`);
+                } catch {
+                    this.log('EventBridge state handler failed');
                 }
             }
         }

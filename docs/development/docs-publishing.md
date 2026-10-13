@@ -7,8 +7,8 @@ MkDocs Material supplies navigation, search, API rendering and Mermaid diagrams.
 
 | Deployment fact | Current value |
 | --- | --- |
-| Last successful Pages source | `main` `e7bbb9427` (v0.9.5), 2026-09-18 |
-| Workflow run | [35384958940](https://github.com/anvai-labs/victor/actions/runs/35384958940) |
+| Last verified successful Pages source (2026-10-07 audit) | `main` `f9515e98e`, 2026-10-07; post-v0.12.0 source |
+| Workflow run | [37570194010](https://github.com/anvai-labs/victor/actions/runs/37570194010); deployment `6901486002` succeeded at 04:12:21 UTC |
 | Develop preview | Built in pull-request CI; published after the next main promotion |
 
 !!! tip "Page shape"
@@ -50,8 +50,9 @@ version stamp and build hooks.
 `docs/README.md` remains the repository documentation index and is explicitly
 excluded from the build to avoid competing for the same output URL.
 
-The Audits navigation section exposes the co-design review and documentation
-inventory. Their historical status remains visible. Root `feps/` proposals are
+The Audits navigation section exposes the historical co-design review, current
+repository map and compact completed-work record. Superseded interim notes live
+in immutable Git history, with unresolved tasks transferred to current owners. Root `feps/` proposals are
 linked directly to the repository so there is one canonical proposal copy;
 legacy documents under `docs/feps/` retain their historical-series banners.
 

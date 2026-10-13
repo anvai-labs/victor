@@ -237,9 +237,9 @@ class HierarchicalFormation(BaseFormationStrategy):
     ) -> None:
         """Durably pause on an awaiting-approval supervisor phase (plan or synthesis).
 
-        Mirrors ``SequentialFormation``'s pause handling: publish the singular
-        ``__awaiting_approval__`` aggregate (the supervisor's lane index is 0), emit the awaiting
-        lane event, and persist the pause checkpoint via ``pause_hook`` with only the results
+        Mirrors ``SequentialFormation``'s pause handling: persist via ``pause_hook`` before
+        publishing the singular ``__awaiting_approval__`` aggregate and awaiting lane event
+        (the supervisor's lane index is 0). The checkpoint contains only the results
         completed *before* the paused phase — the paused phase is not snapshotted into
         ``__hier__``, so a resumed run re-executes exactly it.
         """
@@ -247,21 +247,19 @@ class HierarchicalFormation(BaseFormationStrategy):
         metadata = supervisor_result.metadata or {}
         approval_request = metadata.get("approval_request")
         member_event_hook = getattr(context, "member_event_hook", None)
-        if member_event_hook is not None:
-            detail = str(
-                (approval_request or {}).get("title")
-                or (approval_request or {}).get("tool_name")
-                or ""
-            )
-            await member_event_hook(
-                "member_awaiting_approval", supervisor_result.member_id, 0, content=detail
-            )
-        context.shared_state["__awaiting_approval__"] = {
+        pause_state = {
             "member_id": supervisor_result.member_id,
             "index": 0,
             "approval_request": approval_request,
         }
-        await pause_hook(0, supervisor_result, completed, context.shared_state)
+        await pause_hook(
+            0,
+            supervisor_result,
+            completed,
+            {**context.shared_state, "__awaiting_approval__": pause_state},
+        )
+        context.shared_state["__awaiting_approval__"] = pause_state
+        await self._emit_member_approval_event(supervisor_result, 0, member_event_hook)
 
     def _resolve_supervisor(self, agents: List[Any], context: TeamContext) -> Tuple[Any, List[Any]]:
         """Detect the supervisor and specialists from the agent list.

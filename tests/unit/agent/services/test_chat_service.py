@@ -20,6 +20,7 @@ from unittest import mock
 
 import pytest
 
+from victor.agent.runtime.context import AgentRuntimeContext
 from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.agent.services.metrics_service import AgentMetricsService
@@ -33,11 +34,17 @@ from victor.providers.base import CompletionResponse, StreamChunk
 class _BoundTurnRuntime:
     """Small callback-backed turn runtime for ChatService boundary tests."""
 
-    def __init__(self, *, enter=None, exit=None, start=None, finish=None):
+    def __init__(self, *, enter=None, exit=None, start=None, finish=None, runtime_context=None):
+        self.runtime_context = runtime_context or (
+            lambda: AgentRuntimeContext("root_agent", "Test Root", "supervisor", "test-session")
+        )
         self._enter = enter
         self._exit = exit
         self._start = start
         self._finish = finish
+
+    def resolve_runtime_context(self):
+        return self.runtime_context()
 
     def enter(self, *args, **kwargs):
         return self._enter(*args, **kwargs) if self._enter is not None else None
@@ -299,7 +306,7 @@ class BaseChatServiceTest:
         conversation = MockConversationController()
         streaming = MockStreamingCoordinator()
 
-        return ChatService(
+        service = ChatService(
             config=config,
             provider_service=provider,
             tool_service=tools,
@@ -308,6 +315,9 @@ class BaseChatServiceTest:
             conversation_controller=conversation,
             streaming_coordinator=streaming,
         )
+        service.bind_runtime_components(turn_runtime=_BoundTurnRuntime())
+
+        return service
 
 
 # =============================================================================
@@ -364,6 +374,7 @@ class TestChatServiceInit(BaseChatServiceTest):
             conversation_controller=conversation,
             streaming_coordinator=streaming,
         )
+        service.bind_runtime_components(turn_runtime=_BoundTurnRuntime())
 
         assert service._config is config
         assert service._provider is provider
@@ -547,6 +558,7 @@ class TestChatServiceControllerBackedContext(BaseChatServiceTest):
             conversation_controller=controller,
             streaming_coordinator=streaming,
         )
+        service.bind_runtime_components(turn_runtime=_BoundTurnRuntime())
         return service, controller
 
     @pytest.mark.asyncio
@@ -628,6 +640,7 @@ class TestChatServiceControllerBackedContext(BaseChatServiceTest):
             conversation_controller=MockConversationController(),
             streaming_coordinator=MockStreamingCoordinator(),
         )
+        service.bind_runtime_components(turn_runtime=_BoundTurnRuntime())
 
         class _TurnExecutor:
             async def execute_agentic_loop(self, user_message):
@@ -674,6 +687,7 @@ class TestChatServiceControllerBackedContext(BaseChatServiceTest):
             conversation_controller=MockConversationController(),
             streaming_coordinator=MockStreamingCoordinator(),
         )
+        service.bind_runtime_components(turn_runtime=_BoundTurnRuntime())
 
         async def _stream_handler(user_message, **kwargs):
             await tool_service.execute_tool("read", {"prompt": user_message})
@@ -1454,3 +1468,339 @@ async def test_required_message_persistence_is_synchronous_in_running_loop():
     memory = mock.Mock()
     ChatService.persist_message("tool", "result", memory, "session", None, require_persistence=True)
     memory.add_message.assert_called_once()
+
+
+class TestRuntimeIdentityScope(BaseChatServiceTest):
+    """Provider/lifecycle correlation belongs to the service, including bare roots."""
+
+    @pytest.mark.parametrize("entry", ["chat", "aggregate", "planning", "facade"])
+    async def test_memory_disabled_root_and_resume_share_provider_identity(self, entry):
+        from functools import partial
+        from types import SimpleNamespace
+        from victor.agent.orchestrator import AgentOrchestrator
+        from victor.agent.runtime.context import RuntimeIdentity
+        from victor.core.context import get_session_id, session_id
+
+        state = (
+            AgentOrchestrator.__new__(AgentOrchestrator) if entry == "facade" else SimpleNamespace()
+        )
+        state.active_session_id = None
+        state._memory_session_id = None
+        identity = RuntimeIdentity(state)
+        service = self._create_test_service()
+        service._turn_runtime.runtime_context = identity.resolve
+        observed = []
+
+        async def execute(message):
+            observed.append(get_session_id())
+            return CompletionResponse(content=message, role="assistant")
+
+        async def stream(message, **kwargs):
+            observed.append(get_session_id())
+            yield StreamChunk(content=message, is_final=True)
+
+        service.bind_runtime_components(
+            turn_executor=SimpleNamespace(execute_agentic_loop=execute),
+            stream_chat_handler=stream,
+            planning_handler=execute if entry == "planning" else None,
+            turn_runtime=_BoundTurnRuntime(
+                finish=lambda *a, **k: observed.append(get_session_id()),
+                runtime_context=identity.resolve,
+            ),
+        )
+        invoke = (
+            service.chat_with_planning
+            if entry == "planning"
+            else partial(service.chat, stream=entry == "aggregate")
+        )
+        if entry == "facade":
+            # Keep the real identity-owning service behind the compatibility facade.
+            state._chat_service = service
+            invoke = state.chat
+        caller = session_id.set("unrelated-caller")
+        try:
+            initial = identity.resolve().session_id
+            await invoke("first")
+            count = 2
+            assert observed == [initial] * count
+            assert get_session_id() == "unrelated-caller"
+            state.active_session_id = "resumed-session"
+            await invoke("second")
+            assert observed[-count:] == ["resumed-session"] * count
+            assert get_session_id() == "unrelated-caller"
+        finally:
+            session_id.reset(caller)
+
+    @pytest.mark.parametrize("termination", ["exhaust", "close", "error", "cancel"])
+    async def test_stream_scopes_each_advance_and_cleanup_without_leaking(self, termination):
+        from types import SimpleNamespace
+        from victor.agent.runtime.context import RuntimeIdentity
+        from victor.core.context import get_session_id, session_id
+
+        identity = RuntimeIdentity(SimpleNamespace(active_session_id=None, _memory_session_id=None))
+        service = self._create_test_service()
+        service._turn_runtime.runtime_context = identity.resolve
+        expected = identity.resolve().session_id
+        observed = []
+        waiting = asyncio.Event()
+
+        async def stream(message, **kwargs):
+            try:
+                observed.append(get_session_id())
+                yield StreamChunk(content="first")
+                observed.append(get_session_id())
+                if termination == "error":
+                    raise ValueError("provider failed")
+                if termination == "cancel":
+                    waiting.set()
+                    await asyncio.Event().wait()
+                yield StreamChunk(content="last", is_final=True)
+            finally:
+                observed.append(get_session_id())
+
+        service.bind_runtime_components(stream_chat_handler=stream)
+        caller = session_id.set("caller-first")
+        result = service.stream_chat("hello")
+        try:
+            assert (await anext(result)).content == "first"
+            assert get_session_id() == "caller-first"
+            session_id.set("caller-second")
+            if termination == "close":
+                # Cleanup may run in another task; no cross-context token reset.
+                await asyncio.create_task(result.aclose())
+            elif termination == "cancel":
+                task = asyncio.create_task(anext(result))
+                await asyncio.wait_for(waiting.wait(), 2)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            elif termination == "error":
+                with pytest.raises(ValueError, match="provider failed"):
+                    await anext(result)
+            else:
+                assert (await anext(result)).content == "last"
+                with pytest.raises(StopAsyncIteration):
+                    await anext(result)
+            assert get_session_id() == "caller-second"
+            assert observed and set(observed) == {expected}
+            assert not service._turn_lock.locked()
+        finally:
+            await result.aclose()
+            session_id.reset(caller)
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    async def test_missing_identity_blocks_before_turn_mutation(self, streaming):
+        service = self._create_test_service()
+        service._turn_runtime = None
+        with pytest.raises(RuntimeError, match="identity resolver"):
+            if streaming:
+                await anext(service.stream_chat("hello"))
+            else:
+                await service.chat("hello")
+        assert service._tools.turn_resets == 0
+
+    @pytest.mark.parametrize("termination", ["error", "cancel"])
+    async def test_buffered_failure_restores_caller_and_unlocks(self, termination):
+        from types import SimpleNamespace
+        from victor.core.context import get_session_id, session_id
+
+        service = self._create_test_service()
+        entered = asyncio.Event()
+        observed = []
+
+        async def execute(message):
+            observed.append(get_session_id())
+            entered.set()
+            if termination == "cancel":
+                await asyncio.Event().wait()
+            raise ValueError("provider failed")
+
+        service.bind_runtime_components(turn_executor=SimpleNamespace(execute_agentic_loop=execute))
+
+        async def invoke():
+            caller = session_id.set("caller")
+            try:
+                with pytest.raises(
+                    asyncio.CancelledError if termination == "cancel" else ValueError
+                ):
+                    await service.chat("hello")
+                assert get_session_id() == "caller"
+            finally:
+                session_id.reset(caller)
+
+        task = asyncio.create_task(invoke())
+        await asyncio.wait_for(entered.wait(), 2)
+        if termination == "cancel":
+            task.cancel()
+        await task
+        assert observed == ["test-session"]
+        assert not service._turn_lock.locked()
+
+    async def test_concurrent_roots_and_bound_member_keep_distinct_sessions(self):
+        from types import SimpleNamespace
+        from victor.agent.runtime.context import RuntimeIdentity
+        from victor.core.context import get_session_id, session_id
+
+        gate = asyncio.Event()
+        observed = {}
+        identities = [
+            RuntimeIdentity(SimpleNamespace(active_session_id=None, _memory_session_id=None))
+            for _ in range(3)
+        ]
+        member = (
+            identities[0]
+            .resolve()
+            .derive_child(agent_id="member", display_name="Member", role="member", member_id="m1")
+        )
+        identities[2].bind_member(member)
+
+        async def invoke(index):
+            service = self._create_test_service()
+            service.bind_runtime_components(
+                turn_runtime=_BoundTurnRuntime(runtime_context=identities[index].resolve)
+            )
+
+            async def execute(message):
+                observed[index] = [get_session_id()]
+                if len(observed) == 3:
+                    gate.set()
+                await asyncio.wait_for(gate.wait(), 2)
+                observed[index].append(get_session_id())
+                return CompletionResponse(content="done", role="assistant")
+
+            service.bind_runtime_components(
+                turn_executor=SimpleNamespace(execute_agentic_loop=execute)
+            )
+            await service.chat("hello")
+            assert get_session_id() == "parent"
+
+        caller = session_id.set("parent")
+        try:
+            await asyncio.gather(*(invoke(index) for index in range(3)))
+            assert len({values[0] for values in observed.values()}) == 3
+            assert observed == {
+                i: [owner.resolve().session_id] * 2 for i, owner in enumerate(identities)
+            }
+            assert observed[2] == [member.session_id] * 2
+        finally:
+            session_id.reset(caller)
+
+
+class TestOwnedPlanningFallback(BaseChatServiceTest):
+    @pytest.mark.parametrize("entry", ["chat", "planning", "stream", "aggregate"])
+    @pytest.mark.parametrize("fallback", ["simple", "generation_failure"])
+    async def test_planning_fallback_uses_one_owned_turn(self, entry, fallback, monkeypatch):
+        from types import SimpleNamespace
+        from victor.agent.services.planning_chat_runtime import PlanningChatRuntime
+        from victor.agent.services.planning_runtime import PlanningRuntimeService
+
+        service = self._create_test_service()
+        events = []
+        response = CompletionResponse(content="direct result", role="assistant")
+        executor = SimpleNamespace(execute_agentic_loop=mock.AsyncMock(return_value=response))
+        host = SimpleNamespace(
+            _chat_service=service,
+            chat=service.chat,
+            task_analyzer=SimpleNamespace(analyze=lambda _: None),
+            _get_conversation_message_count=lambda: 1,
+            _system_added=True,
+            add_message=mock.Mock(),
+        )
+        monkeypatch.setattr(
+            PlanningRuntimeService, "_should_use_planning", lambda *a: fallback != "simple"
+        )
+        monkeypatch.setattr(PlanningRuntimeService, "_compact_context_if_needed", mock.AsyncMock())
+        monkeypatch.setattr(
+            PlanningRuntimeService,
+            "_generate_plan",
+            mock.AsyncMock(side_effect=ValueError("invalid plan")),
+        )
+        service.bind_runtime_components(
+            turn_executor=executor,
+            planning_handler=PlanningChatRuntime(host).run,
+            turn_runtime=_BoundTurnRuntime(
+                enter=lambda *a, **k: events.append("enter"),
+                exit=lambda *a, **k: events.append("exit"),
+                start=lambda *a, **k: events.append("start"),
+                finish=lambda *a, **k: events.append("finish"),
+            ),
+        )
+
+        options = {"tool_budget": 3}
+
+        async def invoke():
+            if entry == "stream":
+                return "".join(
+                    [
+                        c.content
+                        async for c in service.stream_chat(
+                            "hello", use_planning=True, runtime_context_overrides=options
+                        )
+                    ]
+                )
+            if entry == "planning":
+                return (await service.chat_with_planning("hello", True)).content
+            return (
+                await service.chat(
+                    "hello",
+                    stream=entry == "aggregate",
+                    use_planning=True,
+                    runtime_context_overrides=options,
+                )
+            ).content
+
+        assert await asyncio.wait_for(invoke(), 1) == "direct result"
+        expected = {} if entry == "planning" else {"runtime_context_overrides": options}
+        executor.execute_agentic_loop.assert_awaited_once_with("hello", **expected)
+        assert events == ["enter", "start", "finish", "exit"]
+        assert service._tools.turn_resets == 1
+        assert not service._turn_lock.locked()
+
+    @pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+    async def test_owned_fallback_rejects_other_tasks_and_releases_capability(self, outcome):
+        from types import SimpleNamespace
+
+        service = self._create_test_service()
+        calls = []
+        options = {"tool_budget": 3}
+
+        async def execute(message, *, runtime_context_overrides):
+            calls.append((message, runtime_context_overrides))
+            if outcome == "error":
+                raise ValueError("executor failed")
+            if outcome == "cancel":
+                raise asyncio.CancelledError()
+            return CompletionResponse(content="ok", role="assistant")
+
+        async def planning(message):
+            with pytest.raises(RuntimeError, match="owning task"):
+                await asyncio.create_task(service.execute_direct_in_turn("intruder"))
+            return await service.execute_direct_in_turn(message)
+
+        service.bind_runtime_components(
+            turn_executor=SimpleNamespace(execute_agentic_loop=execute), planning_handler=planning
+        )
+        with pytest.raises(RuntimeError, match="owning task"):
+            await service.execute_direct_in_turn("before")
+        operation = service.chat("owned", use_planning=True, runtime_context_overrides=options)
+        if outcome == "success":
+            assert (await operation).content == "ok"
+        else:
+            with pytest.raises(ValueError if outcome == "error" else asyncio.CancelledError):
+                await operation
+        assert calls == [("owned", options)]
+        with pytest.raises(RuntimeError, match="owning task"):
+            await service.execute_direct_in_turn("after")
+        assert not service._turn_lock.locked()
+
+    async def test_planning_alias_waits_for_existing_turn(self):
+        service = self._create_test_service()
+        planner = mock.AsyncMock(return_value=CompletionResponse(content="plan", role="assistant"))
+        service.bind_runtime_components(planning_handler=planner)
+        async with service._turn_lock:
+            task = asyncio.create_task(service.chat_with_planning("plan"))
+            await asyncio.sleep(0)
+            planner.assert_not_awaited()
+            assert service._tools.turn_resets == 0
+        assert (await asyncio.wait_for(task, 2)).content == "plan"
+        planner.assert_awaited_once()

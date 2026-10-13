@@ -284,41 +284,15 @@ header = caps.section_header("Tools")  # Returns ──── Tools ────
 
 ---
 
-## Phase 6: Packaging & Distribution (COMPLETED)
+## Phase 6: Packaging — superseded analysis
 
-### Analysis & Plan
-
-See **`docs/architecture/phase6-packaging-plan.md`** for the full comprehensive analysis.
-
-### Key Deliverables
-
-**Document:** `docs/architecture/phase6-packaging-plan.md` (9.1 KB, 142 lines)
-
-### Summary of Findings
-
-**Current state:** Monolithic victor-ai wheel shipping ~1,900 Python files (~818K LOC) with ~20 core deps and ~30 optional extras.
-
-**Sprawl issues identified:**
-- Monolithic core (no lazy-load boundaries)
-- Redundant HTTP clients (httpx + aiohttp + requests)
-- Cloud SDK sprawl (boto3, google, kubernetes -- each 20-50MB)
-- Rust build friction (no pre-built wheels)
-- No minimal install option
-
-**9 Recommendations:**
-1. Audit/consolidate redundant imports (fnmatch, argparse, requests, aiofiles, tomli)
-2. Move providers and UI to optional extras
-3. Publish victor_native as separate PyPI package with platform wheels (5 platforms)
-4. Split victor-ai-core from victor-ai for modular installs
-5. Add minimal/standard/full extras for tiered installs
-6. Add PyInstaller standalone binary
-7. Add Homebrew formula for macOS
-8. Adopt .victor/config.yaml per-project config (inspired by Claude Code/OpenCode)
-9. Keep victor.plugins entry points (unique differentiator)
-
-**Competitor analysis:** Claude Code (npm, ~50MB), Codex CLI (npm, ~40MB), OpenCode (pip, ~30MB), Aider (pip, ~100MB)
-
-**Estimated effort:** 12-19 days across 6 sub-phases (6a-6f)
+The earlier completion label described an analysis document, not delivery of all
+its proposals. [ADR-016](adr/016-distribution-packaging-strategy.md) and the
+[release procedure](../development/releasing/publishing.md) now own packaging.
+The [completed-work record](../development/completed-work.md) preserves shipped
+v0.12.0 improvements; [remaining packaging checks](../development/dependencies.md#packaging-follow-ups)
+retain SDK, platform and rehearsal questions. Do not restart the obsolete package
+split or speculative dependency substitutions from that historical plan.
 
 ---
 

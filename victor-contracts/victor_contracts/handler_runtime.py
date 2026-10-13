@@ -10,14 +10,29 @@ from typing import TYPE_CHECKING, Any
 from victor_contracts._deprecation import deprecated_bridge_message
 
 if TYPE_CHECKING:
+    from typing import Callable, Protocol, TypeVar
+
     from victor.framework.handler_registry import (
         HandlerRegistry,
         get_handler_registry,
-        handler_decorator,
         register_global_handler,
         register_vertical_handlers,
-        sync_handlers_with_executor,
     )
+
+    _HandlerClass = TypeVar("_HandlerClass", bound=type)
+
+    class _HandlerDecoratorFactory(Protocol):
+        def __call__(
+            self,
+            name: str,
+            *,
+            vertical: str | None = None,
+            description: str | None = None,
+        ) -> Callable[[_HandlerClass], _HandlerClass]: ...
+
+    # This compatibility factory is resolved below; it is not a host export.
+    handler_decorator: _HandlerDecoratorFactory
+
 __all__ = [
     "BaseHandler",  # noqa: F822
     "HandlerRegistry",
@@ -25,16 +40,13 @@ __all__ = [
     "handler_decorator",  # noqa: F822
     "register_global_handler",
     "register_vertical_handlers",
-    "sync_handlers_with_executor",
 ]
 
 _LAZY_IMPORTS = {
     "HandlerRegistry": "victor.framework.handler_registry",
     "get_handler_registry": "victor.framework.handler_registry",
-    "handler_decorator": "victor.framework.handler_registry",
     "register_global_handler": "victor.framework.handler_registry",
     "register_vertical_handlers": "victor.framework.handler_registry",
-    "sync_handlers_with_executor": "victor.framework.handler_registry",
 }
 
 

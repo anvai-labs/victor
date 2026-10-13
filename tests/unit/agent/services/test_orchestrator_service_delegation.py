@@ -11,6 +11,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from victor.agent.orchestrator import AgentOrchestrator
+from victor.agent.runtime.context import RuntimeIdentity
 from victor.providers.base import CompletionResponse, Message, StreamChunk
 
 
@@ -492,6 +493,9 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.runtime.provider_runtime import LazyRuntimeProxy
 
         obj = object.__new__(AgentOrchestrator)
+        obj.active_session_id = None
+        obj._memory_session_id = None
+        obj._runtime_identity = RuntimeIdentity(obj)
         chat_service = MagicMock()
         tool_service = MagicMock()
         session_service = MagicMock()
@@ -608,6 +612,7 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.services.chat_turn_runtime import ChatTurnRuntime
 
         assert isinstance(kwargs["turn_runtime"], ChatTurnRuntime)
+        assert kwargs["turn_runtime"].resolve_runtime_context() is obj._runtime_identity.resolve()
         assert not hasattr(kwargs["turn_runtime"].state, "_orchestrator")
         obj._factory.create_streaming_chat_adapter.assert_called_once_with(obj._protocol_adapter)
         assert obj._deprecated_chat_coordinator.initialized is False
@@ -618,6 +623,9 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.orchestrator import AgentOrchestrator
 
         obj = object.__new__(AgentOrchestrator)
+        obj.active_session_id = None
+        obj._memory_session_id = None
+        obj._runtime_identity = RuntimeIdentity(obj)
         chat_service = MagicMock()
         tool_service = MagicMock()
         session_service = MagicMock()
@@ -786,7 +794,10 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.orchestrator import AgentOrchestrator
         from victor.agent.services.tool_execution_runtime import ToolExecutionRuntime
 
+        from victor.agent.runtime.context import RuntimeIdentity
+
         obj = object.__new__(AgentOrchestrator)
+        obj._runtime_identity = RuntimeIdentity(obj)
         adapter = MagicMock(name="protocol_adapter")
         obj._protocol_adapter = adapter
 
@@ -796,12 +807,16 @@ class TestChatServiceBootstrapLaziness:
         assert isinstance(first, ToolExecutionRuntime)
         assert first is second
         assert first._runtime is adapter
+        assert first._runtime_context.__self__ is obj._runtime_identity
 
     def test_get_session_runtime_prefers_cached_helper_and_protocol_adapter(self):
         from victor.agent.orchestrator import AgentOrchestrator
         from victor.agent.services.session_runtime import SessionRuntime
 
+        from victor.agent.runtime.context import RuntimeIdentity
+
         obj = object.__new__(AgentOrchestrator)
+        obj._runtime_identity = RuntimeIdentity(obj)
         adapter = MagicMock(name="protocol_adapter")
         obj._protocol_adapter = adapter
 
@@ -811,6 +826,7 @@ class TestChatServiceBootstrapLaziness:
         assert isinstance(first, SessionRuntime)
         assert first is second
         assert first._runtime is adapter
+        assert first._validate_session.__self__ is obj._runtime_identity
 
     @pytest.mark.asyncio
     async def test_switch_provider_delegates_to_helper(self):
@@ -1188,6 +1204,9 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.orchestrator import AgentOrchestrator
 
         obj = object.__new__(AgentOrchestrator)
+        obj.active_session_id = None
+        obj._memory_session_id = None
+        obj._runtime_identity = RuntimeIdentity(obj)
         chat_service = MagicMock()
         tool_service = MagicMock()
         session_service = MagicMock()
@@ -1298,6 +1317,9 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.orchestrator import AgentOrchestrator
 
         obj = object.__new__(AgentOrchestrator)
+        obj.active_session_id = None
+        obj._memory_session_id = None
+        obj._runtime_identity = RuntimeIdentity(obj)
         chat_service = MagicMock()
         tool_service = MagicMock()
         session_service = MagicMock()
@@ -1393,8 +1415,6 @@ class TestChatServiceBootstrapLaziness:
         from victor.agent.orchestrator import AgentOrchestrator
 
         obj = object.__new__(AgentOrchestrator)
-        # chat()/stream_chat() re-stamp the session_id contextvar from
-        # active_session_id (commit 89df2774, #360); __new__ skips __init__.
         obj.active_session_id = None
         chunk = StreamChunk(content="service", is_final=True)
         constraints = object()

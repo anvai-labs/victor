@@ -233,10 +233,16 @@ async def test_case_always_closes_agent_when_final_checks_fail(
 
 
 @pytest.mark.parametrize(
-    "profile,oauth_enabled", [("standard", False), ("single-file", False), ("standard", True)]
+    "profile,oauth_enabled,provider",
+    [
+        ("standard", False, "zai"),
+        ("single-file", False, "zai"),
+        ("standard", True, "zai"),
+        ("standard", True, "deepseek"),
+    ],
 )
 async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete(
-    tmp_path, monkeypatch, profile, oauth_enabled
+    tmp_path, monkeypatch, profile, oauth_enabled, provider
 ):
     import copy
     import json
@@ -261,7 +267,7 @@ async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete
     auth = SimpleNamespace(
         gateway_url="https://gateway",
         database=tmp_path / "oauth.db",
-        capability=lambda provider: "loopback-capability",
+        capability=Mock(return_value="loopback-capability"),
     )
     monkeypatch.setattr(GatewayOAuth, "load", Mock(return_value=auth))
     monkeypatch.setattr(
@@ -284,7 +290,7 @@ async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete
     monkeypatch.setattr(mixed, "save_report", save)
     args = SimpleNamespace(
         task_profile=profile,
-        provider="zai",
+        provider=provider,
         model="reference",
         proxy_port=18084,
         timeout=240,
@@ -294,6 +300,9 @@ async def test_matrix_report_stays_pending_until_accounting_and_cleanup_complete
         auth_profile=tmp_path / "profile.json" if oauth_enabled else None,
     )
     assert await matrix.main(args) == 0
+    if oauth_enabled:
+        auth.capability.assert_called_once_with(provider)
+    assert factory.call_args.args[5] == provider
     assert factory.call_args.kwargs == ({"oauth": auth} if oauth_enabled else {})
     assert factory.call_args.args[2] == (auth.database if oauth_enabled else state / "usage.db")
     assert [report["passed"] for report in snapshots] == [False, False, True]
@@ -421,3 +430,18 @@ async def test_decision_artifact_must_satisfy_formation_contract(tmp_path, mode,
     )
     assert report["passed"] == (fault is None)
     assert any("decision" in item for item in report["failures"]) == (fault is not None)
+
+
+async def test_deepseek_requires_explicit_oidc_profile_before_any_state_access(tmp_path):
+    args = SimpleNamespace(
+        task_profile="standard",
+        cases=["parallel"],
+        timeout=240,
+        provider="deepseek",
+        auth_profile=None,
+        gateway_state=tmp_path / "missing",
+        output_dir=tmp_path / "output",
+    )
+    with pytest.raises(ValueError, match="DeepSeek validation requires --auth-profile"):
+        await matrix.main(args)
+    assert not (tmp_path / "output").exists()

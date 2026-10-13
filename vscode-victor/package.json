@@ -251,10 +251,6 @@
         "icon": "$(shield)"
       },
       {
-        "command": "victor.showGitDiff",
-        "title": "Victor: Show Git Diff"
-      },
-      {
         "command": "victor.refreshMcp",
         "title": "Victor: Refresh MCP Servers",
         "icon": "$(refresh)"
@@ -413,11 +409,6 @@
         "icon": "$(trash)"
       },
       {
-        "command": "victor.quickAction",
-        "title": "Victor: Quick Actions (Cmd+K)",
-        "icon": "$(wand)"
-      },
-      {
         "command": "victor.inlineEdit",
         "title": "Victor: Inline Edit Selection",
         "icon": "$(edit)"
@@ -429,25 +420,6 @@
       {
         "command": "victor.rejectInlineEdit",
         "title": "Victor: Reject Inline Edit"
-      },
-      {
-        "command": "victor.newConversation",
-        "title": "Victor: New Conversation",
-        "icon": "$(add)"
-      },
-      {
-        "command": "victor.loadConversation",
-        "title": "Victor: Load Conversation",
-        "icon": "$(folder-opened)"
-      },
-      {
-        "command": "victor.deleteConversation",
-        "title": "Victor: Delete Conversation",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "victor.clearAllConversations",
-        "title": "Victor: Clear All Conversations"
       },
       {
         "command": "victor.terminal.suggest",
@@ -781,12 +753,6 @@
         "command": "victor.search",
         "key": "ctrl+shift+s",
         "mac": "cmd+shift+s"
-      },
-      {
-        "command": "victor.quickAction",
-        "key": "ctrl+k",
-        "mac": "cmd+k",
-        "when": "editorTextFocus"
       },
       {
         "command": "victor.inlineEdit",
@@ -1269,7 +1235,7 @@
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/coverage-v8": "5.0.0",
     "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "glob": "^13.0.0",

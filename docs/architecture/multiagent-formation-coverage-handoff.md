@@ -7,6 +7,10 @@ those were verified live; which designs exist beyond the canonical six (implemen
 unwired, or deferred); and what the follow-up session should address, with the
 co-design learnings that motivate each item.
 
+**2026-10-07 closeout:** read the [restart handoff](victor-agent-service-plan.md)
+for merged milestones, release versus source status, and the ordered remaining gates.
+It supersedes stale session/branch instructions; dated live evidence below is retained.
+
 ## 1. Coverage: what is implemented, and what was verified live
 
 ### 1.1 Canonical formations — implemented and live-tested (6/6)
@@ -93,7 +97,7 @@ remains inline (see G17).
   blackboard and contract-net remain absent. Conversation-native formations now
   use the FEP-0035 transcript substrate; ensemble status is tracked separately (G16).
 
-### 1.5 Completion audit (updated 2026-09-25; cohort dates retained)
+### 1.5 Completion audit (updated 2026-10-07; cohort dates retained)
 
 Implementation delivery and live acceptance have different denominators:
 
@@ -113,16 +117,26 @@ Implementation delivery and live acceptance have different denominators:
 | 2026-09-23 OIDC ZAI single-file cohort | 15/15 (100%); overall PASS | No case failures; separate task profile |
 | 2026-09-23 OIDC Qwen3/ROCm single-file cohort | 0/15 accepted; interrupted overall FAIL | First completed case timed out; second cancelled; 13 unstarted, not 15 model-quality failures |
 | OIDC Qwen14/CUDA single-file cohort | 0/15; not started | Held for consolidated-origin liveness investigation |
-| Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | Released-origin short liveness now passes; full run remains held for foundation acceptance and reviewed verdict on InferFlux #184 |
-| G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Bounded durable HTTP settlement/recovery and changed-deadline live evidence remain open |
+| Current six-Qwen/one-ZAI C5 acceptance | Open; historical failed run retained | InferFlux v0.5.0 release wire acceptance passes (16 synthetic checks); full run remains held for durable gateway/lifecycle acceptance and reviewed verdict on InferFlux #184 |
+| G53 operator deadline policy | ✅ Buffered #297, stream body owner #298 and standalone streaming policy [Sandhi #301](https://github.com/anvai-labs/sandhi/pull/301) released in 0.10.1 | Owned prepared admission and usage qualification merged in [Sandhi #336](https://github.com/anvai-labs/sandhi/pull/336)/[#337](https://github.com/anvai-labs/sandhi/pull/337); tracked buffered HTTP/recovery merged in [#338](https://github.com/anvai-labs/sandhi/pull/338). Broader lifecycle, released deployment and changed-deadline live evidence remain open |
 | G60 pre-dispatch enforcement repair | ✅ [Victor #1180](https://github.com/anvai-labs/victor/pull/1180); all CI green including Vertical Py3.12 | Result-publication follow-up is described in G60 below; broader G60 and G61–G65 remain open |
 | G60 result-publication boundary | [Victor #1204](https://github.com/anvai-labs/victor/pull/1204): typed withholding, cache/result publication checks and retry vetoes | Executor/observer disclosure and cached pre-action authorization remain open; this does not close G60 or C5 |
+| G62 local single-action observations | ✅ [Victor #1209](https://github.com/anvai-labs/victor/pull/1209), merged October 3 and included in v0.12.0 | Bound receipt capability landed in #1255; production adapters and whole-member continuation remain open |
+| G62 asynchronous journal follow-up | [Victor #1249](https://github.com/anvai-labs/victor/pull/1249), merged to main October 7; not in v0.12.0 | Integrated via #1250; failed historical shards and repairs remain in the completed-work record; no release or live acceptance from that integration |
 
 The [PDF recheck and critique](agentic-workflow-safety-audit.md#pdf-recheck-and-design-critique-2026-09-25)
 maps the local Agentic Workflow Automation guide to formation-specific acceptance
 gates. Supervisor/MCP/queue choices remain workload-dependent; exact approval,
 effect-aware recovery and verified outcomes apply to every member. Offline safety
 repairs do not add formation passes or close C5.
+
+**Released foundation checkpoint (2026-10-09).** InferFlux v0.5.0 is published
+and deployed from verified source, with Sandhi 0.11.0 unchanged. The
+[new synthetic wire evidence](evidence/released-foundation-wire-2026-10-09.json)
+passes 16 direct/gateway checks and four accounting joins. It does not add a
+formation, actual-member replay or C5 pass. Two failed harness attempts and their
+verified rollbacks remain preserved. The [canonical VAS-17 checkpoint](victor-agent-service-plan.md#current-checkpoint)
+owns current runtime identities, remaining gateway/lifecycle work and next actions.
 
 **Released foundation checkpoint (2026-09-24).** Sandhi 0.10.1 and InferFlux
 0.3.0 are published and deployed. The
@@ -1279,13 +1293,40 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [#312](https://github.com/anvai-labs/sandhi/pull/312) adds a bounded read-only inventory
   with frozen admission range and current state per page; it shares settlement eligibility
   and validates receipt/reservation/observation consistency. Pagination is not a recovery
-  worker, a claim on work, or proof of quiescence. The proxy still needs tracked owner
-  integration, an explicit never-dispatched abandonment transition, honest finalization
-  outcomes and bounded ownership of blocking work before authoritative HTTP activation.
-  **Still open:** an explicit lease-renewal or bounded durable HTTP settlement
-  contract; idle gaps alone cannot
-  bound lease lifetime. Blocking finalization can still outlive headroom, and the
-  proxy has not adopted the store's atomic settlement-evidence primitive. New live
+  worker, a claim on work, or proof of quiescence. At that #312 checkpoint, tracked
+  owner integration, explicit never-dispatched abandonment, honest finalization
+  outcomes and bounded blocking ownership remained prerequisites for HTTP activation.
+  **Current source progress:** [Sandhi #337](https://github.com/anvai-labs/sandhi/pull/337)
+  merged strict buffered usage qualification. [#338](https://github.com/anvai-labs/sandhi/pull/338)
+  merged after clean review and all 13 applicable green checks: opt-in buffered
+  HTTP ownership, atomically correlated
+  admission, terminal settlement and bounded recovery through the original ledger.
+  Local process tests distinguish successful settlement from unavailable usage and
+  incomplete shutdown. [Sandhi #339](https://github.com/anvai-labs/sandhi/pull/339)
+  merged after clean review and all six applicable green checks, with two
+  actual-process SIGKILL/restart drills:
+  unknown post-origin liability remains held; durable terminal usage recovers one
+  receipt after synthetic insertion failure, stable across a second restart without
+  inference/event replay. [Sandhi #340](https://github.com/anvai-labs/sandhi/pull/340)
+  merged with all 11 applicable checks green and adds terminal-publication
+  contention/death acceptance. Gateway metrics witness
+  qualified usage while SQLite blocks publication; after the original worker ends,
+  survival retries the retained observation into one receipt, while SIGKILL leaves
+  unknown liability after restart. Exactly one origin call occurs in either case.
+  All 46 affected tests and 12 metrics tests pass; missing-usage and disabled-retry
+  controls fail as expected. Metrics can increase before durable terminal/receipt
+  persistence and are not a spend oracle. These isolated HTTP/token-mode checks add
+  no live formation pass. These source increments are published in
+  [Sandhi 0.12.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.12.0);
+  all required artifact targets verified. The [canonical tracker](victor-agent-service-plan.md)
+  owns consumer adoption and installed evidence. **Subsequent source/release update:**
+  tracked TLS/OIDC and bounded streaming process acceptance landed in Sandhi
+  #350–#356 and shipped in [0.13.0](https://github.com/anvai-labs/sandhi/releases/tag/v0.13.0)
+  through [#357](https://github.com/anvai-labs/sandhi/pull/357)/[#358](https://github.com/anvai-labs/sandhi/pull/358).
+  All artifact targets verify; Victor pins the official wheel with 1,712 affected
+  tests passing. **Still open:** preserved-state managed tracked deployment,
+  broader lifecycle and actual-member C5 acceptance. SQLite operations can outlive a wait; unknown liability stays held,
+  and no provider call is replayed. Defaults and shared runtimes are unchanged. New live
   acceptance evidence remains a separate gate. At #300, the source increment did
   not change the then-running 0.9.1 gateway (buffered120s/setup30s/idle90s), config,
   runtime, shared cache or credentials. The newer release checkpoint is recorded
@@ -1429,7 +1470,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   errors through middleware; it does not implement durable action reconciliation,
   exact approval binding or whole-member replay protection. Keep G62 open until
   those boundaries have independent failure/restart evidence.
-  **Partial implementation (2026-09-30):** opt-in single-action resume now persists
+  **Partial implementation ([PR #1209](https://github.com/anvai-labs/victor/pull/1209), merged 2026-10-03):** opt-in single-action resume now persists
   intent and invocation observations in the existing paused-run row, exposes a
   session-scoped versioned status snapshot, rejects prior intent on restart and
   rechecks authority after persistence. Strict result publication is required before
@@ -1437,8 +1478,25 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   `returned` is not a verified backend receipt. Existing owners cover commit-then-timeout,
   cancellation, competing stores, migration and post-effect publication failures.
   See [FEP-0029](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
-  Backend receipt lookup, verified reconciliation, complete member continuation and
-  mixed-team C5 remain open; this is not a live acceptance result.
+  **Bound receipt capability ([#1255](https://github.com/anvai-labs/victor/pull/1255)):**
+  readonly lookup through an opt-in typed backend capability and immutable receipt
+  retention now reconcile one action without re-execution. Exact identity/authority
+  guards protect lookup and status; absent or failed lookup remains unknown.
+  Production adapters (G78), recovered-result publication, complete member
+  continuation and mixed-team C5 remain open; this is not live acceptance.
+  The [#1249 follow-up](https://github.com/anvai-labs/victor/pull/1249) moves async-path
+  journal writes off the event loop and rolls back failed commits and save/action mutations. It is a
+  post-v0.12.0 main change, not new backend or live acceptance. See the
+  [closeout](victor-agent-service-plan.md) for integration and CI status.
+  #1253/G77 moved built-in resume admission off-loop with contention/cancellation
+  evidence. VAS-11d now covers initial buffered/streamed and chained pause writes
+  in the existing persistence owner (✅ [#1257](https://github.com/anvai-labs/victor/pull/1257),
+  merge `440b8f46d`; detailed evidence in the [tracker](victor-agent-service-plan.md)). Built-in SQLite saves run off-loop;
+  a pause is published only after save returns and originating runtime identity still
+  matches. Cancellation can leave one pending
+  row after a late commit, without automatic retry or dispatch. Custom stores keep
+  caller-thread semantics. This does not supply lost-ack pause discovery, bounded
+  worker admission, production receipts or full continuation.
 
 - **G63 — workflow HTTP lifecycle is not durable admission or owned cancellation.**
   The inspected routes store in-memory records, launch a background task, expose
@@ -1555,6 +1613,374 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   A supervisor remains subject to runtime policy and human approval. Peer formations
   need not acquire a supervisor merely to satisfy this gap. Complete member continuation
   and action recovery remain G61/G62/G70; this finding has not been live-validated or fixed.
+
+- **G73 — shared agent-service API and IDE/web lifecycle parity (2026-10-07 audit; open).**
+  The original VS Code `streamChat()` body matched only the separate `web/server`
+  application; the audit reproduced HTTP 422 from `victor serve`.
+  VAS-03a landed the request repair and executable client/router regression in
+  [PR #1252](https://github.com/anvai-labs/victor/pull/1252). Audit-time compiled-client probes also reproduced lost paused
+  run fields, premature-EOF success and false cancellation acknowledgement.
+  Event authentication and session/principal ownership differ between surfaces.
+  The [audit](../development/victor-agent-service-audit.md) records source and
+  non-live evidence; [FEP-0039](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0039-unified-agent-service-api.md)
+  proposes one service and shared schemas/SDK. The [VAS tracker](victor-agent-service-plan.md)
+  owns implementation status and TDD/smoke sequencing. Reuse G61/G62/G70 approval,
+  action and member owners; no parallel lifecycle/dispatch registry. Local
+  extension activation/package passes do not close this gap or C5. VAS-04a repairs
+  premature stream EOF and cancellation acknowledgement through existing client/UI
+  owners in [#1262](https://github.com/anvai-labs/victor/pull/1262), after clean review
+  and all applicable CI passed. It does not add durable
+  terminal run status or prove remote action cancellation. VAS-04b additionally
+  repairs existing nonstream approval metadata and content consumers in
+  [#1265](https://github.com/anvai-labs/victor/pull/1265), after clean review and
+  all 39 applicable CI checks passed. It does not
+  provide a new approval UI, restart-safe continuation or a new server contract.
+  Review also found legacy
+  per-field defaults in recognized stream events (for example missing/malformed
+  `tool_result.success` becomes true); VAS-04/09 must qualify result schemas before
+  those events can establish verified business outcomes.
+
+- **G74 — ✅ web backend startup/auth settings migration ([PR #1252](https://github.com/anvai-labs/victor/pull/1252)).**
+  Importing `web/server/main.py` failed because it read removed flat server/render
+  settings; the merged repair uses the nested settings owner. Credentials now live as `SecretStr` under `settings.server`; signing
+  and authentication must unwrap the real value. VAS-03a adds executable startup,
+  HMAC/authentication and compiled-client HTTP tests; source/release acceptance
+  remain separate. Track final PR/merge evidence in the [VAS ledger](victor-agent-service-plan.md).
+
+- **G75 — workflow authoring and headed browser acceptance (2026-10-08; open).**
+  Existing workflow HTML is an execution visualizer, not a formation/workflow
+  authoring surface. AgentBrowser 1.15.2 advertises no drag action and its egress
+  policy restricts page WS/SSE. VAS-14a–d own canonical authoring, accessible
+  drag/drop, browser co-design and actual headed acceptance; graph layout changes
+  and polling must not be mislabeled as authoring or streaming proof.
+  The 2026-10-09 headed audit of production routes with a synthetic graph found
+  the pinned Cytoscape CDN request returned HTTP 404/HTML, leaving the graph blank
+  (`cytoscape is not defined`) and status at Loading. Refresh fetched execution
+  status but did not initialize the graph. Preserve screenshot/network evidence;
+  VAS-14e owns bundled assets, and VAS-14b/d own actionable loading/retry states.
+  This is a visualizer failure, not provider execution or formation evidence. The bounded
+  repair packages graph assets, fixes safe node inspection/retry, and aligns local
+  light/dark/system tokens with fetched AnvaiOps/Identity references (VAS-14e).
+  VAS-14f/g track editor-library and notebook evaluation; none closes authoring,
+  OIDC, drag/stream or live mixed-model acceptance. A subsequent deterministic
+  real-router probe reused the completed-execution test fixture: `POST
+  /workflows/execute` returned 200 and an execution ID, but its `/graph` returned
+  404 because the stored record contains steps without graph metadata. VAS-14a/14d
+  must join execution creation to the canonical graph projection and verify real
+  execution-to-visualization before any product demo. The synthetic screenshot
+  fixture deliberately supplies its graph and therefore does not cover this gap.
+
+- **G76 — end-to-end caller delegation to Sandhi (2026-10-08; open).**
+  Victor's inbound user attribution and configured outbound workload credentials
+  are separate. Sandhi correctly rejects wrong-audience tokens and forged subject
+  headers, then selects an authorized grant/vault credential. VAS-05e/f own verified
+  delegation and immutable per-run credentials; current shared-workload usage is
+  not human-scoped gateway authorization. Preserve issuer-qualified identities.
+
+- **G77 — ✅ async durable approval admission ([PR #1253](https://github.com/anvai-labs/victor/pull/1253)).**
+  At baseline, `VictorClient.resume()` called paused-store expiry, lookup and
+  single-use claim synchronously. ProjectDbPausedRunStore can wait for SQLite's 60-second busy
+  timeout; #1249 moved action observation writes off-loop, not these earlier
+  admission operations. Repair through the existing store owner, preserve
+  cancellation/single-use behavior and prove contended database responsiveness.
+  VAS-11a moves this admission sequence off-loop for the built-in persistent
+  backend, preserving injected stores' caller-thread behavior. Contended SQLite,
+  cancellation, competing claims and lost-acknowledgement regressions passed;
+  clean exact-head review and all applicable CI gates preceded squash merge
+  `ec41c97b4` into develop. It does not close receipt reconciliation/C5.
+
+- **G78 — production effect backends lack action-key receipt adapters.** VAS-11b
+  discovery found no production tool consuming `durable_action_id`. Jira/Slack
+  mutation responses, arbitrary database SQL with volatile connection IDs, shell
+  results and file editing history do not establish an atomic effect/receipt
+  contract. Optional typed capability, bound backend identity and local receipt
+  retention landed in [#1255](https://github.com/anvai-labs/victor/pull/1255)
+  (VAS-11b, merge `76384b0e4`); production adapter qualification
+  remains VAS-11c. A SQLite test adapter is conformance evidence only. Preserve
+  unsupported/unknown outcomes and keep G62/member continuation/C5 open.
+
+- **G79 — ✅ bounded storage/coroutine cancellation repair ([#1258](https://github.com/anvai-labs/victor/pull/1258), [#1260](https://github.com/anvai-labs/victor/pull/1260)); whole-member recovery remains open.**
+  The previous coordinator treated failed checkpoint reads as fresh execution and
+  swallowed member/pause save failures. Concurrent members could then advance and
+  approval events could precede durable save acknowledgement; default cleanup could
+  delete materialized deliverables after failure. VAS-12a repairs these paths in
+  the existing hook/dispatch owners: sanitized `member_checkpoint_failed` results
+  require reconciliation, queued admissions and retries stop, and acknowledged
+  pause saves precede approval markers/events. Already-started siblings are joined
+  after storage failure. Storage exceptions preserve materialized worktrees and
+  return their paths even when cleanup was requested. VAS-12b adds owned-coroutine
+  cancellation joins, retention of worktrees on cancellation and guards against
+  checkpoint adapters returning late acknowledgements after a pending stop. Repeated
+  stop requests do not interrupt sibling cleanup; cancellation is propagated and
+  retained paths are emitted as best-effort `team.cancelled` telemetry, not a durable
+  run record. Memory-store fault injection and real git worktrees are local evidence;
+  neither is production durability or C5 acceptance. Detached thread/provider work,
+  explicit clearing of cancellation, callbacks that never finish, process crashes,
+  in-flight receipts, checkpoint identity validation and safe whole-member continuation
+  remain open. VAS-12a/12b merged after clean review and all applicable CI; follow the
+  [VAS ledger](victor-agent-service-plan.md) for production receipt qualification and
+  remaining recovery work. Never blindly retry an ambiguous save.
+
+- **G80 — public legacy HTTP protocol adapter loses paused and terminal outcomes (✅ repaired in [#1268](https://github.com/anvai-labs/victor/pull/1268)).**
+  At `b19f0f673`, `integrations/protocol/interface.py::ChatResponse.from_dict`
+  discards status/run/approval metadata and defaults `finish_reason` to `stop`.
+  `HTTPProtocolAdapter.stream_chat` suppresses JSON decoding errors and accepts EOF
+  without a terminal marker. Local synthetic adapter probes reproduced both
+  outcome losses; no live-member acceptance is claimed. This exported package has
+  no discovered non-example internal production callers, but external use is
+  unknown. Do not remove it without compatibility/deprecation evidence. VAS-15a
+  merged bounded TDD repairs through the existing protocol suites and a real core
+  HTTP smoke: preserve paused fields, reject malformed/incomplete streams, bound
+  frames, expand core tool-call lists and close without POST replay. Follow the
+  [canonical tracker](victor-agent-service-plan.md) for exact review/CI/merge evidence.
+  VAS-15 still owns eventual consolidation. Preserve unknown/pending effects.
+
+- **G81 — live authorization revocation for established EventBridge sockets (open).**
+  The core `/ws/events` gate authenticates the upgrade, not each later event.
+  VAS-05g repairs the extension's missing credential and client-side rotation,
+  stale callbacks, bounded retries and disposal through the existing transport.
+  It does not enforce server-side revocation on a socket already authenticated.
+  VAS-05 owns the reviewed revocation/authorization contract and its failure tests;
+  do not infer tenant isolation or live revocation from an authenticated handshake.
+  Follow the [canonical tracker](victor-agent-service-plan.md) for VAS-05g PR status.
+
+- **G82 — legacy direct adapter outcome parity is unqualified (open).**
+  `DirectProtocolAdapter.chat` still invokes a supplied orchestrator and constructs
+  a response with `finish_reason="stop"`; its stream conversion drops tool calls.
+  VAS-15a's HTTP repair does not change this separate execution path. No internal
+  non-example production consumer was found; external compatibility remains unknown.
+  VAS-15 owns consumer qualification and migration through canonical framework
+  services before a parity or deprecation claim. This source audit is not evidence
+  of a live-member failure and does not justify removing public imports.
+
+- **G83 — Provider tracked-stream compatibility needs released acceptance (open).**
+  New isolated Sandhi 0.13.0/deployed-OIDC evidence on October 11 passes both
+  Qwen tracked streams with exact request/observation/receipt joins. ZAI GLM-5.3
+  instead returns HTTP 200 then a failed body; the persisted outcome is
+  `stream_qualification:InvalidUsage(NonFinalUsage);delivery:error`. Usage remains
+  unavailable, with no frozen charge or receipt; it is not reported zero. The
+  strict qualifier rejects non-null usage on nonempty choices. The failed call did not retain raw SSE. A separate new bounded capture
+  confirms usage on a nonempty final choice (`finish_reason="length"`), followed
+  by `[DONE]`; 19 prompt/32 completion tokens include 30 reasoning tokens, with
+  explicit zero cache. This is wire evidence, not task completion or a replay.
+  Provider documentation and separate DeepSeek wire evidence support catalog-scoped
+  terminal-choice contracts. [Sandhi #362](https://github.com/anvai-labs/sandhi/pull/362)
+  implements them through the existing qualifier, parser, observer and settlement
+  owners. Strict OpenAI/custom/InferFlux defaults remain unchanged; malformed or
+  post-final data retain unresolved evidence. Both provider regressions reproduced
+  `NonFinalUsage` before the repair. Local workspace validation passes 879 tests;
+  exact-commit adversarial review is clean. Release, deployment and tracked live
+  acceptance remain required; no automatic replay or manufactured settlement. Buffered qualification and both default-mode managed
+  0.13.0 deployments pass; they do not close tracked lifecycle or C5. See the
+  [canonical tracker](victor-agent-service-plan.md) and retained local evidence
+  `var/gateway-upgrade-013-20261011/stream-observations.json`.
+
+- **G84 — DeepSeek discovery and validation-harness coverage lag its live API (open).**
+  The October 11 live `/models` response lists `deepseek-flash` and `deepseek-v4-pro`;
+  Sandhi 0.13.0's curated descriptors still list `deepseek-chat`/`deepseek-reasoner`.
+  Verify capabilities and limits from primary sources before refreshing descriptors;
+  do not invent aliases. The Mac gateway now has `deepseek:victor-multiagent`, with
+  OIDC grant `deepseek` limited to `deepseek-flash` under `multiagent-validation`.
+  Buffered and streamed released-default-path smokes pass: two calls, 70 fresh input,
+  30 output, explicit zero cache, matching SQLite/run/dashboard totals. Forbidden
+  model/member-admin/unauthenticated-admin requests return 403/403/401. The key stays
+  in local Keychain; the remote gateway has not received it. The standalone
+  in-process probe also passes. This does not qualify tracked settlement or C5.
+  Harness admission is ✅ merged in [#1292](https://github.com/anvai-labs/victor/pull/1292)
+  (`21b43fcac`), with clean review and all 39 applicable CI checks. It admits
+  DeepSeek through an explicit OIDC profile, shared provider allowlist and the
+  existing credential/accounting owners. Route/model denial and separate accounting checks remain;
+  no InferFlux-token fallback is allowed. Source admission is not live formation
+  acceptance. Curated metadata is the reviewed source candidate
+  [Sandhi #363](https://github.com/anvai-labs/sandhi/pull/363); merge/release and
+  Victor consumer-policy qualification remain open. Preserve the required
+  six-Qwen/one-ZAI C5 verdict separately.
+  Evidence: `var/gateway-upgrade-013-20261011/deepseek-registration/`.
+
+- **G85 — DeepSeek legacy response repair and capability policy need consolidation (open).**
+  Source audit at `21b43fcac`: ZAI and DeepSeek already share the Sandhi transport
+  through `SandhiOpenAICompatPolicy`. DeepSeek's `stream()` nevertheless collects
+  every chunk before yielding; its DSML repair converts text to tool calls and
+  emits a replacement final chunk without the buffered chunks' metadata. Its
+  `_is_reasoner()` uses name substrings and disables tools for that branch, while
+  current models expose thinking and tool use together. A synthetic parent-stream
+  injection reproduced first publication after upstream exhaustion and a repaired
+  tool-call chunk without the supplied usage/reasoning metadata. It made no HTTP,
+  model or tool calls; this is not live acceptance or a performance benchmark.
+  Script/report: `var/gateway-upgrade-013-20261011/provider-consolidation/`.
+  Follow the [consolidation sequence](victor-agent-service-plan.md#openai-compatible-provider-consolidation):
+  existing test owners first; explicit strict structured-output behavior and a
+  documented legacy mode; preserve/version defaults, metadata and cancellation.
+  Qualify reasoning-history round trips and first-chunk/memory behavior before
+  removing wrappers or claiming live acceptance. No second registry/transport or
+  permissive parser fallback. G83 release and original C5 remain independent gates.
+  Merged [#1294](https://github.com/anvai-labs/victor/pull/1294) adds opt-in structured text
+  pass-through and Python stream-close regressions in existing test owners.
+  Default legacy repair is intentionally unchanged, including its metadata-loss
+  limitation. Live qualification, legacy migration and model/history policy remain open.
+  Continuation audit at `c79b8b347`: `Message.metadata` is internal and
+  `build_openai_messages` drops reasoning; released Sandhi 0.13.0 has no assistant
+  reasoning-history field in `ChatMessageV1`. The streaming runtime counts reasoning
+  characters without retaining continuation data. Implement the typed Sandhi contract
+  before Victor history/checkpoint integration; do not leak arbitrary metadata via
+  an extensions override. Multiple tool rounds, persistence/resume and provider-scope
+  tests must precede any live continuation claim.
+
+- **G86 — Cerebras reasoning presentation uses prose classification (open).**
+  The broader OpenAI-compatible source audit at `21b43fcac` found
+  `cerebras_provider.py` classifies a leading paragraph using regular expressions
+  and model-name matching. A synthetic helper call with
+  `First I need your order number.\n\nPlease enter it in the form.` classifies the
+  first, ordinary user-facing sentence as reasoning. No provider/model calls were
+  made; this is not a measured live frequency or evidence about current Cerebras
+  wire behavior. Qualify structured reasoning fields and make any retained legacy
+  presentation mode explicit with a compatibility migration. Preserve visible text,
+  usage, metadata and cancellation; add the negative case to an existing provider
+  test owner after duplicate-coverage audit. Follow the
+  [broader qualification plan](victor-agent-service-plan.md#broader-provider-audit-and-credential-backed-qualification).
+  The same opt-in `text_response_mode="structured"` increment bypasses prose
+  classification and preserves provider metadata. Default legacy presentation is
+  retained; origin cancellation and live qualification are not established.
+
+- **G87 — Groq Python stream ownership misses early-close cleanup (✅ source fix merged).**
+  Merged [#1295](https://github.com/anvai-labs/victor/pull/1295) at `62c4f4395`
+  after clean independent review and all 39 applicable CI gates passed.
+  Audit at `c79b8b347` finds the remaining `SandhiOpenAICompatPolicy` wrapper with
+  unowned re-yielding in `GroqProvider.stream`. An injected parent stream stays
+  suspended after explicit outer close. The source fix uses `aclosing` and extends
+  `test_provider_stream_aclosing.py`, preserving Groq's prompt-budget policy and
+  chunk identity. Shared cases cover early close, cancellation, cleanup failure,
+  upstream failure and full consumption; the CI selector retains both shared and
+  provider-specific owners. No duplicate lifecycle suite is added. This qualifies
+  Python generator ownership only; released native iterator/origin cancellation
+  and actual-provider lifecycle acceptance remain open.
+
+- **G88 — Buffered reasoning depends on the optional native response echo (source qualification).**
+  Released Sandhi 0.13.0 lacks typed assistant output reasoning for Chat/Responses.
+  Victor disables raw response duplication by design, but clients still need explicit
+  provider-supplied reasoning or summaries. Sandhi
+  [#364](https://github.com/anvai-labs/sandhi/pull/364) adds optional `output.reasoning`
+  (contract minor 11), typed extraction and nonretryable malformed-output errors.
+  The Victor consumer prefers this field, preserves explicit empty text and legacy
+  behavior when absent, and rejects malformed canonical values without fallback or
+  replay. Existing transport tests own these cases. This display-output increment
+  does not enable model thinking, retain opaque continuation, or implement G85
+  history/checkpoint replay. Released dependency pin remains 0.13.0; upstream
+  merge/release and matched provider qualification are still required.
+
+- **G89 — failed member verdict preservation (✅ source repair [#1306](https://github.com/anvai-labs/victor/pull/1306); release/live acceptance separate).**
+  The [2026-10-12 SQLite/source audit](agentic-workflow-safety-audit.md#sqlite-and-source-re-audit-2026-10-12)
+  confirms that, when the failed loop's final response is empty, a successful earlier
+  tool plus nonempty synthesis can overwrite its verdict; the member consumes that
+  metadata as success. Preserve useful
+  synthesis without overriding failure/partial status unless the configured verifier
+  establishes completion. Extend the existing turn-runtime and member-result owners;
+  test failed verification and successful evidence gathering with an unfinished task.
+  The SA-01 source repair now uses the existing typed synthesis helper and retains
+  the loop's failure/error/iteration metadata. Four regression cases replaced the
+  unsafe expectation; the member owner verifies a failed result and parent handoff
+  despite completion prose. Independent review and all applicable CI are green; merged as
+  `8f503cf24272c81520847ddd41406f0ffb7a99c7`. 105 direct, 377 broader
+  runtime/member and 58 verifier/stream tests pass (direct tests overlap the broader
+  cohort). This is verdict propagation, not live verifier/C5 acceptance. See the
+  [implementation checkpoint](agentic-workflow-safety-audit.md#sa-01-implementation-checkpoint).
+
+- **G90 — post-effect execution evidence retention (✅ source repair [#1307](https://github.com/anvai-labs/victor/pull/1307); release/live acceptance separate).**
+  The same audit finds unconditional state restoration after ordinary exceptions
+  from `_execute_via_agentic_loop`,
+  without distinguishing pre-dispatch failure from failure after an action. Preserve
+  execution evidence and monotonic consumption after dispatch; qualify a committed
+  fake write followed by provider failure, with no second effect. This is not evidence
+  that durable receipts are deleted or tools automatically replayed. Complements
+  G62/G70. The SA-02 repair removes obsolete wrapper snapshot/restore, retaining
+  accepted history and consumed work; temporary configuration cleanup is unchanged.
+  Its existing regression owner now covers pre-dispatch failure, a committed write
+  followed by policy denial or cancellation, and an unknown receipt without replay.
+  Two post-dispatch cases fail before the repair; all 55 owner tests and the broader
+  498-test cohort pass afterward. Full collection finds 34,526 tests; independent
+  review and all applicable CI are green; merged as
+  `6ebacd4f806bfa0446d951cc2cbbdc10a41dbe2b`. The bounded fake driver qualifies wrapper behavior,
+  not live provider propagation or durable restart recovery. See the
+  [implementation checkpoint](agentic-workflow-safety-audit.md#sa-02-implementation-checkpoint).
+
+- **G91 — shared runtime identity ownership (✅ merged [#1309](https://github.com/anvai-labs/victor/pull/1309)).**
+  The two fallback builders are replaced by one typed owner/resolver, with current
+  immutable contexts for root resume and explicitly bound member contexts. Missing
+  checkpoint identity fails before persistence; cross-member recovery fails before
+  hydration. Member dash/colon session formats remain unchanged. The
+  [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint) owns
+  verified merge `3031cd4f66f92118f5ebfc1428ec11b3ffd23aec` and the [audit scope](agentic-workflow-safety-audit.md#sa-03-implementation-scope)
+  records limits. Universal root-provider correlation, release and C5 remain separate.
+
+- **G92 — root transport/session correlation (✅ merged [#1311](https://github.com/anvai-labs/victor/pull/1311)).**
+  The `fix/root-provider-identity` repair binds the existing core session
+  ContextVar from the shared resolver at canonical ChatService entry, including
+  memory-disabled roots and planning calls. It restores the caller before each
+  outward stream yield and scopes stream cleanup even when another task closes it.
+  Deprecated facade restamping is removed. Regression and local real-binding
+  checks cover buffered/streaming paths, cancellation, member isolation and resume
+  **between turns**. Gateway-mode fixture requests carry session/run headers for
+  ZAI, DeepSeek and InferFlux; embedded InferFlux carries its session header.
+  The local fixtures do not establish deployed gateway, account or C5 acceptance.
+  The [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint)
+  owns qualification and merge status. G93/G94 remain separate limits.
+
+- **G93 — planning fallback can re-enter the held turn lock (✅ merged [#1314](https://github.com/anvai-labs/victor/pull/1314)).**
+  `ChatService.chat(use_planning=True)` calls its planning handler under the turn
+  lock; the previous `PlanningRuntimeService._direct_chat()` called public chat
+  and attempted to reacquire that lock. A bounded synthetic run confirms the
+  timeout without model calls. The merged implementation routes fallback through a typed
+  already-owned turn operation with one executor, report and reset; retained or
+  wrong-task callbacks fail closed. The public planning alias shares the same
+  boundary. The [canonical tracker](victor-agent-service-plan.md#current-checkpoint)
+  owns qualification and merge evidence.
+
+- **G94 — concurrent resume is not isolated from an active turn (✅ merged [#1314](https://github.com/anvai-labs/victor/pull/1314)).**
+  Root transition validation previously allowed session hydration while a stream
+  was suspended, splitting provider and lifecycle identity. The implementation reuses
+  the existing session turn lock to reject resume, recovery and member rebinding
+  before mutation. Same-session reload is also rejected until turn teardown and
+  stream cleanup finish; between-turn resume remains supported. Existing test
+  owners cover buffered/planning/aggregated/outward-stream calls and close/cancel.
+  The [canonical tracker](victor-agent-service-plan.md#current-checkpoint) owns
+  evidence. Reset protection is tracked separately under G95.
+
+- **G95 — conversation reset bypasses turn ownership and has a sync/async mismatch (✅ fixed: [#1316](https://github.com/anvai-labs/victor/pull/1316)).**
+  Independent G93/G94 review found that `VictorClient.reset_conversation()` awaited
+  the synchronous `ChatService.reset_conversation()`: with the real binding the
+  messages could be cleared before `TypeError` was raised. The synchronous reset also
+  ignored the held session turn lock. Former client tests used `AsyncMock` and
+  concealed the mismatch. The merged repair qualifies the real binding with TDD,
+  rejects reset before mutation during active execution/stream cleanup, and
+  preserves between-turn reset compatibility. It complements G94 protection for
+  resume/recovery/member rebinding; SA-04 refactoring is next.
+  The implementation repairs the synchronous client/service binding and shares the
+  existing turn-lock precondition across service/facade resets and workspace
+  changes that invoke reset. Independent review exposed the workspace partial
+  mutation path; a regression verifies rejection before root/context/RL/prompt
+  effects and successful idle switching. Existing tests cover active buffered,
+  planning, aggregated and outward streams plus close/cancellation cleanup.
+  The [canonical tracker](victor-agent-service-plan.md#current-checkpoint) owns
+  qualification and merge evidence (`e9db76a9d4e05752413dc33aa82b0d8ea40ee167`);
+  source work does not close release/C5.
+
+- **G96 — broad MyPy suppression weakens runtime type qualification (open).**
+  SA-04 inspection found `pyproject.toml` applies `ignore_errors = true` to
+  `victor.*`. A successful repository-wide `mypy --strict` command therefore
+  does not prove every checked module is type-safe. Enabling errors for the tool
+  execution runtime exposed four previously suppressed errors. SA-04a [#1318](https://github.com/anvai-labs/victor/pull/1318)
+  explicitly checks that runtime and its required collaborator
+  contracts, plus positive/negative constructor fixtures. Other modules,
+  including the compatibility adapter, retain their historical exception;
+  retire exceptions in bounded, behavior-qualified increments. Adapter dynamic
+  forwarding is not proof of explicit protocol implementation: retain real
+  delegation tests alongside static checks. No blanket typing-completion claim.
+  The user subsequently authorized repository-wide remediation. The unsuppressed
+  core audit reports 7,794 errors across 1,082 files (baseline `ac3c15e8` plus the
+  SA-04a candidate). Independent Python packages are also in scope. The canonical
+  [G96 typing sequence](victor-agent-service-plan.md#repository-wide-typing-qualification-g96)
+  owns ordered remediation and acceptance; this gap stays open until the final
+  unsuppressed matrix passes.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

@@ -1,28 +1,8 @@
-"""Victor Protocol - Unified API contract for all clients.
+"""Legacy Python protocol adapters and public types.
 
-This module defines the protocol interface that all Victor clients
-(CLI, VS Code, JetBrains, MCP) use to communicate with the core engine.
-
-Architecture:
-    ┌─────────────────────────────────────────────────────────────┐
-    │                     CLIENTS (Layer 3)                        │
-    ├──────────┬──────────┬───────────┬──────────┬───────────────┤
-    │   CLI    │  VS Code │ JetBrains │   MCP    │   HTTP API    │
-    └────┬─────┴────┬─────┴─────┬─────┴────┬─────┴───────┬───────┘
-         │          │           │          │             │
-         │ VictorProtocol (shared interface)             │
-         │          │           │          │             │
-    ┌────▼──────────▼───────────▼──────────▼─────────────▼───────┐
-    │               PROTOCOL ADAPTERS (Layer 2)                   │
-    ├─────────────────────────────────────────────────────────────┤
-    │  DirectAdapter  │  HTTPAdapter  │  MCPAdapter  │  WSAdapter │
-    └───────────────────────────┬─────────────────────────────────┘
-                                │
-    ┌───────────────────────────▼─────────────────────────────────┐
-    │                    CORE ENGINE (Layer 1)                     │
-    ├─────────────────────────────────────────────────────────────┤
-    │    AgentOrchestrator  │  Tools  │  Providers  │  State      │
-    └─────────────────────────────────────────────────────────────┘
+These opt-in adapters remain import-compatible for external consumers. Current
+CLI, VS Code and MCP paths have separate application-service adapters; this
+package is not the canonical shared service contract or a parity guarantee.
 """
 
 from victor.integrations.protocol.interface import (

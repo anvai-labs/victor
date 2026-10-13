@@ -57,3 +57,6 @@ prune env
 exclude Dockerfile
 exclude docker-compose.yml
 prune docker
+
+# Offline workflow visualization, including third-party notices.
+recursive-include victor/integrations/api/templates *.html *.js *.json *.txt

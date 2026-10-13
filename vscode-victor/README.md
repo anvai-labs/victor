@@ -126,7 +126,20 @@ npm run compile
 If your Victor server sets `VICTOR_SERVER_API_KEY`:
 - In VS Code settings, set `victor.serverApiKey` to the same token.
 - Set `victor.serverPort` or `victor.serverUrl` to point at your server (default `http://localhost:8765` if you started `victor serve --port 8765`).
-- The extension will send `Authorization: Bearer <token>`, prefetch a signed `session_token`, and reuse it for WebSocket reconnects automatically.
+- HTTP requests and the active EventBridge `/ws/events` upgrade send
+  `Authorization: Bearer <token>`. EventBridge uses the configured key directly;
+  it does not use the legacy `/session/token` or `/ws` path.
+- Changing or clearing the configured key, or changing the server URL, replaces
+  the event connection. The explicitly configured new server receives the current
+  key. Redirects are not followed; endpoint URLs must not contain credentials,
+  query strings or fragments. Keys stay in the extension host, not the webview.
+- A rejected credential or redirect stops EventBridge reconnection until the
+  configuration changes. Transient connection failures use bounded backoff.
+  Disposing the chat provider or extension stops its event connection.
+- Leaving the key unset preserves local servers configured without authentication;
+  a rejected key never causes an automatic anonymous retry. Server authentication
+  currently checks the WebSocket upgrade: this client repair does not add live
+  server-side revocation of an already authenticated socket, OIDC or tenant policy.
 
 ## Commands
 
@@ -250,6 +263,37 @@ Click to see options (start/stop/restart/logs).
 2. Verify port isn't in use: `lsof -i :8765`
 3. Restart server: Command Palette → "Victor: Restart Server"
 
+### A chat turn pauses for approval
+
+Composer, terminal suggestions and Smart Paste stop when the core server returns
+`status=awaiting_approval`. The client preserves `run_id` and `approval_request`;
+Composer displays the paused state, and terminal/Smart Paste notifications include
+the run ID. Partial content is not offered as generated edits or a command, and
+Smart Paste does not fall back to inserting the clipboard. Invalid or contradictory
+approval responses also stop these operations instead of being treated as success.
+
+Complete approval through the server's existing approval flow. These extension
+surfaces do not yet submit approvals or resume a run automatically. Composer's
+paused state is local to the current view session, not durable across restart.
+Starting a new composition or clearing the view does not cancel the server run.
+
+### Interrupted chat or unconfirmed cancellation
+
+The extension accepts the core server's `[DONE]` and web server's v1 `stream_end`
+terminators. EOF, a closed connection or an aborted response before a terminator
+is an interruption with an unknown outcome; the client does not retry the POST.
+Malformed JSON, unsupported wire versions, invalid UTF-8 and SSE frames over
+1 MiB are rejected. Split UTF-8 and LF/CRLF/CR framing are supported. The first
+terminator stops callbacks and closes the local response. It proves transport
+completion only, not that a task succeeded or an external write was committed.
+
+Tool cancellation uses the existing HTTP acknowledgement for the requested tool
+ID. That endpoint cancels a pending approval; it does not stop an already-running
+provider or undo a committed action. Missing, rejected or failed acknowledgements
+leave the execution active. A late acknowledgement cannot overwrite a completion,
+failure or replacement. The Cancel All message reports the confirmed count.
+Inspect the recorded backend outcome before retrying an interrupted action.
+
 ### Model errors
 
 1. **Cloud providers**: Set API keys in `~/.victor/profiles.yaml`
@@ -261,11 +305,30 @@ Click to see options (start/stop/restart/logs).
 
 ## Development
 
+Use Node 24 LTS. `.nvmrc` pins the tested patch (24.21.0); the build, fast CI and
+release workflows read that same file. VSCE 4 is the packaging tool. Install from
+the committed lockfiles so local validation uses the same dependency graph as CI.
+
 ```bash
 cd vscode-victor
-npm install
+nvm install
+nvm use
+npm ci
+npm run lint
 npm run compile
+npm run coverage
+cd webview-ui
+npm ci
+npm run check
+npm run build
+cd ..
+npm test
+npx --no-install vsce package --no-dependencies
 ```
+
+`npm test` downloads and launches an isolated VS Code extension test host. On
+headless Linux, use `xvfb-run -a npm test`. Packaging runs the production webview
+and extension build through `vscode:prepublish`; do not disable it for smoke tests.
 
 Press F5 to launch the extension in debug mode.
 

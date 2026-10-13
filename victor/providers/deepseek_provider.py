@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import aclosing
 import re
 import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -95,6 +96,8 @@ class DeepSeekProvider(SandhiOpenAICompatPolicy):
         return self._repair_dsml(super()._completion_from_typed(response, model))
 
     def _repair_dsml(self, response: CompletionResponse) -> CompletionResponse:
+        if self.text_response_mode == "structured":
+            return response
         if response.tool_calls:
             return response
         calls = self._parse_dsml_tool_calls(response.content or "")
@@ -116,15 +119,23 @@ class DeepSeekProvider(SandhiOpenAICompatPolicy):
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
         buffered: List[StreamChunk] = []
-        async for chunk in super().stream(
-            messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            tools=tools,
-            **kwargs,
-        ):
-            buffered.append(chunk)
+        async with aclosing(
+            super().stream(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,
+                **kwargs,
+            )
+        ) as upstream:
+            async for chunk in upstream:
+                if self.text_response_mode == "structured":
+                    yield chunk
+                else:
+                    buffered.append(chunk)
+        if self.text_response_mode == "structured":
+            return
         if any(chunk.tool_calls for chunk in buffered):
             for chunk in buffered:
                 yield chunk

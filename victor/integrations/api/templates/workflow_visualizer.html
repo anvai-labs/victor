@@ -5,14 +5,110 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Victor Workflow Visualization</title>
 
-    <!-- Cytoscape.js from CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape.js/3.28.1/cytoscape.min.js"></script>
-    <!-- Dagre layout for hierarchical graphs -->
-    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
-    <!-- Dagre library -->
-    <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+    <!-- Packaged same-origin assets; no CDN or external Dagre global required. -->
+    <script src="/workflows/assets/cytoscape.min.js"></script>
+    <script src="/workflows/assets/cytoscape-dagre.min.js"></script>
+
+    <meta name="color-scheme" content="light dark">
+    <script id="theme-bootstrap">
+        // Appearance only: no shared cookies, identity or runtime credentials.
+        (() => {
+            const key = 'victor.theme';
+            const normalize = value => ['light', 'dark'].includes(value) ? value : 'system';
+            let preference = 'system';
+            try { preference = normalize(window.localStorage.getItem(key)); } catch {}
+            const media = window.matchMedia('(prefers-color-scheme: dark)');
+            function reflect() {
+                document.documentElement.dataset.theme = preference;
+                const selector = document.getElementById('theme-choice');
+                if (selector) selector.value = preference;
+                window.dispatchEvent(new Event('victor-theme-change'));
+            }
+            reflect();
+            document.addEventListener('DOMContentLoaded', () => {
+                const selector = document.getElementById('theme-choice');
+                selector.value = preference;
+                selector.addEventListener('change', () => {
+                    preference = normalize(selector.value);
+                    try {
+                        if (preference === 'system') window.localStorage.removeItem(key);
+                        else window.localStorage.setItem(key, preference);
+                    } catch {} // Storage denial does not disable in-page appearance controls.
+                    reflect();
+                });
+            });
+            media.addEventListener('change', reflect);
+            window.addEventListener('storage', event => {
+                if (event.key !== key && event.key !== null) return;
+                try { preference = normalize(window.localStorage.getItem(key)); } catch { return; }
+                reflect();
+            });
+        })();
+    </script>
 
     <style>
+        /* Local semantic values aligned with AnvaiOps and Anvai Identity.
+           Pinned sources and update gate: victor-agent-service-plan.md VAS-14e.
+           No private upstream application styles or remote fonts. */
+:root {
+            color-scheme: light;
+            --background: #f6f7fb;
+            --surface: #ffffff;
+            --surface-secondary: #f0f2f8;
+            --border: #e4e8f1;
+            --border-control: #8592a5;
+            --text: #101828;
+            --text-secondary: #475467;
+            --accent: #0f766e;
+            --accent-hover: #115e59;
+            --accent-soft: #f0fdfa;
+            --success: #067647;
+            --success-soft: #ecfdf3;
+            --warning: #b54708;
+            --warning-soft: #fffaeb;
+            --danger: #b42318;
+            --danger-soft: #fef3f2;
+        }
+:root[data-theme="dark"] {
+            color-scheme: dark;
+            --background: #0b1220;
+            --surface: #111d2e;
+            --surface-secondary: #1c2a3d;
+            --border: #2a3a50;
+            --border-control: #637489;
+            --text: #edf2f7;
+            --text-secondary: #b6c4d5;
+            --accent: #5eead4;
+            --accent-hover: #99f6e4;
+            --accent-soft: #113b37;
+            --success: #86efac;
+            --success-soft: #113528;
+            --warning: #fcd58a;
+            --warning-soft: #352916;
+            --danger: #fda4af;
+            --danger-soft: #3c1e2a;
+        }
+        @media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]) {
+            color-scheme: dark;
+            --background: #0b1220;
+            --surface: #111d2e;
+            --surface-secondary: #1c2a3d;
+            --border: #2a3a50;
+            --border-control: #637489;
+            --text: #edf2f7;
+            --text-secondary: #b6c4d5;
+            --accent: #5eead4;
+            --accent-hover: #99f6e4;
+            --accent-soft: #113b37;
+            --success: #86efac;
+            --success-soft: #113528;
+            --warning: #fcd58a;
+            --warning-soft: #352916;
+            --danger: #fda4af;
+            --danger-soft: #3c1e2a;
+        }
+        }
         * {
             margin: 0;
             padding: 0;
@@ -20,13 +116,18 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background-color: #f5f5f5;
-            color: #333;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            line-height: 1.5;
+            background-color: var(--background);
+            color: var(--text);
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 24px;
+            background: #0f172a;
             color: white;
             padding: 20px 30px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -45,7 +146,7 @@
 
         .container {
             display: flex;
-            height: calc(100vh - 80px);
+            min-height: calc(100vh - 100px);
         }
 
         .main-content {
@@ -56,9 +157,9 @@
         }
 
         .toolbar {
-            background: white;
+            background: var(--surface);
             padding: 15px;
-            border-radius: 8px;
+            border-radius: 12px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 20px;
             display: flex;
@@ -69,31 +170,31 @@
 
         .toolbar button {
             padding: 8px 16px;
-            border: 1px solid #ddd;
-            background: white;
-            border-radius: 4px;
+            border: 1px solid var(--border-control);
+            background: var(--surface);
+            border-radius: 8px;
             cursor: pointer;
             font-size: 14px;
             transition: all 0.2s;
         }
 
         .toolbar button:hover {
-            background: #f0f0f0;
-            border-color: #ccc;
+            background: var(--surface-secondary);
+            border-color: var(--border-control);
         }
 
         .toolbar select {
             padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            border: 1px solid var(--border-control);
+            border-radius: 8px;
             font-size: 14px;
             cursor: pointer;
         }
 
         .status-bar {
-            background: white;
+            background: var(--surface);
             padding: 12px 20px;
-            border-radius: 8px;
+            border-radius: 12px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 15px;
             display: flex;
@@ -109,36 +210,38 @@
 
         .status-label {
             font-weight: 600;
-            color: #666;
+            color: var(--text-secondary);
         }
 
         .status-value {
-            color: #333;
+            color: var(--text);
         }
 
-        .status-running { color: #ff9800; }
-        .status-completed { color: #4caf50; }
-        .status-failed { color: #f44336; }
-        .status-pending { color: #9e9e9e; }
+        .status-running { color: var(--warning); }
+        .status-completed { color: var(--success); }
+        .status-failed { color: var(--danger); }
+        .status-pending { color: var(--text-secondary); }
 
         .graph-container {
             flex: 1;
-            background: white;
-            border-radius: 8px;
+            background: var(--surface);
+            border-radius: 12px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             overflow: hidden;
             position: relative;
         }
 
         #cy {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
         }
 
         .sidebar {
             width: 350px;
-            background: white;
-            border-left: 1px solid #ddd;
+            background: var(--surface);
+            border-left: 1px solid var(--border-control);
             display: flex;
             flex-direction: column;
             box-shadow: -2px 0 4px rgba(0,0,0,0.1);
@@ -146,7 +249,7 @@
 
         .sidebar-header {
             padding: 20px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--border);
         }
 
         .sidebar-header h2 {
@@ -173,7 +276,7 @@
             font-size: 14px;
             font-weight: 600;
             margin-bottom: 10px;
-            color: #666;
+            color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -182,7 +285,7 @@
             display: flex;
             justify-content: space-between;
             padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid var(--surface-secondary);
             font-size: 14px;
         }
 
@@ -191,17 +294,17 @@
         }
 
         .detail-label {
-            color: #666;
+            color: var(--text-secondary);
             font-weight: 500;
         }
 
         .detail-value {
-            color: #333;
+            color: var(--text);
             font-weight: 600;
         }
 
         .legend {
-            background: #f9f9f9;
+            background: var(--surface-secondary);
             border-radius: 6px;
             padding: 15px;
             margin-bottom: 20px;
@@ -211,7 +314,7 @@
             font-size: 14px;
             font-weight: 600;
             margin-bottom: 12px;
-            color: #666;
+            color: var(--text-secondary);
         }
 
         .legend-item {
@@ -233,23 +336,23 @@
             font-size: 16px;
         }
 
-        .legend-pending { background: #f5f5f5; border-color: #9e9e9e; }
-        .legend-running { background: #fff3e0; border-color: #ff9800; }
-        .legend-completed { background: #e8f5e9; border-color: #4caf50; }
-        .legend-failed { background: #ffebee; border-color: #f44336; }
+        .legend-pending { background: var(--background); border-color: var(--text-secondary); }
+        .legend-running { background: var(--warning-soft); border-color: var(--warning); }
+        .legend-completed { background: var(--success-soft); border-color: var(--success); }
+        .legend-failed { background: var(--danger-soft); border-color: var(--danger); }
 
         .progress-bar {
             width: 100%;
             height: 8px;
-            background: #e0e0e0;
-            border-radius: 4px;
+            background: var(--border);
+            border-radius: 8px;
             overflow: hidden;
             margin-top: 5px;
         }
 
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            background: var(--accent);
             transition: width 0.3s ease;
         }
 
@@ -264,13 +367,13 @@
         }
 
         .connection-status.connected {
-            background: #e8f5e9;
-            color: #2e7d32;
+            background: var(--success-soft);
+            color: var(--success);
         }
 
         .connection-status.disconnected {
-            background: #ffebee;
-            color: #c62828;
+            background: var(--danger-soft);
+            color: var(--danger);
         }
 
         .loading-overlay {
@@ -279,7 +382,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(255, 255, 255, 0.9);
+            background: var(--surface);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -289,8 +392,8 @@
         .spinner {
             width: 50px;
             height: 50px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--accent);
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
@@ -306,7 +409,7 @@
             align-items: center;
             justify-content: center;
             height: 100%;
-            color: #666;
+            color: var(--text-secondary);
             padding: 40px;
             text-align: center;
         }
@@ -317,13 +420,39 @@
             margin-bottom: 20px;
             opacity: 0.3;
         }
+        button, select { color: var(--text); font: inherit; min-height: 40px; }
+        :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+        .theme-control { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+        .theme-control select { background: var(--surface); border: 1px solid var(--border-control); border-radius: 8px; padding: 6px 10px; }
+        .toolbar button:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+        .toolbar select { background: var(--surface); }
+        .main-content { min-width: 0; }
+        .graph-container { min-height: 520px; }
+        .status-bar { flex-wrap: wrap; gap: 12px 24px; }
+        .detail-value { overflow-wrap: anywhere; min-width: 0; text-align: right; }
+        .detail-item { gap: 12px; }
+        .sidebar { flex-shrink: 0; }
+        @media (max-width: 800px) {
+            .header { flex-wrap: wrap; padding: 16px; }
+            .container { flex-direction: column; }
+            .main-content { padding: 12px; }
+            .toolbar { gap: 8px; padding: 12px; }
+            .toolbar select { max-width: 100%; }
+            .sidebar { width: 100%; border-left: 0; border-top: 1px solid var(--border); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; }
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1 id="workflow-title">Workflow Visualization</h1>
-        <p id="workflow-description">Real-time workflow execution monitoring</p>
-    </div>
+    <header class="header">
+        <div><h1 id="workflow-title">Workflow Visualization</h1>
+        <p id="workflow-description">Real-time workflow execution monitoring</p></div>
+        <div class="theme-control"><label for="theme-choice">Theme</label>
+            <select id="theme-choice" aria-label="Theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+        </div>
+    </header>
 
     <div class="container">
         <div class="main-content">
@@ -337,6 +466,8 @@
                     <option value="circle">Circle</option>
                     <option value="concentric">Concentric</option>
                 </select>
+                <label for="node-select">Inspect node</label>
+                <select id="node-select"><option value="">Select a node</option></select>
                 <button id="btn-refresh" title="Refresh graph">Refresh</button>
             </div>
 
@@ -445,8 +576,39 @@
             progress: 0,
             currentNode: null,
             nodes: {},
-            executionPath: []
+            node_execution_path: []
         };
+
+        function graphStyles() {
+            const styles = getComputedStyle(document.documentElement);
+            const color = name => styles.getPropertyValue(`--${name}`).trim();
+            return [
+                {selector: 'node', style: {
+                    'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
+                    'background-color': color('surface-secondary'), 'border-width': 3,
+                    'border-color': color('border-control'), 'color': color('text'),
+                    'font-size': '12px', 'font-weight': '600', 'width': '60px', 'height': '60px',
+                    'text-wrap': 'wrap', 'text-max-width': '80px'
+                }},
+                ...[['pending', 'text-secondary'], ['running', 'warning'], ['completed', 'success'], ['failed', 'danger']].map(([status, token]) => ({
+                    selector: `node.${status}`, style: {
+                        'background-color': color(status === 'pending' ? 'surface-secondary' : `${token}-soft`),
+                        'border-color': color(token)
+                    }
+                })),
+                {selector: 'edge', style: {
+                    'width': 2, 'line-color': color('border-control'), 'target-arrow-color': color('border-control'),
+                    'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 1, 'color': color('text-secondary')
+                }},
+                {selector: 'edge[label]', style: {
+                    'label': 'data(label)', 'font-size': '10px', 'text-rotation': 'autorotate', 'text-margin-y': -10
+                }}
+            ];
+        }
+        function applyGraphTheme() {
+            if (cy) cy.style(graphStyles());
+        }
+        window.addEventListener('victor-theme-change', applyGraphTheme);
 
         // Initialize graph
         async function initGraph() {
@@ -484,74 +646,7 @@
                             }
                         }))
                     },
-                    style: [
-                        {
-                            selector: 'node',
-                            style: {
-                                'label': 'data(label)',
-                                'text-valign': 'center',
-                                'text-halign': 'center',
-                                'background-color': '#f5f5f5',
-                                'border-width': 3,
-                                'border-color': '#9e9e9e',
-                                'color': '#333',
-                                'font-size': '12px',
-                                'font-weight': '600',
-                                'width': '60px',
-                                'height': '60px',
-                                'text-wrap': 'wrap',
-                                'text-max-width': '80px'
-                            }
-                        },
-                        {
-                            selector: 'node.pending',
-                            style: {
-                                'background-color': '#f5f5f5',
-                                'border-color': '#9e9e9e'
-                            }
-                        },
-                        {
-                            selector: 'node.running',
-                            style: {
-                                'background-color': '#fff3e0',
-                                'border-color': '#ff9800'
-                            }
-                        },
-                        {
-                            selector: 'node.completed',
-                            style: {
-                                'background-color': '#e8f5e9',
-                                'border-color': '#4caf50'
-                            }
-                        },
-                        {
-                            selector: 'node.failed',
-                            style: {
-                                'background-color': '#ffebee',
-                                'border-color': '#f44336'
-                            }
-                        },
-                        {
-                            selector: 'edge',
-                            style: {
-                                'width': 2,
-                                'line-color': '#ccc',
-                                'target-arrow-color': '#ccc',
-                                'target-arrow-shape': 'triangle',
-                                'curve-style': 'bezier',
-                                'arrow-scale': 1
-                            }
-                        },
-                        {
-                            selector: 'edge[label]',
-                            style: {
-                                'label': 'data(label)',
-                                'font-size': '10px',
-                                'text-rotation': 'autorotate',
-                                'text-margin-y': -10
-                            }
-                        }
-                    ],
+                    style: graphStyles(),
                     layout: {
                         name: 'dagre',
                         rankDir: 'TB',
@@ -563,13 +658,13 @@
                     maxZoom: 3
                 });
 
-                // Register dagre layout
-                cy.layout({
-                    name: 'dagre',
-                    rankDir: 'TB',
-                    nodeSep: 50,
-                    rankSep: 75
-                }).run();
+                const nodeSelect = document.getElementById('node-select');
+                graphData.nodes.forEach(({data}) => {
+                    const option = document.createElement('option');
+                    option.value = data.id;
+                    option.textContent = data.label || data.id;
+                    nodeSelect.appendChild(option);
+                });
 
                 // Add click event listener
                 cy.on('tap', 'node', function(evt) {
@@ -588,12 +683,12 @@
 
             } catch (error) {
                 console.error('Failed to initialize graph:', error);
-                document.getElementById('loading-overlay').innerHTML = `
-                    <div class="empty-state">
-                        <p style="color: #f44336;">Failed to load workflow visualization</p>
-                        <p style="font-size: 14px;">${error.message}</p>
-                    </div>
-                `;
+                const overlay = document.getElementById('loading-overlay');
+                overlay.textContent = 'Visualization unavailable. Use Refresh to retry.';
+                overlay.setAttribute('role', 'alert');
+                overlay.style.display = 'flex';
+                document.getElementById('status-text').textContent = 'Unavailable';
+                cy = null;
             }
         }
 
@@ -601,12 +696,12 @@
         async function fetchExecutionState() {
             try {
                 const response = await fetch(`/workflows/${workflowId}/execution`);
-                if (response.ok) {
-                    const state = await response.json();
-                    updateExecutionState(state);
-                }
+                if (!response.ok) throw new Error(`Execution state unavailable (${response.status})`);
+                const state = await response.json();
+                updateExecutionState(state);
             } catch (error) {
                 console.error('Failed to fetch execution state:', error);
+                document.getElementById('status-text').textContent = 'State unavailable';
             }
         }
 
@@ -645,58 +740,40 @@
         // Show node details
         function showNodeDetails(node) {
             const nodeId = node.id();
-            const nodeData = workflowState.nodes[nodeId] || {};
-            const nodeInfo = workflowState.node_execution_path.find(n => n.node_id === nodeId) || {};
-
-            const detailsHtml = `
-                <div class="detail-section">
-                    <h3>Node Information</h3>
-                    <div class="detail-item">
-                        <span class="detail-label">ID:</span>
-                        <span class="detail-value">${nodeId}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Name:</span>
-                        <span class="detail-value">${node.data('label')}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Type:</span>
-                        <span class="detail-value">${node.data('type')}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Status:</span>
-                        <span class="detail-value status-${node.data('status')}">
-                            ${node.data('status').charAt(0).toUpperCase() + node.data('status').slice(1)}
-                        </span>
-                    </div>
-                </div>
-
-                ${nodeInfo.status ? `
-                <div class="detail-section">
-                    <h3>Execution Details</h3>
-                    <div class="detail-item">
-                        <span class="detail-label">Duration:</span>
-                        <span class="detail-value">${nodeInfo.duration_seconds ? Math.round(nodeInfo.duration_seconds) + 's' : 'N/A'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Tool Calls:</span>
-                        <span class="detail-value">${nodeInfo.tool_calls || 0}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Tokens:</span>
-                        <span class="detail-value">${nodeInfo.tokens_used || 0}</span>
-                    </div>
-                    ${nodeInfo.error ? `
-                    <div class="detail-item">
-                        <span class="detail-label">Error:</span>
-                        <span class="detail-value" style="color: #f44336;">${nodeInfo.error}</span>
-                    </div>
-                    ` : ''}
-                </div>
-                ` : ''}
-            `;
-
-            document.getElementById('node-details').innerHTML = detailsHtml;
+            const nodeInfo = (workflowState.node_execution_path || []).find(n => n.node_id === nodeId);
+            const details = document.getElementById('node-details');
+            details.replaceChildren();
+            function section(title, entries) {
+                const container = document.createElement('div');
+                container.className = 'detail-section';
+                const heading = document.createElement('h3');
+                heading.textContent = title;
+                container.appendChild(heading);
+                entries.forEach(([label, value]) => {
+                    const row = document.createElement('div');
+                    row.className = 'detail-item';
+                    const key = document.createElement('span');
+                    key.className = 'detail-label';
+                    key.textContent = label;
+                    const content = document.createElement('span');
+                    content.className = 'detail-value';
+                    content.textContent = String(value ?? 'N/A');
+                    row.append(key, content);
+                    container.appendChild(row);
+                });
+                details.appendChild(container);
+            }
+            section('Node Information', [
+                ['ID:', nodeId], ['Name:', node.data('label')],
+                ['Type:', node.data('type')], ['Status:', node.data('status')]
+            ]);
+            if (nodeInfo) {
+                section('Execution Details', [
+                    ['Duration:', nodeInfo.duration_seconds == null ? 'N/A' : `${Math.round(nodeInfo.duration_seconds)}s`],
+                    ['Tool Calls:', nodeInfo.tool_calls], ['Tokens:', nodeInfo.tokens_used],
+                    ...(nodeInfo.error ? [['Error:', nodeInfo.error]] : [])
+                ]);
+            }
         }
 
         // Connect WebSocket
@@ -788,26 +865,31 @@
 
         // Toolbar event handlers
         document.getElementById('btn-fit').addEventListener('click', () => {
-            cy.fit(undefined, 50);
+            if (cy) cy.fit(undefined, 50);
         });
 
         document.getElementById('btn-zoom-in').addEventListener('click', () => {
-            cy.zoom(cy.zoom() * 1.2);
+            if (cy) cy.zoom(cy.zoom() * 1.2);
         });
 
         document.getElementById('btn-zoom-out').addEventListener('click', () => {
-            cy.zoom(cy.zoom() * 0.8);
+            if (cy) cy.zoom(cy.zoom() * 0.8);
         });
 
         document.getElementById('layout-select').addEventListener('change', (e) => {
+            if (!cy) return;
             cy.layout({
                 name: e.target.value,
-                animate: true
+                animate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches
             }).run();
         });
 
+        document.getElementById('node-select').addEventListener('change', (e) => {
+            if (cy && e.target.value) showNodeDetails(cy.getElementById(e.target.value));
+        });
         document.getElementById('btn-refresh').addEventListener('click', () => {
-            fetchExecutionState();
+            if (cy) fetchExecutionState();
+            else window.location.reload();
         });
 
         // Initialize on load

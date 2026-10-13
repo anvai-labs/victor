@@ -106,7 +106,7 @@ edge_model:
 - Required for external vertical packages
 - Breaking change for custom verticals
 
-**Migration**: See [Vertical Migration Guide](../development/testing/vertical-migration-summary-2026-03-04.md)
+**Migration**: See [vertical migration history](../development/completed-work.md) and [current contract boundary](../architecture/CONTRACTS_BOUNDARY.md)
 
 ---
 

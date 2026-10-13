@@ -4,7 +4,7 @@ title: "Single-Agent Durable Chat Continuation (pause/resume on approval)"
 type: Standards Track
 status: Draft
 created: 2026-08-01
-modified: 2026-09-30
+modified: 2026-10-08
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -571,3 +571,53 @@ crash recovery between an observed return and transcript publication, atomic mem
 continuation/checkpoint ownership, cross-turn replay protection and full mixed-team
 C5. Absence of an action record does not prove absence of an effect on paths that
 have not opted in. This increment does not close G62 or claim exactly-once execution.
+
+
+## Bounded backend receipt reconciliation (VAS-11b, 2026-10-08)
+
+This extension is limited to receipt evidence for an already claimed action. It
+adds no HTTP route, model-callable tool, alternate executor or member continuation.
+The existing tool registry owns an optional trusted `action_recovery` capability;
+no built-in connector currently supplies an authoritative action-key lookup.
+
+`RecoveryIdentity` identifies versioned adapter semantics and the backend's
+account/tenant plus environment/endpoint namespace with bounded nonsecret IDs.
+Its identity is included in the exact tool contract before approval and in v2
+opt-in action intent. Legacy/default action records and identifier derivation
+stay unchanged. Configured capable tools receive a typed lookup request through
+runtime-owned execution context, enabling a backend to atomically record the
+same action/binding with its effect. A plugin must actually provide that guarantee;
+Victor cannot infer it from a successful HTTP response or an idempotency header.
+
+`VictorClient.reconcile_action(run_id, timeout_seconds=10)` performs a backend
+read, validates an exact `BackendReceipt`, and transactionally retains immutable
+local receipt evidence. The restored original session, unchanged runtime authority,
+current configured RBAC and original tool/backend contract are required. Capture
+one store/tool/capability; recheck after waits and before disclosure. The existing
+`get_action_status` reader applies equivalent checks to v2 action records.
+This is embedded runtime authorization, not hosted principal ownership; G61 stays open.
+
+Lookup requests bind action ID, original binding digest and recovery identity.
+Receipts additionally carry a bounded receipt ID and committed outcome; raw tool
+outputs, credentials and model-supplied receipts are excluded. Invalid versions,
+identifiers, identity/payload mismatches and conflicting receipts fail explicitly.
+An identical receipt is idempotent. Receipt persistence reuses the existing
+`paused_run` transaction; it does not change the invocation observation or reopen
+approval. No external call occurs while the database transaction is held.
+
+Legacy intents without a bound capability are unsupported. Missing receipts,
+lookup errors/timeouts and absent backend capabilities do not establish
+nonexecution or authorize retry. Timeouts must be finite, positive and at most
+60 seconds; adapters must cooperate with cancellation. A cancelled SQLite await
+can finish its local receipt commit later, but cannot dispatch or continue work.
+An eventually consistent not-found result remains unknown. Backend lookup is
+read-only; this API does write local evidence.
+
+Acceptance extends existing store/client/durable-resume tests with a SQLite test
+backend that commits effect and receipt atomically, then loses its response.
+Restarted lookup must recover the receipt without another effect. Cover wrong
+identity/binding, absent/error/timeout, revoked authority, conflict/concurrent CAS,
+cancellation and storage failure. Validate the tested database's durability settings;
+process-restart tests do not establish power-loss or production-backend acceptance.
+The test adapter is conformance evidence only. Verified result publication, full
+member continuation, production connectors and C5 remain separate work.

@@ -27,12 +27,61 @@ Run with: pytest tests/unit/framework/test_web_server_boundary.py -v
 """
 
 import ast
+import base64
+import hashlib
+import hmac
+import runpy
 from pathlib import Path
 
 import pytest
 
 # tests/unit/framework/test_web_server_boundary.py -> repo root
 REPO_ROOT = Path(__file__).parent.parent.parent.parent
+
+
+@pytest.mark.parametrize("configured", [False, True])
+async def test_web_server_reads_nested_settings_and_verifies_real_secret(monkeypatch, configured):
+    from fastapi import HTTPException, Request
+    from victor.config.settings import Settings
+    from web.server import session_store
+
+    settings = Settings(
+        server_api_key="configured-test-key" if configured else None,
+        server_session_secret="configured-signing-secret" if configured else None,
+        server_max_sessions=7,
+        render_max_concurrency=3,
+    )
+    monkeypatch.setattr("victor.config.settings.load_settings", lambda: settings)
+    # Import under an isolated runpy namespace: don't reuse/reload the live module.
+    monkeypatch.setattr(session_store, "set_session_store", lambda store: store)
+    module = runpy.run_path(str(REPO_ROOT / "web/server/main.py"))
+    assert module["MAX_SESSIONS"] == 7
+    assert module["API_KEY"] == ("configured-test-key" if configured else None)
+    token = module["_issue_session_token"]("test-session")
+    payload, signature = base64.urlsafe_b64decode(token).decode().rsplit(":", 1)
+    secret = settings.server.server_session_secret.get_secret_value()
+    assert secret
+    assert signature == hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    assert module["_parse_session_token"](token)[0] == "test-session"
+
+    def request(token):
+        return Request(
+            {
+                "type": "http",
+                "query_string": b"",
+                "headers": [(b"authorization", f"Bearer {token}".encode())],
+            }
+        )
+
+    await module["_require_api_key"](request("configured-test-key"))
+    if configured:
+        with pytest.raises(HTTPException) as rejected:
+            await module["_require_api_key"](request("incorrect-key"))
+        assert rejected.value.status_code == 401
+    else:
+        await module["_require_api_key"](request("unused-in-local-mode"))
+
+
 WEB_SERVER_DIR = REPO_ROOT / "web" / "server"
 
 # Modules the web layer is forbidden to import directly. The web server must

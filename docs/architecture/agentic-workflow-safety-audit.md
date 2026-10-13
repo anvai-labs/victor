@@ -7,6 +7,202 @@ not a claim that the recommended repairs have shipped. Line references below use
 that revision. The [formation handoff](multiagent-formation-coverage-handoff.md)
 remains the acceptance record for formations and C5.
 
+## SQLite and source re-audit — 2026-10-12
+
+**Current assessment: preserve the existing execution architecture, repair outcome
+and recovery semantics first, then narrow its typed boundaries.** The evidence does
+not justify more formations, a replacement orchestration engine, a language rewrite,
+or indiscriminate renaming. Findings below distinguish local repairs from remaining
+gaps; none is a released/live acceptance claim. Historical
+sections retain their original source revisions; their superseding PRs remain valid.
+
+### Evidence and confidence
+
+Audited the local repository index built from candidate
+`b82d2c6c5faa79aa330d6d2ed9f6b2fa4629659a` on `develop`
+`76c72e2eb32204c587485204f996543891905fed`. SQLite integrity passes; the snapshot has
+96,153 nodes and 157,160 edges across 4,818 indexed files. Restricting the analysis
+to production `victor/` gives 2,003 files, 33,737 nodes and 3,424 distinct resolved
+inter-file import pairs. Test/example symbols are excluded from those production
+counts. Private graph and detailed audit JSON stay local; database SHA-256 is
+`ab534ccb2df29e079b982034910552c292d6285f13baf3462e9a340c627cee79`.
+
+| Signal | What it establishes | What it does not establish |
+|---|---|---|
+| Resolved imports/calls and source spans | Inspection targets and recorded static relationships, checked against source | Complete dynamic dispatch, runtime reachability, cross-language FFI, latency or a security exploit |
+| Embedding provenance | This snapshot has **zero non-null embedding references**. The older local manifest declares BGE-small/384 dimensions/LanceDB but is not bound to this generation | No qualified semantic clone, responsibility-cluster or naming-similarity result is claimed; a manifest alone is not vector evidence |
+| Persisted module metrics | Import fan-out highlights orchestrator (76), CLI (41) and settings (36); assembly and configuration naturally have broad dependencies | High degree is not a reason by itself to split a module. Counts depend on the selected corpus and resolver coverage |
+| Static import components | One three-file component links provider package exports, base and registry | This includes a package import of `failure_taxonomy`; it does not prove a harmful eager runtime cycle |
+| Source plus existing tests | Active synthesis and rollback behavior is confirmed; both existing behavior tests pass | Those expectations do not prove the behavior is safe after a failed verifier or committed write |
+
+Do not rank remediation using the current `cohesion_lcom4` field. In
+`victor/core/analysis/module_analyzer.py:356`, `_compute_cohesion` returns inverse
+symbol count, not method/field connected components. The abstractness calculation
+uses class-name substrings; skipped betweenness and missing coverage can become
+zero. These are heuristics or unavailable evidence, not measured design quality.
+Keep legacy fields compatible while adding explicit metric kind, method, scope,
+availability and revision before exposing prescriptive recommendations.
+
+### Prioritized, source-verified findings
+
+| ID / priority | Finding and user consequence | Bounded change and acceptance owner | State |
+|---|---|---|---|
+| SA-01 / P1 | Audited `turn_execution_runtime.py:1167–1186` converted a failed loop with an empty final response to success after any successful tool and nonempty synthesis excluding a hardcoded prose prefix. `subagents/base.py:722` consumes that flag. | The bounded repair preserves the structured loop verdict/error while using the existing typed synthesis helper for presentation. Existing turn-runtime and member tests cover failed verdicts despite successful reads or completion claims, fallback/empty synthesis and failed parent handoffs. G89. | ✅ MERGED [#1306](https://github.com/anvai-labs/victor/pull/1306); release/live acceptance separate |
+| SA-02 / P2 | Audited `turn_execution_runtime.py:530–532` rolled back messages and `tool_calls_used` after ordinary exceptions from `_execute_via_agentic_loop`; restore at `:402–427` did not check whether tools executed. A late error can hide execution evidence or reduce the live-session counter. This is not a finding that durable receipts are deleted or tools automatically replayed. | Remove obsolete transcript/counter rollback; retain accepted history and consumed work. Existing regression owner covers a committed temporary-file write, late delegated policy denial, lost receipt, cancellation and pre-dispatch failure without repeat dispatch. Scoped configuration cleanup remains intact. G90; complements G62/G70. | ✅ MERGED [#1307](https://github.com/anvai-labs/victor/pull/1307); release/live acceptance separate |
+| SA-03 / P2 | Two runtimes reconstructed identity independently with `session_root` / `manager` defaults. Source inspection also found that member contexts were not bound onto child orchestrators and successful recovery did not update an existing active ID. No live collision is claimed. | Shared typed owner supplies current immutable values to both consumers; member context is resolved once before provider binding. Identity is checked before checkpoint writes and session transitions before recovery/hydration. G91. | ✅ MERGED [#1309](https://github.com/anvai-labs/victor/pull/1309); [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint) owns status. |
+| SA-04 / P2 | `ToolExecutionRuntime(runtime_host: Any)` reaches pipeline, state, identity, persistence, formatting and context through one host. Adapter `__getattr__`/`__setattr__` forwards arbitrary access; `ChatContextProtocol` and peers retain broad `Any` fields. These permit dependencies and typos to escape static checking. | Inject narrow typed collaborators through the existing assembly boundary, starting with required execution/result-publication/identity operations. Keep one compatibility adapter; move optional capability decisions there. Extend delegation/parity tests with typed fakes and static negative fixtures. Do not add a second pipeline or registry. | OPEN; SA-04a required execution/publication slice merged in [#1318](https://github.com/anvai-labs/victor/pull/1318), tracked in the [canonical checkpoint](victor-agent-service-plan.md#current-checkpoint); optional host capabilities and full adapter typing remain |
+| SA-05 / P3 | `_INTERNAL_KWARG_KEYS` is independently declared in protocol adapter `:53` and Sandhi transport `:159`; comments require manual synchronization. | One provider-neutral runtime-hints definition, consumed by both filtering boundaries. Keep both enforcement points. Existing kwarg-strip and transport tests must cover every reserved key, unchanged provider extras and no internal hints on the wire. | OPEN; duplicate policy ownership confirmed |
+| SA-06 / P2 for prescriptive analysis | Metric names imply stronger evidence than their algorithms provide; large modules are mechanically assigned lower “cohesion.” | Label proxies and unavailable metrics honestly; require source revision and coverage provenance. Use topology-based fixtures that distinguish equal-size classes with different cohesion if a real cohesion metric is implemented. Extend `tests/unit/analysis/test_module_analyzer.py`. | OPEN; excluded from this audit's defect ranking |
+
+Inspection of dynamic attribute calls found 104 in the turn execution runtime,
+75 in the tool runtime and 14 in the protocol adapter. Planning has 167. These
+AST counts identify where to inspect contracts; they are neither a defect count
+nor a performance benchmark. Optional integration discovery can legitimately be
+dynamic when a single boundary validates and adapts it to an explicit contract.
+
+### SA-03 implementation scope
+
+- `RuntimeIdentity` owns current checkpoint/lifecycle identity. Assembly creates a
+  unique ephemeral root ID when no active or memory session exists; no consumer
+  invents `session_root`. Default root metadata uses the canonical `supervisor`
+  term; no new public role input or API is introduced.
+- Both consumers receive the same typed resolver. They capture its immutable
+  result at each operation boundary, including after root session recovery/resume.
+- Members cache their existing derived context before entering a provider session
+  scope and bind it onto the real child orchestrator. Existing dash/colon formats
+  and stream cancellation/restoration behavior are preserved.
+- Recovery rejects a bound member's different session before hydration. Missing or
+  malformed checkpoint identity blocks checkpoint writes and tool dispatch.
+- This is a local identity repair, not durable action reconciliation, a provider
+  acceptance run or C5. Root transport still uses its existing ContextVar binding;
+  universal provider/lifecycle correlation for memory-disabled roots is not
+  established here. No transport rebinding or second ContextVar is introduced.
+- Tests extend existing identity, tool, turn, session, member and facade owners.
+  The overlapping positive recovery test was strengthened instead of copied;
+  existing stream restoration and cancellation cases remain the canonical owners.
+
+### SOLID and agentic design decisions
+
+| Principle | Apply in Victor | Avoid |
+|---|---|---|
+| Single responsibility | Keep outcome verification, response presentation, effect recording and identity construction under distinct existing owners | Moving methods to new files while retaining an unrestricted orchestrator host everywhere |
+| Open/closed | Extend the existing provider/formation registry through validated contracts and declared capabilities | Parallel dispatch trees, silent provider fallbacks or a new strategy class for every conditional |
+| Liskov substitution | Require every implementation to preserve cancellation, denied/unknown outcomes, receipt ownership and retry constraints; test shared conformance | Treating signature compatibility or a successful model response as behavioral equivalence |
+| Interface segregation | Small typed read/write capabilities; immutable value objects for identity and outcomes; explicit optional capabilities | One giant protocol of `Any`, unbounded attribute forwarding, or runtime member-presence checks as schema validation |
+| Dependency inversion | Constructor injection at the existing composition root; a validated compatibility adapter at the edge | Service-location probes throughout effectful code or introducing a new DI framework without a concrete need |
+| Bounded agentic control | Deterministic software owns permissions, budgets and recovery; models propose typed actions; verified artifacts/receipts establish completion | Mandatory supervisor LLMs, extra members without demonstrated benefit, or self-reported completion as verification |
+
+Use statically checked `Protocol` contracts or explicit ABCs, as appropriate to
+the extension boundary. `Protocol` is structural typing, but avoids the unchecked
+runtime duck typing at issue when its members have concrete types and implementations
+are actually checked. `@runtime_checkable` alone does not validate argument or
+return types. See the [Python typing specification](https://typing.python.org/en/latest/spec/protocol.html).
+Keep configuration separate from use through
+[dependency injection](https://martinfowler.com/articles/injection.html).
+Prefer simple workflows until measured benefit warrants more agent autonomy or
+coordination, consistent with
+[Building effective agents](https://www.anthropic.com/engineering/building-effective-agents).
+
+### Nomenclature and delivery order
+
+- Use `supervisor` for the orchestration role; `member` for team membership and
+  `subagent` for delegated execution. Preserve reviewer=one-pass, critic=iterative,
+  judge=one-shot verdict, synthesizer and router semantics. A `StateManager` or
+  resource manager is not automatically a misnamed agent role.
+- Keep `set_manager`/`manager` compatibility aliases delegating to their canonical
+  owner while consumers migrate. `PlanningCoordinator` is an alias of the active
+  planning service, not proof of a second engine. Rename with an explicit migration
+  and usage evidence, not global text replacement.
+- Distinguish invocation returned, action committed, result published and task
+  verified. Map public outcome contracts through the existing FEP/client work;
+  an approval is authority for an exact action, not a success result. No new public
+  enum or breaking API is approved by this audit alone.
+- Land SA-01 and SA-02 as focused behavioral repairs first, with failing regression
+  cases in existing owners. Then SA-03, the necessary SA-04 boundary extraction,
+  and SA-05. SA-06 gates automated architectural recommendations, not safety fixes.
+- Before semantic analysis, qualify a same-revision vector snapshot: content and
+  symbol IDs, chunker/model revision, dimensions, distance and normalization,
+  deleted-file handling, coverage and retrieval scope. Use similarity to propose
+  clone/responsibility candidates; verify signatures, side effects and call sites
+  before deduplication. Embeddings cannot prove substitution or authorization.
+
+Each increment requires preserved existing behavior outside its intentional repair,
+positive/negative tests, independent review and green CI. Reuse current test owners;
+remove tests only when distinct failure and branch coverage remain. Performance
+claims require representative end-to-end measurements under the
+[native acceleration policy](native-acceleration-strategy.md). These offline
+findings neither close C5 nor relax its released-foundation and member-evidence gates.
+
+Audit qualification: independent source/evidence review found no blocking issues;
+160 existing tests passed across turn-runtime/CI selection, module analysis and
+architecture/service-boundary owners. These are baseline behavior checks, not
+implementation acceptance for SA-01–SA-06. No runtime behavior changed in this audit.
+
+### SA-01 implementation checkpoint
+
+Owner: this co-design session; branch `fix/preserve-agentic-loop-outcomes`, rebased
+onto `0c1f07cebc9970b40e68ccd3d53d57ad8e34be81` after the audit/CodeGraph PR
+[#1305](https://github.com/anvai-labs/victor/pull/1305) merged with 40 successful
+applicable checks. No history was rewritten on a published feature branch.
+
+The outer turn runtime no longer promotes a failed `LoopResult` based on summary
+text or a prose-prefix check. It reuses `synthesize_from_tool_evidence`, then
+publishes the authoritative failure, error and iteration count through the existing
+metadata contract. Synthesis remains available; success paths retain their behavior.
+No new enum, verifier, registry, dispatcher or provider call is added.
+
+TDD replaces the existing unsafe synthesis expectation rather than keeping a second
+test owner. Four regression cases initially failed; the empty-summary expectation
+was corrected to preserve the completer's existing explicit fallback response.
+The fixtures use real `LoopResult`, `LoopIteration`, `EvaluationResult` and
+`TurnResult` values. The existing member failure test now checks that fluent
+completion prose with synthesis metadata still produces a failed parent handoff.
+Independent review and 105 directly affected tests pass; the broader runtime/member
+cohort passes 377 tests and the verifier/stream cohort passes 58 tests. The combined
+final-base run passes all 435 tests; full collection finds 34,523 tests.
+[#1306](https://github.com/anvai-labs/victor/pull/1306) squash-merged with all
+applicable CI green (including Vertical Py3.12) as
+`8f503cf24272c81520847ddd41406f0ffb7a99c7`. Release/live acceptance remains separate.
+
+This qualifies propagation of a structured failed verdict. It does not make every
+unconfigured completion heuristic an independent verifier, change the inner loop's
+evaluation strategy, repair post-effect rollback (SA-02/G90), or close C5.
+
+### SA-02 implementation checkpoint
+
+Branch `fix/retain-agentic-execution-evidence` starts from merged SA-01 revision
+`8f503cf24272c81520847ddd41406f0ffb7a99c7`. The delegation wrapper now retains
+accepted transcript entries, tool-call envelopes, observed receipts and consumed
+budget when delegation raises. It propagates the failure without retrying. The
+obsolete snapshot/restore helpers and their sentinel are removed; scoped runtime
+configuration restoration remains unchanged.
+
+Review found no remaining legacy retry caller that needs speculative rollback.
+A pre-execution snapshot cannot roll back external effects, token usage or the
+action ledger, so conditional effect detection here would add an incomplete second
+owner. The existing rollback test is replaced with four cases, rather than adding
+a duplicate test suite. A bounded fake tool writes a real temporary file and
+records its matching receipt; fault injection covers later policy denial,
+cancellation, a lost receipt and pre-dispatch failure. Before the repair, both
+ordinary post-dispatch failures refunded consumption (two red cases); the
+pre-dispatch and cancellation controls passed. All 55 owner tests now pass, with
+independent source review clean. The affected tool/chat/planning/member/loop,
+verifier, stream, effect-gate and ledger cohort passes 498 tests; full collection
+finds 34,526 tests. Formatting, Ruff, touched-module mypy and repository hygiene
+pass. The final formatted owner suite passes all 55 tests.
+
+These tests isolate the delegation wrapper using a bounded fake loop driver.
+They do not claim that generic provider errors always propagate: real
+`AgenticLoop.run` normally converts those to failed `LoopResult` values, while
+`ProviderPolicyError` propagates and cancellation bypasses ordinary exception
+handlers. An unknown result retains its intent without inventing a receipt. No
+restart durability, backend reconciliation, automatic safe retry, or exactly-once
+claim is established. [#1307](https://github.com/anvai-labs/victor/pull/1307)
+squash-merged with all applicable CI green, including Vertical Py3.12, as
+`6ebacd4f806bfa0446d951cc2cbbdc10a41dbe2b`. Release and full C5 acceptance remain open.
+Next audit priorities are SA-03/G91 runtime identity ownership and the existing
+G62/G70 durable reconciliation/continuation gates.
+
 ## PDF recheck and design critique — 2026-09-25
 
 Rechecked the six-page **Agentic Workflow Automation** PDF at
@@ -280,7 +476,8 @@ checkpoints after execution (`graph_runtime.py:265,320`); restarting a node does
 by itself reconcile effects already committed inside it. Existing tool observability
 is not a transactional intent/receipt ledger.
 
-The opt-in single-action observation increment (2026-09-30) now records durable
+The opt-in single-action observation increment ([#1209](https://github.com/anvai-labs/victor/pull/1209),
+merged 2026-10-03 and included in v0.12.0) records durable
 intent and invocation observations in the existing paused-run row. It excludes
 all action-bearing rows from automatic purge, blocks repeated intent and rechecks
 approval after SQLite persistence. Strict canonical result publication is required
@@ -290,6 +487,16 @@ a lost response; the stored outcome stays unknown and no second effect is issued
 [FEP-0029 contract](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0029-single-agent-durable-chat-continuation.md#opt-in-durable-action-observations-2026-09-30-partial-g62).
 The following recovery sequence remains the complete target; receipt lookup,
 reconciliation and whole-member continuation are not yet implemented by this increment.
+
+The post-release [#1249 follow-up](https://github.com/anvai-labs/victor/pull/1249)
+moves asynchronous journal writes off the event loop, shields the interrupted-action
+observation and rolls back failed commits and save/action mutations. This does not implement receipt
+lookup or close G62. The [canonical tracker](victor-agent-service-plan.md)
+records integration and current acceptance gates. Subsequently, #1253 moved
+built-in resume admission off-loop, and #1255 added a bound readonly receipt
+lookup plus immutable local retention. The SQLite conformance adapter is not a
+production connector; G78 adapter qualification, recovered-result publication,
+whole-member continuation and C5 remain open.
 
 Repair in this order:
 

@@ -154,11 +154,9 @@ UNIVERSAL_EXCLUDE_PATTERNS = [
     "**/flutter_build/**",
     # Elixir
     "**/_build/**",
-    "**/deps/**",
     "**/.elixir_ls/**",
     # Erlang
     "**/ebin/**",
-    "**/deps/**",
     # Haskell
     "**/dist/**",
     "**/dist-newstyle/**",
@@ -169,7 +167,7 @@ UNIVERSAL_EXCLUDE_PATTERNS = [
     # R
     "**/packrat/**",
     # General test artifacts
-    "**/coverage/**",
+    # coverage/ can also be first-party source; projects exclude reports via .gitignore.
     "**/htmlcov/**",
     "**/.coverage",
     "**/.coverage/**",
@@ -288,7 +286,7 @@ def parse_gitignore(root_path: Path) -> List[str]:
                 # Convert gitignore pattern to glob pattern
                 # gitignore patterns are relative to .gitignore location
                 # We need to add **/ prefix for recursive matching
-                if not line.startswith("**/"):
+                if not line.startswith(("**/", "/")):
                     pattern = f"**/{line}"
                 else:
                     pattern = line
@@ -334,18 +332,13 @@ def detect_language_excludes(root_path: Path) -> List[str]:
                 logger.debug(f"Detected language from {config_file}")
                 patterns.extend(exclude_dirs)
 
-    # Convert directory patterns to glob patterns
-    glob_patterns = []
-    for pattern in patterns:
-        if not pattern.startswith("**/"):
-            glob_patterns.append(f"**/{pattern}")
-        else:
-            glob_patterns.append(pattern)
-
-    # Add recursive glob for directory patterns
-    glob_patterns.extend([f"{p}/**" for p in patterns if not p.endswith("**")])
-
-    return list(set(glob_patterns))  # Deduplicate
+    # Detected artifact directories belong to this project root, not every
+    # same-named source package (for example src/deps in a polyglot project).
+    glob_patterns = [
+        f"/{pattern.rstrip('/')}/**" if pattern.endswith("/") else f"/{pattern}"
+        for pattern in patterns
+    ]
+    return list(dict.fromkeys(glob_patterns))
 
 
 def get_exclusion_patterns(
@@ -401,6 +394,24 @@ def get_exclusion_patterns(
     return unique_patterns
 
 
+def _matches_rooted_glob(path: str, pattern: str) -> bool:
+    """Match from the root, allowing only ** to consume path separators."""
+    parts = path.split("/")
+    positions = {0}
+    for segment in pattern.lstrip("/").split("/"):
+        if not positions:
+            return False
+        if segment == "**":
+            positions = set(range(min(positions), len(parts) + 1))
+        else:
+            positions = {
+                index + 1
+                for index in positions
+                if index < len(parts) and fnmatch.fnmatchcase(parts[index], segment)
+            }
+    return len(parts) in positions
+
+
 def is_path_excluded(path: Path, root_path: Path, patterns: List[str]) -> bool:
     """Check if a path matches any exclusion pattern.
 
@@ -426,6 +437,11 @@ def is_path_excluded(path: Path, root_path: Path, patterns: List[str]) -> bool:
 
     # Check against all patterns
     for pattern in patterns:
+        if pattern.startswith("/"):
+            if _matches_rooted_glob(path_str, pattern):
+                return True
+            continue
+
         # Remove the **/ prefix for matching if present
         clean_pattern = pattern.replace("**/", "")
 

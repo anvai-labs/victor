@@ -14,8 +14,9 @@
 
 """Canonical types for multi-agent team coordination.
 
-This module is the SINGLE SOURCE OF TRUTH for all team-related types.
-Import from here, not from victor.framework.agent_protocols or victor.agent.teams.
+Runtime team types live here. Declarative MemoryConfig and TeamAgentCategory
+are re-exported from the definition-layer SDK so schemas and runtime members
+share one type identity. Existing imports through this module remain supported.
 
 Example:
     from victor.teams.types import TeamFormation, MessageType, AgentMessage
@@ -34,7 +35,12 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional
+
+from victor_contracts.team_schema import (
+    MemoryConfig as MemoryConfig,
+    TeamAgentCategory as TeamAgentCategory,
+)
 
 if TYPE_CHECKING:
     # Team member dependencies
@@ -106,18 +112,6 @@ class TeamFormation(str, Enum):
     ADAPTIVE = "adaptive"
     DYNAMIC_ROUTER = "dynamic_router"
     MULTI_LEVEL_HIERARCHY = "multi_level_hierarchy"
-
-
-class TeamAgentCategory(str, Enum):
-    """Coordination category for a team member.
-
-    Roles describe domain work (researcher, planner, executor, reviewer).
-    Categories describe coordination responsibility. A hierarchical team has
-    exactly one supervisor and one or more specialists.
-    """
-
-    SPECIALIST = "specialist"
-    SUPERVISOR = "supervisor"
 
 
 class MessageType(str, Enum):
@@ -263,71 +257,6 @@ class AgentMessage:
             "reply_to": self.reply_to,
             "priority": self.priority.value,
         }
-
-
-@dataclass
-class MemoryConfig:
-    """Configuration for per-agent memory behavior.
-
-    Controls how an agent stores and retrieves memories across task executions.
-    This allows fine-grained control over memory persistence, search behavior,
-    and memory type preferences.
-
-    Attributes:
-        enabled: Whether memory is enabled for this agent
-        persist_across_sessions: Store memories beyond current session
-        search_own_memories_only: Only search this agent's memories (vs team)
-        memory_types: Types of memories to store (entity, episodic, semantic)
-        max_memories_per_query: Maximum memories returned per search
-        relevance_threshold: Minimum relevance score for memory retrieval (0.0-1.0)
-        auto_summarize: Automatically summarize long memories
-        ttl_seconds: Time-to-live for memories (None = permanent)
-
-    Example:
-        memory_config = MemoryConfig(
-            enabled=True,
-            persist_across_sessions=True,
-            memory_types={"entity", "episodic"},
-            max_memories_per_query=20,
-            relevance_threshold=0.7,
-        )
-    """
-
-    enabled: bool = True
-    persist_across_sessions: bool = False
-    search_own_memories_only: bool = False
-    memory_types: Set[str] = field(default_factory=lambda: {"entity", "episodic", "semantic"})
-    max_memories_per_query: int = 10
-    relevance_threshold: float = 0.5
-    auto_summarize: bool = True
-    ttl_seconds: Optional[int] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "enabled": self.enabled,
-            "persist_across_sessions": self.persist_across_sessions,
-            "search_own_memories_only": self.search_own_memories_only,
-            "memory_types": list(self.memory_types),
-            "max_memories_per_query": self.max_memories_per_query,
-            "relevance_threshold": self.relevance_threshold,
-            "auto_summarize": self.auto_summarize,
-            "ttl_seconds": self.ttl_seconds,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MemoryConfig":
-        """Create from dictionary."""
-        return cls(
-            enabled=data.get("enabled", True),
-            persist_across_sessions=data.get("persist_across_sessions", False),
-            search_own_memories_only=data.get("search_own_memories_only", False),
-            memory_types=set(data.get("memory_types", ["entity", "episodic", "semantic"])),
-            max_memories_per_query=data.get("max_memories_per_query", 10),
-            relevance_threshold=data.get("relevance_threshold", 0.5),
-            auto_summarize=data.get("auto_summarize", True),
-            ttl_seconds=data.get("ttl_seconds"),
-        )
 
 
 class MemberStatus(str, Enum):

@@ -64,6 +64,7 @@ from rich.console import Console
 
 # Coordinators (Phase 2 refactoring - being integrated)
 # NOTE: These are runtime imports, not type-checking only
+from victor.agent.runtime.context import RuntimeIdentity, require_idle_turn
 from victor.core.async_utils import aclosing_if_supported as _aclosing
 from victor.agent.services.metrics_service import AgentMetricsService  # noqa: F401
 
@@ -159,7 +160,6 @@ from victor.agent.unified_task_tracker import TrackerTaskType, UnifiedTaskTracke
 from victor.agent.prompt_requirement_extractor import extract_prompt_requirements
 
 # Decomposed components - configs, strategies, functions
-from victor.core.context import session_id as ctx_session_id, set_session_id
 from victor.agent.conversation.controller import (
     ConversationConfig,
     ContextMetrics,
@@ -901,6 +901,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         self._profile_name = profile_name
         # Track active session ID for parallel session support
         self.active_session_id: Optional[str] = None
+        self._runtime_identity = RuntimeIdentity(self)
         # Bootstrap DI container - ensures all services are available
         # This is idempotent and will only bootstrap if not already done
         self._container = ensure_bootstrapped(settings)
@@ -1036,6 +1037,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         # failed_tool_signatures, _read_files_session, _required_files, _required_outputs, etc.
         self._session_state = create_session_state_manager(tool_budget=self.tool_budget)
         self._session_accessor = SessionStateAccessor(self._session_state)
+        self._runtime_identity.bind_turn_lock(self._session_accessor.stream_turn_lock)
 
         # Gap implementations: Complexity classifier, action authorizer, search router (via factory)
         self.task_classifier = self._factory.create_complexity_classifier()
@@ -1431,7 +1433,11 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         Args:
             workspace_dir: Path to the workspace directory
+
+        Raises:
+            RuntimeError: If a turn owns the session; no workspace state is changed.
         """
+        require_idle_turn(self._session_accessor.stream_turn_lock)
         from victor.config.settings import set_project_root
         from victor.context.project_context import ProjectContext
 
@@ -3050,18 +3056,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             stacklevel=2,
         )
 
-        # Re-stamp the session_id contextvar from the persistent attr. The
-        # contextvar can be lost when the caller (e.g. the benchmark adapter)
-        # set it in a different async context, or when decisions cross a
-        # thread/loop boundary (decide_sync). Setting it here, in the chat
-        # call's context, ensures every decision the agentic loop logs carries
-        # the task's session_id (FEP-0012 decision_outcome spine integrity).
-        if self.active_session_id:
-            try:
-                set_session_id(self.active_session_id)
-            except Exception:
-                pass
-
         return await self._chat_service.chat(
             user_message,
             use_planning=use_planning,
@@ -3403,7 +3397,12 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 ToolExecutionRuntime,
             )
 
-            runtime = ToolExecutionRuntime(self.protocol_adapter)
+            runtime = ToolExecutionRuntime(
+                self.protocol_adapter,
+                execution=self.protocol_adapter,
+                publication=self.protocol_adapter,
+                runtime_context=self._runtime_identity.resolve,
+            )
             self._tool_execution_runtime = runtime
         return runtime
 
@@ -3519,13 +3518,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             stacklevel=2,
         )
 
-        # Re-stamp the session_id contextvar (see chat() for rationale).
-        if self.active_session_id:
-            try:
-                set_session_id(self.active_session_id)
-            except Exception:
-                pass
-
         async with _aclosing(self._chat_service.stream_chat(user_message, **kwargs)) as stream:
             async for chunk in stream:
                 yield chunk
@@ -3605,6 +3597,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         - Sequence tracker history (preserves learned patterns)
         - Usage analytics session (ends current, starts fresh)
         """
+        require_idle_turn(self._session_accessor.stream_turn_lock)
         # Delegate to LifecycleManager for core reset
         self._lifecycle_manager.reset_conversation()
 
@@ -3671,7 +3664,10 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         if runtime is None:
             from victor.agent.services.session_runtime import SessionRuntime
 
-            runtime = SessionRuntime(self.protocol_adapter)
+            runtime = SessionRuntime(
+                self.protocol_adapter,
+                validate_session=self._runtime_identity.validate_session_transition,
+            )
             self._session_runtime = runtime
         return runtime
 

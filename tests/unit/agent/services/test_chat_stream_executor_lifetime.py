@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from victor.agent.runtime.context import AgentRuntimeContext, RuntimeIdentity
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.agent.services.chat_runtime_services import ChatGovernance
 from victor.agent.services.chat_runtime_services import (
@@ -52,6 +53,9 @@ def make_services(executor_type):
         stream_turn_lock=runtime.services.stream_turn_lock,
         stream_chat_handler=runtime.stream_chat_under_turn_lock,
         turn_runtime=SimpleNamespace(
+            resolve_runtime_context=lambda: AgentRuntimeContext(
+                "root_agent", "Root", "supervisor", "stream-test"
+            ),
             enter=lambda message, **_: events.append(("setup", message)),
             exit=lambda message, **_: events.append(("teardown", message)),
             start_task_report=lambda message, **_: metrics.start_task_report(message),
@@ -144,6 +148,10 @@ async def test_inner_cleanup_finishes_before_reports_unlock_and_next_turn(public
                 self.events.append(("cleanup-end", message))
 
     service, runtime, metrics, events = make_services(Executor)
+    service._context = SimpleNamespace(clear_messages=MagicMock())
+    service._conversation = SimpleNamespace(reset=MagicMock())
+    identity = RuntimeIdentity(SimpleNamespace(active_session_id="active", _memory_session_id=None))
+    identity.bind_turn_lock(runtime.services.stream_turn_lock)
     entry = runtime if public == "runtime" else service
     if public == "orchestrator":
         from victor.agent.orchestrator import AgentOrchestrator
@@ -163,6 +171,14 @@ async def test_inner_cleanup_finishes_before_reports_unlock_and_next_turn(public
     second = asyncio.create_task(consume(entry, "second"))
     try:
         await asyncio.sleep(0)
+        with pytest.raises(RuntimeError, match="active turn"):
+            identity.validate_session_transition("resumed")
+        report = service._last_task_report = {"description": "previous"}
+        with pytest.raises(RuntimeError, match="active turn"):
+            service.reset_conversation()
+        assert service.get_last_task_report() == report
+        service._context.clear_messages.assert_not_called()
+        service._conversation.reset.assert_not_called()
         assert not closing.done()
         assert runtime.services.stream_turn_lock.locked()
         assert ("execute", "second") not in events
@@ -183,6 +199,11 @@ async def test_inner_cleanup_finishes_before_reports_unlock_and_next_turn(public
         assert events.index(("teardown", "first")) < events.index(("setup", "second"))
         assert [r["api_total_tokens"] for r in metrics.get_task_report_history()] == [5, 18]
     assert not runtime.services.stream_turn_lock.locked()
+    identity.validate_session_transition("resumed")
+    service.reset_conversation()
+    service._context.clear_messages.assert_called_once_with(retain_system=True)
+    service._conversation.reset.assert_called_once()
+    assert service.get_last_task_report() is None
 
 
 @pytest.mark.asyncio

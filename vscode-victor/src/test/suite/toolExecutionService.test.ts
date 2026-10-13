@@ -6,6 +6,8 @@
  */
 
 import * as assert from 'assert';
+import { ToolExecutionService } from '../../toolExecutionService';
+import type { VictorClient } from '../../victorClient';
 
 // We'll test the logic without full VS Code integration
 suite('ToolExecutionService Test Suite', () => {
@@ -203,47 +205,58 @@ suite('ToolExecutionService Test Suite', () => {
         });
     });
 
-    // Test execution state machine
+    // Exercise the actual owner instead of assigning strings to a local variable.
     suite('Execution State Machine', () => {
-        test('Should transition from pending to running', () => {
-            type Status = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-            let status: Status = 'pending';
+        let service: ToolExecutionService;
+        setup(() => { service = new ToolExecutionService(); });
+        teardown(() => service.dispose());
 
-            // Start execution
-            assert.strictEqual(status, 'pending');
-            status = 'running';
-            assert.strictEqual(status, 'running');
+        test('Tracks real start, completion and failure transitions', () => {
+            const first = service.startExecution('first', 'read_file');
+            assert.strictEqual(first.status, 'running');
+            service.completeExecution('first', 'contents');
+            assert.strictEqual(first.status, 'completed');
+            const second = service.startExecution('second', 'read_file');
+            service.failExecution('second', 'read failed');
+            assert.strictEqual(second.status, 'failed');
+            assert.deepStrictEqual(service.getActiveExecutions(), []);
         });
 
-        test('Should transition from running to completed', () => {
-            type Status = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-            let status: Status = 'running';
+        for (const outcome of ['missing', 'rejected', 'error', 'confirmed'] as const) {
+            test(`Cancellation ${outcome} preserves honest execution state`, async () => {
+                const execution = service.startExecution('call-1', 'write_file');
+                let cancelledEvents = 0;
+                service.onExecutionCancelled(() => cancelledEvents++);
+                if (outcome !== 'missing') {
+                    service.setVictorClient({ cancelToolExecution: async () => {
+                        if (outcome === 'error') throw new Error('offline');
+                        return outcome === 'confirmed';
+                    } } as unknown as VictorClient);
+                }
+                assert.strictEqual(await service.cancelExecution('call-1'), outcome === 'confirmed');
+                assert.strictEqual(execution.status, outcome === 'confirmed' ? 'cancelled' : 'running');
+                assert.strictEqual(cancelledEvents, outcome === 'confirmed' ? 1 : 0);
+                assert.strictEqual(service.getActiveExecutions().length, outcome === 'confirmed' ? 0 : 1);
+            });
+        }
 
-            // Complete execution
-            assert.strictEqual(status, 'running');
-            status = 'completed';
-            assert.strictEqual(status, 'completed');
-        });
-
-        test('Should transition from running to failed', () => {
-            type Status = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-            let status: Status = 'running';
-
-            // Fail execution
-            assert.strictEqual(status, 'running');
-            status = 'failed';
-            assert.strictEqual(status, 'failed');
-        });
-
-        test('Should transition from running to cancelled', () => {
-            type Status = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-            let status: Status = 'running';
-
-            // Cancel execution
-            assert.strictEqual(status, 'running');
-            status = 'cancelled';
-            assert.strictEqual(status, 'cancelled');
-        });
+        for (const terminal of ['completed', 'failed', 'replaced'] as const) {
+            test(`Late cancellation must not overwrite a ${terminal} execution`, async () => {
+                const original = service.startExecution('call-1', 'write_file');
+                let acknowledge!: (value: boolean) => void;
+                service.setVictorClient({ cancelToolExecution: () => new Promise<boolean>(resolve => {
+                    acknowledge = resolve;
+                }) } as unknown as VictorClient);
+                const pending = service.cancelExecution('call-1');
+                if (terminal === 'completed') service.completeExecution('call-1', 'saved');
+                else if (terminal === 'failed') service.failExecution('call-1', 'failed');
+                else service.startExecution('call-1', 'read_file');
+                acknowledge(true);
+                assert.strictEqual(await pending, false);
+                assert.strictEqual(original.status, terminal === 'replaced' ? 'running' : terminal);
+                if (terminal === 'replaced') assert.strictEqual(service.getActiveExecutions().length, 1);
+            });
+        }
     });
 
     // Test execution map operations

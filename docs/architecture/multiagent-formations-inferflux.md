@@ -18,9 +18,10 @@ using InferFlux (self-hosted, Qwen3-Coder-30B on AMD Radeon AI PRO R9700).
 
 ## Sandhi binding release baseline
 
-Victor pins the published `sandhi-gateway==0.10.1` Python wheel in project metadata
-and all three deployment locks. The wheel retains wire major 1 and adds contract
-minor 9 (cache-read observation). Victor preserves these observations separately
+Victor pins the published `sandhi-gateway==0.13.0` Python wheel in project metadata
+and all three deployment locks, matching the [upstream release](https://github.com/anvai-labs/sandhi/releases/tag/v0.13.0)
+as checked on 2026-10-10. Victor consumes wire major 1 and contract minor 9
+(cache-read observation), preserving these observations separately
 from measured counts: metadata-only stream updates neither invent zero usage nor
 replace a prior numeric verdict. Existing
 schema, provider construction, usage and local HTTP parity tests own compatibility;
@@ -510,6 +511,39 @@ than repeating calls to obtain a pass:
   --provider inferflux --model qwen3-coder-30b \
   --gateway-state /path/to/private/sandhi-state --output-dir /tmp/inferflux-matrix
 ```
+
+DeepSeek is an additional, explicitly selected OIDC cohort. Provision its grant on
+the gateway first, then add this route to the private OAuth profile's `routes`
+object (the named `member` credential must already exist and differ from accounting):
+
+```json
+"deepseek": {
+  "credential": "member",
+  "grant": "deepseek",
+  "models": ["deepseek-flash"]
+}
+```
+
+```bash
+.venv-codesign/bin/python scripts/validation/formation_gateway_matrix.py \
+  --provider deepseek --model deepseek-flash \
+  --auth-profile /path/to/private/validation-oauth.json \
+  --gateway-state /path/to/private/sandhi-state --output-dir /tmp/deepseek-matrix
+```
+
+The grant and model must match the operator's gateway policy. DeepSeek requires
+`--auth-profile`; it never borrows InferFlux's token file. With that profile, the
+harness uses its HTTPS origin, separate accounting identity and database path;
+`--gateway-state` remains required by the shared CLI but its token files are not
+read. Credentials stay with the broker/gateway. A route's capability cannot select
+a model outside its own allowlist, even if another route permits it.
+
+This admits a provider to the existing buffered artifact/accounting checks; it
+does not certify model capabilities, streaming settlement or formation quality.
+Complete the released-runtime gates in [VAS-17](victor-agent-service-plan.md)
+before live formation runs. Preserve the original six-Qwen/one-ZAI C5 cohort;
+DeepSeek results are separately labelled and cannot replace it. ZAI/InferFlux
+commands and their token-compatibility defaults are unchanged.
 
 For a simpler tool-follow-through experiment, add `--task-profile single-file` to
 both commands and use fresh output directories. Each member writes one

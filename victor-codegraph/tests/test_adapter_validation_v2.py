@@ -40,3 +40,30 @@ def test_legacy_oid_mode_keeps_edge_endpoints_attached():
     edge = next(r for r in records if "graph_edge" in r["labels"])
     assert edge["edge"]["from_oid"] in nodes
     assert edge["edge"]["to_oid"] in nodes
+
+
+@pytest.mark.parametrize("stable_oid", [True, False])
+@pytest.mark.parametrize("embedding_mode", ["embedder", "batch_embedder"])
+def test_duplicate_symbol_ids_fail_before_embedding(stable_oid, embedding_mode):
+    from unittest.mock import Mock
+
+    parsed = parse("def f(): return 1\ndef f(): return 2\n", file_path="duplicate.py")
+    embedder = Mock(
+        return_value=[0.0, 0.0] if embedding_mode == "embedder" else [[0.0, 0.0], [0.0, 0.0]]
+    )
+    with pytest.raises(ValueError, match="identity collision"):
+        to_proxima_records(
+            parsed, "repo", stable_oid=stable_oid, dim=2, **{embedding_mode: embedder}
+        )
+    embedder.assert_not_called()
+
+
+def test_symbol_alias_cannot_rebind_another_canonical_identity():
+    from unittest.mock import Mock
+
+    parsed = parse("def a(): pass\ndef b(): pass\n", file_path="aliases.py")
+    parsed.symbols[1].legacy_id = parsed.symbols[0].id
+    embedder = Mock(return_value=[0.0, 0.0])
+    with pytest.raises(ValueError, match="alias identity collision"):
+        to_proxima_records(parsed, "repo", embedder=embedder, dim=2)
+    embedder.assert_not_called()

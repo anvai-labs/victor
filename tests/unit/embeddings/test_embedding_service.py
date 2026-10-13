@@ -112,7 +112,11 @@ class TestEmbeddingServiceSingleton:
         EmbeddingService.reset_instance()
 
         instance1 = EmbeddingService.get_instance(model_name="model-a")
+        instance1._embedding_cache["old-model:text"] = np.ones(3)
+        instance1._current_cache_memory_bytes = 24
         EmbeddingService.reset_instance()
+        assert not instance1._embedding_cache
+        assert instance1._current_cache_memory_bytes == 0
         instance2 = EmbeddingService.get_instance(model_name="model-b")
 
         assert instance1 is not instance2

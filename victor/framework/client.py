@@ -712,14 +712,16 @@ class VictorClient:
         system prompts and session configuration.
 
         Raises:
-            RuntimeError: If client is not initialized
+            RuntimeError: If the client is not initialized or a turn is active.
+                Finish or close that turn before resetting. Rejection preserves
+                live messages and task-report state.
         """
         if not self._initialized or not self._context:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
 
         services = self._resolve_runtime_services()
         if services.chat is not None:
-            await services.chat.reset_conversation()
+            services.chat.reset_conversation()
         else:
             logger.warning("ChatService not available for conversation reset")
 
@@ -791,7 +793,7 @@ class VictorClient:
         """Resume a stored session so the agent recalls its prior turns.
 
         Hydrates the live conversation from the ConversationStore via
-        ``ChatService.resume_session`` (which repopulates both message stores),
+        the shared hydration helper (which repopulates both message stores),
         then stamps the resumed ``session_id`` (and conversation state, when
         present) onto the orchestrator so continuation writes append to the
         same session.
@@ -804,7 +806,9 @@ class VictorClient:
             ``None`` when the session is not found.
 
         Raises:
-            RuntimeError: If the client is not initialized.
+            RuntimeError: If the client is not initialized or a turn is active.
+                Finish or close the active turn before resuming, including when
+                reloading the same session. No live messages are changed on rejection.
         """
         if not self._initialized or not self._context:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
@@ -822,6 +826,8 @@ class VictorClient:
         # below). Both are the live DI-container instances the turn path uses.
         agent = self._agent
         orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
+        if orchestrator is not None:
+            orchestrator._runtime_identity.validate_session_transition(session_id)
         context_service = self._resolve_runtime_services().context
         controller = getattr(orchestrator, "_conversation_controller", None)
         metadata = hydrate_session(context_service, controller, session_data)
@@ -871,7 +877,7 @@ class VictorClient:
 
         from victor.agent.durable_resume import resume_paused_run
         from victor.agent.paused_run_store import (
-            DEFAULT_PAUSE_TTL_SECONDS,
+            claim_for_resume,
             get_paused_run_store,
         )
 
@@ -882,17 +888,9 @@ class VictorClient:
         store = get_paused_run_store()
         if durable_actions and getattr(store, "durable_actions", False) is not True:
             raise ValueError("Durable actions require persistent storage")
-        # FEP-0029 expiry/GC: opportunistically expire any stale pending pauses (a day-old approval
-        # should not silently execute), so this and other stragglers drop out before we resume.
-        store.expire_pending(max_age_seconds=DEFAULT_PAUSE_TTL_SECONDS)
-        paused = store.get(run_id)
-        if paused is None:
-            raise ValueError(f"Unknown paused run: {run_id}")
-        if getattr(paused, "status", None) == "expired":
-            raise ValueError(f"Paused run expired: {run_id}")
-        # Atomically claim the run (single-use); False ⇒ already resumed or gone.
-        if not store.mark_resumed(run_id):
-            raise ValueError(f"Paused run already resumed or not pending: {run_id}")
+        # Capture one store and await its existing single-use admission. Persistent
+        # SQLite lock waits must not freeze other sessions on this event loop.
+        paused = await claim_for_resume(store, run_id)
 
         if paused.session_id:
             if await self.resume_session(paused.session_id) is None:
@@ -935,6 +933,25 @@ class VictorClient:
             metadata=metadata,
         )
 
+    async def reconcile_action(self, run_id: str, *, timeout_seconds: float = 10) -> Dict[str, Any]:
+        """Verify backend receipt evidence without replaying or continuing a tool.
+
+        Requires an opted-in action and its original trusted tool capability.
+        Unsupported or unknown outcomes never authorize execution. This embedded
+        API uses configured runtime authority; it is not a hosted auth boundary.
+        """
+        if not self._initialized or not self._context:
+            raise RuntimeError("VictorClient not initialized. Call initialize() first.")
+        from victor.agent.action_observation import reconcile_action_receipt
+        from victor.agent.paused_run_store import get_paused_run_store
+
+        return await reconcile_action_receipt(
+            get_paused_run_store(),
+            run_id,
+            getattr(self._agent, "_orchestrator", None),
+            timeout_seconds=timeout_seconds,
+        )
+
     def get_action_status(self, run_id: str) -> Dict[str, Any]:
         """Read action observations for a paused run in the restored original session.
 
@@ -949,6 +966,15 @@ class VictorClient:
         if run is None:
             raise ValueError("Unknown paused run")
         orchestrator = getattr(self._agent, "_orchestrator", None)
+        if run.action is not None and (
+            type(run.action.get("version")) is not int
+            or run.action.get("version") != 1
+            or "recovery" in run.action
+            or run.action.get("backend_receipt") is not None
+        ):
+            from victor.agent.action_observation import require_receipt_access
+
+            require_receipt_access(run, orchestrator)
         if not run.session_id or getattr(orchestrator, "active_session_id", None) != run.session_id:
             raise ValueError("Action status requires the restored original session")
         return {

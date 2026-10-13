@@ -58,7 +58,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.planning.constants import (
     COMPLEXITY_KEYWORDS,
@@ -550,6 +550,8 @@ class PlanningRuntimeService:
         orchestrator: "PlanningContextProtocol",
         config: Optional[PlanningConfig] = None,
         renderer: Optional["StreamRenderer"] = None,  # NEW: Inject renderer for consistent UI
+        *,
+        direct_chat: Optional[Callable[[str], Awaitable[CompletionResponse]]] = None,
     ):
         """Initialize the planning coordinator.
 
@@ -557,8 +559,11 @@ class PlanningRuntimeService:
             orchestrator: Any object satisfying PlanningContextProtocol
             config: Optional configuration (uses defaults if not provided)
             renderer: Optional renderer for consistent plan display (falls back to Rich console)
+            direct_chat: Already-owned turn operation when composed by ChatService.
+                Standalone callers omit it to acquire the public chat boundary.
         """
         self.orchestrator = orchestrator
+        self._direct_chat_handler = direct_chat
         self.config = config or PlanningConfig()
         self.renderer = renderer  # NEW: Store renderer for consistent plan display
         self.active_plan: Optional[ReadableTaskPlan] = None
@@ -3411,15 +3416,10 @@ Keep your response concise and helpful.
         return getattr(diagnostic, key, default)
 
     async def _direct_chat(self, user_message: str) -> CompletionResponse:
-        """Fallback to direct chat without planning.
-
-        Args:
-            user_message: User's message
-
-        Returns:
-            CompletionResponse from chat
-        """
-        # Delegate to orchestrator's chat
+        """Use the injected owned turn, or acquire a public turn when standalone."""
+        if self._direct_chat_handler is not None:
+            return await self._direct_chat_handler(user_message)
+        # Standalone planning has no owned outer turn. Acquire the public boundary.
         return await self.orchestrator.chat(user_message)
 
     def set_planning_mode(self, mode: PlanningMode) -> None:

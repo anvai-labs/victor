@@ -88,6 +88,14 @@ async def _index_async(
         console.print(f"[red]Error:[/red] Path '{path}' is not a directory")
         return False
 
+    from victor.core.graph_rag.dependencies import require_graph_dependencies
+
+    try:
+        require_graph_dependencies()
+    except RuntimeError as exc:
+        console.print(f"Error: {exc}", style="red", markup=False)
+        return False
+
     console.print(f"[dim]Indexing codebase at: {root_path}[/dim]")
 
     # Create graph store
@@ -119,17 +127,37 @@ async def _index_async(
             pass
 
     # Print results
-    console.print("\n[green]✓ Indexing complete[/green]")
+    if stats.error_count:
+        console.print("\n[red]Indexing incomplete[/red]")
+    elif stats.files_partial or stats.repository_relations_dropped_unmaterialized:
+        console.print("\n[yellow]Indexing finished with coverage gaps[/yellow]")
+    else:
+        console.print("\n[green]✓ Indexing pass complete[/green]")
     console.print(f"  Files processed: {stats.files_processed}")
-    console.print(f"  Nodes created: {stats.nodes_created}")
-    console.print(f"  Edges created: {stats.edges_created}")
+    console.print(f"  Partial parses this pass: {stats.files_partial}")
+    if stats.files_unchanged:
+        console.print(f"  Unchanged files: {stats.files_unchanged}")
+        console.print("  Existing file diagnostics are retained; this pass does not clear them.")
+    console.print(f"  Node upserts attempted: {stats.nodes_created}")
+    console.print(f"  Edge upserts attempted: {stats.edges_created}")
+    console.print(f"  Persisted nodes: {stats.persisted_nodes}")
+    console.print(f"  Persisted edges: {stats.persisted_edges}")
     if stats.ccg_nodes_created > 0:
         console.print(f"  CCG nodes: {stats.ccg_nodes_created}")
         console.print(f"  CCG edges: {stats.ccg_edges_created}")
     if stats.embeddings_generated > 0:
         console.print(f"  Embeddings generated: {stats.embeddings_generated}")
+    if stats.repository_relations_dropped_unmaterialized:
+        console.print(
+            "  Relations omitted (unmaterialized endpoints): "
+            f"{stats.repository_relations_dropped_unmaterialized}"
+        )
     if stats.error_count > 0:
-        console.print(f"[yellow]  Warnings: {stats.error_count}[/yellow]")
+        console.print(f"[red]  Errors: {stats.error_count}[/red]")
+        for error in stats.errors[:10]:
+            console.print(f"    {error}", markup=False)
+        if stats.error_count > 10:
+            console.print(f"    ... {stats.error_count - 10} additional errors")
 
     return stats.error_count == 0
 
@@ -306,6 +334,10 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
     """Resolve a target string to a node ID."""
     from victor.storage.graph.edge_types import EdgeType
 
+    exact = await graph_store.get_node_by_id(target)
+    if exact is not None:
+        return exact.node_id
+
     # Check if file:line format
     if ":" in target:
         file_path, line_str = target.rsplit(":", 1)
@@ -320,7 +352,7 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
 
     # Search by name
     nodes = await graph_store.find_nodes(name=target)
-    if nodes:
+    if len(nodes) == 1:
         return nodes[0].node_id
 
     return None

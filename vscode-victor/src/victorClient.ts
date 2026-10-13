@@ -9,6 +9,7 @@
  */
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import { ChatSseDecoder } from './chatSseDecoder';
 
 // =============================================================================
 // Types and Interfaces
@@ -18,6 +19,19 @@ export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
     toolCalls?: ToolCall[];
+}
+
+/** Existing /chat result; absent status is the legacy completed response. */
+export interface ChatResponse extends ChatMessage {
+    status?: 'ok' | 'awaiting_approval';
+    run_id?: string | null;
+    approval_request?: Record<string, unknown> | null;
+}
+
+export interface PausedChatResponse extends ChatResponse {
+    status: 'awaiting_approval';
+    run_id: string;
+    approval_request: Record<string, unknown>;
 }
 
 export interface ToolCall {
@@ -198,6 +212,30 @@ export class VictorError extends Error {
     }
 }
 
+/** An unqualified outcome must not trigger a consumer's fallback write. */
+export class ChatOutcomeError extends VictorError {
+    constructor(message: string, statusCode?: number) {
+        super(message, VictorErrorType.Validation, statusCode);
+        this.name = 'ChatOutcomeError';
+    }
+}
+
+export class ChatApprovalRequiredError extends ChatOutcomeError {
+    constructor(public readonly response: PausedChatResponse) {
+        super(`Run ${response.run_id} is awaiting approval. No result was applied. ` +
+            'Use the server approval flow before continuing.');
+        this.name = 'ChatApprovalRequiredError';
+    }
+}
+
+/** Guard content consumers without creating another approval or resume owner. */
+export function requireCompletedChat(response: ChatResponse): ChatMessage {
+    if (response.status === 'awaiting_approval') {
+        throw new ChatApprovalRequiredError(response as PausedChatResponse);
+    }
+    return response;
+}
+
 // =============================================================================
 // WebSocket Connection State
 // =============================================================================
@@ -249,6 +287,8 @@ export class VictorClient {
     private wsHeartbeatTimer: NodeJS.Timeout | null = null;
     private wsPongTimer: NodeJS.Timeout | null = null;
 
+    private connectionHandlers = new Set<() => void>();
+
     // Event handlers
     private messageHandlers: ((msg: ChatMessage) => void)[] = [];
     private stateChangeHandlers: ((state: WebSocketState) => void)[] = [];
@@ -274,11 +314,34 @@ export class VictorClient {
         return this.serverUrl;
     }
 
+    /** Extension-host transport configuration; never post this snapshot to a webview. */
+    getConnectionConfig(): Readonly<{ serverUrl: string; apiToken?: string }> {
+        return Object.freeze({ serverUrl: this.serverUrl, apiToken: this.apiToken });
+    }
+
+    onConnectionChange(handler: () => void): { dispose(): void } {
+        this.connectionHandlers.add(handler);
+        return { dispose: () => { this.connectionHandlers.delete(handler); } };
+    }
+
+    private notifyConnectionChange(): void {
+        for (const handler of this.connectionHandlers) {
+            try {
+                handler();
+            } catch {
+                console.warn('[Victor] Connection change listener failed');
+            }
+        }
+    }
+
     // =========================================================================
     // Connection Management
     // =========================================================================
 
     setApiToken(token?: string): void {
+        if (this.apiToken === token) {
+            return;
+        }
         this.apiToken = token;
         this.invalidateStatusCache();
         if (token) {
@@ -286,6 +349,7 @@ export class VictorClient {
         } else {
             delete this.client.defaults.headers.common['Authorization'];
         }
+        this.notifyConnectionChange();
     }
 
     setServerUrl(serverUrl: string): void {
@@ -299,6 +363,7 @@ export class VictorClient {
         this.sessionToken = undefined;
         this.invalidateStatusCache();
         this.disconnectWebSocket();
+        this.notifyConnectionChange();
     }
 
     /**
@@ -645,19 +710,33 @@ export class VictorClient {
     // Chat API
     // =========================================================================
 
-    async chat(messages: ChatMessage[]): Promise<ChatMessage> {
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
         try {
             const response = await this.client.post('/chat', { messages });
-            const payload = response.data as {
-                role?: ChatMessage['role'];
-                content?: string;
-                tool_calls?: ToolCall[];
-                toolCalls?: ToolCall[];
-            };
+            const payload: unknown = response.data;
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                throw new ChatOutcomeError('Invalid chat response; outcome is unknown.', response.status);
+            }
+            const data = payload as Record<string, unknown>;
+            const status = data.status;
+            const paused = status === 'awaiting_approval';
+            const approval = data.approval_request;
+            const validApproval = approval !== null && typeof approval === 'object' && !Array.isArray(approval);
+            if ((status !== undefined && status !== 'ok' && !paused) ||
+                (response.status === 202 && !paused) ||
+                (!paused && approval !== null && approval !== undefined) ||
+                (paused && (typeof data.run_id !== 'string' || !data.run_id.trim() || !validApproval)) ||
+                (data.run_id !== null && data.run_id !== undefined && typeof data.run_id !== 'string') ||
+                (approval !== null && approval !== undefined && !validApproval)) {
+                throw new ChatOutcomeError('Invalid chat status or approval metadata; outcome is unknown.', response.status);
+            }
             return {
-                role: payload.role || 'assistant',
-                content: payload.content || '',
-                toolCalls: payload.toolCalls || payload.tool_calls,
+                role: (data.role as ChatMessage['role']) || 'assistant',
+                content: (data.content as string) || '',
+                toolCalls: (data.toolCalls || data.tool_calls) as ToolCall[] | undefined,
+                ...(status !== undefined ? { status: status as ChatResponse['status'] } : {}),
+                ...('run_id' in data ? { run_id: data.run_id as string | null } : {}),
+                ...('approval_request' in data ? { approval_request: approval as Record<string, unknown> | null } : {}),
             };
         } catch (error) {
             const handled = this._handleError(error);
@@ -666,8 +745,8 @@ export class VictorClient {
         }
     }
 
-    /** Chat session continuity: populated from the X-Session-Id response
-     *  header of `/chat/stream` and echoed back as `session_id`. */
+    /** Web backend continuity: populated from X-Session-Id and echoed as
+     *  session_id. The core server does not implement this session contract. */
     getChatSessionId(): string | null {
         return this.chatSessionId;
     }
@@ -725,16 +804,10 @@ export class VictorClient {
         } else if (event === 'error') {
             const message = typeof data.message === 'string' ? data.message : 'Unknown stream error';
             onEvent?.({ type: 'error', error: message, raw: data });
-            if (!settle.done) {
-                settle.done = true;
-                settle.reject(new VictorError(message, VictorErrorType.ServerError));
-            }
+            settle.reject(new VictorError(message, VictorErrorType.ServerError));
         } else if (event === 'stream_end') {
             onEvent?.({ type: 'stream_end', raw: data });
-            if (!settle.done) {
-                settle.done = true;
-                settle.resolve();
-            }
+            settle.resolve();
         } else {
             // Additive contract growth must never crash a consumer.
             onEvent?.({ type: event, raw: data });
@@ -748,14 +821,17 @@ export class VictorClient {
         onEvent?: (event: StreamEvent) => void
     ): Promise<void> {
         try {
-            // v1 wire contract: the server owns conversation history per
-            // session, so only the newest user message goes up, plus the
-            // session id captured from a prior response's X-Session-Id.
+            // Compatibility with the two existing request contracts: core
+            // consumes messages; the web backend consumes message/session_id.
+            // Derive one turn once; neither server should replay client history.
+            // This is one dispatch, not a retry on a guessed server protocol.
             const latestUser = [...messages].reverse().find((m) => m.role === 'user');
-            const body: Record<string, unknown> = { message: latestUser?.content ?? '' };
-            if (this.chatSessionId) {
-                body.session_id = this.chatSessionId;
-            }
+            const content = latestUser?.content ?? '';
+            const body = {
+                messages: [{ role: 'user', content }],
+                message: content,
+                ...(this.chatSessionId ? { session_id: this.chatSessionId } : {}),
+            };
             const response = await this.client.post('/chat/stream', body, {
                 responseType: 'stream',
             });
@@ -766,116 +842,133 @@ export class VictorClient {
             }
 
             return new Promise((resolve, reject) => {
-                let buffer = '';
-                const settle = { done: false, resolve, reject };
-
-                response.data.on('data', (chunk: Buffer) => {
-                    buffer += chunk.toString();
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const payload = line.slice(6);
-                            // Legacy pre-v1 terminator
-                            if (payload === '[DONE]') {
-                                onEvent?.({ type: 'done', raw: { type: 'done' } });
-                                return;
-                            }
-                            try {
-                                const data = JSON.parse(payload) as Record<string, unknown>;
-                                if (data.v === 1 && typeof data.event === 'string') {
-                                    this._handleWireEvent(data, onChunk, onToolCall, onEvent, settle);
-                                    continue;
-                                }
-                                // Legacy pre-v1 protocol (type-discriminated)
-                                const requestId = typeof data.request_id === 'string'
-                                    ? data.request_id
-                                    : undefined;
-                                if (data.type === 'content') {
-                                    const content = typeof data.content === 'string' ? data.content : '';
-                                    if (content) {
-                                        onChunk(content);
-                                    }
-                                    onEvent?.({
-                                        type: 'content',
-                                        content,
-                                        requestId,
-                                        raw: data,
-                                    });
-                                } else if (data.type === 'tool_call') {
-                                    const rawToolCalls = Array.isArray(data.tool_call)
-                                        ? data.tool_call
-                                        : data.tool_call
-                                            ? [data.tool_call]
-                                            : [];
-                                    const toolCalls = rawToolCalls.filter(
-                                        (toolCall): toolCall is ToolCall =>
-                                            typeof toolCall === 'object' && toolCall !== null
-                                    );
-                                    if (onToolCall) {
-                                        for (const toolCall of toolCalls) {
-                                            onToolCall(toolCall);
-                                        }
-                                    }
-                                    onEvent?.({
-                                        type: 'tool_call',
-                                        toolCalls,
-                                        requestId,
-                                        raw: data,
-                                    });
-                                } else if (data.type === 'request') {
-                                    onEvent?.({
-                                        type: 'request',
-                                        requestId: typeof data.request_id === 'string'
-                                            ? data.request_id
-                                            : undefined,
-                                        raw: data,
-                                    });
-                                } else if (data.type === 'error') {
-                                    const message = typeof data.message === 'string'
-                                        ? data.message
-                                        : 'Unknown stream error';
-                                    onEvent?.({
-                                        type: 'error',
-                                        error: message,
-                                        requestId,
-                                        raw: data,
-                                    });
-                                    if (!settle.done) {
-                                        settle.done = true;
-                                        settle.reject(new VictorError(message, VictorErrorType.ServerError));
-                                    }
-                                } else {
-                                    onEvent?.({
-                                        type: typeof data.type === 'string' ? data.type : 'unknown',
-                                        requestId,
-                                        raw: data,
-                                    });
-                                }
-                            } catch (e) {
-                                // Log parse errors for debugging incomplete SSE chunks
-                                console.debug('[Victor SSE] Parse error for chunk:', payload.slice(0, 50), e);
+                const stream = response.data;
+                const decoder = new ChatSseDecoder();
+                const finish = (error?: Error) => {
+                    if (settle.done) return;
+                    settle.done = true;
+                    stream.removeListener('data', onData);
+                    stream.removeListener('end', onEnd);
+                    stream.removeListener('aborted', onEnd);
+                    // Keep the guarded error listener until close: destroying an
+                    // Axios response can itself emit an asynchronous error.
+                    stream.destroy?.();
+                    if (error) reject(error);
+                    else resolve();
+                };
+                const settle = {
+                    done: false,
+                    resolve: () => finish(),
+                    reject: (error: Error) => finish(error),
+                };
+                const onPayload = (payload: string): boolean => {
+                    if (settle.done) return false;
+                    if (payload === '[DONE]') {
+                        onEvent?.({ type: 'done', raw: { type: 'done' } });
+                        settle.resolve();
+                        return false;
+                    }
+                    let value: unknown;
+                    try { value = JSON.parse(payload); }
+                    catch { throw new VictorError('Malformed chat stream JSON', VictorErrorType.Validation); }
+                    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                        throw new VictorError('Malformed chat stream event', VictorErrorType.Validation);
+                    }
+                    const data = value as Record<string, unknown>;
+                    if ('v' in data) {
+                        if (data.v !== 1 || typeof data.event !== 'string' || !data.event) {
+                            throw new VictorError('Unsupported chat wire event', VictorErrorType.Validation);
+                        }
+                        this._handleWireEvent(data, onChunk, onToolCall, onEvent, settle);
+                        return !settle.done;
+                    }
+                    if (typeof data.type !== 'string' || !data.type) {
+                        throw new VictorError('Malformed legacy chat event', VictorErrorType.Validation);
+                    }
+                    // Legacy pre-v1 protocol (type-discriminated)
+                    const requestId = typeof data.request_id === 'string'
+                        ? data.request_id
+                        : undefined;
+                    if (data.type === 'content') {
+                        const content = typeof data.content === 'string' ? data.content : '';
+                        if (content) {
+                            onChunk(content);
+                        }
+                        onEvent?.({
+                            type: 'content',
+                            content,
+                            requestId,
+                            raw: data,
+                        });
+                    } else if (data.type === 'tool_call') {
+                        const rawToolCalls = Array.isArray(data.tool_call)
+                            ? data.tool_call
+                            : data.tool_call
+                                ? [data.tool_call]
+                                : [];
+                        const toolCalls = rawToolCalls.filter(
+                            (toolCall): toolCall is ToolCall =>
+                                typeof toolCall === 'object' && toolCall !== null
+                        );
+                        if (onToolCall) {
+                            for (const toolCall of toolCalls) {
+                                onToolCall(toolCall);
                             }
                         }
+                        onEvent?.({
+                            type: 'tool_call',
+                            toolCalls,
+                            requestId,
+                            raw: data,
+                        });
+                    } else if (data.type === 'request') {
+                        onEvent?.({
+                            type: 'request',
+                            requestId: typeof data.request_id === 'string'
+                                ? data.request_id
+                                : undefined,
+                            raw: data,
+                        });
+                    } else if (data.type === 'error') {
+                        const message = typeof data.message === 'string'
+                            ? data.message
+                            : 'Unknown stream error';
+                        onEvent?.({
+                            type: 'error',
+                            error: message,
+                            requestId,
+                            raw: data,
+                        });
+                        settle.reject(new VictorError(message, VictorErrorType.ServerError));
+                    } else {
+                        onEvent?.({
+                            type: typeof data.type === 'string' ? data.type : 'unknown',
+                            requestId,
+                            raw: data,
+                        });
                     }
-                });
-
-                response.data.on('end', () => {
-                    if (!settle.done) {
-                        settle.done = true;
-                        resolve();
-                    }
-                });
-                response.data.on('error', (err: Error) => {
-                    if (settle.done) {
-                        return;
-                    }
-                    settle.done = true;
-                    const handled = this._handleError(err);
-                    console.error('[VictorClient] streamChat error', handled);
-                    reject(handled);
-                });
+                    return !settle.done;
+                };
+                const onData = (chunk: Buffer) => {
+                    if (settle.done) return;
+                    try { decoder.push(chunk, onPayload); }
+                    catch (error) { finish(this._handleError(error)); }
+                };
+                const onEnd = () => finish(new VictorError(
+                    'Chat stream interrupted before an explicit terminator; outcome is unknown',
+                    VictorErrorType.Network
+                ));
+                const onError = (error: Error) => finish(this._handleError(error));
+                const onClose = () => {
+                    onEnd();
+                    stream.removeListener('error', onError);
+                    stream.removeListener('close', onClose);
+                };
+                stream.on('data', onData);
+                stream.on('end', onEnd);
+                stream.on('aborted', onEnd);
+                stream.on('error', onError);
+                stream.on('close', onClose);
             });
         } catch (error) {
             const handled = this._handleError(error);
@@ -1926,30 +2019,15 @@ export class VictorClient {
         }
     }
 
-    /**
-     * Cancel a tool execution.
-     * Sends cancellation signal via WebSocket if connected.
+    /** Cancel a pending approval only when the HTTP backend confirms that ID.
+     * This does not establish cancellation of an already dispatched tool/provider.
      */
     async cancelToolExecution(toolCallId: string): Promise<boolean> {
-        // Try to send cancellation via WebSocket
-        if (this.wsConnection?.readyState === WebSocket.OPEN) {
-            try {
-                this.wsConnection.send(JSON.stringify({
-                    type: 'cancel_tool',
-                    tool_call_id: toolCallId,
-                }));
-                return true;
-            } catch (error) {
-                console.error('Failed to send tool cancellation:', error);
-            }
-        }
-
-        // Fallback: try HTTP endpoint if available
         try {
-            await this.client.post('/tools/cancel', { tool_call_id: toolCallId });
-            return true;
+            const response = await this.client.post('/tools/cancel', { tool_call_id: toolCallId });
+            return response.data?.cancelled === true && response.data?.tool_call_id === toolCallId;
         } catch {
-            // Endpoint may not exist - that's ok, we tried
+            // Transport failure is not evidence that cancellation happened.
             return false;
         }
     }

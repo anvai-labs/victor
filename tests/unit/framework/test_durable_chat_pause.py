@@ -209,3 +209,139 @@ def test_paused_run_store_roundtrip() -> None:
     assert store.get(run_id).status == "resumed"
     assert store.list_pending() == []
     assert store.mark_resumed(run_id) is False  # single-use
+
+
+async def _run_pausing_boundary(monkeypatch, request, streaming, orchestrator=None):
+    """Exercise real turn-boundary persistence with only model execution replaced."""
+    from victor.framework import _internal
+
+    orchestrator = orchestrator or _orchestrator(durable=True)
+
+    monkeypatch.setattr(me, "_resolve_chat_runtime", lambda *a, **k: object())
+
+    async def chat(*args, **kwargs):
+        raise ApprovalPause(request)
+
+    async def stream(*args, **kwargs):
+        if False:
+            yield
+        raise ApprovalPause(request)
+
+    monkeypatch.setattr(me, "_invoke_chat", chat)
+    monkeypatch.setattr(_internal, "stream_with_events", stream)
+    try:
+        if streaming:
+            events = [
+                event
+                async for event in me.stream_message_events(
+                    orchestrator=orchestrator, user_message="do it"
+                )
+            ]
+            assert len(events) == 1
+            return events[0].metadata
+        result = await me.execute_message(orchestrator=orchestrator, user_message="do it")
+        assert result.status == "awaiting_approval" and not result.success
+        return {"run_id": result.run_id, "approval_request": result.approval_request}
+    finally:
+        assert not current_durable_pause_enabled.get()
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["buffered", "streamed"])
+@pytest.mark.parametrize("mode", ["commit", "cancel", "session-switch", "agent-switch"])
+async def test_pause_sqlite_contention_keeps_loop_live_and_publishes_only_after_commit(
+    tmp_path, monkeypatch, streaming, mode
+):
+    import asyncio
+    import sqlite3
+    import threading
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    store = ProjectDbPausedRunStore(tmp_path / "pause.db")
+    set_paused_run_store(store)
+    store.get("initialize-schema")
+    entered, finished, release = threading.Event(), threading.Event(), threading.Event()
+    released_by_loop = []
+    save = store.save
+
+    def observed_save(**kwargs):
+        entered.set()
+        try:
+            return save(**kwargs)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(store, "save", observed_save)
+    blocker = sqlite3.connect(store.db_path, check_same_thread=False)
+    blocker.execute("BEGIN IMMEDIATE")
+
+    def unlock():
+        # Watchdog also releases the pre-fix blocking call; no speed threshold assertion.
+        released_by_loop.append(release.wait(5))
+        blocker.rollback()
+        blocker.close()
+
+    watchdog = threading.Thread(target=unlock)
+    watchdog.start()
+    orchestrator = _orchestrator(durable=True)
+    task = asyncio.create_task(
+        _run_pausing_boundary(monkeypatch, _request(), streaming, orchestrator)
+    )
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        assert not released_by_loop, "pause persistence blocked loop until watchdog release"
+        assert not task.done(), "pause published before persistence finished"
+        if mode == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        if mode == "session-switch":
+            orchestrator.active_session_id = "other-session"
+        elif mode == "agent-switch":
+            orchestrator.agent_id = "other-agent"
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 5)
+        result = None
+        if mode.endswith("switch"):
+            with pytest.raises(PermissionError, match="ownership changed"):
+                await task
+        elif mode == "commit":
+            result = await task
+        reopened = ProjectDbPausedRunStore(store.db_path)
+        pending = reopened.list_pending()
+        assert len(pending) == 1
+        assert pending[0].status == "awaiting_approval" and pending[0].action is None
+        assert pending[0].session_id == "sess-42"
+        if result:
+            assert result["run_id"] == pending[0].run_id
+            assert result["approval_request"] == pending[0].approval_request
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.to_thread(watchdog.join, 5)
+        assert not watchdog.is_alive()
+    assert released_by_loop == [True]
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["buffered", "streamed"])
+@pytest.mark.parametrize("committed", [False, True], ids=["before-commit", "lost-ack"])
+async def test_pause_save_failure_never_publishes_or_retries(
+    tmp_path, monkeypatch, streaming, committed
+):
+    from unittest.mock import Mock
+    from victor.agent.paused_run_store import ProjectDbPausedRunStore
+
+    store = ProjectDbPausedRunStore(tmp_path / "pause.db")
+    set_paused_run_store(store)
+    save = store.save
+
+    def fail(**kwargs):
+        if committed:
+            save(**kwargs)
+        raise OSError("pause storage unavailable")
+
+    observed = Mock(side_effect=fail)
+    monkeypatch.setattr(store, "save", observed)
+    with pytest.raises(OSError, match="pause storage unavailable"):
+        await _run_pausing_boundary(monkeypatch, _request(), streaming)
+    observed.assert_called_once()
+    assert len(ProjectDbPausedRunStore(store.db_path).list_pending()) == int(committed)

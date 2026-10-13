@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+import pytest
+
 from victor.coordination.formations.base import TeamContext
 from victor.coordination.formations.hierarchical import HierarchicalFormation
 from victor.framework.graph_checkpoint import MemoryCheckpointer
@@ -379,3 +381,46 @@ async def test_no_checkpointer_is_unchanged() -> None:
     assert s1.calls == 1 and s2.calls == 1
     assert all(r.success for r in results) and _ids(results) == {"sup", "s1", "s2"}
     assert results[0].output == "synthesis"
+
+
+@pytest.mark.parametrize("boundary", ["plan", "specialist", "plan_pause", "synthesis_pause"])
+async def test_checkpoint_failure_does_not_advance_hierarchy_or_publish_pause(boundary):
+    from victor.coordination.formations.base import MemberCheckpointError
+
+    class FailingCheckpointer(MemoryCheckpointer):
+        failed = 0
+
+        async def save(self, checkpoint):
+            pause = checkpoint.metadata.get("awaiting_approval")
+            fail = (
+                boundary == "plan"
+                or (boundary == "specialist" and checkpoint.metadata.get("member_id") == "s1")
+                or (boundary.endswith("pause") and pause)
+            )
+            if fail:
+                self.failed += 1
+                raise OSError("unavailable")
+            await super().save(checkpoint)
+
+    cp = FailingCheckpointer()
+    ctx = await _context(cp)
+    events = []
+
+    async def observe(kind, *args, **kwargs):
+        events.append(kind)
+
+    ctx.member_event_hook = observe
+    supervisor = _Supervisor(
+        "sup",
+        ["s1"],
+        pause_plan=boundary == "plan_pause",
+        pause_synth=boundary == "synthesis_pause",
+    )
+    specialist = _Specialist("s1")
+    with pytest.raises(MemberCheckpointError):
+        await HierarchicalFormation().execute([supervisor, specialist], ctx, _task())
+    assert cp.failed == 1 and supervisor.plan_calls == 1
+    assert specialist.calls == int(boundary in {"specialist", "synthesis_pause"})
+    assert supervisor.synth_calls == int(boundary == "synthesis_pause")
+    assert "member_awaiting_approval" not in events
+    assert "__awaiting_approval__" not in ctx.shared_state
