@@ -2023,10 +2023,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   inventories responsibilities and LOOP-01–06 gates. G97 owns the immediate
   task-provenance, context-retention and CLI/result-publication failures. ✅ #1336
   resets completion scores across runs and records post-backslide decisions even
-  without a verifier (41 CI checks passed; merge `cd018968e`). Streaming RESPONSE
-  governance and explicit terminal status are the active LOOP-02/03 increment in
-  the canonical tracker, including failed audit finalization and empty-redaction
-  regeneration. Recovery disposition, shared guards/controller, adaptive extension
+  without a verifier (41 CI checks passed; merge `cd018968e`). ✅ [#1337](https://github.com/anvai-labs/victor/pull/1337)
+  qualifies normal no-tool streaming RESPONSE governance and explicit terminal
+  status through framework/client events and audit finalizers, with no regeneration
+  after denial or complete redaction. The canonical tracker records exact runtime
+  review, local and CI evidence; CLI exit status remains open. Recovery disposition, shared guards/controller, adaptive extension
   and typed ACT contracts remain open; phase-method reuse is not execution-mode parity.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.

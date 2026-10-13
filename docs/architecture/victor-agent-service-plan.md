@@ -67,8 +67,11 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-02/03 terminal delivery ACTIVE** — owner: Victor co-design session;
-  branch `fix/stream-terminal-delivery`, baseline `cd018968e` (`origin/develop`).
+- **LOOP-02/03 terminal delivery ✅ implementation qualified, [PR #1337](https://github.com/anvai-labs/victor/pull/1337)** — owner: Victor co-design session;
+  branch `fix/stream-terminal-delivery`, rebased onto `e52b771a0` after #1335.
+  Reviewed runtime commit `c75a8c91468ac4a83193e3941fee783e8310f515`;
+  all 18 reviewed files survived rebase unchanged and 139 post-rebase tests passed.
+  PR status is the landing authority; this checkpoint qualifies the implementation.
   Governs normal no-tool assistant candidates before history, publication and
   completion detection; a denied or completely removed answer terminates with a
   nonrecoverable error, never another provider attempt. No gate preserves output
@@ -87,11 +90,19 @@ edit. A mock test is not live provider or C5 evidence.
   The parent's full affected cohort passed 431 cases including the real parity
   harness, followed by the final 538-case selection after helper consolidation.
   Two redundant helper-level policy tests were replaced by the actual ACT matrix;
-  CI maps the existing delivery/ACT/guard/governance owners explicitly. PR/CI/merge
-  remain pending; this is not release, performance or full parity evidence.
+  CI maps the existing delivery/ACT/guard/governance owners explicitly. The runtime
+  candidate passed all 40 applicable CI checks, including the required CI Success
+  aggregate and vertical tests. Two conditional jobs were skipped. GitHub's neutral
+  Trivy comparison warns about missing historical SARIF configurations (the former
+  security-quick category and release-only container); the blocking security scan
+  passed under `repository-dependencies`. This advisory comparison remains a CI
+  hygiene follow-up, not a completed release-container scan. Documentation-only
+  checkpoint updates still require their final-head gates. No release, performance
+  or full parity claim.
   Next after this increment: CLI exit semantics, shared controller/guard dispatch,
   recovery dispositions and run-wide attempt accounting. Reboot evidence will be
-  preserved in `var/codegraph-victor-20261012/` before stopping.
+  preserved in `var/codegraph-victor-20261012/terminal-delivery-evidence.json`, with
+  exact head, review, CI and final landing status before worktree removal.
 
 - **G97 retention / G98 run isolation MERGED, [PR #1336](https://github.com/anvai-labs/victor/pull/1336)** — owner: Victor
   co-design session; branch `fix/retain-active-task`, baseline
@@ -1604,8 +1615,8 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | Increment | Status | Acceptance before advancing |
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
-| LOOP-02 / G97 | ACTIVE: terminal event/client verdict | Terminal error reaches CLI exit/status; concurrent/repeated tool names reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ACTIVE | Normal RESPONSE governance and terminal result qualification underway; controller/guard dispatch and StateGraph parity remain open |
+| LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | Terminal error reaches CLI exit/status; concurrent/repeated tool names reconcile by ID; no false success |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; controller/guard dispatch and StateGraph parity remain open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
@@ -1624,8 +1635,8 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 | P1 — ✅ MERGED #1336 | `AgenticLoop._reset_run_state`: completion scores survived consecutive calls; all four buffered/streaming mode pairs failed before repair | Reset once per run; retain within-run score history; no change to thresholds |
 | P1 — ✅ MERGED #1336 | Buffered DECIDE recorded pre-backslide COMPLETE without a verifier; existing verifier test expanded to prove false success | Always record the actual decision; both verifier configurations pass |
 | P1 — ✅ MERGED #1336 | `_inject_verify_feedback` used an unrecognized source and could replace the protected task | Shared internal-metadata helper; real verification retry + history eviction tests in both modes |
-| P1 — ACTIVE | Normal no-tool streaming candidates previously bypassed RESPONSE governance | Check the candidate once before publication/history/detection; real unified allow/redact/deny/empty tests. Completely removed content is an explicit failure, not inferred completion or retry. Intermediate tool-bearing output remains separately scoped |
-| P1 — ACTIVE | `run_streaming` emits identical content for COMPLETE, FAIL and CONTINUE at cap (independent fixture reproduction) | Existing stream contract must carry a typed run outcome distinct from a provider turn's finish reason; CLI/API/UI consume it consistently |
+| P1 — ✅ qualified #1337 | Normal no-tool streaming candidates previously bypassed RESPONSE governance | Check the candidate once before publication/history/detection; real unified allow/redact/deny/empty tests. Completely removed content is an explicit failure, not inferred completion or retry. Intermediate tool-bearing output remains separately scoped |
+| P1 — PARTIAL #1337 | `run_streaming` previously emitted identical content for COMPLETE, FAIL and CONTINUE at cap | Explicit run verdict now reaches framework/client events and audit finalizers. CLI process exit status remains open; provider finish reason is not a verdict |
 | P1 — OPEN | Buffered `run` evaluates `TurnEvaluationController`; token streaming resets it but omits evaluation | One shared post-turn decision helper over canonical `TurnResult`/`TurnObservation`; negative repetition/search-novelty parity tests |
 | P1 — OPEN | `LoopGuards` is installed/enforced only by buffered driver; deadline checks between phases do not interrupt an in-flight await | Share guard lifetime and cancellation cleanup; qualify blocked await, timeout, perception runaway and generator close; do not claim a hard deadline from a phase-boundary check |
 | P2 — OPEN | Streaming ACT produces recovery return/continue signals but adapter only forwards `turn_result` | Declare recovery disposition in canonical turn contract; one DECIDE consumption; test no extra provider request after terminal recovery |
