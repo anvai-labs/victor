@@ -66,6 +66,23 @@ def test_selector_changes_select_its_own_regressions():
 @pytest.mark.parametrize(
     ("source", "owners"),
     [
+        (
+            "victor/agent/turn_policy.py",
+            {
+                "tests/unit/agent/test_turn_policy.py",
+                "tests/unit/agent/test_turn_evaluation_controller.py",
+                "tests/unit/framework/test_agentic_loop.py",
+                "tests/unit/framework/test_agentic_loop_run_streaming.py",
+                "tests/unit/framework/test_agentic_loop_verification.py",
+            },
+        ),
+        (
+            "victor/framework/agentic_loop.py",
+            {
+                "tests/unit/agent/test_turn_evaluation_controller.py",
+                *glob.glob("tests/unit/framework/test_agentic_loop*.py"),
+            },
+        ),
         *[
             (
                 source,

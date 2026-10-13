@@ -27,7 +27,7 @@ import asyncio
 
 import pytest
 
-from victor.agent.turn_policy import SpinDetector
+from victor.agent.turn_policy import SpinDetector, TurnEvaluationController
 from victor.framework.agentic_loop import AgenticLoop, StreamingTurnOutcome
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.providers.base import StreamChunk
@@ -60,7 +60,9 @@ def _loop(port, *, evaluations, turn_executor=None):
     # run_streaming now records per-turn spin (+ advances the temperature ratchet) like the buffered
     # _act path (ADR-013), so it needs a real SpinDetector rather than a bare stub.
     loop.spin_detector = SpinDetector()
-    loop.turn_evaluation_controller = SimpleNamespace(reset=lambda: None)
+    loop.turn_evaluation_controller = TurnEvaluationController(
+        spin_detector=loop.spin_detector, enable_plateau_nudge=False, enable_budget_warning=False
+    )
     loop.criteria_builder = SimpleNamespace(reset=lambda: None)
     loop.effect_gate = SimpleNamespace(reset=lambda: None)
     loop.per_turn_auditor = SimpleNamespace(reset=lambda: None)
@@ -177,6 +179,29 @@ async def test_run_streaming_requires_a_port():
     with pytest.raises(RuntimeError, match="streaming ACT port"):
         async for _ in loop.run_streaming("q"):
             pass
+
+
+async def test_run_streaming_stops_repeated_content_and_resets_between_runs():
+    # Use the real controller, and the same loop across runs: no additional ACT
+    # after repetition, and no previous run's content history stopping the next.
+    repeated = "Inspecting repository module dependencies before producing the final review."
+    loop = _loop(None, evaluations=[])
+    for _ in range(2):
+        loop.streaming_act_port = _fake_port([[repeated]] * 5)
+        seen = []
+
+        async def evaluate(perception, action_result, state):
+            seen.append(state)
+            return EvaluationResult(EvaluationDecision.CONTINUE, 0.4, "more")
+
+        loop._evaluate = evaluate
+        chunks = [chunk async for chunk in loop.run_streaming("review")]
+
+        assert len(seen) == 2
+        assert len([chunk for chunk in chunks if chunk.content]) == 2
+        assert chunks[-1].metadata["agentic_loop_success"] is False
+        assert "content_repetition" in chunks[-1].metadata["agentic_loop_error"]
+        assert seen[-1]["degradation_events"][0]["kind"] == "content_repetition"
 
 
 def test_extract_turn_content_handles_empty_tool_turn():

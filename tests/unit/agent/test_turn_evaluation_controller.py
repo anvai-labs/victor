@@ -185,7 +185,7 @@ def test_controller_force_completes_on_search_saturation():
     for i in range(1, 7):
         decision = c.evaluate(_saturating_search_obs(i))
     assert decision.stop is True
-    assert decision.terminal_success is True  # synthesize, not fail
+    assert decision.terminal_success is True  # convergence signal; evaluator still owns success
     assert decision.stop_reason == "search_saturated"
 
 

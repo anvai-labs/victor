@@ -546,8 +546,8 @@ class ContentRepetitionDetector:
     loop using a cruder content-length heuristic). Uses an exact MD5-hash match over the
     last 3 turns plus a Jaccard word-overlap check via :func:`evaluate_overlap_repetition`.
     Stateful per conversation; call :meth:`record` once per turn with the turn's full
-    assistant content and read ``action`` — the caller decides how to stop (the headless
-    loop marks the turn FAILED, the streaming loop force-completes and emits a chunk).
+    assistant content and read ``action``. Both AgenticLoop execution modes map a
+    repetition stop to failure; a repeated answer is not proof of completion.
     """
 
     def __init__(self, min_content_len: int = 20, history: int = 5) -> None:
@@ -680,11 +680,11 @@ class TurnObservation:
 class TurnDecision:
     """The shared continue/nudge/stop verdict for one turn; the loop applies it.
 
-    ``stop`` ends the loop. ``terminal_success`` distinguishes a clean finish (map to
-    COMPLETE / force-completion) from a degraded stop (map to FAIL). ``stop_message`` is the
-    user-facing chunk text for the streaming loop. ``nudge_message`` (if set) is injected by
-    the loop via its own message channel (headless ``chat_ctx.add_message`` vs streaming
-    ``orch.add_message``), so injection mechanics stay loop-local.
+    ``stop`` requests termination. ``terminal_success`` denotes convergence rather
+    than degradation, but cannot establish task success: AgenticLoop retains COMPLETE
+    only when evaluation already permits it, then applies verification. The controller
+    neither synthesizes an answer nor executes another model turn. ``stop_message``
+    and ``nudge_message`` are policy suggestions; delivery belongs to the caller.
     """
 
     stop: bool = False
@@ -706,11 +706,10 @@ class TurnEvaluationController:
     """One per-turn decision point shared by the headless and streaming loops.
 
     Composes the already-shared guards (:class:`SpinDetector`, :class:`NudgePolicy`) with the
-    now-shared :class:`ContentRepetitionDetector` and :class:`PlateauDetector`. Both loops
-    feed a :class:`TurnObservation` and apply the returned :class:`TurnDecision`, so spin /
-    repetition / plateau / nudge logic exists once. Turn *execution* (streamed vs buffered)
-    stays loop-local. Convergence (fulfillment-completion + search-novelty) plugs in here in a
-    follow-up so both loops gain it at once.
+    :class:`ContentRepetitionDetector`, :class:`PlateauDetector` and search novelty.
+    Both AgenticLoop modes feed one :class:`TurnObservation` and apply the stop verdict.
+    Turn execution stays loop-local; controller nudge dispatch is not yet consolidated
+    with AgenticLoop's separate DECIDE nudge path.
     """
 
     def __init__(
@@ -834,9 +833,8 @@ class TurnEvaluationController:
                 metadata={"repetition_action": action},
             )
 
-        # 2.5 Search novelty — diminishing returns on successive searches. After persistent
-        # saturation, force-complete so the agent SYNTHESIZES the gathered context (a clean
-        # finish, not a failure) instead of thrashing distinct queries to the iteration cap.
+        # 2.5 Search novelty — stop redundant exploration after persistent saturation.
+        # This signal does not synthesize an answer or override completion checks.
         novelty = self.search_novelty.record_turn(observation.tool_results)
         _editing = bool(
             {get_canonical_name(t) for t in (observation.tool_names or set())}
@@ -850,7 +848,7 @@ class TurnEvaluationController:
         ):
             logger.info(
                 "[search-novelty] %d consecutive low-novelty searches (ratio=%.2f) — "
-                "force-completing to synthesize.",
+                "requesting convergence stop.",
                 novelty.consecutive_low_novelty,
                 novelty.novelty_ratio,
             )
@@ -858,7 +856,7 @@ class TurnEvaluationController:
                 stop=True,
                 terminal_success=True,
                 stop_reason="search_saturated",
-                stop_message="\n\n[Enough context gathered — synthesizing the answer.]",
+                stop_message="\n\n[Search saturated — stopping further exploration.]",
                 metadata={"novelty_ratio": novelty.novelty_ratio},
             )
 
