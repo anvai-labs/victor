@@ -58,6 +58,11 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/framework/agentic_graph/executor.py": (
+        "tests/unit/framework/agentic_graph/test_builder.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/providers/test_gateway_policy_resilience.py",
+    ),
     # Controller policy and its two loop consumers share stop precedence.
     "victor/framework/agentic_loop.py": (
         "tests/unit/agent/test_turn_evaluation_controller.py",
@@ -149,6 +154,7 @@ RELATED_TESTS = {
     ),
     "victor/agent/services/chat_runtime_services.py": (
         "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
     ),
     "victor/agent/services/chat_stream_helpers.py": (
         "tests/unit/agent/services/test_chat_stream_governance.py",

@@ -650,26 +650,43 @@ async def test_execute_via_agentic_loop_marks_failed_loop_response_metadata():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "loop_error,synthesized_content",
+    "loop_error,synthesized_content,policy",
     [
         (
             "Agent stuck: 3 turns without tool calls",
             "Cargo.toml defines a Rust workspace with clients/rust included.",
+            "absent",
         ),
-        ("Verification failed: tests did not pass", "The implementation is complete."),
+        ("Verification failed: tests did not pass", "The implementation is complete.", "absent"),
         (
             "Verification failed: tests did not pass",
             "I was unable to generate a complete response.",
+            "absent",
         ),
-        ("Verification failed: tests did not pass", ""),
+        ("Verification failed: tests did not pass", "", "absent"),
+        ("Verification failed", "synthetic private output", "redact"),
+        ("Verification failed", "synthetic private output", "deny"),
+        ("Verification failed", "synthetic private output", "empty"),
     ],
 )
 async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
-    loop_error, synthesized_content
+    loop_error, synthesized_content, policy
 ):
+    from victor.core.errors import AgentError
+    from victor.framework.policies import GateResult
+
+    gate = (
+        None
+        if policy == "absent"
+        else _FakeGate(
+            response_result=GateResult(
+                allowed=policy != "deny", content="sanitized" if policy == "redact" else ""
+            )
+        )
+    )
     chat_context = SimpleNamespace(
         settings=SimpleNamespace(chat_max_iterations=5),
-        conversation=SimpleNamespace(messages=[]),
+        conversation=SimpleNamespace(messages=[], ensure_system_prompt=MagicMock()),
         messages=[Message(role="tool", content="Cargo workspace members: core, clients/rust")],
         add_message=MagicMock(),
         _cumulative_token_usage={
@@ -702,6 +719,7 @@ async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
         tool_context=tool_context,
         provider_context=provider_context,
         execution_provider=MagicMock(),
+        message_policy_gate=gate,
     )
     executor._is_question_only = MagicMock(return_value=False)
 
@@ -737,10 +755,22 @@ async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
     loop_instance.run = AsyncMock(return_value=loop_result)
 
     with patch("victor.framework.agentic_loop.AgenticLoop", return_value=loop_instance):
-        result = await executor._execute_via_agentic_loop("hello", max_iterations=5)
+        if policy in {"deny", "empty"}:
+            with pytest.raises(AgentError) as error:
+                await executor.execute_agentic_loop("hello", max_iterations=5)
+            assert error.value.recoverable is False
+            response_completer.ensure_response.assert_awaited_once()
+            assert gate.response_calls == [synthesized_content]
+            assert [call.args[0] for call in chat_context.add_message.call_args_list] == ["user"]
+            assert len(chat_context.messages) == 1  # accepted tool evidence survives denial
+            return
+        result = await executor.execute_agentic_loop("hello", max_iterations=5)
 
+    if gate is not None:
+        assert gate.response_calls == [synthesized_content]
+        assert chat_context.add_message.call_args.args[:2] == ("assistant", "sanitized")
     assert result.content == (
-        synthesized_content
+        ("sanitized" if policy == "redact" else synthesized_content)
         or "I was unable to generate a complete response. Please try rephrasing your request."
     )
     assert result.metadata["agentic_loop_success"] is False
@@ -1223,8 +1253,14 @@ async def test_execute_turn_applies_runtime_overrides_and_restores_state():
 
 
 @pytest.mark.asyncio
-async def test_execute_turn_injects_recovery_guidance_for_blocked_tool_batches():
-    executor = _make_executor()
+@pytest.mark.parametrize("message_policy", [False, True])
+async def test_execute_turn_injects_recovery_guidance_for_blocked_tool_batches(message_policy):
+    from victor.framework.policies import GateResult
+
+    gate = (
+        _FakeGate(response_result=GateResult(allowed=False, content="")) if message_policy else None
+    )
+    executor = _make_gated_executor(gate) if gate else _make_executor()
     executor._provider_context.provider = SimpleNamespace(
         supports_tools=MagicMock(return_value=True)
     )
@@ -1276,6 +1312,9 @@ async def test_execute_turn_injects_recovery_guidance_for_blocked_tool_batches()
 
     result = await executor.execute_turn("inspect the container wiring")
 
+    if gate is not None:
+        assert gate.response_calls == []  # no narrative; tool authorization owns the envelope
+    executor._execute_tool_calls.assert_awaited_once()
     assert [suggestion["tool"] for suggestion in result.follow_up_suggestions] == [
         "overview",
         "graph",
@@ -1460,10 +1499,8 @@ class _FakeGate:
     """Records calls and returns canned GateResults for request/response."""
 
     def __init__(self, request_result=None, response_result=None):
-        from victor.framework.policies import GateResult
-
-        self._request = request_result or GateResult(allowed=True, content="")
-        self._response = response_result or GateResult(allowed=True, content="")
+        self._request = request_result
+        self._response = response_result
         self.request_calls = []
         self.response_calls = []
 
@@ -1471,7 +1508,7 @@ class _FakeGate:
         from victor.framework.policies import GateResult
 
         self.request_calls.append(text)
-        if self._request.content == "" and self._request.allowed:
+        if self._request is None:
             # "passthrough" sentinel: echo the input unchanged
             return GateResult(allowed=True, content=text)
         return self._request
@@ -1480,7 +1517,7 @@ class _FakeGate:
         from victor.framework.policies import GateResult
 
         self.response_calls.append(text)
-        if self._response.content == "" and self._response.allowed:
+        if self._response is None:
             return GateResult(allowed=True, content=text)
         return self._response
 
@@ -1536,43 +1573,150 @@ async def test_request_redaction_substitutes_user_message():
     assert executor._execute_via_agentic_loop.await_args.args[0] == "my key is [REDACTED]"
 
 
-async def test_response_redaction_modifies_final_response():
+@pytest.mark.parametrize("policy", ["allow", "redact", "deny", "empty"])
+@pytest.mark.parametrize("producer", ["model", "recovery", "deterministic", "existing", "team"])
+async def test_response_governance_precedes_publication(policy, producer):
+    from victor.core.errors import AgentError
     from victor.framework.policies import GateResult
+    from victor.agent.response_completer import (
+        CompletionResult,
+        CompletionStatus,
+        ToolFailureContext,
+    )
 
+    original = "synthetic private output"
     gate = _FakeGate(
-        response_result=GateResult(allowed=True, content="sanitized output"),
+        response_result=GateResult(
+            allowed=policy != "deny",
+            content={"allow": original, "redact": "sanitized", "deny": "", "empty": ""}[policy],
+            reason="withheld",
+        )
     )
     executor = _make_gated_executor(gate)
-    executor._execute_via_agentic_loop = AsyncMock(
-        return_value=CompletionResponse(content="raw secret output", role="assistant")
+    raw = CompletionResponse(content=original, role="assistant", usage={"total_tokens": 7})
+    executor._accumulate_token_usage = MagicMock()
+    executor._execute_model_turn = AsyncMock(return_value=raw)
+    executor._execute_tool_calls = AsyncMock(return_value=[{"success": True}])
+    executor._apply_runtime_context_overrides = MagicMock(return_value=())
+    executor._restore_runtime_context_overrides = MagicMock()
+    executor._provider_context.response_completer.ensure_response = AsyncMock(
+        return_value=CompletionResult(
+            status=CompletionStatus.SUCCESS, content=original, provider_responses=[raw]
+        )
     )
+    executor._deterministic_tool_calls = MagicMock(return_value=[{"id": "read1", "name": "read"}])
+    executor._summarize_deterministic_tool_results = MagicMock(return_value=original)
 
-    result = await executor.execute_agentic_loop("hello")
+    async def run():
+        if producer == "model":
+            # Narrative accompanying a tool request must be governed BEFORE tool dispatch.
+            raw.tool_calls = [{"id": "read1", "name": "read", "arguments": {}}]
+            executor._collect_follow_up_suggestions = MagicMock(return_value=[])
+            executor._inject_tool_follow_up_guidance = MagicMock()
+            return (await executor.execute_turn("answer", is_qa_task=True)).response
+        if producer == "deterministic":
+            return (await executor._maybe_execute_deterministic_tool_turn("inspect")).response
+        if producer == "team":
+            from victor.framework.agentic_loop import AgenticLoop
+            from victor.teams.types import TeamResult
 
-    assert result.content == "sanitized output"
-    assert gate.response_calls == ["raw secret output"]
+            loop = AgenticLoop(turn_executor=executor)
+            resolved = ResolvedTeamExecutionPlan(
+                team_name="test",
+                display_name="Test",
+                formation=TeamFormation.PARALLEL,
+                member_count=2,
+                total_tool_budget=4,
+                max_iterations=2,
+                max_workers=2,
+            )
+            team_result = TeamResult(
+                success=True,
+                final_output=original,
+                member_results={},
+                formation=TeamFormation.PARALLEL,
+                total_tool_calls=1,
+            )
+            with patch(
+                "victor.framework.team_runtime.run_configured_team",
+                new=AsyncMock(return_value=(resolved, team_result)),
+            ) as run_team:
+                try:
+                    return (await loop._execute_team_plan({}, {"query": "inspect"}, {})).response
+                finally:
+                    run_team.assert_awaited_once()  # no replay of completed member work
+        return await executor._ensure_complete_response(
+            raw if producer == "existing" else None, ToolFailureContext()
+        )
+
+    if policy in {"deny", "empty"}:
+        with pytest.raises(AgentError) as error:
+            await run()
+        assert error.value.recoverable is False
+        if producer == "model":
+            executor._execute_tool_calls.assert_not_awaited()
+    else:
+        result = await run()
+        assert result.content == (original if policy == "allow" else "sanitized")
+        if producer in {"model", "existing"}:
+            assert result.usage == raw.usage
+            assert raw.content == original  # provider response is not mutated
+    assert gate.response_calls == [original]
+    if producer in {"model", "recovery"}:
+        executor._accumulate_token_usage.assert_called_once_with(raw)
+    if producer == "model":
+        executor._restore_runtime_context_overrides.assert_called_once_with(())
+    if producer == "deterministic":
+        executor._execute_tool_calls.assert_awaited_once()  # prior read evidence is retained
+    stored = [call.args[1] for call in executor._chat_context.add_message.call_args_list]
+    if policy != "allow":
+        assert original not in stored
+    if policy == "redact" and producer in {"model", "recovery"}:
+        assert stored == ["sanitized"]
 
 
-async def test_response_deny_replaces_content_and_clears_tool_calls():
-    from victor.framework.policies import GateResult
+@pytest.mark.parametrize("entry", ["wrapper", "run", "stream", "graph-run", "graph-stream"])
+async def test_governed_stategraph_rejected_before_dispatch(entry, monkeypatch):
+    from victor.framework.agentic_loop import AgenticLoop
 
-    gate = _FakeGate(
-        response_result=GateResult(allowed=False, content="", reason="withheld"),
+    # Direct graph execution must reject even when the global selector is buffered.
+    direct_graph = entry.startswith("graph-")
+    monkeypatch.setattr(
+        "victor.framework.agentic_loop_executor.use_stategraph_executor", lambda: not direct_graph
     )
+    gate = _FakeGate()
     executor = _make_gated_executor(gate)
-    executor._execute_via_agentic_loop = AsyncMock(
-        return_value=CompletionResponse(content="leak", role="assistant", tool_calls=[{"id": "1"}])
-    )
+    loop = AgenticLoop(turn_executor=executor)
+    loop._run_with_stategraph = AsyncMock()
+    from victor.framework.agentic_graph.executor import AgenticLoopGraphExecutor
 
-    result = await executor.execute_agentic_loop("hello")
-
-    assert result.content == "withheld"
-    assert result.tool_calls is None
+    graph = AgenticLoopGraphExecutor(execution_context=MagicMock())
+    graph.turn_executor = executor
+    graph.compiled = MagicMock(invoke=AsyncMock(), stream=AsyncMock())
+    prompt = AsyncMock(side_effect=AssertionError("no graph prompt before rejection"))
+    monkeypatch.setattr("victor.framework.agentic_graph.executor.prompt_service_node", prompt)
+    with pytest.raises(NotImplementedError, match="StateGraph.*message governance"):
+        if entry == "graph-run":
+            await graph.run("hello")
+        elif entry == "graph-stream":
+            _ = [event async for event in graph.stream("hello")]
+        elif entry == "wrapper":
+            await executor.execute_agentic_loop("hello")
+        elif entry == "run":
+            await loop.run("hello")
+        else:
+            _ = [iteration async for iteration in loop.stream("hello")]
+    executor._chat_context.add_message.assert_not_called()
+    loop._run_with_stategraph.assert_not_awaited()
+    assert gate.request_calls == []
+    prompt.assert_not_awaited()
+    graph.compiled.invoke.assert_not_awaited()
+    graph.compiled.stream.assert_not_called()
 
 
 async def test_no_gate_is_zero_behavior_change():
     executor = _make_executor()  # message_policy_gate defaults to None
-    assert executor._message_policy_gate is None
+    assert executor._governance.gate is None
     sentinel = CompletionResponse(content="ok", role="assistant")
     executor._execute_via_agentic_loop = AsyncMock(return_value=sentinel)
 

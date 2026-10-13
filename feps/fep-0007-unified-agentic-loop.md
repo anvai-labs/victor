@@ -566,3 +566,32 @@ Read/display/unknown guidance never requests edits or shell work. This corrects
 unsafe prompting; it does not enforce tool permissions, prove completion, or solve
 uncertain-effect replay. StateGraph/iteration lifecycle parity and whole-run attempt
 accounting remain separately tracked. No public client wire schema changes.
+
+
+### Buffered candidate publication follow-up (LOOP-03)
+
+`TurnExecutor` uses the same `ChatGovernance` as token streaming. Each raw candidate
+owner governs once; the outer loop wrapper no longer rechecks already governed text.
+
+| Producer | Policy boundary |
+| --- | --- |
+| Ordinary buffered model turn | After usage accounting; before assistant history, tools or evaluation |
+| Deterministic read summary | After existing read effects; before returned summary/evaluation |
+| Completion recovery/fallback | After all observed attempt usage; outside completer retries, before history |
+| Team aggregate | After member effects; before root evaluation/publication |
+
+Redaction copies content without discarding provider usage, metadata or tool envelopes.
+Absent policy retains bytes and response identity. Denial and total redaction raise
+nonrecoverable `AgentError`; the buffered loop propagates it instead of producing an
+empty failure result eligible for synthesis. The shared boundary validates all canonical
+`GateResult` field types. Malformed/failing response checks become terminal errors with
+sanitized messages and preserved causes; cancellation propagates unchanged. Existing
+history, tool receipts and consumed usage are never erased to simulate rollback.
+
+StateGraph message governance remains unqualified because nested exception handlers
+can absorb terminal failures. Public admission, selected graph-loop execution and direct
+graph executors explicitly reject that combination before work. Do not silently change
+executor or disable policy. Raw `execute_single_turn`, custom legacy ACT sources,
+reasoning and tool argument/result filtering are outside this assistant-text contract.
+Streaming team output/forced summaries/tool-bearing content and whole-run provider-attempt/deadline
+ownership still need qualification; these source tests do not establish live C5.

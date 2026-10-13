@@ -42,6 +42,7 @@ from victor.framework.agentic_graph.service_nodes import (
 from victor.framework.execution_checkpoint import execution_checkpoint_trace_metadata
 
 if TYPE_CHECKING:
+    from victor.agent.services.turn_execution_runtime import TurnExecutor
     from victor.framework.graph import CompiledGraph
     from victor.runtime.context import RuntimeExecutionContext
 
@@ -172,7 +173,7 @@ class AgenticLoopGraphExecutor:
         # Services (injected lazily or set externally)
         self.runtime_intelligence: Optional[Any] = None
         self.planning_coordinator: Optional[Any] = None
-        self.turn_executor: Optional[Any] = None
+        self.turn_executor: Optional[TurnExecutor] = None
         self.evaluator: Optional[Any] = None
         self.fulfillment_detector: Optional[Any] = None
         self.dependencies = AgenticLoopDependencies(
@@ -216,6 +217,9 @@ class AgenticLoopGraphExecutor:
         Returns:
             LoopResult with execution outcome
         """
+        if self.turn_executor is not None:
+            self.turn_executor.require_supported_loop_executor(stategraph=True)
+
         # Create initial state
         initial_state = create_initial_state(
             query=query,
@@ -273,6 +277,9 @@ class AgenticLoopGraphExecutor:
         Yields:
             Event dictionaries with node_name, state, and event_type
         """
+        if self.turn_executor is not None:
+            self.turn_executor.require_supported_loop_executor(stategraph=True)
+
         # Create initial state
         initial_state = create_initial_state(
             query=query,
