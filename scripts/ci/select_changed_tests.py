@@ -58,6 +58,19 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # Terminal rendering crosses the shared handler and CLI exit/REPL owners.
+    **dict.fromkeys(
+        (
+            "victor/ui/commands/chat.py",
+            "victor/ui/rendering/handler.py",
+            "victor/ui/rendering/event_dispatcher.py",
+        ),
+        (
+            "tests/unit/commands/test_cli.py",
+            "tests/unit/core/test_stream_renderer.py",
+            "tests/unit/ui/rendering/test_handler.py",
+        ),
+    ),
     # These descriptive owners predate the current source layout. Keep coverage
     # in those suites instead of adding duplicate source-named test files.
     "victor/agent/message_history.py": ("tests/unit/agent/test_agent_conversation.py",),

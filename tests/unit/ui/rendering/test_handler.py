@@ -3,6 +3,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
+from victor.core.errors import AgentError
+
 from victor.framework.events import AgentExecutionEvent, EventType
 from victor.ui.rendering.handler import stream_response
 
@@ -149,22 +153,60 @@ def test_stream_response_normalizes_agent_tool_events() -> None:
     assert result == "analysis complete"
 
 
-def test_stream_response_surfaces_error_events() -> None:
-    """A terminal ERROR event must be shown to the user, not silently dropped."""
+@pytest.mark.parametrize("event_type", [EventType.ERROR, EventType.STREAM_END])
+def test_stream_response_surfaces_error_events(event_type) -> None:
+    """A failed run preserves partial output, raises, and closes before returning."""
+    closed = []
+
+    class Source:
+        async def stream(self, _message):
+            try:
+                yield AgentExecutionEvent(type=EventType.CONTENT, content="Partial result")
+                yield AgentExecutionEvent(
+                    type=event_type,
+                    success=False,
+                    error="Run rejected",
+                    recoverable=False,
+                    metadata={"status": "must not mask failure"},
+                )
+                pytest.fail("Failed run must not consume later events")
+            finally:
+                await asyncio.sleep(0)
+                closed.append(True)
+
+    renderer = _RecorderRenderer()
+    with pytest.raises(AgentError, match="Run rejected") as caught:
+        asyncio.run(stream_response(Source(), "hi", renderer))
+    assert caught.value.recoverable is False
+    assert renderer.finalize() == "Partial result"
+    assert renderer.statuses == ["❌ Run rejected"]
+    assert closed == [True]
+
+
+def test_stream_response_successful_terminal_preserves_content() -> None:
+    renderer = _RecorderRenderer()
     agent = _AgentStreamSource(
         [
-            AgentExecutionEvent(
-                type=EventType.ERROR,
-                error="Model not found: gpt-oss:latest\n💡 Run `ollama pull gpt-oss:latest`",
-                recoverable=False,
-            ),
+            AgentExecutionEvent(type=EventType.CONTENT, content="Complete"),
+            AgentExecutionEvent(type=EventType.STREAM_END, success=True),
         ]
     )
+    assert asyncio.run(stream_response(agent, "hi", renderer)) == "Complete"
+    assert not renderer.statuses
+
+
+def test_stream_response_thinking_abort_is_failure(monkeypatch) -> None:
+    from victor.agent.response_sanitizer import create_streaming_filter
+
+    content_filter = create_streaming_filter()
+    monkeypatch.setattr(content_filter, "should_abort", lambda: True)
+    monkeypatch.setattr(
+        "victor.ui.rendering.handler.create_streaming_filter",
+        lambda **kwargs: content_filter,
+    )
     renderer = _RecorderRenderer()
-
-    result = asyncio.run(stream_response(agent, "hi", renderer))
-
-    # No content, but the error was surfaced via a status line (with a marker).
-    assert result == ""
-    assert any("Model not found: gpt-oss:latest" in s for s in renderer.statuses)
-    assert any(s.startswith("❌") for s in renderer.statuses)
+    agent = _AgentStreamSource([AgentExecutionEvent(type=EventType.CONTENT, content="Partial")])
+    with pytest.raises(AgentError, match="thinking"):
+        asyncio.run(stream_response(agent, "hi", renderer))
+    assert renderer.finalize() == "Partial"
+    assert len(renderer.statuses) == 1

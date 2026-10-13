@@ -480,5 +480,9 @@ that all possible emissions are governed.
 Acceptance is tracked in the canonical agent-service plan. Existing policy, ACT,
 loop, runtime-finalization, framework/client and run/stream parity suites own the
 regressions. No additional loop framework or terminal-status registry is introduced.
-CLI process exit status, shared guards/controllers, recovery disposition and
+The CLI failure increment (`fix/cli-terminal-failure`, tracked in LOOP-02) carries
+terminal events and local thinking aborts through renderer finalization to one-shot
+exit 1, while interactive streaming waits for new input. JSON failures retain the
+existing error/details envelope. This is deterministic CLI evidence, not live C5.
+Shared guards/controllers, recovery disposition and
 iteration/StateGraph parity remain open obligations.

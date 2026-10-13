@@ -38,7 +38,7 @@ from victor.core.errors import (
     ProviderNotFoundError,
     VictorError,
 )
-from victor.ui.output_formatter import InputReader, create_formatter
+from victor.ui.output_formatter import InputReader, OutputMode, create_formatter
 from victor.ui.history_utils import (
     count_prompt_toolkit_history_entries,
     load_input_history_from_db,
@@ -49,6 +49,7 @@ from victor.ui.delegate_follow_up import (
     load_delegate_follow_up_contract_file,
 )
 from victor.ui.rendering.utils import render_status_message
+from victor.ui.rendering.handler import RenderedStreamError
 from victor.ui.commands.utils import (
     preload_semantic_index,
     check_codebase_index,
@@ -1924,7 +1925,7 @@ async def run_oneshot(
                     if prompt_for_model_warning:
                         formatter.error("Configuration warning", model_warning)
                         raise typer.Exit(code=1)
-                    formatter.info("Configuration warning", model_warning)
+                    formatter.info(f"Configuration warning: {model_warning}")
 
                 # Model validation failed - show warning and offer to continue
                 if show_cli_chrome:
@@ -2094,21 +2095,32 @@ async def run_oneshot(
                     show_reasoning=show_reasoning,
                     plain=formatter._plain if hasattr(formatter, "_plain") else False,
                 )
-                await stream_response(
-                    client, message, buffered, suppress_thinking=not show_reasoning
-                )
-                if show_cli_chrome:
-                    buffered.flush(console)
-                else:
-                    formatter.response(content=buffered.finalize())
-                    # Surface buffered statuses (provider errors land here via
-                    # EventDispatcher ERROR routing) so a failed turn is never
-                    # silent in pipe-friendly output.
-                    for status_message in buffered.statuses():
-                        formatter.info(status_message)
+                stream_error: RenderedStreamError | None = None
+                try:
+                    await stream_response(
+                        client, message, buffered, suppress_thinking=not show_reasoning
+                    )
+                except RenderedStreamError as exc:
+                    stream_error = exc
+                    raise
+                finally:
+                    # Failure must preserve partial output and the recorded error.
+                    if stream_error and formatter.config.mode in {
+                        OutputMode.JSON,
+                        OutputMode.JSONL,
+                    }:
+                        formatter.error(stream_error.message, details=buffered.finalize() or None)
+                    elif show_cli_chrome:
+                        buffered.flush(console)
+                    else:
+                        formatter.response(content=buffered.finalize())
+                        for status_message in buffered.statuses():
+                            formatter.info(status_message)
 
             await client.get_session_metrics()
 
+    except RenderedStreamError as e:
+        raise typer.Exit(1) from e
     except InitializationError as e:
         formatter.error(f"{e.stage}: {e.message}")
         for s in e.suggestions:
@@ -3567,6 +3579,9 @@ async def _run_cli_repl(
             # the streaming and non-streaming paths converge here.
             _maybe_prompt_outcome(agent, settings, console)
 
+        except RenderedStreamError:
+            # The renderer showed the failure. Only new user input starts a turn.
+            continue
         except KeyboardInterrupt:
             console.print("\n[dim]Use /exit or Ctrl+D to quit[/]")
             continue

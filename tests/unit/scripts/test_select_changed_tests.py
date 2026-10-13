@@ -66,6 +66,34 @@ def test_selector_changes_select_its_own_regressions():
 @pytest.mark.parametrize(
     ("source", "owners"),
     [
+        *[
+            (
+                source,
+                {
+                    "tests/unit/commands/test_cli.py",
+                    "tests/unit/core/test_stream_renderer.py",
+                    "tests/unit/ui/rendering/test_handler.py",
+                    *mirrors,
+                },
+            )
+            for source, mirrors in (
+                (
+                    "victor/ui/commands/chat.py",
+                    [
+                        "tests/unit/ui/commands/test_chat_modes.py",
+                        "tests/unit/ui/commands/test_chat_rl_feedback.py",
+                        "tests/unit/ui/commands/test_chat_workflow_mode.py",
+                    ],
+                ),
+                ("victor/ui/rendering/handler.py", []),
+                (
+                    "victor/ui/rendering/event_dispatcher.py",
+                    [
+                        "tests/unit/ui/rendering/test_event_dispatcher.py",
+                    ],
+                ),
+            )
+        ],
         (
             "victor/agent/services/chat_stream_executor.py",
             {
