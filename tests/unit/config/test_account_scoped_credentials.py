@@ -29,6 +29,7 @@ import pytest
 
 from victor.config.accounts import AccountManager, AuthConfig, ProviderAccount
 from victor.config.settings import ProfileConfig, Settings
+from victor.core.errors import ConfigurationError
 
 
 @pytest.fixture
@@ -135,12 +136,77 @@ class TestGetProviderSettingsThreading:
             result = settings.get_provider_settings("anthropic", {})
         assert result.get("api_key") == "sk-real-anthropic"
 
-    def test_unknown_account_name_falls_back_to_default(self, manager):
+    @pytest.mark.parametrize("config_exists", [True, False])
+    def test_unknown_account_name_rejects_before_provider_resolution(self, manager, config_exists):
+        if config_exists:
+            self._seed(manager)
+        settings = Settings()
+        with (
+            patch("victor.config.accounts.get_account_manager", return_value=manager),
+            patch.object(manager, "get_account", wraps=manager.get_account) as lookup,
+            patch(
+                "victor.config.provider_config_registry.get_provider_config_registry"
+            ) as registry,
+            pytest.raises(ConfigurationError, match="does-not-exist") as error,
+        ):
+            settings.get_provider_settings("anthropic", {}, account_name="does-not-exist")
+        assert error.value.config_key == "account"
+        assert not error.value.recoverable
+        assert all("provider" not in call.kwargs for call in lookup.call_args_list)
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize("failure_at", ["manager", "lookup", "credentials"])
+    def test_explicit_account_lookup_failure_cannot_fall_back(self, manager, failure_at):
         self._seed(manager)
         settings = Settings()
-        with patch("victor.config.accounts.get_account_manager", return_value=manager):
-            result = settings.get_provider_settings("anthropic", {}, account_name="does-not-exist")
-        assert result.get("api_key") == "sk-real-anthropic"
+        failure = RuntimeError("private credential material")
+        with (
+            patch("victor.config.accounts.get_account_manager", return_value=manager) as factory,
+            patch.object(manager, "get_account", wraps=manager.get_account) as lookup,
+            patch.object(
+                manager, "resolve_provider_config", wraps=manager.resolve_provider_config
+            ) as credentials,
+            patch(
+                "victor.config.provider_config_registry.get_provider_config_registry"
+            ) as registry,
+        ):
+            {"manager": factory, "lookup": lookup, "credentials": credentials}[
+                failure_at
+            ].side_effect = failure
+            with pytest.raises(ConfigurationError, match="kimi-anthropic") as error:
+                settings.get_provider_settings("anthropic", {}, account_name="kimi-anthropic")
+        assert "private credential material" not in str(error.value)
+        assert error.value.__suppress_context__
+        registry.assert_not_called()
+
+    async def test_missing_profile_account_stops_before_provider_creation(self, manager):
+        from victor.agent.orchestrator import AgentOrchestrator
+
+        settings = Settings()
+        profile = ProfileConfig(provider="openai", model="test", account="missing-account")
+        with (
+            patch.object(Settings, "load_profiles", return_value={"named": profile}),
+            patch("victor.config.accounts.get_account_manager", return_value=manager),
+            patch("victor.providers.registry.ProviderRegistry.create") as create,
+        ):
+            with pytest.raises(ConfigurationError, match="missing-account"):
+                await AgentOrchestrator.from_settings(settings, profile_name="named")
+        create.assert_not_called()
+
+    def test_no_account_name_keeps_provider_resolution_on_lookup_failure(self, manager):
+        self._seed(manager)
+        settings = Settings()
+        with (
+            patch("victor.config.accounts.get_account_manager", side_effect=OSError("unavailable")),
+            patch(
+                "victor.config.provider_config_registry.get_provider_config_registry"
+            ) as registry,
+        ):
+            registry.return_value.get_settings.return_value = {"api_key": "provider-key"}
+            assert settings.get_provider_settings("anthropic") == {"api_key": "provider-key"}
+            registry.return_value.get_settings.assert_called_once_with(
+                "anthropic", settings, None, None
+            )
 
 
 class TestProfileConfigAccountField:

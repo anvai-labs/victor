@@ -799,7 +799,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   through the metrics owner, preserve per-call reasoning conventions, and reconcile
   mixed buffered/streaming task boundaries without adding duplicated token totals.
   Zero tracker values for buffered tasks are not evidence of zero cost or requests.
-  **2026-10-14 scoped implementation, review complete / CI pending:** UX-09 in
+  **2026-10-14 scoped implementation merged ([#1353](https://github.com/anvai-labs/victor/pull/1353)), clean review and 40 passing CI checks:** UX-09 in
   [the canonical tracker](victor-agent-service-plan.md) adds dispatch/settlement
   accounting for normal buffered/streamed calls, recovery, synthesis, planning,
   context-limit summaries and KV warm-up. Aggregate stream finalization no longer
@@ -2113,6 +2113,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   rendering remain separate open contracts. `victor serve` is an API surface,
   not a web-chat mode. Bounded successful reads do not close the original transport
   failure, full audit, workflow-editor or mixed-team C5 gates.
+  UX-08 additionally tracks missing explicitly named account rejection before
+  provider creation. Its scoped Settings/from-settings repair leaves credential
+  backend `None` fallback, the legacy `ProviderResolver` account/ad-hoc path and
+  explicit direct-versus-gateway selection open; keep these distinct from transport
+  and model failures when qualifying UI/profile behavior.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
