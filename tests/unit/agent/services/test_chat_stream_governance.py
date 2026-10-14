@@ -65,6 +65,9 @@ async def _drain(agen):
 
 
 def _runtime_owner_with_orch(orch):
+    from victor.config.agentic_loop_settings import AgenticLoopSettings
+
+    orch.settings.agentic_loop = AgenticLoopSettings()
     runtime_owner = MagicMock()
     runtime_owner._orchestrator = orch
     runtime_owner.services = SimpleNamespace(

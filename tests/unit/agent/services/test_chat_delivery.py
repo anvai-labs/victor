@@ -145,9 +145,11 @@ def test_garbage_threshold_and_reset_use_bound_sanitizer():
 
 
 async def test_request_block_uses_bound_chunk_generator_before_stream_setup():
+    from victor.config.agentic_loop_settings import AgenticLoopSettings
     from victor.framework.policies import BlockPatternPolicy, MessagePolicyGate, Phase, PolicyEngine
 
     facade = owner()
+    facade.settings = SimpleNamespace(agentic_loop=AgenticLoopSettings())
     facade._message_policy_gate = MessagePolicyGate(
         PolicyEngine([BlockPatternPolicy([r"rm -rf"], phases={Phase.REQUEST}, reason="dangerous")])
     )

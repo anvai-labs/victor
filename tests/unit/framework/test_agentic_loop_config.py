@@ -68,6 +68,18 @@ class TestAgenticLoopConfigDataclass:
         assert cfg.enable_planning_gate is True
         assert cfg.enable_paradigm_router is True
 
+    @pytest.mark.parametrize("raw", ["standard", "stategraph", "AUTO", None, "unknown"])
+    def test_executor_config_validates_at_construction(self, raw):
+        from victor.framework.agentic_loop import AgenticLoopConfig
+        from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
+        if raw is None or raw == "unknown":
+            with pytest.raises(ValueError, match="executor"):
+                AgenticLoopConfig.from_dict({"executor": raw})
+        else:
+            config = AgenticLoopConfig.from_dict({"executor": raw})
+            assert config.executor is AgenticLoopExecutor(raw.lower())
+
     def test_config_fields_are_typed(self):
         from victor.framework.agentic_loop import AgenticLoopConfig
         import dataclasses
@@ -128,3 +140,12 @@ class TestAgenticLoopAcceptsTypedConfig:
             "AgenticLoop.config must be an AgenticLoopConfig instance after construction, "
             "not a raw dict. Convert dict inputs via AgenticLoopConfig.from_dict()."
         )
+
+
+def test_executor_addition_preserves_legacy_positional_config():
+    from victor.framework.agentic_loop import AgenticLoopConfig
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
+    config = AgenticLoopConfig(True)
+    assert config.disable_enhanced_completion is True
+    assert config.executor is AgenticLoopExecutor.AUTO

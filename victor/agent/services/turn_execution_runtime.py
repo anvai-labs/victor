@@ -58,6 +58,7 @@ from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
 from victor.providers.base import CompletionResponse
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 
 if TYPE_CHECKING:
     from victor.framework.agentic_loop import LoopResult
@@ -482,7 +483,7 @@ class TurnExecutor:
         Returns:
             CompletionResponse with complete response
         """
-        self.require_supported_loop_executor()
+        executor = self.require_supported_loop_executor()
 
         # Governance REQUEST phase: gate/redact the user message before it
         # enters history or reaches the LLM. A block short-circuits the turn
@@ -514,21 +515,38 @@ class TurnExecutor:
             user_message,
             max_iterations,
             runtime_context_overrides=runtime_context_overrides,
+            executor=executor,
         )
 
         return response
 
-    def require_supported_loop_executor(self, *, stategraph: bool | None = None) -> None:
-        """Reject unqualified graph-loop recovery before accepting a governed run.
+    def require_supported_loop_executor(
+        self, *, stategraph: bool | None = None
+    ) -> AgenticLoopExecutor:
+        """Resolve once before admission and reject unqualified graph governance.
 
-        StateGraph's nested exception handlers do not yet preserve terminal message
-        policy failures. The canonical buffered loop supports governed publication.
+        Direct graph callers pass their already selected mode explicitly. Ordinary
+        service callers use the resolved session settings and pass the returned
+        concrete selection through to the loop, never re-reading a global flag.
         """
-        from victor.framework.agentic_loop_executor import use_stategraph_executor
+        from victor.framework.agentic_loop_executor import resolve_agentic_loop_executor
 
-        selected = use_stategraph_executor() if stategraph is None else stategraph
-        if self._governance.gate is not None and selected:
+        if stategraph is None:
+            config = getattr(self._chat_context.settings, "agentic_loop", None)
+            configured = config.executor if config is not None else AgenticLoopExecutor.AUTO
+            selected = resolve_agentic_loop_executor(configured)
+        else:
+            selected = (
+                AgenticLoopExecutor.STATEGRAPH if stategraph else AgenticLoopExecutor.STANDARD
+            )
+        if self._governance.gate is not None and selected is AgenticLoopExecutor.STATEGRAPH:
             raise NotImplementedError("StateGraph execution does not support message governance")
+        if (
+            selected is AgenticLoopExecutor.STATEGRAPH
+            and getattr(self, "_verifier", None) is not None
+        ):
+            raise NotImplementedError("StateGraph execution does not support verification")
+        return selected
 
     async def govern_response(self, response: CompletionResponse) -> CompletionResponse:
         """Govern one raw candidate before history, evaluation or publication.
@@ -1058,6 +1076,7 @@ class TurnExecutor:
         user_message: str,
         max_iterations: int,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO,
     ) -> CompletionResponse:
         """Delegate execution to AgenticLoop for enhanced evaluation.
 
@@ -1113,7 +1132,11 @@ class TurnExecutor:
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
             exploration_settings=getattr(self._chat_context.settings, "exploration", None),
-            config={"completion_strategy": _strategy, "enable_effect_gate": _effect_gate},
+            config={
+                "executor": executor,
+                "completion_strategy": _strategy,
+                "enable_effect_gate": _effect_gate,
+            },
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
             max_verify_retries=getattr(self, "_max_verify_retries", 0),

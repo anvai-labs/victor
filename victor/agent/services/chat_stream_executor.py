@@ -1467,6 +1467,16 @@ class StreamingChatExecutor:
 
         runtime_owner = self._runtime_owner
         orch = runtime_owner._orchestrator
+        from victor.framework.agentic_loop_executor import (
+            AgenticLoopExecutor,
+            resolve_agentic_loop_executor,
+        )
+
+        config = getattr(orch.settings, "agentic_loop", None)
+        configured = config.executor if config is not None else AgenticLoopExecutor.AUTO
+        executor = resolve_agentic_loop_executor(configured)
+        if executor is AgenticLoopExecutor.STATEGRAPH:
+            raise NotImplementedError("StateGraph execution does not support token streaming")
 
         # Governance REQUEST phase (per-run): a block short-circuits the WHOLE run with a single
         # refusal chunk; a redaction substitutes the message used downstream. Unlike run(), this
@@ -1530,6 +1540,7 @@ class StreamingChatExecutor:
             exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
             streaming_act_port=adapter,
             config={
+                "executor": executor,
                 "completion_strategy": _strategy,
                 "enable_effect_gate": _effect_gate,
                 "enable_per_turn_auditor": _auditor,

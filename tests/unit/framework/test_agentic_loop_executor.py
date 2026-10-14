@@ -1,17 +1,7 @@
-"""Tests for the AgenticLoop executor enum + resolver (mirrors FEP-0012).
-
-``use_stategraph_executor()`` is the single decision for whether the StateGraph
-AgenticLoop executor runs. ``AUTO`` (default settings) defers to the legacy
-``USE_STATEGRAPH_AGENTIC_LOOP`` flag (prior behavior); explicit ``STATEGRAPH``
-forces it regardless of the flag. These tests lock in that AUTO preserves
-existing behavior and that the enum is the single source of truth.
-"""
-
-import types
+"""Executor resolution: one typed setting, explicit errors and concrete snapshots."""
 
 import pytest
 
-from victor.core.feature_flags import FeatureFlag, is_feature_enabled
 from victor.framework.agentic_loop_executor import (
     AgenticLoopExecutor,
     resolve_agentic_loop_executor,
@@ -19,54 +9,71 @@ from victor.framework.agentic_loop_executor import (
 )
 
 
-def _set_executor(monkeypatch, value) -> None:
-    """Override the settings model read by the resolver."""
-    from victor.config import agentic_loop_settings as als
-
-    monkeypatch.setattr(als, "AgenticLoopSettings", lambda: types.SimpleNamespace(executor=value))
+@pytest.mark.parametrize("raw", ["auto", " AUTO ", AgenticLoopExecutor.AUTO])
+def test_parse_auto(raw):
+    assert AgenticLoopExecutor.parse(raw) is AgenticLoopExecutor.AUTO
 
 
-def _flag(monkeypatch, on: bool) -> None:
-    """Set USE_STATEGRAPH_AGENTIC_LOOP via env (auto-cleaned by monkeypatch)."""
-    monkeypatch.setenv(
-        FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(),
-        "true" if on else "false",
+@pytest.mark.parametrize("raw", [None, "garbage", "", False, 1, {}])
+def test_parse_rejects_invalid_explicit_values(raw):
+    with pytest.raises(ValueError):
+        AgenticLoopExecutor.parse(raw)
+
+
+@pytest.mark.parametrize("flag", [False, True])
+@pytest.mark.parametrize("configured", ["auto", "standard", "stategraph"])
+def test_resolve_explicit_choice_or_legacy_auto(monkeypatch, configured, flag):
+    from unittest.mock import Mock
+
+    read_flag = Mock(return_value=flag)
+    monkeypatch.setattr("victor.core.feature_flags.is_feature_enabled", read_flag)
+    expected = (
+        "stategraph"
+        if configured == "stategraph" or (configured == "auto" and flag)
+        else "standard"
     )
+    selected = resolve_agentic_loop_executor(configured)
+    assert selected.value == expected
+    assert read_flag.call_count == int(configured == "auto")
+    read_flag.reset_mock()
+    # A concrete admission decision never consults a changed global flag again.
+    read_flag.return_value = not flag
+    assert use_stategraph_executor(selected) is (expected == "stategraph")
+    read_flag.assert_not_called()
 
 
-def test_parse():
-    assert AgenticLoopExecutor.parse("stategraph") is AgenticLoopExecutor.STATEGRAPH
-    assert AgenticLoopExecutor.parse("auto") is AgenticLoopExecutor.AUTO
-    assert (
-        AgenticLoopExecutor.parse(AgenticLoopExecutor.STATEGRAPH) is AgenticLoopExecutor.STATEGRAPH
+def test_resolver_failure_is_not_a_silent_executor_switch(monkeypatch):
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(
+        "victor.core.feature_flags.is_feature_enabled",
+        Mock(side_effect=RuntimeError("flag unavailable")),
     )
-    assert AgenticLoopExecutor.parse("garbage") is AgenticLoopExecutor.AUTO
-    assert AgenticLoopExecutor.parse(None) is AgenticLoopExecutor.AUTO
-
-
-def test_auto_flag_off_uses_legacy_loop(monkeypatch):
-    _flag(monkeypatch, False)
-    assert is_feature_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP) is False
-    _set_executor(monkeypatch, AgenticLoopExecutor.AUTO)
-    assert use_stategraph_executor() is False
-    assert resolve_agentic_loop_executor() is AgenticLoopExecutor.AUTO
-
-
-def test_auto_flag_on_uses_stategraph(monkeypatch):
-    _flag(monkeypatch, True)
-    assert is_feature_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP) is True
-    _set_executor(monkeypatch, AgenticLoopExecutor.AUTO)
-    assert use_stategraph_executor() is True
-    assert resolve_agentic_loop_executor() is AgenticLoopExecutor.STATEGRAPH
-
-
-def test_explicit_stategraph_overrides_flag_off(monkeypatch):
-    _flag(monkeypatch, False)
-    _set_executor(monkeypatch, AgenticLoopExecutor.STATEGRAPH)
-    assert use_stategraph_executor() is True
+    with pytest.raises(RuntimeError, match="flag unavailable"):
+        resolve_agentic_loop_executor()
 
 
 def test_default_settings_executor_is_auto():
     from victor.config.agentic_loop_settings import AgenticLoopSettings
 
     assert AgenticLoopSettings().executor is AgenticLoopExecutor.AUTO
+
+
+@pytest.mark.parametrize("first", ["victor.config.settings", "victor.framework.session_config"])
+def test_settings_and_framework_cold_imports(first):
+    import subprocess
+    import sys
+
+    script = (
+        f"import {first}; "
+        "from victor.config.settings import Settings; "
+        "from victor.framework.session_config import SessionConfig; "
+        "from victor.config.agentic_loop_settings import AgenticLoopExecutor as ConfigExecutor; "
+        "from victor.framework.agentic_loop_executor import AgenticLoopExecutor; "
+        "assert ConfigExecutor is AgenticLoopExecutor; "
+        "assert Settings().agentic_loop.executor is AgenticLoopExecutor.AUTO"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr

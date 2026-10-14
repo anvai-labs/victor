@@ -67,7 +67,42 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-03 terminal recovery admission — LOCAL_PASS** — owner: Victor co-design session;
+- **UX-01 self-audit failure recovery — NEXT** — owner: Victor co-design session.
+  The user's 2026-10-13 21:36–21:40 `homelab-openai-subscription` run failed its
+  first inventory step with a retryable OpenAI transport 502 (`cec7bdad`). Its
+  required dependent nevertheless ran because `planning_runtime` removed failed
+  edges using description/type heuristics. The log records 21 compactions and
+  21 failed compaction-audit inserts (SQLite foreign-key violations); the startup
+  embedding spinner remained visible during execution. Sanitized evidence is
+  preserved locally in `var/codegraph-victor-20261012/ux-self-audit-incident.json`.
+  Next after the executor increment: preserve required dependency edges and block
+  dependent work unless an explicit structured partial-input contract permits it;
+  report partial/blocked outcomes truthfully; investigate session registration and
+  whether compacted history reaches provider requests; end initialization status
+  before execution. Use existing planning, context, SQLite and CLI test owners.
+  Prove failed-prerequisite non-dispatch, independent-branch continuation, durable
+  audit/session joins, retained tool-call/result integrity and actual status
+  transitions before claiming repair. The gateway was running, but its journal
+  did not explain the upstream 502; root cause and live rerun remain unverified.
+  Prompt wording about “plan mode” is not evidence that CLI `--mode plan` was set;
+  preserve configured approval policy while clarifying preview versus execution.
+
+- **LOOP-03 executor configuration ownership — LOCAL_PASS** — owner: Victor co-design session;
+  branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.
+  Resolve the existing executor choice from session settings once before admission;
+  carry the concrete selection to dispatch. Reject invalid values, resolver failures
+  and unsupported token-streaming StateGraph selection explicitly. Preserve default
+  AUTO/legacy-flag behavior without mutating global configuration. Reuse existing
+  resolver, session, loop and public service test owners; add no deadline/attempt knob.
+  Validation: 2,339 affected tests pass; MyPy passes 2,003 source files; 34,945 tests
+  collect; Black/Ruff, repository hygiene and documentation drift checks pass.
+  Independent review caught and fixed positional-config compatibility and early
+  verifier rejection; a minimal delivery fixture now supplies session settings.
+  Default and explicit modes, concurrent session isolation and admission-time
+  configuration changes are covered in existing suites. Next: exact-commit review,
+  PR/CI and squash merge; no live provider or C5 claim.
+
+- **LOOP-03 terminal recovery admission — MERGED, [#1345](https://github.com/anvai-labs/victor/pull/1345)** — owner: Victor co-design session;
   branch `fix/terminal-recovery-admission`, baseline
   `a9848b61a11a4be147531bfc3a9da5d027ca293c`. The buffered wrapper previously
   regenerated after guard, terminal ACT and escalation stops. Nine new cases in the
@@ -88,7 +123,11 @@ edit. A mock test is not live provider or C5 evidence.
   collect. Black/Ruff, repository hygiene and docs drift pass. Independent review
   passed 182 executions across review stages with no remaining findings.
   Evidence: `var/codegraph-victor-20261012/terminal-recovery-evidence.json` and
-  companion logs/patch (local only). Next: exact-commit attestation, CI and landing.
+  companion logs/patch (local only). Reviewed source
+  `64392562fa95cc4b2b67c8db1a3f04edfaf7e341` merged as
+  `a8438fceb6e09cc3b102ca75d77d61b454a9662f` with identical trees. All 40
+  applicable CI checks passed (two intentional skips and the historical Trivy
+  comparison warning are not test passes).
   This does not establish whole-run attempt/deadline ownership, remote cancellation,
   streaming team routing, durable action reconciliation or released live C5 acceptance.
 
@@ -1877,7 +1916,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication ✅ #1344; terminal post-loop recovery admission LOCAL_PASS (current checkpoint); team/forced adapter routing and StateGraph parity remain open |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication ✅ #1344; terminal post-loop recovery admission ✅ #1345; executor configuration ACTIVE (current checkpoint); team/forced adapter routing and StateGraph parity remain open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
@@ -1903,7 +1942,7 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 | P2 — ✅ MERGED #1341 | Streaming ACT previously lost source recovery/stop decisions | Canonical typed disposition, no further ACT after terminal recovery, governed recovered text; post-loop synthesis remains separate |
 | P1 — ✅ MERGED #1343 | Buffered assistant history preceded response policy; terminal/malformed policy failures could trigger synthesis | Govern each raw producer once, account usage before denial, retain effects, reject unqualified graph policy execution and prevent regeneration |
 | P1 — ✅ MERGED #1344 | Streaming tool-bearing narration and exhausted fallback bypassed response policy; summary/recovered policy cancellation could persist assistant history | Shared candidate policy and cancellation checks before publication/dispatch; public-loop and eight-source regression matrices; orphan team dispatcher removed, streaming team/forced routing still open |
-| P1 — LOCAL_PASS (`fix/terminal-recovery-admission`) | Buffered wrapper could synthesize after guard, terminal ACT or escalation; interrupted evaluation hid current ACT response | One structured admission check, preserve current response/usage/receipts and exact terminal error; ordinary failed-verification summaries remain permitted |
+| P1 — ✅ MERGED #1345 | Buffered wrapper could synthesize after guard, terminal ACT or escalation; interrupted evaluation hid current ACT response | One structured admission check, preserve current response/usage/receipts and exact terminal error; ordinary failed-verification summaries remain permitted |
 | P2 — OPEN | Adaptive extension changes the bound after `range` construction | A bounded driver must consult the current limit; real executed-turn-count test, including absolute cap |
 | P2 — PARTIAL #1341 | Production `StreamingActAdapter` now rejects missing/malformed results; custom-port/outcome and ACT session fields still use `Any` | Narrow remaining protocols and declare current dynamic fields; preserve the qualified production-boundary rejection |
 | P2 — PARTIAL #1341 | ESCALATE now terminates both live loops; string/enum decision normalization remains open | Normalize supported decisions once; preserve documented custom graph routing outside the loop; no autonomous retry on escalation |

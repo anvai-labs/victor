@@ -57,6 +57,7 @@ Example:
 from __future__ import annotations
 
 from victor.core.errors import AgentError, ProviderPolicyError
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 
 import inspect
 import logging
@@ -536,6 +537,10 @@ class AgenticLoopConfig:
     total_timeout: Optional[float] = None
     perception_backstop_factor: int = 8
     extra_config: Dict[str, Any] = field(default_factory=dict)
+    executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO
+
+    def __post_init__(self) -> None:
+        self.executor = AgenticLoopExecutor.parse(self.executor)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AgenticLoopConfig":
@@ -845,7 +850,7 @@ class AgenticLoop:
         # Phase 1 Consolidation: Use StateGraph-based executor when enabled
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
-        if use_stategraph_executor():
+        if use_stategraph_executor(self.config.executor):
             if self.turn_executor is not None:
                 self.turn_executor.require_supported_loop_executor(stategraph=True)
             if self.config.total_timeout is not None:
@@ -1917,6 +1922,10 @@ class AgenticLoop:
         Raises:
             RuntimeError: if no streaming ACT port has been wired.
         """
+        from victor.framework.agentic_loop_executor import use_stategraph_executor
+
+        if use_stategraph_executor(self.config.executor):
+            raise NotImplementedError("StateGraph execution does not support token streaming")
         if self.streaming_act_port is None:
             raise RuntimeError(
                 "AgenticLoop.run_streaming requires a streaming ACT port; it is wired at the "
@@ -2079,7 +2088,7 @@ class AgenticLoop:
             )
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
-        if use_stategraph_executor():
+        if use_stategraph_executor(self.config.executor):
             if self.turn_executor is not None:
                 self.turn_executor.require_supported_loop_executor(stategraph=True)
             async for iteration in self._stream_with_stategraph(

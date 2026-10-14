@@ -2075,14 +2075,18 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   canonical loop; streaming adapter routing for forced completion (the adapter
   never passes `forced_task_completion=True`). Forced-summary primitive tests
   do not establish that routing. No member-effect rollback or live C5 is claimed.
-  The `fix/terminal-recovery-admission` follow-up addresses a newly reproduced
+  ✅ [#1345](https://github.com/anvai-labs/victor/pull/1345) addresses a reproduced
   wrapper bypass: post-loop synthesis could regenerate after guard, terminal ACT
   or escalation stops, and discard an ACT response completed before evaluation
   timed out. A shared private admission predicate blocks generation at that boundary,
   preserves current response/usage/receipts and the precise terminal error, and retains
   ordinary failed-verification presentation recovery. No prose stop parsing or second
   timer/counter is introduced. Local qualification and landing remain tracked in the
-  canonical agent-service plan.
+  canonical agent-service plan. The `fix/loop-config-ownership` follow-up wires the
+  existing executor choice through Settings/SessionConfig and freezes the resolved
+  choice before admission. Invalid choices and unsupported token-streaming graph
+  execution fail explicitly. It adds no deadline/attempt knob; qualification and
+  landing are tracked in the canonical plan.
   Run-wide attempt accounting, adaptive extension and full experimental
   StateGraph/iteration parity remain open; phase-method reuse is not execution-mode parity.
 
