@@ -392,8 +392,73 @@ edit. A mock test is not live provider or C5 evidence.
   `55354e35b67138a25e02787c1947dffd92409703` passed 40 CI checks, including
   Py3.12 verticals; merge `5864a0aa272f977811a7cd25c7bd862d42237b03`. One
   deployment skip and one neutral historical Trivy comparison remained; blocking
-  security checks passed. Next: land the scoped UX-08 missing-name rejection; keep
-  explicit transport selection separate.
+  security checks passed. The scoped UX-08 missing-name rejection subsequently
+  merged in #1354; explicit transport selection remains separate.
+
+  **Prompt-efficiency checkpoint (2026-10-14, source validation):** owner: Victor
+  co-design session; branch `fix/prompt-efficiency-evidence`, baseline
+  `210e3b97b3b27f59e0776064fc11925df068b1c5`. Measure actual streamed requests
+  before reducing prompts. Direct `codex-local` / `gpt-6-sol` through the isolated
+  in-process Sandhi candidate from #368 remains the qualification shape; no
+  external gateway, credential changes, shared-cache clearing or release claim.
+  The private observer retains component sizes/hashes and numeric usage, not
+  request bodies. Evidence and the runnable observer stay under ignored
+  `var/codegraph-victor-20261012/prompt-efficiency-*`.
+
+  | Observed component | Local `o200k_base` proxy tokens | Interpretation |
+  | --- | ---: | --- |
+  | Complete system text | 7,708–7,709 | Not the aggregate usage of a task |
+  | Repository instruction file contents | 5,839 | init 2,213; AGENTS 726; CLAUDE 2,900; preserve authority/scope |
+  | Base / mode / completion / tool-effectiveness blocks | 424 / 196 / 342 / 573 | Learned completion text varied across sessions |
+  | Seven serialized neutral tool schemas | 2,364 | `read` alone 445; removing others is a counterfactual, not a qualified permission policy |
+  | Injected user-role guidance, excluding the actual question | About 1,170–1,537 | Serialized proxy; exact duplicate tool-effectiveness block found in system and turn guidance |
+
+  Proxy counts exclude provider rendering/hidden content and are **not billing
+  counts**. Numeric Sandhi final usage reconciled with Victor per call: inclusive
+  input = fresh input + cache read (cache creation was explicitly zero), and total
+  = inclusive input + output. Reasoning is included in output; never add it twice.
+  Interim unavailable observations are not measured zero and do not replace final usage.
+
+  Actual integration placed repository context **after** the session nonce even
+  though `UnifiedPromptPipeline` already supported correct ordering. The complete
+  prompt now has one service-owned assembly path: project context enters the
+  pipeline before its nonce; bootstrap, refresh and workspace switching do not
+  append it again. Preserve explicit bootstrap overrides, legacy fallback bytes,
+  per-session distinct nonces and existing invalidation. Two redundant return-string
+  tests were removed; existing pipeline properties now exercise the canonical
+  orchestrator too. TDD reproduced the missing shared-prefix context; 545 main and
+  198 related tests passed, plus 79 final focused checks, MyPy on both touched
+  modules and collection of 35,075 tests. Independent review passed 81 checks and
+  verified no-context parity / refresh across all three cache tiers. CI/merge pending.
+
+  | Small experiment | Result | Decision |
+  | --- | --- | --- |
+  | Two fresh baseline sessions | Completion variant differed; only 657 system-prefix proxy tokens matched | Measure/group by prompt variant; do not credit ordering alone for the difference |
+  | Two fresh candidate sessions with matching variant | 7,572 of 7,708 system proxy tokens shared; context precedes nonce | Keep complete assembly in the existing pipeline; no new cache layer |
+  | Two-turn candidate conversation | Second turn cache reads 9,600/12,532 and 12,416/12,638 inclusive input; 3,154 fresh input across both calls | Stable history/schema reuse is feasible on this direct path |
+  | Matched two-turn unchanged-source control | Second turn cache reads 0/12,533 and 1,920/12,639; 23,252 fresh input across both calls | Exploratory observations only: backend routing, cache state and stochastic variants were uncontrolled |
+  | Remove repeated 573-token tool-effectiveness block | About 1,146 proxy input tokens avoided across a two-call task, before framing | Next: deduplicate through structured rendered-block identity; preserve optimizer provenance and differing guidance |
+  | Change tools every call / drop repository rules / prewarm every session | Potential schema savings also change cache prefixes; rule loss or extra billed calls | Reject as defaults without outcome/permission and amortized-use evidence |
+
+  All four fresh tasks and both two-turn conversations produced source-grounded
+  account-resolution answers with two model invocations per turn. Repeated reads
+  in the second turn returned compact unchanged-file evidence, so tool payloads
+  also differ from the first turn. These small observations are not a throughput,
+  cost or quality benchmark. The nonce-order repair is a cache-layout correctness
+  checkpoint; performance acceptance remains open. Official
+  [OpenAI caching guidance](https://developers.openai.com/api/docs/guides/prompt-caching)
+  requires exact rendered-prefix compatibility, including tools/settings; public
+  API documentation does not establish subscription billing or Codex backend guarantees.
+
+  **Next, in order:** (1) qualify structured cross-placement guidance deduplication;
+  (2) fix read-only/negation classification and the shell-to-database guidance
+  conflation before selecting narrower session tool bundles; (3) compare pinned,
+  versioned prompt variants with exploration using repeated paired task suites;
+  (4) report fresh/cache/output/reasoning and unknown coverage distinctly in UX;
+  (5) qualify raw wire mapping, published dependencies and representative longer
+  tasks. Keep user authority, grounding, current permissions and evidence outside
+  opportunistic trimming. Track deletion invalidation and persistent override
+  lifetime separately; this checkpoint does not qualify those existing paths.
 
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced
@@ -420,7 +485,10 @@ edit. A mock test is not live provider or C5 evidence.
   with 100% changed-line coverage after rebase; 34,923 tests collect in the scoped
   worktree environment, MyPy/Black/Ruff and
   repository/docs guards pass. Independent review passed 19 checks plus 17 final
-  owner checks. PR/CI remain pending; this is not yet merged or released.
+  owner checks. Merged in [#1354](https://github.com/anvai-labs/victor/pull/1354)
+  as `210e3b97b3b27f59e0776064fc11925df068b1c5` after 39 successful CI checks,
+  including vertical tests. Headed UI smoke: 9.7s, two model calls, 23,325 reported
+  tokens; the source-cited answer was verified. Release qualification remains separate.
 
   **Separate follow-ups:** an existing account whose credential backend returns
   `None` can still use environment/provider credentials; legacy `ProviderResolver`
