@@ -2178,6 +2178,22 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   collection and valid cache. This does not qualify startup performance, stop a
   running model worker, or resolve C5. Next investigate shared readiness across
   synchronous first-turn embedding consumers rather than moving one caller alone.
+  Collection-state protection merged in #1358. The next prerequisite keeps a
+  newly loaded model private until dimension validation and metadata preparation
+  succeed, and rejects late publication after shutdown. Existing lazy-loading
+  tests own failure/recovery and controlled concurrent-load regressions.
+  **Remaining ownership gap:** per-client lifecycle cleanup shuts down the global
+  embedding service and closes registry providers shared by other clients. Define
+  application ownership/final-borrower cleanup before asynchronous readiness.
+  A private awaited-readiness prototype reduced median maximum heartbeat gaps
+  7.485 → 1.680 seconds but did not reduce total startup-to-dispatch time
+  (8.023 → 8.110 seconds); zero provider requests, no production scheduling change.
+  UX-09 records evidence and remaining cancellation, failure and task-quality gates.
+  Cached-model qualification also exposed implicit Hugging Face cache lookup under
+  an isolated test home. Explicit cache paths plus offline flags restored all three
+  semantic checks; the affected suite passed 409 tests (two opt-in slow skips).
+  Qualify explicit model preparation/cache-only runtime policy separately; existing
+  fallback vectors and a default dimension must not be mistaken for readiness.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive

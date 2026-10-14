@@ -143,6 +143,12 @@ RELATED_TESTS = {
         "tests/unit/framework/test_skill_matcher_multi.py",
         "tests/unit/framework/test_skill_registry_wiring.py",
     ),
+    "victor/storage/embeddings/service.py": (
+        "tests/unit/embeddings/test_embedding_service.py",
+        "tests/unit/embeddings/test_embedding_infrastructure.py",
+        "tests/unit/embeddings/test_import_guards.py",
+        "tests/unit/processing/test_graph_embeddings_batch.py",
+    ),
     # Text policy and Python stream ownership are tested once across providers,
     # rather than copied into provider-named mirror suites.
     **dict.fromkeys(

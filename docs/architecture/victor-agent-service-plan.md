@@ -641,6 +641,56 @@ edit. A mock test is not live provider or C5 evidence.
   and actual bounded task outcomes together. Cross-placement prompt deduplication,
   live CLI/UI efficiency and mixed-team C5 acceptance remain open.
 
+  **Model publication checkpoint (2026-10-14):** #1358 merged collection-state
+  protection; owner: Victor co-design session, branch
+  `fix/embedding-readiness-publication`, baseline
+  `8396472d9c8e37ac3fb39fa88d9894872507d92a`. Model loading previously exposed
+  `_model` before dimension discovery completed. Failed discovery could leave a
+  partially initialized model visible to another caller and prevent recovery.
+  Prepare the model, positive integer dimension and device metadata locally;
+  publish the loaded-model marker last, guarded against concurrent shutdown.
+  Invalid dimensions log a contract failure without transient retries or cache
+  clearing. Shutdown takes only a short state lock and prevents later publication
+  or a fresh load attempt after backoff. Existing service/selector test owners
+  cover malformed dimensions, failed preparation followed by recovery, concurrent
+  load observers, shutdown-before-load and shutdown during preparation/backoff.
+  No new executor, readiness API or startup scheduling is introduced.
+
+  Test-cache discovery found that the isolated test `HOME` can redirect implicit
+  Hugging Face cache lookup away from already downloaded BGE weights. Preserve
+  Victor's isolated test data, but explicitly set `HF_HOME`/`HF_HUB_CACHE` to the
+  preseeded model cache and use `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` for cached
+  qualification. Do not interpret zero-vector skips as semantic acceptance or
+  perform recurring downloads as normal validation. Production cache-only loading,
+  model/revision preparation and explicit missing-model reporting remain to qualify;
+  this increment does not silently change the runtime's download policy.
+  Ten initial regressions failed before repair; the final cached/offline affected
+  suite passes 409 tests with only two opt-in slow tests skipped. The three semantic
+  tests skipped under implicit cache lookup pass with the explicit cache. Focused
+  service/selector checks pass 120 tests; independent review passes 84 checks plus
+  a focused recheck of the three final preparation/publication cases. Full collection
+  finds 35,099 tests; MyPy, Black, Ruff, hygiene, docs drift/build/link checks pass.
+
+  The follow-up private A/C/C/A prototype awaited shared model loading before
+  factory skill initialization. Across two runs per arm, median maximum heartbeat
+  gap fell 7.485 → 1.680 seconds, while total client-initialization-to-dispatch time
+  stayed 8.023 → 8.110 seconds (CPU 7.885 → 8.013 seconds; peak RSS 927.8 → 924.6 MB).
+  Every dispatch was intercepted, zero provider requests were sent, and skills
+  were ready at first dispatch. This is evidence for a responsiveness investigation,
+  not faster total startup, token savings or task-quality acceptance. The prototype
+  remains private; its evidence and design review are in `embedding-readiness-*`
+  and `embedding-init-checkpoint.json` beside the previous local diagnostics.
+
+  **Foundational ownership gap before async readiness:** per-client
+  `LifecycleManager` currently shuts down the process-global embedding service
+  and closes all registry providers, which can affect other clients. Establish
+  explicit application ownership and shutdown after the final borrower before
+  changing that cleanup. Qualify two live clients, one cancelled waiter,
+  initialization failure, shutdown during loading and empty/disabled consumers.
+  The existing fallback dimension/zero-vector behavior is not proof of readiness;
+  this increment preserves it without claiming full lifecycle acceptance. Running
+  model workers/encodes cannot be forcibly cancelled by this publication guard.
+
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced
   a missing account and selected the provider default instead. A newly named OAuth
