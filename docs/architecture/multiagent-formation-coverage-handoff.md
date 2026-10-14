@@ -2119,6 +2119,21 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   explicit direct-versus-gateway selection open; keep these distinct from transport
   and model failures when qualifying UI/profile behavior.
 
+- **G100 — prompt assembly and efficiency lack end-to-end cache qualification (open).**
+  UX-09's 2026-10-14 measured checkpoint found repository instructions appended
+  after the per-session nonce outside `UnifiedPromptPipeline`, truncating the
+  reusable system prefix. A scoped source repair consolidates complete assembly
+  in the existing service/pipeline and extends the existing integration tests;
+  CI/merge pending. Duplicate evolved tool-effectiveness guidance (573 local
+  proxy tokens), stochastic completion variants, incorrect read-only/negation
+  classification and shell-triggered database guidance remain. A direct Codex
+  continuation observed 12,416 cached of 12,638 input tokens, but small uncontrolled
+  trials do not prove a latency/cost improvement or released C5 acceptance. The
+  canonical tracker owns counts, experiments, decisions and next gates. Preserve
+  all authoritative instructions and distinct session identities; do not equate
+  better prefix layout with guaranteed backend reuse. Project-instruction deletion
+  invalidation and persistent explicit-override lifetime also need separate tests.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and

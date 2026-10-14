@@ -258,6 +258,25 @@ class PromptBuilderRuntime:
             on_prompt_built=prompt_built_hook,
         )
 
+    def build_system_prompt(self) -> str:
+        """Assemble the complete prompt once, including cache-stable project context.
+
+        The pipeline owns ordering and freezing: appending instructions outside it
+        places them after the per-session nonce and breaks cross-session reuse.
+        """
+        self.sync_prompt_builder_runtime_state()
+        runtime = self._runtime
+        pipeline = getattr(runtime, "_prompt_pipeline", None)
+        if pipeline is not None:
+            project_context = getattr(runtime, "project_context", None)
+            addition = (
+                project_context.get_system_prompt_addition()
+                if project_context and project_context.content
+                else None
+            )
+            return pipeline.build_system_prompt(project_context=addition)
+        return self.compose_system_prompt(self.build_system_prompt_fallback())
+
     def compose_system_prompt(self, base_system_prompt: str) -> str:
         """Add project-context guidance to the built system prompt when present."""
         project_context = getattr(self._runtime, "project_context", None)
@@ -287,8 +306,7 @@ class PromptBuilderRuntime:
         if query_classification is not None and builder is not None:
             builder.invalidate_cache()
 
-        base_system_prompt = runtime.build_system_prompt()
-        runtime._system_prompt = self.compose_system_prompt(base_system_prompt)
+        runtime._system_prompt = runtime.build_system_prompt()
         runtime._dynamic_task_guidance = None
 
         if getattr(runtime, "_kv_optimization_enabled", False):

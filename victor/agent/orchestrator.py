@@ -1013,11 +1013,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
         if system_prompt_override:
             self._system_prompt = system_prompt_override
-        elif self.project_context.content:
-            self._system_prompt = self._get_prompt_builder_runtime().compose_system_prompt(
-                base_system_prompt
-            )
-            logger.debug(f"Loaded project context from {self.project_context.context_file}")
         else:
             self._system_prompt = base_system_prompt
 
@@ -1471,14 +1466,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             self._prompt_pipeline.unfreeze()
         self._system_prompt_frozen = False
 
-        base_prompt = self.build_system_prompt()
-        if self.project_context.content:
-            self._system_prompt = self._get_prompt_builder_runtime().compose_system_prompt(
-                base_prompt
-            )
-            logger.debug(f"Loaded project context from {self.project_context.context_file}")
-        else:
-            self._system_prompt = base_prompt
+        self._system_prompt = self.build_system_prompt()
 
         if self._kv_optimization_enabled:
             self._system_prompt_frozen = True
@@ -2833,13 +2821,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         available. Falls back to the prompt-builder runtime helper during
         early initialization or compatibility-only pipeline failures.
         """
-        self._sync_prompt_builder_runtime_state()
-
-        pipeline = getattr(self, "_prompt_pipeline", None)
-        if pipeline is not None:
-            return pipeline.build_system_prompt()
-
-        return self._get_prompt_builder_runtime().build_system_prompt_fallback()
+        return self._get_prompt_builder_runtime().build_system_prompt()
 
     def _emit_prompt_used_event(self, prompt: str) -> None:
         """Emit PROMPT_USED event for RL prompt template learner.

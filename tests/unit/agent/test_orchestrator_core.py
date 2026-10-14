@@ -381,10 +381,15 @@ class TestSystemPrompt:
     """Tests for system prompt building."""
 
     def test_build_system_prompt(self, orchestrator):
-        """Test canonical build_system_prompt returns a prompt string."""
+        """Bootstrap and canonical rebuild include repository rules once, before the nonce."""
         result = orchestrator.build_system_prompt()
         assert isinstance(result, str)
         assert len(result) > 0
+        context = orchestrator.project_context.get_system_prompt_addition()
+        assert context
+        for prompt in (orchestrator._system_prompt, result):
+            assert prompt.count(context) == 1
+            assert prompt.index(context) < prompt.index("SYSTEM GUIDANCE CHANNEL")
 
     def test_build_system_prompt_for_provider(self, orchestrator):
         """Test prompt building via prompt_builder (dead code removed from orchestrator)."""
@@ -3899,16 +3904,6 @@ class TestAddMessage:
         assert len(orchestrator.messages) >= 1
 
 
-class TestBuildSystemPrompt:
-    """Tests for build_system_prompt method."""
-
-    def test_returns_string(self, orchestrator):
-        """Test build_system_prompt returns string."""
-        prompt = orchestrator.build_system_prompt()
-        assert isinstance(prompt, str)
-        assert len(prompt) > 0
-
-
 class TestGetModelContextWindow:
     """Tests for _get_model_context_window method."""
 
@@ -4398,16 +4393,6 @@ class TestPromptBuilderAttr:
         """Test prompt_builder attribute exists."""
         builder = orchestrator.prompt_builder
         assert builder is not None
-
-
-class TestBuildSystemPromptSecondary:
-    """Additional tests for build_system_prompt method."""
-
-    def test_returns_string(self, orchestrator):
-        """Test build_system_prompt returns string."""
-        prompt = orchestrator.build_system_prompt()
-        assert isinstance(prompt, str)
-        assert len(prompt) > 0
 
 
 class TestCheckContextOverflowMethod:
