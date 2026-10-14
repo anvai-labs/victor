@@ -60,6 +60,8 @@ from victor.agent.services.chat_runtime_services import ChatGovernance, MessageP
 from victor.providers.base import CompletionResponse
 
 if TYPE_CHECKING:
+    from victor.framework.agentic_loop import LoopResult
+
     from victor.agent.services.protocols.chat_runtime import (
         ChatContextProtocol,
         OrchestratorRuntimeProtocol,
@@ -1142,51 +1144,73 @@ class TurnExecutor:
             loop_run_kwargs["conversation_history"] = conversation_history
 
         loop_result = await loop.run(user_message, **loop_run_kwargs)
-        loop_success = getattr(loop_result, "success", True)
-        # Real agentic-loop iteration count (excludes rubric-judge / recovery sub-calls) — surfaced on
-        # the response metadata so it can reach TaskResult.metadata for observability + A/B harnesses.
-        loop_iterations = len(getattr(loop_result, "iterations", []) or [])
+        loop_success = loop_result.success
+        # Iterations exclude unfinished evaluation and recovery sub-calls.
+        loop_iterations = len(loop_result.iterations)
+        last = loop_result.iterations[-1] if loop_result.iterations else None
         loop_error = None
         if not loop_success:
-            loop_error = "Agentic loop ended before satisfying the task"
-            if loop_result.iterations and loop_result.iterations[-1].evaluation:
-                loop_error = loop_result.iterations[-1].evaluation.reason or loop_error
-        has_tool_evidence = self._loop_has_successful_tool_evidence(loop_result)
+            loop_error = (
+                (
+                    loop_result.metadata.get("error")
+                    if loop_result.metadata.get("terminated_by") == "loop_spin_guard"
+                    else None
+                )
+                or (last.evaluation.reason if last and last.evaluation else None)
+                or "Agentic loop ended before satisfying the task"
+            )
 
-        # Extract the last TurnResult's response
-        if loop_result.iterations:
-            last = loop_result.iterations[-1]
-            if last.action_result is not None:
-                turn_result = last.action_result
-                if hasattr(turn_result, "response"):
-                    response = turn_result.response
-                    if not loop_success and has_tool_evidence and not response.content:
-                        # Synthesis recovers presentation, not task completion.
-                        # Preserve the loop/verifier verdict even when an earlier
-                        # read succeeded and the summary claims the work is done.
-                        synthesized = await self.synthesize_from_tool_evidence(
-                            recovery_reason=loop_error,
-                        )
-                        response = synthesized.response
+        # ACT is committed to state before EVALUATE finishes and the iteration is
+        # appended. Preserve that current result if a guard interrupts evaluation.
+        action_result = loop_result.final_state.get("action_result")
+        if action_result is None and last is not None:
+            action_result = last.action_result
+        recovery_allowed = self._allows_post_loop_recovery(loop_result, action_result)
+        # Ordinary presentation recovery retains its recorded-iteration/fallback
+        # contract. Only a terminal stop publishes an unfinished iteration's ACT.
+        response_source = (
+            action_result if not recovery_allowed else (last.action_result if last else None)
+        )
+        response = getattr(response_source, "response", None)
+        if response is not None:
+            if (
+                recovery_allowed
+                and not loop_success
+                and not response.content
+                and self._loop_has_successful_tool_evidence(loop_result)
+            ):
+                # Recover presentation without changing the verifier's verdict.
+                synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
+                response = synthesized.response
+        elif recovery_allowed:
+            response = await self._ensure_complete_response(None, ToolFailureContext())
+        else:
+            # No generated fallback after terminal admission denial. The failed
+            # metadata explains the stop without inventing ungoverned assistant text.
+            response = CompletionResponse(content="", role="assistant")
 
-                    metadata = dict(getattr(response, "metadata", None) or {})
-                    metadata["agentic_loop_success"] = loop_success
-                    metadata["agentic_loop_iterations"] = loop_iterations
-                    if loop_error:
-                        metadata["agentic_loop_error"] = loop_error
-                    response.metadata = metadata
-                    return response
-
-        # Fallback: ensure we have a response
-        failure_context = ToolFailureContext()
-        response = await self._ensure_complete_response(None, failure_context)
-        metadata = dict(getattr(response, "metadata", None) or {})
+        metadata = dict(response.metadata or {})
         metadata["agentic_loop_success"] = loop_success
         metadata["agentic_loop_iterations"] = loop_iterations
         if loop_error:
             metadata["agentic_loop_error"] = loop_error
         response.metadata = metadata
         return response
+
+    @staticmethod
+    def _allows_post_loop_recovery(loop_result: LoopResult, action_result: object) -> bool:
+        """Honor structured terminal stops without reclassifying ordinary failed verification."""
+        from victor.framework.evaluation_nodes import EvaluationDecision
+
+        if loop_result.metadata.get("terminated_by") == "loop_spin_guard":
+            return False
+        if isinstance(action_result, TurnResult) and action_result.disposition.stops_run:
+            return False
+        if loop_result.iterations:
+            evaluation = loop_result.iterations[-1].evaluation
+            if evaluation and evaluation.decision in (EvaluationDecision.ESCALATE, "escalate"):
+                return False
+        return True
 
     async def synthesize_from_tool_evidence(
         self,
