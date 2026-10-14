@@ -664,6 +664,16 @@ class TestRunOneshot:
         from victor.framework.client import _to_stream_event
         from victor.ui.cli import app
 
+        from rich.status import Status
+
+        status_stopped = []
+        original_stop = Status.stop
+
+        def stop_status(status):
+            status_stopped.append(True)
+            original_stop(status)
+
+        monkeypatch.setattr(Status, "stop", stop_status)
         messages = []
         closed = []
 
@@ -681,6 +691,8 @@ class TestRunOneshot:
                 return {}
 
             async def stream(self, message):
+                if stream_flag != "--json":
+                    assert status_stopped, "Initialization spinner must end before execution"
                 messages.append(message)
                 try:
                     yield AgentExecutionEvent(type=EventType.CONTENT, content="Partial evidence")

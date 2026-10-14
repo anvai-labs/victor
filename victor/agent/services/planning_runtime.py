@@ -1397,6 +1397,8 @@ class PlanningRuntimeService:
         from victor.agent.planning.base import StepStatus
 
         for step in getattr(execution_plan, "steps", []) or []:
+            if step.status in (StepStatus.BLOCKED, StepStatus.SKIPPED):
+                continue
             step_result = getattr(step, "result", None) or result.step_results.get(step.id)
             if step_result is None:
                 continue
@@ -1743,13 +1745,12 @@ class PlanningRuntimeService:
                     progress_display.update()
 
                 if failed_step_ids:
-                    # Block effectful dependents of failed steps, but let read-only
-                    # analysis/reporting continue with explicit partial-context notes.
+                    # Keep required dependency edges intact; independent work can continue.
                     self._skip_team_plan_dependents(execution_plan, failed_step_ids)
                     progress_display.update()
                     logger.info(
-                        "Team plan: step(s) %s failed — continuing eligible partial-analysis "
-                        "dependents and blocking effectful dependents.",
+                        "Team plan: step(s) %s failed — required dependents blocked; "
+                        "independent branches may continue.",
                         failed_step_ids,
                     )
         finally:
@@ -2980,114 +2981,16 @@ class PlanningRuntimeService:
                 step.status = StepStatus.SKIPPED
 
     @staticmethod
-    def _step_can_continue_after_failed_deps(step: Any) -> bool:
-        """Return whether a pending step may run with partial upstream evidence.
-
-        Read-only analysis/review/documentation can still produce useful findings when an
-        upstream branch fails. Effectful steps must not run on missing prerequisites.
-        """
-        from victor.agent.planning.base import StepType
-        from victor.agent.planning.team_execution import PlanningTeamExecutionAdapter
-
-        description = str(getattr(step, "description", "") or "").lower()
-        step_type = getattr(step, "step_type", None)
-        step_type_value = str(getattr(step_type, "value", step_type) or "").lower()
-        allowed_tools = {str(tool).lower() for tool in getattr(step, "allowed_tools", []) or []}
-        execution = str(
-            getattr(step, "execution", "")
-            or (getattr(step, "context", {}) or {}).get("execution", "")
-            or ""
-        ).lower()
-
-        effectful_words = {
-            "apply",
-            "change",
-            "commit",
-            "deploy",
-            "edit",
-            "fix",
-            "format",
-            "install",
-            "merge",
-            "migrate",
-            "modify",
-            "patch",
-            "publish",
-            "release",
-            "remove",
-            "run tests",
-            "start server",
-            "update files",
-            "write code",
-        }
-        effectful_tools = {
-            "apply_patch",
-            "edit",
-            "write_file",
-            "delete_file",
-            "git",
-            "cargo",
-            "npm",
-            "pytest",
-            "make",
-            "maturin",
-        }
-        if (
-            step_type in {StepType.IMPLEMENTATION, StepType.TESTING, StepType.DEPLOYMENT}
-            or step_type_value in {"implementation", "testing", "deployment"}
-            or execution in {"tool", "deploy"}
-            or allowed_tools & effectful_tools
-            or any(word in description for word in effectful_words)
-        ):
-            # Report/synthesis artifacts are allowed to run because their purpose is
-            # to explain partial completion, not to mutate source or external state.
-            if not PlanningTeamExecutionAdapter._is_synthesis_step(step):
-                return False
-
-        read_only_types = {
-            StepType.RESEARCH,
-            StepType.REVIEW,
-            StepType.PLANNING,
-        }
-        read_only_words = (
-            "analy",
-            "audit",
-            "catalog",
-            "checklist",
-            "cross-crate",
-            "document",
-            "evaluate",
-            "findings",
-            "inspect",
-            "inventory",
-            "map",
-            "profile",
-            "read",
-            "report",
-            "review",
-            "scan",
-            "summar",
-            "synthesize",
-            "verify",
-        )
-        if PlanningTeamExecutionAdapter._is_synthesis_step(step):
-            return True
-        return bool(
-            step_type in read_only_types
-            or step_type_value in {"research", "review", "planning", "documentation"}
-            or any(word in description for word in read_only_words)
-        )
-
-    @staticmethod
     def _skip_team_plan_dependents(
         execution_plan: "ExecutionPlan",
         failed_step_ids: list[str],
     ) -> None:
         """Mark pending transitive dependents blocked after a failed team-plan step.
 
-        Read-only analysis/review/report steps are exempt: they aggregate partial
-        plan_state and can still produce useful findings when upstream analysis steps
-        partially failed. Effectful dependents remain blocked.
+        Required dependencies remain required even for read-only or report steps.
+        Preserve the declared graph for progress, audit and later explicit replanning;
+        independent branches can still execute. Final run reporting is separate from
+        executing a report step that requires missing evidence.
         """
         from victor.agent.planning.base import StepStatus
         from victor.agent.planning.base import StepResult
@@ -3100,14 +3003,6 @@ class PlanningRuntimeService:
                 if step.status != StepStatus.PENDING:
                     continue
                 if any(dep in failed for dep in step.depends_on):
-                    if PlanningRuntimeService._step_can_continue_after_failed_deps(step):
-                        failed_deps = [dep for dep in step.depends_on if dep in failed]
-                        step.depends_on = [dep for dep in step.depends_on if dep not in failed]
-                        step.context.setdefault("partial_failed_dependencies", []).extend(
-                            failed_deps
-                        )
-                        step.context["partial_execution"] = True
-                        continue
                     failed_deps = [dep for dep in step.depends_on if dep in failed]
                     step.status = StepStatus.BLOCKED
                     step.result = StepResult(

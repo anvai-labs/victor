@@ -88,6 +88,32 @@ class TestLiveAwareLogHandler:
         handler.emit(_record("provider blew up", victor_category="provider"))
         assert "provider blew up" in console.export_text()
 
+    @pytest.mark.parametrize("debug", [False, True])
+    @pytest.mark.parametrize("live", [False, True])
+    @pytest.mark.parametrize("file_first", [False, True])
+    def test_console_traceback_policy_does_not_mutate_file_record(self, debug, live, file_first):
+        import sys
+
+        output, diagnostics = io.StringIO(), io.StringIO()
+        console = Console(file=output, width=200)
+        if live:
+            register_live_console(console)
+        handler = LiveAwareLogHandler(output, show_tracebacks=debug)
+        file_handler = logging.StreamHandler(diagnostics)
+        try:
+            raise RuntimeError("transport unavailable")
+        except RuntimeError:
+            record = _record(
+                "[request-1] Provider temporarily unavailable", exc_info=sys.exc_info()
+            )
+        for target in ([file_handler, handler] if file_first else [handler, file_handler]):
+            target.emit(record)
+        assert "[request-1]" in output.getvalue()
+        assert ("Traceback" in output.getvalue()) == debug
+        assert "Traceback" in diagnostics.getvalue()
+        assert "transport unavailable" in diagnostics.getvalue()
+        assert record.exc_info is not None
+
 
 class TestRendererRegistration:
     def test_start_registers_and_cleanup_unregisters(self):

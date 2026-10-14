@@ -2053,6 +2053,9 @@ async def run_oneshot(
                         "  Continuing without embeddings (some features may be slower).\n"
                     )
 
+            # Execution owns progress from here; the startup label must not remain live.
+            status.stop()
+
             # Planning mode requires non-streaming (plan generation → step execution → summary)
             use_streaming = prepared_state.use_streaming
 

@@ -642,3 +642,29 @@ class TestPhase4CompactionFrequency:
         config = ConversationConfig(compaction_threshold=0.90)
         controller = ConversationController(config=config)
         assert controller.config.compaction_threshold == 0.90
+
+
+def test_lifecycle_strategy_and_query_reach_scorer_without_mutating_config():
+    for configured, selected, semantic in [
+        (CompactionStrategy.TIERED, "semantic", True),
+        (CompactionStrategy.TIERED, "hybrid", True),
+        (CompactionStrategy.SEMANTIC, "tiered", False),
+    ]:
+        controller = ConversationController(
+            config=ConversationConfig(compaction_strategy=configured)
+        )
+        controller.add_message("user", "actual user task")
+        for i in range(10):
+            controller.add_message("assistant", f"Evidence {i}")
+        from victor.agent.conversation.history_metadata import build_internal_history_metadata
+
+        controller.add_message(
+            "user", "internal nudge", metadata=build_internal_history_metadata("nudge")
+        )
+        controller._embedding_service = MagicMock()
+        controller._compute_semantic_similarity = MagicMock(return_value=0.5)
+        controller.compact_context(strategy=selected, min_messages=2)
+        assert controller.config.compaction_strategy is configured
+        assert controller._compute_semantic_similarity.called is semantic
+        for call in controller._compute_semantic_similarity.call_args_list:
+            assert call.args[1] == "actual user task"

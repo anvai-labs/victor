@@ -31,16 +31,27 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, Sequence
 
 from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
+from victor.providers.base import Message as ProviderMessage
 
 from victor.agent.runtime.context import AgentRuntimeContext
 
 logger = logging.getLogger(__name__)
 
-# Message is a dict with 'role' and 'content' keys
-Message = Dict[str, Any]
+Message = Dict[str, Any] | ProviderMessage
+
+
+class CompactionHistory(Protocol):
+    """Live provider history with an owned, invariant-preserving compactor."""
+
+    @property
+    def messages(self) -> Sequence[ProviderMessage]: ...
+
+    def compact_context(self, *, strategy: str, min_messages: int) -> int: ...
+
+
 _VALID_COMPACTION_STRATEGIES = frozenset({"simple", "tiered", "semantic", "hybrid"})
 _LOCAL_PROVIDER_NAMES = frozenset(LOCAL_CLASS_PROVIDERS)
 
@@ -357,6 +368,7 @@ class ContextService:
         self,
         strategy: str = "tiered",
         min_messages: int = 6,
+        history: Optional[CompactionHistory] = None,
     ) -> int:
         """Compact context to fit within limits.
 
@@ -374,8 +386,13 @@ class ContextService:
         if original_count <= min_messages:
             return 0
 
-        # Keep the most recent messages
-        self._messages = self._messages[-min_messages:]
+        if history is None:
+            self._messages = self._messages[-min_messages:]
+        else:
+            # The controller owns provider-history invariants. Never compact only
+            # a detached metrics snapshot while claiming the request was reduced.
+            history.compact_context(strategy=strategy, min_messages=min_messages)
+            self._messages = list(history.messages)
 
         removed = original_count - len(self._messages)
         saved_tokens = max(0, original_tokens - self.get_context_size())
@@ -418,6 +435,7 @@ class ContextService:
         task_type: str = "",
         min_messages: int = 6,
         default_strategy: str = "tiered",
+        history: Optional[CompactionHistory] = None,
     ) -> Dict[str, Any]:
         """Compact proactively before injecting large tool-output payloads."""
         decision = _build_tool_output_compaction_decision(
@@ -436,6 +454,7 @@ class ContextService:
         removed = await self.compact_context(
             strategy=str(decision["strategy"] or default_strategy),
             min_messages=min_messages,
+            history=history,
         )
         decision["messages_removed"] = removed
         decision["compacted"] = removed > 0
@@ -1360,6 +1379,7 @@ class ContextServiceRegistry:
         *,
         strategy: Optional[str] = None,
         min_messages: Optional[int] = None,
+        history: Optional[CompactionHistory] = None,
     ) -> Dict[str, Any]:
         """Compact only the context for the provided agent runtime session."""
         service = self.get_or_create(runtime_context)
@@ -1380,6 +1400,7 @@ class ContextServiceRegistry:
         removed = await service.compact_context(
             strategy=strategy or self._config.default_compaction_strategy,
             min_messages=min_messages or self._config.min_messages_to_keep,
+            history=history,
         )
         metrics_after = await service.get_context_metrics()
         return {

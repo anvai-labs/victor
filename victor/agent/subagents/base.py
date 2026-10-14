@@ -497,7 +497,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
         finally:
             current_member_approval_handler.reset(_approval_token)
 
-        orchestrator._runtime_identity.bind_member(self._get_runtime_context())
+        orchestrator._get_session_runtime().bind_member(self._get_runtime_context())
 
         # Inherit parent's vertical context via flyweight pattern
         parent_vc = self._context.vertical_context

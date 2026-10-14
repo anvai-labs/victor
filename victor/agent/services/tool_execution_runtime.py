@@ -408,6 +408,7 @@ class ToolExecutionRuntime:
             runtime_context,
             estimated_output_tokens=estimated_output_tokens,
             messages=messages,
+            history=getattr(runtime, "_conversation_controller", None),
             provider_name=self._resolve_provider_name(runtime),
             model_name=str(getattr(runtime, "model", "") or ""),
             task_type=str(

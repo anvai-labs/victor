@@ -348,7 +348,14 @@ def _make_constrained(
             self._vertical_context = None
             self.active_session_id = None
             self._memory_session_id = None
+            self.memory_manager = None
+            self._session_service = None
             self._runtime_identity = RuntimeIdentity(self)
+
+        def _get_session_runtime(self):
+            from victor.agent.services.session_runtime import SessionRuntime
+
+            return SessionRuntime(self)
 
     import victor.agent.orchestrator as orch_module
 

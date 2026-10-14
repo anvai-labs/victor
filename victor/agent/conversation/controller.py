@@ -484,22 +484,61 @@ class ConversationController:
         if len(self.messages) <= keep_recent + 1:  # +1 for system message
             return 0
 
-        # Keep system message and recent messages
-        system_msg = None
-        if self.messages and self.messages[0].role == "system":
-            system_msg = self.messages[0]
-
-        recent = self.messages[-keep_recent:]
-        removed = len(self.messages) - keep_recent - (1 if system_msg else 0)
-
+        original = list(self.messages)
+        retained = self._required_history_indices(
+            original, set(range(max(0, len(original) - keep_recent), len(original)))
+        )
+        removed = len(original) - len(retained)
         self._history.clear()
-        if system_msg:
-            self._history.append_message(system_msg)
-        for msg in recent:
-            self._history.append_message(msg)
+        for index in sorted(retained):
+            self._history.append_message(original[index])
 
         logger.info(f"Compacted history: removed {removed} messages")
         return removed
+
+    @staticmethod
+    def _required_history_indices(messages: List[Message], selected: set[int]) -> set[int]:
+        """Preserve instructions, user intent and complete tool batches for every strategy."""
+        from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
+        from victor.agent.conversation.history_metadata import is_user_turn
+
+        retained = set(selected)
+        latest_user = None
+        latest_assistant = None
+        owners: Dict[str, int] = {}
+        results: Dict[str, set[int]] = {}
+        for index, message in enumerate(messages):
+            if message.role in {"system", "developer"}:
+                retained.add(index)
+            if is_user_turn(message.role, message.metadata):
+                latest_user = index
+                if (message.metadata or {}).get(
+                    MESSAGE_SOURCE_METADATA_KEY
+                ) == MessageSource.USER_TYPED.value:
+                    retained.add(index)
+            if message.role == "assistant":
+                latest_assistant = index
+                for call in message.tool_calls or []:
+                    call_id = call.get("id")
+                    if call_id:
+                        owners[call_id] = index
+            if message.role == "tool" and message.tool_call_id:
+                results.setdefault(message.tool_call_id, set()).add(index)
+        if latest_user is not None:
+            retained.add(latest_user)
+        if latest_assistant is not None:
+            retained.add(latest_assistant)
+        retained.update(owner for call_id, owner in owners.items() if call_id not in results)
+        # Retaining one response retains its declaring assistant and the complete
+        # response batch; retaining an assistant similarly retains every response.
+        for index in tuple(retained):
+            call_id = messages[index].tool_call_id
+            if call_id in owners:
+                retained.add(owners[call_id])
+        for call_id, owner in owners.items():
+            if owner in retained:
+                retained.update(results.get(call_id, set()))
+        return retained
 
     def _should_compact(self, current_utilization: float) -> bool:
         """Check if compaction should be triggered based on threshold and minimum interval.
@@ -535,12 +574,27 @@ class ConversationController:
 
         return True
 
+    def compact_context(self, *, strategy: str, min_messages: int) -> int:
+        """Apply lifecycle compaction to the actual provider conversation."""
+        from victor.agent.conversation.history_metadata import is_user_turn
+
+        return self.smart_compact_history(
+            target_messages=min_messages,
+            current_query=next(
+                (m.content for m in reversed(self.messages) if is_user_turn(m.role, m.metadata)),
+                None,
+            ),
+            force=True,
+            strategy=CompactionStrategy(strategy),
+        )
+
     def smart_compact_history(
         self,
         target_messages: Optional[int] = None,
         current_query: Optional[str] = None,
         task_type: Optional[str] = None,
         force: bool = False,
+        strategy: Optional[CompactionStrategy] = None,
     ) -> int:
         """Smart context compaction using configured strategy.
 
@@ -584,7 +638,7 @@ class ConversationController:
         else:
             target = target_messages or self.config.min_messages_to_keep
 
-        strategy = self.config.compaction_strategy
+        strategy = strategy or self.config.compaction_strategy
 
         if len(self.messages) <= target + 1:  # +1 for system message
             return 0
@@ -621,142 +675,18 @@ class ConversationController:
             self._history._messages = _TrackedList(normalized)
 
         # Score all messages for importance
-        scored_messages = self._score_messages(current_query=current_query)
+        scored_messages = self._score_messages(current_query=current_query, strategy=strategy)
 
         # Sort by score (descending) and keep top N
         scored_messages.sort(key=lambda x: x.score, reverse=True)
 
-        # ALWAYS keep root system message (at index 0) for caching stability
-        # AND keep the most recent system message if it differs from the root.
-        system_msgs_to_keep = []
-        if (
-            self.messages
-            and hasattr(self.messages[0], "role")
-            and self.messages[0].role == "system"
-        ):
-            system_msgs_to_keep.append(self.messages[0])
-            # Remove from scored list to handle separately
-            scored_messages = [sm for sm in scored_messages if sm.index != 0]
-
-        # Find any other system messages (e.g. dynamic instructions)
-        # We only want to keep the MOST RECENT one if there are many.
-        other_system_msgs = [sm for sm in scored_messages if sm.message.role == "system"]
-        if other_system_msgs:
-            # Sort by index to find the last one
-            other_system_msgs.sort(key=lambda x: x.index)
-            recent_system = other_system_msgs[-1]
-            # If it's different from root, we might want to keep it
-            if recent_system.message.content != system_msgs_to_keep[0].content:
-                system_msgs_to_keep.append(recent_system.message)
-
-            # Remove all other system messages from the candidates
-            system_indices = {sm.index for sm in other_system_msgs}
-            scored_messages = [sm for sm in scored_messages if sm.index not in system_indices]
-
-        # Keep top messages (up to target)
-        messages_to_keep = scored_messages[:target]
-
-        # Ensure balanced representation: Guaranteed Role Minimums
-        # We need at least 1 USER and 1 ASSISTANT (as requested by user fix)
-        # but also ensure they don't get buried if target is small.
-        kept_roles = {sm.message.role for sm in messages_to_keep}
-        # Build once and maintain — reused for tool-call pair preservation below.
-        kept_indices = {sm.index for sm in messages_to_keep}
-
-        # 1. Ensure USER message survives (at least one)
-        if "user" not in kept_roles:
-            for sm in scored_messages[target:]:
-                if sm.message.role == "user":
-                    messages_to_keep.append(sm)
-                    kept_indices.add(sm.index)
-                    break
-
-        # 2. Protect ALL USER_TYPED messages — they are inviolable ground truth.
-        # Nudges and synthetic injections may be dropped, but never actual user input.
-        from victor.agent.conversation.types import (
-            MESSAGE_SOURCE_METADATA_KEY,
-            MessageSource,
+        kept_indices = self._required_history_indices(
+            list(self.messages), {message.index for message in scored_messages[:target]}
         )
-
-        for sm in scored_messages[target:]:
-            src_raw = getattr(sm.message, "metadata", {}) or {}
-            if (
-                isinstance(src_raw, dict)
-                and src_raw.get(MESSAGE_SOURCE_METADATA_KEY) == MessageSource.USER_TYPED.value
-            ):
-                if sm.index not in kept_indices:
-                    messages_to_keep.append(sm)
-                    kept_indices.add(sm.index)
-
-        # 3. Ensure ASSISTANT message survives (the most recent one)
-        if "assistant" not in kept_roles:
-            # Look backwards from all scored messages for the latest assistant turn
-            for sm in reversed(scored_messages):
-                if sm.message.role == "assistant":
-                    messages_to_keep.append(sm)
-                    kept_indices.add(sm.index)
-                    break
-
-        # Preserve tool-call pairs: if an assistant message with tool_calls
-        # is kept, ensure its corresponding tool responses are also kept.
-        # Likewise, if a tool response is kept, retain the assistant message
-        # that declared its tool_call_id. This keeps provider history valid
-        # after compaction instead of relying on destructive request-time repair.
-        # This prevents orphaned tool_calls that cause HTTP 400 on Z.AI/OpenAI.
-        all_messages = self._history._messages  # Use normalized list
-        tool_call_owners = {}
-        for i, msg in enumerate(all_messages):
-            if getattr(msg, "role", "") != "assistant" or not getattr(msg, "tool_calls", None):
-                continue
-            for tc in msg.tool_calls:
-                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-                if tc_id:
-                    tool_call_owners[tc_id] = i
-
-        for sm in list(messages_to_keep):
-            if sm.message.role == "assistant" and getattr(sm.message, "tool_calls", None):
-                for tc in sm.message.tool_calls:
-                    tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-                    if tc_id:
-                        for i, msg in enumerate(all_messages):
-                            if (
-                                getattr(msg, "role", "") == "tool"
-                                and getattr(msg, "tool_call_id", "") == tc_id
-                                and i not in kept_indices
-                            ):
-                                messages_to_keep.append(
-                                    MessageImportance(msg, i, 999.0, "paired_tool_response")
-                                )
-                                kept_indices.add(i)
-            elif sm.message.role == "tool" and getattr(sm.message, "tool_call_id", None):
-                owner_index = tool_call_owners.get(sm.message.tool_call_id)
-                if owner_index is not None and owner_index not in kept_indices:
-                    owner_msg = all_messages[owner_index]
-                    messages_to_keep.append(
-                        MessageImportance(owner_msg, owner_index, 999.0, "paired_tool_call")
-                    )
-                    kept_indices.add(owner_index)
-
-        for sm in list(messages_to_keep):
-            if sm.message.role != "assistant" or not getattr(sm.message, "tool_calls", None):
-                continue
-            for tc in sm.message.tool_calls:
-                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-                if not tc_id:
-                    continue
-                for i, msg in enumerate(all_messages):
-                    if (
-                        getattr(msg, "role", "") == "tool"
-                        and getattr(msg, "tool_call_id", "") == tc_id
-                        and i not in kept_indices
-                    ):
-                        messages_to_keep.append(
-                            MessageImportance(msg, i, 999.0, "paired_tool_response")
-                        )
-                        kept_indices.add(i)
-
-        # Sort by original index to maintain conversation order
-        messages_to_keep.sort(key=lambda x: x.index)
+        messages_to_keep = sorted(
+            (message for message in scored_messages if message.index in kept_indices),
+            key=lambda message: message.index,
+        )
 
         # Generate summary of removed messages
         removed_indices = {sm.index for sm in scored_messages if sm.index not in kept_indices}
@@ -776,12 +706,8 @@ class ConversationController:
                 self.persist_compaction_summary(summary, message_ids)
 
         # Rebuild message list
-        removed_count = len(self.messages) - len(messages_to_keep) - len(system_msgs_to_keep)
+        removed_count = len(self.messages) - len(messages_to_keep)
         self._history.clear()
-
-        # Add preserved system messages first (Root + Recent Dynamic)
-        for msg in system_msgs_to_keep:
-            self._history.append_message(msg)
 
         # Add conversation messages in their original chronological order
         messages_to_keep.sort(key=lambda x: x.index)
@@ -798,6 +724,7 @@ class ConversationController:
         self,
         messages: Optional[List[Message]] = None,
         current_query: Optional[str] = None,
+        strategy: Optional[CompactionStrategy] = None,
     ) -> List[MessageImportance]:
         """Score messages for importance during compaction.
 
@@ -912,7 +839,7 @@ class ConversationController:
 
         # Build embedding function if semantic scoring is enabled
         embedding_fn = None
-        if self._embedding_service and self.config.compaction_strategy in (
+        if self._embedding_service and (strategy or self.config.compaction_strategy) in (
             CompactionStrategy.SEMANTIC,
             CompactionStrategy.HYBRID,
         ):

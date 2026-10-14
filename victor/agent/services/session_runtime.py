@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
+from victor.agent.runtime.context import AgentRuntimeContext, require_runtime_context
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +23,25 @@ class SessionRuntime:
     ) -> None:
         self._runtime = runtime_host
         self._validate_session = validate_session
+
+    def bind_member(self, context: AgentRuntimeContext) -> None:
+        """Register a member's canonical session before publishing its identity."""
+        context = require_runtime_context(lambda: context)
+        runtime = self._runtime
+        identity = runtime._runtime_identity
+        identity.validate_session_transition(context.session_id)
+        store = runtime.memory_manager
+        if store is not None:
+            if store.get_session(context.session_id) is None:
+                store.create_session(
+                    session_id=context.session_id,
+                    provider=runtime.provider_name,
+                    model=runtime.model,
+                )
+            runtime._conversation_controller.set_conversation_store(store, context.session_id)
+            runtime._memory_session_id = context.session_id
+        identity.bind_member(context)
+        self.sync_runtime_state()
 
     def sync_runtime_state(self) -> None:
         """Keep SessionService bound to the current live runtime state."""

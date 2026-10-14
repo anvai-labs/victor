@@ -67,7 +67,8 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **UX-01 self-audit failure recovery — NEXT** — owner: Victor co-design session.
+- **UX-01 self-audit failure recovery — LOCAL_PASS** — owner: Victor co-design session;
+  branch `fix/self-audit-ux-recovery`, baseline `0839c34d3c17c43c1828b48555d8e25fca85b8e0`.
   The user's 2026-10-13 21:36–21:40 `homelab-openai-subscription` run failed its
   first inventory step with a retryable OpenAI transport 502 (`cec7bdad`). Its
   required dependent nevertheless ran because `planning_runtime` removed failed
@@ -75,19 +76,63 @@ edit. A mock test is not live provider or C5 evidence.
   21 failed compaction-audit inserts (SQLite foreign-key violations); the startup
   embedding spinner remained visible during execution. Sanitized evidence is
   preserved locally in `var/codegraph-victor-20261012/ux-self-audit-incident.json`.
-  Next after the executor increment: preserve required dependency edges and block
-  dependent work unless an explicit structured partial-input contract permits it;
-  report partial/blocked outcomes truthfully; investigate session registration and
-  whether compacted history reaches provider requests; end initialization status
-  before execution. Use existing planning, context, SQLite and CLI test owners.
-  Prove failed-prerequisite non-dispatch, independent-branch continuation, durable
-  audit/session joins, retained tool-call/result integrity and actual status
-  transitions before claiming repair. The gateway was running, but its journal
-  did not explain the upstream 502; root cause and live rerun remain unverified.
+  Implemented locally: preserve required dependency edges and block dependents;
+  retain independent branches and blocked status through evidence validation;
+  register the member session before identity publication; persist sessions before
+  publishing them in the store cache; compact actual provider history through a
+  typed history port; preserve genuine user intent and complete/pending tool-call
+  batches in simple and scored compaction; stop startup status before execution.
+  Normal console errors retain the error/request ID, with full tracebacks in file
+  logs and debug mode. Existing test owners cover these contracts; unsafe heuristic
+  expectations were replaced rather than retained alongside conflicting tests.
+  Broad validation: 2,654 pass, seven skip, one sandbox keychain permission failure;
+  that exact test passes outside the sandbox. The final controller/lifecycle matrix
+  passes 61 cases. Independent review passed 88 cases and both original retention
+  reproducers; its pending-call fixture correction is applied and passes.
+  Final selected validation passes 894 tests (seven skips). A redundant mock-only
+  session failure test was then folded into the stronger SQLite test: nine final
+  session tests pass, with identical executed lines in SessionRuntime (51) and
+  store_session (80). MyPy passes 2,003 files; 34,963 tests collect. Black/Ruff,
+  repository hygiene, documentation drift and diff checks pass. CI selection now
+  maps the extracted controller/store and CLI logging owner to their existing suites.
+  The gateway journal did not explain the original upstream 502; its root cause
+  remains unverified. A new bounded CLI read smoke passed on the selected profile;
+  this is not a replay of the failed eight-step audit or C5 acceptance.
   Prompt wording about “plan mode” is not evidence that CLI `--mode plan` was set;
   preserve configured approval policy while clarifying preview versus execution.
+  Next: exact-commit review, PR/CI and merge;
+  then qualify the full audit and browser recovery without whole-member replay.
 
-- **LOOP-03 executor configuration ownership — LOCAL_PASS** — owner: Victor co-design session;
+- **UX-02 real web-chat qualification — ACTIVE** — same owner/worktree as UX-01;
+  browser findings are a following UI increment. `victor ui` launches the existing
+  Chainlit web chat using `VictorClient`; `victor serve` is the HTTP API, and its
+  `--mode` selects agent behavior rather than a browser frontend. The workflow
+  visualizer remains distinct from both chat and the planned authoring editor.
+  Launched loopback `http://127.0.0.1:8767` with
+  `--profile homelab-openai-subscription`, using `gpt-6-sol` through the configured
+  Sandhi endpoint. AgentBrowser 1.17.0 ran headed on a separate explicitly approved
+  loopback-enabled instance; the original browser service was preserved.
+  New actual UI evidence: `read(pyproject.toml)` returned the correct project name
+  and Python floor with lines 20/28; a second `read(CLAUDE.md)` produced a grounded
+  architecture explanation. No source files were modified by either agent task.
+  Runtime session: `39df2e77-2890-40d7-9e3b-338b49bf6fa0`.
+  Confirmed gaps: generic Assistant branding; settings initially show empty
+  provider/profile selections; the custom Stop action is disabled while running;
+  several icon buttons lack accessible names. The first native stop attempt arrived
+  after completion; a second active-turn attempt passed: UI showed “Turn stopped”
+  and “Task manually stopped,” and the runtime recorded `success=False`. This proves
+  local turn cancellation, not upstream-origin cancellation. Inspect actual Chainlit
+  widgets and lifecycle callbacks, approval tool aliases, settings rebuild/history
+  behavior, cancellation, failed outcomes and usage/request joins before acceptance.
+  Source inspection found `Select(initial=...)` is overwritten by Chainlit's
+  `initial_value`/`initial_index` resolution, and settings are sent before lazy client
+  initialization. Mock-widget tests did not exercise that installed widget contract.
+  Preserve evidence under `var/codegraph-victor-20261012/ux-web-*`; do not claim
+  OIDC, full workflow authoring, gateway accounting reconciliation or C5 from these
+  two chat turns. Keep provider credentials server-side. The local web chat has no
+  configured user authentication and must remain loopback-only for this test.
+
+- **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
   branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.
   Resolve the existing executor choice from session settings once before admission;
   carry the concrete selection to dispatch. Reject invalid values, resolver failures
@@ -99,8 +144,11 @@ edit. A mock test is not live provider or C5 evidence.
   Independent review caught and fixed positional-config compatibility and early
   verifier rejection; a minimal delivery fixture now supplies session settings.
   Default and explicit modes, concurrent session isolation and admission-time
-  configuration changes are covered in existing suites. Next: exact-commit review,
-  PR/CI and squash merge; no live provider or C5 claim.
+  configuration changes are covered in existing suites. Source
+  `ed10a898c08f6dafb41ca0564c5e343ad480428a` passed independent review and
+  40 CI checks; merge `0839c34d3c17c43c1828b48555d8e25fca85b8e0`.
+  Two intentional skips and one neutral historical Trivy comparison remained;
+  blocking security checks passed. No live provider or C5 claim.
 
 - **LOOP-03 terminal recovery admission — MERGED, [#1345](https://github.com/anvai-labs/victor/pull/1345)** — owner: Victor co-design session;
   branch `fix/terminal-recovery-admission`, baseline
@@ -1916,7 +1964,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication ✅ #1344; terminal post-loop recovery admission ✅ #1345; executor configuration ACTIVE (current checkpoint); team/forced adapter routing and StateGraph parity remain open |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication ✅ #1344; terminal post-loop recovery admission ✅ #1345; executor configuration ✅ #1346; team/forced adapter routing and StateGraph parity remain open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
