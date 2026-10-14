@@ -20,6 +20,8 @@ build the Graph-RAG codegraph the marker-aware graph tooling reads.
 """
 
 import inspect
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -44,9 +46,90 @@ def test_unfrozen_resolver_still_consults_injector(monkeypatch):
     from victor.agent.evolved_content_resolver import EvolvedContentResolver
 
     monkeypatch.delenv("VICTOR_FROZEN_PROMPTS", raising=False)
-    resolver = EvolvedContentResolver(optimization_injector=None)
+    injector = Mock()
+    injector.get_section_payload.return_value = {"text": "selected candidate"}
+    resolver = EvolvedContentResolver(optimization_injector=injector)
     resolved = resolver.resolve_section("X", fallback_text="fb")
-    assert resolved.text == "fb"
+    assert resolved.text == "selected candidate"
+    assert resolved.source == "evolved"
+    injector.get_section_payload.assert_called_once()
+
+
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_frozen_turn_guidance_excludes_learned_content_and_attribution(monkeypatch, warm_cache):
+    from victor.agent.optimization_injector import OptimizationInjector
+    from victor.agent.services.runtime_intelligence import (
+        PromptOptimizationIdentity,
+        RuntimeIntelligenceService,
+    )
+
+    monkeypatch.delenv("VICTOR_FROZEN_PROMPTS", raising=False)
+    injector = OptimizationInjector()
+    section = "ASI_TOOL_EFFECTIVENESS_GUIDANCE"
+    sample = Mock(
+        return_value={
+            "text": "changing candidate",
+            "section_name": section,
+            "prompt_candidate_hash": "candidate-1",
+            "source": "candidate",
+        }
+    )
+    monkeypatch.setattr(injector, "_sample_evolved_payload", sample)
+    if warm_cache:
+        injector.get_section_payload(section, "test", "test", "default")
+        injector._few_shot_payload_cache[("query", "test", "test", "default")] = {
+            "text": "changing example",
+            "prompt_candidate_hash": "example-1",
+        }
+    service = RuntimeIntelligenceService(
+        task_analyzer=None,
+        perception_integration=None,
+        optimization_injector=injector,
+        decision_service=None,
+    )
+    memory = Mock(return_value={"experiment_memory_next_candidate_hints": ["changing hint"]})
+    monkeypatch.setattr(service, "get_experiment_routing_context", memory)
+    context = SimpleNamespace(
+        provider_name="test",
+        model="test",
+        task_type="default",
+        last_turn_failed=True,
+        last_failure_category="file_not_found",
+        last_failure_error="missing file",
+    )
+    # Simulate an earlier unfrozen turn so stale reward identities must be replaced.
+    service._last_served_prompt_identities = [
+        PromptOptimizationIdentity(prompt_candidate_hash="previous-candidate")
+    ]
+    sample.reset_mock()
+    memory.reset_mock()
+    monkeypatch.setenv("VICTOR_FROZEN_PROMPTS", "1")
+
+    bundle = service.get_prompt_optimization_bundle("query", context)
+
+    static = injector._build_static_fallback_payload(section, "test")
+    assert static is not None
+    assert bundle.evolved_sections == [static["text"]]
+    assert bundle.few_shots is None
+    assert bundle.experiment_guidance == []
+    assert bundle.experiment_memory_hints == {}
+    assert bundle.failure_hint == injector.get_failure_hint("file_not_found", "missing file")
+    assert bundle.failure_hint
+    assert all(identity.prompt_candidate_hash is None for identity in bundle.identities)
+    assert service._last_served_prompt_identities == []
+    sample.assert_not_called()
+    memory.assert_not_called()
+
+
+def test_frozen_baseline_rejects_explicit_candidate_binding(monkeypatch):
+    from victor.agent.optimization_injector import OptimizationInjector
+
+    monkeypatch.setenv("VICTOR_FROZEN_PROMPTS", "1")
+    with pytest.raises(ValueError, match="frozen"):
+        OptimizationInjector().bind_prompt_candidate(
+            section_name="COMPLETION_GUIDANCE",
+            prompt_candidate_hash="candidate-1",
+        )
 
 
 def test_setup_threads_build_graph_rag():

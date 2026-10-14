@@ -48,6 +48,7 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from victor.config.settings import get_project_paths
+from victor.config.prompt_optimization_settings import frozen_prompts_enabled
 from victor.core.async_utils import run_sync
 from victor.ui.commands.utils import setup_logging
 
@@ -922,8 +923,8 @@ def run_benchmark(
         "--frozen-prompts",
         help=(
             "A/B hygiene: run on static baseline prompts (ignore evolved "
-            "candidates) and skip post-run prompt evolution, so comparison "
-            "arms see identical prompts."
+            "candidates, learned few-shots and experiment prompt hints) and skip "
+            "post-run prompt evolution. Task context and recovery hints still vary."
         ),
     ),
     model: Optional[str] = typer.Option(
@@ -1157,7 +1158,7 @@ def run_benchmark(
     # Auto-evolve: run GEPA evolution after benchmark completes
     # This is the "post-session hook" from Memory Scaling — the agent
     # improves its prompts automatically after each benchmark run.
-    if os.environ.get("VICTOR_FROZEN_PROMPTS"):
+    if frozen_prompts_enabled():
         logger.debug("Auto-evolve skipped: frozen prompts requested")
     elif metrics["total_tasks"] >= 5:  # Only evolve with enough data
         try:

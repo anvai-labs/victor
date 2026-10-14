@@ -132,6 +132,9 @@ RELATED_TESTS = {
         "tests/unit/agent/conversation/test_message_source.py",
     ),
     "victor/agent/services/task_runtime.py": ("tests/unit/agent/test_task_coordinator.py",),
+    "victor/config/prompt_optimization_settings.py": (
+        "tests/unit/evaluation/test_benchmark_ab_hygiene.py",
+    ),
     "victor/storage/vector_stores/models.py": ("tests/unit/embeddings/test_embedding_models.py",),
     # Text policy and Python stream ownership are tested once across providers,
     # rather than copied into provider-named mirror suites.

@@ -2124,7 +2124,8 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   after the per-session nonce outside `UnifiedPromptPipeline`, truncating the
   reusable system prefix. A scoped source repair consolidates complete assembly
   in the existing service/pipeline and extends the existing integration tests;
-  CI/merge pending. Duplicate evolved tool-effectiveness guidance (573 local
+  merged in #1355 with 39 successful CI checks. Duplicate evolved tool-effectiveness
+  guidance (573 local
   proxy tokens), stochastic completion variants, incorrect read-only/negation
   classification and shell-triggered database guidance remain. A direct Codex
   continuation observed 12,416 cached of 12,638 input tokens, but small uncontrolled
@@ -2133,6 +2134,25 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   all authoritative instructions and distinct session identities; do not equate
   better prefix layout with guaranteed backend reuse. Project-instruction deletion
   invalidation and persistent explicit-override lifetime also need separate tests.
+  Follow-up measurements found that `VICTOR_FROZEN_PROMPTS` did not cover learned
+  turn sections, few-shots or experiment prompt hints. The scoped control repair
+  gates these before cache access, retains static/error guidance and rejects
+  contradictory candidate bindings; source-qualified, CI/merge pending. It does
+  not freeze learned routing/planning or change an already-created session.
+  Sixteen successful direct model calls confirmed correct bounded answers and
+  reconciled usage, but freezing slightly increased first-request input and cache
+  results varied: keep it opt-in. Startup profiling additionally found repeated
+  feedback loading and YAML parsing; unprofiled cold client initialization took
+  1.842 seconds. A separate synthetic transport-interception diagnostic measured
+  6.565 additional seconds before the first request and peak RSS growth from
+  271 to 934 MB; all dispatches were intercepted, not actual-member evidence.
+  Profile dependency/retrieval activation and preserve service scope before
+  consolidating initialization or claiming a memory/latency improvement.
+  Synthetic document probes found that a disabled block can suppress a later
+  enabled duplicate in `PromptDeduplicationProcessor`. Default case-folding and
+  insertion-order deduplication also need explicit policy before reuse across
+  authoritative prompt placements. Extend the existing document/builder tests;
+  do not optimize away active guidance or distinct case-sensitive identifiers.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
