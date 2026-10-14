@@ -10,7 +10,7 @@ import pytest
 
 from victor.agent.coordinators.state_context import CoordinatorResult, TransitionBatch
 from victor.agent.orchestrator import AgentOrchestrator
-from victor.agent.services.turn_execution_runtime import TurnExecutor, TurnResult
+from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnExecutor, TurnResult
 from victor.agent.topology_contract import TopologyAction, TopologyKind
 from victor.agent.topology_grounder import GroundedTopologyPlan
 from victor.core.errors import ProviderPolicyError
@@ -469,8 +469,17 @@ async def test_execute_via_agentic_loop_passes_conversation_history_to_loop():
             {"role": "user", "content": "previous"},
             {"role": "assistant", "content": "previous answer"},
         ]
-        return SimpleNamespace(
-            iterations=[SimpleNamespace(action_result=SimpleNamespace(response=response))]
+        return LoopResult(
+            success=True,
+            final_state={},
+            total_duration=0.0,
+            iterations=[
+                LoopIteration(
+                    iteration=1,
+                    stage=LoopStage.ACT,
+                    action_result=SimpleNamespace(response=response),
+                )
+            ],
         )
 
     loop_instance.run = AsyncMock(side_effect=_loop_run)
@@ -518,14 +527,19 @@ async def test_execute_via_agentic_loop_seeds_tool_budget_above_ten():
 
     async def _loop_run(query: str, context=None, conversation_history=None):
         received_context.update(context or {})
-        return SimpleNamespace(
+        return LoopResult(
+            success=True,
+            final_state={},
+            total_duration=0.0,
             iterations=[
-                SimpleNamespace(
+                LoopIteration(
+                    iteration=1,
+                    stage=LoopStage.ACT,
                     action_result=SimpleNamespace(
                         response=CompletionResponse(content="ok", role="assistant")
-                    )
+                    ),
                 )
-            ]
+            ],
         )
 
     loop_instance = MagicMock()
@@ -576,14 +590,19 @@ async def test_execute_via_agentic_loop_does_not_seed_tool_budget_at_or_below_te
 
     async def _loop_run(query: str, context=None, conversation_history=None):
         received_context.update(context or {})
-        return SimpleNamespace(
+        return LoopResult(
+            success=True,
+            final_state={},
+            total_duration=0.0,
             iterations=[
-                SimpleNamespace(
+                LoopIteration(
+                    iteration=1,
+                    stage=LoopStage.ACT,
                     action_result=SimpleNamespace(
                         response=CompletionResponse(content="ok", role="assistant")
-                    )
+                    ),
                 )
-            ]
+            ],
         )
 
     loop_instance = MagicMock()
@@ -627,11 +646,15 @@ async def test_execute_via_agentic_loop_marks_failed_loop_response_metadata():
     executor._is_question_only = MagicMock(return_value=False)
 
     response = CompletionResponse(content="partial", role="assistant")
-    evaluation = SimpleNamespace(reason="Insufficient progress")
-    loop_result = SimpleNamespace(
+    evaluation = EvaluationResult(decision=EvaluationDecision.FAIL, reason="Insufficient progress")
+    loop_result = LoopResult(
         success=False,
+        final_state={},
+        total_duration=0.0,
         iterations=[
-            SimpleNamespace(
+            LoopIteration(
+                iteration=1,
+                stage=LoopStage.EVALUATE,
                 action_result=SimpleNamespace(response=response),
                 evaluation=evaluation,
             )
@@ -650,27 +673,55 @@ async def test_execute_via_agentic_loop_marks_failed_loop_response_metadata():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "loop_error,synthesized_content,policy",
+    "loop_error,synthesized_content,policy,stop",
     [
         (
             "Agent stuck: 3 turns without tool calls",
             "Cargo.toml defines a Rust workspace with clients/rust included.",
             "absent",
+            None,
         ),
-        ("Verification failed: tests did not pass", "The implementation is complete.", "absent"),
+        (
+            "Verification failed: tests did not pass",
+            "The implementation is complete.",
+            "absent",
+            None,
+        ),
         (
             "Verification failed: tests did not pass",
             "I was unable to generate a complete response.",
             "absent",
+            None,
         ),
-        ("Verification failed: tests did not pass", "", "absent"),
-        ("Verification failed", "synthetic private output", "redact"),
-        ("Verification failed", "synthetic private output", "deny"),
-        ("Verification failed", "synthetic private output", "empty"),
+        ("Verification failed: tests did not pass", "", "absent", None),
+        ("Verification failed", "synthetic private output", "redact", None),
+        ("Verification failed", "synthetic private output", "deny", None),
+        ("Verification failed", "synthetic private output", "empty", None),
+        *[
+            ("Stopped", "must not be generated", "absent", disposition)
+            for disposition in (
+                TurnDisposition.COMPLETION_CANDIDATE,
+                TurnDisposition.RECOVERY_EXHAUSTED,
+                TurnDisposition.BUDGET_EXHAUSTED,
+                TurnDisposition.FORCED_STOP,
+            )
+        ],
+        ("Needs human review", "must not be generated", "absent", "escalate"),
+        ("Needs human review", "must not be generated", "absent", EvaluationDecision.ESCALATE),
+        ("stale evaluation", "must not be generated", "absent", "guard-empty"),
+        ("stale evaluation", "must not be generated", "absent", "guard-current"),
+        ("stale evaluation", "must not be generated", "absent", "guard-no-act"),
+        ("Evaluation unavailable", "Recovered presentation", "absent", "recoverable-incomplete"),
+        (
+            "Evaluation unavailable",
+            "Recovered presentation",
+            "absent",
+            "recoverable-after-recorded",
+        ),
     ],
 )
 async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
-    loop_error, synthesized_content, policy
+    loop_error, synthesized_content, policy, stop
 ):
     from victor.core.errors import AgentError
     from victor.framework.policies import GateResult
@@ -751,6 +802,32 @@ async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
             ),
         ],
     )
+    if isinstance(stop, TurnDisposition):
+        loop_result.iterations[-1].action_result.disposition = stop
+    elif stop in ("escalate", EvaluationDecision.ESCALATE):
+        loop_result.iterations[-1].evaluation.decision = stop
+    elif stop in {"recoverable-incomplete", "recoverable-after-recorded"}:
+        loop_result.metadata = {"error": "synthetic private exception detail"}
+        if stop == "recoverable-incomplete":
+            loop_result.final_state["action_result"] = loop_result.iterations[0].action_result
+            loop_result.iterations = []
+        else:
+            loop_result.final_state["action_result"] = TurnResult(
+                response=CompletionResponse(content="unrecorded candidate", role="assistant")
+            )
+    elif stop is not None:
+        loop_result.metadata = {"terminated_by": "loop_spin_guard", "error": "deadline exhausted"}
+        if stop == "guard-no-act":
+            loop_result.iterations = []
+        elif stop == "guard-current":
+            # ACT has completed but its evaluation/iteration has not been recorded.
+            empty_response = CompletionResponse(
+                content="current partial answer",
+                role="assistant",
+                usage={"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+                metadata={"request_id": "current"},
+            )
+            loop_result.final_state["action_result"] = TurnResult(response=empty_response)
     loop_instance = MagicMock()
     loop_instance.run = AsyncMock(return_value=loop_result)
 
@@ -766,6 +843,26 @@ async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
             return
         result = await executor.execute_agentic_loop("hello", max_iterations=5)
 
+    if stop is not None and stop not in {"recoverable-incomplete", "recoverable-after-recorded"}:
+        response_completer.ensure_response.assert_not_awaited()
+        assert result.metadata["agentic_loop_success"] is False
+        assert result.metadata["agentic_loop_error"] == (
+            "deadline exhausted" if loop_result.metadata else loop_error
+        )
+        assert result.metadata["agentic_loop_iterations"] == len(loop_result.iterations)
+        assert "agentic_loop_synthesis" not in result.metadata
+        if stop != "guard-no-act":
+            assert result is empty_response
+        if stop == "guard-current":
+            assert result.content == "current partial answer"
+            assert result.usage == {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14}
+            assert result.metadata["request_id"] == "current"
+        else:
+            assert result.content == ""
+        assert [call.args[0] for call in chat_context.add_message.call_args_list] == ["user"]
+        assert len(chat_context.messages) == 1
+        return
+
     if gate is not None:
         assert gate.response_calls == [synthesized_content]
         assert chat_context.add_message.call_args.args[:2] == ("assistant", "sanitized")
@@ -774,10 +871,18 @@ async def test_execute_via_agentic_loop_synthesis_preserves_failed_verdict(
         or "I was unable to generate a complete response. Please try rephrasing your request."
     )
     assert result.metadata["agentic_loop_success"] is False
-    assert result.metadata["agentic_loop_error"] == loop_error
-    assert result.metadata["agentic_loop_synthesis"] is True
-    assert result.metadata["agentic_loop_synthesis_reason"] == loop_error
-    assert result.metadata["agentic_loop_iterations"] == 2
+    assert result.metadata["agentic_loop_error"] == (
+        "Agentic loop ended before satisfying the task"
+        if stop == "recoverable-incomplete"
+        else loop_error
+    )
+    assert "synthetic private exception detail" not in str(result.metadata)
+    if stop == "recoverable-incomplete":
+        assert "agentic_loop_synthesis" not in result.metadata
+    else:
+        assert result.metadata["agentic_loop_synthesis"] is True
+        assert result.metadata["agentic_loop_synthesis_reason"] == loop_error
+    assert result.metadata["agentic_loop_iterations"] == len(loop_result.iterations)
     assert "agentic_loop_recovered" not in result.metadata
     response_completer.ensure_response.assert_awaited_once()
     loop_instance.run.assert_awaited_once()
@@ -1100,10 +1205,14 @@ async def test_execute_agentic_loop_passes_runtime_overrides_to_loop_context():
     async def _loop_run(query: str, context=None, conversation_history=None):
         assert query == "hello"
         assert context["runtime_context_overrides"] == runtime_context_overrides
-        return SimpleNamespace(
+        return LoopResult(
             success=True,
+            final_state={},
+            total_duration=0.0,
             iterations=[
-                SimpleNamespace(
+                LoopIteration(
+                    iteration=1,
+                    stage=LoopStage.ACT,
                     action_result=TurnResult(
                         response=CompletionResponse(
                             content="done",
@@ -1113,7 +1222,7 @@ async def test_execute_agentic_loop_passes_runtime_overrides_to_loop_context():
                         tool_results=[],
                         has_tool_calls=False,
                         tool_calls_count=0,
-                    )
+                    ),
                 )
             ],
         )

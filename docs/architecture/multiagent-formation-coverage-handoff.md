@@ -2063,7 +2063,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Configured message policy with StateGraph fails explicitly before work, including
   direct graph executors. No StateGraph parity, raw-model primitive, reasoning or
   tool-result filtering guarantee is claimed.
-  The `fix/stream-publication-governance` follow-up gates live tool-bearing
+  ✅ [#1344](https://github.com/anvai-labs/victor/pull/1344) gates live tool-bearing
   narratives before publication/dispatch and exhausted-recovery fallback text.
   Existing public-loop tests qualify denial, malformed/error results, redaction
   and unchanged no-policy delivery. Shared cancellation checks also prevent recovered
@@ -2075,6 +2075,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   canonical loop; streaming adapter routing for forced completion (the adapter
   never passes `forced_task_completion=True`). Forced-summary primitive tests
   do not establish that routing. No member-effect rollback or live C5 is claimed.
+  The `fix/terminal-recovery-admission` follow-up addresses a newly reproduced
+  wrapper bypass: post-loop synthesis could regenerate after guard, terminal ACT
+  or escalation stops, and discard an ACT response completed before evaluation
+  timed out. A shared private admission predicate blocks generation at that boundary,
+  preserves current response/usage/receipts and the precise terminal error, and retains
+  ordinary failed-verification presentation recovery. No prose stop parsing or second
+  timer/counter is introduced. Local qualification and landing remain tracked in the
+  canonical agent-service plan.
   Run-wide attempt accounting, adaptive extension and full experimental
   StateGraph/iteration parity remain open; phase-method reuse is not execution-mode parity.
 

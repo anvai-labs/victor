@@ -616,3 +616,22 @@ integration in the streaming loop remains open and must reuse the canonical team
 dispatcher. Likewise the live adapter does not currently enable the forced-summary
 argument; primitive summary tests are not adapter-route acceptance. G98 and the
 canonical tracker retain those gaps, whole-run attempt/deadline ownership and C5.
+
+
+### Buffered terminal recovery admission follow-up (LOOP-03)
+
+Presentation recovery does not reopen a terminal run. The service wrapper consults
+existing structured outcomes before synthesis or completion fallback: a loop guard,
+a canonical terminal ACT disposition, or evaluator escalation prevents another
+provider call. Ordinary failed-verification evidence summaries remain permitted and
+retain the failed verdict. No stop reason is inferred from assistant prose.
+
+The current ACT result lives in final state before its evaluation is recorded as an
+iteration. Terminal interruption preserves that response, usage, tool envelope and
+receipts, with the guard diagnostic taking precedence over older evaluation text.
+Other exception details retain the existing evaluation-reason/generic disclosure boundary.
+A stop before any ACT returns empty content with failure metadata; it cannot generate
+fallback text or replay policy checks. Ordinary recoverable errors retain the existing
+recorded-iteration response selection and zero-iteration fallback. Cancellation and terminal policy exceptions still
+propagate. This boundary repair does not provide whole-run provider attempt/deadline
+ownership, remote cancellation, or lifecycle parity for experimental executors.

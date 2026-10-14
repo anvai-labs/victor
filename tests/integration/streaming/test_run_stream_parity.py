@@ -188,3 +188,75 @@ async def test_unified_response_policy_and_terminal_verdict(mode, policy, with_t
     if policy != "absent":
         assert "sk-abc123" not in content
         assert all("sk-abc123" not in (message.content or "") for message in orch.messages)
+
+
+@pytest.mark.parametrize("stop_at", ["before-act", "evaluate-empty", "evaluate-partial"])
+async def test_buffered_guard_stop_preserves_completed_act_without_recovery(stop_at, monkeypatch):
+    """Real public service/loop/ACT wiring preserves work not yet in an iteration."""
+    from unittest.mock import AsyncMock
+
+    from victor.framework.agentic_loop import AgenticLoop
+    from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
+    from victor.framework.loop.guards import current_guards
+    from .parity_harness import TurnScript
+
+    content = "Current partial answer." if stop_at == "evaluate-partial" else ""
+    provider = ScriptedProvider(
+        [
+            TurnScript(
+                content=content,
+                tool_calls=[{"id": "read1", "name": "read", "arguments": {"path": "example.py"}}],
+            )
+        ]
+    )
+    chat = provider.chat
+    usage = {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14}
+
+    async def counted_chat(*args, **kwargs):
+        response = await chat(*args, **kwargs)
+        response.usage = usage.copy()
+        response.metadata = {"request_id": "current"}
+        return response
+
+    monkeypatch.setattr(provider, "chat", counted_chat)
+    orch = build_streaming_orchestrator(provider, ["read"])
+    original_run = AgenticLoop.run
+    observed = {}
+
+    async def guarded_run(self, *args, **kwargs):
+        if stop_at == "before-act":
+            self.config.total_timeout = 0
+        result = await original_run(self, *args, **kwargs)
+        observed["loop"] = result
+        return result
+
+    async def stop_during_evaluation(self, perception, action_result, state):
+        observed["act"] = action_result
+        guards = current_guards()
+        assert guards is not None
+        # Deterministic expiry of the actual owner's clock; no sleep or new timer.
+        guards.total_timeout = 0
+        return EvaluationResult(decision=EvaluationDecision.CONTINUE, reason="stale evaluation")
+
+    monkeypatch.setattr(AgenticLoop, "run", guarded_run)
+    monkeypatch.setattr(AgenticLoop, "_evaluate", stop_during_evaluation)
+    from victor.agent.response_completer import ResponseCompleter
+
+    recovery = AsyncMock(side_effect=AssertionError("Recovery after terminal guard"))
+    monkeypatch.setattr(ResponseCompleter, "ensure_response", recovery)
+    response = await orch.chat("Inspect example.py and report what you find.")
+
+    recovery.assert_not_awaited()
+    assert response.metadata["agentic_loop_success"] is False
+    assert response.metadata["agentic_loop_iterations"] == 0
+    assert "deadline" in response.metadata["agentic_loop_error"]
+    assert observed["loop"].iterations == []
+    assert provider.turn_index == (0 if stop_at == "before-act" else 1)
+    assert orch._parity_tool_log == ([] if stop_at == "before-act" else ["read"])
+    assert response.content == content
+    if stop_at != "before-act":
+        assert response is observed["act"].response
+        assert response.usage == usage
+        assert response.metadata["request_id"] == "current"
+        assert observed["act"].successful_tool_count == 1
+        assert any(message.role == "tool" for message in orch.messages)
