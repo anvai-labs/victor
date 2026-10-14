@@ -273,8 +273,13 @@ edit. A mock test is not live provider or C5 evidence.
   or completion threshold was introduced.
   Headed AgentBrowser, `homelab-openai-subscription` via Sandhi: a new conversation
   remembered JADE and answered the original marker question once in 1.4 seconds,
-  one model call, zero tools; runtime reported success. Evidence:
-  `var/codegraph-victor-20261012/answer-only-{browser.json,browser.png,live.log}`.
+  one model call, zero tools; runtime reported success. The first browser session
+  expired before screenshot archival; its observed result is retained in the live
+  log. A fresh final-source browser smoke failed during marker setup with gateway
+  transport error `f0e003a4`; a readiness probe could not resolve `aiserver1`.
+  Preserve both outcomes: `var/codegraph-victor-20261012/answer-only-live.log` and
+  `answer-only-browser-final.{json,png}`. Final-source live acceptance therefore
+  remains pending gateway connectivity; offline checks and review passed.
   This fresh smoke does not repeat the failed audit or establish post-failed-plan
   lifecycle/C5 acceptance. Broader semantic negation and shared task-classifier
   consolidation remain future work, requiring a representative labeled corpus
