@@ -497,8 +497,10 @@ edit. A mock test is not live provider or C5 evidence.
   | Normal / prompt document | 48,554 | 7,680 | 40,874 | 598 (237) | 28.177 / 9.712 |
 
   Each row covers two turns / four model calls. Frozen first requests used 132–138
-  **more** provider input tokens than the matching normal arm, and the 573-proxy-token
-  system/turn duplicate remained in every request. Decision: use freezing as an
+  **more** provider input tokens than the matching normal arm. Component hashes
+  identify the tool-effectiveness block as 573 proxy tokens in the selected learned
+  variant and 654 in the static baseline; both were duplicated across system and
+  turn guidance. The seven tool schemas matched across all four arms. Decision: use freezing as an
   opt-in experiment control, not a production efficiency default. Reversed task
   order does not control backend routing/cache state, learned execution policy or
   stochastic outputs; concurrent local validation also limits latency comparisons.
@@ -531,6 +533,13 @@ edit. A mock test is not live provider or C5 evidence.
   gates. Preserve retrieval quality and session/permission isolation when making
   initialization lazy or reusing feedback snapshots. Do not trim repository
   authority, hide unknown cache counts or claim that freezing implies cache hits.
+  Small synthetic document probes also found a prerequisite correctness gap:
+  `PromptDeduplicationProcessor` lets a disabled predecessor suppress an enabled
+  duplicate. Its default case-folding and insertion-order choice also lose distinct
+  identifiers or render-order intent. Repair the disabled-block case before using
+  this processor more widely; cross-placement deduplication requires canonical
+  identity, exact content, actual rendering and provenance rather than generic
+  text normalization. Existing document/builder tests own those next regressions.
 
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced

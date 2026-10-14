@@ -2148,6 +2148,11 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   271 to 934 MB; all dispatches were intercepted, not actual-member evidence.
   Profile dependency/retrieval activation and preserve service scope before
   consolidating initialization or claiming a memory/latency improvement.
+  Synthetic document probes found that a disabled block can suppress a later
+  enabled duplicate in `PromptDeduplicationProcessor`. Default case-folding and
+  insertion-order deduplication also need explicit policy before reuse across
+  authoritative prompt placements. Extend the existing document/builder tests;
+  do not optimize away active guidance or distinct case-sensitive identifiers.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
