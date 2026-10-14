@@ -2195,6 +2195,29 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Qualify explicit model preparation/cache-only runtime policy separately; existing
   fallback vectors and a default dimension must not be mistaken for readiness.
 
+- **G101 — edit history, operation parity and shared ownership (open).** Headed
+  Chainlit self-editing reproduced millisecond-ID collisions and missing per-operation
+  before-state within a sequential edit call. UX-09's `fix/ui-tool-context` candidate
+  addresses IDs, stable reload order, successful-save publication, same-file undo/redo,
+  preview finalization, aborted queues and truthful history warnings. This is scoped
+  local evidence until the PR/CI milestone is recorded. Remaining qualification:
+  cross-client/process ownership of overlapping canonical paths and shared mutable
+  editor/tracker instances; restart reconstruction/invalidation of redo; reconciliation
+  when filesystem replay succeeds but database persistence fails; partially conflicted
+  replay bookkeeping and file modes; rename destination sandbox enforcement and chained
+  operation state; `replace_lines` prevalidation versus actual queue dispatch; and
+  whether session-scoped clearing is required instead of the current global clear.
+  Audit the legacy `ToolService.execute_tools_parallel` surface before adoption: it
+  does not share the canonical pipeline's read-only eligibility policy. Within one
+  canonical `ToolPipeline` batch, write/shell/unknown calls already run sequentially;
+  same-file safety does not require a second dispatcher or a dedicated OS thread.
+  The live candidate also exposed stale pipeline read results after batched edits;
+  canonical operation paths now invalidate that cache, with a logged conservative
+  clear for successful writes whose paths cannot be resolved. Native-list UI
+  read/edit/read and reopened durable undo/redo passed. Search/root cache freshness,
+  unknown shell effects, external writes and structured mutation receipts remain
+  open; do not interpret this scoped repair as universal cache coherence.
+
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
 cache accounting, missing artifacts, bad member usage, pytest timeout, startup and

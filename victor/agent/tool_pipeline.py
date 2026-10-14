@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import ast
-from victor.core.json_utils import json_dumps
+from victor.core.json_utils import json_dumps, json_loads
 import logging
 import os
 from pathlib import Path
@@ -1553,6 +1553,28 @@ class ToolPipeline:
         self._cache_misses += 1
         logger.debug(f"Cached result for {tool_name} (cache size: {len(self._idempotent_cache)})")
 
+    @staticmethod
+    def _file_paths_from_arguments(arguments: Mapping[str, Any]) -> set[str]:
+        """Resolve explicit paths from single-file and batched edit contracts."""
+        records = [arguments]
+        operations = arguments.get("ops")
+        if isinstance(operations, str):
+            try:
+                operations = json_loads(operations)
+            except ValueError:
+                logger.warning("Cannot resolve edit paths from malformed JSON operations")
+        if isinstance(operations, list):
+            records.extend(op for op in operations if isinstance(op, Mapping))
+        paths: set[str] = set()
+        for record in records:
+            for key in ("path", "file_path", "new_path"):
+                value = record.get(key)
+                if isinstance(value, str) and value:
+                    normalized = normalize_file_path(value)
+                    if normalized:
+                        paths.add(normalized)
+        return paths
+
     def invalidate_file_cache(self, file_path: str) -> int:
         """Invalidate cached results that involve a specific file path.
 
@@ -1570,9 +1592,9 @@ class ToolPipeline:
 
         # Find and remove all cache entries involving this file
         to_remove = []
+        target = normalize_file_path(file_path)
         for sig, result in self._idempotent_cache.items():
-            # Check if file path is in arguments
-            if file_path in str(result.arguments):
+            if target in self._file_paths_from_arguments(result.arguments):
                 to_remove.append(sig)
 
         for sig in to_remove:
@@ -3581,8 +3603,16 @@ class ToolPipeline:
             "write",
             "edit",
         ):
-            file_path = normalized_args.get("path") or normalized_args.get("file_path")
-            if file_path:
+            modified_paths = self._file_paths_from_arguments(normalized_args)
+            if not modified_paths:
+                # Legacy tools may repair malformed arguments internally. A
+                # successful mutation with unknown paths must not retain stale reads.
+                logger.warning(
+                    "Successful %s has unresolved file paths; clearing idempotent result cache",
+                    tool_name,
+                )
+                self._idempotent_cache.clear()
+            for file_path in sorted(modified_paths):
                 self._invalidate_post_edit_freshness_state(file_path, context=context)
                 logger.debug(f"Invalidated caches for modified file: {file_path}")
 

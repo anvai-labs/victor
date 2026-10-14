@@ -163,6 +163,68 @@ async def test_tool_step_shows_duration_and_follow_ups(app_module):
     assert "Read the imported module" in (step.output or "")
 
 
+async def test_tool_result_without_start_renders_structured_arguments(app_module):
+    module, fake_cl = app_module
+    client = _FakeClient(
+        [
+            _FakeEvent(
+                "tool_result",
+                tool_name="read",
+                content="path=wrong.py",
+                result={
+                    "success": True,
+                    "original_result": "file contents",
+                    "arguments": {"path": "actual.py"},
+                },
+            )
+        ]
+    )
+    fake_cl.user_session.set(module._CLIENT_KEY, client)
+
+    await module.on_message(_FakeMessage(content="read actual.py"))
+
+    steps = [step for step in _FakeStep.created if step.type == "tool" and step.name != "🔧 tools"]
+    assert len(steps) == 1
+    assert steps[0].input == {"path": "actual.py"}
+    assert "actual.py" in (steps[0].name or "")
+
+
+@pytest.mark.parametrize("start_arguments", [{"path": "start.py"}, {}])
+async def test_matching_tool_start_result_keeps_start_arguments(app_module, start_arguments):
+    module, fake_cl = app_module
+    client = _FakeClient(
+        [
+            _FakeEvent(
+                "tool_call",
+                tool_name="read",
+                metadata={"tool_call_id": "call-1", "arguments": start_arguments},
+            ),
+            _FakeEvent(
+                "tool_result",
+                tool_name="read",
+                content="path=wrong.py",
+                result={
+                    "tool_call_id": "call-1",
+                    "success": True,
+                    "original_result": "file contents",
+                    "arguments": {"path": "result.py"},
+                },
+            ),
+        ]
+    )
+    fake_cl.user_session.set(module._CLIENT_KEY, client)
+
+    await module.on_message(_FakeMessage(content="read start.py"))
+
+    steps = [step for step in _FakeStep.created if step.type == "tool" and step.name != "🔧 tools"]
+    assert len(steps) == 1
+    assert steps[0].input == start_arguments
+    if start_arguments:
+        assert "start.py" in (steps[0].name or "")
+    else:
+        assert "result.py" not in (steps[0].name or "")
+
+
 def test_format_follow_ups_is_defensive(app_module):
     module, _ = app_module
     assert module._format_follow_ups([]) == ""

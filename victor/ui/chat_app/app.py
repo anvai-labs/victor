@@ -517,7 +517,7 @@ async def _run_turn(client: VictorClient, content: str) -> None:
                     key = action.call_id or action.tool_name or "tool"
                     info = pending.pop(key, {})
                     tool_name = info.get("tool_name") or action.tool_name or "tool"
-                    args = info.get("arguments", {})
+                    args = info.get("arguments", action.metadata.get("arguments", {}))
                     # Append duration to the step label so the user sees how long it took
                     # (e.g. "read(path=…) · 12ms").
                     label = tool_call_summary(tool_name, args)

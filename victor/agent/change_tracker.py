@@ -31,6 +31,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ class FileChangeHistory:
 
     def _generate_session_id(self) -> str:
         """Generate a unique session ID."""
-        return f"session_{int(time.time() * 1000)}"
+        return f"session_{uuid4().hex}"
 
     def _init_database(self) -> None:
         """Ensure the undo schema exists.
@@ -226,7 +227,7 @@ class FileChangeHistory:
             """
             SELECT data FROM change_groups
             WHERE session_id = ? AND undone = 0
-            ORDER BY timestamp DESC
+            ORDER BY timestamp DESC, rowid DESC
             LIMIT ?
         """,
             (self.session_id, self.max_history),
@@ -261,7 +262,7 @@ class FileChangeHistory:
         Returns:
             Group ID
         """
-        group_id = f"grp_{int(time.time() * 1000)}_{tool_name}"
+        group_id = f"grp_{uuid4().hex}_{tool_name}"
         # Auto-resolve the turn/message id when the caller didn't supply one, so
         # edit/write/patch groups are attributed without touching each writer.
         if message_id is None:
@@ -303,7 +304,7 @@ class FileChangeHistory:
         Returns:
             The recorded FileChange
         """
-        change_id = f"chg_{int(time.time() * 1000)}_{os.path.basename(file_path)}"
+        change_id = f"chg_{uuid4().hex}_{os.path.basename(file_path)}"
 
         group_message_id = self._current_group.message_id if self._current_group else None
         change = FileChange(
@@ -347,19 +348,17 @@ class FileChangeHistory:
             return None
 
         group = self._current_group
+        # Do not publish an undo or lose the pending group until persistence succeeds.
+        self._save_group(group)
         self._current_group = None
-
-        # Add to undo stack
         self._undo_stack.append(group)
-
-        # Clear redo stack on new change
         self._redo_stack.clear()
 
-        # Persist to database
-        self._save_group(group)
-
-        # Trim history if needed
-        self._trim_history()
+        # Retention is maintenance: failure cannot un-publish a saved undo group.
+        try:
+            self._trim_history()
+        except sqlite3.Error as exc:
+            logger.warning("Undo history saved; retention cleanup failed: %s", exc)
 
         logger.info(f"Committed change group: {group.id} with {len(group.changes)} changes")
         return group
@@ -403,9 +402,17 @@ class FileChangeHistory:
         try:
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO change_groups
+                INSERT INTO change_groups
                 (id, session_id, message_id, timestamp, description, tool_name, undone, data)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    session_id = excluded.session_id,
+                    message_id = excluded.message_id,
+                    timestamp = excluded.timestamp,
+                    description = excluded.description,
+                    tool_name = excluded.tool_name,
+                    undone = excluded.undone,
+                    data = excluded.data
             """,
                 (
                     group.id,
@@ -458,17 +465,18 @@ class FileChangeHistory:
     def _trim_history(self) -> None:
         """Trim history to max_history size."""
         while len(self._undo_stack) > self.max_history:
-            oldest = self._undo_stack.pop(0)
+            oldest = self._undo_stack[0]
             # Optionally delete from database
             self._delete_group(oldest.id)
+            self._undo_stack.pop(0)
 
     def _delete_group(self, group_id: str) -> None:
         """Delete a change group from the database."""
         conn = self._db.get_connection()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM file_changes WHERE group_id = ?", (group_id,))
-        cursor.execute("DELETE FROM change_groups WHERE id = ?", (group_id,))
-        conn.commit()
+        with conn:
+            cursor.execute("DELETE FROM file_changes WHERE group_id = ?", (group_id,))
+            cursor.execute("DELETE FROM change_groups WHERE id = ?", (group_id,))
         # Connection managed by ProjectDatabaseManager
 
     def can_undo(self) -> bool:

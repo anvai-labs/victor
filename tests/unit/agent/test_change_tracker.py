@@ -15,6 +15,7 @@
 """Tests for the change tracker undo/redo system."""
 
 import os
+import sqlite3
 import tempfile
 import pytest
 
@@ -153,6 +154,74 @@ class TestChangeGroup:
 class TestFileChangeHistory:
     """Tests for the FileChangeHistory class."""
 
+    @pytest.mark.parametrize("same_file", [True, False], ids=["same-file", "same-basename"])
+    def test_frozen_clock_ids_persist_across_groups_and_sessions(
+        self, tmp_path, monkeypatch, same_file
+    ):
+        import victor.agent.change_tracker as change_tracker
+
+        monkeypatch.setattr(change_tracker.time, "time", lambda: 1234567.0001)
+        project = tmp_path / "project"
+        project.mkdir()
+        first = FileChangeHistory(project_path=project)
+        second = FileChangeHistory(project_path=project)
+        assert first.session_id != second.session_id
+
+        path1 = str(tmp_path / "one" / "sample.py")
+        path2 = path1 if same_file else str(tmp_path / "two" / "sample.py")
+        from pathlib import Path
+
+        for path in (path1, path2):
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text("before")
+        group_ids = []
+        change_ids = []
+        for history, paths in ((first, (path1, path2)), (first, (path1,)), (second, (path2,))):
+            group_ids.append(history.begin_change_group("edit", "two replacements"))
+            for path in paths:
+                original = Path(path).read_text()
+                updated = original + " after"
+                change = history.record_change(
+                    path, ChangeType.MODIFY, original, updated, tool_name="edit"
+                )
+                if history is first:
+                    Path(path).write_text(updated)
+                change_ids.append(change.id)
+            history.commit_change_group()
+
+        assert len(set(group_ids)) == len(group_ids)
+        assert len(set(change_ids)) == len(change_ids)
+        conn = first._db.get_connection()
+        persisted_groups = {row[0] for row in conn.execute("SELECT id FROM change_groups")}
+        persisted_changes = {row[0] for row in conn.execute("SELECT id FROM file_changes")}
+        assert persisted_groups == set(group_ids)
+        assert persisted_changes == set(change_ids)
+
+        reloaded_first = FileChangeHistory(project_path=project, session_id=first.session_id)
+        reloaded_second = FileChangeHistory(project_path=project, session_id=second.session_id)
+        assert [group.id for group in reloaded_first._undo_stack] == group_ids[:2]
+        assert {group.id for group in reloaded_second._undo_stack} == {group_ids[2]}
+        assert {
+            change.id
+            for group in (*reloaded_first._undo_stack, *reloaded_second._undo_stack)
+            for change in group.changes
+        } == set(change_ids)
+
+        final_contents = {path: Path(path).read_text() for path in (path1, path2)}
+        assert reloaded_first.undo()[0]
+        assert reloaded_first.undo()[0]
+        assert all(Path(path).read_text() == "before" for path in (path1, path2))
+        assert reloaded_first.redo()[0]
+        assert reloaded_first.redo()[0]
+        assert {path: Path(path).read_text() for path in (path1, path2)} == final_contents
+        # Re-saving an earlier group must not move it after a newer group.
+        reloaded_first._save_group(reloaded_first._undo_stack[0])
+        reopened = FileChangeHistory(project_path=project, session_id=first.session_id)
+        assert [group.id for group in reopened._undo_stack] == group_ids[:2]
+        assert reopened.undo()[0]
+        assert reopened.undo()[0]
+        assert all(Path(path).read_text() == "before" for path in (path1, path2))
+
     def test_begin_change_group(self, tracker):
         """Test beginning a change group."""
         group_id = tracker.begin_change_group("test_tool", "Test description")
@@ -197,6 +266,28 @@ class TestFileChangeHistory:
     def test_can_undo_empty(self, tracker):
         """Test can_undo when no changes exist."""
         assert not tracker.can_undo()
+
+    def test_retention_failure_preserves_committed_history(self, tracker, monkeypatch, caplog):
+        tracker.max_history = 1
+        for content in ("first", "second"):
+            tracker.begin_change_group("edit")
+            tracker.record_change("file.py", ChangeType.MODIFY, "original", content)
+            if content == "second":
+
+                def fail_delete(group_id):
+                    raise sqlite3.OperationalError("database is locked")
+
+                monkeypatch.setattr(tracker, "_delete_group", fail_delete)
+            group = tracker.commit_change_group()
+        assert group is not None
+        assert tracker._current_group is None
+        assert len(tracker._undo_stack) == 2
+        assert tracker._undo_stack[-1] is group
+        assert (
+            tracker._db.get_connection().execute("SELECT COUNT(*) FROM change_groups").fetchone()[0]
+            == 2
+        )
+        assert "history saved" in caplog.text
 
     def test_can_redo_empty(self, tracker):
         """Test can_redo when no undone changes exist."""
@@ -556,6 +647,8 @@ class TestSaveGroupLockRetry:
 
         assert calls["n"] == 3  # 1 initial attempt + 2 retries
         assert sleeps == [0.1, 0.1]
+        assert not tracker.can_undo()
+        assert tracker._current_group is not None
 
     def test_save_group_non_lock_error_not_retried(self, tracker, monkeypatch):
         """A non-lock OperationalError propagates immediately (no retries)."""
@@ -580,6 +673,8 @@ class TestSaveGroupLockRetry:
 
         assert calls["n"] == 1
         assert sleeps == []
+        assert not tracker.can_undo()
+        assert tracker._current_group is not None
 
 
 class TestDedicatedUndoDb:
