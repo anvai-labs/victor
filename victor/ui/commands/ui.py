@@ -38,7 +38,7 @@ ui_app = typer.Typer(
 console = Console()
 logger = logging.getLogger(__name__)
 
-_APP_PATH = Path(__file__).resolve().parents[1] / "chat_app" / "app.py"
+_APP_PATH = Path(__file__).resolve().parents[1] / "chat_app" / "bootstrap.py"
 
 
 @ui_app.callback(invoke_without_command=True)

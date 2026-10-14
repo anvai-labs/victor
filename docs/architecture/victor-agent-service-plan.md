@@ -1,7 +1,7 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-13
+updated: 2026-10-14
 baseline_develop: 3ce744b063e6404fb27c003f8eba212ed2fc4a9f
 next_task: VAS-17
 ---
@@ -183,7 +183,7 @@ edit. A mock test is not live provider or C5 evidence.
   deliberate choice, never a default or bypass of policy denial. Qualify across
   actual member requests and simultaneous browser sessions before acceptance.
 
-- **UX-04 authoritative plan outcomes — ACTIVE** — owner: Victor co-design;
+- **UX-04 authoritative plan outcomes — MERGED, [#1349](https://github.com/anvai-labs/victor/pull/1349)** — owner: Victor co-design;
   branch `fix/planning-stream-outcome`, baseline `51bd89eb89541667679c6c6d1c3869af17325678`.
   Validate the executed plan's boolean verdict before further model dispatch, carry
   it through streamed and buffered responses and finalize task reports once.
@@ -195,10 +195,11 @@ edit. A mock test is not live provider or C5 evidence.
   service semantics for all clients; UI plan-progress delivery remains separate.
   Existing chat/planning suites own the regression matrix: 278 affected tests
   passed, 35,018 tests collected, MyPy passed 2,114 source files, and independent adversarial review
-  passed after fixing malformed/duplicate verdict finalization and absent usage. No whole-member replay, origin retry or cancellation
-  acceptance is implied.
+  passed after fixing malformed/duplicate verdict finalization and absent usage. All
+  applicable CI gates passed; merged as `7ec09531ea1d9bbf5885e4045ddd73617c026c82`.
+  No whole-member replay, origin retry or cancellation acceptance is implied.
 
-- **UX-05 shared progress and professional presentation — PLANNED** — first expose
+- **UX-05 shared progress and professional presentation — ACTIVE (presentation), PLANNED (progress)** — first expose
   structured per-request/plan/step/member/tool progress and terminal outcomes to CLI,
   TUI and web UI, using common event semantics with snapshot reconciliation. Keep
   turn history grouped and make nested activity independently inspectable; distinguish
@@ -212,6 +213,21 @@ edit. A mock test is not live provider or C5 evidence.
   commercial product behavior.
   Use headed AgentBrowser snapshots for reading, code blocks, tool activity,
   approvals, failures and mobile/wide layouts; preserve server-side credentials.
+  Presentation increment: branch `feat/chat-workspace-theme`, baseline
+  `7ec09531ea1d9bbf5885e4045ddd73617c026c82`. Packaged CSS/SVG assets and a narrow
+  static mount provide Victor branding, teal/slate light/dark palettes, native
+  system selection, wider chat, code typography, visible focus and reduced motion.
+  Default-valued Chainlit name/layout become Victor/wide; explicit nondefault
+  name, CSS, logo and avatar settings remain. No repository assets are overwritten.
+  Browser qualification: headed 1440×1000 real repository read produced the correct
+  project name/Python floor with line references, a code block and expandable tool
+  activity; light/dark switches and profile settings were exercised. A separate
+  390×844 headed session checks wrapping/composer fit. The browser exposed and
+  fixed default-stylesheet precedence before acceptance. Evidence stays in
+  `var/codegraph-victor-20261012/chat-theme-*`. Package assets passed an isolated
+  built-wheel install and HTTP/MIME/content smoke. 99 UI/packaging tests passed;
+  MyPy passed 2,116 files. Independent review found no scoped blocker. This is
+  presentation qualification, not full editor, plan-event or C5 acceptance.
 
 - **UX-06 unattended policy behavior — PLANNED** — auto mode evaluates the same
   authoritative ALLOW/DENY/ASK policy as interactive use. Verified allowed work
@@ -221,6 +237,18 @@ edit. A mock test is not live provider or C5 evidence.
   existing policy and approval owners, avoiding a second dispatcher or UI-only
   authorization rules. This depends on UX-03, durable approval storage and the
   accepted public-contract process where applicable.
+
+- **UX-07 answer-only completion — PLANNED, high impact** — the post-audit marker
+  request was classified `edit`/`action`; its valid four-character answer was retried
+  three times before the spin guard failed. The streamed duplicates were already
+  visible despite a later “suppressing repeated visible output” log. Logs at
+  `chat-controls-live-final.log:1007` onward preserve the sequence. Investigate
+  current-turn intent ownership and typed completion through both delivery modes;
+  do not simply lower the character threshold or declare every nonempty response
+  successful. Negative cases must retain rejection of promises, unfulfilled tool
+  actions and blocked/failed execution. Reproduce in the existing classification,
+  evaluation and stream owners, then qualify a concise answer following a failed
+  plan without whole-member replay.
 
 - **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
   branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.
@@ -1691,6 +1719,35 @@ cover desktop light/dark/system and a corrected narrow-screen canvas. Independen
 review found stylesheet growth; the canonical style owner and 100-switch regression
 fix it. [Evidence manifest](evidence/workflow-visualizer-ui-2026-10-09.json) records
 hashes and the explicit synthetic, authentication and streaming limits.
+
+## Web chat and API hosting consolidation
+
+Current inspection (2026-10-14): `victor ui` starts Chainlit and creates a
+per-browser-session in-process `VictorClient`. `victor serve` starts
+`VictorFastAPIServer`, whose session runner also creates `VictorClient` instances.
+VS Code uses HTTP/SSE and WebSocket adapters; the existing workflow visualizer is
+separate from the planned authoring editor. `web/server/main.py` is another
+FastAPI compatibility entry point with its own bounded session store; migrate its
+consumers through the same VAS-03b/14 parity gates before retiring it. These surfaces share runtime services
+but do not yet share one authoritative session/run lifecycle.
+
+| Layer | Target ownership | Qualification gate |
+| --- | --- | --- |
+| Deployment | One optional `victor serve` host for API, chat UI and workflow assets | Mount-path/static routes, startup/shutdown, reverse proxy and optional extras smoke |
+| Execution | One typed application-service boundary for sessions, runs, approval decisions, cancellation and results | VAS-03/07/09/10/11; same success/failure/recovery across clients |
+| In-process clients | Python/CLI and co-hosted adapters call the same service directly | No required self-HTTP hop, no alternate policy or runtime dispatcher |
+| Remote clients | Chainlit remote mode, VS Code and workflow editor consume the same versioned HTTP/event contracts | VAS-08/13/14; actual shared-server consumer fixtures |
+| Authentication | One trusted principal and resource policy across API and mounted chat | VAS-05; parent FastAPI route dependencies do not automatically guard a mounted app or its sockets |
+| Presentation | Chainlit owns chat rendering; workflow editor owns graph/code authoring; both share design tokens | VAS-14/21, headed UI tests and accessible theme parity |
+
+Chainlit provides `mount_chainlit(app, target, path)`; this enables co-hosting but
+must not be treated as API/session consolidation by itself. Keep the chat extra
+optional. Reuse the existing VAS-14 row and FEP-0039 review process rather than add
+another server framework or parallel roadmap. Order: shared lifecycle/identity
+contracts, adapter parity tests, optional co-hosting, then deprecate redundant
+entry points only after compatible consumers are verified. The standalone UI
+remains available while this migration is qualified. The proposed deployment
+shape is not implemented or accepted merely by merging this tracker update.
 
 ## OpenAI-compatible provider consolidation
 

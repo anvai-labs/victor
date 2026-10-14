@@ -60,3 +60,5 @@ prune docker
 
 # Offline workflow visualization, including third-party notices.
 recursive-include victor/integrations/api/templates *.html *.js *.json *.txt
+
+recursive-include victor/ui/chat_app/assets *.css *.svg
