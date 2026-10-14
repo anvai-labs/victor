@@ -1,5 +1,7 @@
 """Tests for canonical prompt document model and processors."""
 
+import pytest
+
 from victor.framework.prompt_document import (
     PromptBlock,
     PromptDeduplicationProcessor,
@@ -50,3 +52,21 @@ class TestPromptDocument:
 
         assert trimmed.has_block("identity")
         assert trimmed.has_block("context_a") != trimmed.has_block("context_b")
+
+    @pytest.mark.parametrize("disabled_first", [True, False])
+    def test_disabled_blocks_do_not_suppress_enabled_guidance(self, disabled_first):
+        disabled = PromptBlock("inactive", "Keep grounding", enabled=False, header="")
+        enabled = PromptBlock("active", "Keep grounding", header="")
+        blocks = [disabled, enabled] if disabled_first else [enabled, disabled]
+        document = PromptDocument([*blocks, PromptBlock("duplicate", "Keep grounding")])
+
+        deduped = PromptDeduplicationProcessor().process(document)
+
+        assert deduped.render() == "Keep grounding"
+        assert deduped.get_block("active") == enabled
+        assert not deduped.has_block("duplicate")
+        # Disabled configuration survives processing without claiming visible content.
+        retained = deduped.get_block("inactive")
+        assert retained == disabled
+        assert retained is not disabled
+        assert document.get_block("duplicate") is not None

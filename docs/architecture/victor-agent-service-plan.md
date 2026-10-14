@@ -488,6 +488,8 @@ edit. A mock test is not live provider or C5 evidence.
   corrective focused run passed 135 checks; independent delta review passed 113.
   Combined CI-equivalent suites passed 224 checks, six source files passed MyPy,
   and final collection found 35,079 tests after extending the selector parameter set.
+  Merged in #1356 (`122374011fafa8fd0e055c84082cba67ffd02c8e`) after clean
+  exact-commit independent review and 40 successful CI checks (one skip, one neutral).
 
   Four direct `codex-local` conversations used two bounded source-reading tasks,
   each repeated once: normal accounts, frozen accounts, frozen prompt-document,
@@ -547,6 +549,51 @@ edit. A mock test is not live provider or C5 evidence.
   this processor more widely; cross-placement deduplication requires canonical
   identity, exact content, actual rendering and provenance rather than generic
   text normalization. Existing document/builder tests own those next regressions.
+
+  **Visible guidance and demand experiment (2026-10-14):** owner: Victor co-design
+  session; branch `fix/prompt-visible-deduplication`, baseline
+  `122374011fafa8fd0e055c84082cba67ffd02c8e`. The canonical deduplication processor
+  now preserves nonempty disabled blocks without adding their content to the
+  visible-content set. Enabled guidance survives either insertion order; disabled
+  configuration remains available for later activation. Empty-block removal and
+  enabled-only case/ordering policy are unchanged. Two regressions failed before
+  repair; 106 document/builder/normalizer checks passed afterward and independently.
+  This is a correctness prerequisite, not the cross-placement token-saving change.
+
+  Six sequential subprocess diagnostics compared baseline initialization with a
+  private counterfactual that omits conversation-store setup: A/B/B/A/A/B, three
+  samples per arm. All model dispatches were intercepted; **zero provider calls**
+  were sent. Median first-request preparation was 6.246 seconds baseline versus
+  5.891 seconds without the store (ranges 6.195–6.430 and 5.851–6.360). Median CPU
+  was 6.162 versus 5.802 seconds; peak RSS at first dispatch was 928 versus 900 MB.
+  Both arms still imported Torch, Transformers and sentence-transformers. The
+  0.355-second median difference and overlapping latency ranges do not justify
+  adding a new retrieval lifecycle yet. Keep production retrieval unchanged;
+  isolate other embedding consumers before choosing the next optimization.
+  Earlier sandbox-restricted measurements are retained but excluded; shared cache
+  and learned state were not reset, so this is a diagnostic, not a controlled
+  answer-quality, cache-reuse or throughput acceptance test. Private evidence is
+  saved as `prompt-demand-*` beside the prior `prompt-controls-*` artifacts.
+  A second C/A/C/A diagnostic pair omitted query-aware few-shot lookup only:
+  median preparation was 5.608 versus 6.441 seconds and peak RSS 844 versus 929 MB,
+  but both arms still loaded the ML stack. This omission changes learned guidance;
+  it is not an accepted production optimization or answer-quality result.
+
+  One further traced run located the first embedding-model load in
+  `AgentFactory._initialize_skill_matcher`'s background task, through
+  `StaticEmbeddingCollection._load_from_cache` → dimension validation →
+  `EmbeddingService.dimension`. That synchronous call took 4.747 seconds before
+  first dispatch. Scheduling the coroutine does not move its synchronous work off
+  the event loop. Task classification, skill matching and learned-example lookup
+  subsequently use the same service. Prioritize **event-loop responsiveness and
+  bounded initialization ownership** before a store-only lazy refactor: preserve
+  dimension validation, deterministic readiness, project/session scope and shutdown;
+  a cancelled coroutine must not publish a late worker result. Measure loop lag,
+  first-dispatch latency and actual task/skill outcomes before adopting offloading.
+  This trace identifies a caller, not an exclusive accounting of all startup cost.
+  The scoped deduplication repair passes 273 affected tests and MyPy; full
+  collection found 35,081 tests, and formatting/lint/hygiene/docs checks passed. Broader
+  cross-placement deduplication, startup performance and C5 acceptance remain open.
 
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced
