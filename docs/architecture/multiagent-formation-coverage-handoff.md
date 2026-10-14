@@ -2094,11 +2094,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   The 2026-10-13 incident executed a required dependent after inventory failure,
   repeatedly compacted a detached history snapshot and failed 21 session-linked
   compaction audit inserts. UX-01 in the canonical agent-service tracker owns the
-  regression repair and qualification. Required edges must remain intact; session
+  regression repair merged in [#1347](https://github.com/anvai-labs/victor/pull/1347)
+  and its remaining live qualification. Required edges must remain intact; session
   persistence must precede identity/cache publication; compaction must update live
   provider history while preserving genuine task intent and tool-call/result groups.
   UX-02 records actual headed `victor ui`/Chainlit evidence and remaining profile,
-  stop/accessibility, approval and recovery checks. `victor serve` is an API surface,
+  stop/accessibility, approval and recovery checks. The exact browser audit also
+  exposes console-only plan progress; downstream stream cleanup and failed terminal
+  rendering remain separate open contracts. `victor serve` is an API surface,
   not a web-chat mode. Bounded successful reads do not close the original transport
   failure, full audit, workflow-editor or mixed-team C5 gates.
 

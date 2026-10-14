@@ -185,18 +185,61 @@ class _FailingClient:
         return ["ollama", "anthropic"]
 
 
-async def test_stop_action_cancels_the_turn(app_module):
+@pytest.mark.parametrize("blocked_phase", ["provider", "render"])
+async def test_native_stop_cancels_and_drains_the_turn(app_module, monkeypatch, blocked_phase):
     module, fake_cl = app_module
     client = _BlockingClient()
+    entered = asyncio.Event()
+    owners = []
+    finalized = []
+
+    async def generate():
+        owners.append(asyncio.current_task())
+        try:
+            if blocked_phase == "provider":
+                entered.set()
+                await asyncio.sleep(3600)
+            yield SimpleNamespace(event_type="content", content="text", metadata={})
+        finally:
+            finalized.append(asyncio.current_task())
+
+    async def render(self, token):
+        entered.set()
+        await asyncio.sleep(3600)
+
+    # Retain the generator so GC cannot hide a missing close in the UI owner.
+    stream = generate()
+    monkeypatch.setattr(client, "stream", lambda content: stream)
+    monkeypatch.setattr(_FakeMessage, "stream_token", render)
     fake_cl.user_session.set(module._CLIENT_KEY, client)
 
     start = asyncio.create_task(module._start_turn("hi"))
-    await asyncio.wait_for(client.entered.wait(), 1)  # stream is now blocking
-    await module._on_stop_turn(_FakeAction("stop_turn"))  # cancels the inner task
+    await asyncio.wait_for(entered.wait(), 1)
+    # Chainlit's native stop cancels the on_message task, which owns _start_turn.
+    start.cancel()
     await asyncio.wait_for(start, 1)
 
     assert any("stopped" in m.content.lower() for m in _FakeMessage.created)
     assert fake_cl.user_session.get(module._TASK_KEY) is None  # cleared
+    assert not any(a.name == "stop_turn" for m in _FakeMessage.created for a in m.actions)
+    assert finalized == owners
+
+
+async def test_second_turn_cannot_replace_active_turn(app_module):
+    module, fake_cl = app_module
+    client = _BlockingClient()
+    fake_cl.user_session.set(module._CLIENT_KEY, client)
+    start = asyncio.create_task(module._start_turn("first"))
+    await asyncio.wait_for(client.entered.wait(), 1)
+    active = fake_cl.user_session.get(module._TASK_KEY)
+    try:
+        await asyncio.wait_for(module._start_turn("second"), 0.2)
+        assert fake_cl.user_session.get(module._TASK_KEY) is active
+        assert not active.done()
+        assert any("already running" in m.content for m in _FakeMessage.created)
+    finally:
+        start.cancel()
+        await start
 
 
 async def test_on_chat_end_drains_active_turn_before_close(app_module):
@@ -211,6 +254,44 @@ async def test_on_chat_end_drains_active_turn_before_close(app_module):
     assert inner.cancelled() or inner.done()  # turn drained
     assert client.closed  # client released after the drain
     assert fake_cl.user_session.get(module._TASK_KEY) is None
+    assert fake_cl.user_session.get(module._CLIENT_KEY) is None
+
+
+@pytest.mark.parametrize("operation", ["turn", "settings", "resume"])
+@pytest.mark.parametrize("queued", [False, True])
+async def test_disconnected_session_rejects_queued_work(app_module, operation, queued):
+    module, fake_cl = app_module
+    client = _BlockingClient()
+    fake_cl.user_session.set(module._CLIENT_KEY, client)
+
+    async def work():
+        if operation == "turn":
+            await module._start_turn("late message")
+        elif operation == "settings":
+            await module.on_settings_update({"profile": "different"})
+        else:
+            await module._on_resume_session(_FakeAction(payload={"session_id": "old"}))
+
+    if queued:
+        # A settings transition owns the lock; work queues before disconnect.
+        lock = module._session_lock()
+        await lock.acquire()
+        pending = asyncio.create_task(work())
+        await asyncio.sleep(0)
+        disconnect = asyncio.create_task(module.on_chat_end())
+        await asyncio.sleep(0)
+        lock.release()
+        results = await asyncio.wait_for(
+            asyncio.gather(pending, disconnect, return_exceptions=True), 1
+        )
+        assert isinstance(results[0], RuntimeError)
+        assert "session is closed" in str(results[0])
+        assert results[1] is None
+    else:
+        await module.on_chat_end()
+        with pytest.raises(RuntimeError, match="session is closed"):
+            await work()
+    assert not client.entered.is_set()
 
 
 async def test_retry_action_reruns_with_original_message(app_module):
