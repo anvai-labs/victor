@@ -137,8 +137,8 @@ class ConversationStoreSession:
             is_reasoning=is_reasoning,
         )
 
-        self.store._sessions[session_id] = session
         self.store._persist_session(session)
+        self.store._sessions[session_id] = session
 
         fam = model_family.value if model_family else "unknown"
         sz = model_size.value if model_size else "unknown"

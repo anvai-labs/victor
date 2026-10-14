@@ -297,3 +297,100 @@ def test_build_parent_handoff_returns_bounded_child_summary():
     assert handoff["status"] == "success"
     assert handoff["tool_calls_used"] == 3
     assert len(handoff["summary"]) <= 520
+
+
+@pytest.mark.parametrize("phase", ["turn", "tool", "local_tool"])
+@pytest.mark.parametrize("strategy", ["simple", "tiered"])
+async def test_live_compaction_reaches_provider_history_once_and_preserves_tool_pairs(
+    phase, strategy
+):
+    from victor.agent.conversation.controller import ConversationController
+    from victor.providers.base import Message
+
+    controller = ConversationController()
+    for message in [
+        Message(role="system", content="Keep the review read-only"),
+        Message(role="user", content="Review the source"),
+        *[Message(role="assistant", content="evidence " * 300) for _ in range(18)],
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                {"id": str(i), "type": "function", "function": {"name": "read", "arguments": "{}"}}
+                for i in range(8)
+            ],
+        ),
+        *[Message(role="tool", content=f"file {i}", tool_call_id=str(i)) for i in range(8)],
+    ]:
+        controller.add_message(**message.model_dump())
+    from victor.agent.conversation.history_metadata import build_internal_history_metadata
+
+    controller.add_message(
+        "user", "internal nudge", metadata=build_internal_history_metadata("nudge")
+    )
+    ctx = AgentRuntimeContext(agent_id="a", display_name="Member", role="reviewer", session_id="s")
+    store = MagicMock()
+    store.record_compaction_event.return_value = "event"
+    lifecycle = ContextLifecycleService.with_defaults(max_tokens=5000, conversation_store=store)
+    original = list(controller.messages)
+
+    async def compact():
+        if phase == "turn":
+            return await lifecycle.after_agent_turn(ctx, history=controller, strategy=strategy)
+        return await lifecycle.before_tool_output(
+            ctx,
+            estimated_output_tokens=3000 if phase == "local_tool" else 50,
+            provider_name="inferflux" if phase == "local_tool" else "",
+            task_type="implementation",
+            history=controller,
+            default_strategy=strategy,
+        )
+
+    first = await compact()
+    assert first["compacted"]
+    assert len(controller.messages) < len(original)
+    assert controller.messages[0] is original[0]
+    assert any(m.role == "user" for m in controller.messages)
+    assert all(message in controller.messages for message in original[-10:-1])
+    assert original[1] in controller.messages
+    assert all(isinstance(m, Message) for m in controller.messages)
+    assert first["messages_removed"] == len(original) - len(controller.messages)
+    assert first["tokens_after"] < first["tokens_before"]
+    second = await compact()
+    assert second["compacted"] is False
+    store.record_compaction_event.assert_called_once()
+
+
+async def test_live_compaction_preserves_pending_tool_call_before_result_injection():
+    from victor.agent.conversation.controller import ConversationController
+    from victor.agent.conversation.history_metadata import build_internal_history_metadata
+    from victor.agent.message_history import MessageHistory
+
+    history = MessageHistory()
+    history.add_message("system", "root instructions")
+    history.add_message("user", "actual task")
+    for i in range(8):
+        history.add_message("assistant", "old " * 100)
+        history.add_message(
+            "system", f"internal instruction {i}", metadata=build_internal_history_metadata("nudge")
+        )
+    controller = ConversationController()
+    controller.load_history(history)
+    assert sum(message.role == "system" for message in controller.messages) == 9
+    pending = controller.add_message(
+        "assistant",
+        "",
+        tool_calls=[
+            {"id": "pending", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+        ],
+    )
+    lifecycle = ContextLifecycleService.with_defaults(max_tokens=200)
+    ctx = AgentRuntimeContext(agent_id="m", display_name="Member", role="reviewer", session_id="s")
+    result = await lifecycle.before_tool_output(
+        ctx, estimated_output_tokens=100, history=controller
+    )
+    assert result["compacted"] is True
+    assert any(message is pending for message in controller.messages)
+    controller.add_message("tool", "read result", tool_call_id="pending")
+    assert any(message is pending for message in controller.messages)
+    assert controller.messages[-1].tool_call_id == "pending"

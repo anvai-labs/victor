@@ -14,6 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from victor.agent.runtime.context import AgentRuntimeContext
 from victor.agent.services.context_service import (
+    CompactionHistory,
     ContextService,
     ContextServiceConfig,
     ContextServiceRegistry,
@@ -117,10 +118,14 @@ class ContextLifecycleService:
         min_messages: int = 6,
         default_strategy: str = "tiered",
         persist_event: bool = True,
+        history: Optional[CompactionHistory] = None,
     ) -> Dict[str, Any]:
         """Compact one agent context before injecting a large tool-output block."""
         service = self.context_for(runtime_context)
-        if messages is not None:
+        if history is not None:
+            service.clear_messages(retain_system=False)
+            service.add_messages(list(history.messages))
+        elif messages is not None:
             self._replace_messages(service, runtime_context, messages)
 
         messages_before = service.get_messages()
@@ -132,6 +137,7 @@ class ContextLifecycleService:
             task_type=task_type,
             min_messages=min_messages,
             default_strategy=default_strategy,
+            history=history,
         )
         tokens_after = service.get_context_size()
         tokens_freed = max(0, tokens_before - tokens_after)
@@ -162,10 +168,14 @@ class ContextLifecycleService:
         strategy: Optional[str] = None,
         min_messages: Optional[int] = None,
         persist_event: bool = True,
+        history: Optional[CompactionHistory] = None,
     ) -> Dict[str, Any]:
         """Refresh one agent context and compact if it crossed threshold."""
         service = self.context_for(runtime_context)
-        if messages is not None:
+        if history is not None:
+            service.clear_messages(retain_system=False)
+            service.add_messages(list(history.messages))
+        elif messages is not None:
             self._replace_messages(service, runtime_context, messages)
 
         messages_before = service.get_messages()
@@ -174,6 +184,7 @@ class ContextLifecycleService:
             runtime_context,
             strategy=strategy,
             min_messages=min_messages,
+            history=history,
         )
         tokens_after = service.get_context_size()
         tokens_freed = max(0, tokens_before - tokens_after)

@@ -1881,6 +1881,7 @@ class TurnExecutor:
         result = after_agent_turn(
             runtime_context,
             messages=self._root_runtime_messages(orchestrator),
+            history=getattr(orchestrator, "_conversation_controller", None),
             min_messages=6,
         )
         if inspect.isawaitable(result):

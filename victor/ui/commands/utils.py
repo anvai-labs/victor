@@ -112,7 +112,9 @@ def configure_logging_from_config(
     from victor.ui.rendering.log_handler import LiveAwareLogHandler
 
     console_formatter = logging.Formatter(config.console_format)
-    console_handler: logging.Handler = LiveAwareLogHandler(stream)
+    console_handler: logging.Handler = LiveAwareLogHandler(
+        stream, show_tracebacks=config.get_console_level_int() <= logging.DEBUG
+    )
     console_handler.setLevel(config.get_console_level_int())
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)

@@ -673,3 +673,22 @@ session = SessionConfig(agentic_loop=AgenticLoopSettings(executor="standard"))
 
 This config-only increment does not expose new deadline or attempt knobs, extend the
 experimental executor's lifecycle guarantees, or establish live provider/C5 acceptance.
+
+## Self-audit recovery invariants (UX-01)
+
+Required plan dependencies remain required after failure. Preserve the graph and
+mark transitive dependents blocked; independent branches may continue. Description
+keywords and step types cannot waive an input contract, and evidence validation
+must not relabel a blocked step as an executed failure.
+
+Member binding registers its canonical session before publishing runtime identity.
+A failed durable session insert must not leave a phantom cached session that makes
+a later bind appear successful. Existing session and audit stores retain ownership.
+
+Context lifecycle compaction delegates through the internal typed `CompactionHistory`
+port to the existing conversation controller, then refreshes its accounting snapshot
+from the history actually sent to the provider. Standalone context-service callers
+retain their existing snapshot behavior. Simple and scored strategies use one
+retention helper for genuine user intent, system instructions, latest assistant,
+pending tool calls and selected complete tool batches. Internal user-role nudges
+do not become the task query. No new compaction engine or retry dispatcher is added.

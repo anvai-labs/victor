@@ -137,3 +137,62 @@ async def test_recovery_rejects_active_turn_before_sync_or_hydration():
     host._session_service.recover_session.return_value = True
     assert runtime.recover_session("resumed")
     assert identity.resolve().session_id == "resumed"
+
+
+async def test_member_binding_registers_actual_session_before_compaction(tmp_path, monkeypatch):
+    import sqlite3
+    from victor.agent.conversation.store import ConversationStore
+    from victor.agent.runtime.context import RuntimeIdentity
+    from victor.agent.services.context_lifecycle_service import ContextLifecycleService
+
+    store = ConversationStore(db_path=tmp_path / "sessions.db")
+    initial = store.create_session(session_id="assembly-session")
+    host = _make_runtime_host(
+        memory_manager=store,
+        active_session_id=None,
+        _memory_session_id=initial.session_id,
+        _conversation_controller=MagicMock(),
+        provider_name="test",
+        model="test-model",
+    )
+    host._runtime_identity = RuntimeIdentity(host)
+    member = host._runtime_identity.resolve().derive_child(
+        agent_id="member",
+        display_name="Reviewer",
+        role="reviewer",
+        member_id="review",
+    )
+    runtime = SessionRuntime(host)
+    import pytest
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(store, "_persist_session", MagicMock(side_effect=OSError("disk full")))
+        with pytest.raises(OSError, match="disk full"):
+            runtime.bind_member(member)
+    assert store.get_session(member.session_id) is None
+    assert host.active_session_id is None
+    assert host._memory_session_id == initial.session_id
+    host._conversation_controller.set_conversation_store.assert_not_called()
+    runtime.bind_member(member)
+    lifecycle = ContextLifecycleService.with_defaults(
+        max_tokens=10,
+        min_messages_to_keep=2,
+        conversation_store=store,
+    )
+    result = await lifecycle.after_agent_turn(
+        member,
+        messages=[{"role": "user", "content": "x" * 40} for _ in range(4)],
+    )
+    assert result["compaction_event_id"]
+    runtime.bind_member(member)  # Existing durable events must survive rebinding.
+    assert host.active_session_id == host._memory_session_id == member.session_id
+    host._conversation_controller.set_conversation_store.assert_called_with(
+        store, member.session_id
+    )
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT e.session_id, e.agent_id FROM compaction_events e "
+            "JOIN sessions s ON s.session_id=e.session_id"
+        ).fetchone()
+        assert row == (member.session_id, "member")
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
