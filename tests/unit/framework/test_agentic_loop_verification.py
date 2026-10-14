@@ -125,9 +125,9 @@ async def test_default_without_verifier_retains_completion(streaming):
 
 
 async def test_stategraph_cannot_silently_ignore_verifier(monkeypatch):
-    monkeypatch.setattr(
-        "victor.framework.agentic_loop_executor.use_stategraph_executor", lambda: True
-    )
+    from victor.core.feature_flags import FeatureFlag
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
     loop = make_loop(MagicMock(), retries=1)
     with pytest.raises(NotImplementedError, match="StateGraph.*verification"):
         await loop.run("task")
@@ -281,9 +281,9 @@ async def test_unsupported_mode_rejects_configured_deadline_before_execution(mon
     loop.config.total_timeout = 1
     loop._run_with_stategraph = AsyncMock()
     if mode == "stategraph":
-        monkeypatch.setattr(
-            "victor.framework.agentic_loop_executor.use_stategraph_executor", lambda: True
-        )
+        from victor.core.feature_flags import FeatureFlag
+
+        monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
         with pytest.raises(NotImplementedError, match="deadlines"):
             await loop.run("q")
         loop._run_with_stategraph.assert_not_called()
@@ -379,3 +379,54 @@ async def test_continuation_consumes_one_controller_decision_with_original_inten
     assert len(messages) == 4
     assert all(call.args == ("system", "Preserve the original request.") for call in messages)
     assert all(call.kwargs["metadata"]["interactive_history"] is False for call in messages)
+
+
+async def test_direct_loop_resolves_auto_each_run_without_mutating_config(monkeypatch):
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.agentic_loop import LoopResult
+
+    loop = make_loop(None, retries=0)
+    graph_result = LoopResult(success=True, iterations=[], final_state={}, total_duration=0)
+    loop._run_with_stategraph = AsyncMock(return_value=graph_result)
+    env = FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name()
+    monkeypatch.setenv(env, "true")
+    assert await loop.run("first") is graph_result
+    loop._act.assert_not_awaited()
+    monkeypatch.setenv(env, "false")
+    result = await loop.run("second")
+    assert result.success
+    loop._act.assert_awaited_once()
+    loop._run_with_stategraph.assert_awaited_once()
+    assert loop.config.executor is AgenticLoopExecutor.AUTO
+
+
+@pytest.mark.parametrize("mode", ["buffered", "iterations", "tokens"])
+async def test_direct_loop_explicit_executor_overrides_legacy_flag(mode, monkeypatch):
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.agentic_loop import LoopResult
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "false")
+    loop = make_loop(None, retries=0)
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    graph_result = LoopResult(success=True, iterations=[], final_state={}, total_duration=0)
+    loop._run_with_stategraph = AsyncMock(return_value=graph_result)
+    visited = []
+
+    async def graph_stream(**kwargs):
+        visited.append(kwargs["query"])
+        if False:
+            yield
+
+    loop._stream_with_stategraph = graph_stream
+    if mode == "buffered":
+        assert await loop.run("q") is graph_result
+        loop._run_with_stategraph.assert_awaited_once()
+    elif mode == "iterations":
+        assert [event async for event in loop.stream("q")] == []
+        assert visited == ["q"]
+    else:
+        with pytest.raises(NotImplementedError, match="StateGraph.*token streaming"):
+            await anext(loop.run_streaming("q"))
+    loop._act.assert_not_awaited()

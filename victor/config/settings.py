@@ -30,6 +30,7 @@ from victor.core.model_parameters import ReasoningEffort
 
 from pydantic import BaseModel, Field, SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from victor.config.agentic_loop_settings import AgenticLoopSettings
 from victor.config.model_capabilities import _load_tool_capable_patterns_from_yaml
 from victor.config.orchestrator_constants import BUDGET_LIMITS, TOOL_SELECTION_PRESETS
 from victor.core.constants import DEFAULT_VERTICAL
@@ -1168,6 +1169,8 @@ class Settings(BaseSettings):
                 del data["api_key"]
 
         return data
+
+    agentic_loop: AgenticLoopSettings = Field(default_factory=AgenticLoopSettings)
 
     # Nested config groups (structured access to grouped settings).
     # Auto-synced from flat fields by _sync_nested_groups validator.

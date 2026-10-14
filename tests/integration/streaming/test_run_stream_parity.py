@@ -260,3 +260,77 @@ async def test_buffered_guard_stop_preserves_completed_act_without_recovery(stop
         assert response.metadata["request_id"] == "current"
         assert observed["act"].successful_tool_count == 1
         assert any(message.role == "tool" for message in orch.messages)
+
+
+@pytest.mark.parametrize("mode", ["buffered", "streaming"])
+@pytest.mark.parametrize(
+    "configured,flag_enabled",
+    [("auto", False), ("standard", True), ("stategraph", False), ("auto", True)],
+)
+async def test_executor_admission_snapshot_survives_configuration_changes(
+    mode, configured, flag_enabled, monkeypatch
+):
+    """Public service admission and dispatch share one selection across policy awaits."""
+    from unittest.mock import AsyncMock
+    from victor.config.agentic_loop_settings import AgenticLoopSettings
+    from victor.core.feature_flags import FeatureFlag, is_feature_enabled
+    from victor.framework.agentic_loop import AgenticLoop
+    from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
+    from victor.framework._internal import stream_with_events
+    from victor.framework.events import EventType
+    from victor.framework.policies import GateResult, MessagePolicyGate, PolicyEngine
+    from .parity_harness import TurnScript
+
+    flag_reads = []
+    current_flag = flag_enabled
+
+    def read_flag(flag):
+        if flag is FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP:
+            flag_reads.append(current_flag)
+            return current_flag
+        return is_feature_enabled(flag)
+
+    monkeypatch.setattr("victor.core.feature_flags.is_feature_enabled", read_flag)
+    gate = MessagePolicyGate(PolicyEngine([]))
+    monkeypatch.setattr(
+        "victor.agent.factory.coordination_builders.build_message_policy_gate", lambda *args: gate
+    )
+    provider = ScriptedProvider([TurnScript(content="Verified answer. " * 10)])
+    orch = build_streaming_orchestrator(provider)
+    orch.settings.agentic_loop = AgenticLoopSettings(executor=configured)
+    flag_reads.clear()  # Only count the admitted run, not unrelated construction.
+    before = list(orch.messages)
+
+    async def request(text):
+        nonlocal current_flag
+        current_flag = not flag_enabled
+        orch.settings.agentic_loop = AgenticLoopSettings(executor="stategraph")
+        return GateResult(allowed=True, content=text)
+
+    gate.gate_request = AsyncMock(side_effect=request)
+    monkeypatch.setattr(
+        AgenticLoop,
+        "_evaluate",
+        AsyncMock(return_value=EvaluationResult(EvaluationDecision.COMPLETE, 1.0, "done")),
+    )
+    rejected = configured == "stategraph" or (configured == "auto" and flag_enabled)
+    if mode == "buffered":
+        if rejected:
+            with pytest.raises(NotImplementedError, match="StateGraph.*message governance"):
+                await orch.chat("Report the answer.")
+        else:
+            result = await orch.chat("Report the answer.")
+            assert result.metadata["agentic_loop_success"] is True
+    else:
+        events = [event async for event in stream_with_events(orch, "Report the answer.")]
+        ends = [event for event in events if event.type == EventType.STREAM_END]
+        assert len(ends) == 1
+        assert ends[0].success is not rejected
+        assert bool([event for event in events if event.type == EventType.ERROR]) is rejected
+    assert provider.turn_index == (0 if rejected else 1)
+    assert flag_reads == ([flag_enabled] if configured == "auto" else [])
+    if rejected:
+        gate.gate_request.assert_not_awaited()
+        assert orch.messages == before
+    else:
+        gate.gate_request.assert_awaited_once()

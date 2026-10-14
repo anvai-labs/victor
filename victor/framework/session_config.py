@@ -47,6 +47,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from victor.config.agentic_loop_settings import AgenticLoopSettings
 from victor.core.model_parameters import ReasoningEffort, validate_reasoning_effort
 
 from victor.framework.bayesian_config import BayesianConfig
@@ -336,6 +337,7 @@ class SessionConfig:
         adaptive_threshold: Shorthand for adaptive compaction toggle.
         compaction_min_threshold: Shorthand for adaptive min threshold.
         compaction_max_threshold: Shorthand for adaptive max threshold.
+        agentic_loop: Optional immutable executor override; None preserves Settings.
     """
 
     # Agent profile (from ~/.victor/profiles.yaml)
@@ -364,6 +366,7 @@ class SessionConfig:
     bayesian: BayesianConfig = field(default_factory=BayesianConfig)
     tool_approval: ToolApprovalConfig = field(default_factory=ToolApprovalConfig)
     shell_safety: ShellSafetyConfig = field(default_factory=ShellSafetyConfig)
+    agentic_loop: Optional[AgenticLoopSettings] = None
 
     # --- Convenience shorthands (populate sub-configs) ---
 
@@ -373,6 +376,9 @@ class SessionConfig:
         Because the dataclass is frozen, we use ``object.__setattr__``
         to populate the composed configs from flat shorthand fields.
         """
+        if self.agentic_loop is not None and not isinstance(self.agentic_loop, AgenticLoopSettings):
+            raise TypeError("agentic_loop must be AgenticLoopSettings or None")
+
         # Validate numeric ranges
         if self.tool_budget is not None and self.tool_budget < 1:
             raise ValueError(f"tool_budget must be >= 1, got {self.tool_budget}")
@@ -563,6 +569,9 @@ class SessionConfig:
         Args:
             settings: Application Settings instance.
         """
+        if self.agentic_loop is not None:
+            object.__setattr__(settings, "agentic_loop", self.agentic_loop)
+
         # Tool output settings
         tool_settings = getattr(settings, "tool_settings", None)
         if tool_settings is not None:

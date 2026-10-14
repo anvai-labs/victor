@@ -58,6 +58,17 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    **dict.fromkeys(
+        ("victor/config/agentic_loop_settings.py", "victor/framework/agentic_loop_executor.py"),
+        (
+            "tests/unit/framework/test_agentic_loop_executor.py",
+            "tests/unit/framework/test_session_config.py",
+            "tests/unit/framework/test_agentic_loop_config.py",
+            "tests/unit/framework/test_agentic_loop_verification.py",
+            "tests/unit/agent/services/test_turn_execution_runtime.py",
+            "tests/unit/agent/services/test_chat_stream_governance.py",
+        ),
+    ),
     "victor/framework/agentic_graph/executor.py": (
         "tests/unit/framework/agentic_graph/test_builder.py",
         "tests/unit/agent/services/test_turn_execution_runtime.py",

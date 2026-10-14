@@ -14,6 +14,7 @@ from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnEx
 from victor.agent.topology_contract import TopologyAction, TopologyKind
 from victor.agent.topology_grounder import GroundedTopologyPlan
 from victor.core.errors import ProviderPolicyError
+from victor.config.agentic_loop_settings import AgenticLoopSettings
 from victor.framework.agentic_loop import LoopIteration, LoopResult, LoopStage
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.framework.task.protocols import TaskComplexity
@@ -25,6 +26,7 @@ from victor.providers.base import CompletionResponse, Message
 def _make_executor(exploration_coordinator=None) -> TurnExecutor:
     chat_context = MagicMock()
     chat_context.settings = MagicMock()
+    chat_context.settings.agentic_loop = AgenticLoopSettings()
     chat_context.add_message = MagicMock()
     chat_context.conversation = MagicMock()
     chat_context._orchestrator = None
@@ -342,6 +344,7 @@ async def test_execute_tool_calls_prefers_canonical_tool_context_method():
 async def test_execute_tool_calls_requires_canonical_tool_context_method():
     chat_context = MagicMock()
     chat_context.settings = MagicMock()
+    chat_context.settings.agentic_loop = AgenticLoopSettings()
     chat_context.add_message = MagicMock()
     chat_context.conversation = MagicMock()
 
@@ -1633,6 +1636,7 @@ class _FakeGate:
 
 def _make_gated_executor(gate):
     chat_context = MagicMock()
+    chat_context.settings.agentic_loop = AgenticLoopSettings()
     chat_context.add_message = MagicMock()
     chat_context.conversation = MagicMock()
     chat_context._orchestrator = None
@@ -1790,8 +1794,10 @@ async def test_governed_stategraph_rejected_before_dispatch(entry, monkeypatch):
 
     # Direct graph execution must reject even when the global selector is buffered.
     direct_graph = entry.startswith("graph-")
-    monkeypatch.setattr(
-        "victor.framework.agentic_loop_executor.use_stategraph_executor", lambda: not direct_graph
+    from victor.core.feature_flags import FeatureFlag
+
+    monkeypatch.setenv(
+        FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), str(not direct_graph).lower()
     )
     gate = _FakeGate()
     executor = _make_gated_executor(gate)
@@ -1997,3 +2003,69 @@ async def test_empty_recovery_records_one_fallback_message(failed_tools):
 def test_turn_result_rejects_untyped_disposition(invalid):
     with pytest.raises(TypeError, match="TurnDisposition"):
         TurnResult(response=CompletionResponse(content="claimed done"), disposition=invalid)
+
+
+async def test_concurrent_sessions_dispatch_their_own_executor_snapshot(monkeypatch):
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
+    arrived = []
+    both_admitted = asyncio.Event()
+
+    def build_loop(**kwargs):
+        selected = kwargs["config"]["executor"]
+
+        async def run(*args, **kwargs):
+            arrived.append(selected)
+            if len(arrived) == 2:
+                both_admitted.set()
+            await asyncio.wait_for(both_admitted.wait(), timeout=1)
+            return LoopResult(
+                success=True,
+                final_state={},
+                total_duration=0,
+                iterations=[
+                    LoopIteration(
+                        iteration=1,
+                        stage=LoopStage.ACT,
+                        action_result=TurnResult(
+                            response=CompletionResponse(content=selected.value)
+                        ),
+                    )
+                ],
+            )
+
+        return SimpleNamespace(run=run)
+
+    monkeypatch.setattr("victor.framework.agentic_loop.AgenticLoop", build_loop)
+    executors = [_make_executor(), _make_executor()]
+    choices = [AgenticLoopExecutor.STANDARD, AgenticLoopExecutor.STATEGRAPH]
+    for executor, choice in zip(executors, choices):
+        executor._chat_context.settings.agentic_loop = AgenticLoopSettings(executor=choice)
+        executor._chat_context.settings.chat_max_iterations = 5
+        executor._provider_context.task_classifier.classify.return_value = SimpleNamespace(
+            tool_budget=1
+        )
+        executor._is_question_only = MagicMock(return_value=True)
+    results = await asyncio.gather(
+        *(executor.execute_agentic_loop("hello") for executor in executors)
+    )
+    assert [response.content for response in results] == [choice.value for choice in choices]
+    assert set(arrived) == set(choices)
+    assert [
+        executor._chat_context.settings.agentic_loop.executor for executor in executors
+    ] == choices
+
+
+async def test_stategraph_verifier_rejected_before_request_or_history(monkeypatch):
+    from victor.agent.services.chat_runtime_services import ChatGovernance
+
+    executor = _make_executor()
+    executor._chat_context.settings.agentic_loop = AgenticLoopSettings(executor="stategraph")
+    executor._verifier = MagicMock()
+    request = AsyncMock(return_value=None)
+    monkeypatch.setattr(ChatGovernance, "check_request", request)
+    with pytest.raises(NotImplementedError, match="StateGraph.*verification"):
+        await executor.execute_agentic_loop("test task")
+    request.assert_not_awaited()
+    executor._chat_context.add_message.assert_not_called()
+    executor._chat_context.conversation.ensure_system_prompt.assert_not_called()

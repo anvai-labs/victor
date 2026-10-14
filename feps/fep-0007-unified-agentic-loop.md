@@ -635,3 +635,41 @@ fallback text or replay policy checks. Ordinary recoverable errors retain the ex
 recorded-iteration response selection and zero-iteration fallback. Cancellation and terminal policy exceptions still
 propagate. This boundary repair does not provide whole-run provider attempt/deadline
 ownership, remote cancellation, or lifecycle parity for experimental executors.
+
+
+### Executor configuration ownership follow-up (LOOP-03)
+
+`Settings.agentic_loop` owns immutable `AgenticLoopSettings`. The optional
+`SessionConfig.agentic_loop` override is applied to the existing fresh session settings;
+absence preserves deployment configuration. The enum has one definition in the lightweight
+config module, re-exported from the existing framework resolver to retain import identity.
+
+| Configured executor | Resolution / capability |
+| --- | --- |
+| `auto` (default) | Resolve the existing `USE_STATEGRAPH_AGENTIC_LOOP` flag once per admitted run |
+| `standard` | Explicit standard buffered/token-streamed loop; ignore the legacy selector flag |
+| `stategraph` | Explicit experimental graph executor; reject unsupported capabilities |
+
+Resolution returns only `standard` or `stategraph`. The service checks admission before
+REQUEST governance/history/setup, then passes that concrete choice in `AgenticLoopConfig`
+to dispatch. Flag or session-setting changes during an await cannot switch this admitted
+run. Direct loop callers may set `AgenticLoopConfig.executor`; an AUTO instance resolves
+afresh at each entry without mutating its configuration. Existing deadline, verification
+and message-governance graph restrictions remain. Token streaming explicitly rejects
+StateGraph before work instead of silently using the standard executor.
+
+Invalid explicit values and selector failures are errors, never implicit AUTO fallback.
+The default keeps the established legacy-flag behavior; no additional flag is introduced.
+Use `VICTOR_AGENTIC_LOOP='{"executor":"standard"}'` or the existing settings YAML loader
+for deployment configuration. The nested double-underscore environment spelling is not
+advertised. Programmatic session override:
+
+```python
+from victor.config.agentic_loop_settings import AgenticLoopSettings
+from victor.framework.session_config import SessionConfig
+
+session = SessionConfig(agentic_loop=AgenticLoopSettings(executor="standard"))
+```
+
+This config-only increment does not expose new deadline or attempt knobs, extend the
+experimental executor's lifecycle guarantees, or establish live provider/C5 acceptance.

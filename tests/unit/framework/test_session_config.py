@@ -159,3 +159,41 @@ class TestSessionConfigApplyToolBudget:
         settings = self._make_settings()
         config.apply_to_settings(settings)
         assert settings.tools.tool_call_budget == 7
+
+
+@pytest.mark.parametrize("override", [None, "auto", "standard", "stategraph"])
+def test_loop_executor_session_override_isolated_and_immutable(override):
+    from pydantic import ValidationError
+    from victor.config.agentic_loop_settings import AgenticLoopSettings
+    from victor.config.settings import Settings
+
+    first = Settings(agentic_loop={"executor": "stategraph"})
+    second = Settings(agentic_loop={"executor": "standard"})
+    choice = AgenticLoopSettings(executor=override) if override is not None else None
+    session = SessionConfig(agentic_loop=choice)
+    session.apply_to_settings(first)
+    assert first.agentic_loop.executor.value == (override or "stategraph")
+    assert second.agentic_loop.executor.value == "standard"
+    if choice is not None:
+        with pytest.raises(ValidationError):
+            choice.executor = "auto"
+
+
+@pytest.mark.parametrize("raw", ["garbage", None, False])
+def test_loop_executor_settings_reject_invalid_configuration(raw):
+    from pydantic import ValidationError
+    from victor.config.settings import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(agentic_loop={"executor": raw})
+
+
+def test_loop_executor_environment_uses_existing_settings_loader(monkeypatch):
+    from victor.config.settings import Settings
+
+    monkeypatch.setenv("VICTOR_AGENTIC_LOOP", '{"executor":"standard"}')
+    assert Settings().agentic_loop.executor.value == "standard"
+    # An absent session override does not replace deployment configuration.
+    settings = Settings()
+    SessionConfig().apply_to_settings(settings)
+    assert settings.agentic_loop.executor.value == "standard"
