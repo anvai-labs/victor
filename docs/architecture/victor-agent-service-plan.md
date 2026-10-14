@@ -346,7 +346,7 @@ edit. A mock test is not live provider or C5 evidence.
   one call. Preserve `native-tool-prose-{live.log,browser.json,browser.png}` and
   test/collection/type-check logs beside the prior evidence.
 
-  **Invocation-accounting checkpoint ([#1353](https://github.com/anvai-labs/victor/pull/1353), reviewed; CI pending):** dispatch
+  **Invocation-accounting checkpoint ([#1353](https://github.com/anvai-labs/victor/pull/1353), ✅ merged):** dispatch
   and settlement now belong to `AgentMetricsService`; `SessionCostTracker` records
   each invocation at dispatch and settles it once. Buffered, streamed, recovery,
   response synthesis, planning generation/summaries, context-limit summaries and
@@ -380,18 +380,22 @@ edit. A mock test is not live provider or C5 evidence.
   ignored evidence directory. The result's account-fallback diagnosis, exception
   bypass analysis, test references and transport-scope separation were checked
   against source. Before implementing UX-08, add a no-provider-dispatch acceptance
-  assertion and select a clear configuration error.
+  assertion and select a clear configuration error. These are implemented in the
+  scoped UX-08 increment below.
 
   **Remaining qualification:** optional completion judges, LLM compaction,
   runtime-intelligence resilience helpers and legacy continuation provider calls
   are not yet migrated or qualified; these totals are not an all-provider ledger.
   Per-request raw wire/cache reconciliation, published Sandhi qualification,
   built-package live acceptance and C5 remain open. The live timing/token comparison
-  is a smoke observation, not an efficiency benchmark. Next: land this reviewed
-  accounting increment after green CI, then implement the scoped UX-08 missing-name
-  rejection with TDD; keep explicit transport selection separate.
+  is a smoke observation, not an efficiency benchmark. Reviewed source
+  `55354e35b67138a25e02787c1947dffd92409703` passed 40 CI checks, including
+  Py3.12 verticals; merge `5864a0aa272f977811a7cd25c7bd862d42237b03`. One
+  deployment skip and one neutral historical Trivy comparison remained; blocking
+  security checks passed. Next: land the scoped UX-08 missing-name rejection; keep
+  explicit transport selection separate.
 
-- **UX-08 explicit account and transport selection — DISCOVERED, PLANNED** — direct
+- **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced
   a missing account and selected the provider default instead. A newly named OAuth
   account still inherited the provider-wide gateway block until explicitly cleared.
@@ -402,6 +406,28 @@ edit. A mock test is not live provider or C5 evidence.
   environment precedence; selecting OAuth must not implicitly bypass a required
   gateway. Preserve existing gateway profiles. Extend configuration/account/creation
   test owners and qualify CLI/UI parity before changing routing defaults.
+
+  **Missing-name increment:** owner: Victor co-design session; branch
+  `fix/explicit-account-fail-closed`, rebased baseline
+  `5864a0aa272f977811a7cd25c7bd862d42237b03` (accounting #1353). `Settings.get_provider_settings` now rejects
+  missing named accounts, absent account files and propagated lookup/credential
+  errors with nonrecoverable `ConfigurationError` before provider resolution or
+  creation. Underlying credential exception text is suppressed. Unnamed profiles
+  keep provider-default behavior. TDD replaced the existing unsafe fallback
+  expectation and extended the existing account-resolution owner, including the
+  real orchestrator creation boundary: six RED cases, then 110 passing affected
+  tests and 506 configuration tests. The final CI-selected set passes 52 tests
+  with 100% changed-line coverage after rebase; 34,923 tests collect in the scoped
+  worktree environment, MyPy/Black/Ruff and
+  repository/docs guards pass. Independent review passed 19 checks plus 17 final
+  owner checks. PR/CI remain pending; this is not yet merged or released.
+
+  **Separate follow-ups:** an existing account whose credential backend returns
+  `None` can still use environment/provider credentials; legacy `ProviderResolver`
+  in `victor/config/resolution.py` has its own account/ad-hoc fallback. This increment
+  does not claim strict credential-source isolation or legacy resolver convergence.
+  Explicit transport selection, effective routing display and headed CLI/UI error
+  parity remain open; no authentication or gateway policy default changes here.
 
 - **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
   branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.

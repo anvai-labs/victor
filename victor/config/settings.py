@@ -2557,6 +2557,10 @@ class Settings(BaseSettings):
 
         Returns:
             Dictionary of provider settings
+
+        Raises:
+            ConfigurationError: An explicitly named account cannot be resolved.
+                Provider-default resolution is reserved for unnamed profiles.
         """
         import logging
 
@@ -2568,19 +2572,16 @@ class Settings(BaseSettings):
             from victor.config.accounts import get_account_manager
 
             manager = get_account_manager()
-            if manager.config_path.exists():
-                # Account-scoped selection: the profile's own account is the unit of
-                # credential identity. Fall back to the provider default only when the
-                # profile names no account (or names an unknown one), so misconfigured
-                # profiles degrade gracefully rather than silently dropping credentials.
+            config_exists = manager.config_path.exists()
+            if account_name and not config_exists:
+                raise LookupError("Explicit account configuration is absent")
+            if config_exists:
+                # Named credential identities must never select another account.
+                # Only unnamed profiles retain provider-default resolution.
                 if account_name:
                     account = manager.get_account(name=account_name)
                     if account is None:
-                        logger.warning(
-                            f"Profile account '{account_name}' not found; "
-                            f"falling back to provider '{provider}' default account"
-                        )
-                        account = manager.get_account(provider=provider)
+                        raise LookupError("Explicit account was not found")
                 else:
                     account = manager.get_account(provider=provider)
                 if account:
@@ -2601,6 +2602,17 @@ class Settings(BaseSettings):
                         f"keys={list(account_data.keys())}"
                     )
         except Exception as e:
+            if account_name:
+                from victor.core.errors import ConfigurationError
+
+                # Credential backends may put secret values in exception messages.
+                # Report the selected identity, not the underlying exception text.
+                raise ConfigurationError(
+                    f"Cannot resolve configured account '{account_name}' for provider '{provider}'. "
+                    "Check the profile's account name and account configuration.",
+                    config_key="account",
+                    recovery_hint="Run 'victor auth list' to inspect configured accounts.",
+                ) from None
             logger.debug(f"AccountManager lookup skipped: {e}")
 
         # Always use ProviderConfigRegistry — it handles all provider-specific logic
