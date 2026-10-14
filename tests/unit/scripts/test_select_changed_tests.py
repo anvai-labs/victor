@@ -292,6 +292,10 @@ def test_selector_changes_select_its_own_regressions():
             ],
         ),
         (
+            "victor/config/prompt_optimization_settings.py",
+            ["tests/unit/evaluation/test_benchmark_ab_hygiene.py"],
+        ),
+        (
             "victor/framework/agent_factory.py",
             [
                 "tests/unit/framework/test_skill_registry_wiring.py",

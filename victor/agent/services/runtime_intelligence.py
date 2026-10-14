@@ -2757,13 +2757,12 @@ class RuntimeIntelligenceService:
                     task_type=task_type,
                 )
             used_payload_few_shot = False
-            if isinstance(few_shot_payload, dict):
-                if few_shot_payload:
-                    used_payload_few_shot = True
-                    few_shots = str(few_shot_payload.get("text", "")).strip() or None
-                    identity = self._build_prompt_identity(few_shot_payload)
-                    if identity is not None:
-                        identities.append(identity)
+            if isinstance(few_shot_payload, dict) and few_shot_payload:
+                used_payload_few_shot = True
+                few_shots = str(few_shot_payload.get("text", "")).strip() or None
+                identity = self._build_prompt_identity(few_shot_payload)
+                if identity is not None:
+                    identities.append(identity)
             if not used_payload_few_shot:
                 few_shots = self._optimization_injector.get_few_shots(
                     user_message,
@@ -2778,10 +2777,9 @@ class RuntimeIntelligenceService:
                     getattr(turn_context, "last_failure_error", None),
                 )
 
-        experiment_memory_hints = (
-            {}
-            if frozen_prompts_enabled()
-            else self.get_experiment_routing_context(
+        experiment_memory_hints: Dict[str, Any] = {}
+        if not frozen_prompts_enabled():
+            experiment_memory_hints = self.get_experiment_routing_context(
                 query=user_message,
                 scope_context={
                     "provider": provider_name,
@@ -2792,7 +2790,6 @@ class RuntimeIntelligenceService:
                     or getattr(turn_context, "section_name", None),
                 },
             )
-        )
         experiment_guidance = self._build_experiment_prompt_guidance(experiment_memory_hints)
 
         # Cache the identities actually served this turn so the agentic loop can
@@ -2846,10 +2843,7 @@ class RuntimeIntelligenceService:
         if not isinstance(payload, dict):
             return None
 
-        def _optional_text(value: Any) -> Optional[str]:
-            text = str(value).strip() if value is not None else ""
-            return text or None
-
+        _optional_text = RuntimeIntelligenceService._coerce_optional_text
         section_name = _optional_text(
             payload.get("section_name") or payload.get("prompt_section_name")
         )

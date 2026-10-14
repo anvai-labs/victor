@@ -481,6 +481,13 @@ edit. A mock test is not live provider or C5 evidence.
   checks passed (two existing skips). MyPy passed all five production files;
   collection found 35,078 tests. Independent scoped review passed 62 checks.
   Source review, CI and merge evidence must remain distinct from release/C5 acceptance.
+  Initial PR #1356 CI exposed an unmapped descriptive test owner and a five-line
+  runtime-service size regression. Both reproduced locally (two failures): the
+  selector now uses the existing benchmark-hygiene suite, and shared text coercion
+  plus simpler conditionals keep the service below its unchanged size cap. The
+  corrective focused run passed 135 checks; independent delta review passed 113.
+  Combined CI-equivalent suites passed 224 checks, six source files passed MyPy,
+  and final collection found 35,079 tests after extending the selector parameter set.
 
   Four direct `codex-local` conversations used two bounded source-reading tasks,
   each repeated once: normal accounts, frozen accounts, frozen prompt-document,
