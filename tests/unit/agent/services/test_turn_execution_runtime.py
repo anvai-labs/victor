@@ -1707,7 +1707,7 @@ async def test_response_governance_precedes_publication(policy, producer):
     )
     executor = _make_gated_executor(gate)
     raw = CompletionResponse(content=original, role="assistant", usage={"total_tokens": 7})
-    executor._accumulate_token_usage = MagicMock()
+    executor._record_conversation_usage = MagicMock()
     executor._execute_model_turn = AsyncMock(return_value=raw)
     executor._execute_tool_calls = AsyncMock(return_value=[{"success": True}])
     executor._apply_runtime_context_overrides = MagicMock(return_value=())
@@ -1776,7 +1776,7 @@ async def test_response_governance_precedes_publication(policy, producer):
             assert raw.content == original  # provider response is not mutated
     assert gate.response_calls == [original]
     if producer in {"model", "recovery"}:
-        executor._accumulate_token_usage.assert_called_once_with(raw)
+        executor._record_conversation_usage.assert_called_once_with(raw)
     if producer == "model":
         executor._restore_runtime_context_overrides.assert_called_once_with(())
     if producer == "deterministic":
@@ -1936,7 +1936,7 @@ async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(
             usage={"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16},
         ),
     ]
-    provider = SimpleNamespace(chat=AsyncMock(side_effect=responses))
+    provider = SimpleNamespace(name="unknown", chat=AsyncMock(side_effect=responses))
     executor = _make_executor()
     executor._chat_context._cumulative_token_usage = {
         "prompt_tokens": 0,
@@ -1948,7 +1948,7 @@ async def test_recovery_provider_usage_is_counted_once_including_empty_attempts(
     )
     metrics.start_task_report("recover a response")
     executor._chat_context.messages = []
-    executor._provider_context.response_completer = ResponseCompleter(provider)
+    executor._provider_context.response_completer = ResponseCompleter(provider, invocations=metrics)
     executor._provider_context.temperature = 0.2
     executor._provider_context.max_tokens = 100
     context = (

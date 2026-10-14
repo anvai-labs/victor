@@ -9,6 +9,9 @@ from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
 from victor.agent.services.prompt_builder_runtime import PromptBuilderRuntime
+from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.session_cost_tracker import SessionCostTracker
+from victor.providers.base import CompletionResponse
 
 
 def test_sync_prompt_builder_runtime_state_updates_builder_and_invalidates_cache():
@@ -132,9 +135,13 @@ def test_prompt_builder_runtime_prefix_fingerprint_changes_with_prompt():
 
 @pytest.mark.asyncio
 async def test_prompt_builder_runtime_warms_up_kv_cache_with_minimal_request():
-    provider = SimpleNamespace(chat=AsyncMock(return_value=SimpleNamespace(content="")))
+    provider = SimpleNamespace(
+        name="unknown",
+        chat=AsyncMock(return_value=CompletionResponse(content="", role="assistant")),
+    )
     host = SimpleNamespace(
         _kv_opt_cached=True,
+        _metrics_coordinator=AgentMetricsService(MagicMock(), SessionCostTracker(), {}),
         provider=provider,
         model="test-model",
         _system_prompt="You are an assistant.",

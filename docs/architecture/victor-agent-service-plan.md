@@ -303,8 +303,10 @@ edit. A mock test is not live provider or C5 evidence.
   lifecycle parity can be claimed.
 
 - **UX-09 structured tool intent and truthful usage — ACTIVE** — owner: Victor
-  co-design session; branch `fix/native-tool-prose-and-call-count`, baseline
-  `3a6b078317d863c2fc0ce22416b17f660fbafab8`. The bounded UX-08 review through
+  co-design session; active branch `fix/provider-invocation-accounting`, baseline
+  `adf3af5546dd7d86dc49974b74d37f5211480a22`. Parser checkpoint merged in
+  [#1352](https://github.com/anvai-labs/victor/pull/1352) after independent review
+  and all required CI, including vertical tests. The bounded UX-08 review through
   headed Chainlit and direct Codex OAuth failed on published Sandhi 0.13.0 with
   empty tool arguments: 81,031 reported tokens, seven observed model turns, no
   completed review. Sandhi [#368](https://github.com/anvai-labs/sandhi/pull/368)
@@ -342,8 +344,47 @@ edit. A mock test is not live provider or C5 evidence.
   215,082 tokens. This single uncontrolled model trial is scoped smoke evidence,
   not a benchmark or raw-usage reconciliation; the footer still incorrectly says
   one call. Preserve `native-tool-prose-{live.log,browser.json,browser.png}` and
-  test/collection/type-check logs beside the prior evidence. Review and CI are
-  required before landing; request accounting remains the next increment.
+  test/collection/type-check logs beside the prior evidence.
+
+  **Invocation-accounting checkpoint (local, reviewed; PR/CI pending):** dispatch
+  and settlement now belong to `AgentMetricsService`; `SessionCostTracker` records
+  each invocation at dispatch and settles it once. Buffered, streamed, recovery,
+  response synthesis, planning generation/summaries, context-limit summaries and
+  optional KV warm-up use that boundary. Stream presentation finalization no longer
+  records an extra call or folds usage twice. Repeated per-call usage snapshots
+  replace prior values; transport attempts remain a separate observation. Unknown
+  and partial usage are explicit in JSON, CSV, task reports and the shared UI footer.
+  Cancellation/early close closes the provider in its consuming task without
+  draining it for usage. Reset rejects pending invocations; malformed optional
+  telemetry cannot discard a successful provider answer. Existing test owners were
+  extended; obsolete aggregate-fold/fallback tests were removed or migrated.
+
+  Local validation: 2,028 main affected tests and 452 additional accounting/orchestrator
+  owner tests passed, 35,065 tests collected; MyPy passed
+  2,116 Victor/contracts source files. A further 145 compatibility checks passed
+  after migrating legacy accounting owners and preserving raw cache-miss/cost fields. Independent review reproduced and then verified fixes
+  for pending-reset attribution, malformed telemetry and unknown-usage export;
+  110 independent checks plus 65 final-delta checks passed. An isolated rebuilt-wheel
+  smoke verified buffered, streamed and unknown-usage failure accounting, footer
+  coverage and packaged UI assets (existing dependencies; not release acceptance).
+  A fresh headed AgentBrowser/Chainlit task using
+  direct Codex OAuth and the same isolated in-process Sandhi candidate completed in
+  39.4s. The footer reports **5 calls**, matching five model dispatch observations,
+  and 90,938 tokens (89,349 input / 1,589 output). Preserve
+  `provider-invocation-{live.log,browser.json,browser.png,result-text.json}` in the
+  ignored evidence directory. The result's account-fallback diagnosis, exception
+  bypass analysis, test references and transport-scope separation were checked
+  against source. Before implementing UX-08, add a no-provider-dispatch acceptance
+  assertion and select a clear configuration error.
+
+  **Remaining qualification:** optional completion judges, LLM compaction,
+  runtime-intelligence resilience helpers and legacy continuation provider calls
+  are not yet migrated or qualified; these totals are not an all-provider ledger.
+  Per-request raw wire/cache reconciliation, published Sandhi qualification,
+  built-package live acceptance and C5 remain open. The live timing/token comparison
+  is a smoke observation, not an efficiency benchmark. Next: land this reviewed
+  accounting increment after green CI, then implement the scoped UX-08 missing-name
+  rejection with TDD; keep explicit transport selection separate.
 
 - **UX-08 explicit account and transport selection — DISCOVERED, PLANNED** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced

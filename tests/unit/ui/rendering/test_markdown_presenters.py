@@ -112,6 +112,19 @@ def test_turn_cost_footer_empty_when_nothing_measured():
     assert turn_cost_footer(None) == ""
 
 
+def test_turn_cost_footer_distinguishes_unknown_usage_from_zero():
+    footer = turn_cost_footer(
+        {
+            "request_count": 1,
+            "api_total_tokens": 0,
+            "metadata": {"usage_coverage": {"unknown": 1, "partial": 0, "reported": 0}},
+        }
+    )
+    assert "1 call" in footer
+    assert "usage incomplete for 1 call" in footer
+    assert "0 tok" not in footer
+
+
 def test_turn_cost_footer_omits_zero_fields_and_singular_call():
     footer = turn_cost_footer(
         {

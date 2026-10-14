@@ -28,6 +28,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_runtime_services import ChatStreamMetrics
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
@@ -44,14 +46,21 @@ class _Helper(ChatStreamHelperMixin):
                 chunks=getattr(orchestrator, "_chunk_generator", None),
                 sanitizer=getattr(orchestrator, "sanitizer", None),
             ),
-            metrics=ChatStreamMetrics(orchestrator._metrics_collector),
+            metrics=ChatStreamMetrics(
+                SimpleNamespace(
+                    stream=AgentMetricsService(
+                        orchestrator._metrics_collector, SessionCostTracker(), {}
+                    ).stream,
+                    record_first_token=orchestrator._metrics_collector.record_first_token,
+                )
+            ),
         )
 
 
 def _make_orch(stream_factory, *, heartbeat=0.05, stall=5.0, grace=100.0):
     return SimpleNamespace(
         get_assembled_messages=MagicMock(return_value=[]),
-        provider=SimpleNamespace(stream=stream_factory),
+        provider=SimpleNamespace(name="unknown", stream=stream_factory),
         model="m",
         temperature=0.7,
         max_tokens=100,

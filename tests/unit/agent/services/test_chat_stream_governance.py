@@ -110,8 +110,12 @@ async def test_run_request_block_short_circuits():
 
 def _live_act_executor(gate):
     """Use real ACT assembly and publication; only external provider I/O is stubbed."""
+    from victor.agent.services.metrics_service import AgentMetricsService
+    from victor.agent.session_cost_tracker import SessionCostTracker
+
     runtime = SimpleNamespace()
     runtime.services = SimpleNamespace(
+        metrics=AgentMetricsService(MagicMock(), SessionCostTracker(), {}),
         governance=ChatGovernance(gate=gate),
         delivery=ChatDelivery(
             chunks=SimpleNamespace(
@@ -218,7 +222,7 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, mode):
             provider_calls.append(1)
             yield StreamChunk(content="the key is sk-abc123")
 
-        orch.provider = SimpleNamespace(stream=recover_stream)
+        orch.provider = SimpleNamespace(name="unknown", stream=recover_stream)
         orch.model = "test"
         orch.max_tokens = 1024
         orch.thinking = False
@@ -232,7 +236,9 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, mode):
             check_natural_completion=lambda *args, **kwargs: None,
             handle_empty_response=lambda *args: (None, False),
         )
-    stream_ctx = SimpleNamespace(user_message="", is_qa_task=False, goals=None, planned_tools=None)
+    stream_ctx = SimpleNamespace(
+        user_message="", is_qa_task=False, goals=None, planned_tools=None, cumulative_usage={}
+    )
     summary_mode = mode in {"completion-summary", "compaction-summary"}
     if summary_mode:
         executor._stream_provider_turn.return_value = (None, "VICTOR_TASK_DONE::", None, False)

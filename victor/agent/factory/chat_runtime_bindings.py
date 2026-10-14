@@ -6,7 +6,7 @@
 import asyncio
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import AsyncGenerator, Any
 import weakref
 
 from victor.agent.runtime.context import AgentRuntimeContext, RuntimeIdentity
@@ -33,7 +33,7 @@ from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
 from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.providers.gateway_boundary import uses_gateway
-from victor.providers.usage_accounting import accumulate_usage
+from victor.providers.base import BaseProvider, Message, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -342,15 +342,12 @@ class _ChatStreamMetricsView(_WeakOwner):
     def record_first_token(self) -> None:
         self._collector().record_first_token()
 
-    def accumulate_usage(self, usage_data: dict[str, int]) -> None:
-        owner = self._owner()
-        cumulative = getattr(owner, "_cumulative_token_usage", None)
-        if not isinstance(cumulative, dict):
-            state = getattr(owner, "__dict__", {})
-            cumulative = state.get("_cumulative_token_usage") if isinstance(state, dict) else None
-        if isinstance(cumulative, dict):
-            # Preserve the dictionary shared with task-report metrics across resets/restores.
-            accumulate_usage(cumulative, usage_data)
+    def stream(
+        self, provider: BaseProvider, *, messages: list[Message], model: str, **kwargs: Any
+    ) -> AsyncGenerator[StreamChunk, None]:
+        return self._owner()._metrics_coordinator.stream(
+            provider, messages=messages, model=model, **kwargs
+        )
 
     def finalize(
         self,

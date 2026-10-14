@@ -4,11 +4,13 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 import pytest
 
 from victor.agent.services.context_limit_runtime import ContextLimitRuntime
+from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.providers.base import CompletionResponse, Message
 
 
 def _make_runtime_host():
-    provider = SimpleNamespace(chat=AsyncMock())
+    provider = SimpleNamespace(name="unknown", chat=AsyncMock())
     host = SimpleNamespace(
         _check_context_overflow=MagicMock(return_value=False),
         _conversation_controller=MagicMock(),
@@ -23,6 +25,7 @@ def _make_runtime_host():
         add_message=MagicMock(),
         _record_runtime_intelligence_outcome=MagicMock(),
     )
+    host._metrics_coordinator = AgentMetricsService(MagicMock(), SessionCostTracker(), {})
     host._presentation.icon.return_value = "!"
     host.sanitizer.sanitize.side_effect = lambda text: text
     return host

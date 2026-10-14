@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from victor.observability.analytics.streaming_metrics import (
         StreamingMetricsCollector,
     )
-    from victor.agent.response_completer import ResponseCompleter
+    from victor.agent.response_completer import CompletionInvocation, ResponseCompleter
     from victor.agent.message_history import MessageHistory
     from victor.agent.conversation.state_machine import ConversationStateMachine
     from victor.agent.streaming.streaming_coordinator import StreamingCoordinator
@@ -483,7 +483,9 @@ class RuntimeBuildersMixin:
             manager.capabilities,
         )
 
-    def create_response_completer(self) -> "ResponseCompleter":
+    def create_response_completer(
+        self, *, invocations: Optional["CompletionInvocation"] = None
+    ) -> "ResponseCompleter":
         """Create response completer for ensuring complete responses after tool calls.
 
         Returns:
@@ -493,6 +495,7 @@ class RuntimeBuildersMixin:
 
         response_completer = create_response_completer(
             provider=self.provider,
+            invocations=invocations,
             max_retries=getattr(self.settings, "response_completion_retries", 3),
             force_response=getattr(self.settings, "force_response_on_error", True),
         )

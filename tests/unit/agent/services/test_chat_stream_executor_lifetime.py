@@ -18,7 +18,8 @@ from victor.agent.services.metrics_service import AgentMetricsService
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter, StreamActSession
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.session_state_manager import SessionStateManager
-from victor.providers.base import StreamChunk
+from victor.providers.base import CompletionResponse, StreamChunk
+from victor.agent.session_cost_tracker import SessionCostTracker
 
 
 def make_services(executor_type):
@@ -32,7 +33,8 @@ def make_services(executor_type):
     owner._metrics_coordinator = SimpleNamespace(
         finalize_stream_metrics=lambda usage, **_: events.append(("metrics", usage["total_tokens"]))
     )
-    metrics = AgentMetricsService(None, None, owner._cumulative_token_usage)
+    metrics = AgentMetricsService(None, SessionCostTracker(), owner._cumulative_token_usage)
+    owner._invocation_metrics = metrics
     runtime = ServiceStreamingRuntime(owner)
     runtime._streaming_executor = executor_type(owner, events)
     service = ChatService(
@@ -65,7 +67,7 @@ def make_services(executor_type):
     return service, runtime, metrics, events
 
 
-def set_usage(owner, message):
+async def set_usage(owner, message):
     prompt, completion = (2, 3) if message == "first" else (7, 11)
     owner._current_stream_context = SimpleNamespace(
         cumulative_usage={
@@ -75,6 +77,17 @@ def set_usage(owner, message):
         },
         runtime_override_snapshot=None,
     )
+    provider = SimpleNamespace(
+        name="unknown",
+        chat=AsyncMock(
+            return_value=CompletionResponse(
+                content=message,
+                role="assistant",
+                usage=owner._current_stream_context.cumulative_usage,
+            )
+        ),
+    )
+    await owner._invocation_metrics.complete(provider, messages=[], model="m")
 
 
 async def consume(service, message):
@@ -91,7 +104,7 @@ async def test_public_service_owns_preparation_reports_and_teardown(aggregate_se
             self.owner = owner
 
         async def run_unified(self, message, **_):
-            set_usage(self.owner, message)
+            await set_usage(self.owner, message)
             if message == "first":
                 started.set()
                 await release.wait()
@@ -133,7 +146,7 @@ async def test_inner_cleanup_finishes_before_reports_unlock_and_next_turn(public
             self.owner, self.events = owner, events
 
         async def run_unified(self, message, **_):
-            set_usage(self.owner, message)
+            await set_usage(self.owner, message)
             self.events.append(("execute", message))
             try:
                 yield StreamChunk(content=message)
@@ -215,7 +228,7 @@ async def test_cancelled_waiter_does_not_prepare_or_release_active_turn():
             self.owner = owner
 
         async def run_unified(self, message, **_):
-            set_usage(self.owner, message)
+            await set_usage(self.owner, message)
             if message == "first":
                 entered.set()
                 await release.wait()
@@ -248,7 +261,7 @@ async def test_runtime_finishes_stream_lifecycle_after_normal_completion():
         async def run_unified(self, message, **_):
             self.owner._cancel_event = asyncio.Event()
             self.owner._is_streaming = True
-            set_usage(self.owner, message)
+            await set_usage(self.owner, message)
             yield StreamChunk(content=message, is_final=True)
 
     service, runtime, _, _ = make_services(Executor)

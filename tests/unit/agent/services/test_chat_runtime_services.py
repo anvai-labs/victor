@@ -324,7 +324,7 @@ def test_stream_metrics_capability_requires_explicit_runtime():
     with pytest.raises(TypeError, match="require a runtime"):
         metrics.finalize({})
     with pytest.raises(TypeError, match="require a runtime"):
-        metrics.accumulate_usage({})
+        metrics.stream(None, messages=[], model="m")
 
 
 def test_task_state_capability_requires_explicit_runtime():

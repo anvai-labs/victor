@@ -799,6 +799,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   through the metrics owner, preserve per-call reasoning conventions, and reconcile
   mixed buffered/streaming task boundaries without adding duplicated token totals.
   Zero tracker values for buffered tasks are not evidence of zero cost or requests.
+  **2026-10-14 scoped implementation, review complete / CI pending:** UX-09 in
+  [the canonical tracker](victor-agent-service-plan.md) adds dispatch/settlement
+  accounting for normal buffered/streamed calls, recovery, synthesis, planning,
+  context-limit summaries and KV warm-up. Aggregate stream finalization no longer
+  counts a request or folds tokens twice; unknown usage is explicit. Mixed-call,
+  cancellation, early-close, reset and malformed-telemetry tests pass, and a direct
+  Codex OAuth UI run reports five calls matching five observed dispatches. Optional
+  judges, LLM compaction, resilience helpers and legacy continuation remain outside
+  qualification; do not treat this scoped result as full C5 or raw-wire reconciliation.
 - **G35 — ✅ verification retry exhaustion cannot accept COMPLETE ([PR #1122](https://github.com/anvai-labs/victor/pull/1122)).**
   The shared buffered/streaming verification gate previously skipped zero-budget
   checks and the last repair attempt, and could leave failed verification marked

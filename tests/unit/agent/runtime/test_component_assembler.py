@@ -36,6 +36,7 @@ def test_assemble_tools_prefers_canonical_registrar_registration_surface():
 
     orchestrator = SimpleNamespace(
         _factory=factory,
+        _metrics_coordinator=MagicMock(),
         _create_background_task=MagicMock(),
         _log_tool_call=MagicMock(),
         _record_tool_selection=MagicMock(),
@@ -47,6 +48,9 @@ def test_assemble_tools_prefers_canonical_registrar_registration_surface():
     )
 
     ComponentAssembler.assemble_tools(orchestrator, provider=MagicMock(), model="test-model")
+    factory.create_response_completer.assert_called_once_with(
+        invocations=orchestrator._metrics_coordinator
+    )
 
     registrar.register_default_tools.assert_called_once_with()
 

@@ -49,6 +49,8 @@ Usage:
 from __future__ import annotations
 
 import json
+from functools import partial
+from victor.agent.response_completer import CompletionInvocation
 import logging
 import re
 from enum import Enum
@@ -2190,6 +2192,8 @@ async def generate_task_plan(
     model: Optional[str] = None,
     max_retries: int = 2,
     conversation_context: Optional[str] = None,
+    *,
+    invocations: Optional[CompletionInvocation] = None,
 ) -> ReadableTaskPlan:
     """Generate a readable task plan using LLM.
 
@@ -2224,6 +2228,8 @@ async def generate_task_plan(
         else:
             raise ValueError("Model identifier must be provided or available from provider")
 
+    complete = provider.chat if invocations is None else partial(invocations.complete, provider)
+
     # Classify complexity if not provided
     task_complexity = complexity
     if not task_complexity:
@@ -2231,7 +2237,7 @@ async def generate_task_plan(
         complexity_prompt = complexity_prompt.replace("{user_request}", user_request)
 
         logger.debug("Classifying task complexity...")
-        complexity_response = await provider.chat(
+        complexity_response = await complete(
             messages=[Message(role="user", content=complexity_prompt)],
             model=model,
             temperature=0.1,
@@ -2287,7 +2293,7 @@ async def generate_task_plan(
             if plan_reasoning_effort is not None:
                 request_kwargs["reasoning_effort"] = plan_reasoning_effort
 
-            plan_response = await provider.chat(
+            plan_response = await complete(
                 messages=[
                     Message(role="system", content=_PLAN_GENERATION_SYSTEM_PROMPT),
                     Message(role="user", content=plan_prompt),

@@ -26,13 +26,19 @@ The legacy `victor.agent.coordinators.metrics_coordinator` module now re-exports
 this implementation for compatibility.
 """
 
+import asyncio
 import logging
 import time
 import uuid
 from collections import Counter
+from contextlib import aclosing
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Dict, List, Mapping, Optional, TYPE_CHECKING, cast
+
+from victor.agent.session_cost_tracker import RequestCost, RequestOutcome
+from victor.providers.base import BaseProvider, CompletionResponse, Message, StreamChunk
+from victor.providers.usage_accounting import accumulate_usage
 
 if TYPE_CHECKING:
     from victor.agent.metrics_collector import MetricsCollector
@@ -119,6 +125,92 @@ class _ActiveTaskReport:
     snapshot: _TaskUsageSnapshot
 
 
+def _telemetry_mapping(value: Any, field_name: str) -> Mapping[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, Mapping):
+        return value
+    logger.warning("Ignoring malformed optional provider telemetry: %s", field_name)
+    return {}
+
+
+@dataclass
+class _InvocationObservation:
+    """Latest per-call usage snapshot, separate from multi-call sums."""
+
+    usage: Dict[str, Any] = field(default_factory=dict)
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+    terminal: bool = False
+    tool_calls: int = 0
+
+    def observe(self, response: CompletionResponse | StreamChunk) -> None:
+        # Usage fields describe this invocation, not token deltas. Merge prompt
+        # and output observations, replacing repeated cumulative snapshots.
+        if response.usage:
+            self.usage.update(response.usage)
+        self.diagnostics.update(
+            _telemetry_mapping((response.metadata or {}).get("sandhi_usage"), "sandhi_usage")
+        )
+        for key in ("attempts", "cache_miss_tokens", "cost_in_usd_ticks"):
+            value = self.diagnostics.get(key)
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+            ):
+                logger.warning("Ignoring malformed optional provider telemetry: %s", key)
+                self.diagnostics.pop(key)
+        if isinstance(response, CompletionResponse):
+            self.terminal = True
+            raw = _telemetry_mapping((response.raw_response or {}).get("usage"), "raw_usage")
+            for target, source in (
+                ("cache_miss_tokens", "prompt_cache_miss_tokens"),
+                ("cost_in_usd_ticks", "cost_in_usd_ticks"),
+            ):
+                value = raw.get(source)
+                if (
+                    target not in self.diagnostics
+                    and isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value >= 0
+                ):
+                    self.diagnostics[target] = value
+            # Compatibility for native adapters without normalized cache/reasoning fields.
+            for key, value in {
+                "cache_read_input_tokens": _telemetry_mapping(
+                    raw.get("prompt_tokens_details"), "prompt_tokens_details"
+                ).get(
+                    "cached_tokens",
+                    raw.get("prompt_cache_hit_tokens", raw.get("cache_read_input_tokens")),
+                ),
+                "reasoning_tokens": _telemetry_mapping(
+                    raw.get("completion_tokens_details"), "completion_tokens_details"
+                ).get("reasoning_tokens"),
+            }.items():
+                if (
+                    key not in self.usage
+                    and isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value >= 0
+                ):
+                    self.usage[key] = value
+        else:
+            self.terminal = self.terminal or response.is_final
+        if response.tool_calls:
+            self.tool_calls = max(self.tool_calls, len(response.tool_calls))
+
+    @property
+    def reported_usage(self) -> Optional[Dict[str, Any]]:
+        if self.diagnostics.get("completeness") == "unavailable":
+            return None
+        return self.usage or None
+
+    def is_complete(self, outcome: RequestOutcome) -> bool:
+        return (
+            (self.terminal or outcome == "success")
+            and {"prompt_tokens", "completion_tokens"} <= self.usage.keys()
+            and self.diagnostics.get("completeness") not in ("partial", "unavailable")
+        )
+
+
 class AgentMetricsService:
     """Coordinates all metrics collection and tracking for the orchestrator.
 
@@ -169,6 +261,105 @@ class AgentMetricsService:
         self._successful_task_token_total = 0
         self._last_tool_strategy_event: Optional[Dict[str, Any]] = None
 
+    async def complete(
+        self, provider: BaseProvider, *, messages: List[Message], model: str, **kwargs: Any
+    ) -> CompletionResponse:
+        """Dispatch one buffered invocation; record failures as well as responses."""
+        request = self._session_cost_tracker.begin_request(provider=provider.name, model=model)
+        started = time.monotonic()
+        observation = _InvocationObservation()
+        outcome: RequestOutcome = "error"
+        try:
+            response = await provider.chat(messages=messages, model=model, **kwargs)
+            observation.observe(response)
+            outcome = "success"
+            return response
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            self._settle_invocation(request, observation, outcome, started)
+
+    async def stream(
+        self,
+        provider: BaseProvider,
+        *,
+        messages: List[Message],
+        model: str,
+        usage_totals: Optional[Dict[str, int]] = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Meter on first iteration and close the provider in the consuming task.
+
+        Consumers must close this iterator on early exit, just as they close the
+        underlying provider stream. No background draining or transport retries.
+        """
+        request = self._session_cost_tracker.begin_request(provider=provider.name, model=model)
+        started = time.monotonic()
+        observation = _InvocationObservation()
+        outcome: RequestOutcome = "error"
+        try:
+            # BaseProvider.stream implementations are async generators; its public
+            # annotation exposes only AsyncIterator for consumer compatibility.
+            stream = cast(
+                AsyncGenerator[StreamChunk, None],
+                provider.stream(messages=messages, model=model, **kwargs),
+            )
+            async with aclosing(stream):
+                async for chunk in stream:
+                    observation.observe(chunk)
+                    yield chunk
+            outcome = "success"
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        except GeneratorExit:
+            outcome = "closed"
+            raise
+        finally:
+            self._settle_invocation(request, observation, outcome, started, usage_totals)
+
+    def _settle_invocation(
+        self,
+        request: RequestCost,
+        observation: _InvocationObservation,
+        outcome: RequestOutcome,
+        started: float,
+        usage_totals: Optional[Dict[str, int]] = None,
+    ) -> None:
+        """Account once without replacing a provider error or replaying a call."""
+        try:
+            usage = observation.reported_usage
+            self._session_cost_tracker.settle_request(
+                request,
+                outcome=outcome,
+                usage=usage,
+                usage_complete=observation.is_complete(outcome),
+                duration_seconds=time.monotonic() - started,
+                tool_calls=observation.tool_calls,
+                transport_attempts=observation.diagnostics.get("attempts"),
+            )
+            if usage is not None:
+                if usage_totals is not None:
+                    accumulate_usage(usage_totals, usage)
+                accumulate_usage(self._cumulative_token_usage, usage)
+                self._cumulative_token_usage["cached_tokens"] = self._cumulative_token_usage.get(
+                    "cached_tokens", 0
+                ) + usage.get("cache_read_input_tokens", 0)
+                for target, source in (
+                    ("cache_miss_tokens", "cache_miss_tokens"),
+                    ("cost_usd_micros", "cost_in_usd_ticks"),
+                ):
+                    self._cumulative_token_usage[target] = self._cumulative_token_usage.get(
+                        target, 0
+                    ) + observation.diagnostics.get(source, 0)
+        except Exception:
+            logger.exception(
+                "Invocation accounting failed for request %s (outcome=%s)",
+                request.request_id,
+                outcome,
+            )
+
     # ========================================================================
     # Stream Metrics
     # ========================================================================
@@ -182,8 +373,7 @@ class AgentMetricsService:
 
         This method:
         1. Finalizes stream metrics via MetricsCollector
-        2. Records to SessionCostTracker for cumulative tracking
-        3. Returns the complete metrics
+        2. Returns aggregate presentation metrics without recording another invocation
 
         Args:
             usage_data: Optional cumulative token usage from provider API.
@@ -198,19 +388,6 @@ class AgentMetricsService:
         metrics = self._metrics_collector.finalize_stream_metrics(
             usage_data, provider_diagnostics=provider_diagnostics
         )
-
-        # Record to session cost tracker for cumulative tracking
-        if metrics:
-            self._session_cost_tracker.record_request(
-                prompt_tokens=metrics.prompt_tokens,
-                completion_tokens=metrics.completion_tokens,
-                billable_completion_tokens=metrics.billable_completion_tokens,
-                total_tokens=metrics.total_tokens,
-                cache_read_tokens=metrics.cache_read_tokens,
-                cache_write_tokens=metrics.cache_write_tokens,
-                duration_seconds=metrics.total_duration,
-                tool_calls=metrics.tool_calls_count,
-            )
 
         return metrics
 
@@ -486,6 +663,19 @@ class AgentMetricsService:
         )
         request_delta = max(0, final_snapshot.request_count - start_snapshot.request_count)
         total_cost_delta = max(0.0, final_snapshot.total_cost_usd - start_snapshot.total_cost_usd)
+        invocations = self._session_cost_tracker.requests[start_snapshot.request_count :]
+        merged_metadata["usage_coverage"] = {
+            status: sum(request.usage_status == status for request in invocations)
+            for status in ("unknown", "partial", "reported")
+        }
+        merged_metadata["invocation_outcomes"] = dict(
+            Counter(request.outcome for request in invocations)
+        )
+        attempts = [r.transport_attempts for r in invocations if r.transport_attempts is not None]
+        merged_metadata["transport_attempts"] = {
+            "reported": sum(attempts),
+            "covered_invocations": len(attempts),
+        }
 
         cache_input_tokens = cached_delta or cache_read_delta
         cache_hit_rate = (
@@ -703,12 +893,9 @@ class AgentMetricsService:
     def _snapshot_task_usage(self) -> _TaskUsageSnapshot:
         """Capture cumulative counters without switching token sources.
 
-        Buffered TurnExecutor calls (including recovery) and streaming runtime
-        accumulation update the same session dictionary. The cost tracker only
-        records streaming requests, so selecting its token totals would omit
-        buffered usage in mixed sessions or tasks. Never add the two copies.
-        Cost, cache-read/write and request counts retain tracker semantics until
-        buffered cost recording is integrated separately (handoff G34).
+        The invocation boundary folds buffered and streaming calls into the same
+        session dictionary and cost tracker. Never add these two copies. Legacy
+        external token observations can still be present in the session dictionary.
         """
         request_count, token_summary, cost_summary = self._tracker_summary()
         return _TaskUsageSnapshot(
