@@ -101,7 +101,8 @@ async def test_planning_compaction_prefers_context_service_before_legacy_compact
 
 
 @pytest.mark.asyncio
-async def test_chat_with_planning_attaches_execution_state_to_response_metadata():
+@pytest.mark.parametrize("success", [True, False, "false", None, 1])
+async def test_chat_with_planning_attaches_execution_state_to_response_metadata(success):
     service = PlanningRuntimeService(
         SimpleNamespace(),
         config=PlanningConfig(show_plan_before_execution=False),
@@ -115,12 +116,12 @@ async def test_chat_with_planning_attaches_execution_state_to_response_metadata(
     execution_state = {
         "plan_id": "plan-1",
         "execution_mode": "team_adapter",
-        "success": True,
+        "success": success,
         "step_statuses": {"1": "completed"},
     }
     result = PlanResult(
         plan_id="plan-1",
-        success=True,
+        success=success,
         total_steps=1,
         steps_completed=1,
         metadata={"plan_execution_state": execution_state},
@@ -128,12 +129,19 @@ async def test_chat_with_planning_attaches_execution_state_to_response_metadata(
     response = CompletionResponse(
         content="summary",
         role="assistant",
-        metadata={"provider": "test-provider"},
+        metadata={"provider": "test-provider", "agentic_loop_success": True},
     )
     service._compact_context_if_needed = AsyncMock()
     service._generate_plan = AsyncMock(return_value=plan)
     service._execute_plan = AsyncMock(return_value=result)
     service._generate_final_response = AsyncMock(return_value=response)
+
+    if type(success) is not bool:
+        with pytest.raises(ValueError, match="Plan success must be a boolean"):
+            await service.chat_with_planning("plan this", mode=PlanningMode.ALWAYS)
+        service._generate_final_response.assert_not_awaited()
+        assert service._compact_context_if_needed.await_count == 1
+        return
 
     returned = await service.chat_with_planning("plan this", mode=PlanningMode.ALWAYS)
 
@@ -144,6 +152,11 @@ async def test_chat_with_planning_attaches_execution_state_to_response_metadata(
     assert returned.metadata["planning"]["plan_name"] == "Graph Native Plan"
     assert returned.metadata["planning"]["steps_completed"] == 1
     assert returned.metadata["planning"]["steps_total"] == 1
+
+    assert returned.metadata["agentic_loop_success"] is success
+    assert returned.metadata["planning"]["success"] is success
+    if not success:
+        assert returned.metadata["agentic_loop_error"]
 
 
 @pytest.mark.asyncio
@@ -458,6 +471,49 @@ def test_plan_requires_execution_approval_works_with_dict_steps():
     )
     result = svc._plan_requires_execution_approval(plan)
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_failed_plan_reports_recorded_status_without_summary_provider(tmp_path):
+    artifact = tmp_path / "inventory.md"
+    artifact.write_text("Verified repository inventory", encoding="utf-8")
+    provider = SimpleNamespace(chat=AsyncMock(side_effect=RuntimeError("summary unavailable")))
+    service = PlanningRuntimeService(
+        SimpleNamespace(provider=provider, model="test", max_tokens=100)
+    )
+    plan = ReadableTaskPlan(
+        name="Audit",
+        desc="Inspect code",
+        complexity=TaskComplexity.COMPLEX,
+        steps=[["1", "research", "Inventory", "read"], ["2", "review", "Review", "read"]],
+    )
+    result = PlanResult(
+        plan_id="audit",
+        success=False,
+        total_steps=3,
+        steps_completed=1,
+        step_results={
+            "1": StepResult(success=True, output="Inventory recorded", artifacts=[str(artifact)]),
+            "2": StepResult(success=False, output="", error="Provider failed"),
+            "3": StepResult(
+                success=False, output="", metadata={"blocked_by_failed_dependencies": ["2"]}
+            ),
+        },
+        metadata={
+            "plan_execution_state": {
+                "failed_step_ids": ["2"],
+                "blocked_step_ids": ["3"],
+                "step_statuses": {"1": "completed", "2": "failed", "3": "blocked"},
+            }
+        },
+    )
+    response = await service._generate_final_response(plan, result)
+    provider.chat.assert_not_awaited()
+    assert "1/3" in response.content
+    assert "Failed steps: 2" in response.content
+    assert "Blocked steps: 3" in response.content
+    assert str(artifact) in response.content
+    assert response.usage is None  # No invented provider accounting.
 
 
 def test_summary_prompt_surfaces_evidence_validation_failure():

@@ -133,13 +133,20 @@ class ChatEvidenceMixin:
             self._last_task_report = dict(report)
 
     @staticmethod
-    def _response_execution_success(response: Optional[Any]) -> bool:
-        """Return whether a response represents successful task execution."""
+    def _response_execution_outcome(response: Optional[Any]) -> Optional[bool]:
+        """Validate an explicit runtime verdict, preserving absent legacy outcomes."""
         if response is None:
-            return True
+            return None
         metadata = getattr(response, "metadata", None)
         if isinstance(response, dict):
             metadata = response.get("metadata", metadata)
-        if isinstance(metadata, dict) and metadata.get("agentic_loop_success") is False:
-            return False
-        return True
+        if isinstance(metadata, dict) and "agentic_loop_success" in metadata:
+            success = metadata["agentic_loop_success"]
+            if type(success) is not bool:
+                raise ValueError("Invalid agentic loop outcome: success must be a boolean")
+            return success
+        return None
+
+    @staticmethod
+    def _response_execution_success(response: Optional[Any]) -> bool:
+        return ChatEvidenceMixin._response_execution_outcome(response) is not False

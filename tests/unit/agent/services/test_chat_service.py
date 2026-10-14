@@ -716,31 +716,75 @@ class TestChatServicePlanningStreaming(BaseChatServiceTest):
     """Tests for planning-aware streaming behavior."""
 
     @pytest.mark.asyncio
-    async def test_stream_chat_auto_detects_plan_mode_requests(self):
-        service = self._create_test_service()
-        planning_response = CompletionResponse(content="planned", role="assistant")
-        planning_handler = mock.AsyncMock(return_value=planning_response)
-        stream_handler_called = False
+    @pytest.mark.parametrize("success", [True, False])
+    @pytest.mark.parametrize("delivery", ["chunks", "buffered", "events"])
+    @pytest.mark.parametrize("reported_usage", [True, False])
+    async def test_stream_chat_auto_detects_plan_mode_requests(
+        self, success, delivery, reported_usage
+    ):
+        from victor.agent.planning.base import PlanResult
+        from victor.agent.planning.readable_schema import ReadableTaskPlan, TaskComplexity
+        from victor.agent.services.planning_runtime import PlanningRuntimeService
+        from victor.framework._internal import stream_with_events
+        from victor.framework.events import EventType
 
-        async def _stream_handler(user_message, **kwargs):
-            nonlocal stream_handler_called
-            stream_handler_called = True
-            yield StreamChunk(content=f"stream:{user_message}", is_final=True)
+        service = self._create_test_service()
+        planning_response = CompletionResponse(
+            content="planned",
+            role="assistant",
+            stop_reason="length" if reported_usage else None,
+            usage=(
+                {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10}
+                if reported_usage
+                else None
+            ),
+            metadata={"agentic_loop_success": True},
+        )
+        plan = ReadableTaskPlan(
+            name="Audit",
+            desc="Inspect code",
+            complexity=TaskComplexity.COMPLEX,
+            steps=[["1", "research", "Inspect code", "read"]],
+        )
+        PlanningRuntimeService._attach_planning_response_metadata(
+            planning_response,
+            plan,
+            PlanResult(plan_id="audit", success=success, total_steps=2, steps_completed=1),
+        )
+        planning_handler = mock.AsyncMock(return_value=planning_response)
+        finished = []
+
+        async def unused_stream(user_message, **kwargs):
+            raise AssertionError("Planning must not replay through direct streaming")
+            yield
 
         service.bind_runtime_components(
             planning_handler=planning_handler,
-            stream_chat_handler=_stream_handler,
+            stream_chat_handler=unused_stream,
+            turn_runtime=_BoundTurnRuntime(
+                finish=lambda ok, **kwargs: finished.append(ok),
+            ),
         )
-
-        chunks = [
-            chunk
-            async for chunk in service.stream_chat("continue addressing the findings in plan mode")
-        ]
-
-        assert [chunk.content for chunk in chunks] == ["planned"]
-        assert chunks[0].is_final is True
-        planning_handler.assert_awaited_once_with("continue addressing the findings in plan mode")
-        assert stream_handler_called is False
+        prompt = "continue addressing the findings in plan mode"
+        if delivery == "events":
+            events = [event async for event in stream_with_events(service, prompt)]
+            terminal = events[-1]
+            assert terminal.type is EventType.STREAM_END
+            assert terminal.success is success
+            assert any(event.type is EventType.ERROR for event in events) is (not success)
+        else:
+            if delivery == "buffered":
+                response = await service.chat(prompt, stream=True, use_planning=True)
+            else:
+                chunks = [chunk async for chunk in service.stream_chat(prompt)]
+                assert len(chunks) == 1 and chunks[0].is_final
+                response = chunks[0]
+            assert response.content == "planned"
+            assert response.metadata == planning_response.metadata
+            assert response.usage == planning_response.usage
+            assert response.stop_reason == planning_response.stop_reason
+        assert finished == [success]
+        planning_handler.assert_awaited_once_with(prompt)
 
     @pytest.mark.asyncio
     async def test_stream_chat_preserves_live_streaming_for_auto_complexity_requests(
@@ -829,6 +873,52 @@ class TestChatServicePlanningStreaming(BaseChatServiceTest):
         assert response.content == "planned"
         planning_handler.assert_awaited_once_with("quick prompt")
         assert stream_handler_called is False
+
+    @pytest.mark.parametrize("verdicts", [[False, True], [True, False], ["false"], [None], [1]])
+    @pytest.mark.parametrize("delivery", ["chunks", "buffered", "aggregate"])
+    async def test_stream_rejects_invalid_verdicts_before_reporting_success(
+        self, verdicts, delivery
+    ):
+        service = self._create_test_service()
+        finished = []
+        chunks = [
+            StreamChunk(is_final=True, metadata={"agentic_loop_success": verdict})
+            for verdict in verdicts
+        ]
+
+        async def handler(*args, **kwargs):
+            for chunk in chunks:
+                yield chunk
+
+        service.bind_runtime_components(
+            stream_chat_handler=handler,
+            turn_runtime=_BoundTurnRuntime(finish=lambda ok, **kwargs: finished.append(ok)),
+        )
+        with pytest.raises(ValueError, match="Duplicate|must be a boolean"):
+            if delivery == "aggregate":
+                service._aggregate_chunks(chunks)
+            elif delivery == "buffered":
+                await service.chat("hello", stream=True)
+            else:
+                _ = [chunk async for chunk in service.stream_chat("hello")]
+        assert finished == ([] if delivery == "aggregate" else [False])
+
+    @pytest.mark.parametrize("delivery", ["chat", "planning_stream"])
+    @pytest.mark.parametrize("verdict", ["false", None, 1])
+    async def test_invalid_response_finalizes_failure_once(self, delivery, verdict):
+        service = self._create_test_service()
+        finished = []
+        response = CompletionResponse(content="summary", metadata={"agentic_loop_success": verdict})
+        service.bind_runtime_components(
+            planning_handler=mock.AsyncMock(return_value=response),
+            turn_runtime=_BoundTurnRuntime(finish=lambda ok, **kwargs: finished.append(ok)),
+        )
+        with pytest.raises(ValueError, match="must be a boolean"):
+            if delivery == "chat":
+                await service.chat("plan this", use_planning=True)
+            else:
+                _ = [chunk async for chunk in service.stream_chat("plan this", use_planning=True)]
+        assert finished == [False]
 
 
 class TestChatServiceTaskReporting(BaseChatServiceTest):
@@ -960,7 +1050,8 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
         assert finished[0][1]["stream"] is True
 
     @pytest.mark.asyncio
-    async def test_stream_chat_marks_cancellation_signal_as_task_failure(self):
+    @pytest.mark.parametrize("trailing_chunk", [False, True])
+    async def test_stream_chat_marks_cancellation_signal_as_task_failure(self, trailing_chunk):
         service = self._create_test_service()
         finished = []
 
@@ -970,6 +1061,8 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
                 is_final=True,
                 metadata={"agentic_loop_success": False, "cancelled": True},
             )
+            if trailing_chunk:
+                yield StreamChunk(content="", is_final=True)
 
         service.bind_runtime_components(
             stream_chat_handler=_stream_handler,
@@ -980,8 +1073,8 @@ class TestChatServiceTaskReporting(BaseChatServiceTest):
 
         chunks = [chunk async for chunk in service.stream_chat("cancel me")]
 
-        assert chunks[-1].metadata["cancelled"] is True
-        assert finished[0][0] is False
+        assert chunks[0].metadata["cancelled"] is True
+        assert len(finished) == 1 and finished[0][0] is False
         assert finished[0][1]["response"] is chunks[-1]
 
     @pytest.mark.asyncio
