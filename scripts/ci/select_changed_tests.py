@@ -136,6 +136,13 @@ RELATED_TESTS = {
         "tests/unit/evaluation/test_benchmark_ab_hygiene.py",
     ),
     "victor/storage/vector_stores/models.py": ("tests/unit/embeddings/test_embedding_models.py",),
+    "victor/storage/embeddings/collections.py": (
+        "tests/unit/embeddings/test_embedding_infrastructure.py",
+        "tests/unit/core/test_data_cache_security.py",
+        "tests/unit/framework/test_skill_matcher.py",
+        "tests/unit/framework/test_skill_matcher_multi.py",
+        "tests/unit/framework/test_skill_registry_wiring.py",
+    ),
     # Text policy and Python stream ownership are tested once across providers,
     # rather than copied into provider-named mirror suites.
     **dict.fromkeys(

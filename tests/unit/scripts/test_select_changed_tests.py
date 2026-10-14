@@ -322,6 +322,16 @@ def test_selector_changes_select_its_own_regressions():
             ["tests/unit/embeddings/test_embedding_models.py"],
         ),
         (
+            "victor/storage/embeddings/collections.py",
+            [
+                "tests/unit/embeddings/test_embedding_infrastructure.py",
+                "tests/unit/core/test_data_cache_security.py",
+                "tests/unit/framework/test_skill_matcher.py",
+                "tests/unit/framework/test_skill_matcher_multi.py",
+                "tests/unit/framework/test_skill_registry_wiring.py",
+            ],
+        ),
+        (
             "victor/framework/policies/gate.py",
             [
                 "tests/unit/framework/policies/test_message_phases.py",

@@ -24,6 +24,7 @@ These are small, static datasets that don't need a full vector database.
 Simple data + numpy provides fast loading and searching.
 """
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import asdict, dataclass, field
@@ -131,6 +132,7 @@ class StaticEmbeddingCollection:
         self._embeddings: Optional[np.ndarray] = None
         self._item_ids: List[str] = []  # Maps index to item ID
         self._items_hash: Optional[str] = None
+        self._initialization_lock = asyncio.Lock()
 
     @property
     def is_initialized(self) -> bool:
@@ -324,52 +326,56 @@ class StaticEmbeddingCollection:
         """Initialize collection with items.
 
         Loads from cache if items haven't changed, otherwise computes embeddings.
+        Serializes initialization on the owning event loop. Cancellation while
+        generating embeddings preserves the previous collection. An embedding
+        worker may finish afterward, but cannot publish collection state.
+        This does not make the collection safe for access from multiple threads.
 
         Args:
             items: List of collection items
         """
-        if not items:
-            logger.debug(f"Collection '{self.name}': initialized with empty items")
-            self._items = {}
-            self._embeddings = np.empty((0, self.embedding_service.dimension), dtype=np.float32)
-            self._item_ids = []
-            return
+        async with self._initialization_lock:
+            if not items:
+                dimension = self.embedding_service.dimension
+                self._items = {}
+                self._embeddings = np.empty((0, dimension), dtype=np.float32)
+                self._item_ids = []
+                self._items_hash = None
+                return
 
-        # Calculate hash to check cache validity
-        items_hash = self._calculate_items_hash(items)
+            items_hash = self._calculate_items_hash(items)
+            if self._load_from_cache(items_hash):
+                return
 
-        # Try to load from cache
-        if self._load_from_cache(items_hash):
-            return
-
-        # Cache miss - compute embeddings
-        logger.debug(f"Collection '{self.name}': computing embeddings for {len(items)} items")
-
-        # Store items
-        self._items = {item.id: item for item in items}
-        self._item_ids = [item.id for item in items]
-
-        # Generate embeddings in batch
-        texts = [item.text for item in items]
-        self._embeddings = await self.embedding_service.embed_batch(texts)
-        self._items_hash = items_hash
-
-        # Save to cache
-        self._save_to_cache(items_hash)
-
-        logger.debug(f"Collection '{self.name}': initialized with {len(items)} items")
+            logger.debug(f"Collection '{self.name}': computing embeddings for {len(items)} items")
+            new_items = {item.id: item for item in items}
+            item_ids = [item.id for item in items]
+            embeddings = await self.embedding_service.embed_batch([item.text for item in items])
+            self._items = new_items
+            self._item_ids = item_ids
+            self._embeddings = embeddings
+            self._items_hash = items_hash
+            self._save_to_cache(items_hash)
+            logger.debug(f"Collection '{self.name}': initialized with {len(items)} items")
 
     def initialize_sync(self, items: List[CollectionItem]) -> None:
         """Initialize collection with items (sync version).
 
         Args:
             items: List of collection items
+
+        Raises:
+            RuntimeError: Asynchronous initialization is already active on this collection.
         """
+        if self._initialization_lock.locked():
+            raise RuntimeError("Cannot initialize synchronously during asynchronous initialization")
         if not items:
             logger.debug(f"Collection '{self.name}': initialized with empty items")
+            dimension = self.embedding_service.dimension
             self._items = {}
-            self._embeddings = np.empty((0, self.embedding_service.dimension), dtype=np.float32)
+            self._embeddings = np.empty((0, dimension), dtype=np.float32)
             self._item_ids = []
+            self._items_hash = None
             return
 
         # Calculate hash to check cache validity
