@@ -636,6 +636,8 @@ class PlanningRuntimeService:
 
         # Step 4: Execute plan (only if approved)
         result = await self._execute_plan(plan, user_approved=user_approved)
+        if type(result.success) is not bool:
+            raise ValueError("Plan success must be a boolean")
 
         # Step 5: Generate final response
         # Compact context before generating final summary to avoid overflow
@@ -2361,6 +2363,14 @@ class PlanningRuntimeService:
     ) -> None:
         """Expose plan execution state on the final response metadata."""
         metadata = dict(response.metadata or {})
+        # The executed plan owns success; a fluent summary cannot upgrade failure.
+        metadata["agentic_loop_success"] = result.success
+        if result.success:
+            metadata.pop("agentic_loop_error", None)
+        else:
+            metadata["agentic_loop_error"] = (
+                f"Plan execution failed: {result.steps_completed}/{result.total_steps} steps completed."
+            )
         result_metadata = getattr(result, "metadata", {}) or {}
         plan_execution_state = result_metadata.get("plan_execution_state")
         if plan_execution_state:
@@ -2373,7 +2383,7 @@ class PlanningRuntimeService:
             "plan_complexity": plan.complexity.value,
             "steps_completed": int(getattr(result, "steps_completed", 0) or 0),
             "steps_total": int(getattr(result, "total_steps", len(plan.steps)) or 0),
-            "success": bool(getattr(result, "success", False)),
+            "success": result.success,
         }
         response.metadata = metadata
 
@@ -3028,6 +3038,26 @@ class PlanningRuntimeService:
         Returns:
             CompletionResponse with summary
         """
+        if result.success is False:
+            # Reporting an established failure must not depend on another model call.
+            state = result.metadata.get("plan_execution_state", {})
+            lines = [
+                f"Plan did not complete: {result.steps_completed}/{result.total_steps} steps completed."
+            ]
+            for label, key in (
+                ("Failed steps", "failed_step_ids"),
+                ("Blocked steps", "blocked_step_ids"),
+            ):
+                ids = state.get(key, [])
+                if ids:
+                    lines.append(f"{label}: {', '.join(str(step_id) for step_id in ids)}.")
+            lines.append(
+                "The requested work is incomplete. Review the failed step before resuming."
+            )
+            response = CompletionResponse(content="\n\n".join(lines), role="assistant")
+            self._append_artifact_paths_to_response(response, result)
+            return response
+
         # Build summary prompt
         summary_prompt = self._build_summary_prompt(plan, result)
 

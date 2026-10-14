@@ -120,7 +120,8 @@ edit. A mock test is not live provider or C5 evidence.
   and Python floor with lines 20/28; a second `read(CLAUDE.md)` produced a grounded
   architecture explanation. No source files were modified by either agent task.
   Runtime session: `39df2e77-2890-40d7-9e3b-338b49bf6fa0`.
-  UI repairs locally qualified: display the launch profile with Chainlit's actual
+  UI repairs merged in [#1348](https://github.com/anvai-labs/victor/pull/1348),
+  `51bd89eb89541667679c6c6d1c3869af17325678`: display the launch profile with Chainlit's actual
   `initial_value` contract; keep provider/model overrides explicit; confirming
   unchanged settings preserves the client/history. Changed settings validate the
   configuration, stop the active turn and close the prior client before publication;
@@ -138,16 +139,28 @@ edit. A mock test is not live provider or C5 evidence.
   adversarial review passed the final 25 control/settings cases with no scoped
   blockers. Installed headed UI shows the launch profile and inherited overrides;
   a real read returned the correct project name/Python floor with line references.
-  A new exact user-requested full UX audit is running through the browser. Planning
-  currently prints its graph only to the server console while the UI says
-  “Thinking…”; a concrete read-only shell inventory approval was displayed and
-  approved. Preserve the run and qualify its final result before marking it passed.
+  The exact user-requested browser audit **failed**, not accepted: plan
+  `plan_96101cca`, root session `session_fd0e0a21ef7c`, 699.9 seconds,
+  one of seven steps completed. Step 2 failed after upstream 502s
+  (`10d62958`, `bfaa984e`); steps 3–7 were correctly blocked. A subsequent
+  summary call failed with 400 (`bc52b0c7`), obscuring the recorded plan status.
+  No foreign-key compaction errors appeared in this new run. Plan progress reached
+  the server console while the browser stayed at “Thinking…”. Repeated inspected
+  repository-read shell approvals interrupted execution and their displayed command
+  disappeared after selection. Preserve the failed run, plan and artifacts under
+  `var/codegraph-victor-20261012/ux-full-audit-*`; these are new evidence, not a
+  successful reproduction or C5 acceptance. All applicable #1348 CI gates passed
+  (39 success, two intentional skips, one neutral historical comparison).
   Remaining: generic Assistant branding and unnamed icon buttons; explicit mode
   controls; plan/progress event delivery; failed terminal-outcome rendering;
   approval/recovery and usage/request joins. Review reproduced a separate downstream
   iterator ownership gap in `VictorClient.stream`/`message_execution`: closing the
   outer client iterator can clear active-stream accounting before a retained inner
   generator closes. UI-owned iterator closure is not full runtime/provider drain.
+  A post-audit continuity probe retained the marker JADE after unchanged settings,
+  but repeated it three times and stopped with “3 turns without tool calls”. This
+  is a separate no-tool completion defect, not a passing UX smoke. Preserve
+  `ux-marker-followup.json` and qualify answer-only completion before acceptance.
   Earlier native Stop evidence showed “Turn stopped”/“Task manually stopped” and
   runtime `success=False`; it proves local cancellation, not origin cancellation.
   Preserve evidence under `var/codegraph-victor-20261012/ux-web-*` and
@@ -169,6 +182,45 @@ edit. A mock test is not live provider or C5 evidence.
   interpreters, wrappers and scope changes. Broad all-shell approval is a separate
   deliberate choice, never a default or bypass of policy denial. Qualify across
   actual member requests and simultaneous browser sessions before acceptance.
+
+- **UX-04 authoritative plan outcomes — ACTIVE** — owner: Victor co-design;
+  branch `fix/planning-stream-outcome`, baseline `51bd89eb89541667679c6c6d1c3869af17325678`.
+  Validate the executed plan's boolean verdict before further model dispatch, carry
+  it through streamed and buffered responses and finalize task reports once.
+  Reject malformed/duplicate explicit verdicts; trailing metadata-free chunks cannot
+  upgrade failure. Failed plans return recorded completed/failed/blocked status and
+  artifact links without a new summary-provider dependency. The deterministic failed-plan
+  branch makes no summary call and leaves summary usage absent; this says nothing
+  about member consumption. This repairs shared
+  service semantics for all clients; UI plan-progress delivery remains separate.
+  Existing chat/planning suites own the regression matrix: 278 affected tests
+  passed, 35,018 tests collected, MyPy passed 2,114 source files, and independent adversarial review
+  passed after fixing malformed/duplicate verdict finalization and absent usage. No whole-member replay, origin retry or cancellation
+  acceptance is implied.
+
+- **UX-05 shared progress and professional presentation — PLANNED** — first expose
+  structured per-request/plan/step/member/tool progress and terminal outcomes to CLI,
+  TUI and web UI, using common event semantics with snapshot reconciliation. Keep
+  turn history grouped and make nested activity independently inspectable; distinguish
+  waiting on provider, running tools, awaiting approval, failed and blocked. Do not
+  manufacture progress from a spinner or parse console prose. Close the known
+  downstream iterator ownership gap before claiming cancellation drain.
+  Align Victor's OSS presentation with AnvaiOps' teal/slate token palette, compact
+  IDE spacing, readable code typography, accessible focus/contrast, responsive wide
+  layouts and dark/light/system preferences. Reference sibling
+  `apps/control-plane/src/tokens.css` (fetched origin/develop) without copying
+  commercial product behavior.
+  Use headed AgentBrowser snapshots for reading, code blocks, tool activity,
+  approvals, failures and mobile/wide layouts; preserve server-side credentials.
+
+- **UX-06 unattended policy behavior — PLANNED** — auto mode evaluates the same
+  authoritative ALLOW/DENY/ASK policy as interactive use. Verified allowed work
+  proceeds; policy denial stops; ASK durably pauses with exact action binding and
+  resumes only after authorization. Missing approvers must not imply permission.
+  Share scoped grant semantics across CLI/TUI/UI and workflow workers. Extend
+  existing policy and approval owners, avoiding a second dispatcher or UI-only
+  authorization rules. This depends on UX-03, durable approval storage and the
+  accepted public-contract process where applicable.
 
 - **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
   branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.
