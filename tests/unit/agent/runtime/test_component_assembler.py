@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from victor.agent.factory.runtime_builders import RuntimeBuildersMixin
 from victor.agent.runtime.component_assembler import ComponentAssembler
 from victor.agent.services.context_lifecycle_service import ContextLifecycleService
 
@@ -26,7 +27,11 @@ def test_assemble_tools_prefers_canonical_registrar_registration_surface():
     factory.create_safety_checker.return_value = MagicMock()
     factory.create_auto_committer.return_value = MagicMock()
     factory.create_tool_executor.return_value = MagicMock()
-    factory.create_response_completer.return_value = MagicMock()
+    factory.provider = MagicMock()
+    factory.settings = SimpleNamespace()
+    factory.create_response_completer.side_effect = lambda **kwargs: (
+        RuntimeBuildersMixin.create_response_completer(factory, **kwargs)
+    )
     factory.setup_semantic_selection.return_value = (False, None)
     factory.create_semantic_selector.return_value = MagicMock()
     factory.create_unified_tracker.return_value = SimpleNamespace(unique_resources=set())
@@ -52,6 +57,8 @@ def test_assemble_tools_prefers_canonical_registrar_registration_surface():
         invocations=orchestrator._metrics_coordinator
     )
 
+    assert orchestrator.response_completer._invocations is orchestrator._metrics_coordinator
+    assert orchestrator.response_completer.provider is factory.provider
     registrar.register_default_tools.assert_called_once_with()
 
 

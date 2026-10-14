@@ -67,6 +67,14 @@ def test_selector_changes_select_its_own_regressions():
     ("source", "owners"),
     [
         (
+            "victor/agent/factory/runtime_builders.py",
+            {
+                "tests/unit/agent/services/test_chat_runtime_services.py",
+                "tests/unit/agent/runtime/test_component_assembler.py",
+                "tests/unit/agent/test_response_completer.py",
+            },
+        ),
+        (
             "victor/agent/turn_policy.py",
             {
                 "tests/unit/agent/test_turn_policy.py",

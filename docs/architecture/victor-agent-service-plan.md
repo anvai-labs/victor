@@ -346,7 +346,7 @@ edit. A mock test is not live provider or C5 evidence.
   one call. Preserve `native-tool-prose-{live.log,browser.json,browser.png}` and
   test/collection/type-check logs beside the prior evidence.
 
-  **Invocation-accounting checkpoint (local, reviewed; PR/CI pending):** dispatch
+  **Invocation-accounting checkpoint ([#1353](https://github.com/anvai-labs/victor/pull/1353), reviewed; CI pending):** dispatch
   and settlement now belong to `AgentMetricsService`; `SessionCostTracker` records
   each invocation at dispatch and settles it once. Buffered, streamed, recovery,
   response synthesis, planning generation/summaries, context-limit summaries and
@@ -360,11 +360,16 @@ edit. A mock test is not live provider or C5 evidence.
   extended; obsolete aggregate-fold/fallback tests were removed or migrated.
 
   Local validation: 2,028 main affected tests and 452 additional accounting/orchestrator
-  owner tests passed, 35,065 tests collected; MyPy passed
+  owner tests passed, 35,066 tests collected; MyPy passed
   2,116 Victor/contracts source files. A further 145 compatibility checks passed
   after migrating legacy accounting owners and preserving raw cache-miss/cost fields. Independent review reproduced and then verified fixes
   for pending-reset attribution, malformed telemetry and unknown-usage export;
-  110 independent checks plus 65 final-delta checks passed. An isolated rebuilt-wheel
+  110 independent checks plus 65 final-delta checks passed. The CI selector now maps
+  runtime builders to existing assembly/runtime/completer owners; the existing
+  assembly test exercises the real completer builder and injected metrics owner.
+  The selector/assembly correction passed 70 independent checks. The exact
+  CI-selected set passed 1,422 tests with 93% changed-line coverage (80% gate).
+  An isolated rebuilt-wheel
   smoke verified buffered, streamed and unknown-usage failure accounting, footer
   coverage and packaged UI assets (existing dependencies; not release acceptance).
   A fresh headed AgentBrowser/Chainlit task using
