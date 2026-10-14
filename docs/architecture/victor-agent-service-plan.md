@@ -240,7 +240,7 @@ edit. A mock test is not live provider or C5 evidence.
   authorization rules. This depends on UX-03, durable approval storage and the
   accepted public-contract process where applicable.
 
-- **UX-07 answer-only completion — ACTIVE, classifier fix qualified locally** — the post-audit marker
+- **UX-07 answer-only completion — MERGED, [#1351](https://github.com/anvai-labs/victor/pull/1351)** — the post-audit marker
   request was classified `edit`/`action`; its valid four-character answer was retried
   three times before the spin guard failed. The streamed duplicates were already
   visible despite a later “suppressing repeated visible output” log. Logs at
@@ -297,8 +297,53 @@ edit. A mock test is not live provider or C5 evidence.
   This fresh smoke does not repeat the failed audit or establish post-failed-plan
   lifecycle/C5 acceptance. Broader semantic negation and shared task-classifier
   consolidation remain future work, requiring a representative labeled corpus
-  before changing default routing. Next: complete review/CI, then address shared
-  progress/cancellation ownership before claiming consolidated API lifecycle parity.
+  before changing default routing. Independent review and all required CI passed,
+  including vertical tests; merge `3a6b078317d863c2fc0ce22416b17f660fbafab8`.
+  Shared progress/cancellation ownership remains open before consolidated API
+  lifecycle parity can be claimed.
+
+- **UX-09 structured tool intent and truthful usage — ACTIVE** — owner: Victor
+  co-design session; branch `fix/native-tool-prose-and-call-count`, baseline
+  `3a6b078317d863c2fc0ce22416b17f660fbafab8`. The bounded UX-08 review through
+  headed Chainlit and direct Codex OAuth failed on published Sandhi 0.13.0 with
+  empty tool arguments: 81,031 reported tokens, seven observed model turns, no
+  completed review. Sandhi [#368](https://github.com/anvai-labs/sandhi/pull/368)
+  preserves arguments sent only in completed Codex events. An isolated wheel from
+  `7df5947bcb7bca21d7be6af9d86399f37062a2ea` plus editable Victor passed 182
+  transport/OAuth tests and 95 binding tests; the fresh bounded UI review completed
+  in 61.5s with 215,082 reported tokens and 13 observed model turns. This is local
+  candidate evidence, not a published dependency, C5 or an efficiency improvement.
+  Preserve both failed and completed evidence under
+  `var/codegraph-victor-20261012/` (`ux08-dogfood-failed-browser.json`,
+  `codex-arguments-candidate-{provenance,browser}.json` and candidate live log).
+
+  The completed run exposed two independent Victor defects: Python-call inference
+  extracted `get_account(...)` from explanatory prose twice, and the footer reported
+  one call for a whole user stream. First checkpoint: the shared OpenAI-compatible
+  adapter accepts only provider-structured tool calls, preserving assistant content
+  unchanged. Native calls retain validation and policy checks. Dedicated local-model
+  text adapters keep their existing protocol; this change introduces no heuristic
+  model-name exceptions, parser or setting. Replace the old test requiring OpenAI
+  prose execution with the expanded existing adapter matrix and service-boundary
+  tests. Next checkpoint: define/count actual runtime model dispatches across
+  buffered, streaming, recovery, cancellation and failures separately from physical
+  transport retries and user turns; reconcile per-request raw usage/cache totals
+  before optimizing prompt size. Do not equate aggregate input tokens with system
+  prompt size or with uncached/billable tokens. Publish and pin the Sandhi fix, then
+  repeat qualification with built packages before release acceptance.
+
+  Parser checkpoint validation: RED reproduced ten unsafe prose/JSON/XML cases;
+  GREEN passed 366 affected tests (four existing deprecation warnings), MyPy passed
+  2,116 source files and 35,049 tests collected. Black, Ruff, repository hygiene
+  and docs drift passed. With the same isolated Sandhi candidate and unchanged
+  bounded prompt, a fresh headed Chainlit conversation completed in 32.6s, six
+  observed model turns, zero Python-call fallbacks and 121,364 reported tokens
+  (119,798 input / 1,566 output). The prior candidate used 61.5s, 13 turns and
+  215,082 tokens. This single uncontrolled model trial is scoped smoke evidence,
+  not a benchmark or raw-usage reconciliation; the footer still incorrectly says
+  one call. Preserve `native-tool-prose-{live.log,browser.json,browser.png}` and
+  test/collection/type-check logs beside the prior evidence. Review and CI are
+  required before landing; request accounting remains the next increment.
 
 - **UX-08 explicit account and transport selection — DISCOVERED, PLANNED** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced

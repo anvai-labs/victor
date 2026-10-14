@@ -430,19 +430,33 @@ class TestOpenAIAdapterParseToolCalls:
         assert len(result.warnings) > 0
         assert "Failed to parse arguments" in result.warnings[0]
 
-    def test_parse_tool_calls_no_raw_calls_returns_empty(self):
-        """No raw_tool_calls returns empty result."""
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "Some content",
+            "Use get_account(name='missing') to demonstrate the failure.",
+            "I'll read the file: read(path='test.py')",
+            "Example: shell(cmd='echo example')",
+            '```json\n{"name":"read","arguments":{"path":"test.py"}}\n```',
+            '<tool_call name="read">{"path":"test.py"}</tool_call>',
+        ],
+    )
+    @pytest.mark.parametrize("raw_calls", [None, []])
+    def test_parse_tool_calls_no_raw_calls_returns_empty(self, content, raw_calls):
+        """Native tool contracts never grant execution authority to prose/examples."""
         adapter = OpenAIToolCallingAdapter(
             model="gpt-4",
             config=None,
         )
 
         result = adapter.parse_tool_calls(
-            content="Some content",
-            raw_tool_calls=None,
+            content=content,
+            raw_tool_calls=raw_calls,
         )
 
         assert len(result.tool_calls) == 0
+        assert result.remaining_content == content
+        assert result.parse_method == "none"
 
 
 class TestOpenAIAdapterSystemPromptHints:

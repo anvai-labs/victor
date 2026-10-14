@@ -22,6 +22,8 @@ Capabilities are resolved from model_capabilities.yaml when available,
 falling back to hardcoded defaults for robustness.
 """
 
+from dataclasses import replace
+
 from victor.core.json_utils import json_loads
 from json import JSONDecodeError
 import logging
@@ -148,21 +150,12 @@ class AnthropicToolCallingAdapter(BaseToolCallingAdapter):
         )
 
 
-class OpenAIToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
-    """Adapter for OpenAI GPT models and OpenAI-compatible providers.
+class OpenAIToolCallingAdapter(BaseToolCallingAdapter):
+    """Parse structured OpenAI-compatible tool calls, preserving answer text.
 
-    OpenAI uses function calling format with tool_calls containing
-    function.name and function.arguments (as JSON string).
-
-    This adapter now includes FallbackParsingMixin for handling cases where
-    open-weight models on OpenAI-compatible providers (Cerebras, Groq, Together,
-    etc.) output tool calls as text instead of structured JSON.
-
-    Fallback parsing order:
-    1. Native tool_calls from provider response
-    2. JSON parsing from content
-    3. XML parsing from content
-    4. Python-style function call parsing from content
+    Only the provider's tool_calls field carries execution intent. Code examples,
+    JSON and XML in assistant content are evidence or explanation, never calls.
+    Local text-tool protocols retain their dedicated adapters in the registry.
     """
 
     # Providers that sometimes need stronger tool calling hints
@@ -225,8 +218,8 @@ class OpenAIToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
                 streaming_tool_calls=True,
                 parallel_tool_calls=True,
                 tool_choice_param=True,
-                json_fallback_parsing=True,  # Enable fallback for OpenAI-compat providers
-                xml_fallback_parsing=True,
+                json_fallback_parsing=False,
+                xml_fallback_parsing=False,
                 thinking_mode=False,
                 requires_strict_prompting=False,
                 tool_call_format=ToolCallFormat.OPENAI,
@@ -234,7 +227,7 @@ class OpenAIToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
                 recommended_max_tools=50,
                 recommended_tool_budget=20,
             )
-        return caps
+        return replace(caps, json_fallback_parsing=False, xml_fallback_parsing=False)
 
     def convert_tools(self, tools: List[ToolDefinition]) -> List[Dict[str, Any]]:
         """Convert to OpenAI function format."""
@@ -255,13 +248,10 @@ class OpenAIToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
         content: str,
         raw_tool_calls: Optional[List[Dict[str, Any]]] = None,
     ) -> ToolCallParseResult:
-        """Parse OpenAI tool calls with fallback parsing for OpenAI-compatible providers.
+        """Parse structured calls without interpreting assistant content as actions.
 
-        OpenAI returns: {"id": "...", "name": "...", "arguments": "..."}
-        where arguments is a JSON string that needs parsing.
-
-        For OpenAI-compatible providers using open-weight models, falls back to
-        content parsing when native tool calls are empty or invalid.
+        Arguments in the provider's tool_calls field may be JSON strings or
+        already-decoded objects. Missing calls leave the answer byte-identical.
         """
         native_warnings: List[str] = []
 
@@ -298,34 +288,6 @@ class OpenAIToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
                     parse_method="native",
                     confidence=1.0,
                     warnings=native_warnings,
-                )
-
-        # Fallback: Try parsing tool calls from content
-        # This handles open-weight models that output tool calls as text
-        if content:
-            # Get valid tool names for Python call extraction
-            valid_names = None
-            if hasattr(self, "_valid_tool_names"):
-                valid_names = self._valid_tool_names
-
-            result = self.parse_from_content(
-                content,
-                validate_name_fn=self.is_valid_tool_name,
-                valid_tool_names=valid_names,
-            )
-            if result.tool_calls:
-                # Combine warnings from native parsing attempt
-                all_warnings = native_warnings + result.warnings
-                logger.debug(
-                    f"OpenAI adapter: Extracted {len(result.tool_calls)} tool calls "
-                    f"from content using {result.parse_method}"
-                )
-                return ToolCallParseResult(
-                    tool_calls=result.tool_calls,
-                    remaining_content=result.remaining_content,
-                    parse_method=result.parse_method,
-                    confidence=result.confidence,
-                    warnings=all_warnings,
                 )
 
         # Return with any native parsing warnings
