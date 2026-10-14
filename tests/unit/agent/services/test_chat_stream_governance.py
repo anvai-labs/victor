@@ -17,7 +17,7 @@
 Tool governance already shares the non-streaming ToolPipeline; these tests
 cover the message gate wired into StreamingChatExecutor: the REQUEST gate at
 the top of run() and the RESPONSE gate (ChatGovernance.govern_response) applied to the
-final assistant output.
+assistant narrative before publication and tool dispatch.
 """
 
 from types import MethodType, SimpleNamespace
@@ -30,12 +30,18 @@ from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
     ChatConversation,
     ChatGovernance,
+    ChatRuntimeIntelligence,
 )
-from victor.agent.services.chat_stream_executor import StreamingActResult, StreamingChatExecutor
+from victor.agent.services.chat_stream_executor import (
+    StreamingActResult,
+    StreamingChatExecutor,
+    _StreamingCancelled,
+)
 from victor.core.errors import AgentError
 from victor.providers.base import StreamChunk
 from victor.framework.policies import (
     BlockPatternPolicy,
+    GateResult,
     MessagePolicyGate,
     Phase,
     PolicyEngine,
@@ -116,6 +122,7 @@ def _live_act_executor(gate):
         tool_calls=SimpleNamespace(parse_and_validate=lambda calls, text: (calls, text)),
         completion=ChatCompletion(),
         conversation=ChatConversation(),
+        intelligence=ChatRuntimeIntelligence(),
     )
     executor = StreamingChatExecutor(runtime)
     executor._stream_provider_turn = AsyncMock(
@@ -124,8 +131,20 @@ def _live_act_executor(gate):
     return executor, runtime
 
 
-@pytest.mark.parametrize("mode", ["ordinary", "forced", "recovered"])
-@pytest.mark.parametrize("policy", ["absent", "redact", "block", "empty"])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "ordinary",
+        "forced",
+        "recovered",
+        "tool-bearing",
+        "natural",
+        "exhausted",
+        "completion-summary",
+        "compaction-summary",
+    ],
+)
+@pytest.mark.parametrize("policy", ["absent", "redact", "block", "empty", "cancel"])
 async def test_act_governs_candidate_before_history_and_delivery(policy, mode):
     gate = None
     if policy == "redact":
@@ -139,13 +158,56 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, mode):
             )
         )
     elif policy == "empty":
-        gate = MessagePolicyGate(PolicyEngine([RedactContentPolicy([r".+"], placeholder="")]))
+        gate = MessagePolicyGate(
+            PolicyEngine([RedactContentPolicy([r"the key is sk-\w+"], placeholder="")])
+        )
+    elif policy == "cancel":
+        gate = MessagePolicyGate(PolicyEngine([]))
     if gate:
         gate.gate_response = AsyncMock(wraps=gate.gate_response)
     executor, runtime = _live_act_executor(gate)
+    if policy == "cancel":
+
+        async def cancel_response(content):
+            if content == "the key is sk-abc123":
+                runtime.services.stream_lifecycle.is_cancelled = lambda: True
+            return GateResult(allowed=True, content=content)
+
+        gate.gate_response.side_effect = cancel_response
     orch = SimpleNamespace(add_message=MagicMock())
     recovery = None
     provider_calls = []
+    tool_calls = [{"id": "read1", "name": "read", "arguments": {}}]
+    executed = []
+
+    async def execute_tools(*args, result_holder, **kwargs):
+        from victor.agent.streaming.tool_execution import ToolExecutionResult
+
+        executed.append(kwargs)
+        result_holder.result = ToolExecutionResult()
+        if False:
+            yield
+
+    executor._execute_tools_turn = execute_tools
+    if mode == "tool-bearing":
+        executor._stream_provider_turn.return_value = (
+            None,
+            "the key is sk-abc123",
+            tool_calls,
+            False,
+        )
+    if mode in {"natural", "exhausted"}:
+        executor._stream_provider_turn.return_value = (None, "", None, False)
+        runtime._handle_empty_response_recovery = AsyncMock(return_value=(False, None, None))
+        recovery = SimpleNamespace(
+            check_natural_completion=lambda *args, **kwargs: (
+                StreamChunk(content="the key is sk-abc123", is_final=True)
+                if mode == "natural"
+                else None
+            ),
+            handle_empty_response=lambda *args: (None, False),
+            get_recovery_fallback_message=lambda ctx: "the key is sk-abc123",
+        )
     if mode == "recovered":
         from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 
@@ -167,39 +229,82 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, mode):
             check_natural_completion=lambda *args, **kwargs: None,
             handle_empty_response=lambda *args: (None, False),
         )
+    stream_ctx = SimpleNamespace(user_message="", is_qa_task=False, goals=None, planned_tools=None)
+    summary_mode = mode in {"completion-summary", "compaction-summary"}
+    if summary_mode:
+        executor._stream_provider_turn.return_value = (None, "VICTOR_TASK_DONE::", None, False)
+        if mode == "completion-summary":
+            runtime.services.completion = ChatCompletion(
+                detector=SimpleNamespace(
+                    get_state=lambda: SimpleNamespace(last_summary="the key is sk-abc123")
+                )
+            )
+        else:
+            stream_ctx.compaction_summary = "the key is sk-abc123"
     result = StreamingActResult()
     stream = executor.execute_turn_streaming(
         orch,
         runtime,
-        SimpleNamespace(user_message="", is_qa_task=False, goals=None, planned_tools=None),
+        stream_ctx,
         user_message="q",
         goals=None,
         recovery=recovery,
         create_recovery_context=lambda ctx: ctx,
-        forced_task_completion=mode == "forced",
+        forced_task_completion=mode == "forced" or summary_mode,
         result=result,
     )
-    if policy in {"block", "empty"}:
+    published = []
+
+    async def consume():
+        async for chunk in stream:
+            published.append(chunk)
+        return published
+
+    if policy == "cancel":
+        with pytest.raises(_StreamingCancelled):
+            await consume()
+        assert published == []
+        assert not any(call.args[0] == "assistant" for call in orch.add_message.call_args_list)
+        assert result.turn_result is None
+    elif policy in {"block", "empty"}:
         reason = "withheld" if policy == "block" else "no deliverable content"
         with pytest.raises(AgentError, match=reason) as exc:
-            await _drain(stream)
+            await consume()
+        assert published == []
         assert exc.value.recoverable is False
         assert not any(call.args[0] == "assistant" for call in orch.add_message.call_args_list)
         assert result.turn_result is None
     else:
-        chunks = await _drain(stream)
+        chunks = await consume()
         expected = {"absent": "the key is sk-abc123", "redact": "the key is [KEY]", "empty": ""}[
             policy
         ]
         assert "".join(c.content for c in chunks) == expected
         assert result.full_content == expected
         assert result.turn_result.content == expected
-        if expected:
+        if expected and mode not in {"natural", "exhausted"}:
             assert orch.add_message.call_args.args[:2] == ("assistant", expected)
         else:
             orch.add_message.assert_not_called()
+    if mode == "tool-bearing" and policy not in {"block", "empty", "cancel"}:
+        assert len(executed) == 1
+        assert executed[0]["full_content"] == expected
+        assert executed[0]["tool_calls"] == tool_calls
+        assert orch.add_message.call_args.kwargs["tool_calls"] == tool_calls
+    else:
+        assert executed == []
+    if mode == "exhausted":
+        runtime._handle_empty_response_recovery.assert_awaited_once()
+        if policy not in {"block", "empty", "cancel"}:
+            assert result.turn_result.disposition.value == "recovery_exhausted"
+    if mode == "natural":
+        runtime._handle_empty_response_recovery.assert_not_awaited()
     if gate:
-        gate.gate_response.assert_awaited_once_with("the key is sk-abc123")
+        assert [call.args[0] for call in gate.gate_response.await_args_list] == (
+            ["VICTOR_TASK_DONE::", "the key is sk-abc123"]
+            if summary_mode
+            else ["the key is sk-abc123"]
+        )
     executor._stream_provider_turn.assert_awaited_once()
     if mode == "recovered":
         assert provider_calls == [1]

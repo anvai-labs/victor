@@ -129,6 +129,11 @@ async def test_execute_turn_streaming_no_tools_builds_text_turn_result():
 
 async def test_execute_turn_streaming_runs_tools_and_maps_results():
     ex = _executor()
+
+    async def unexpected_message_policy(content):
+        raise AssertionError("Tool-only envelopes use tool authorization, not narrative policy")
+
+    ex.services.governance = SimpleNamespace(govern_response=unexpected_message_policy)
     tool_calls = [{"name": "read_file", "arguments": {"path": "a.py"}}]
 
     async def fake_provider(orch, runtime_owner, stream_ctx, goals):
@@ -214,13 +219,20 @@ async def test_execute_turn_streaming_surfaces_garbage_flag():
     assert result.garbage_detected is True
 
 
-async def test_cancellation_after_provider_prevents_emit_and_tool_dispatch():
+@pytest.mark.parametrize("cancel_at", ["provider", "response-policy"])
+async def test_cancellation_before_publication_prevents_emit_and_tool_dispatch(cancel_at):
     lifecycle = _StreamLifecycle()
     ex = _executor(lifecycle=lifecycle)
 
     async def fake_provider(orch, runtime_owner, stream_ctx, goals):
+        lifecycle.cancelled = cancel_at == "provider"
+        return (None, "Proposed write", [{"name": "write_file", "arguments": {}}], False)
+
+    async def govern_response(content):
         lifecycle.cancelled = True
-        return (None, "", [{"name": "write_file", "arguments": {}}], False)
+        return content
+
+    ex.services.governance = SimpleNamespace(govern_response=govern_response)
 
     async def must_not_run(*_args, **_kwargs):
         raise AssertionError("post-provider work must not run after cancellation")

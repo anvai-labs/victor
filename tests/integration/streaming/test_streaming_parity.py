@@ -52,6 +52,11 @@ async def test_streaming_loop_characterization(scenario):
             f"{transcript.content!r}"
         )
 
+    if scenario.id == "E4":
+        # Accepted recovery is one answer, not a second ACT repeating that answer.
+        assert transcript.content == "Finally, a real answer."
+        assert orch.provider.turn_index == 2
+
     if scenario.expect_tools is not None:
         assert (
             transcript.tool_calls == scenario.expect_tools

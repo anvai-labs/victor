@@ -2053,7 +2053,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   policy evaluation. Unknown/read/display guidance cannot request mutations; effect
   feedback takes precedence and terminal decisions suppress prompts. Internal
   provenance remains distinct from permission; tool authorization is unchanged.
-  The `fix/buffered-response-governance` increment (in review) records a newly
+  ✅ [#1343](https://github.com/anvai-labs/victor/pull/1343) records a newly
   reproduced gap: buffered ordinary/recovery text entered assistant history before
   the response gate; swallowed terminal or malformed policy failures could synthesize
   again. Candidate producers now share governance before history/publication/evaluation,
@@ -2062,11 +2062,19 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   rejects truthy non-booleans and non-text content; cancellation remains cancellation.
   Configured message policy with StateGraph fails explicitly before work, including
   direct graph executors. No StateGraph parity, raw-model primitive, reasoning or
-  tool-result filtering guarantee is claimed. Streaming forced-summary/tool-bearing
-  publication remains a separate qualification gate. Follow-up source audit also
-  found `_execute_prepared_team` storing/returning its aggregate before response
-  governance; include streaming team output in that next producer audit. This is a
-  source finding, not live evidence or a claim that member effects were rolled back.
+  tool-result filtering guarantee is claimed.
+  The `fix/stream-publication-governance` follow-up gates live tool-bearing
+  narratives before publication/dispatch and exhausted-recovery fallback text.
+  Existing public-loop tests qualify denial, malformed/error results, redaction
+  and unchanged no-policy delivery. Shared cancellation checks also prevent recovered
+  and summary history writes after policy awaits; source tests qualify natural/recovered and
+  terminal-summary candidates. The prior direct `_execute_prepared_team`
+  reproducer exercised an orphan helper: reachability audit found no production
+  or test caller for the prepared-team trio, now removed instead of reviving a
+  second dispatcher. **Still open:** streaming topology/team integration with the
+  canonical loop; streaming adapter routing for forced completion (the adapter
+  never passes `forced_task_completion=True`). Forced-summary primitive tests
+  do not establish that routing. No member-effect rollback or live C5 is claimed.
   Run-wide attempt accounting, adaptive extension and full experimental
   StateGraph/iteration parity remain open; phase-method reuse is not execution-mode parity.
 

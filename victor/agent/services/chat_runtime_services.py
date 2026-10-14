@@ -371,6 +371,15 @@ class ChatRuntimeIntelligence:
             )
 
 
+class _StreamingCancelled(Exception):
+    """Internal cooperative signal used to unwind the live loop before side effects."""
+
+
+def _raise_if_stream_cancelled(services: ChatRuntimeServices) -> None:
+    if services.stream_lifecycle.is_cancelled():
+        raise _StreamingCancelled
+
+
 class StreamLifecycleRuntime(Protocol):
     """Mutable stream state exposed at the chat composition boundary."""
 

@@ -1,7 +1,7 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-12
+updated: 2026-10-13
 baseline_develop: 3ce744b063e6404fb27c003f8eba212ed2fc4a9f
 next_task: VAS-17
 ---
@@ -67,9 +67,55 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **LOOP-03 buffered publication governance — implementation in review** — owner:
+- **LOOP-03 streaming publication — LOCAL_PASS** — owner: Victor co-design session;
+  branch `fix/stream-publication-governance`, baseline
+  `eeafb7d091234c7583438fb50fc0a2a149344bbf`. The live ACT boundary now governs
+  every nonempty provider narrative, including tool-bearing responses, before history,
+  delivery, tool dispatch or evaluation. Exhausted-recovery fallback text uses the
+  same boundary. Empty tool envelopes retain separate tool authorization.
+  Removed the redundant governed flag and forced-only emitter rechecks: the sole
+  ACT caller owns provider checks; newly generated summaries/recovery text retain
+  their own checks. No new registry, policy cache or dispatcher.
+  Reachability audit corrected the preceding private-helper reproducer: the three
+  prepared-team streaming helpers had no production or test callers. They are
+  removed; their direct invocation demonstrated an orphan-path flaw, not a live
+  streaming-team leak. Streaming topology/team dispatch still needs integration
+  with the canonical loop owner. The live streaming adapter also never sets
+  `forced_task_completion=True`; forced-summary tests qualify the callable
+  primitive, not live adapter routing. Both gaps remain in G98.
+  TDD reproduced 13 publication/dispatch failures plus policy-stage cancellation.
+  Independent review additionally reproduced cancellation during recovered/summary
+  governance persisting assistant history. Their producer boundaries now use the
+  relocated shared stream-cancellation check before persistence, outside retries.
+  Existing matrices now cover tool-bearing absent/redact/deny/malformed/error results,
+  natural/exhausted recovery and both terminal summary sources; tool-only and
+  cancellation checks extend their existing owners. No duplicate suite or deletion
+  of live coverage was needed for the unused helpers. Broader validation repaired an
+  older recovery fixture missing its governance capability and added it to helper
+  CI selection. The promotion oracle's E4 fingerprint was stale on both unchanged
+  develop and this branch: the old hash represents the recovered answer duplicated
+  twice; current execution returns exactly "Finally, a real answer." once, with
+  two provider calls and no tools. Only E4's fingerprint is updated; all battery
+  scores, thresholds and other fingerprints remain unchanged. This is consistent
+  with #1341's accepted-recovery stop repair; no isolated historical causality run
+  was performed. Final qualification: 1,664 affected tests pass (plus 16 final
+  oracle/characterization checks after strengthening the E4 assertion); all 12
+  changed executable runtime lines are covered. MyPy passes 2,003 source files;
+  34,889 tests collect. Black/Ruff, repository hygiene and docs drift pass.
+  Independent adversarial review passed 220 executions with no open findings.
+  Evidence: `var/codegraph-victor-20261012/stream-publication-evidence.json`
+  and companion logs/patch (local only). Next: exact-commit attestation, CI and
+  landing. This is offline contract evidence, not released-provider, rollback
+  or C5 acceptance.
+
+- **LOOP-03 buffered publication governance — MERGED** — owner:
   Victor co-design session; branch `fix/buffered-response-governance`, baseline
-  `0ccabda6d814801e067e666665601de389766b73` (current `origin/develop`).
+  `0ccabda6d814801e067e666665601de389766b73`. ✅
+  [#1343](https://github.com/anvai-labs/victor/pull/1343) merged as
+  `eeafb7d091234c7583438fb50fc0a2a149344bbf`; reviewed source
+  `7e56f4d2f909dbb8595557ba735263ed7271433f` has the identical tree.
+  All applicable CI gates passed (40 successes, two intentional skips; historical
+  Trivy comparison neutral). This is a source milestone, not release/live acceptance.
   Offline reproducers confirmed that buffered model/recovery text entered assistant
   history before the outer response gate, and that swallowed policy exceptions could
   cause synthesis. Governance now belongs to raw candidate producers: ordinary model
@@ -93,8 +139,8 @@ edit. A mock test is not live provider or C5 evidence.
   hygiene pass. Independent adversarial review passed 178 executions and found no
   remaining blockers after malformed-field and direct-graph fixes. The first broader
   run exposed two stale graph test doubles; the final cohort includes their repairs
-  and removes unawaited-mock warnings. Exact-commit review/CI/landing follow the PR;
-  local qualification does not establish release or live acceptance.
+  and removes unawaited-mock warnings. Exact review/CI evidence is retained in
+  `var/codegraph-victor-20261012/buffered-governance-evidence.json` (local only).
   Remaining: streaming team/forced-summary/tool-bearing publication, whole-run provider
   attempts/deadlines including buffered post-loop synthesis, adaptive bounds,
   StateGraph/iteration lifecycle parity, durable reconciliation and released live C5.
@@ -1803,7 +1849,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | --- | --- | --- |
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
-| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance in review; StateGraph parity remains open |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication LOCAL_PASS (current checkpoint); team/forced adapter routing and StateGraph parity remain open |
 | LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
@@ -1827,7 +1873,8 @@ the reset helper does not make one mutable loop instance concurrency-safe.
 | P1 — ✅ MERGED #1339 | Streaming omitted controller evaluation; buffered convergence could overwrite evaluator failure | Shared stop helper over `TurnObservation`; convergence never promotes non-COMPLETE; mode precedence, real repetition/reset and downstream verifier tests |
 | P1 — ✅ MERGED #1340 | Shared guard now bounds owned awaits in both modes, restoring context before outward yield | Qualify blocked phases, timeout/underlying-error distinction, consumer pause, cancellation, awaited cleanup and stale verification success. Perception counts remain checked between iterations; no remote-cancellation guarantee |
 | P2 — ✅ MERGED #1341 | Streaming ACT previously lost source recovery/stop decisions | Canonical typed disposition, no further ACT after terminal recovery, governed recovered text; post-loop synthesis remains separate |
-| P1 — IN REVIEW (`fix/buffered-response-governance`) | Buffered assistant history preceded response policy; terminal/malformed policy failures could trigger synthesis | Govern each raw producer once, account usage before denial, retain effects, reject unqualified graph policy execution and prevent regeneration |
+| P1 — ✅ MERGED #1343 | Buffered assistant history preceded response policy; terminal/malformed policy failures could trigger synthesis | Govern each raw producer once, account usage before denial, retain effects, reject unqualified graph policy execution and prevent regeneration |
+| P1 — LOCAL_PASS (`fix/stream-publication-governance`) | Streaming tool-bearing narration and exhausted fallback bypassed response policy; summary/recovered policy cancellation could persist assistant history | Shared candidate policy and cancellation checks before publication/dispatch; public-loop and eight-source regression matrices; orphan team dispatcher removed, streaming team/forced routing still open |
 | P2 — OPEN | Adaptive extension changes the bound after `range` construction | A bounded driver must consult the current limit; real executed-turn-count test, including absolute cap |
 | P2 — PARTIAL #1341 | Production `StreamingActAdapter` now rejects missing/malformed results; custom-port/outcome and ACT session fields still use `Any` | Narrow remaining protocols and declare current dynamic fields; preserve the qualified production-boundary rejection |
 | P2 — PARTIAL #1341 | ESCALATE now terminates both live loops; string/enum decision normalization remains open | Normalize supported decisions once; preserve documented custom graph routing outside the loop; no autonomous retry on escalation |
