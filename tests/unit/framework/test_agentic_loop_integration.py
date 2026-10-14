@@ -468,18 +468,58 @@ class TestTurnResultEvaluation:
             confidence=0.7,
         )
 
-    async def test_qa_response_completes(self):
-        """Q&A response with content should complete immediately."""
-        from victor.agent.services.turn_execution_runtime import TurnResult
+    @pytest.mark.parametrize(
+        "prompt, answer",
+        [
+            ("What is 6 * 7?", "The answer is 42"),
+            (
+                "What harmless marker did I ask you to remember? "
+                "Reply with only the marker; do not use tools.",
+                "JADE",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("mode", ["buffered", "streaming"])
+    async def test_qa_response_completes(self, prompt, answer, mode):
+        """The real evaluator completes a short answer after one ACT in either mode."""
+        from victor.agent.services.turn_execution_runtime import TurnExecutor, TurnResult
+        from victor.providers.base import CompletionResponse, StreamChunk
 
-        loop = self._make_loop()
         turn = TurnResult(
-            response=MagicMock(content="The answer is 42", tool_calls=None),
-            is_qa_response=True,
+            response=CompletionResponse(content=answer),
+            is_qa_response=TurnExecutor._is_question_only(prompt),
         )
-        result = await loop._evaluate(self._make_perception(), turn, {})
-        assert result.decision == EvaluationDecision.COMPLETE
-        assert "Q&A shortcut" in result.reason
+        executor = MagicMock(spec=["execute_turn"])
+        executor.execute_turn = AsyncMock(return_value=turn)
+        loop = AgenticLoop(
+            orchestrator=MagicMock(spec=[]),
+            turn_executor=executor,
+            enable_fulfillment_check=False,
+            enable_adaptive_iterations=False,
+            max_iterations=3,
+        )
+        loop._analyze_turn = AsyncMock(return_value=self._make_perception())
+        loop._plan = AsyncMock(return_value={})
+
+        class Port:
+            async def stream_turn_act(self, **kwargs):
+                kwargs["outcome"].turn_result = await executor.execute_turn()
+                yield StreamChunk(content=answer)
+
+        if mode == "buffered":
+            result = await loop.run(prompt)
+            assert result.success is True
+            assert len(result.iterations) == 1
+            assert result.iterations[0].action_result.content == answer
+            assert "Q&A shortcut" in result.iterations[0].evaluation.reason
+        else:
+            loop.streaming_act_port = Port()
+            chunks = [chunk async for chunk in loop.run_streaming(prompt)]
+            assert "".join(chunk.content for chunk in chunks if chunk.content) == answer
+            assert chunks[-1].metadata["agentic_loop_success"] is True
+            assert chunks[-1].metadata["agentic_loop_iterations"] == 1
+        executor.execute_turn.assert_awaited_once()
+        assert loop.spin_detector.total_tool_calls == 0
 
     async def test_spin_detection_fails(self):
         """4+ consecutive all-blocked turns should fail."""
