@@ -223,6 +223,8 @@ class TestQADetection:
             "Who is Guido van Rossum?",
             "Define polymorphism",
             "Say hello",
+            "What harmless marker did I ask you to remember? "
+            "Reply with only the marker; do not use tools.",
         ],
     )
     def test_qa_detected(self, msg):

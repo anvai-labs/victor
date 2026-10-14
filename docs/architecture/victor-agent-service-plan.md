@@ -199,7 +199,7 @@ edit. A mock test is not live provider or C5 evidence.
   applicable CI gates passed; merged as `7ec09531ea1d9bbf5885e4045ddd73617c026c82`.
   No whole-member replay, origin retry or cancellation acceptance is implied.
 
-- **UX-05 shared progress and professional presentation — ACTIVE (presentation), PLANNED (progress)** — first expose
+- **UX-05 shared progress and professional presentation — MERGED (presentation, [#1350](https://github.com/anvai-labs/victor/pull/1350)), PLANNED (progress)** — first expose
   structured per-request/plan/step/member/tool progress and terminal outcomes to CLI,
   TUI and web UI, using common event semantics with snapshot reconciliation. Keep
   turn history grouped and make nested activity independently inspectable; distinguish
@@ -228,6 +228,8 @@ edit. A mock test is not live provider or C5 evidence.
   built-wheel install and HTTP/MIME/content smoke. 99 UI/packaging tests passed;
   MyPy passed 2,116 files. Independent review found no scoped blocker. This is
   presentation qualification, not full editor, plan-event or C5 acceptance.
+  Presentation merged as `af12c984e2f6de66b41f9b9f0f0d68518cf1cc9b` with all
+  applicable CI gates green; the local UI runs that merged baseline.
 
 - **UX-06 unattended policy behavior — PLANNED** — auto mode evaluates the same
   authoritative ALLOW/DENY/ASK policy as interactive use. Verified allowed work
@@ -238,7 +240,7 @@ edit. A mock test is not live provider or C5 evidence.
   authorization rules. This depends on UX-03, durable approval storage and the
   accepted public-contract process where applicable.
 
-- **UX-07 answer-only completion — PLANNED, high impact** — the post-audit marker
+- **UX-07 answer-only completion — ACTIVE, classifier fix qualified locally** — the post-audit marker
   request was classified `edit`/`action`; its valid four-character answer was retried
   three times before the spin guard failed. The streamed duplicates were already
   visible despite a later “suppressing repeated visible output” log. Logs at
@@ -249,6 +251,35 @@ edit. A mock test is not live provider or C5 evidence.
   actions and blocked/failed execution. Reproduce in the existing classification,
   evaluation and stream owners, then qualify a concise answer following a failed
   plan without whole-member replay.
+  Owner: Victor co-design session; branch `fix/answer-only-completion`, baseline
+  `af12c984e2f6de66b41f9b9f0f0d68518cf1cc9b`. The immediate cause was lexical:
+  the shared direct-response classifier treated “do not use tools” as tool context,
+  and a trailing answer-format clause obscured the short question. This is not
+  embedding similarity or proof that all task classifiers understand negation.
+  Ignore only complete, delimited trailing no-tools/answer-format constraints for
+  classification; retain the original provider prompt and all execution-policy
+  checks. Standalone exact requests, repository references, requested effects and
+  conditional constraints retain their previous behavior. Do not globally strip
+  negative words: “do not modify files” permits reads and “do not skip tests” can
+  require execution. Unrecognized wording stays on the existing classification path.
+  Extend the existing classifier and real-loop owners rather than adding parallel
+  heuristic/test modules. Both delivery-mode tests assert one ACT, no tools, one
+  answer and successful terminal metadata with the real completion evaluator.
+  Local validation: 344 affected tests passed; 35,037 tests collected; MyPy passed
+  2,116 source files; Black, Ruff, hygiene and documentation drift checks passed.
+  Adversarial review caught and repaired standalone exact-request compatibility;
+  negative cases retain conditional negation and repository/action routing. Existing
+  effect-gate and failed/blocked tests remain authoritative; no duplicate test owner
+  or completion threshold was introduced.
+  Headed AgentBrowser, `homelab-openai-subscription` via Sandhi: a new conversation
+  remembered JADE and answered the original marker question once in 1.4 seconds,
+  one model call, zero tools; runtime reported success. Evidence:
+  `var/codegraph-victor-20261012/answer-only-{browser.json,browser.png,live.log}`.
+  This fresh smoke does not repeat the failed audit or establish post-failed-plan
+  lifecycle/C5 acceptance. Broader semantic negation and shared task-classifier
+  consolidation remain future work, requiring a representative labeled corpus
+  before changing default routing. Next: complete review/CI, then address shared
+  progress/cancellation ownership before claiming consolidated API lifecycle parity.
 
 - **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
   branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.
