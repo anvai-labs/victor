@@ -25,7 +25,10 @@ from victor.agent.topology_telemetry import (
     build_topology_telemetry_event,
     emit_topology_telemetry_event,
 )
-from victor.agent.services.chat_runtime_services import ChatRuntimeServices
+from victor.agent.services.chat_runtime_services import (
+    ChatRuntimeServices,
+    _raise_if_stream_cancelled,
+)
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.core.errors import (
@@ -1597,6 +1600,7 @@ class ChatStreamHelperMixin:
         logger.info("Empty-response recovery produced content (%d chars)", len(full_content))
         sanitized = self.services.delivery.sanitize(full_content)
         governed = await self.services.governance.govern_response(sanitized or full_content)
+        _raise_if_stream_cancelled(self.services)
         orch.add_message(
             "assistant",
             governed,

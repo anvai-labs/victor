@@ -595,3 +595,24 @@ executor or disable policy. Raw `execute_single_turn`, custom legacy ACT sources
 reasoning and tool argument/result filtering are outside this assistant-text contract.
 Streaming team output/forced summaries/tool-bearing content and whole-run provider-attempt/deadline
 ownership still need qualification; these source tests do not establish live C5.
+
+
+### Streaming candidate ownership follow-up (LOOP-03)
+
+The live streaming ACT checks all nonempty provider narrative before publication,
+history, evaluation or tool dispatch, including narrative attached to tool calls.
+Tool-only envelopes retain their separate tool authorization. The private emitter
+accepts already-governed provider text from that sole caller; it does not maintain
+a second governed flag or recheck forced output. Distinct natural/recovery/terminal
+summary candidates and exhausted-recovery fallback text use the shared governance
+capability at their producer boundary. Cancellation and terminal policy errors
+cannot turn into a tool dispatch or another generation. The existing cooperative
+stream-cancellation check is shared by the executor and recovery helper; recovered
+and summary producers check after policy awaits, before assistant history writes.
+
+The prepared-team streaming trio was unreachable legacy code and is removed.
+Its direct synthetic probe did not establish a live-path team leak. Team/topology
+integration in the streaming loop remains open and must reuse the canonical team
+dispatcher. Likewise the live adapter does not currently enable the forced-summary
+argument; primitive summary tests are not adapter-route acceptance. G98 and the
+canonical tracker retain those gaps, whole-run attempt/deadline ownership and C5.

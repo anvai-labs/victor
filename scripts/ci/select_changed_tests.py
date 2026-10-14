@@ -157,6 +157,7 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_turn_execution_runtime.py",
     ),
     "victor/agent/services/chat_stream_helpers.py": (
+        "tests/unit/agent/services/test_empty_response_recovery.py",
         "tests/unit/agent/services/test_chat_stream_governance.py",
         "tests/unit/agent/services/test_chat_runtime_services_boundary.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",

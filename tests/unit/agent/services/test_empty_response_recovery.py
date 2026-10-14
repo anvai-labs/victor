@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from victor.agent.services.chat_delivery import ChatDelivery
+from victor.agent.services.chat_runtime_services import ChatGovernance, ChatStreamLifecycle
 from victor.agent.services.chat_stream_helpers import ChatStreamHelperMixin
 
 
@@ -23,7 +24,9 @@ class _Helper(ChatStreamHelperMixin):
             delivery=ChatDelivery(
                 chunks=getattr(orchestrator, "_chunk_generator", None),
                 sanitizer=getattr(orchestrator, "sanitizer", None),
-            )
+            ),
+            governance=ChatGovernance(),
+            stream_lifecycle=ChatStreamLifecycle(SimpleNamespace(is_cancelled=lambda: False)),
         )
 
 

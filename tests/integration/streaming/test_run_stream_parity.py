@@ -92,12 +92,13 @@ async def test_parity_battery_is_non_empty():
     assert SCENARIOS, "expected a non-empty QA battery"
 
 
+@pytest.mark.parametrize("with_tools", [False, True])
 @pytest.mark.parametrize("mode", ["buffered", "streaming"])
 @pytest.mark.parametrize(
     "policy",
     ["absent", "redact", "block", "empty", "malformed", "bad-content", "bad-allowed", "failure"],
 )
-async def test_unified_response_policy_and_terminal_verdict(mode, policy, monkeypatch):
+async def test_unified_response_policy_and_terminal_verdict(mode, policy, with_tools, monkeypatch):
     """Real service/ACT/loop/event wiring: withheld output never causes a second call."""
     from unittest.mock import AsyncMock
     from victor.framework.agentic_loop import AgenticLoop
@@ -114,7 +115,10 @@ async def test_unified_response_policy_and_terminal_verdict(mode, policy, monkey
     from .parity_harness import TurnScript
 
     original = "The result is sk-abc123. " + "This is the verified answer. " * 6
-    provider = ScriptedProvider([TurnScript(content=original)])
+    tool_calls = [{"id": "read1", "name": "read", "arguments": {"path": "example.py"}}]
+    provider = ScriptedProvider(
+        [TurnScript(content=original, tool_calls=tool_calls if with_tools else None)]
+    )
     policies = []
     if policy == "redact":
         policies = [RedactContentPolicy([r"sk-\w+"], placeholder="[KEY]")]
@@ -142,7 +146,7 @@ async def test_unified_response_policy_and_terminal_verdict(mode, policy, monkey
             gate.gate_response.side_effect = RuntimeError("policy backend unavailable")
     if gate is not None and policy not in {"malformed", "bad-content", "bad-allowed", "failure"}:
         gate.gate_response = AsyncMock(wraps=gate.gate_response)
-    orch = build_streaming_orchestrator(provider)
+    orch = build_streaming_orchestrator(provider, ["read"] if with_tools else None)
     evaluate = AsyncMock(
         return_value=EvaluationResult(
             decision=EvaluationDecision.COMPLETE, score=1.0, reason="done"
@@ -171,6 +175,7 @@ async def test_unified_response_policy_and_terminal_verdict(mode, policy, monkey
             content = response.content
             assert response.metadata["agentic_loop_success"] is True
     assert provider.turn_index == 1
+    assert orch._parity_tool_log == (["read"] if with_tools and not denied else [])
     if gate is not None:
         gate.gate_response.assert_awaited_once_with(original)
     if denied:
