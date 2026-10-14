@@ -20,6 +20,7 @@ Tests cover:
 - IntentClassifier continuation/completion detection
 """
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -236,9 +237,112 @@ class TestStaticEmbeddingCollection:
             return np.array(embeddings)
 
         mock.embed_batch_sync.side_effect = mock_embed_batch
+        mock.embed_batch.side_effect = mock_embed_batch
         mock.embed_text_sync.side_effect = lambda t: mock_embed_batch([t])[0]
 
         return mock
+
+    @pytest.mark.parametrize("outcome", ["success", "cancel", "failure"])
+    async def test_async_reinitialization_publishes_only_complete_state(
+        self, mock_embedding_service, outcome
+    ):
+        collection = StaticEmbeddingCollection(
+            "staged", Path(self.temp_dir), mock_embedding_service
+        )
+        old = [CollectionItem(id="old", text="Old item")]
+        new = [CollectionItem(id="new", text="New item")]
+        collection.initialize_sync(old)
+        prior = (
+            collection._items,
+            collection._item_ids,
+            collection._embeddings,
+            collection._items_hash,
+        )
+        prior_cache = collection.cache_file.read_bytes()
+        entered, release = asyncio.Event(), asyncio.Event()
+        vectors = np.ones((1, 384), dtype=np.float32)
+
+        async def embed(texts):
+            entered.set()
+            await release.wait()
+            if outcome == "failure":
+                raise RuntimeError("Embedding failed")
+            return vectors
+
+        mock_embedding_service.embed_batch.side_effect = embed
+        task = asyncio.create_task(collection.initialize(new))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            assert collection.get_item("old") == old[0]
+            assert collection.get_item("new") is None
+            if outcome == "cancel":
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                release.set()
+                if outcome == "failure":
+                    with pytest.raises(RuntimeError, match="Embedding failed"):
+                        await task
+                else:
+                    await task
+            if outcome == "success":
+                assert collection.get_item("new") == new[0]
+                assert collection.get_item("old") is None
+                assert collection._embeddings is vectors
+                assert collection.cache_file.read_bytes() != prior_cache
+            else:
+                assert collection._items is prior[0]
+                assert collection._item_ids is prior[1]
+                assert collection._embeddings is prior[2]
+                assert collection._items_hash == prior[3]
+                assert collection.cache_file.read_bytes() == prior_cache
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_initialization_serializes_async_and_rejects_overlapping_sync(
+        self, mock_embedding_service
+    ):
+        collection = StaticEmbeddingCollection(
+            "serial", Path(self.temp_dir), mock_embedding_service
+        )
+        entered, release = asyncio.Event(), asyncio.Event()
+        calls = []
+
+        async def embed(texts):
+            calls.append(texts)
+            entered.set()
+            await release.wait()
+            return np.ones((len(texts), 384), dtype=np.float32)
+
+        mock_embedding_service.embed_batch.side_effect = embed
+        first = asyncio.create_task(collection.initialize([CollectionItem("first", "First")]))
+        second = None
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            second = asyncio.create_task(
+                collection.initialize([CollectionItem("second", "Second")])
+            )
+            await asyncio.sleep(0)
+            assert calls == [["First"]]
+            with pytest.raises(RuntimeError, match="asynchronous initialization"):
+                collection.initialize_sync([])
+            release.set()
+            await asyncio.gather(first, second)
+            assert calls == [["First"], ["Second"]]
+            assert collection._item_ids == ["second"]
+            await collection.initialize([])
+            assert collection._items_hash is None
+            assert collection._embeddings.shape == (0, 384)
+            assert collection.size == 0
+        finally:
+            for task in (first, second):
+                if task is not None:
+                    task.cancel()
+            await asyncio.gather(
+                *(task for task in (first, second) if task is not None), return_exceptions=True
+            )
 
     def test_collection_initialization(self, mock_embedding_service):
         """Test collection initializes correctly."""

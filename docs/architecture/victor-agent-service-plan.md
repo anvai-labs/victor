@@ -595,6 +595,52 @@ edit. A mock test is not live provider or C5 evidence.
   collection found 35,081 tests, and formatting/lint/hygiene/docs checks passed. Broader
   cross-placement deduplication, startup performance and C5 acceptance remain open.
 
+  **Initialization experiment and cancellation checkpoint (2026-10-14):** #1357
+  merged the visible-guidance repair; owner: Victor co-design session, current
+  branch `fix/embedding-async-initialization`, baseline
+  `e9e8bd2652f37c44fe8a14b06b0ae4611c1a26e8`. A private candidate moved only model
+  dimension resolution out of cached collection initialization onto the existing
+  blocking-work helper. Four sequential A/B/B/A subprocess diagnostics retained
+  normal retrieval and skills, intercepted every model dispatch, and sent zero
+  provider requests. The result did **not** meet the performance gate:
+
+  | First-request measurement | Baseline median (2 runs) | Candidate median (2 runs) |
+  |---|---:|---:|
+  | Preparation wall time | 6.451 s | 6.523 s |
+  | Preparation CPU time | 6.301 s | 6.390 s |
+  | Maximum event-loop heartbeat gap through first dispatch | 7.810 s | 7.845 s |
+  | Peak RSS at first dispatch | 931.6 MB | 928.2 MB |
+
+  Heartbeat gaps include client initialization; skills were ready by first
+  dispatch in all four runs. Shared caches and learned state were preserved.
+  This small diagnostic does not establish throughput, answer quality, cache
+  reuse or provider acceptance. The isolated offload and its extra dimension
+  argument were removed. Private `embedding-init-*` evidence is retained beside
+  `prompt-demand-*`; no prompt, model or token-policy defaults change.
+
+  The retained increment fixes a separately reproduced correctness defect:
+  async collection reinitialization published new IDs before embedding finished.
+  Stage items/IDs/vectors until successful completion, serialize async initializers
+  on the owning loop, reject overlapping synchronous initialization explicitly,
+  and clear the hash on empty publication. Cancellation or embedding failure
+  preserves the previous complete collection and its valid cache. Existing cache
+  validation is unchanged; invalid cache deletion retains its existing behavior.
+  Extend the existing embedding-infrastructure suite rather than adding another
+  suite; cache security and skill readiness retain their existing owners.
+  Four regression cases failed before the repair; 423 affected tests pass (two
+  existing skips), including the complete embedding directory. MyPy, Black, Ruff,
+  repository hygiene and documentation drift checks pass; full collection finds
+  35,086 tests. Independent review also passed 105 collection/cache/selector cases.
+  This is collection-local correctness, not a startup speedup or general thread
+  safety. Cache validation/model loading remains synchronous; an already running
+  embedding worker can outlive cancellation without publishing collection state.
+
+  **Next:** trace all synchronous first-turn embedding consumers and design one
+  explicit readiness boundary with shutdown ownership before attempting another
+  offload. Qualify heartbeat gaps, first-dispatch latency, preserved skill selection
+  and actual bounded task outcomes together. Cross-placement prompt deduplication,
+  live CLI/UI efficiency and mixed-team C5 acceptance remain open.
+
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced
   a missing account and selected the provider default instead. A newly named OAuth

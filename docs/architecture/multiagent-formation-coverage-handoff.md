@@ -2168,6 +2168,16 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   cache validation and actual skill/task outcomes; do not bypass validation or
   disable skills to improve startup numbers. Learned-example omission also leaves
   most startup cost intact and is not a production change.
+  The visible-guidance correction is merged in #1357. The next A/B/B/A diagnostic
+  rejected an isolated collection dimension-load offload: median preparation
+  6.451 → 6.523 seconds and maximum loop gap 7.810 → 7.845 seconds, with zero
+  provider requests. That experiment was removed; UX-09 records the full evidence.
+  Retain only the independent collection-state repair: async initialization stages
+  publication, serializes writers on the owning loop and rejects overlapping sync
+  initialization. Cancellation/embedding failure preserves the prior complete
+  collection and valid cache. This does not qualify startup performance, stop a
+  running model worker, or resolve C5. Next investigate shared readiness across
+  synchronous first-turn embedding consumers rather than moving one caller alone.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
