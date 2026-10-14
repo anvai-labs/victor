@@ -757,6 +757,16 @@ edit. A mock test is not live provider or C5 evidence.
   review passed 104 owner tests (two opt-in slow skips), then 67 final pipeline cases;
   no remaining scoped blockers. Merge/release and full lifecycle/C5 remain distinct
   gates. Preserve the tested patch outside `/tmp` until committed and pushed.
+  [PR #1360](https://github.com/anvai-labs/victor/pull/1360) first CI candidate
+  passed its tests but failed changed-line coverage: the quick job omitted the
+  coding editor plugin, silently skipping 54 editor checks (49% diff coverage).
+  Install the real editable capability in that job; preserve the 80% threshold.
+  Extend the existing workflow contract and retention test (successful cleanup
+  after failure). Exact-selector local requalification with CI's diff-cover 9.x:
+  **241 passed, zero skipped, two slow cases deselected, 94% changed-line coverage**.
+  Independent correction review passed 84 checks. Collection remains 35,116;
+  source behavior is unchanged by this CI/test correction. Await the updated PR's
+  complete checks before merge; the previous failed gate is retained as evidence.
 
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced

@@ -116,6 +116,10 @@ def test_both_python_pipelines_use_the_same_checker():
 
 def test_changed_file_gate_defers_only_main_promotion_and_protected_merge_to_full_shards():
     quick = workflow("ci-fast.yml")["jobs"]["quick-tests"]
+    install = next(
+        step["run"] for step in quick["steps"] if step.get("name") == "Install dependencies"
+    )
+    assert "pip install -e ./verticals/victor-coding" in install
     assert quick["if"] == (
         "${{ github.base_ref != 'main' && "
         "!(github.event_name == 'push' && github.ref == 'refs/heads/main') }}"

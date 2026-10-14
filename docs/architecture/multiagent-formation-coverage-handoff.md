@@ -2197,7 +2197,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
 
 - **G101 — edit history, operation parity and shared ownership (open).** Headed
   Chainlit self-editing reproduced millisecond-ID collisions and missing per-operation
-  before-state within a sequential edit call. UX-09's `fix/ui-tool-context` candidate
+  before-state within a sequential edit call. UX-09's [#1360](https://github.com/anvai-labs/victor/pull/1360) candidate
   addresses IDs, stable reload order, successful-save publication, same-file undo/redo,
   preview finalization, aborted queues and truthful history warnings. This is scoped
   local evidence until the PR/CI milestone is recorded. Remaining qualification:

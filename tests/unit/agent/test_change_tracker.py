@@ -288,6 +288,12 @@ class TestFileChangeHistory:
             == 2
         )
         assert "history saved" in caplog.text
+        monkeypatch.undo()
+        tracker._trim_history()
+        assert tracker._undo_stack == [group]
+        conn = tracker._db.get_connection()
+        assert [row[0] for row in conn.execute("SELECT id FROM change_groups")] == [group.id]
+        assert [row[0] for row in conn.execute("SELECT group_id FROM file_changes")] == [group.id]
 
     def test_can_redo_empty(self, tracker):
         """Test can_redo when no undone changes exist."""
