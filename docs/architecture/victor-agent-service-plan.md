@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **UX-01 self-audit failure recovery — LOCAL_PASS** — owner: Victor co-design session;
+- **UX-01 self-audit failure recovery — MERGED, [#1347](https://github.com/anvai-labs/victor/pull/1347)** — owner: Victor co-design session;
   branch `fix/self-audit-ux-recovery`, baseline `0839c34d3c17c43c1828b48555d8e25fca85b8e0`.
   The user's 2026-10-13 21:36–21:40 `homelab-openai-subscription` run failed its
   first inventory step with a retryable OpenAI transport 502 (`cec7bdad`). Its
@@ -76,7 +76,7 @@ edit. A mock test is not live provider or C5 evidence.
   21 failed compaction-audit inserts (SQLite foreign-key violations); the startup
   embedding spinner remained visible during execution. Sanitized evidence is
   preserved locally in `var/codegraph-victor-20261012/ux-self-audit-incident.json`.
-  Implemented locally: preserve required dependency edges and block dependents;
+  Merged repair: preserve required dependency edges and block dependents;
   retain independent branches and blocked status through evidence validation;
   register the member session before identity publication; persist sessions before
   publishing them in the store cache; compact actual provider history through a
@@ -100,11 +100,15 @@ edit. A mock test is not live provider or C5 evidence.
   this is not a replay of the failed eight-step audit or C5 acceptance.
   Prompt wording about “plan mode” is not evidence that CLI `--mode plan` was set;
   preserve configured approval policy while clarifying preview versus execution.
-  Next: exact-commit review, PR/CI and merge;
-  then qualify the full audit and browser recovery without whole-member replay.
+  Source `dda1d9a619a9e7828500baae56c5f8354b7a599f` passed independent review;
+  merge `b27a4e6a4fd068c0531105e090a54e800743aef4` is on develop. All applicable
+  CI gates passed (40 successful checks, two intentional skips and one neutral
+  historical Trivy comparison); the current blocking security checks passed.
+  The merged worktree was archived locally and removed. Next: qualify the full
+  audit and browser recovery without whole-member replay.
 
-- **UX-02 real web-chat qualification — ACTIVE** — same owner/worktree as UX-01;
-  browser findings are a following UI increment. `victor ui` launches the existing
+- **UX-02 real web-chat qualification — ACTIVE** — owner: Victor co-design session;
+  branch `fix/web-chat-controls`, baseline `b27a4e6a4fd068c0531105e090a54e800743aef4`. `victor ui` launches the existing
   Chainlit web chat using `VictorClient`; `victor serve` is the HTTP API, and its
   `--mode` selects agent behavior rather than a browser frontend. The workflow
   visualizer remains distinct from both chat and the planned authoring editor.
@@ -116,21 +120,55 @@ edit. A mock test is not live provider or C5 evidence.
   and Python floor with lines 20/28; a second `read(CLAUDE.md)` produced a grounded
   architecture explanation. No source files were modified by either agent task.
   Runtime session: `39df2e77-2890-40d7-9e3b-338b49bf6fa0`.
-  Confirmed gaps: generic Assistant branding; settings initially show empty
-  provider/profile selections; the custom Stop action is disabled while running;
-  several icon buttons lack accessible names. The first native stop attempt arrived
-  after completion; a second active-turn attempt passed: UI showed “Turn stopped”
-  and “Task manually stopped,” and the runtime recorded `success=False`. This proves
-  local turn cancellation, not upstream-origin cancellation. Inspect actual Chainlit
-  widgets and lifecycle callbacks, approval tool aliases, settings rebuild/history
-  behavior, cancellation, failed outcomes and usage/request joins before acceptance.
-  Source inspection found `Select(initial=...)` is overwritten by Chainlit's
-  `initial_value`/`initial_index` resolution, and settings are sent before lazy client
-  initialization. Mock-widget tests did not exercise that installed widget contract.
-  Preserve evidence under `var/codegraph-victor-20261012/ux-web-*`; do not claim
-  OIDC, full workflow authoring, gateway accounting reconciliation or C5 from these
-  two chat turns. Keep provider credentials server-side. The local web chat has no
-  configured user authentication and must remain loopback-only for this test.
+  UI repairs locally qualified: display the launch profile with Chainlit's actual
+  `initial_value` contract; keep provider/model overrides explicit; confirming
+  unchanged settings preserves the client/history. Changed settings validate the
+  configuration, stop the active turn and close the prior client before publication;
+  they explicitly start a new conversation. Constructor validation is not provider
+  readiness; a failed close preserves stored identity, not restored availability.
+  One session lock serializes replacement, resume, close and turn admission. A
+  disconnect latch rejects queued work before lock acquisition. Use Chainlit's
+  native Stop, remove the disabled duplicate action and close the UI-owned client
+  iterator in its task, including cancellation during rendering. Register one
+  approval handler for startup and replacement; include canonical `write`/`edit`
+  names in the existing ASK policy. Existing control/settings tests own coverage;
+  regressions cover queue ordering, malformed approval input and close failure.
+  Validation: 413 affected UI/rendering/client/config tests passed; MyPy passes
+  2,003 files and 34,980 tests collect. Black/Ruff, hygiene and docs drift pass. Independent
+  adversarial review passed the final 25 control/settings cases with no scoped
+  blockers. Installed headed UI shows the launch profile and inherited overrides;
+  a real read returned the correct project name/Python floor with line references.
+  A new exact user-requested full UX audit is running through the browser. Planning
+  currently prints its graph only to the server console while the UI says
+  “Thinking…”; a concrete read-only shell inventory approval was displayed and
+  approved. Preserve the run and qualify its final result before marking it passed.
+  Remaining: generic Assistant branding and unnamed icon buttons; explicit mode
+  controls; plan/progress event delivery; failed terminal-outcome rendering;
+  approval/recovery and usage/request joins. Review reproduced a separate downstream
+  iterator ownership gap in `VictorClient.stream`/`message_execution`: closing the
+  outer client iterator can clear active-stream accounting before a retained inner
+  generator closes. UI-owned iterator closure is not full runtime/provider drain.
+  Earlier native Stop evidence showed “Turn stopped”/“Task manually stopped” and
+  runtime `success=False`; it proves local cancellation, not origin cancellation.
+  Preserve evidence under `var/codegraph-victor-20261012/ux-web-*` and
+  `ux-full-audit-*`; do not claim OIDC, workflow authoring, gateway accounting or C5
+  from chat turns. Credentials stay server-side. The local UI has no configured
+  user authentication and must remain loopback-only for this test.
+
+- **UX-03 effect-aware shell approvals — PLANNED** — requested during the actual
+  browser audit. Ordinary verified repository reads should not prompt; the current
+  `AskOnToolsPolicy` matches only tool names, so read-only shell inventories repeatedly
+  block on ASK. Keep typed read tools friction-free. Reuse one authoritative command
+  classifier; a model-provided `readonly` hint is not authorization. The existing
+  legacy shell allowlist permits test/build commands and cannot by itself prove a
+  harmless read. Preserve DENY precedence, protected-path policy and exact payload
+  binding. Add explicit once/session approval choices with visible, revocable,
+  expiring grants bound to session, workspace, policy and execution authority;
+  invalidate them on configuration/identity changes. Similar-command grants require
+  parsed command/argument scope and negative tests for substitutions, redirections,
+  interpreters, wrappers and scope changes. Broad all-shell approval is a separate
+  deliberate choice, never a default or bypass of policy denial. Qualify across
+  actual member requests and simultaneous browser sessions before acceptance.
 
 - **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
   branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.

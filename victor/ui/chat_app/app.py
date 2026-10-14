@@ -27,6 +27,7 @@ mapping in :mod:`victor.ui.chat_app.event_mapping`.
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 import logging
 import os
 
@@ -71,6 +72,10 @@ def _format_follow_ups(suggestions: list[dict]) -> str:
 
 
 _CLIENT_KEY = "victor_client"
+_CONFIG_KEY = "victor_session_config"
+_LOCK_KEY = "victor_lifecycle_lock"
+_CLOSED_KEY = "victor_session_closed"
+_PROFILE_DEFAULT = "Profile default"
 # The in-flight turn's asyncio.Task, tracked per session so a Stop action can cancel it and
 # on_chat_end can drain it before closing the client.
 _TASK_KEY = "active_turn_task"
@@ -82,6 +87,8 @@ _PROFILE_ENV = "VICTOR_UI_PROFILE"
 # Tools that mutate state or run code require explicit approval in the web UI, where a
 # user is one click away. Read-only tools stay friction-free.
 _ASK_ON_TOOLS = [
+    "write",
+    "edit",
     "bash",
     "shell",
     "run_shell",
@@ -107,6 +114,8 @@ def _session_config(
     Tool approval gating is coupled to the toggle: when off, ``ask_on_tools`` is emptied so no
     tool prompts fire. Empty provider/model/profile fall back to the active defaults.
     """
+    if not isinstance(approval, bool):
+        raise ValueError("Tool approval must be a boolean")
     return SessionConfig.from_cli_flags(
         agent_profile=profile or None,
         provider=provider or None,
@@ -120,7 +129,58 @@ def _session_config(
 
 def _build_client() -> VictorClient:
     """Construct the default per-session VictorClient (profile from ``victor ui --profile``)."""
-    return VictorClient(_session_config(os.environ.get(_PROFILE_ENV) or None))
+    config = _current_config()
+    client = _configured_client(config)
+    cl.user_session.set(_CONFIG_KEY, config)
+    return client
+
+
+def _current_config() -> SessionConfig:
+    """Return the explicit UI configuration without resolving inherited model settings."""
+    config = cl.user_session.get(_CONFIG_KEY)
+    if config is None:
+        config = _session_config(os.environ.get(_PROFILE_ENV) or None)
+    return config
+
+
+def _configured_client(config: SessionConfig) -> VictorClient:
+    """Apply the same approval handler to initial and replacement clients."""
+    client = VictorClient(config)
+    client.set_approval_handler(chainlit_approval_handler)
+    return client
+
+
+def _session_lock() -> asyncio.Lock:
+    """Serialize client replacement, resume, close and turn admission per browser session."""
+    lock = cl.user_session.get(_LOCK_KEY)
+    if lock is None:
+        lock = asyncio.Lock()
+        cl.user_session.set(_LOCK_KEY, lock)
+    return lock
+
+
+def _require_open_session() -> None:
+    if cl.user_session.get(_CLOSED_KEY, False):
+        raise RuntimeError("Chat session is closed. Start a new conversation.")
+
+
+async def _drain_active_turn() -> None:
+    """Close the active turn before replacing or disposing its client."""
+    task = cl.user_session.get(_TASK_KEY)
+    if task is None or task.done():
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        caller = asyncio.current_task()
+        if caller is not None and caller.cancelling():
+            raise
+    except Exception:
+        logger.debug("active turn failed while draining", exc_info=True)
+    finally:
+        if cl.user_session.get(_TASK_KEY) is task:
+            cl.user_session.set(_TASK_KEY, None)
 
 
 def _profile_names() -> list[str]:
@@ -141,24 +201,32 @@ async def _send_settings(client: VictorClient) -> None:
         providers = client.get_available_providers()
     except Exception:
         providers = []
-    current_provider = client.provider_name
+    config = _current_config()
+    current_provider = config.provider_override.provider or _PROFILE_DEFAULT
     if current_provider and current_provider not in providers:
         providers = [current_provider, *providers]
     profiles = _profile_names()
+    profile = config.agent_profile or "default"
+    if profile not in profiles:
+        profiles = [profile, *profiles]
     await cl.ChatSettings(
         [
             Select(
                 id="provider",
-                label="Provider",
-                values=providers or [current_provider or "default"],
-                initial=current_provider or (providers[0] if providers else ""),
+                label="Provider override",
+                values=list(dict.fromkeys([_PROFILE_DEFAULT, *providers])),
+                initial_value=current_provider,
             ),
-            Select(id="profile", label="Profile", values=profiles, initial=profiles[0]),
-            TextInput(id="model", label="Model (override)", initial=client.model or ""),
+            Select(id="profile", label="Profile", values=profiles, initial_value=profile),
+            TextInput(
+                id="model",
+                label="Model override (blank uses profile)",
+                initial=config.provider_override.model or "",
+            ),
             Switch(
                 id="tool_approval",
                 label="Require approval for risky tools",
-                initial=True,
+                initial=config.tool_approval.enabled,
             ),
         ]
     ).send()
@@ -176,40 +244,33 @@ def _get_client() -> VictorClient:
 @cl.on_chat_start
 async def on_chat_start() -> None:
     """Create a per-session VictorClient and greet the user."""
-    client = _get_client()
+    async with _session_lock():
+        cl.user_session.set(_CLOSED_KEY, False)
+        client = _get_client()
 
-    # Hand the interactive approval handler to the client, which registers it into the DI
-    # container it actually builds (after bootstrap, before middleware build). Registering
-    # into the global container here instead would be lost: the first turn bootstraps a new
-    # container and disposes the one this handler lived in, so every ASK-gated tool would
-    # silently hit ask_fallback (deny). Safe to call on every on_chat_start / reconnect.
-    try:
-        client.set_approval_handler(chainlit_approval_handler)
-    except Exception:  # approval is best-effort; chat still works without it
-        logger.debug("Approval handler registration skipped", exc_info=True)
+        # Best-effort in-session replay: a reconnected session whose client already holds history
+        # replays its prior turns; a fresh client raises (uninitialized) and we fall through.
+        restored = False
+        try:
+            for author, content in history_messages(await client.get_messages(limit=50)):
+                await cl.Message(content=content, author=author).send()
+                restored = True
+        except Exception:
+            logger.debug("no in-session history to restore", exc_info=True)
 
-    # Best-effort in-session replay: a reconnected session whose client already holds history
-    # replays its prior turns; a fresh client raises (uninitialized) and we fall through.
-    restored = False
-    try:
-        for author, content in history_messages(await client.get_messages(limit=50)):
-            await cl.Message(content=content, author=author).send()
-            restored = True
-    except Exception:
-        logger.debug("no in-session history to restore", exc_info=True)
+        if not restored:
+            # Cross-visit resume: offer to continue a previously stored session.
+            actions = _resume_actions(client)
+            greeting = (
+                f"**Victor** is ready. Profile: **{_current_config().agent_profile or 'default'}**. "
+                "Ask me to write code, search the repo, run tools — "
+                "I'll stream my reasoning and tool calls as I work."
+            )
+            if actions:
+                greeting += "\n\n_Or continue a previous session:_"
+            await cl.Message(content=greeting, actions=actions or None).send()
 
-    if not restored:
-        # Cross-visit resume: offer to continue a previously stored session.
-        actions = _resume_actions(client)
-        greeting = (
-            "**Victor** is ready. Ask me to write code, search the repo, run tools — "
-            "I'll stream my reasoning and tool calls as I work."
-        )
-        if actions:
-            greeting += "\n\n_Or continue a previous session:_"
-        await cl.Message(content=greeting, actions=actions or None).send()
-
-    await _send_settings(client)
+        await _send_settings(client)
 
 
 def _resume_actions(client: "VictorClient") -> list:
@@ -239,72 +300,79 @@ def _resume_actions(client: "VictorClient") -> list:
 @cl.action_callback("resume_session")
 async def _on_resume_session(action: "cl.Action") -> None:
     """Resume a stored session: hydrate the agent, then replay its turns."""
-    session_id = (action.payload or {}).get("session_id")
-    if not session_id:
-        return
-    client = _get_client()
-    try:
-        await client.initialize()
-        metadata = await client.resume_session(session_id)
-    except Exception as exc:
-        logger.warning("resume_session failed: %s", exc, exc_info=True)
-        await cl.Message(content=f"⚠️ Could not resume that session: {exc}").send()
-        return
-    if metadata is None:
-        await cl.Message(content="⚠️ That session could not be found.").send()
-        return
+    async with _session_lock():
+        _require_open_session()
+        active = cl.user_session.get(_TASK_KEY)
+        if active is not None and not active.done():
+            await cl.Message(
+                content="Stop the running turn before resuming another conversation."
+            ).send()
+            return
+        session_id = (action.payload or {}).get("session_id")
+        if not session_id:
+            return
+        client = _get_client()
+        try:
+            await client.initialize()
+            metadata = await client.resume_session(session_id)
+        except Exception as exc:
+            logger.warning("resume_session failed: %s", exc, exc_info=True)
+            await cl.Message(content=f"⚠️ Could not resume that session: {exc}").send()
+            return
+        if metadata is None:
+            await cl.Message(content="⚠️ That session could not be found.").send()
+            return
 
-    title = metadata.get("title", "session")
-    await cl.Message(content=f"**Resumed:** {title} — the agent recalls the prior turns.").send()
-    # Replay the restored turns into the transcript so the user sees the context.
-    try:
-        for author, content in history_messages(await client.get_messages(limit=50)):
-            await cl.Message(content=content, author=author).send()
-    except Exception:
-        logger.debug("resume replay skipped", exc_info=True)
+        title = metadata.get("title", "session")
+        await cl.Message(
+            content=f"**Resumed:** {title} — the agent recalls the prior turns."
+        ).send()
+        # Replay the restored turns into the transcript so the user sees the context.
+        try:
+            for author, content in history_messages(await client.get_messages(limit=50)):
+                await cl.Message(content=content, author=author).send()
+        except Exception:
+            logger.debug("resume replay skipped", exc_info=True)
 
 
 @cl.on_settings_update
 async def on_settings_update(settings: dict) -> None:
     """Rebuild the session's VictorClient from the ChatSettings panel selections."""
-    # Drain any in-flight turn first (PR3 guard), then release the old client.
-    task = cl.user_session.get(_TASK_KEY)
-    if task is not None and not task.done():
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            logger.debug("active turn drained on settings update", exc_info=True)
-        finally:
-            cl.user_session.set(_TASK_KEY, None)
+    async with _session_lock():
+        _require_open_session()
+        current = _current_config()
+        provider = settings.get("provider", current.provider_override.provider)
+        profile = settings.get("profile", current.agent_profile)
+        if profile == "default" and current.agent_profile is None:
+            profile = None
+        config = _session_config(
+            profile=profile,
+            provider=None if provider == _PROFILE_DEFAULT else provider,
+            model=settings.get("model", current.provider_override.model),
+            approval=settings.get("tool_approval", current.tool_approval.enabled),
+        )
+        if config == current:
+            return
+        # Construct and register approvals before disturbing the existing conversation.
+        client = _configured_client(config)
+        await _drain_active_turn()
 
-    old = cl.user_session.get(_CLIENT_KEY)
-    if old is not None:
-        try:
+        old = cl.user_session.get(_CLIENT_KEY)
+        if old is not None:
             await old.close()
-        except Exception:
-            logger.debug("old client close failed on settings update", exc_info=True)
 
-    approval = bool(settings.get("tool_approval", True))
-    client = VictorClient(
-        _session_config(
-            profile=settings.get("profile") or None,
-            provider=settings.get("provider") or None,
-            model=settings.get("model") or None,
-            approval=approval,
-        )
-    )
-    cl.user_session.set(_CLIENT_KEY, client)
-    await cl.Message(
-        content=(
-            "⚙️ Settings applied — provider: **{provider}**, profile: **{profile}**, "
-            "approval: **{approval}**.".format(
-                provider=settings.get("provider") or "default",
-                profile=settings.get("profile") or "default",
-                approval="on" if approval else "off",
+        cl.user_session.set(_CONFIG_KEY, config)
+        cl.user_session.set(_CLIENT_KEY, client)
+        await cl.Message(
+            content=(
+                "⚙️ Settings applied to a new conversation — provider override: **{provider}**, "
+                "profile: **{profile}**, approval: **{approval}**.".format(
+                    provider=config.provider_override.provider or _PROFILE_DEFAULT,
+                    profile=config.agent_profile or "default",
+                    approval="on" if config.tool_approval.enabled else "off",
+                )
             )
-        )
-    ).send()
+        ).send()
 
 
 @cl.on_message
@@ -314,17 +382,23 @@ async def on_message(message: cl.Message) -> None:
 
 
 async def _start_turn(content: str) -> None:
-    """Run one turn as a tracked, cancellable asyncio task alongside a Stop control.
+    """Run one turn owned by Chainlit's native cancellable message task.
 
-    The turn body runs in ``_run_turn`` as a task stored in the session so the Stop action can
-    cancel it; cancellation propagates ``CancelledError`` into ``client.stream()``, whose in-task
-    ``aclose()`` drains the provider iterator cleanly.
+    Chainlit's native Stop cancels this message task and its child turn. The UI closes
+    its client iterator in the owning task; downstream runtime/provider cancellation
+    is a separate lifecycle contract.
     """
-    client = _get_client()
-    task = asyncio.create_task(_run_turn(client, content))
-    cl.user_session.set(_TASK_KEY, task)
-    stop = cl.Message(content="", actions=[cl.Action(name="stop_turn", payload={}, label="⏹ Stop")])
-    await stop.send()
+    async with _session_lock():
+        _require_open_session()
+        active = cl.user_session.get(_TASK_KEY)
+        if active is not None and not active.done():
+            await cl.Message(
+                content="A turn is already running. Stop it or wait before starting another."
+            ).send()
+            return
+        client = _get_client()
+        task = asyncio.create_task(_run_turn(client, content))
+        cl.user_session.set(_TASK_KEY, task)
     try:
         await task
     except asyncio.CancelledError:
@@ -332,19 +406,8 @@ async def _start_turn(content: str) -> None:
     except Exception:  # _run_turn renders its own recovery card; this is a backstop
         logger.debug("turn task raised after handling", exc_info=True)
     finally:
-        cl.user_session.set(_TASK_KEY, None)
-        try:
-            await stop.remove()
-        except Exception:
-            logger.debug("stop control removal failed", exc_info=True)
-
-
-@cl.action_callback("stop_turn")
-async def _on_stop_turn(action: "cl.Action") -> None:
-    """Cancel the in-flight turn task for this session."""
-    task = cl.user_session.get(_TASK_KEY)
-    if task is not None and not task.done():
-        task.cancel()
+        if cl.user_session.get(_TASK_KEY) is task:
+            cl.user_session.set(_TASK_KEY, None)
 
 
 @cl.action_callback("retry_turn")
@@ -419,65 +482,66 @@ async def _run_turn(client: VictorClient, content: str) -> None:
         await current_msg.stream_token(text)
 
     try:
-        async for event in client.stream(content):
-            action = map_event(event)
+        async with aclosing(client.stream(content)) as stream:
+            async for event in stream:
+                action = map_event(event)
 
-            if action.kind is RenderKind.TOKEN:
-                await _clear_thinking()
-                await _emit_text(action.text)
+                if action.kind is RenderKind.TOKEN:
+                    await _clear_thinking()
+                    await _emit_text(action.text)
 
-            elif action.kind is RenderKind.THINKING:
-                await _clear_thinking()
-                if action.text:
-                    reasoning_text += action.text
-                    if reasoning_step is None:
-                        reasoning_step = cl.Step(name="reasoning", type="llm")
-                        await reasoning_step.__aenter__()
-                    reasoning_step.output = reasoning_text
-                    await reasoning_step.update()
+                elif action.kind is RenderKind.THINKING:
+                    await _clear_thinking()
+                    if action.text:
+                        reasoning_text += action.text
+                        if reasoning_step is None:
+                            reasoning_step = cl.Step(name="reasoning", type="llm")
+                            await reasoning_step.__aenter__()
+                        reasoning_step.output = reasoning_text
+                        await reasoning_step.update()
 
-            elif action.kind is RenderKind.TOOL_START:
-                await _clear_thinking()
-                phase = "tools"
-                await _open_tool_group()
-                key = action.call_id or action.tool_name or "tool"
-                pending[key] = {
-                    "tool_name": action.tool_name or "tool",
-                    "arguments": action.metadata.get("arguments", {}),
-                }
+                elif action.kind is RenderKind.TOOL_START:
+                    await _clear_thinking()
+                    phase = "tools"
+                    await _open_tool_group()
+                    key = action.call_id or action.tool_name or "tool"
+                    pending[key] = {
+                        "tool_name": action.tool_name or "tool",
+                        "arguments": action.metadata.get("arguments", {}),
+                    }
 
-            elif action.kind is RenderKind.TOOL_END:
-                await _clear_thinking()
-                phase = "tools"
-                await _open_tool_group()
-                key = action.call_id or action.tool_name or "tool"
-                info = pending.pop(key, {})
-                tool_name = info.get("tool_name") or action.tool_name or "tool"
-                args = info.get("arguments", {})
-                # Append duration to the step label so the user sees how long it took
-                # (e.g. "read(path=…) · 12ms").
-                label = tool_call_summary(tool_name, args)
-                if action.elapsed:
-                    label = f"{label} · {format_duration(action.elapsed)}"
-                # Child step nests under the iteration's "🔧 tools" group (parallel calls grouped).
-                async with cl.Step(name=label, type="tool") as step:
-                    step.input = args
-                    output = tool_result_markdown(
-                        tool_name, args, action.text, success=action.success
-                    )
-                    if action.was_pruned:
-                        output = f"{output}\n\n_(output truncated for length)_"
-                    # Keep follow-up hints grouped with the tool that produced them.
-                    follow_ups = _format_follow_ups(action.follow_up_suggestions or [])
-                    if follow_ups:
-                        output = f"{output}{follow_ups}"
-                    step.output = output
-                    if not action.success:
-                        step.is_error = True
+                elif action.kind is RenderKind.TOOL_END:
+                    await _clear_thinking()
+                    phase = "tools"
+                    await _open_tool_group()
+                    key = action.call_id or action.tool_name or "tool"
+                    info = pending.pop(key, {})
+                    tool_name = info.get("tool_name") or action.tool_name or "tool"
+                    args = info.get("arguments", {})
+                    # Append duration to the step label so the user sees how long it took
+                    # (e.g. "read(path=…) · 12ms").
+                    label = tool_call_summary(tool_name, args)
+                    if action.elapsed:
+                        label = f"{label} · {format_duration(action.elapsed)}"
+                    # Child step nests under the iteration's "🔧 tools" group (parallel calls grouped).
+                    async with cl.Step(name=label, type="tool") as step:
+                        step.input = args
+                        output = tool_result_markdown(
+                            tool_name, args, action.text, success=action.success
+                        )
+                        if action.was_pruned:
+                            output = f"{output}\n\n_(output truncated for length)_"
+                        # Keep follow-up hints grouped with the tool that produced them.
+                        follow_ups = _format_follow_ups(action.follow_up_suggestions or [])
+                        if follow_ups:
+                            output = f"{output}{follow_ups}"
+                        step.output = output
+                        if not action.success:
+                            step.is_error = True
 
-            elif action.kind is RenderKind.ERROR:
-                await _clear_thinking()
-                await _emit_text(f"\n\n⚠️ {action.text}")
+                elif action.kind is RenderKind.ERROR:
+                    await _clear_thinking()
+                    await _emit_text(f"\n\n⚠️ {action.text}")
 
     except Exception as exc:  # surface failures in-chat with a recovery path
         logger.exception("Victor chat turn failed")
@@ -520,21 +584,16 @@ async def _run_turn(client: VictorClient, content: str) -> None:
 @cl.on_chat_end
 async def on_chat_end() -> None:
     """Drain any in-flight turn, then release the session's VictorClient resources."""
-    # Cancel + await the active turn first so close() never races a live stream (it pairs with
-    # VictorClient.close()'s own _active_streams drain guard).
-    task = cl.user_session.get(_TASK_KEY)
-    if task is not None and not task.done():
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            logger.debug("active turn drained on chat end", exc_info=True)
-        finally:
-            cl.user_session.set(_TASK_KEY, None)
+    # Reject already-queued work as soon as disconnect starts, before lock admission.
+    cl.user_session.set(_CLOSED_KEY, True)
+    async with _session_lock():
+        await _drain_active_turn()
 
-    client: VictorClient | None = cl.user_session.get(_CLIENT_KEY)
-    if client is not None:
-        try:
-            await client.close()
-        except Exception:  # best-effort cleanup
-            logger.debug("VictorClient close failed", exc_info=True)
+        client: VictorClient | None = cl.user_session.get(_CLIENT_KEY)
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:  # best-effort cleanup
+                logger.debug("VictorClient close failed", exc_info=True)
+            finally:
+                cl.user_session.set(_CLIENT_KEY, None)
