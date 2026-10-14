@@ -276,15 +276,41 @@ edit. A mock test is not live provider or C5 evidence.
   one model call, zero tools; runtime reported success. The first browser session
   expired before screenshot archival; its observed result is retained in the live
   log. A fresh final-source browser smoke failed during marker setup with gateway
-  transport error `f0e003a4`; a readiness probe could not resolve `aiserver1`.
+  transport error `f0e003a4`; readiness probes failed (sandbox DNS timeout;
+  escalated connection timeout), without an established network root cause.
   Preserve both outcomes: `var/codegraph-victor-20261012/answer-only-live.log` and
-  `answer-only-browser-final.{json,png}`. Final-source live acceptance therefore
-  remains pending gateway connectivity; offline checks and review passed.
+  `answer-only-browser-final.{json,png}`. The user then selected direct Victor +
+  in-process Sandhi with local Codex OAuth for acceptance, excluding the external
+  gateway hop. Local `codex-local` account/profile explicitly overrides inherited
+  gateway configuration with `gateway: null` (no gateway URL environment override)
+  and uses `gpt-6-sol`, OAuth source `codex`, endpoint
+  `https://chatgpt.com/backend-api/codex`. No token is copied into the profile.
+  Runtime assertions verify `SandhiOpenAIProvider`, OAuth, Codex token source and
+  absent gateway override before any model call. Buffered two-turn acceptance
+  passed ACK then JADE, both successful with zero tools; marker latency 1.855s.
+  Evidence: `answer-only-direct-smoke.{py,json,log}`; Sandhi binding 0.13.0.
+  Final-source headed Chainlit acceptance also passed on `codex-local`: ACK then
+  JADE exactly once, one model call per turn, marker latency 1.9s, zero tools and
+  recorded runtime success. Archived `answer-only-direct-browser.{json,png}` and
+  `answer-only-direct-live.log`. The explicit account and transport assertions
+  qualify the direct route; the failed external route is not relabeled as passing.
   This fresh smoke does not repeat the failed audit or establish post-failed-plan
   lifecycle/C5 acceptance. Broader semantic negation and shared task-classifier
   consolidation remain future work, requiring a representative labeled corpus
   before changing default routing. Next: complete review/CI, then address shared
   progress/cancellation ownership before claiming consolidated API lifecycle parity.
+
+- **UX-08 explicit account and transport selection — DISCOVERED, PLANNED** — direct
+  acceptance preflight found that the existing `openai-cheap` profile referenced
+  a missing account and selected the provider default instead. A newly named OAuth
+  account still inherited the provider-wide gateway block until explicitly cleared.
+  Preflight assertions stopped both routes before model dispatch. Fail closed for
+  missing explicitly named accounts; show effective authentication source, transport,
+  endpoint and configuration provenance without secrets in CLI/UI. Define explicit
+  direct-versus-inherited routing with deployment-policy checks, including gateway
+  environment precedence; selecting OAuth must not implicitly bypass a required
+  gateway. Preserve existing gateway profiles. Extend configuration/account/creation
+  test owners and qualify CLI/UI parity before changing routing defaults.
 
 - **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
   branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.
