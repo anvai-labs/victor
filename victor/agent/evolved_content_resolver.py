@@ -15,6 +15,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from victor.config.prompt_optimization_settings import frozen_prompts_enabled
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,9 +100,7 @@ class EvolvedContentResolver:
         # prompts — an auto-evolved candidate landing between arms silently
         # confounds the comparison (observed: gen-3 -> gen-4 between the
         # sqlite and proxima arms of the backend A/B).
-        import os
-
-        if os.environ.get("VICTOR_FROZEN_PROMPTS"):
+        if frozen_prompts_enabled():
             return ResolvedContent(
                 text=fallback_text,
                 source="static",

@@ -429,7 +429,10 @@ edit. A mock test is not live provider or C5 evidence.
   orchestrator too. TDD reproduced the missing shared-prefix context; 545 main and
   198 related tests passed, plus 79 final focused checks, MyPy on both touched
   modules and collection of 35,075 tests. Independent review passed 81 checks and
-  verified no-context parity / refresh across all three cache tiers. CI/merge pending.
+  verified no-context parity / refresh across all three cache tiers. Merged in
+  #1355 (`941cedae77a37ab33c948d98ba92a319bed1ed84`) after 39 successful CI checks,
+  including Py3.12 verticals; two non-applicable skips and one neutral historical
+  Trivy comparison remained. Local develop was fast-forwarded and the worktree removed.
 
   | Small experiment | Result | Decision |
   | --- | --- | --- |
@@ -450,7 +453,8 @@ edit. A mock test is not live provider or C5 evidence.
   requires exact rendered-prefix compatibility, including tools/settings; public
   API documentation does not establish subscription billing or Codex backend guarantees.
 
-  **Next, in order:** (1) qualify structured cross-placement guidance deduplication;
+  **Next, in order:** (1) qualify reproducible prompt controls and structured
+  cross-placement guidance deduplication;
   (2) fix read-only/negation classification and the shell-to-database guidance
   conflation before selecting narrower session tool bundles; (3) compare pinned,
   versioned prompt variants with exploration using repeated paired task suites;
@@ -459,6 +463,74 @@ edit. A mock test is not live provider or C5 evidence.
   tasks. Keep user authority, grounding, current permissions and evidence outside
   opportunistic trimming. Track deletion invalidation and persistent override
   lifetime separately; this checkpoint does not qualify those existing paths.
+
+  **Prompt controls and harness measurements (2026-10-14, source qualification):**
+  owner: Victor co-design session; branch `fix/prompt-experiment-controls`, baseline
+  `941cedae77a37ab33c948d98ba92a319bed1ed84`. `VICTOR_FROZEN_PROMPTS` previously
+  froze the system resolver but still sampled learned turn sections, few-shots
+  and experiment prompt hints. The shared flag now gates both learned injector
+  entrypoints before their caches and suppresses experiment-memory prompt hints.
+  Registry-backed baseline tool guidance, current task context and factual failure
+  hints remain. Explicit candidate binding in frozen mode raises rather than
+  silently benchmarking a baseline as a candidate. Default behavior is unchanged.
+  Set the flag **before session creation**: it does not rebuild an already frozen
+  pipeline or freeze routing/planning policy, workspace state or backend caches.
+
+  Extended the existing benchmark-hygiene owner instead of adding a duplicate
+  suite. TDD: 3 failed / 4 passed before repair; 62 focused checks and 347 affected
+  checks passed (two existing skips). MyPy passed all five production files;
+  collection found 35,078 tests. Independent scoped review passed 62 checks.
+  Source review, CI and merge evidence must remain distinct from release/C5 acceptance.
+
+  Four direct `codex-local` conversations used two bounded source-reading tasks,
+  each repeated once: normal accounts, frozen accounts, frozen prompt-document,
+  normal prompt-document. All 16 model calls succeeded and all eight answers were
+  checked against the cited source. Final neutral usage reconciled with Victor
+  for every call; reasoning is a subset of output. The initial sandbox-restricted
+  attempt failed and is retained separately, excluded from the comparison.
+
+  | Arm / task | Inclusive input | Cache read | Fresh input | Output (reasoning subset) | Session wall / CPU seconds |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | Normal / accounts | 48,275 | 14,592 | 33,683 | 615 (199) | 26.249 / 10.164 |
+  | Frozen / accounts | 48,773 | 3,840 | 44,933 | 539 (168) | 22.900 / 9.021 |
+  | Frozen / prompt document | 49,060 | 14,720 | 34,340 | 521 (164) | 25.159 / 9.271 |
+  | Normal / prompt document | 48,554 | 7,680 | 40,874 | 598 (237) | 28.177 / 9.712 |
+
+  Each row covers two turns / four model calls. Frozen first requests used 132–138
+  **more** provider input tokens than the matching normal arm, and the 573-proxy-token
+  system/turn duplicate remained in every request. Decision: use freezing as an
+  opt-in experiment control, not a production efficiency default. Reversed task
+  order does not control backend routing/cache state, learned execution policy or
+  stochastic outputs; concurrent local validation also limits latency comparisons.
+  Peak process RSS during the task runs was 930–1,021 MB (decimal).
+
+  Separate no-model initialization measurements distinguished profiling overhead
+  from real latency: unprofiled cold initialization was 1.842 seconds wall / 1.816
+  CPU, followed by 0.866/0.856 and 0.925/0.912 for new clients in the same process.
+  Peak process RSS grew from 273 to 327 MB; this high-water mark alone does not prove
+  a leak. CPU profiling located four persisted-feedback loads per initialization,
+  repeated YAML parsing and cold plugin discovery. Profiled elapsed times are not
+  performance evidence; review service lifetimes and scope before consolidating
+  work. Keep orchestration in Python and reduce repeated work before considering
+  native acceleration.
+
+  A separate, explicitly synthetic transport-interception diagnostic sent **zero**
+  provider requests. Unprofiled initialization took 1.737 seconds, followed by
+  6.565 seconds wall / 6.376 CPU before its first request; peak RSS rose from
+  271 to 934 MB. A diagnostic-only profiler located conversation-store/LanceDB
+  initialization, Transformers/Torch imports and embedding work. Its synthetic
+  terminal text triggered three bounded local dispatches, all intercepted; those
+  are not model successes or answer-quality evidence. Earlier diagnostic failures
+  are retained. These observations justify profiling capability activation and
+  useful retrieval before changing dependencies, not blindly disabling embeddings.
+
+  Evidence, observers and summaries are private ignored `prompt-controls-*` artifacts
+  under the existing evidence directory. Next: qualify unnecessary first-turn
+  dependency loading and exact authority-aware guidance deduplication with
+  provenance as separate increments, then representative longer-task outcome
+  gates. Preserve retrieval quality and session/permission isolation when making
+  initialization lazy or reusing feedback snapshots. Do not trim repository
+  authority, hide unknown cache counts or claim that freezing implies cache hits.
 
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced

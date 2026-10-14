@@ -34,6 +34,8 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from victor.config.prompt_optimization_settings import frozen_prompts_enabled
+
 logger = logging.getLogger(__name__)
 
 # Sentinel hash for binding a section's SEED (baseline) prompt in a candidate
@@ -241,6 +243,8 @@ class OptimizationInjector:
         Bound candidates bypass Thompson sampling and active-candidate selection.
         This keeps the runtime prompt content aligned with benchmark metadata.
         """
+        if frozen_prompts_enabled():
+            raise ValueError("Cannot bind a prompt candidate in frozen baseline mode")
         normalized_section = str(section_name or "").strip()
         normalized_hash = str(prompt_candidate_hash or "").strip()
         normalized_provider = str(provider or "").strip()
@@ -334,6 +338,8 @@ class OptimizationInjector:
         optional system-prompt sections that should evolve only where they
         are actually rendered.
         """
+        if frozen_prompts_enabled():
+            return None
         normalized_section = str(section_name or "").strip()
         if not normalized_section:
             return None
@@ -387,6 +393,8 @@ class OptimizationInjector:
         Returns:
             Few-shot payload dictionary or None.
         """
+        if frozen_prompts_enabled():
+            return None
         normalized_query = (query or "").strip()
         cache_key = self._few_shot_cache_key(normalized_query, provider, model, task_type)
         if cache_key in self._few_shot_payload_cache:

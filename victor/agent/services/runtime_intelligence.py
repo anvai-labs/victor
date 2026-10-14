@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.optimization_injector import OptimizationInjector
 from victor.agent.task_analyzer import TaskAnalyzer, get_task_analyzer
+from victor.config.prompt_optimization_settings import frozen_prompts_enabled
 from victor.evaluation.experiment_memory import ExperimentMemoryStore
 from victor.evaluation.topology_feedback import (
     aggregate_topology_feedback,
@@ -2777,16 +2778,20 @@ class RuntimeIntelligenceService:
                     getattr(turn_context, "last_failure_error", None),
                 )
 
-        experiment_memory_hints = self.get_experiment_routing_context(
-            query=user_message,
-            scope_context={
-                "provider": provider_name,
-                "model": model_name,
-                "task_type": task_type,
-                "prompt_candidate_hash": getattr(turn_context, "prompt_candidate_hash", None),
-                "section_name": getattr(turn_context, "prompt_section_name", None)
-                or getattr(turn_context, "section_name", None),
-            },
+        experiment_memory_hints = (
+            {}
+            if frozen_prompts_enabled()
+            else self.get_experiment_routing_context(
+                query=user_message,
+                scope_context={
+                    "provider": provider_name,
+                    "model": model_name,
+                    "task_type": task_type,
+                    "prompt_candidate_hash": getattr(turn_context, "prompt_candidate_hash", None),
+                    "section_name": getattr(turn_context, "prompt_section_name", None)
+                    or getattr(turn_context, "section_name", None),
+                },
+            )
         )
         experiment_guidance = self._build_experiment_prompt_guidance(experiment_memory_hints)
 
