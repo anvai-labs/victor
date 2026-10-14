@@ -368,26 +368,3 @@ class TestFallbackParsingMixinIntegration:
         assert result.tool_calls == []
         assert result.warnings == []
         assert "Source: graph(mode=overview)" in result.remaining_content
-
-    def test_openai_adapter_fallback(self):
-        """Test that OpenAI adapter falls back to content parsing."""
-        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
-
-        adapter = OpenAIToolCallingAdapter(model="gpt-4")
-
-        # Set valid tool names for extraction
-        adapter._valid_tool_names = {"read", "write", "shell"}
-
-        # Mock valid tool name check
-        adapter.is_valid_tool_name = lambda name: name in {"read", "write", "shell"}
-
-        # Parse with no raw_tool_calls (simulates model outputting text)
-        result = adapter.parse_tool_calls(
-            content="I'll read the file: read(path='test.py')",
-            raw_tool_calls=None,
-        )
-
-        assert result.tool_calls
-        assert result.tool_calls[0].name == "read"
-        assert result.tool_calls[0].arguments == {"path": "test.py"}
-        assert "python_call" in result.parse_method or "json" in result.parse_method

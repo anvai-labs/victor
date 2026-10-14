@@ -72,6 +72,8 @@ class TestOpenAIAdapter:
         caps = adapter.get_capabilities()
         assert caps.native_tool_calls is True
         assert caps.tool_call_format == ToolCallFormat.OPENAI
+        assert caps.json_fallback_parsing is False
+        assert caps.xml_fallback_parsing is False
 
     def test_convert_tools(self):
         """Test converting tools to OpenAI format."""
