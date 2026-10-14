@@ -58,6 +58,77 @@ class TestRequestCost:
 class TestSessionCostTracker:
     """Tests for SessionCostTracker."""
 
+    @pytest.mark.parametrize("outcome", ["success", "error", "cancelled", "closed"])
+    def test_invocation_without_usage_counts_without_inventing_tokens(self, outcome):
+        from unittest.mock import Mock
+
+        tracker = SessionCostTracker()
+        tracker._sandhi = Mock()
+        request = tracker.begin_request(provider="ollama", model="test")
+        assert tracker.get_summary()["request_count"] == 1
+        assert request.outcome == "pending"
+        tracker.settle_request(request, outcome=outcome, usage=None)
+        assert request.outcome == outcome
+        assert request.usage_status == "unknown"
+        assert request.to_dict()["tokens"] is None
+        assert tracker.get_summary()["usage_coverage"]["unknown"] == 1
+        tracker._sandhi.record.assert_not_called()
+
+    def test_invocation_settles_once_and_rejects_foreign_record(self):
+        tracker = SessionCostTracker()
+        request = tracker.begin_request()
+        usage = {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}
+        other = SessionCostTracker()
+        with pytest.raises(ValueError, match="pending"):
+            other.settle_request(request, outcome="success", usage=usage)
+        tracker.settle_request(request, outcome="success", usage=usage)
+        with pytest.raises(ValueError, match="pending"):
+            tracker.settle_request(request, outcome="success", usage=usage)
+        assert len(tracker.requests) == 1
+        assert tracker.total_tokens == 14
+
+    def test_reset_rejects_pending_invocations_without_mutating_session(self):
+        tracker = SessionCostTracker()
+        session_id = tracker.session_id
+        request = tracker.begin_request()
+        with pytest.raises(ValueError, match="pending"):
+            tracker.reset()
+        assert tracker.session_id == session_id
+        assert tracker.requests == [request]
+        tracker.settle_request(request, outcome="success", usage=None)
+        tracker.reset()
+        assert not tracker.requests
+
+    def test_partial_usage_is_visible_without_claiming_complete_metering(self):
+        from unittest.mock import Mock
+
+        tracker = SessionCostTracker()
+        tracker._sandhi = Mock()
+        request = tracker.begin_request()
+        tracker.settle_request(
+            request, outcome="cancelled", usage={"prompt_tokens": 10}, usage_complete=False
+        )
+        assert request.usage_status == "partial"
+        assert request.to_dict()["tokens"]["prompt"] == 10
+        assert tracker.total_prompt_tokens == 10
+        tracker._sandhi.record.assert_not_called()
+
+    def test_invocation_captures_attribution_before_context_changes(self):
+        from unittest.mock import Mock
+        from victor.core.context import bind_attribution
+
+        tracker = SessionCostTracker(subject_id="default")
+        tracker._sandhi = Mock()
+        with bind_attribution(subject_id="caller", group_id="team"):
+            request = tracker.begin_request(provider="ollama", model="test")
+        with bind_attribution(subject_id="different"):
+            tracker.settle_request(
+                request, outcome="success", usage={"prompt_tokens": 1, "completion_tokens": 2}
+            )
+        call = tracker._sandhi.record.call_args.kwargs
+        assert (call["subject_id"], call["group_id"]) == ("caller", "team")
+        assert (call["provider"], call["model"]) == ("ollama", "test")
+
     def test_initialization(self):
         """Test tracker initialization."""
         tracker = SessionCostTracker(provider="anthropic", model="claude-3-5-sonnet-20241022")
@@ -181,27 +252,24 @@ class TestSessionCostTracker:
         finally:
             path.unlink(missing_ok=True)
 
-    def test_export_csv(self):
-        """Test CSV export."""
-        tracker = SessionCostTracker(provider="anthropic", model="claude-3-5-sonnet-20241022")
-        tracker.record_request(prompt_tokens=1000, completion_tokens=500)
-        tracker.record_request(prompt_tokens=800, completion_tokens=400)
+    def test_export_csv(self, tmp_path):
+        """Exports distinguish missing, partial and explicitly zero usage."""
+        import csv
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            path = Path(f.name)
-
-        try:
-            tracker.export_csv(path)
-
-            with open(path) as f:
-                lines = f.readlines()
-
-            # Header + 2 data rows
-            assert len(lines) == 3
-            assert "prompt_tokens" in lines[0]
-            assert "total_cost" in lines[0]
-        finally:
-            path.unlink(missing_ok=True)
+        tracker = SessionCostTracker()
+        tracker.record_request(prompt_tokens=0, completion_tokens=0)
+        for usage in (None, {"prompt_tokens": 8}):
+            request = tracker.begin_request()
+            tracker.settle_request(request, outcome="cancelled", usage=usage, usage_complete=False)
+        path = tmp_path / "cost.csv"
+        tracker.export_csv(path)
+        with path.open() as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == 3
+        assert [row["usage_status"] for row in rows] == ["reported", "unknown", "partial"]
+        assert [row["prompt_tokens"] for row in rows] == ["0", "", "8"]
+        assert rows[1]["total_cost"] == ""
+        assert rows[1]["outcome"] == "cancelled"
 
     def test_reset(self):
         """Test session reset."""
@@ -225,9 +293,23 @@ class TestSessionCostTracker:
         assert tracker.total_prompt_tokens == 10000
         assert tracker.total_completion_tokens == 5000
 
-    def test_model_override_in_request(self):
-        """Test model override for individual request."""
+    def test_model_override_in_request(self, monkeypatch):
+        """A different model must not inherit the session model's prices."""
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
         tracker = SessionCostTracker(provider="anthropic", model="claude-3-5-sonnet-20241022")
+        lookup = Mock(
+            return_value=SimpleNamespace(
+                cost_enabled=True,
+                calculate_cost=lambda *_args: {
+                    "input_cost": 1.0,
+                    "output_cost": 2.0,
+                    "cache_cost": 3.0,
+                },
+            )
+        )
+        monkeypatch.setattr("victor.config.metrics_capabilities.get_metrics_capabilities", lookup)
 
         # Record with different model
         request = tracker.record_request(
@@ -238,4 +320,5 @@ class TestSessionCostTracker:
 
         # Request should have override model
         assert request.model == "claude-3-5-haiku-20241022"
-        # But cost calculation uses tracker's capabilities
+        lookup.assert_called_once_with("anthropic", "claude-3-5-haiku-20241022")
+        assert request.total_cost == tracker.total_cost == 6.0

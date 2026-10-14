@@ -102,7 +102,8 @@ class PromptBuilderRuntime:
             messages = [
                 Message(role="system", content=getattr(runtime, "_system_prompt", "") or "")
             ]
-            await runtime.provider.chat(
+            await runtime._metrics_coordinator.complete(
+                runtime.provider,
                 messages=messages,
                 model=getattr(runtime, "model", ""),
                 max_tokens=1,

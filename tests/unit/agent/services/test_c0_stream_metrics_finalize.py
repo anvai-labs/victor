@@ -72,7 +72,7 @@ async def test_stream_chat_finalizes_metrics_with_cumulative_usage(monkeypatch):
         pass
 
     # The wire is closed: metrics are finalized exactly once with the turn's usage.
-    metrics.accumulate_usage.assert_called_once_with(ctx.cumulative_usage)
+    metrics.accumulate_usage.assert_not_called()
     metrics.finalize.assert_called_once()
     called_usage = metrics.finalize.call_args[0][0]
     assert called_usage["prompt_tokens"] == 120
@@ -107,6 +107,6 @@ async def test_finalize_failure_does_not_break_the_stream(monkeypatch):
     # Finalize raising must not propagate out of the stream (it's best-effort).
     async for _ in rt.stream_chat("hi"):
         pass
-    metrics.accumulate_usage.assert_called_once_with(ctx.cumulative_usage)
+    metrics.accumulate_usage.assert_not_called()
     metrics.finalize.assert_called_once()
     lifecycle.clear_context.assert_called_once_with(ctx)

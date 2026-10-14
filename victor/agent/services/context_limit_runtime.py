@@ -81,7 +81,8 @@ class ContextLimitRuntime:
         completion_messages = recent_messages + [Message(role="user", content=completion_prompt)]
 
         try:
-            response = await runtime.provider.chat(
+            response = await runtime._metrics_coordinator.complete(
+                runtime.provider,
                 messages=completion_messages,
                 model=runtime.model,
                 temperature=runtime.temperature,
@@ -148,7 +149,8 @@ class ContextLimitRuntime:
         )
 
         try:
-            response = await runtime.provider.chat(
+            response = await runtime._metrics_coordinator.complete(
+                runtime.provider,
                 messages=completion_messages,
                 model=runtime.model,
                 temperature=runtime.temperature,

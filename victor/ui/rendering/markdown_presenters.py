@@ -123,6 +123,10 @@ def turn_cost_footer(report: Optional[Dict[str, Any]]) -> str:
         parts.append(f"🔢 {total:,} tok ({prompt:,}↑ {completion:,}↓)")
     if requests > 0:
         parts.append(f"🔁 {requests} call{'s' if requests != 1 else ''}")
+    coverage = (report.get("metadata") or {}).get("usage_coverage") or {}
+    incomplete = int(coverage.get("unknown", 0)) + int(coverage.get("partial", 0))
+    if incomplete:
+        parts.append(f"usage incomplete for {incomplete} call{'s' if incomplete != 1 else ''}")
     if cost > 0:
         # Sub-cent costs still matter over a session; show enough precision to be non-zero.
         parts.append(f"💵 ${cost:.4f}" if cost < 0.01 else f"💵 ${cost:.2f}")

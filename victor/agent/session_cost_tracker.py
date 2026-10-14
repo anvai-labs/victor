@@ -41,11 +41,15 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Mapping, Optional
 
 from victor.core.context import get_auth_group_id, get_auth_subject_id, get_turn_id
+from victor.providers.usage_accounting import billable_completion_tokens, usage_total_tokens
 
 logger = logging.getLogger(__name__)
+
+RequestOutcome = Literal["success", "error", "cancelled", "closed"]
+UsageStatus = Literal["unknown", "partial", "reported"]
 
 
 @dataclass
@@ -78,6 +82,12 @@ class RequestCost:
     step_id: Optional[str] = None
     # Preserve provider completion counts while exposing the output actually priced.
     billable_completion_tokens: int = 0
+    provider: str = "unknown"
+    outcome: Literal["pending", "success", "error", "cancelled", "closed"] = "success"
+    usage_status: UsageStatus = "reported"
+    transport_attempts: Optional[int] = None
+    subject_id: Optional[str] = field(default=None, repr=False)
+    group_id: Optional[str] = field(default=None, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -86,23 +96,35 @@ class RequestCost:
             "timestamp": self.timestamp,
             "timestamp_iso": datetime.fromtimestamp(self.timestamp).isoformat(),
             "model": self.model,
-            "tokens": {
-                "prompt": self.prompt_tokens,
-                "completion": self.completion_tokens,
-                "billable_completion": self.billable_completion_tokens,
-                "cache_read": self.cache_read_tokens,
-                "cache_write": self.cache_write_tokens,
-                "total": self.total_tokens,
-            },
-            "cost": {
-                "input": self.input_cost,
-                "output": self.output_cost,
-                "cache": self.cache_cost,
-                "total": self.total_cost,
-            },
+            "provider": self.provider,
+            "outcome": self.outcome,
+            "usage_status": self.usage_status,
+            "tokens": (
+                {
+                    "prompt": self.prompt_tokens,
+                    "completion": self.completion_tokens,
+                    "billable_completion": self.billable_completion_tokens,
+                    "cache_read": self.cache_read_tokens,
+                    "cache_write": self.cache_write_tokens,
+                    "total": self.total_tokens,
+                }
+                if self.usage_status != "unknown"
+                else None
+            ),
+            "cost": (
+                {
+                    "input": self.input_cost,
+                    "output": self.output_cost,
+                    "cache": self.cache_cost,
+                    "total": self.total_cost,
+                }
+                if self.usage_status != "unknown"
+                else None
+            ),
             "metadata": {
                 "duration_seconds": self.duration_seconds,
                 "tool_calls": self.tool_calls,
+                "transport_attempts": self.transport_attempts,
                 **({"step_id": self.step_id} if self.step_id else {}),
             },
         }
@@ -132,6 +154,7 @@ class SessionCostTracker:
 
     # Per-request tracking
     requests: List[RequestCost] = field(default_factory=list)
+    _pending_requests: Dict[str, RequestCost] = field(default_factory=dict, init=False, repr=False)
 
     # Cumulative totals
     total_prompt_tokens: int = 0
@@ -195,88 +218,122 @@ class SessionCostTracker:
         Returns:
             RequestCost object with calculated costs
         """
-        request_model = model or self.model
-        billable_output = (
-            completion_tokens if billable_completion_tokens is None else billable_completion_tokens
-        )
-        total_request_tokens = (
-            prompt_tokens + billable_output if total_tokens is None else total_tokens
-        )
-
-        # Calculate costs using capabilities
-        input_cost = 0.0
-        output_cost = 0.0
-        cache_cost = 0.0
-
-        if self._capabilities and self._capabilities.cost_enabled:
-            costs = self._capabilities.calculate_cost(
-                prompt_tokens, billable_output, cache_read_tokens, cache_write_tokens
-            )
-            input_cost = costs["input_cost"]
-            output_cost = costs["output_cost"]
-            cache_cost = costs["cache_cost"]
-
-        total_request_cost = input_cost + output_cost + cache_cost
-
-        # Create request record
-        request_cost = RequestCost(
-            request_id=str(uuid.uuid4()),
-            timestamp=time.time(),
-            model=request_model,
-            step_id=(get_turn_id() or None),
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            billable_completion_tokens=billable_output,
-            cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
-            total_tokens=total_request_tokens,
-            input_cost=input_cost,
-            output_cost=output_cost,
-            cache_cost=cache_cost,
-            total_cost=total_request_cost,
+        usage = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cache_read_input_tokens": cache_read_tokens,
+            "cache_creation_input_tokens": cache_write_tokens,
+        }
+        if billable_completion_tokens is not None:
+            usage["billable_completion_tokens"] = billable_completion_tokens
+        if total_tokens is not None:
+            usage["total_tokens"] = total_tokens
+        request = self.begin_request(model=model)
+        self.settle_request(
+            request,
+            outcome="success",
+            usage=usage,
             duration_seconds=duration_seconds,
             tool_calls=tool_calls,
         )
+        return request
 
-        # Add to history
-        self.requests.append(request_cost)
-
-        # Update cumulative totals
-        self.total_prompt_tokens += prompt_tokens
-        self.total_completion_tokens += completion_tokens
-        self.total_cache_read_tokens += cache_read_tokens
-        self.total_cache_write_tokens += cache_write_tokens
-        self.total_tokens += total_request_tokens
-        self.total_input_cost += input_cost
-        self.total_output_cost += output_cost
-        self.total_cache_cost += cache_cost
-        self.total_cost += total_request_cost
-
-        logger.debug(
-            f"Recorded request: {prompt_tokens} in, {completion_tokens} out, "
-            f"${total_request_cost:.6f} (session total: ${self.total_cost:.4f})"
+    def begin_request(
+        self, *, provider: Optional[str] = None, model: Optional[str] = None
+    ) -> RequestCost:
+        """Count a dispatched invocation and capture its caller before any await/yield."""
+        request = RequestCost(
+            request_id=str(uuid.uuid4()),
+            timestamp=time.time(),
+            provider=provider or self.provider,
+            model=model or self.model,
+            step_id=get_turn_id() or None,
+            subject_id=get_auth_subject_id() or self.subject_id,
+            group_id=get_auth_group_id() or self.group_id,
+            outcome="pending",
+            usage_status="unknown",
         )
+        self.requests.append(request)
+        self._pending_requests[request.request_id] = request
+        return request
 
-        # FEP-0020 Phase 2 — mirror this request into the sandhi usage gateway with
-        # per-subject/team attribution. Best-effort; SandhiMeter.record never raises.
-        # Attribution precedence (FEP-0020 attribution join): an authenticated
-        # identity bound on the execution context at the API-server auth seam
-        # wins; the tracker's own subject/group (operator-level config default)
-        # remains the fallback for CLI/local use.
-        if self._sandhi is not None:
-            self._sandhi.record(
-                provider=self.provider,
-                model=request_model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=billable_output,
-                cache_read_tokens=cache_read_tokens,
-                cache_write_tokens=cache_write_tokens,
-                subject_id=get_auth_subject_id() or self.subject_id,
-                group_id=get_auth_group_id() or self.group_id,
-                session_id=self.session_id,
-            )
+    def settle_request(
+        self,
+        request: RequestCost,
+        *,
+        outcome: RequestOutcome,
+        usage: Optional[Mapping[str, Any]],
+        usage_complete: bool = True,
+        duration_seconds: float = 0.0,
+        tool_calls: int = 0,
+        transport_attempts: Optional[int] = None,
+    ) -> None:
+        """Settle an owned invocation once; absent usage is never observed zero.
 
-        return request_cost
+        Partial observations contribute to known totals, but are not mirrored to
+        the legacy meter, whose contract cannot represent incomplete usage.
+        Duration is invocation lifetime, including consumer pauses, not wire latency.
+        """
+        if self._pending_requests.get(request.request_id) is not request:
+            raise ValueError("Request is not pending on this tracker")
+        capabilities = self._capabilities
+        if (request.provider, request.model) != (self.provider, self.model):
+            from victor.config.metrics_capabilities import get_metrics_capabilities
+
+            capabilities = get_metrics_capabilities(request.provider, request.model)
+
+        if usage is not None:
+            request.prompt_tokens = usage.get("prompt_tokens", 0)
+            request.completion_tokens = usage.get("completion_tokens", 0)
+            request.billable_completion_tokens = billable_completion_tokens(usage)
+            request.cache_read_tokens = usage.get("cache_read_input_tokens", 0)
+            request.cache_write_tokens = usage.get("cache_creation_input_tokens", 0)
+            request.total_tokens = usage_total_tokens(usage)
+            request.usage_status = "reported" if usage_complete else "partial"
+            if capabilities and capabilities.cost_enabled:
+                costs = capabilities.calculate_cost(
+                    request.prompt_tokens,
+                    request.billable_completion_tokens,
+                    request.cache_read_tokens,
+                    request.cache_write_tokens,
+                )
+                request.input_cost = costs["input_cost"]
+                request.output_cost = costs["output_cost"]
+                request.cache_cost = costs["cache_cost"]
+                request.total_cost = sum(
+                    (request.input_cost, request.output_cost, request.cache_cost)
+                )
+
+        request.outcome = outcome
+        request.duration_seconds = duration_seconds
+        request.tool_calls = tool_calls
+        request.transport_attempts = transport_attempts
+        del self._pending_requests[request.request_id]
+        self.total_prompt_tokens += request.prompt_tokens
+        self.total_completion_tokens += request.completion_tokens
+        self.total_cache_read_tokens += request.cache_read_tokens
+        self.total_cache_write_tokens += request.cache_write_tokens
+        self.total_tokens += request.total_tokens
+        self.total_input_cost += request.input_cost
+        self.total_output_cost += request.output_cost
+        self.total_cache_cost += request.cache_cost
+        self.total_cost += request.total_cost
+
+        if self._sandhi is not None and request.usage_status == "reported":
+            try:
+                self._sandhi.record(
+                    provider=request.provider,
+                    model=request.model,
+                    prompt_tokens=request.prompt_tokens,
+                    completion_tokens=request.billable_completion_tokens,
+                    cache_read_tokens=request.cache_read_tokens,
+                    cache_write_tokens=request.cache_write_tokens,
+                    subject_id=request.subject_id,
+                    group_id=request.group_id,
+                    session_id=self.session_id,
+                )
+            except Exception:
+                logger.exception("Usage meter failed for settled request %s", request.request_id)
 
     def get_summary(self) -> Dict[str, Any]:
         """Get session cost summary.
@@ -295,6 +352,11 @@ class SessionCostTracker:
             "start_time_iso": datetime.fromtimestamp(self.start_time).isoformat(),
             "elapsed_seconds": elapsed,
             "request_count": request_count,
+            "usage_coverage": {
+                status: sum(request.usage_status == status for request in self.requests)
+                for status in ("unknown", "partial", "reported")
+            },
+            "pending_requests": len(self._pending_requests),
             "tokens": {
                 "prompt": self.total_prompt_tokens,
                 "completion": self.total_completion_tokens,
@@ -410,6 +472,10 @@ class SessionCostTracker:
             "total_cost",
             "duration_seconds",
             "tool_calls",
+            "provider",
+            "outcome",
+            "usage_status",
+            "transport_attempts",
         ]
 
         with open(path, "w", newline="") as f:
@@ -423,17 +489,21 @@ class SessionCostTracker:
                         req.timestamp,
                         datetime.fromtimestamp(req.timestamp).isoformat(),
                         req.model,
-                        req.prompt_tokens,
-                        req.completion_tokens,
-                        req.cache_read_tokens,
-                        req.cache_write_tokens,
-                        req.total_tokens,
-                        req.input_cost,
-                        req.output_cost,
-                        req.cache_cost,
-                        req.total_cost,
+                        req.prompt_tokens if req.usage_status != "unknown" else None,
+                        req.completion_tokens if req.usage_status != "unknown" else None,
+                        req.cache_read_tokens if req.usage_status != "unknown" else None,
+                        req.cache_write_tokens if req.usage_status != "unknown" else None,
+                        req.total_tokens if req.usage_status != "unknown" else None,
+                        req.input_cost if req.usage_status != "unknown" else None,
+                        req.output_cost if req.usage_status != "unknown" else None,
+                        req.cache_cost if req.usage_status != "unknown" else None,
+                        req.total_cost if req.usage_status != "unknown" else None,
                         req.duration_seconds,
                         req.tool_calls,
+                        req.provider,
+                        req.outcome,
+                        req.usage_status,
+                        req.transport_attempts,
                     ]
                 )
 
@@ -441,6 +511,8 @@ class SessionCostTracker:
 
     def reset(self) -> None:
         """Reset session tracking (start fresh)."""
+        if self._pending_requests:
+            raise ValueError("Cannot reset a session with pending invocations")
         self.requests.clear()
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0

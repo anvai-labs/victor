@@ -4808,19 +4808,21 @@ class TestTaskUsageAccumulatorIdentity:
             is orchestrator._cumulative_token_usage
         )
 
-    def test_buffered_accumulation_is_visible_to_the_task_report_reader(self, orchestrator):
-        """A fold through the real shared dict must move the value the task
-        report snapshot reads — no per-path copy in between."""
+    async def test_buffered_accumulation_is_visible_to_the_task_report_reader(self, orchestrator):
+        """The real invocation seam must update the same session dictionary."""
         from victor.providers.base import CompletionResponse
-        from victor.agent.services.turn_execution_runtime import TurnExecutor
 
-        executor = TurnExecutor.__new__(TurnExecutor)
-        executor._chat_context = orchestrator.protocol_adapter
-        executor._accumulate_token_usage(
-            CompletionResponse(
+        orchestrator.provider.chat = AsyncMock(
+            return_value=CompletionResponse(
                 content="",
                 usage={"prompt_tokens": 26, "completion_tokens": 0, "total_tokens": 26},
             )
+        )
+        await orchestrator.protocol_adapter.execute_turn(
+            messages=[],
+            model=orchestrator.model,
+            temperature=0.0,
+            max_tokens=10,
         )
         assert orchestrator._cumulative_token_usage.get("total_tokens") >= 26
         snapshot = orchestrator._metrics_coordinator._snapshot_task_usage()

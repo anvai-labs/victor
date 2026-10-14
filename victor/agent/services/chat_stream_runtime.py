@@ -441,32 +441,26 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
             ctx = self.services.stream_lifecycle.current_context()
 
             if ctx is None:
-                # A missing context means this turn's usage can never reach the
-                # session accumulator — the exact class of silent task-report
-                # undercount the promotion audit flagged. Make it visible.
+                # Invocation accounting has already settled independently. The
+                # missing context affects aggregate presentation diagnostics only.
                 logger.warning(
-                    "[ServiceStreamingRuntime] usage fold skipped: no stream "
-                    "lifecycle context; per-turn tokens will be missing from "
+                    "[ServiceStreamingRuntime] stream summary unavailable: no stream "
+                    "lifecycle context; aggregate stream metrics will be missing from "
                     "task reports"
                 )
             elif not hasattr(ctx, "cumulative_usage"):
                 logger.warning(
-                    "[ServiceStreamingRuntime] usage fold skipped: stream "
-                    "context %s lacks cumulative_usage; per-turn tokens will "
+                    "[ServiceStreamingRuntime] stream summary unavailable: stream "
+                    "context %s lacks cumulative_usage; aggregate stream metrics will "
                     "be missing from task reports",
                     type(ctx),
                 )
 
             if ctx is not None:
                 if hasattr(ctx, "cumulative_usage"):
-                    self.services.metrics.accumulate_usage(ctx.cumulative_usage)
 
-                    # Close the cost-measurement wire (C0): the service streaming runtime
-                    # never finalized stream metrics, so per-turn tokens/cost stayed 0 and the
-                    # canonical cost record (SessionCostTracker + usage.jsonl "stream_completed")
-                    # was never emitted — the *dominant* cost term went unmeasured. Finalize
-                    # once here (this finally runs once per turn; the continuation runtime owns
-                    # its own finalize on the legacy path), reusing the existing pipeline.
+                    # Finalize presentation metrics once. Per-call usage and
+                    # costs were recorded at the invocation boundary already.
                     try:
                         # Keep Sandhi diagnostics on the same typed capability as
                         # initialization and first-token timing.

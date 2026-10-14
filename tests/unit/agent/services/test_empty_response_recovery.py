@@ -9,6 +9,10 @@ on every later turn until Moonshot rejected the payload with a non-retryable
 """
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.session_cost_tracker import SessionCostTracker
+from victor.providers.base import StreamChunk
 
 import pytest
 
@@ -21,6 +25,7 @@ class _Helper(ChatStreamHelperMixin):
     def __init__(self, orchestrator):
         self._orchestrator = orchestrator
         self.services = SimpleNamespace(
+            metrics=AgentMetricsService(MagicMock(), SessionCostTracker(), {}),
             delivery=ChatDelivery(
                 chunks=getattr(orchestrator, "_chunk_generator", None),
                 sanitizer=getattr(orchestrator, "sanitizer", None),
@@ -41,7 +46,7 @@ def _recovery_orch(chunks, added):
         model="kimi-k3",
         max_tokens=4096,
         get_assembled_messages=lambda **kwargs: [{"role": "user", "content": "q"}],
-        provider=SimpleNamespace(stream=_stream),
+        provider=SimpleNamespace(name="unknown", stream=_stream),
         sanitizer=SimpleNamespace(sanitize=lambda c: c),
         _chunk_generator=SimpleNamespace(
             generate_content_chunk=lambda text, is_final=False: SimpleNamespace(
@@ -54,6 +59,7 @@ def _recovery_orch(chunks, added):
 def _stream_ctx():
     return SimpleNamespace(
         provider_kwargs={},
+        cumulative_usage={},
         user_message="q",
         goals=None,
         planned_tools=None,
@@ -65,7 +71,7 @@ async def test_recovered_tool_calls_record_assistant_message():
     """The recovered tool calls must land in history as an assistant message."""
     tool_calls = [{"id": "call_1", "function": {"name": "shell", "arguments": "{}"}}]
     added = []
-    orch = _recovery_orch([SimpleNamespace(content="", tool_calls=tool_calls)], added)
+    orch = _recovery_orch([StreamChunk(content="", tool_calls=tool_calls)], added)
     helper = _Helper(orch)
 
     success, recovered, final_chunk = await helper._handle_empty_response_recovery(
@@ -86,7 +92,7 @@ async def test_recovered_tool_calls_record_assistant_message():
 async def test_recovered_content_still_records_assistant_message():
     """The pre-existing content path keeps recording the assistant message."""
     added = []
-    orch = _recovery_orch([SimpleNamespace(content="recovered answer", tool_calls=None)], added)
+    orch = _recovery_orch([StreamChunk(content="recovered answer")], added)
     helper = _Helper(orch)
 
     success, recovered, final_chunk = await helper._handle_empty_response_recovery(
@@ -145,7 +151,7 @@ def _capture_orch(chunks, added, stream_kwargs):
             yield chunk
 
     orch = _recovery_orch(chunks, added)
-    orch.provider = SimpleNamespace(stream=_stream)
+    orch.provider = SimpleNamespace(name="unknown", stream=_stream)
     return orch
 
 
@@ -158,9 +164,7 @@ async def test_reasoning_exhaustion_raises_recovery_max_tokens():
     """
     added = []
     stream_kwargs = []
-    orch = _capture_orch(
-        [SimpleNamespace(content="recovered", tool_calls=None)], added, stream_kwargs
-    )
+    orch = _capture_orch([StreamChunk(content="recovered")], added, stream_kwargs)
     ctx = _stream_ctx()
     ctx.empty_stream_diagnostics = {"reasoning_chars": 8321, "stop_reason": "length"}
     helper = _Helper(orch)
@@ -177,9 +181,7 @@ async def test_reasoning_exhaustion_max_tokens_capped():
     """The recovery budget bump is capped at 32768."""
     added = []
     stream_kwargs = []
-    orch = _capture_orch(
-        [SimpleNamespace(content="recovered", tool_calls=None)], added, stream_kwargs
-    )
+    orch = _capture_orch([StreamChunk(content="recovered")], added, stream_kwargs)
     orch.max_tokens = 16384
     ctx = _stream_ctx()
     ctx.empty_stream_diagnostics = {"reasoning_chars": 100, "stop_reason": "length"}
@@ -195,9 +197,7 @@ async def test_no_diagnostics_keeps_base_max_tokens():
     """Without reasoning evidence the recovery keeps the configured budget."""
     added = []
     stream_kwargs = []
-    orch = _capture_orch(
-        [SimpleNamespace(content="recovered", tool_calls=None)], added, stream_kwargs
-    )
+    orch = _capture_orch([StreamChunk(content="recovered")], added, stream_kwargs)
     helper = _Helper(orch)
 
     await helper._handle_empty_response_recovery(_stream_ctx(), tools=[])

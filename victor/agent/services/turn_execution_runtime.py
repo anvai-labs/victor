@@ -728,7 +728,7 @@ class TurnExecutor:
             response = await self._execute_model_turn(tools=tools, **provider_kwargs)
 
             # Track tokens
-            self._accumulate_token_usage(response)
+            self._record_conversation_usage(response)
             response = await self.govern_response(response)
 
             # Add assistant response/tool-call envelope to conversation history.
@@ -1723,20 +1723,15 @@ class TurnExecutor:
         except (TypeError, ValueError):
             return None
 
-    def _accumulate_token_usage(self, response: CompletionResponse) -> None:
-        """Accumulate token usage for evaluation tracking.
+    def _record_conversation_usage(self, response: CompletionResponse) -> None:
+        """Calibrate and persist conversation usage after a metered model call.
 
-        Token usage is accumulated through chat_context._cumulative_token_usage.
+        Invocation dispatch owns session accounting; do not fold it again here.
 
         Args:
             response: Response from model
         """
         if response.usage:
-            cum = self._chat_context._cumulative_token_usage
-            cum["prompt_tokens"] += response.usage.get("prompt_tokens", 0)
-            cum["completion_tokens"] += response.usage.get("completion_tokens", 0)
-            cum["total_tokens"] += response.usage.get("total_tokens", 0)
-
             # Feed actual prompt_tokens back to ConversationController so that
             # get_context_metrics() uses real counts instead of char estimation.
             # Also persist cumulative token usage to ConversationStore (session analytics).
@@ -1757,38 +1752,6 @@ class TurnExecutor:
                         )
                 except Exception:
                     pass  # Never break the hot path over metrics
-
-            # Extended token fields: neutral usage first, transport
-            # diagnostics (metadata["sandhi_usage"]) for the fields with no
-            # neutral home yet, and the raw native body only as a legacy
-            # fallback for non-typed providers. The native body must never be
-            # load-bearing (foundations strategy F1) — typed transports work
-            # identically with extensions absent.
-            usage = response.usage or {}
-            meta = getattr(response, "metadata", None) or {}
-            sandhi_usage = meta.get("sandhi_usage") or {}
-            raw = getattr(response, "raw_response", None)
-            raw_usage = (raw.get("usage") or {}) if isinstance(raw, dict) else {}
-            prompt_details = raw_usage.get("prompt_tokens_details", {}) or {}
-            comp_details = raw_usage.get("completion_tokens_details", {}) or {}
-
-            cum = self._chat_context._cumulative_token_usage
-            cum["cached_tokens"] = cum.get("cached_tokens", 0) + (
-                usage.get("cache_read_input_tokens", 0)
-                or prompt_details.get("cached_tokens", 0)
-                or raw_usage.get("prompt_cache_hit_tokens", 0)
-                or raw_usage.get("cache_read_input_tokens", 0)
-            )
-            cum["cache_miss_tokens"] = cum.get("cache_miss_tokens", 0) + (
-                sandhi_usage.get("cache_miss_tokens", 0)
-                or raw_usage.get("prompt_cache_miss_tokens", 0)
-            )
-            cum["reasoning_tokens"] = cum.get("reasoning_tokens", 0) + (
-                usage.get("reasoning_tokens", 0) or comp_details.get("reasoning_tokens", 0)
-            )
-            cum["cost_usd_micros"] = cum.get("cost_usd_micros", 0) + (
-                sandhi_usage.get("cost_in_usd_ticks", 0) or raw_usage.get("cost_in_usd_ticks", 0)
-            )
 
     async def _check_context_compaction(
         self,
@@ -1940,7 +1903,7 @@ class TurnExecutor:
         )
 
         for provider_response in completion_result.provider_responses:
-            self._accumulate_token_usage(provider_response)
+            self._record_conversation_usage(provider_response)
 
         content = completion_result.content
         if not content:

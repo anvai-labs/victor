@@ -88,7 +88,9 @@ class ComponentAssembler:
         )
 
         # Response completer
-        orchestrator.response_completer = factory.create_response_completer()
+        orchestrator.response_completer = factory.create_response_completer(
+            invocations=orchestrator._metrics_coordinator
+        )
 
         # Semantic selection and tool selector
         orchestrator.use_semantic_selection, orchestrator._embedding_preload_task = (

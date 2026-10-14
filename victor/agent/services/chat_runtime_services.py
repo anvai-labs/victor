@@ -15,13 +15,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import AsyncGenerator, Any, Protocol
 
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.framework.policies.gate import GateResult
+from victor.providers.base import BaseProvider, Message, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +439,9 @@ class StreamMetricsRuntime(Protocol):
 
     def record_first_token(self) -> None: ...
 
-    def accumulate_usage(self, usage_data: dict[str, int]) -> None: ...
+    def stream(
+        self, provider: BaseProvider, *, messages: list[Message], model: str, **kwargs: Any
+    ) -> AsyncGenerator[StreamChunk, None]: ...
 
     def finalize(
         self,
@@ -465,9 +468,11 @@ class ChatStreamMetrics:
     def record_first_token(self) -> None:
         self._require_runtime().record_first_token()
 
-    def accumulate_usage(self, usage_data: dict[str, int]) -> None:
-        """Fold turn usage into the live session totals before report finalization."""
-        self._require_runtime().accumulate_usage(usage_data)
+    def stream(
+        self, provider: BaseProvider, *, messages: list[Message], model: str, **kwargs: Any
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Dispatch through the session invocation owner."""
+        return self._require_runtime().stream(provider, messages=messages, model=model, **kwargs)
 
     def finalize(
         self,

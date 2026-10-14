@@ -46,7 +46,6 @@ from victor.framework.topology_runtime import prepare_topology_runtime_contract
 from victor.framework.task import TaskComplexity
 from victor.providers.base import Message, StreamChunk
 from victor.providers.openai_compat import consume_last_tool_message_cleanup_stats
-from victor.providers.usage_accounting import accumulate_usage
 
 if TYPE_CHECKING:
     from victor.agent.streaming.context import StreamingChatContext
@@ -1005,7 +1004,9 @@ class ChatStreamHelperMixin:
             and supports_reasoning(orch.model)
         ):
             provider_kwargs = {**provider_kwargs, "reasoning_effort": reasoning_effort}
-        provider_stream = orch.provider.stream(
+        provider_stream = self.services.metrics.stream(
+            orch.provider,
+            usage_totals=stream_ctx.cumulative_usage,
             messages=assembled,
             model=orch.model,
             temperature=stream_temperature,
@@ -1195,15 +1196,6 @@ class ChatStreamHelperMixin:
                     refusal_delta = chunk_meta.get("refusal")
                     if refusal_delta:
                         refusal_chars += len(str(refusal_delta))
-
-                raw_usage = getattr(chunk, "usage", None)
-                if raw_usage:
-                    accumulate_usage(stream_ctx.cumulative_usage, raw_usage)
-                    logger.debug(
-                        f"Chunk usage: in={raw_usage.get('prompt_tokens', 0)} "
-                        f"out={raw_usage.get('completion_tokens', 0)} "
-                        f"cache_read={raw_usage.get('cache_read_input_tokens', 0)}"
-                    )
 
                 # Sandhi attaches transport diagnostics (retry attempts, usage
                 # completeness, upstream request id) to the same terminal chunk
@@ -1540,7 +1532,11 @@ class ChatStreamHelperMixin:
                 # tool-call `break` below, rather than left to GC (which would close it
                 # off-task and raise "ignored GeneratorExit" / "no running event loop").
                 async with contextlib.aclosing(
-                    orch.provider.stream(
+                    self.services.metrics.stream(
+                        orch.provider,
+                        usage_totals=(
+                            stream_ctx.cumulative_usage if stream_ctx is not None else None
+                        ),
                         messages=retry_assembled,
                         model=orch.model,
                         temperature=temp,

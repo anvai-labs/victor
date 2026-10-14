@@ -839,6 +839,7 @@ class PlanningRuntimeService:
         # Generate plan using readable schema
         plan = await generate_task_plan(
             provider=planning_provider,
+            invocations=self.orchestrator._metrics_coordinator,
             user_request=enriched_request,
             complexity=complexity,
             model=planning_model,
@@ -3062,7 +3063,8 @@ class PlanningRuntimeService:
         summary_prompt = self._build_summary_prompt(plan, result)
 
         # Get response from provider
-        response = await self.orchestrator.provider.chat(
+        response = await self.orchestrator._metrics_coordinator.complete(
+            self.orchestrator.provider,
             messages=[{"role": "user", "content": summary_prompt}],
             model=self.orchestrator.model,
             temperature=0.7,  # Lower temperature for summaries
@@ -3098,7 +3100,8 @@ Please acknowledge that the plan was rejected and ask if the user would like to:
 Keep your response concise and helpful.
 """
 
-        response = await self.orchestrator.provider.chat(
+        response = await self.orchestrator._metrics_coordinator.complete(
+            self.orchestrator.provider,
             messages=[{"role": "user", "content": rejection_prompt}],
             model=self.orchestrator.model,
             temperature=0.7,

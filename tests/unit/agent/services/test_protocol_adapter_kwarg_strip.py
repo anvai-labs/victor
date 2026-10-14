@@ -17,7 +17,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.session_cost_tracker import SessionCostTracker
+from victor.providers.base import CompletionResponse
 
 import pytest
 
@@ -28,8 +31,14 @@ from victor.agent.services.orchestrator_protocol_adapter import (
 
 
 async def test_internal_kwargs_stripped_before_provider_chat():
-    provider = SimpleNamespace(chat=AsyncMock(return_value="ok"))
-    orch = SimpleNamespace(provider=provider)
+    provider = SimpleNamespace(
+        name="unknown",
+        chat=AsyncMock(return_value=CompletionResponse(content="ok", role="assistant")),
+    )
+    orch = SimpleNamespace(
+        provider=provider,
+        _metrics_coordinator=AgentMetricsService(MagicMock(), SessionCostTracker(), {}),
+    )
     adapter = OrchestratorProtocolAdapter.__new__(OrchestratorProtocolAdapter)
     adapter._orchestrator = orch
 
