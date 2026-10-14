@@ -2137,7 +2137,7 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Follow-up measurements found that `VICTOR_FROZEN_PROMPTS` did not cover learned
   turn sections, few-shots or experiment prompt hints. The scoped control repair
   gates these before cache access, retains static/error guidance and rejects
-  contradictory candidate bindings; source-qualified, CI/merge pending. It does
+  contradictory candidate bindings; merged in #1356 with 40 successful CI checks. It does
   not freeze learned routing/planning or change an already-created session.
   Sixteen successful direct model calls confirmed correct bounded answers and
   reconciled usage, but freezing slightly increased first-request input and cache
@@ -2149,10 +2149,25 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   Profile dependency/retrieval activation and preserve service scope before
   consolidating initialization or claiming a memory/latency improvement.
   Synthetic document probes found that a disabled block can suppress a later
-  enabled duplicate in `PromptDeduplicationProcessor`. Default case-folding and
+  enabled duplicate in `PromptDeduplicationProcessor`. The next scoped repair
+  preserves disabled configuration without letting it suppress visible content;
+  two red regressions and 106 passing affected checks qualify the source change.
+  Default case-folding and
   insertion-order deduplication also need explicit policy before reuse across
   authoritative prompt placements. Extend the existing document/builder tests;
   do not optimize away active guidance or distinct case-sensitive identifiers.
+  Six no-provider subprocess probes found only a 0.355-second median first-request
+  reduction when omitting conversation-store setup, with overlapping ranges and
+  ML imports retained in both arms. Do not ship that diagnostic omission or claim
+  retrieval/lifecycle acceptance; preserve the existing path and measure other
+  embedding consumers next. UX-09 owns the full data and decision.
+  A subsequent traced diagnostic located a 4.747-second synchronous embedding load
+  inside the skill matcher's nominal background task, reached by cached-dimension
+  validation. Scheduling an async task alone does not prevent event-loop blocking.
+  Qualify bounded initialization/offloading with loop-lag, cancellation, readiness,
+  cache validation and actual skill/task outcomes; do not bypass validation or
+  disable skills to improve startup numbers. Learned-example omission also leaves
+  most startup cost intact and is not a production change.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
