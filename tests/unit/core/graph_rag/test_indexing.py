@@ -346,6 +346,7 @@ async def test_graph_indexing_pipeline_refreshes_module_metrics_after_changed_gr
     monkeypatch,
     tmp_path: Path,
 ):
+    (tmp_path / "sample.py").write_text("def sample(): return 1\n")
     store = MagicMock()
     store.initialize = AsyncMock()
     store.delete_by_repo = AsyncMock()
@@ -1310,7 +1311,9 @@ def test_provider_symbols_recover_identity_from_prepared_repository(tmp_path: Pa
     path = tmp_path / "m.py"
     path.write_text("def target():\n    return 1\n", encoding="utf-8")
     pipeline = _make_pipeline(tmp_path)
-    pipeline._prepare_codegraph_repository(tmp_path, [path])
+    from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
+
+    pipeline._bind_codegraph_repository(prepare_repository_snapshot(tmp_path, ["m.py"]))
     expected = next(
         symbol
         for symbol in pipeline._codegraph_repository.symbols

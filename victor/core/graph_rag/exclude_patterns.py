@@ -464,11 +464,39 @@ def is_path_excluded(path: Path, root_path: Path, patterns: List[str]) -> bool:
     return False
 
 
+def is_subtree_excluded(path: Path, root_path: Path, patterns: List[str]) -> bool:
+    """Conservatively prune only patterns declaring all descendants excluded.
+
+    A directory matching a file pattern (for example /pkg/*) does not prove its
+    descendants match. Only trailing /** patterns can establish this boundary.
+    Other patterns still apply to individual files through is_path_excluded.
+    """
+    relative = path.relative_to(root_path) if path.is_absolute() else path
+    path_str = str(relative)
+    suffixes = ["/".join(relative.parts[i:]) for i in range(len(relative.parts))]
+    for pattern in patterns:
+        if not pattern.endswith("/**"):
+            continue
+        if pattern.startswith("/"):
+            if _matches_rooted_glob(path_str, pattern):
+                return True
+        else:
+            prefix = pattern[:-3]
+            clean_prefix = prefix.replace("**/", "")
+            if any(
+                fnmatch.fnmatch(part, prefix) or fnmatch.fnmatch(part, clean_prefix)
+                for part in suffixes
+            ):
+                return True
+    return False
+
+
 __all__ = [
     "UNIVERSAL_EXCLUDE_PATTERNS",
     "LANGUAGE_CONFIG_MAP",
     "get_exclusion_patterns",
     "is_path_excluded",
+    "is_subtree_excluded",
     "parse_gitignore",
     "detect_language_excludes",
 ]

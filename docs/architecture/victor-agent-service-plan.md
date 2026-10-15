@@ -2720,7 +2720,7 @@ only against new evidence, retaining unknowns and readiness blockers.
 | DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
 | DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
 | DATA-04a / CG-P2 | ✅ merged [#1365](https://github.com/anvai-labs/victor/pull/1365); High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
-| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; ownership/publication pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
+| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight/publication pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
 | DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
@@ -3143,9 +3143,11 @@ before allowing a reused pipeline to switch effective roots. This is the next
 logical PR (`fix/index-stream-ownership`, baseline `4bfdaf630`). Do not restore the
 preflight patch unchanged or mistake source/prepared identity for committed state.
 
-### DATA-04b stream ownership repair (2026-10-15, candidate)
+### DATA-04b stream ownership repair (2026-10-15, merged)
 
-Owner: Victor co-design; branch `fix/index-stream-ownership`, baseline `4bfdaf630`.
+Owner: Victor co-design; branch `fix/index-stream-ownership`, baseline `4bfdaf630`;
+✅ merged [#1368](https://github.com/anvai-labs/victor/pull/1368) as
+`824609ea7d81982e98eadf11e866482e99802481`.
 The shared-inventory release above is complete; this increment repairs the existing
 stream before adopting that inventory in consumer preflight. A fixed number of async
 producers share one iterator and the existing executor. Each owns at most one parse
@@ -3172,12 +3174,68 @@ slow case), 100% changed production-line coverage, configured mypy (2,117 files)
 full collection (35,264 tests), Black (3,925 files), Ruff, dependency locks, docs
 and hygiene. Independent review is clean after the retention fix; its owner suite
 passed 68 tests before the final case, and the final stream subset passes 12
-(overlapping counts, not additive). Exact-commit review and PR CI remain merge
-gates; this candidate is not merged/released and does not close DATA-04b.
+(overlapping counts, not additive). Exact candidate
+`c882aa23de113f0aac139144f075c16ff5d217d6` was independently approved with a
+commit-bound attestation. All 39 applicable CI checks passed (Vertical Py3.12:
+12m23s); two conditional skips and one neutral scan are not passes. This is merged
+source, not a Victor release or live acceptance, and does not close DATA-04b.
 
 Next remains consumer root/inventory qualification, then atomic generation
 publication and contention/headroom evidence. Rollback is reverting this stream
 repair; no data migration is involved. Do not restore the preflight stash unchanged.
+The next linked-worktree branch is `fix/index-preflight-qualification`, based on
+`824609ea7`. It must qualify the selected inventory before destructive force cleanup,
+use one effective root for parser/canonical/hash identities, preserve file-level
+exclusion semantics, and keep preparation results on the owning async task. Existing
+force-mode, snapshot and indexing suites own its failure/reuse regressions. Atomic
+publication remains a later gate, even when preparation preserves old data on error.
+
+### DATA-04b consumer preflight qualification (2026-10-15, candidate)
+
+Owner: Victor co-design; `fix/index-preflight-qualification`, baseline `824609ea7`.
+The existing snapshot boundary now sends the selected inventory to released
+CodeGraph 0.10.3, rather than parsing a different default inventory and filtering
+it afterwards. Force cleanup follows root validation, discovery and input
+qualification. Selected missing files, failed parses and manifest disagreement stop
+before graph/vector cleanup. Partial parses retain diagnostics; intentionally empty
+valid roots remain valid empty inventories. This is prepared-input evidence, not a
+committed generation. Optional-package absence remains explicitly legacy-unqualified;
+a broken installed parser now raises instead of permitting destructive fallback.
+
+Runs on one pipeline are serialized; one active root derives parser/file/hash/mtime
+keys without mutating configuration. Preparation returns data to its async owner;
+shared settlement waits for native preparation before releasing that root even under
+repeated cancellation. Discovery prunes only proven all-descendant `/**` exclusions;
+matching a directory with `/pkg/*` does not justify pruning nested source files.
+Explicitly excluded subtrees do not need to be readable. No new parser, dispatcher,
+store or native extension is introduced.
+
+TDD: 17 preflight/identity cases failed on baseline before passing. Independent
+review additionally found broken-installed-parser ImportError being mistaken for
+optional absence; two regression cases failed before narrowing that boundary. Real
+SQLite cases preserve old nodes, mtimes and sessions on preflight failures. Root
+coverage includes hidden/build inputs, rooted glob descendants and canonical stored
+mtime keys. A queued second-root run waits for cancelled preparation to settle.
+Existing test owners are extended; three mock-only/log-only tests are removed,
+and an existing metrics fixture now supplies the real source file it claimed to
+have discovered. Local validation: 154 affected tests, five isolated integration
+checks, 148/156 changed production lines covered (94.9%); configured mypy passes
+2,117 files; full collection passes 35,294 tests, Black passes 3,925 files, and
+Ruff, dependency locks, docs drift and hygiene pass. The final force-mode owner
+passes 17 tests after strengthening the existing empty-input case. Independent
+implementation review is clean; exact-commit review and CI remain merge gates.
+No merge or release is claimed yet.
+
+Limits and next work: force writes after qualification can still destroy the old
+generation on failure; incremental planning still mutates before qualification.
+CCG source rereads and filesystem races are not an atomic snapshot. Prepared parser
+versions describe installed metadata, not an editable source fingerprint. Same-instance
+ownership does not serialize separate pipeline instances/processes. Root overrides
+still leave downstream metrics/maintenance targeting the override-root project DB,
+which may differ from the supplied graph store; that existing alignment remains
+unqualified and must be resolved before broad override acceptance. Then select and
+qualify atomic publication, reader lifetime and disk/lock costs. Rollback is a code
+revert without migration; retain failed evidence and do not restore the old stash.
 
 The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
 (58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
