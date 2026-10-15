@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from victor.agent.conversation.store import ConversationStore
 
-from victor.agent.conversation.session_model import ConversationSession
+from victor.agent.conversation.session_model import ConversationSession, ConversationSessionSummary
 from victor.agent.conversation.types import (
     ConversationMessage,
     MessageRole,
@@ -558,7 +558,7 @@ class ConversationStoreSession:
                     f"""
                     {base_query}
                     WHERE s.project_path = ?
-                    ORDER BY s.last_activity DESC
+                    ORDER BY s.last_activity DESC, s.session_id DESC
                     LIMIT ?
                     """,
                     (project_path, limit),
@@ -567,7 +567,7 @@ class ConversationStoreSession:
                 rows = conn.execute(
                     f"""
                     {base_query}
-                    ORDER BY s.last_activity DESC
+                    ORDER BY s.last_activity DESC, s.session_id DESC
                     LIMIT ?
                     """,
                     (limit,),
@@ -579,6 +579,72 @@ class ConversationStoreSession:
                 sessions.append(session)
 
             return sessions
+
+    def list_session_summaries(
+        self, project_path: Optional[str] = None, limit: int = 10
+    ) -> List[ConversationSessionSummary]:
+        """Read one limited projection; never load message bodies or runtime state.
+
+        Preview rows and metadata sidecars follow load_session's separate counts.
+        The title fallback is the first non-preview user message, limited to 50
+        characters, matching full resume. Explicit titles always take precedence.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                WITH recent AS MATERIALIZED (
+                    SELECT * FROM sessions
+                    WHERE (? IS NULL OR project_path = ?)
+                    ORDER BY last_activity DESC, session_id DESC LIMIT ?
+                ), message_summary AS (
+                    SELECT m.session_id, m.role, m.timestamp, m.rowid AS message_order,
+                        substr(m.content, 1, 50) AS excerpt,
+                        CASE json_type(m.metadata, '$.is_preview')
+                            WHEN 'text' THEN length(json_extract(m.metadata, '$.is_preview')) > 0
+                            WHEN 'array' THEN json_array_length(m.metadata, '$.is_preview') > 0
+                            WHEN 'object' THEN EXISTS (
+                                SELECT 1 FROM json_each(m.metadata, '$.is_preview'))
+                            ELSE COALESCE(json_extract(m.metadata, '$.is_preview'), 0) != 0
+                        END AS is_preview
+                    FROM messages m JOIN recent r ON r.session_id = m.session_id
+                )
+                SELECT r.session_id, r.created_at, r.last_activity, r.model, r.profile,
+                    p.name AS provider,
+                    json_extract(r.metadata, '$.title') AS title,
+                    json_extract(r.metadata, '$.tags') AS tags,
+                    (SELECT count(*) FROM json_each(r.metadata, '$.preview_messages') WHERE type = 'object')
+                        AS sidecar_count,
+                    (SELECT count(*) FROM message_summary m
+                        WHERE m.session_id = r.session_id AND m.is_preview = 0)
+                        AS message_count,
+                    (SELECT count(*) FROM message_summary m
+                        WHERE m.session_id = r.session_id AND m.is_preview = 1)
+                        AS preview_count,
+                    (SELECT excerpt FROM message_summary m
+                        WHERE m.session_id = r.session_id AND m.is_preview = 0
+                            AND m.role = 'user'
+                        ORDER BY m.timestamp, m.message_order LIMIT 1) AS first_user
+                FROM recent r LEFT JOIN providers p ON p.id = r.provider_id
+                ORDER BY r.last_activity DESC, r.session_id DESC
+                """,
+                (project_path or None, project_path or None, max(0, limit)),
+            ).fetchall()
+        return [
+            ConversationSessionSummary(
+                session_id=row["session_id"],
+                title=row["title"] or row["first_user"] or "Untitled",
+                created_at=datetime.fromisoformat(row["created_at"]),
+                last_activity=datetime.fromisoformat(row["last_activity"]),
+                provider=row["provider"],
+                model=row["model"],
+                profile=row["profile"],
+                message_count=row["message_count"],
+                preview_count=row["preview_count"] + row["sidecar_count"],
+                tags=tuple(json.loads(row["tags"] or "[]")),
+            )
+            for row in rows
+        ]
 
     def clear_session(self, session_id: str):
         """Clear all messages from a session."""

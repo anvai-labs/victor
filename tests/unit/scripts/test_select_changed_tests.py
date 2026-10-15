@@ -67,6 +67,13 @@ def test_selector_changes_select_its_own_regressions():
     ("source", "owners"),
     [
         (
+            "victor/agent/conversation/session_model.py",
+            {
+                "tests/unit/agent/conversation/test_store_rich_metadata.py",
+                "tests/unit/framework/test_client_conversation.py",
+            },
+        ),
+        (
             "victor/agent/factory/runtime_builders.py",
             {
                 "tests/unit/agent/services/test_chat_runtime_services.py",

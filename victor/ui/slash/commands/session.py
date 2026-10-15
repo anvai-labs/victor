@@ -95,12 +95,6 @@ def _preview_path_summary(preview_messages: object, *, max_paths: int = 3) -> st
     return summary
 
 
-def _session_preview_count(session: object) -> int:
-    """Return a stable preview-message count for persisted session objects."""
-    preview_messages = getattr(session, "preview_messages", None)
-    return len(preview_messages) if isinstance(preview_messages, list) else 0
-
-
 @register_command
 class SaveCommand(BaseSlashCommand):
     """Save current conversation to a session file."""
@@ -310,7 +304,7 @@ class SessionsCommand(BaseSlashCommand):
 
         try:
             store = ConversationStore()
-            sessions = store.list_sessions(limit=limit)
+            sessions = store.list_session_summaries(limit=limit)
 
             if not sessions:
                 ctx.console.print("[dim]No saved sessions found[/]")
@@ -340,8 +334,8 @@ class SessionsCommand(BaseSlashCommand):
                     title,
                     session.model or "unknown",
                     session.provider or "unknown",
-                    str(len(session.messages)),
-                    str(_session_preview_count(session)),
+                    str(session.message_count),
+                    str(session.preview_count),
                     date_str,
                 )
 
@@ -386,7 +380,7 @@ class ResumeCommand(BaseSlashCommand):
         # Otherwise, show interactive selection
         try:
             store = ConversationStore()
-            sessions = store.list_sessions(limit=20)
+            sessions = store.list_session_summaries(limit=20)
 
             if not sessions:
                 ctx.console.print("[yellow]No sessions found[/]")
@@ -418,8 +412,8 @@ class ResumeCommand(BaseSlashCommand):
                     session.session_id,
                     title,
                     session.model or "unknown",
-                    str(len(session.messages)),
-                    str(_session_preview_count(session)),
+                    str(session.message_count),
+                    str(session.preview_count),
                     date_str,
                 )
 

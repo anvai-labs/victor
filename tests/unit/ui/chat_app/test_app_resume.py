@@ -180,3 +180,15 @@ class TestResumeActionCallback:
         before = len(_FakeMessage.created)
         await module._on_resume_session(_FakeAction(payload={}))
         assert len(_FakeMessage.created) == before
+
+    async def test_resume_replay_failure_is_visible(self, app_module):
+        module, fake_cl = app_module
+
+        class BrokenHistoryClient(_FakeClient):
+            async def get_messages(self, limit=None, role=None):
+                raise RuntimeError("history unavailable")
+
+        fake_cl.user_session.set(module._CLIENT_KEY, BrokenHistoryClient())
+        await module._on_resume_session(_FakeAction(payload={"session_id": "s9"}))
+        contents = " ".join(m.content for m in _FakeMessage.created)
+        assert "restored, but its transcript could not be displayed" in contents

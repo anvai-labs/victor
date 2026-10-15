@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
@@ -196,3 +198,26 @@ async def test_member_binding_registers_actual_session_before_compaction(tmp_pat
         ).fetchone()
         assert row == (member.session_id, "member")
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.parametrize("wrong_store", [False, True])
+def test_restored_binding_rejects_invalid_target_before_mutation(tmp_path, wrong_store):
+    import pytest
+    from victor.agent.conversation.store import ConversationStore
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    store = ConversationStore(db_path=tmp_path / "history.db")
+    host = _make_runtime_host(
+        active_session_id="assembly",
+        _conversation_controller=MagicMock(),
+        memory_manager=ConversationStore(db_path=tmp_path / "other.db") if wrong_store else store,
+    )
+    host._runtime_identity = RuntimeIdentity(host)
+    with pytest.raises(
+        ValueError, match="active conversation store" if wrong_store else "not present"
+    ):
+        SessionRuntime(host).bind_restored_session(store, "missing")
+    assert host.active_session_id == "assembly"
+    assert host._memory_session_id == "session-123"
+    host._conversation_controller.set_conversation_store.assert_not_called()
+    host._session_service.bind_runtime_components.assert_not_called()

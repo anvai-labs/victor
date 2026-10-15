@@ -1385,20 +1385,23 @@ class TestSessionCommands:
     def test_sessions_command_displays_preview_counts(self):
         """Test SessionsCommand shows preview counts in the listing table."""
         from victor.ui.slash.commands.session import SessionsCommand
-        from victor.agent.conversation.store import ConversationSession
+        from victor.agent.conversation.session_model import ConversationSessionSummary
 
         stdout = io.StringIO()
         console = Console(file=stdout, force_terminal=False, width=160)
         settings = MagicMock()
         store = MagicMock()
-        store.list_sessions.return_value = [
-            ConversationSession(
+        store.list_session_summaries.return_value = [
+            ConversationSessionSummary(
                 session_id="test-session-123",
                 title="Preview Session",
                 model="claude-sonnet-4-20250514",
                 provider="anthropic",
-                messages=[MagicMock(), MagicMock()],
-                preview_messages=[MagicMock()],
+                message_count=2,
+                preview_count=1,
+                tags=(),
+                profile="default",
+                last_activity=datetime.fromisoformat("2026-03-19T10:00:00"),
                 created_at=datetime.fromisoformat("2026-03-19T10:00:00"),
             )
         ]
@@ -1523,21 +1526,24 @@ class TestSessionCommands:
     def test_resume_command_selection_displays_preview_counts(self):
         """Test interactive ResumeCommand listing shows preview counts."""
         from victor.ui.slash.commands.session import ResumeCommand
-        from victor.agent.conversation.store import ConversationSession
+        from victor.agent.conversation.session_model import ConversationSessionSummary
 
         stdout = io.StringIO()
         console = Console(file=stdout, force_terminal=False, width=160)
         settings = MagicMock()
         agent = MagicMock()
         store = MagicMock()
-        store.list_sessions.return_value = [
-            ConversationSession(
+        store.list_session_summaries.return_value = [
+            ConversationSessionSummary(
                 session_id="test-session-123",
                 title="Preview Session",
                 model="claude-sonnet-4-20250514",
                 provider="anthropic",
-                messages=[MagicMock(), MagicMock()],
-                preview_messages=[MagicMock()],
+                message_count=2,
+                preview_count=1,
+                tags=(),
+                profile="default",
+                last_activity=datetime.fromisoformat("2026-03-19T10:00:00"),
                 created_at=datetime.fromisoformat("2026-03-19T10:00:00"),
             )
         ]

@@ -103,7 +103,7 @@ _SOURCE_PRIORITY_MAP: dict = {
 }
 
 
-from victor.agent.conversation.session_model import ConversationSession
+from victor.agent.conversation.session_model import ConversationSession, ConversationSessionSummary
 
 CONVERSATION_DB_ENV = "VICTOR_CONVERSATION_DB"
 
@@ -505,6 +505,12 @@ class ConversationStore:
             project_path=project_path,
             limit=limit,
         )
+
+    def list_session_summaries(
+        self, project_path: Optional[str] = None, limit: int = 10
+    ) -> List[ConversationSessionSummary]:
+        """Return fresh, bounded persisted summaries for conversation pickers."""
+        return self._sessions_mgr.list_session_summaries(project_path=project_path, limit=limit)
 
     def _add_message_impl(
         self,

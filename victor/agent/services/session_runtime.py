@@ -8,9 +8,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.runtime.context import AgentRuntimeContext, require_runtime_context
+
+if TYPE_CHECKING:
+    from victor.agent.conversation.store import ConversationStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,26 @@ class SessionRuntime:
             runtime._conversation_controller.set_conversation_store(store, context.session_id)
             runtime._memory_session_id = context.session_id
         identity.bind_member(context)
+        self.sync_runtime_state()
+
+    def bind_restored_session(self, store: ConversationStore, session_id: str) -> None:
+        """Bind explicit persisted resume to the same store used for hydration.
+
+        No history is republished here. Subsequent turns, retrieval and session
+        metadata must all use the selected identity, including after cold startup.
+        """
+        runtime = self._runtime
+        runtime._runtime_identity.validate_session_transition(session_id)
+        if runtime.memory_manager is not None and runtime.memory_manager is not store:
+            raise ValueError("Restored session must use the active conversation store")
+        if store.get_session(session_id) is None:
+            raise ValueError("Restored session is not present in its conversation store")
+        if runtime.memory_manager is not None:
+            runtime._conversation_controller.set_conversation_store(store, session_id)
+            runtime._memory_session_id = session_id
+        # Explicit resume can hydrate transient history while memory is disabled;
+        # selecting history is not permission to enable persistence.
+        runtime.active_session_id = session_id
         self.sync_runtime_state()
 
     def sync_runtime_state(self) -> None:

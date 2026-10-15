@@ -2119,6 +2119,14 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   explicit direct-versus-gateway selection open; keep these distinct from transport
   and model failures when qualifying UI/profile behavior.
 
+  UX-10 adds cross-visit continuity evidence: persisted-picker counts, synchronous
+  history bridge, metadata-filtered replay and selected-session continuation binding.
+  Its real SQLite/adapter tests replace misleading mocks; disabled persistence and
+  custom stores must retain their semantics. The graph refresh also exposed the
+  semantic-index detached-rebuild/cancellation gap recorded under CG-P2 in
+  [the codegraph design](codegraph-v2-design.md#victor-dogfood-refresh-lifecycle-and-metric-qualification-2026-10-14).
+  These scoped repairs do not close G99 or full editor/C5 acceptance.
+
 - **G100 — prompt assembly and efficiency lack end-to-end cache qualification (open).**
   UX-09's 2026-10-14 measured checkpoint found repository instructions appended
   after the per-session nonce outside `UnifiedPromptPipeline`, truncating the

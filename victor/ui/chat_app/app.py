@@ -332,7 +332,10 @@ async def _on_resume_session(action: "cl.Action") -> None:
             for author, content in history_messages(await client.get_messages(limit=50)):
                 await cl.Message(content=content, author=author).send()
         except Exception:
-            logger.debug("resume replay skipped", exc_info=True)
+            logger.warning("Resumed conversation transcript could not be displayed", exc_info=True)
+            await cl.Message(
+                content="⚠️ The session was restored, but its transcript could not be displayed."
+            ).send()
 
 
 @cl.on_settings_update
