@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-14
-baseline_develop: 3ce744b063e6404fb27c003f8eba212ed2fc4a9f
-next_task: UX-10
+baseline_develop: 3090d7bc2d2e4d92b166be959a520efe574c3313
+next_task: DATA-01
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -302,7 +302,7 @@ edit. A mock test is not live provider or C5 evidence.
   Shared progress/cancellation ownership remains open before consolidated API
   lifecycle parity can be claimed.
 
-- **UX-10 conversation continuity dogfood — ACTIVE, local qualification** — owner:
+- **UX-10 conversation continuity dogfood — MERGED #1361, local qualification** — owner:
   Victor co-design session; branch `fix/ui-dogfood-continuity`, baseline
   `43756b90f342d3c645155235e81bd4130e86b72c`. Stabilize existing Chainlit and shared
   client contracts before the Monaco/CodeMirror authoring spike or new service API.
@@ -333,12 +333,18 @@ edit. A mock test is not live provider or C5 evidence.
   MyPy on 11 production modules, Black/Ruff, repository hygiene, docs drift/build
   and built-site links pass. Independent review is clean after the store-boundary
   guard; 40 final client/runtime tests and 186 earlier owner/selector checks passed.
-  Local evidence: `var/codegraph-victor-20261012/ui-continuity-*`. CI, merge and
-  release remain separate gates. Shell-read approval friction and token overhead
+  Local evidence: `var/codegraph-victor-20261012/ui-continuity-*`. Release and
+  live acceptance remain separate gates. Shell-read approval friction and token overhead
   remain measurable follow-ups; do not bypass policy to make this smoke faster.
 
-  **Next dependency order:** finish this continuity checkpoint; repair graph/index
-  lifecycle under CG-P2; broaden bounded read/edit/test/cancel/recovery dogfood;
+  Reviewed candidate `44a98097032d05d87698018f6ed6bbe79c2baa9a` is published in
+  [#1361](https://github.com/anvai-labs/victor/pull/1361), squash-merged as
+  `3090d7bc2d2e4d92b166be959a520efe574c3313` after clean independent review and
+  all applicable CI gates, including Vertical tests Py3.12. Its review does not
+  qualify later edits or released-dependency/C5 acceptance.
+
+  **Next dependency order:** address DATA-01–04
+  below, including graph/index lifecycle under CG-P2; broaden bounded read/edit/test/cancel/recovery dogfood;
   complete shared API lifecycle contracts; then measure editor candidates. Existing
   #1360 edit/cache live evidence is retained rather than relabeled as this run.
   Full self-audit, all-provider/formations, lifecycle and C5 acceptance remain open.
@@ -2638,6 +2644,158 @@ failed/blocked/not-run counts. Never count both a parent and its children or use
 source completion as a proxy for C5/model quality. Before claiming full closure,
 all requested outcomes above must have accepted evidence or an explicit,
 user-approved scope change; a TODO plan entry is not delivery.
+
+## Data correctness remediation plan (G102, 2026-10-14)
+
+**DATA-01 ACTIVE — local qualification, awaiting PR/CI.** Owner: Victor co-design
+session; linked worktree branch `fix/vector-predicate-integrity`, implementation
+baseline `3090d7bc2d2e4d92b166be959a520efe574c3313`. The original assessment at
+`43756b90f342d3c645155235e81bd4130e86b72c` remains historical evidence. Continuity
+PR #1361 is merged separately. Implementation is now authorized; production
+migration, deployment and write/load tests are outside this local increment.
+Other DATA rows remain TODO. Local tests are not release or live acceptance.
+
+The immediate target is local single-user Victor; hosted multi-user acceptance is
+a separate VAS-05 requirement. Workload rate/growth/skew, concurrency, numerical
+latency/freshness/quality targets, availability, RPO/RTO, retention and budget are
+**Unknown**. Confirm these before performance or hosted readiness sign-off; do not
+block isolated correctness regressions on missing performance targets. The audit
+score is **32.9/100 at 92% evidence coverage**, not completion or certification:
+A=U, B=2, C=2, D=2, E=2, F=0, G=0, H=1, I=2, J=1, K=1, L=2 using the supplied
+weights (30.25 weighted points / 92 scored weight). No dimension is N/A. Re-score
+only against new evidence, retaining unknowns and readiness blockers.
+
+### Evidence and authority
+
+- Source files remain authoritative; graph/FTS/vectors/metrics are derived.
+  Conversations, approvals and action evidence require their own durable contract.
+  SQLite transactions do not include LanceDB or external tool effects. Backend
+  receipts, not local deduplication or checkpoints, establish external effects.
+- Disposable local reproduction on SQLite 3.45.3 / LanceDB 0.30.2: two conjunctive
+  metadata filters returned both tenant A and B; a crafted quoted document ID
+  deleted both synthetic rows; a failed migration recorded the new schema version;
+  a cancelled graph batch stayed open and an unrelated write committed its row.
+  These demonstrate defects, not production exploitation or authoritative data loss.
+  Preserve the reproducer locally and transcribe cases into existing test owners.
+- 69 existing vector/edge/WAL/API-auth/paused-run tests passed in 9.71s; their pass
+  does not cover those failure cases. PR #1361 validation is separate.
+- Earlier CG-P2 evidence: the graph refresh completed, but the semantic CLI then
+  published success before a detached destructive rebuild; interruption left the
+  graph empty. Retain original failure and recovery evidence. Metrics contained
+  17,941 missing paths out of 22,772; the LCOM4 label denotes a size heuristic.
+  The already-running canonical recovery subsequently completed in 1,407s,
+  reporting 1,543,242 persisted nodes / 3,696,594 edges; this does not qualify
+  semantic freshness or fix publication ownership. No new rebuild was started
+  during assessment/planning.
+- Read-only plans: session listing scans/sorts; message counts use a covering
+  index; graph file lookup uses an index. Database snapshot during recovery:
+  5,992,009,728 bytes, WAL 291,716,632 bytes, 639,505 free pages at 4,096 bytes.
+  Free pages are reusable space, not proof that VACUUM improves response latency.
+- Installed-version behavior controls acceptance. LanceDB documentation identifies
+  filter replacement before Python SDK 0.34.0; use one composed predicate rather
+  than depending on an incidental upgrade. WAL/NORMAL lacks guaranteed durability
+  across power loss; transaction atomicity does not justify synchronous=OFF on a
+  database containing authoritative state. See [LanceDB filters](https://docs.lancedb.com/search/filtering),
+  [SQLite sync settings](https://www.sqlite.org/pragma.html#pragma_synchronous) and
+  [online backups](https://www.sqlite.org/backup.html).
+
+### Ordered PR-sized increments
+
+| ID / existing parent | State; severity / effort; proposed owner | Scope, dependency and exit invariant |
+| --- | --- | --- |
+| DATA-01 / CG-P2, VAS-05c | ACTIVE, local pass; High (Critical if authorization boundary) / Medium; vector adapter | Shared helper now replaces interpolated deletion/search literals and repeated filters with one typed conjunction, allowlisted identifiers and explicit NULL semantics. Include analogous unified-store deletion. All eligibility predicates apply before top-k; invalid input never broadens reads or deletes. No dependency upgrade required to claim a fix. |
+| DATA-02 / CG-P2 | TODO; High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
+| DATA-03 / VAS-11, storage foundation | TODO; High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
+| DATA-04a / CG-P2 | TODO; High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
+| DATA-04b / CG-P2 | TODO; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
+| DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
+| DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
+| DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
+| DATA-08a / VAS-16, storage foundation | TODO; High / Medium; storage operations owner | After DATA-03: remove unsafe bulk durability assumptions for mixed authoritative/derived stores; choose explicit durability by authority; use online backup rather than live file-copy consolidation. Test backup/restore and maintenance failures on isolated copies. Do not separate databases merely for aesthetics. |
+| DATA-08b / VAS-16 | TODO; High / Complex; operations/recovery owner | After DATA-05/08a and agreed RPO/RTO/retention: qualify restore, derived rebuild, disk-full, maintenance contention and deletion/retention. Record machine, engine/settings, data shape, loss boundary and recovery duration. No resilience claim from unit tests alone. |
+| DATA-09 / VAS-16/22 | TODO; Medium / Medium; query/runtime owner | After correctness gates: compare session composite indexes and bounded async ripgrep against unchanged design on representative skew. Bound output before capture, propagate cancellation, profile repeated scans/queue growth. No numerical performance target or native rewrite inferred from file size. |
+| DATA-10 / UX-09, G100 | TODO; Medium / Medium; metrics/presentation owner | Reuse canonical invocation accounting: preserve measured fresh input/cache read/cache write/output/reasoning and per-field coverage. Reasoning inclusion and provider prompt conventions determine conservation; unknown is not zero. Derive ratios from summed compatible counts, never average ratios. Shared CLI/TUI/web footer plus session summary; no second meter. |
+
+DATA-01–03 are independent correctness fixes; execute serially by default to keep
+worktrees and CI bounded. DATA-08a may precede generation work once its migration
+dependency is met. DATA-07 and DATA-10 need not wait for index redesign when separately
+owned; neither may obscure the higher-priority integrity work. Existing VAS-11c/12
+receipt/continuation, VAS-17 released foundations and VAS-18 C5 retain their original
+acceptance gates. Do not restart completed WS-A–WS-I work or substitute these tests
+for actual-member acceptance.
+
+### Design alternatives, costs and scope boundaries
+
+| Decision | Application-side alternative | Database-side alternative | Keep current design / cost and decision rule |
+| --- | --- | --- | --- |
+| Filters and deletion | Validate typed keys/values; combine once in a shared adapter | Engine expressions/literals; prefilter before top-k | Existing string interpolation/filter replacement is rejected. Small predicate allocation; no new component. |
+| Cancellation | Own and settle asynchronous worker operations before releasing connection | Explicit rollback/commit outcome and transaction isolation | Current cleanup is rejected. Cleanup may increase cancellation latency; measure bounded behavior. |
+| Generation publication | Own jobs and reconciliation; expose stale/unknown state | Stage derived rows/collections; atomically select active manifest/generation | Destructive live replacement is rejected. Extra generation disk and cleanup I/O are explicit costs; no distributed transaction service proposed. |
+| Session/query performance | Bound reads, result buffers and subprocess execution | Composite indexes for measured filter/order shapes; SQL aggregation near data | Keep unchanged if it meets agreed targets. Indexes add write/storage cost; measure rather than promise speedup. |
+| Durability and recovery | Schedule maintenance/admission; preserve receipts and source provenance | Appropriate sync, online backup, explicit migration transactions | SQLite/LanceDB remain candidates; stronger sync costs latency, store separation costs operations. Compare on agreed loss/recovery contract. |
+| Metrics and usage | Existing analyzers/invocation owner compute once and retain provenance | Batch/current-generation publication; distinct invocation keys | Keep useful shared owners, remove misleading derivations. No warehouse, lakehouse, Data Vault, broker or extra native toolchain justified by current evidence. |
+
+### TDD, acceptance and rollback
+
+1. Inventory existing tests before adding cases. DATA-01/05 extend
+   `tests/unit/providers/test_lancedb_provider.py` and
+   `tests/unit/storage/test_sqlite_lancedb.py`; DATA-02 extends graph-store owners;
+   DATA-03/08 extend database migration/WAL/backup owners; DATA-04 extends
+   `verticals/victor-coding/tests/tools/test_code_search_tool.py` plus canonical
+   pipeline tests; DATA-06 extends `test_module_analyzer.py`; DATA-07 uses API auth,
+   session ownership and approval suites; DATA-10 uses metrics/usage/presenter owners.
+   Remove tests only when unique assertions and coverage survive in those owners.
+2. Preserve failing baseline evidence, then pass positive/negative cases for NULLs,
+   quoted/Unicode keys, duplicates, deterministic ties, changed payload/expiry,
+   cancellation, concurrent writers, retries and failure at every publication step.
+   Use real temporary engines where mocks would conceal engine-version behavior.
+3. Functional acceptance is exact: zero broadened eligibility/deletion; no later
+   commit of rolled-back work; schema/version agreement; previous usable generation
+   retained on failed replacement; no current stale identities after reconciled
+   deletion; no automatic unknown-effect replay; token conservation without duplicate
+   reasoning. A completed commit whose acknowledgement is lost remains distinct from
+   a rolled-back operation. Never replay effects to recover telemetry.
+4. After isolated fixes, qualify cold/warm and maintenance-active workloads, skewed
+   histories, large outputs, concurrent search/index/chat, deletion and revocation.
+   Record p50/p95/p99, CPU, peak memory, bytes, disk headroom, lock waits and failures.
+   Numerical targets remain Unknown until agreed; improvements are hypotheses until
+   the same-workload comparison supports them. Synthetic tests are not C5 evidence.
+5. Each implementation PR: worktree `.venv-codesign/bin/python -m pytest`, cited and
+   touched suites, configured typing/lint, full collection, independent adversarial
+   review before first push for these shared-state/security changes, all required
+   CI green before squash into develop. Formal API changes still require FEP review.
+6. Rollback: additive indexes can be removed after query verification; retain old
+   derived generations until new acceptance and reader release. Authoritative schema
+   changes require verified backup and explicit backwards-compatibility/forward-repair
+   plan. Never restore old action evidence over newer external effects. Releases,
+   deployment, restore drills and C5 have separate status/evidence, not a plan checkmark.
+
+### DATA-01 implementation checkpoint
+
+- One shared scalar predicate compiler validates existing column names, bounded
+  scalar values and exact string literals. All conditions are composed in one
+  prefilter, before top-k; NULL uses `IS NULL`. Provider and unified-store deletes
+  use the same exact string compiler. No schema migration or new dependency.
+- Real disposable LanceDB **0.30.2** tables reproduce the defects and qualify the
+  fix. This is not qualification of every version permitted by the dependency
+  range. Invalid metadata is rejected before query embedding on an initialized
+  table; cold initialization may still run. Invalid deletion identity is rejected
+  before initialization or graph mutation. Cross-store atomicity is DATA-05.
+- TDD: initial baseline **21 failed / 3 passed**, plus a strengthened conjunctive
+  regression **4 failed / 1 passed**; fixed candidate **172 passed**, **100% of
+  43 changed production lines covered**. Full collection: **35,173 tests**.
+  Existing provider/unified test owners were extended; one mock-only deletion
+  test was replaced by exact-result engine tests. CI mapping includes these owners
+  rather than creating duplicate mirrored suites.
+- Independent adversarial review found no remaining scoped runtime/test blocker:
+  99 owner tests, seven additional admission/prefilter cases and exact-string
+  escaping probes passed. Formatting, configured typing and docs gates must stay
+  green on the final candidate. Evidence: local
+  `var/codegraph-victor-20261012/data01-{red,filter-red,green,collection}.log`.
+- Remaining: immutable candidate review, PR CI and squash merge. Then DATA-02
+  cancellation/connection ownership, DATA-03 failed-migration version integrity,
+  and DATA-04 index publication. Do not restart completed continuity work or
+  production indexing to qualify these isolated storage fixes.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 

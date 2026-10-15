@@ -22,6 +22,37 @@ def store(tmp_path):
     )
 
 
+@pytest.mark.parametrize("path", ["target' OR '1'='1", "missing' OR '1'='1"])
+async def test_delete_file_uses_exact_vector_predicate(store, tmp_path, path):
+    lancedb = pytest.importorskip("lancedb")
+    store._vector_table = lancedb.connect(str(tmp_path / "vectors")).create_table(
+        "symbols",
+        data=[
+            {"file_path": "target' OR '1'='1", "vector": [1.0, 0.0]},
+            {"file_path": "other.py", "vector": [0.0, 1.0]},
+        ],
+    )
+    store._initialized = True
+    store._graph_store = AsyncMock()
+    await store.delete_file(path)
+    store._graph_store.delete_by_file.assert_awaited_once_with(path)
+    remaining = store._vector_table.to_arrow()["file_path"].to_pylist()
+    assert sorted(remaining) == (
+        ["other.py"] if path.startswith("target") else ["other.py", "target' OR '1'='1"]
+    )
+
+
+@pytest.mark.parametrize("path", [None, 12, "bad\0path"])
+async def test_delete_file_rejects_invalid_identity_before_graph_mutation(store, path):
+    store._initialized = True
+    store._graph_store = AsyncMock()
+    store._vector_table = MagicMock()
+    with pytest.raises(ValueError):
+        await store.delete_file(path)
+    store._graph_store.delete_by_file.assert_not_awaited()
+    store._vector_table.delete.assert_not_called()
+
+
 class TestInit:
     def test_defaults(self, store, tmp_path):
         assert store.repo_root == tmp_path.resolve()

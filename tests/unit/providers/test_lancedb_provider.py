@@ -388,28 +388,6 @@ class TestLanceDBProvider:
             assert results == []
 
     @pytest.mark.asyncio
-    async def test_delete_document(self, lancedb_config, mock_lancedb):
-        """Test deleting document."""
-        mock_connect, mock_db, mock_table = mock_lancedb
-        mock_db.list_tables.return_value.tables = ["test_table"]
-        mock_db.table_names.return_value = ["test_table"]  # Also set for get_table_names()
-
-        with patch(
-            "victor.storage.vector_stores.lancedb_provider.create_embedding_model"
-        ) as mock_create:
-            mock_embedding_model = AsyncMock()
-            mock_embedding_model.initialize = AsyncMock()
-            mock_embedding_model.get_dimension = MagicMock(return_value=3584)
-            mock_create.return_value = mock_embedding_model
-
-            provider = LanceDBProvider(lancedb_config)
-            await provider.initialize()
-
-            await provider.delete_document("doc_id")
-
-            mock_table.delete.assert_called_once_with("id = 'doc_id'")
-
-    @pytest.mark.asyncio
     async def test_delete_document_no_table(self, lancedb_config, mock_lancedb):
         """Test delete when table doesn't exist."""
         mock_connect, mock_db, mock_table = mock_lancedb
@@ -551,6 +529,128 @@ def semantic_store(tmp_path):
         },
     }
     return provider, document, profile
+
+
+@pytest.fixture
+def predicate_store(semantic_store):
+    """Exercise installed SQL semantics without inference or a shared database."""
+    provider, _, _ = semantic_store
+    provider.table = provider.db.create_table(
+        "embeddings",
+        data=[
+            {
+                "id": "target' OR '1'='1",
+                "file_path": "target' OR '1'='1",
+                "content": "target",
+                "vector": [0.1, 0.5],
+                "tenant": "A",
+                "kind": "code",
+                "active": True,
+                "rank": 2,
+                "score": 0.5,
+                "tag": None,
+                "label": "O'Reilly λ",
+            },
+            {
+                "id": "other",
+                "file_path": "other.py",
+                "content": "other",
+                "vector": [1.0, 0.5],
+                "tenant": "B",
+                "kind": "code",
+                "active": False,
+                "rank": 3,
+                "score": 0.75,
+                "tag": "present",
+                "label": "other",
+            },
+        ],
+    )
+    return provider
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"tenant": "A", "kind": "code"},
+        {"kind": "code", "tenant": "A"},
+        {"active": True, "rank": 2, "score": 0.5},
+        {"tag": None},
+        {"label": "O'Reilly λ"},
+    ],
+)
+async def test_search_predicates_preserve_all_typed_conditions(predicate_store, filters):
+    hits = await predicate_store.search_similar("query", limit=5, filter_metadata=filters)
+    assert [hit.content for hit in hits] == ["target"]
+
+
+async def test_eligibility_precedes_top_k(predicate_store):
+    # The ineligible row is the nearest neighbor. Filtering after top-k would
+    # return nothing; replacing the tenant filter would return the wrong row.
+    hits = await predicate_store.search_similar(
+        "query", limit=1, filter_metadata={"tenant": "A", "kind": "code"}
+    )
+    assert [hit.content for hit in hits] == ["target"]
+
+
+@pytest.mark.parametrize("filters", [None, {}])
+async def test_no_predicate_keeps_unfiltered_search(predicate_store, filters):
+    hits = await predicate_store.search_similar("query", filter_metadata=filters)
+    assert sorted(hit.content for hit in hits) == ["other", "target"]
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"tenant": "missing' OR '1'='1"},
+        {"kind": "code", "tenant": "missing"},
+    ],
+)
+async def test_search_predicates_cannot_broaden_eligibility(predicate_store, filters):
+    assert await predicate_store.search_similar("query", filter_metadata=filters) == []
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"missing": "A"},
+        {"tenant OR TRUE": "A"},
+        {"tenant": ["A"]},
+        {"tenant": {"value": "A"}},
+        {"rank": float("nan")},
+        {"rank": float("inf")},
+        {"rank": 2**64},
+        {"tenant": "A\0B"},
+        [],
+        {None: "A"},
+    ],
+)
+async def test_invalid_search_predicates_rejected_before_inference(predicate_store, filters):
+    with pytest.raises(ValueError):
+        await predicate_store.search_similar("query", filter_metadata=filters)
+    predicate_store.embedding_model.embed_text.assert_not_awaited()
+    assert predicate_store.table.count_rows() == 2
+
+
+@pytest.mark.parametrize("method", ["delete_document", "delete_by_file"])
+@pytest.mark.parametrize("target", ["target' OR '1'='1", "missing' OR '1'='1"])
+async def test_exact_vector_deletion_preserves_other_rows(predicate_store, method, target):
+    deleted = await getattr(predicate_store, method)(target)
+    remaining = predicate_store.table.to_arrow()["content"].to_pylist()
+    assert sorted(remaining) == (["other"] if target.startswith("target") else ["other", "target"])
+    if method == "delete_by_file":
+        assert deleted == (1 if target.startswith("target") else 0)
+
+
+@pytest.mark.parametrize("method", ["delete_document", "delete_by_file"])
+@pytest.mark.parametrize("identity", [None, 12, "bad\0identity"])
+async def test_invalid_deletion_rejected_before_initialization(predicate_store, method, identity):
+    predicate_store._initialized = False
+    predicate_store.initialize = AsyncMock()
+    with pytest.raises(ValueError):
+        await getattr(predicate_store, method)(identity)
+    predicate_store.initialize.assert_not_awaited()
+    assert predicate_store.table.count_rows() == 2
 
 
 async def test_semantic_table_binding_survives_reopen_and_upsert(semantic_store):

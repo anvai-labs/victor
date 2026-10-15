@@ -58,6 +58,15 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/storage/vector_stores/_lancedb_compat.py": (
+        "tests/unit/storage/test_lancedb_compat.py",
+        "tests/unit/providers/test_lancedb_provider.py",
+        "tests/unit/storage/test_sqlite_lancedb.py",
+    ),
+    "victor/storage/vector_stores/lancedb_provider.py": (
+        "tests/unit/providers/test_lancedb_provider.py",
+    ),
+    "victor/storage/unified/sqlite_lancedb.py": ("tests/unit/storage/test_sqlite_lancedb.py",),
     "victor/agent/conversation/session_model.py": (
         "tests/unit/agent/conversation/test_store_rich_metadata.py",
         "tests/unit/framework/test_client_conversation.py",
