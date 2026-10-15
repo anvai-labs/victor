@@ -69,6 +69,7 @@ RELATED_TESTS = {
         ),
     ),
     "victor/storage/graph/sqlite_store.py": (
+        "tests/unit/storage/graph/test_sqlite_store_cleanup.py",
         "tests/unit/storage/test_sqlite_graph_store.py",
         "tests/unit/storage/test_sqlite_graph_store_concurrency.py",
     ),

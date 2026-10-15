@@ -220,13 +220,16 @@ async def test_close_shuts_down_worker_without_hanging(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("phase", ["begin", "mutation", "commit", "rollback"])
-async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, caplog):
+@pytest.mark.parametrize("operation", ["upsert", "delete"])
+async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, operation, caplog):
     """Cancellation never hands an active transaction to an unrelated writer."""
     import asyncio
     import sqlite3
     import threading
 
     store = SqliteGraphStore(tmp_path)
+    if operation == "delete":
+        await store.upsert_nodes([_node(0)])
     started = asyncio.Event()
     release = threading.Event()
     loop = asyncio.get_running_loop()
@@ -241,6 +244,8 @@ async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, cap
             result = super().execute(sql, parameters)
             if sql == "BEGIN IMMEDIATE":
                 gate("begin")
+            elif operation == "delete" and sql.strip().startswith("DROP TABLE"):
+                gate("mutation")
             return result
 
         def executemany(self, sql, parameters):
@@ -265,7 +270,10 @@ async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, cap
     async def batch():
         async with store.write_batch():
             async with store.write_batch():
-                await store.upsert_nodes([_node(1)])
+                if operation == "delete":
+                    await store.delete_by_repo()
+                else:
+                    await store.upsert_nodes([_node(1)])
             if phase == "rollback":
                 raise RuntimeError("request rollback")
 
@@ -293,7 +301,12 @@ async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, cap
         # A separate connection observes durable effects, not uncommitted reads.
         with sqlite3.connect(store.db_path) as observer:
             ids = {row[0] for row in observer.execute("SELECT node_id FROM graph_node")}
-        assert ids == ({"file:f1.py", "file:f99.py"} if phase == "commit" else {"file:f99.py"})
+        expected = {"file:f99.py"}
+        if operation == "delete" and phase != "commit":
+            expected.add("file:f0.py")
+        elif operation == "upsert" and phase == "commit":
+            expected.add("file:f1.py")
+        assert ids == expected
     finally:
         release.set()
         await asyncio.gather(task, *([later] if later else []), return_exceptions=True)
