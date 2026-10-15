@@ -2328,7 +2328,10 @@ stream pass and original failed evidence were preserved and not repeated.
   retained policy/session state, rollback/FTS and cancellation. Migration ownership,
   the separate `DatabaseManager.backup()` API and operational recovery remain
   unqualified; see the canonical tracker for validation and exact merge status. No production migration, release
-  or live acceptance is claimed.
+  or live acceptance is claimed. DATA-04b review found differing parser/discovery
+  inventories, root-override identity mismatch and unsafe directory pruning in the
+  unmerged preflight candidate. A shared explicit-inventory API is now the prerequisite;
+  the canonical tracker owns its review/release and subsequent publication gates.
 
 ## 4. Suggested follow-up session plan
 
