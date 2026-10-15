@@ -2304,9 +2304,13 @@ stream pass and original failed evidence were preserved and not repeated.
   That tracker owns status, ordered PRs, existing test owners, alternatives and
   rollback. G100 retains token/cache/reasoning reporting ownership; VAS-05 owns
   hosted authorization; G61/G62/G70/C5 remain open under their existing gates.
-  DATA-01 now has a locally qualified predicate/deletion candidate on LanceDB
-  0.30.2, awaiting PR/CI; see the canonical tracker for exact evidence and limits.
-  Other repairs remain open. No migration, release or live acceptance is claimed.
+  DATA-01 predicate/deletion repair is ✅ merged in [#1362](https://github.com/anvai-labs/victor/pull/1362)
+  after review and green CI; engine qualification is LanceDB 0.30.2. DATA-02 is a
+  local cancellation/admission candidate. Its investigation additionally found
+  lifecycle calls bypassing admission, a first-edge schema probe racing close,
+  and file deletion reacquiring its own batch lock. See the canonical tracker
+  for evidence, exclusions and next gates. Other repairs remain open; no migration,
+  release or live acceptance is claimed.
 
 ## 4. Suggested follow-up session plan
 

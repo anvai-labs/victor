@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-14
-baseline_develop: 3090d7bc2d2e4d92b166be959a520efe574c3313
-next_task: DATA-01
+baseline_develop: b27c263f738598fe969ca11408226c3082e38d13
+next_task: DATA-02
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -2647,13 +2647,15 @@ user-approved scope change; a TODO plan entry is not delivery.
 
 ## Data correctness remediation plan (G102, 2026-10-14)
 
-**DATA-01 ACTIVE — local qualification, awaiting PR/CI.** Owner: Victor co-design
-session; linked worktree branch `fix/vector-predicate-integrity`, implementation
-baseline `3090d7bc2d2e4d92b166be959a520efe574c3313`. The original assessment at
-`43756b90f342d3c645155235e81bd4130e86b72c` remains historical evidence. Continuity
-PR #1361 is merged separately. Implementation is now authorized; production
-migration, deployment and write/load tests are outside this local increment.
-Other DATA rows remain TODO. Local tests are not release or live acceptance.
+**DATA-01 merged; DATA-02 active.** Owner: Victor co-design session. DATA-01
+landed in [#1362](https://github.com/anvai-labs/victor/pull/1362), squash commit
+`b27c263f738598fe969ca11408226c3082e38d13`, after independent exact-candidate
+review and all applicable CI, including Vertical tests Py3.12. DATA-02 uses linked
+worktree branch `fix/graph-cancellation-settlement` from that merged baseline.
+The original assessment at `43756b90f342d3c645155235e81bd4130e86b72c` remains
+historical evidence. Production migration, deployment and write/load tests are
+outside these local increments. Other DATA rows remain TODO; local tests and
+merges are not release or live acceptance.
 
 The immediate target is local single-user Victor; hosted multi-user acceptance is
 a separate VAS-05 requirement. Workload rate/growth/skew, concurrency, numerical
@@ -2703,8 +2705,8 @@ only against new evidence, retaining unknowns and readiness blockers.
 
 | ID / existing parent | State; severity / effort; proposed owner | Scope, dependency and exit invariant |
 | --- | --- | --- |
-| DATA-01 / CG-P2, VAS-05c | ACTIVE, local pass; High (Critical if authorization boundary) / Medium; vector adapter | Shared helper now replaces interpolated deletion/search literals and repeated filters with one typed conjunction, allowlisted identifiers and explicit NULL semantics. Include analogous unified-store deletion. All eligibility predicates apply before top-k; invalid input never broadens reads or deletes. No dependency upgrade required to claim a fix. |
-| DATA-02 / CG-P2 | TODO; High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
+| DATA-01 / CG-P2, VAS-05c | ✅ merged [#1362](https://github.com/anvai-labs/victor/pull/1362); High (Critical if authorization boundary) / Medium; vector adapter | Shared helper now replaces interpolated deletion/search literals and repeated filters with one typed conjunction, allowlisted identifiers and explicit NULL semantics. Include analogous unified-store deletion. All eligibility predicates apply before top-k; invalid input never broadens reads or deletes. No dependency upgrade required to claim a fix. |
+| DATA-02 / CG-P2 | ACTIVE, local candidate; High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
 | DATA-03 / VAS-11, storage foundation | TODO; High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
 | DATA-04a / CG-P2 | TODO; High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
 | DATA-04b / CG-P2 | TODO; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
@@ -2792,10 +2794,45 @@ for actual-member acceptance.
   escaping probes passed. Formatting, configured typing and docs gates must stay
   green on the final candidate. Evidence: local
   `var/codegraph-victor-20261012/data01-{red,filter-red,green,collection}.log`.
-- Remaining: immutable candidate review, PR CI and squash merge. Then DATA-02
-  cancellation/connection ownership, DATA-03 failed-migration version integrity,
-  and DATA-04 index publication. Do not restart completed continuity work or
-  production indexing to qualify these isolated storage fixes.
+- Exact candidate `772b5285606f32ea12151d6aa95a210587404422` independently
+  approved; all applicable CI passed, including vertical tests. Merged #1362 as
+  `b27c263f738598fe969ca11408226c3082e38d13`. Twelve additional import/unified
+  caller checks, strict docs build and built-site links also passed.
+
+### DATA-02 cancellation and connection admission checkpoint
+
+- Candidate: retain and settle the original database worker future under repeated
+  cancellation, then propagate cancellation without replaying work. Record a
+  subsequent worker error as the cancellation cause. Cleanup retains transaction
+  ownership; a connection that cannot be safely reused is discarded on the worker.
+- Existing `write_batch` owns metadata mutation and commit. Initialize/close and
+  the first edge-schema probe respect the same admission. Owner-task lifecycle
+  calls fail explicitly instead of deadlocking or implicitly committing a batch.
+  File lookup reuses its owner's batch connection, fixing file-deletion self-lock.
+- Cancellation during commit is logged as possibly committed; reconcile durable
+  state before retrying. Waiting for a native SQLite operation is not a hard
+  cancellation-latency guarantee. A permanently stalled worker still requires
+  process-level recovery; do not close its connection concurrently or replay it.
+- TDD: eleven cancellation/lifecycle/metadata regressions failed on the baseline;
+  file deletion in its own batch timed out; two worker-close/schema-probe cases
+  failed before admission repair. Existing test owners are extended rather than
+  duplicated. Verification includes separately reopened durable contents, nested
+  batches, repeated cancellation, queued writers, worker failure, rollback failure,
+  lifecycle success and connection reopen after close. Final local qualification:
+  **133 passed**, **98.4% changed-line coverage (63/64)** and **35,188 tests
+  collected**. Black/Ruff, configured MyPy, repository hygiene, docs drift, strict
+  build and built-site links pass. Independent review: 94 concurrency/selector
+  checks passed; final immutable candidate approval and CI remain gates. Removed
+  an always-skipped deletion placeholder now covered by an executable regression,
+  preserving its cross-store limitation. Evidence is under
+  `var/codegraph-victor-20261012/data02-*`; the failed fixture run is preserved too.
+- Explicit exclusions: other standalone mutation-plus-commit closures may commit
+  before cancellation is reported; no blanket cancellation-means-rollback claim.
+  Their SQL-error rollback remains a follow-up. Bulk `synchronous=OFF` is DATA-08a;
+  embedding cleanup outside SQLite is DATA-05. Other same-task read methods do not
+  automatically become batch-reentrant. No hosted or C5 acceptance is established.
+- Next: complete DATA-02 review/CI, then DATA-03 migration version integrity before
+  DATA-04 index publication. Preserve failed evidence and avoid production reindex.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 
