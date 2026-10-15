@@ -25,7 +25,7 @@ gaps:
 ## Install
 
 Published on PyPI as [`victor-codegraph`](https://pypi.org/project/victor-codegraph/).
-This source tree is version **0.10.2**; consumers should use a compatible `<1.0` pin.
+This source tree is version **0.10.3**; consumers should use a compatible `<1.0` pin.
 It repairs nested Python definition/import shadowing: proven local definitions
 retain their targets, while unmodeled conditional bindings stay unresolved.
 Rebuild derived graphs when adopting the new parser; unchanged source hashes do
@@ -101,9 +101,33 @@ records = to_proxima_records(repository, repo_graph_id="myrepo")
 
 ## Status
 
-`0.10.2` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
+`0.10.3` source version. Python (`ast`) is the full, offline frontend. JS/TS, Go, Rust,
 Java, C, and C++ have conformance fixtures; other mapped tree-sitter languages report
 symbols-tier or fallback status rather than implying full fidelity.
+
+### Explicit source inventory (0.10.3)
+
+Consumers with their own discovery policy can call:
+
+```python
+snapshot = parse_repo(root, selected_paths=["src/app.py", ".custom/helper.py"])
+```
+
+| Input | Contract |
+| --- | --- |
+| `selected_paths=None` (default) | Existing language-aware discovery and exclusions |
+| Explicit iterable | Exactly those source paths, without default hidden/build exclusions; optional `languages` still filters |
+| Empty iterable | Empty snapshot; never falls back to discovery |
+| Relative / absolute paths | Must resolve inside `root`; aliases are deduplicated and sorted |
+| Non-regular file / escaping path | Rejected before reading any source content |
+| Missing file / content read failure | Absent from the returned manifest; callers must check completeness before publication |
+| Path/type validation error | Propagates before source reads; never treated as an excluded path |
+
+The same parser, identity derivation and repository resolver serve both inputs.
+Default discovery remains unchanged; explicit paths use deterministic traversal order (root files before sorted subdirectories), with aliases collapsed.
+This is a prepared
+source read, not an atomic filesystem snapshot, authorization boundary, or committed
+index generation. Concurrent source/path replacement remains a caller concern.
 
 ### Ambiguous declarations
 

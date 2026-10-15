@@ -2319,15 +2319,19 @@ stream pass and original failed evidence were preserved and not repeated.
   additionally found ignored incremental error results, silently disabled requested
   embeddings and automatic deletion of nested project state; regression tests now
   cover these repairs. Parser completeness and atomic generation replacement remain
-  DATA-04b; cross-representation reconciliation remains DATA-05. DATA-08a is locally
-  implemented: its disposable WAL backup reproducer retained zero rows from a
+  DATA-04b; cross-representation reconciliation remains DATA-05. DATA-08a is ✅ merged
+  in [#1366](https://github.com/anvai-labs/victor/pull/1366) after review and green CI:
+  its disposable WAL backup reproducer retained zero rows from a
   source containing one committed row, and graph bulk deletion lowered configured
   durability. Investigation also found nested deletion implicitly committing its
   outer transaction. Existing-owner regressions now cover online backup publication,
   retained policy/session state, rollback/FTS and cancellation. Migration ownership,
   the separate `DatabaseManager.backup()` API and operational recovery remain
   unqualified; see the canonical tracker for validation and exact merge status. No production migration, release
-  or live acceptance is claimed.
+  or live acceptance is claimed. DATA-04b review found differing parser/discovery
+  inventories, root-override identity mismatch and unsafe directory pruning in the
+  unmerged preflight candidate. A shared explicit-inventory API is now the prerequisite;
+  the canonical tracker owns its review/release and subsequent publication gates.
 
 ## 4. Suggested follow-up session plan
 

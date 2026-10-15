@@ -1,9 +1,9 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-14
-baseline_develop: f1c3330f1de8aeb03169f40cce4ab68688665b3d
-next_task: DATA-08a
+updated: 2026-10-15
+baseline_develop: 7d22d28da7de8cd37c7269ae6f1cffd9ff77ac30
+next_task: DATA-04b
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -2647,7 +2647,7 @@ user-approved scope change; a TODO plan entry is not delivery.
 
 ## Data correctness remediation plan (G102, 2026-10-14)
 
-**DATA-01/02/03/04a merged; DATA-08a locally validated/reviewed, awaiting PR gates.** Owner: Victor co-design session. DATA-01
+**DATA-01/02/03/04a/08a merged; DATA-04b shared-inventory prerequisite in progress.** Owner: Victor co-design session. DATA-01
 landed in [#1362](https://github.com/anvai-labs/victor/pull/1362), squash commit
 `b27c263f738598fe969ca11408226c3082e38d13`. DATA-02 landed in
 [#1363](https://github.com/anvai-labs/victor/pull/1363), squash commit
@@ -2658,7 +2658,11 @@ and applicable CI, including Vertical tests Py3.12. DATA-04a uses linked worktre
 branch `fix/index-readiness-publication` from the DATA-03 merged baseline and
 landed in [#1365](https://github.com/anvai-labs/victor/pull/1365), squash commit
 `f1c3330f1de8aeb03169f40cce4ab68688665b3d`, after independent review and green CI.
-The linked worktree now owns `fix/storage-durability-backup` from that baseline.
+DATA-08a landed in [#1366](https://github.com/anvai-labs/victor/pull/1366), squash
+commit `7d22d28da7de8cd37c7269ae6f1cffd9ff77ac30`, after clean independent review
+and all applicable CI. The linked worktree now owns
+`fix/codegraph-selected-inputs` from that baseline; the consumer preflight is
+preserved separately until its shared-inventory prerequisite lands.
 The original assessment at `43756b90f342d3c645155235e81bd4130e86b72c` remains
 historical evidence. Production migration, deployment and write/load tests are
 outside these local increments. Other DATA implementations remain TODO; local tests and
@@ -2716,11 +2720,11 @@ only against new evidence, retaining unknowns and readiness blockers.
 | DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
 | DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
 | DATA-04a / CG-P2 | ✅ merged [#1365](https://github.com/anvai-labs/victor/pull/1365); High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
-| DATA-04b / CG-P2 | TODO; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
+| DATA-04b / CG-P2 | IN PROGRESS, shared-inventory prerequisite; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
 | DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
-| DATA-08a / VAS-16, storage foundation | IN PROGRESS, implemented; High / Medium; storage operations owner | After DATA-03: remove unsafe bulk durability assumptions for mixed authoritative/derived stores; choose explicit durability by authority; use online backup rather than live file-copy consolidation. Test backup/restore and maintenance failures on isolated copies. Do not separate databases merely for aesthetics. |
+| DATA-08a / VAS-16, storage foundation | ✅ merged [#1366](https://github.com/anvai-labs/victor/pull/1366); High / Medium; storage operations owner | Configured durability is retained during graph cleanup, and the existing batch owner prevents implicit commits. Consolidation uses validated online backups preserving committed WAL and prior artifacts. Disposable restore/failure checks passed; operational restore, migration ownership and cross-store guarantees remain separate. |
 | DATA-08b / VAS-16 | TODO; High / Complex; operations/recovery owner | After DATA-05/08a and agreed RPO/RTO/retention: qualify restore, derived rebuild, disk-full, maintenance contention and deletion/retention. Record machine, engine/settings, data shape, loss boundary and recovery duration. No resilience claim from unit tests alone. |
 | DATA-09 / VAS-16/22 | TODO; Medium / Medium; query/runtime owner | After correctness gates: compare session composite indexes and bounded async ripgrep against unchanged design on representative skew. Bound output before capture, propagate cancellation, profile repeated scans/queue growth. No numerical performance target or native rewrite inferred from file size. |
 | DATA-10 / UX-09, G100 | TODO; Medium / Medium; metrics/presentation owner | Reuse canonical invocation accounting: preserve measured fresh input/cache read/cache write/output/reasoning and per-field coverage. Reasoning inclusion and provider prompt conventions determine conservation; unknown is not zero. Derive ratios from summed compatible counts, never average ratios. Shared CLI/TUI/web footer plus session summary; no second meter. |
@@ -3009,10 +3013,10 @@ state (`victor/agent/conversation/store.py`, default `paths.project_db`).
   The existing force pipeline deletes before discovery; a post-build flag alone
   cannot preserve the previous graph. DATA-05 retains cross-store reconciliation.
 
-Current data-plan delivery: **4 of 12 increments merged (33.3% by unweighted
-milestone count), 8 remain (66.7%)**. This is not effort completed, audit rubric
-score, release readiness or C5 acceptance. DATA-08a is implemented locally; merge
-and release remain separate gates. Source findings and independent design review
+Current data-plan delivery: **5 of 12 increments merged (41.7% by unweighted
+milestone count), 7 remain (58.3%)**. This is not effort completed, audit rubric
+score, release readiness or C5 acceptance. DATA-08a is merged; release and live
+acceptance remain separate gates. Source findings and independent design review
 are preserved in `data04b-discovery.json`; the canonical table remains the task ledger.
 
 Implementation and qualification (base `f1c3330f1`, branch
@@ -3052,12 +3056,74 @@ Implementation and qualification (base `f1c3330f1`, branch
   Black (3,925 files), Ruff, repository hygiene, locks and docs drift passed.
   The integration file was then run explicitly with `--run-slow`: **5 passed**,
   including the previously skipped case. Its bounded synthetic timings do not
-  establish production throughput. Applicable CI, including Vertical Py3.12,
-  must pass before merge.
+  establish production throughput. All applicable PR CI passed: **39 successful**
+  checks, including Vertical Py3.12; two conditional skips and one neutral Trivy
+  advisory are not test passes. The exact reviewed candidate was
+  `e98bda0e7a1d889e0a35bcae2335a80339ed16cb`; merge is #1366 / `7d22d28da`.
+  Original failed evidence, review hash, local logs and final GitHub check records
+  remain in `var/codegraph-victor-20261012/data08a-*`.
 - Rollback: revert the code increment; it introduces no persisted schema change.
   Preserve newly created backups and original failed evidence. Do not restore the
   whole shared project database to undo derived graph changes. DATA-04b is next
   after this checkpoint; DATA-08b retains operational restore/maintenance acceptance.
+
+DATA-04b next action (no generation implementation claimed): extend existing
+indexing/force-mode/readiness test owners with failure-before-publication,
+partial-parse qualification, filtered-inventory identity and preserved-session
+cases. Reuse the existing graph CLI's explicit coverage-gap presentation. Compare
+derived-only staging with generation-qualified rows before selecting a storage
+shape; measure publication lock contention with session writers and staging disk
+headroom on authorized representative fixtures. Source discovery is retained in
+`data04b-discovery.json`. Never swap the entire mixed-authority project database,
+rerun a live rebuild, or advertise cross-store atomicity as part of this design.
+
+### DATA-04b selected-inventory prerequisite (2026-10-15)
+
+Owner: Victor co-design; linked worktree branch `fix/codegraph-selected-inputs`,
+baseline `7d22d28da`. The consumer preflight candidate is **not approved or merged**.
+Independent review found three blockers despite 30 focused passes: root overrides
+used two path bases; Graph-RAG selected files omitted by the shared parser's hidden/
+build exclusions; and directory pruning changed rooted `/pkg/*` file semantics,
+potentially turning a nonempty input into an empty destructive rebuild. Preserve
+these negative cases in the consumer follow-up before publishing any ready state.
+
+The prerequisite adds `parse_repo(selected_paths=...)` to the existing shared OSS
+parser/resolver. Default discovery is unchanged. Explicit inventories are validated
+before source reads, normalized/deduplicated, and sorted; empty means empty. Hidden/
+build files are permitted, root escapes/non-regular files rejected, and language
+filters remain explicit. Missing files/content read failures remain absent from the manifest: the
+consumer must compare expected inputs before deletion. This is neither an atomic
+filesystem snapshot nor a security boundary against concurrent path replacement.
+Source/runtime/root graph-extra versions advance together to **0.10.3**; this does
+not claim a published package. Release qualification must precede consumer adoption.
+
+- TDD: eight inventory cases failed before implementation; the existing repository
+  delta suite now passes 15 tests. The full CodeGraph suite passes 228 tests, with
+  default/explicit snapshot parity, resolver reuse, aliases, escapes and missing
+  input. These are bounded fixtures, not throughput or production acceptance.
+- Review reproduced nested ordering drift and FIFO admission; both were fixed
+  with failing regression cases before the final package pass. Independent
+  implementation review is clean; exact-commit attestation and PR CI remain gates.
+  Consumer indexing suites pass 74 tests. Changed production-line coverage is
+  100%; configured strict mypy passes 2,117 files, full collection 35,252 tests,
+  Black 3,961 files and Ruff pass. Dependency locks, docs drift and repository
+  hygiene pass. Wheel/sdist metadata validate, and an isolated Python 3.12 wheel
+  install with no optional dependencies passes default/explicit/empty-inventory
+  and symbol smoke checks. CI/release qualification is still pending.
+  Existing test owners are extended; no parallel suite or resolver is added.
+- Preserved consumer work: local branch `fix/index-generation-publication`, checkpoint
+  `d81305fec`, git stash `data04b-preflight-awaits-shared-inventory`, and persistent
+  patch/review evidence `var/codegraph-victor-20261012/data04b-preflight-*`.
+- Next: qualify/release the shared input contract; repair the three consumer blockers,
+  finish pre-delete qualification and owned worker preparation; then choose and test
+  atomic derived-generation publication with session-writer contention and disk
+  headroom evidence. Incremental mutation, CCG rereads and cross-store atomicity are
+  not solved by this prerequisite. No schema migration or production write is needed;
+  rollback is reverting the additive API before consumers require it.
+
+The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
+(58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
+completed milestone. Per-subtask percentages are unknown until acceptance gates close.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 
