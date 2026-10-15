@@ -2305,12 +2305,17 @@ stream pass and original failed evidence were preserved and not repeated.
   rollback. G100 retains token/cache/reasoning reporting ownership; VAS-05 owns
   hosted authorization; G61/G62/G70/C5 remain open under their existing gates.
   DATA-01 predicate/deletion repair is ✅ merged in [#1362](https://github.com/anvai-labs/victor/pull/1362)
-  after review and green CI; engine qualification is LanceDB 0.30.2. DATA-02 is a
-  local cancellation/admission candidate. Its investigation additionally found
+  after review and green CI; engine qualification is LanceDB 0.30.2. DATA-02
+  cancellation/admission repair is ✅ merged in [#1363](https://github.com/anvai-labs/victor/pull/1363).
+  Its investigation additionally found
   lifecycle calls bypassing admission, a first-edge schema probe racing close,
   and file deletion reacquiring its own batch lock. See the canonical tracker
-  for evidence, exclusions and next gates. Other repairs remain open; no migration,
-  release or live acceptance is claimed.
+  for evidence, exclusions and next gates. DATA-03 is active: migration errors
+  currently permit false version publication, project indexes run before upgrades,
+  and the v9 classifier DROP can discard populated data. The local repair uses
+  scoped, atomic migration admission and explicit preservation/rejection rules.
+  Other repairs remain open; no production migration, release or live acceptance
+  is claimed.
 
 ## 4. Suggested follow-up session plan
 

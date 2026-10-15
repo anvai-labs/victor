@@ -58,6 +58,16 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    **dict.fromkeys(
+        ("victor/core/database.py", "victor/core/schema.py", "victor/core/migrations.py"),
+        (
+            "tests/unit/core/test_schema_version_migration.py",
+            "tests/unit/core/test_project_database_wal.py",
+            "tests/unit/core/test_decision_schema.py",
+            "tests/unit/core/test_global_db_isolation.py",
+            "tests/unit/core/test_sql_identifier_security.py",
+        ),
+    ),
     "victor/storage/graph/sqlite_store.py": (
         "tests/unit/storage/test_sqlite_graph_store.py",
         "tests/unit/storage/test_sqlite_graph_store_concurrency.py",

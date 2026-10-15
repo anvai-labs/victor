@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-14
-baseline_develop: b27c263f738598fe969ca11408226c3082e38d13
-next_task: DATA-02
+baseline_develop: 78be84093735e21e3ef572da0077fc1fa599540b
+next_task: DATA-03
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -2647,11 +2647,13 @@ user-approved scope change; a TODO plan entry is not delivery.
 
 ## Data correctness remediation plan (G102, 2026-10-14)
 
-**DATA-01 merged; DATA-02 active.** Owner: Victor co-design session. DATA-01
+**DATA-01/02 merged; DATA-03 active.** Owner: Victor co-design session. DATA-01
 landed in [#1362](https://github.com/anvai-labs/victor/pull/1362), squash commit
-`b27c263f738598fe969ca11408226c3082e38d13`, after independent exact-candidate
-review and all applicable CI, including Vertical tests Py3.12. DATA-02 uses linked
-worktree branch `fix/graph-cancellation-settlement` from that merged baseline.
+`b27c263f738598fe969ca11408226c3082e38d13`. DATA-02 landed in
+[#1363](https://github.com/anvai-labs/victor/pull/1363), squash commit
+`78be84093735e21e3ef572da0077fc1fa599540b`. Both passed independent review and
+all applicable CI, including Vertical tests Py3.12. DATA-03 uses linked worktree
+branch `fix/schema-migration-integrity` from the DATA-02 merged baseline.
 The original assessment at `43756b90f342d3c645155235e81bd4130e86b72c` remains
 historical evidence. Production migration, deployment and write/load tests are
 outside these local increments. Other DATA rows remain TODO; local tests and
@@ -2706,8 +2708,8 @@ only against new evidence, retaining unknowns and readiness blockers.
 | ID / existing parent | State; severity / effort; proposed owner | Scope, dependency and exit invariant |
 | --- | --- | --- |
 | DATA-01 / CG-P2, VAS-05c | ✅ merged [#1362](https://github.com/anvai-labs/victor/pull/1362); High (Critical if authorization boundary) / Medium; vector adapter | Shared helper now replaces interpolated deletion/search literals and repeated filters with one typed conjunction, allowlisted identifiers and explicit NULL semantics. Include analogous unified-store deletion. All eligibility predicates apply before top-k; invalid input never broadens reads or deletes. No dependency upgrade required to claim a fix. |
-| DATA-02 / CG-P2 | ACTIVE, local candidate; High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
-| DATA-03 / VAS-11, storage foundation | TODO; High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
+| DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
+| DATA-03 / VAS-11, storage foundation | ACTIVE, local candidate; High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
 | DATA-04a / CG-P2 | TODO; High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
 | DATA-04b / CG-P2 | TODO; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
@@ -2822,7 +2824,8 @@ for actual-member acceptance.
   **133 passed**, **98.4% changed-line coverage (63/64)** and **35,188 tests
   collected**. Black/Ruff, configured MyPy, repository hygiene, docs drift, strict
   build and built-site links pass. Independent review: 94 concurrency/selector
-  checks passed; final immutable candidate approval and CI remain gates. Removed
+  checks passed; final immutable candidate review and every applicable CI gate
+  passed before #1363 merged (Vertical tests Py3.12: 12m47s). Removed
   an always-skipped deletion placeholder now covered by an executable regression,
   preserving its cross-store limitation. Evidence is under
   `var/codegraph-victor-20261012/data02-*`; the failed fixture run is preserved too.
@@ -2831,8 +2834,49 @@ for actual-member acceptance.
   Their SQL-error rollback remains a follow-up. Bulk `synchronous=OFF` is DATA-08a;
   embedding cleanup outside SQLite is DATA-05. Other same-task read methods do not
   automatically become batch-reentrant. No hosted or C5 acceptance is established.
-- Next: complete DATA-02 review/CI, then DATA-03 migration version integrity before
-  DATA-04 index publication. Preserve failed evidence and avoid production reindex.
+- Next: DATA-03 migration version integrity before DATA-04 index publication.
+  Preserve failed evidence and avoid production reindex.
+
+### DATA-03 schema migration integrity checkpoint
+
+- Candidate: one typed registry declares database scope and optional lazy-table
+  preconditions. `get_migration_sql` remains a raw compatibility projection; its
+  callers own safety checks. Both database managers use the same executor.
+- The executor takes `BEGIN IMMEDIATE` before reading the version, or a savepoint
+  within an existing caller transaction. It never commits the caller's transaction.
+  SQL blocks execute statement-by-statement using SQLite completeness parsing;
+  transaction control and connection PRAGMAs are rejected. Unexpected errors
+  propagate and roll back schema changes and version publication together.
+- Project initialization migrates before creating dependent indexes; an index
+  failure rolls back the upgrade. Global tables retain their lazy creation policy.
+  Future versions are rejected. Modern unversioned adoption retains its existing
+  policy and is **not** a guarantee of exhaustive schema validation.
+- Legacy metadata is reconciled without deleting its source: equal values are
+  retained; conflicting values, duplicate/invalid keys and missing columns stop
+  migration. Rename collisions and incompatible existing columns also stop it.
+  v9 preserves an already-current classifier table, replaces only an empty known
+  scalar layout, and rejects populated/incompatible legacy data for reconciliation.
+- TDD began with **7 failures / 4 passes** on the old implementation. Extend the
+  existing migration test owner instead of duplicating it; replace the test that
+  expected invalid SQL to be swallowed. Tests use disposable databases, including
+  independently reopened contents, nested transactions, quoted SQL/trigger blocks,
+  legacy/current layouts, concurrent migration admission and retry after failure.
+  Final selected gate: **157 passed**, **97.5% changed-line coverage (159/163)**;
+  broader database/graph/conversation callers: **206 passed**; full collection:
+  **35,234 tests**. Black/Ruff, configured MyPy (including unsuppressed executor
+  and schema), repository hygiene, docs drift, strict docs build and built-site
+  links pass. The raw SQL projection is byte-identical across all 55 version
+  intervals from 0 through 9. Independent review found and fixed wrong-kind
+  object handling: a view/index is not an absent optional table. Its four new
+  regressions failed before repair; the corrected review passed 133 checks.
+  Evidence: `var/codegraph-victor-20261012/data03-*`. CI remains a merge gate;
+  this checkpoint is not a release or live upgrade.
+- Rollback: a failed schema upgrade retains the old durable version and schema.
+  Preserve a verified online backup before any eventual live upgrade; do not
+  overwrite a live database from a stale snapshot. No production migration runs
+  in this increment. Historical import/consolidation transactions and backup/
+  restore guarantees remain DATA-08a. Next: qualify DATA-03, then DATA-04a's owned
+  index rebuild and truthful readiness publication.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 
