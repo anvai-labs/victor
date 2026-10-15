@@ -2330,8 +2330,17 @@ stream pass and original failed evidence were preserved and not repeated.
   unqualified; see the canonical tracker for validation and exact merge status. No production migration, release
   or live acceptance is claimed. DATA-04b review found differing parser/discovery
   inventories, root-override identity mismatch and unsafe directory pruning in the
-  unmerged preflight candidate. A shared explicit-inventory API is now the prerequisite;
-  the canonical tracker owns its review/release and subsequent publication gates.
+  unmerged preflight candidate. The shared explicit-inventory prerequisite is ✅
+  merged in [#1367](https://github.com/anvai-labs/victor/pull/1367) and released as
+  CodeGraph 0.10.3 after review, green CI and published-wheel verification. A bounded
+  follow-up probe found eight completed parse results despite queue capacity one,
+  and eight pending tasks after consumer failure; streaming ownership/settlement
+  now precedes consumer preflight and atomic publication. The current unmerged
+  `fix/index-stream-ownership` candidate bounds producers and settles native work
+  on failure/cancellation, with existing-owner regression coverage. Review also
+  identified retained prior result payloads; a failing regression now covers their
+  release. This is not atomic publication or a hard parser cancellation deadline.
+  The canonical tracker owns validation and remaining gates; DATA-04b remains open.
 
 ## 4. Suggested follow-up session plan
 

@@ -59,6 +59,7 @@ from typing import (
     List,
     Optional,
     Set,
+    Sequence,
     Tuple,
     TYPE_CHECKING,
     TypeVar,
@@ -1426,14 +1427,15 @@ class GraphIndexingPipeline:
         except Exception:
             return False
 
+    def _parse_worker_count(self) -> int:
+        """Use the same concurrency bound for async producers and parser threads."""
+        return self.config.parse_workers or min(os.cpu_count() or 4, 8)
+
     def _get_executor(self) -> concurrent.futures.ThreadPoolExecutor:
         """Return (creating lazily) a thread pool for CPU-bound AST parsing."""
         if self._executor is None:
-            workers = getattr(self.config, "parse_workers", 0) or None
-            if workers is None:
-                workers = min(os.cpu_count() or 4, 8)
             self._executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=workers, thread_name_prefix="ccg-parse"
+                max_workers=self._parse_worker_count(), thread_name_prefix="ccg-parse"
             )
         return self._executor
 
@@ -3323,18 +3325,17 @@ class _IndexingStreamPipeline:
     Producers (N threads):  parse files in thread pool → enqueue ParseResult
     Consumer  (1 coroutine): drain queue → accumulate mini-batch → bulk write
 
-    Back-pressure
-    =============
-    asyncio.Queue(maxsize=queue_maxsize) throttles producers when the consumer
-    is slower than the thread pool: each producer coroutine blocks on queue.put()
-    until the consumer frees space.  The thread pool itself caps CPU concurrency
-    to max_workers (min(cpu_count, 8) by default).
+    Back-pressure and ownership
+    ===========================
+    A fixed number of producer coroutines each owns at most one submitted parse
+    or completed result. A full queue stops that producer submitting another file.
+    Result count is bounded by queue_maxsize + parse_workers + write_batch_size;
+    this is not a byte bound on a single file's graph or on repository-wide state.
 
-    Memory footprint
-    ================
-    At most queue_maxsize ParseResults are held in RAM simultaneously, regardless
-    of total file count.  Mini-batches of write_batch_size files are flushed in
-    one SQLite transaction, so peak write memory is bounded as well.
+    Failure/cancellation cancels and settles owned coroutines and outstanding
+    native parses before returning. Parser threads cannot be forcibly stopped:
+    settlement has no hard deadline. Already committed batches are not rolled back.
+    This stream does not make concurrent use of the parent pipeline safe.
     """
 
     # Class-level sentinel — shared across all instances, safe for `is` comparisons
@@ -3346,6 +3347,8 @@ class _IndexingStreamPipeline:
         write_batch_size: int = 20,
         queue_maxsize: int = 100,
     ) -> None:
+        if write_batch_size < 1 or queue_maxsize < 1:
+            raise ValueError("Indexing batch size and queue capacity must be positive")
         self._pipeline = pipeline
         self._write_batch_size = write_batch_size
         self._queue_maxsize = queue_maxsize
@@ -3361,33 +3364,73 @@ class _IndexingStreamPipeline:
     ) -> GraphIndexStats:
         """Run producer and consumer concurrently; return merged stats."""
         queue: asyncio.Queue = asyncio.Queue(maxsize=self._queue_maxsize)
-        stats, _ = await asyncio.gather(
-            self._consume(queue, total_files, done_offset, progress_callback),
-            self._produce(files, queue),
+        consumer = asyncio.create_task(
+            self._consume(queue, total_files, done_offset, progress_callback)
         )
-        return stats
+        producer = asyncio.create_task(self._produce(files, queue))
+        try:
+            stats, _ = await asyncio.gather(consumer, producer)
+            return stats
+        finally:
+            await self._settle([consumer, producer], cancel=True)
+
+    @staticmethod
+    async def _settle(futures: Sequence[asyncio.Future[Any]], *, cancel: bool = False) -> None:
+        """Retrieve all outcomes, deferring repeated cancellation until settled.
+
+        Only coroutine owners are cancelled. Executor futures must remain live
+        so their completion continues to represent the actual native work.
+        """
+        if cancel:
+            for future in futures:
+                if not future.done():
+                    future.cancel()
+        settled = asyncio.gather(*futures, return_exceptions=True)
+        cancelled = False
+        while not settled.done():
+            try:
+                await asyncio.shield(settled)
+            except asyncio.CancelledError:
+                cancelled = True
+        settled.result()
+        if cancelled:
+            raise asyncio.CancelledError
 
     # ── Producer ───────────────────────────────────────────────────────────
 
     async def _produce(self, files: List[Path], queue: asyncio.Queue) -> None:
-        """Submit every file to the thread pool; put each ParseResult into the queue.
-
-        asyncio.gather runs all coroutines concurrently.  Actual CPU work is
-        bounded by the thread pool's max_workers; the queue's maxsize provides
-        additional back-pressure so the thread pool slows down when the consumer
-        (store write) falls behind.
-        """
-        loop = asyncio.get_event_loop()
+        """Bound submissions by worker count and settle workers on every exit."""
+        if not files:
+            await queue.put(self._STREAM_DONE)
+            return
+        loop = asyncio.get_running_loop()
         executor = self._pipeline._get_executor()
+        paths = iter(files)
 
-        async def _parse_and_put(fp: Path) -> None:
-            try:
-                result = await loop.run_in_executor(executor, self._pipeline._parse_file_sync, fp)
-            except Exception as exc:
-                result = ParseResult(file_path=fp, language=None, error=exc)
-            await queue.put(result)  # blocks when queue full → natural back-pressure
+        async def produce_worker() -> None:
+            # Iterator access occurs on the event loop, with no await between
+            # reading an item and taking ownership of its executor future.
+            for fp in paths:
+                future = loop.run_in_executor(executor, self._pipeline._parse_file_sync, fp)
+                try:
+                    result = await asyncio.shield(future)
+                except asyncio.CancelledError:
+                    await self._settle([future])
+                    raise
+                except Exception as exc:
+                    result = ParseResult(file_path=fp, language=None, error=exc)
+                await queue.put(result)
+                # Do not retain the preceding payload while the next parse runs.
+                del result, future
 
-        await asyncio.gather(*(_parse_and_put(fp) for fp in files), return_exceptions=True)
+        workers = [
+            asyncio.create_task(produce_worker())
+            for _ in range(min(len(files), self._pipeline._parse_worker_count()))
+        ]
+        try:
+            await asyncio.gather(*workers)
+        finally:
+            await self._settle(workers, cancel=True)
         await queue.put(self._STREAM_DONE)
 
     # ── Consumer ───────────────────────────────────────────────────────────
