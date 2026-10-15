@@ -71,7 +71,7 @@ def test_prepare_repository_snapshot_propagates_unexpected_failure(
 ) -> None:
     codegraph = pytest.importorskip("victor_codegraph")
 
-    def _raise(_root):
+    def _raise(_root, **kwargs):
         raise RuntimeError("parser unavailable")
 
     monkeypatch.setattr(codegraph, "parse_repo", _raise)
@@ -168,7 +168,10 @@ def test_canonical_projection_carries_body_hash_even_when_summary_is_unchanged()
 
 
 @pytest.mark.asyncio
-async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(tmp_path, monkeypatch):
+@pytest.mark.parametrize("incremental", [True, False])
+async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(
+    tmp_path, monkeypatch, incremental
+):
     from unittest.mock import AsyncMock, Mock
     from victor_codegraph import parse_repo
     from victor.core.graph_rag.config import GraphIndexConfig
@@ -183,6 +186,7 @@ async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(tmp_p
         "from ambiguous import duplicate\ndef consumer(): return duplicate()\n"
     )
     shared = parse_repo(tmp_path)
+    monkeypatch.setattr(SqliteGraphStore, "_clear_all_embeddings", AsyncMock())
     collision = shared.files["ambiguous.py"]
     duplicate_ids = {s.id for s in collision.symbols if s.simple_name == "duplicate"}
     marker_id = next(
@@ -199,6 +203,7 @@ async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(tmp_p
             GraphIndexConfig(
                 root_path=tmp_path,
                 enable_ccg=True,
+                incremental=incremental,
                 enable_embeddings=False,
                 enable_subgraph_cache=False,
                 enable_module_metrics=False,
@@ -245,3 +250,120 @@ async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(tmp_p
         )
     finally:
         await store.close()
+
+
+def test_prepared_identity_tracks_selected_content_and_intent_only(tmp_path):
+    from victor_codegraph import parse_repo
+    from victor.core.graph_rag.codegraph_repository import qualify_repository_snapshot
+
+    selected = tmp_path / "selected.py"
+    excluded = tmp_path / "excluded.py"
+    selected.write_text("def selected(): return 1\n")
+    excluded.write_text("x = 1\n")
+    repository = parse_repo(tmp_path)
+    source_id = repository.generation_id
+    symbol_ids = [s.id for s in repository.symbols]
+    settings = {"enable_ccg": False, "embedding_profile": None}
+    versions = {"python": "3.12", "victor-codegraph": "test-version"}
+
+    def qualify(repo, **overrides):
+        return qualify_repository_snapshot(
+            repo,
+            ["selected.py"],
+            settings=overrides.get("settings", settings),
+            parser_versions=overrides.get("parser_versions", versions),
+        )
+
+    original = qualify(repository)
+    assert original.status == "complete" and original.prepared_id
+    assert qualify(repository, settings=dict(reversed(list(settings.items())))) == original
+    assert qualify(repository, parser_versions=dict(reversed(list(versions.items())))) == original
+    excluded.write_text("x = 2\n")
+    assert qualify(parse_repo(tmp_path)) == original
+    selected.write_text("def selected(): return 2\n")
+    assert qualify(parse_repo(tmp_path)).prepared_id != original.prepared_id
+    assert (
+        qualify(repository, settings={**settings, "enable_ccg": True}).prepared_id
+        != original.prepared_id
+    )
+    assert (
+        qualify(repository, parser_versions={**versions, "python": "3.13"}).prepared_id
+        != original.prepared_id
+    )
+    assert repository.generation_id == source_id
+    assert [s.id for s in repository.symbols] == symbol_ids
+
+
+@pytest.mark.parametrize(
+    "defect", ["missing_file", "missing_manifest", "hash_mismatch", "error", "fallback", "partial"]
+)
+def test_snapshot_qualification_distinguishes_invalid_and_partial_inputs(tmp_path, defect):
+    from dataclasses import replace
+    from victor_codegraph import parse_repo, ParseStatus
+    from victor.core.graph_rag.codegraph_repository import qualify_repository_snapshot
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    repository = parse_repo(tmp_path)
+    if defect == "missing_file":
+        repository.files.clear()
+    elif defect == "missing_manifest":
+        repository.manifest.clear()
+    elif defect == "hash_mismatch":
+        repository.manifest["a.py"] = "wrong"
+    else:
+        repository.files["a.py"] = replace(repository.files["a.py"], status=ParseStatus(defect))
+    result = qualify_repository_snapshot(
+        repository, ["a.py"], settings={}, parser_versions={"parser": "1"}
+    )
+    assert result.selected_count == 1
+    if defect == "partial":
+        assert result.status == "partial"
+        assert result.partial_files == ("a.py",) and result.prepared_id
+    else:
+        assert result.status == "failed" and result.prepared_id is None
+        assert (result.missing_files or result.failed_files) == ("a.py",)
+
+
+def test_missing_optional_parser_or_version_never_invents_prepared_identity(tmp_path, monkeypatch):
+    from victor_codegraph import parse_repo
+    from victor.core.graph_rag import codegraph_repository as boundary
+    from importlib.metadata import PackageNotFoundError
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+
+    def unavailable(package):
+        raise PackageNotFoundError(package)
+
+    monkeypatch.setattr(boundary.metadata, "version", unavailable)
+    repository = parse_repo(tmp_path)
+    versions = boundary.snapshot_parser_versions(repository)
+    assert versions["victor-codegraph"] is None and versions["python"]
+    qualified = boundary.qualify_repository_snapshot(
+        repository, ["a.py"], settings={}, parser_versions=versions
+    )
+    assert qualified.status == "complete" and qualified.prepared_id is None
+    legacy = boundary.qualify_repository_snapshot(
+        None, ["a.py"], settings={}, parser_versions=versions
+    )
+    assert legacy.status == "legacy-unqualified" and legacy.prepared_id is None
+
+
+@pytest.mark.parametrize("missing", ["victor_codegraph", "parser_dependency", None])
+def test_optional_snapshot_absence_is_distinct_from_broken_install(tmp_path, monkeypatch, missing):
+    import builtins
+
+    original = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "victor_codegraph":
+            if missing is None:
+                raise ImportError("installed parser export is broken")
+            raise ModuleNotFoundError("unavailable", name=missing)
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    if missing == "victor_codegraph":
+        assert prepare_repository_snapshot(tmp_path, []) is None
+    else:
+        with pytest.raises(ImportError):
+            prepare_repository_snapshot(tmp_path, [])

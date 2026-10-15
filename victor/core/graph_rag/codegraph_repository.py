@@ -2,12 +2,114 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import platform
+from importlib import metadata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AbstractSet, Any, Iterable
+from typing import TYPE_CHECKING, AbstractSet, Any, Iterable, Mapping
+
+if TYPE_CHECKING:
+    from victor_codegraph import ParsedRepository
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RepositorySnapshotQualification:
+    """Prepared-input evidence, never proof of a committed graph generation.
+
+    Missing optional parser/version information remains explicit. Partial parses
+    retain their diagnostics in the repository; admission does not erase them.
+    """
+
+    canonical_available: bool
+    selected_count: int
+    missing_files: tuple[str, ...] = ()
+    failed_files: tuple[str, ...] = ()
+    partial_files: tuple[str, ...] = ()
+    parser_versions: tuple[tuple[str, str | None], ...] = ()
+    prepared_id: str | None = None
+
+    @property
+    def status(self) -> str:
+        if not self.canonical_available:
+            return "legacy-unqualified"
+        if self.missing_files or self.failed_files:
+            return "failed"
+        return "partial" if self.partial_files else "complete"
+
+
+def snapshot_parser_versions(repository: ParsedRepository | None) -> dict[str, str | None]:
+    """Record installed parser versions without loading grammars or models.
+
+    Versions describe the installed environment, not an editable source/build
+    fingerprint. Missing distribution metadata cannot establish an identity.
+    """
+    packages = ["victor-codegraph"]
+    if repository is not None and any(p.language != "python" for p in repository.files.values()):
+        packages.extend(("tree-sitter", "tree-sitter-language-pack"))
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    for package in packages:
+        try:
+            versions[package] = metadata.version(package)
+        except metadata.PackageNotFoundError:
+            versions[package] = None
+    return versions
+
+
+def qualify_repository_snapshot(
+    repository: ParsedRepository | None,
+    selected_files: Iterable[str],
+    *,
+    settings: Mapping[str, object],
+    parser_versions: Mapping[str, str | None],
+) -> RepositorySnapshotQualification:
+    """Qualify exactly the selected manifest without changing source/symbol IDs.
+
+    This does not qualify CCG/vector output, later source reads, or publication.
+    Configured extraction intent is part of this prepared identity; operational
+    batching/concurrency settings are deliberately supplied separately by callers.
+    """
+    selected = set(selected_files)
+    versions = tuple(sorted(parser_versions.items()))
+    if repository is None:
+        return RepositorySnapshotQualification(False, len(selected), parser_versions=versions)
+    missing = tuple(sorted(selected - (repository.files.keys() & repository.manifest.keys())))
+    failed = tuple(
+        sorted(
+            path
+            for path in selected - set(missing)
+            if repository.files[path].status.value not in {"success", "partial"}
+            or not repository.manifest[path]
+            or repository.manifest[path] != repository.files[path].content_hash
+        )
+    )
+    partial = tuple(
+        sorted(
+            path
+            for path in selected & repository.files.keys()
+            if repository.files[path].status.value == "partial"
+        )
+    )
+    prepared_id = None
+    if not missing and not failed and versions and all(value for _, value in versions):
+        evidence = {
+            "contract": "graph-preflight-v1",
+            "manifest": [
+                (p, repository.manifest[p], repository.files[p].status.value)
+                for p in sorted(selected)
+            ],
+            "parser_versions": versions,
+            "settings": dict(settings),
+        }
+        raw = json.dumps(evidence, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        prepared_id = "prepared-v1:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return RepositorySnapshotQualification(
+        True, len(selected), missing, failed, partial, versions, prepared_id
+    )
 
 
 @dataclass(frozen=True)
@@ -24,34 +126,20 @@ class RepositoryRelationProjection:
 def prepare_repository_snapshot(
     root_path: Path,
     allowed_files: Iterable[str],
-) -> Any | None:
-    """Parse and filter one repository snapshot, or return ``None`` softly."""
+) -> ParsedRepository | None:
+    """Parse the caller's exact inventory using the canonical shared resolver.
+
+    Only an absent optional package permits legacy extraction. Parser failures
+    propagate; empty input stays explicitly empty, never default discovery.
+    """
     try:
         import victor_codegraph as codegraph
-
-        repository = codegraph.parse_repo(root_path)
-    except ImportError as exc:
+    except ModuleNotFoundError as exc:
+        if exc.name != "victor_codegraph":
+            raise
         logger.warning("victor-codegraph repository snapshot unavailable: %s", exc)
         return None
-
-    allowed = set(allowed_files)
-    repository.files = {
-        path: parsed for path, parsed in repository.files.items() if path in allowed
-    }
-    repository.manifest = {
-        path: digest for path, digest in repository.manifest.items() if path in allowed
-    }
-    repository.symbols = [
-        symbol for symbol in repository.symbols if symbol.location.file_path in allowed
-    ]
-    symbol_ids = {symbol.id for symbol in repository.symbols}
-    repository.relations = [
-        relation
-        for relation in repository.relations
-        if relation.from_symbol_id in symbol_ids
-        and (relation.target_ref is not None or relation.to_symbol_id in symbol_ids)
-    ]
-    return repository
+    return codegraph.parse_repo(root_path, selected_paths=allowed_files)
 
 
 def project_resolved_relations(

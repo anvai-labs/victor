@@ -65,11 +65,15 @@ from typing import (
     TypeVar,
 )
 
-from victor.core.graph_rag.exclude_patterns import is_path_excluded
+from victor.core.graph_rag.exclude_patterns import is_path_excluded, is_subtree_excluded
 
 if TYPE_CHECKING:
     from victor.storage.graph.protocol import GraphNode
-    from victor.core.graph_rag.codegraph_repository import RepositoryRelationProjection
+    from victor.core.graph_rag.codegraph_repository import (
+        RepositoryRelationProjection,
+        RepositorySnapshotQualification,
+    )
+    from victor_codegraph import ParsedRepository
     from victor.storage.graph.protocol import GraphStoreProtocol
 
 logger = logging.getLogger(__name__)
@@ -406,7 +410,8 @@ class GraphIndexingPipeline:
         # Snapshot of persisted symbol nodes, shared by the three cross-file
         # resolution passes. Populated lazily via _persisted_symbols().
         self._persisted_symbol_cache: Optional[List[Any]] = None
-        self._codegraph_repository: Any = None
+        self._codegraph_repository: ParsedRepository | None = None
+        self._snapshot_qualification: RepositorySnapshotQualification | None = None
         self._codegraph_file_metadata: Dict[str, Dict[str, Any]] = {}
         self._codegraph_owned_symbol_ids: Set[str] = set()
         self._codegraph_owned_files: Set[str] = set()
@@ -418,6 +423,8 @@ class GraphIndexingPipeline:
         # its own parser instance (tree-sitter parsers are not thread-safe to share).
         self._thread_local = threading.local()
         self._executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+        self._index_run_lock = asyncio.Lock()
+        self._active_root: Path | None = None
         # Lazily-resolved TreeSitterAnalysisProtocol provider. Resolved once
         # per pipeline; if the registry's enhanced provider is replaced after
         # construction the pipeline keeps its original reference.
@@ -450,11 +457,33 @@ class GraphIndexingPipeline:
             GraphIndexStats with indexing results
         """
 
+        async with self._index_run_lock:
+            self._active_root = (root_path or self.config.root_path).resolve()
+            try:
+                return await self._index_repository_owned(
+                    self._active_root, progress_callback, status_callback
+                )
+            finally:
+                self._active_root = None
+
+    def _effective_root(self) -> Path:
+        return self._active_root or self.config.root_path.resolve()
+
+    async def _index_repository_owned(
+        self,
+        root_path: Path,
+        progress_callback: Optional[Callable[[int, int, str], None]],
+        status_callback: Optional[Callable[[str], None]],
+    ) -> GraphIndexStats:
+        """Run with one owner of mutable parser, root and publication state."""
+
         def _status(msg: str) -> None:
             if status_callback:
                 status_callback(msg)
 
         root = (root_path or self.config.root_path).resolve()
+        if not root.is_dir():
+            raise NotADirectoryError(f"Index root must be an existing directory: {root}")
         stats = GraphIndexStats()
         start_time = time.time()
         # Per-run snapshot: a reused pipeline must not resolve this run's edges
@@ -485,6 +514,7 @@ class GraphIndexingPipeline:
         self._pending_relationship_records.clear()
         self._pending_import_records.clear()
         self._codegraph_repository = None
+        self._snapshot_qualification = None
         self._codegraph_owned_symbol_ids.clear()
         self._codegraph_owned_files.clear()
         self._codegraph_symbol_ids_by_location.clear()
@@ -502,6 +532,7 @@ class GraphIndexingPipeline:
         self._get_analysis_provider()
 
         # Check the existing generation before parsing can replace its markers.
+        embedding_profile: str | None = None
         if self.config.enable_embeddings:
             from victor.storage.embeddings.service import get_embedding_service
             from victor_codegraph.embeddings import EmbeddingProfile
@@ -512,6 +543,7 @@ class GraphIndexingPipeline:
             profile = await asyncio.to_thread(lambda: service.profile)
             if not isinstance(profile, EmbeddingProfile):
                 raise ValueError("semantic embedding profile is unavailable")
+            embedding_profile = profile.identity
             self._check_stored_embedding_profiles(
                 await self.graph_store.get_all_nodes(), profile.identity
             )
@@ -519,13 +551,6 @@ class GraphIndexingPipeline:
             validate_profile = getattr(provider, "validate_embedding_profile", None)
             if validate_profile is not None:
                 await validate_profile(profile)
-
-        # Force mode: clear all existing data before rebuilding
-        if not self.config.incremental:
-            logger.info("Force rebuild: clearing all existing graph data")
-            _status("Clearing existing graph data…")
-            clear_embeddings = not self.config.enable_embeddings
-            await self.graph_store.delete_by_repo(clear_embeddings=clear_embeddings)
 
         # Discover source files
         _status("Discovering source files…")
@@ -555,11 +580,63 @@ class GraphIndexingPipeline:
         # will be indexed.  The snapshot still includes unchanged discovered
         # files: a changed caller may import an unchanged target, and an
         # unchanged caller may acquire a newly-added target.
-        if files:
-            await asyncio.to_thread(
-                self._prepare_codegraph_repository,
-                root,
-                discovered_files,
+        if files or not self.config.incremental:
+            from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
+
+            selected = tuple(self._canonical_file_str(path) for path in discovered_files)
+            # Workers return data only. Cancellation cannot let a late worker
+            # overwrite fields belonging to a subsequent run of this pipeline.
+            preparation = asyncio.create_task(
+                asyncio.to_thread(prepare_repository_snapshot, root, selected)
+            )
+            try:
+                repository = await asyncio.shield(preparation)
+            except asyncio.CancelledError:
+                await _settle_indexing_futures([preparation])
+                raise
+            self._bind_codegraph_repository(repository)
+
+        if not self.config.incremental:
+            from victor.core.graph_rag.codegraph_repository import (
+                qualify_repository_snapshot,
+                snapshot_parser_versions,
+            )
+
+            qualification = qualify_repository_snapshot(
+                self._codegraph_repository,
+                (self._canonical_file_str(path) for path in discovered_files),
+                settings={
+                    "enable_ccg": self.config.enable_ccg,
+                    "enable_embeddings": self.config.enable_embeddings,
+                    "embedding_profile": embedding_profile,
+                    "max_file_size_bytes": self.config.max_file_size_bytes,
+                    "include_patterns": sorted(self.config.include_patterns),
+                    "exclude_patterns": sorted(self.config.exclude_patterns),
+                },
+                parser_versions=snapshot_parser_versions(self._codegraph_repository),
+            )
+            self._snapshot_qualification = qualification
+            if qualification.status == "failed":
+                raise ValueError(
+                    "Force rebuild preflight failed; previous graph retained: "
+                    f"{len(qualification.missing_files)} missing selected files, "
+                    f"{len(qualification.failed_files)} failed parses or manifest mismatches"
+                )
+            logger.info(
+                "Prepared graph input: status=%s identity=%s selected=%d partial=%d",
+                qualification.status,
+                qualification.prepared_id,
+                qualification.selected_count,
+                len(qualification.partial_files),
+            )
+            if qualification.status == "legacy-unqualified" and discovered_files:
+                logger.warning(
+                    "Force rebuild uses legacy extraction; canonical input is unqualified"
+                )
+            logger.info("Force rebuild: clearing all existing graph data after preflight")
+            _status("Clearing existing graph data…")
+            await self.graph_store.delete_by_repo(
+                clear_embeddings=not self.config.enable_embeddings
             )
 
         # Process files in batches — parse in parallel, write serially.
@@ -672,20 +749,11 @@ class GraphIndexingPipeline:
         except Exception as exc:
             logger.debug("Post-rebuild database maintenance skipped: %s", exc)
 
-    def _prepare_codegraph_repository(self, root_path: Path, files: List[Path]) -> None:
-        """Prepare one filtered semantic snapshot for this indexing run.
-
-        ``victor-codegraph`` remains a soft dependency.  Any import or parse
-        failure leaves the snapshot unset and all existing provider/handler
-        resolvers continue unchanged.
-        """
-        from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
-
-        allowed_files = (self._canonical_file_str(path) for path in files)
-        self._codegraph_repository = prepare_repository_snapshot(root_path, allowed_files)
+    def _bind_codegraph_repository(self, repository: ParsedRepository | None) -> None:
+        """Bind successfully awaited preparation on the owning event-loop task."""
+        self._codegraph_repository = repository
         self._codegraph_symbol_ids_by_location.clear()
         self._codegraph_file_metadata.clear()
-        repository = self._codegraph_repository
         if repository is None:
             return
 
@@ -1184,38 +1252,41 @@ class GraphIndexingPipeline:
         exclude_patterns = self.config.exclude_patterns
         include_patterns = self.config.include_patterns
 
-        for file_path in root_path.rglob("*"):
-            if not file_path.is_file():
-                continue
+        def discovery_error(error: OSError) -> None:
+            # Incremental discovery retains its legacy best-effort behavior.
+            # A force rebuild must not mistake unreadable input for deletion.
+            if not self.config.incremental:
+                raise error
 
-            # Check file size
-            try:
-                if file_path.stat().st_size > self.config.max_file_size_bytes:
+        for directory, dirs, filenames in os.walk(root_path, onerror=discovery_error):
+            directory_path = Path(directory)
+            dirs[:] = [
+                name
+                for name in dirs
+                if not is_subtree_excluded(directory_path / name, root_path, exclude_patterns)
+            ]
+            for name in filenames:
+                file_path = directory_path / name
+                path_str = str(file_path.relative_to(root_path))
+                if is_path_excluded(file_path, root_path, exclude_patterns):
                     continue
-            except OSError:
-                continue
-
-            rel_path = file_path.relative_to(root_path)
-            path_str = str(rel_path)
-
-            # Check exclude patterns
-            if is_path_excluded(file_path, root_path, exclude_patterns):
-                continue
-
-            # Check include patterns (if specified)
-            if include_patterns:
-                included = any(
+                if include_patterns and not any(
                     fnmatch.fnmatch(path_str, pattern) or fnmatch.fnmatch(path_str, f"**/{pattern}")
                     for pattern in include_patterns
-                )
-                if not included:
+                ):
                     continue
-
-            language = self._detect_language(file_path)
-            if not self._is_indexable_language(language):
-                continue
-
-            files.append((language, file_path))
+                language = self._detect_language(file_path)
+                if not self._is_indexable_language(language):
+                    continue
+                try:
+                    if not file_path.is_file():
+                        continue
+                    if file_path.stat().st_size > self.config.max_file_size_bytes:
+                        continue
+                except OSError as exc:
+                    discovery_error(exc)
+                    continue
+                files.append((language, file_path))
 
         return [
             file_path
@@ -1302,6 +1373,7 @@ class GraphIndexingPipeline:
         self, file: str, mtime: float, content_hash: Optional[str]
     ) -> None:
         """Persist mtime + content hash, tolerating stores without the hash kwarg."""
+        file = self._canonical_file_str(file)
         try:
             await self.graph_store.update_file_mtime(file, mtime, content_hash=content_hash)
         except TypeError:
@@ -1313,7 +1385,7 @@ class GraphIndexingPipeline:
         Incremental runs computed it during planning; force/full runs compute
         it here so the NEXT incremental run has hashes to verify against.
         """
-        key = self._graph_file_key(file_path, self.config.root_path.resolve())
+        key = self._canonical_file_str(file_path)
         digest = self._pending_file_hashes.get(key)
         if digest is None:
             digest = self._compute_file_hash(file_path)
@@ -1564,26 +1636,12 @@ class GraphIndexingPipeline:
         )
 
     def _canonical_file_str(self, file_path: Path | str) -> str:
-        """Repo-relative canonical form mirroring SqliteGraphStore.
-
-        Kept inline rather than importing the store's helper because the
-        store may not have been initialized yet at parse time, and the
-        rule is simple enough to duplicate without drift risk: resolve
-        symlinks, take ``relative_to(project_root)`` when possible,
-        otherwise fall back to the absolute string.
-        """
-        root = self.config.root_path.resolve()
-        p = Path(file_path).expanduser()
-        if not p.is_absolute():
-            p = root / p
-        try:
-            resolved = p.resolve(strict=False)
-        except OSError:
-            resolved = p.absolute()
-        try:
-            return resolved.relative_to(root).as_posix()
-        except ValueError:
-            return str(resolved)
+        """Derive every per-run path key from the same effective root."""
+        path = Path(file_path).expanduser()
+        root = self._effective_root()
+        if not path.is_absolute():
+            path = root / path
+        return self._graph_file_key(path, root)
 
     def _inject_module_node(
         self,
@@ -2042,7 +2100,7 @@ class GraphIndexingPipeline:
         """Drop graph state for a file that disappeared during indexing."""
         logger.info("Skipping vanished file during graph indexing: %s", file_path)
         try:
-            await self.graph_store.delete_by_file(str(file_path))
+            await self.graph_store.delete_by_file(self._canonical_file_str(file_path))
         except Exception as exc:
             logger.debug("Failed to clean vanished file %s from graph store: %s", file_path, exc)
 
@@ -3317,6 +3375,30 @@ class GraphIndexingPipeline:
         target.errors.extend(source.errors)
 
 
+async def _settle_indexing_futures(
+    futures: Sequence[asyncio.Future[Any]], *, cancel: bool = False
+) -> None:
+    """Retrieve all outcomes, deferring repeated cancellation until settled.
+
+    Only coroutine owners are cancelled. Executor futures must remain live
+    so their completion continues to represent the actual native work.
+    """
+    if cancel:
+        for future in futures:
+            if not future.done():
+                future.cancel()
+    settled = asyncio.gather(*futures, return_exceptions=True)
+    cancelled = False
+    while not settled.done():
+        try:
+            await asyncio.shield(settled)
+        except asyncio.CancelledError:
+            cancelled = True
+    settled.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
 class _IndexingStreamPipeline:
     """Parallel-parse → bounded-queue → batched-write streaming pipeline.
 
@@ -3372,29 +3454,7 @@ class _IndexingStreamPipeline:
             stats, _ = await asyncio.gather(consumer, producer)
             return stats
         finally:
-            await self._settle([consumer, producer], cancel=True)
-
-    @staticmethod
-    async def _settle(futures: Sequence[asyncio.Future[Any]], *, cancel: bool = False) -> None:
-        """Retrieve all outcomes, deferring repeated cancellation until settled.
-
-        Only coroutine owners are cancelled. Executor futures must remain live
-        so their completion continues to represent the actual native work.
-        """
-        if cancel:
-            for future in futures:
-                if not future.done():
-                    future.cancel()
-        settled = asyncio.gather(*futures, return_exceptions=True)
-        cancelled = False
-        while not settled.done():
-            try:
-                await asyncio.shield(settled)
-            except asyncio.CancelledError:
-                cancelled = True
-        settled.result()
-        if cancelled:
-            raise asyncio.CancelledError
+            await _settle_indexing_futures([consumer, producer], cancel=True)
 
     # ── Producer ───────────────────────────────────────────────────────────
 
@@ -3415,7 +3475,7 @@ class _IndexingStreamPipeline:
                 try:
                     result = await asyncio.shield(future)
                 except asyncio.CancelledError:
-                    await self._settle([future])
+                    await _settle_indexing_futures([future])
                     raise
                 except Exception as exc:
                     result = ParseResult(file_path=fp, language=None, error=exc)
@@ -3430,7 +3490,7 @@ class _IndexingStreamPipeline:
         try:
             await asyncio.gather(*workers)
         finally:
-            await self._settle(workers, cancel=True)
+            await _settle_indexing_futures(workers, cancel=True)
         await queue.put(self._STREAM_DONE)
 
     # ── Consumer ───────────────────────────────────────────────────────────
