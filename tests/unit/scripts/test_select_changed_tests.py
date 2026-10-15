@@ -66,6 +66,23 @@ def test_selector_changes_select_its_own_regressions():
 @pytest.mark.parametrize(
     ("source", "owners"),
     [
+        *[
+            (
+                source,
+                {
+                    "tests/unit/core/test_schema_version_migration.py",
+                    "tests/unit/core/test_project_database_wal.py",
+                    "tests/unit/core/test_decision_schema.py",
+                    "tests/unit/core/test_global_db_isolation.py",
+                    "tests/unit/core/test_sql_identifier_security.py",
+                },
+            )
+            for source in (
+                "victor/core/database.py",
+                "victor/core/schema.py",
+                "victor/core/migrations.py",
+            )
+        ],
         (
             "victor/agent/conversation/session_model.py",
             {

@@ -930,6 +930,8 @@ module = [
     "victor.agent.runtime.coordination_runtime",
     "victor.agent.runtime.provider_runtime",
     "victor.core.events.protocols",
+    "victor.core.migrations",
+    "victor.core.schema",
     "victor.core.registry.protocols",
     "victor.tools.registration",
     "victor.tools.registration.registry",
