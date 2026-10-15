@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-14
-baseline_develop: 78be84093735e21e3ef572da0077fc1fa599540b
-next_task: DATA-03
+baseline_develop: 59bb3dd768ed155b1524e7281124557ab46330a6
+next_task: DATA-04a
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -2647,13 +2647,15 @@ user-approved scope change; a TODO plan entry is not delivery.
 
 ## Data correctness remediation plan (G102, 2026-10-14)
 
-**DATA-01/02 merged; DATA-03 active.** Owner: Victor co-design session. DATA-01
+**DATA-01/02/03 merged; DATA-04a active (design/reproduction).** Owner: Victor co-design session. DATA-01
 landed in [#1362](https://github.com/anvai-labs/victor/pull/1362), squash commit
 `b27c263f738598fe969ca11408226c3082e38d13`. DATA-02 landed in
 [#1363](https://github.com/anvai-labs/victor/pull/1363), squash commit
-`78be84093735e21e3ef572da0077fc1fa599540b`. Both passed independent review and
-all applicable CI, including Vertical tests Py3.12. DATA-03 uses linked worktree
-branch `fix/schema-migration-integrity` from the DATA-02 merged baseline.
+`78be84093735e21e3ef572da0077fc1fa599540b`. DATA-03 landed in
+[#1364](https://github.com/anvai-labs/victor/pull/1364), squash commit
+`59bb3dd768ed155b1524e7281124557ab46330a6`. All three passed independent review
+and applicable CI, including Vertical tests Py3.12. DATA-04a uses linked worktree
+branch `fix/index-readiness-publication` from the DATA-03 merged baseline.
 The original assessment at `43756b90f342d3c645155235e81bd4130e86b72c` remains
 historical evidence. Production migration, deployment and write/load tests are
 outside these local increments. Other DATA rows remain TODO; local tests and
@@ -2709,8 +2711,8 @@ only against new evidence, retaining unknowns and readiness blockers.
 | --- | --- | --- |
 | DATA-01 / CG-P2, VAS-05c | ✅ merged [#1362](https://github.com/anvai-labs/victor/pull/1362); High (Critical if authorization boundary) / Medium; vector adapter | Shared helper now replaces interpolated deletion/search literals and repeated filters with one typed conjunction, allowlisted identifiers and explicit NULL semantics. Include analogous unified-store deletion. All eligibility predicates apply before top-k; invalid input never broadens reads or deletes. No dependency upgrade required to claim a fix. |
 | DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
-| DATA-03 / VAS-11, storage foundation | ACTIVE, local candidate; High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
-| DATA-04a / CG-P2 | TODO; High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
+| DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
+| DATA-04a / CG-P2 | ACTIVE, design/reproduction; High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
 | DATA-04b / CG-P2 | TODO; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
@@ -2839,7 +2841,8 @@ for actual-member acceptance.
 
 ### DATA-03 schema migration integrity checkpoint
 
-- Candidate: one typed registry declares database scope and optional lazy-table
+- ✅ Merged in [#1364](https://github.com/anvai-labs/victor/pull/1364).
+- Implementation: one typed registry declares database scope and optional lazy-table
   preconditions. `get_migration_sql` remains a raw compatibility projection; its
   callers own safety checks. Both database managers use the same executor.
 - The executor takes `BEGIN IMMEDIATE` before reading the version, or a savepoint
@@ -2869,14 +2872,60 @@ for actual-member acceptance.
   intervals from 0 through 9. Independent review found and fixed wrong-kind
   object handling: a view/index is not an absent optional table. Its four new
   regressions failed before repair; the corrected review passed 133 checks.
-  Evidence: `var/codegraph-victor-20261012/data03-*`. CI remains a merge gate;
-  this checkpoint is not a release or live upgrade.
+  Exact candidate `ec7c3a95a0b0a9f46c285b3b8d507cc48b82c204` passed independent
+  review and every applicable CI gate before squash merge; Vertical tests Py3.12
+  took 8m28s. Evidence: `var/codegraph-victor-20261012/data03-*`.
+  This checkpoint is not a release or live upgrade.
 - Rollback: a failed schema upgrade retains the old durable version and schema.
   Preserve a verified online backup before any eventual live upgrade; do not
   overwrite a live database from a stale snapshot. No production migration runs
   in this increment. Historical import/consolidation transactions and backup/
-  restore guarantees remain DATA-08a. Next: qualify DATA-03, then DATA-04a's owned
-  index rebuild and truthful readiness publication.
+  restore guarantees remain DATA-08a. Next: DATA-04a's owned index rebuild and
+  truthful readiness publication.
+
+### DATA-04a owned index completion and readiness design
+
+Owner: Victor co-design session; branch `fix/index-readiness-publication` at
+DATA-03's merged baseline. **Design and two failing local reproducers only; no
+implementation or live rebuild yet.** Evidence is `data04a-discovery.json`,
+`data04a-reproducer.py` and `data04a-reproduction.log` under
+`var/codegraph-victor-20261012/`. The earlier temporary-root collection permission
+failure is preserved separately and is not evidence of a product defect.
+
+Observed in disposable fake-index checks:
+
+- `preload_semantic_index` returns success for a cached entry explicitly marked
+  stale, without invoking the builder/validation owner.
+- `_get_or_build_index` publishes a desired manifest while a mismatch-triggered
+  rebuild is still blocked, then returns and releases its exclusive writer lock.
+
+Independent design review orders the repair as follows:
+
+1. Make build, finalization and manifest-publication failure observable before
+   claiming readiness. `_finalize_index_storage` and the final manifest write
+   suppress errors; `CodebaseIndex.index_codebase` also suppresses graph/vector
+   clearing and embedding-batch errors before marking itself indexed. Audit these
+   existing owners, with explicit failure outcomes; do not add a second dispatcher.
+2. Invalidate current in-memory and persisted readiness before destructive
+   rebuilding, including forced rebuilds with an unchanged manifest. Failure or
+   cancellation must not leave an old compatible manifest advertising partial
+   results. This does **not** preserve the old generation; DATA-04b owns that.
+3. Remove mismatch-triggered detached rebuilding and early publication. Await
+   build/finalization under the existing exclusive lock; publish only afterward.
+   Remove the resulting unused single-flight registry/helper and its helper-only
+   test. Do not introduce a background-job service for this synchronous CLI repair.
+4. Remove CLI's unconditional cache-success shortcut; delegate validation to the
+   builder. Preserve the existing tuple result contract and ordinary search's
+   explicitly labelled stale fallback. An internal strict-readiness option can
+   reject stale, unknown-probe or lock-timeout fallback for indexing commands.
+5. Extend existing coding `test_code_search_tool.py` fixtures and core CLI tests:
+   blocked build, cancellation, build/finalization/publication errors, same-manifest
+   force failure, queued callers, and strict versus ordinary lock-timeout behavior.
+   Add no tests that only mirror the removed helper. Require a disposable
+   end-to-end CLI smoke before claiming user-visible completion.
+
+No new model downloads, production rebuilds or generation-preservation claims.
+DATA-04b remains separate; release, hosted authorization and C5 gates remain open.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 
