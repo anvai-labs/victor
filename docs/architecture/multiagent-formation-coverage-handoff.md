@@ -2290,6 +2290,24 @@ stream pass and original failed evidence were preserved and not repeated.
 
 
 
+- **G102 — persistence, search eligibility and index publication integrity (open).**
+  Assessment at develop `43756b90f342d3c645155235e81bd4130e86b72c` reproduced
+  four defects using disposable local stores: successive LanceDB 0.30.2 filters
+  replaced earlier conditions, a quoted document ID broadened deletion, failed
+  migrations advanced schema version, and cancelled graph writes committed with a
+  later unrelated operation. Earlier semantic CLI evidence also showed readiness
+  publication before a destructive detached rebuild completed. These are not
+  evidence of production exploitation or external-effect loss. Current metric
+  rows retain missing files and the LCOM4 label is a size heuristic. Before wider
+  unattended/hosted acceptance, repair and qualify these boundaries using the
+  [canonical DATA-01–10 plan](victor-agent-service-plan.md#data-correctness-remediation-plan-g102-2026-10-14).
+  That tracker owns status, ordered PRs, existing test owners, alternatives and
+  rollback. G100 retains token/cache/reasoning reporting ownership; VAS-05 owns
+  hosted authorization; G61/G62/G70/C5 remain open under their existing gates.
+  DATA-01 now has a locally qualified predicate/deletion candidate on LanceDB
+  0.30.2, awaiting PR/CI; see the canonical tracker for exact evidence and limits.
+  Other repairs remain open. No migration, release or live acceptance is claimed.
+
 ## 4. Suggested follow-up session plan
 
 Execution record (2026-09-18):

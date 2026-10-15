@@ -50,6 +50,10 @@ from victor.storage.vector_stores.models import (
     EmbeddingModelConfig,
     create_embedding_model,
 )
+from victor.storage.vector_stores._lancedb_compat import (
+    lance_filter_predicate,
+    lance_string_predicate,
+)
 
 if TYPE_CHECKING:
     from victor_codegraph import EmbeddingProfile
@@ -447,6 +451,11 @@ class LanceDBProvider(BaseEmbeddingProvider):
         if self.table is None:
             return []
 
+        predicate = (
+            lance_filter_predicate(filter_metadata, allowed_columns=self.table.schema.names)
+            if filter_metadata is not None
+            else ""
+        )
         profile = self._collection_profile()
         if profile is not None:
             actual = self.embedding_model.profile if self.embedding_model is not None else None
@@ -472,10 +481,10 @@ class LanceDBProvider(BaseEmbeddingProvider):
         # Search in LanceDB
         results = self.table.search(query_embedding).limit(limit)
 
-        # Apply metadata filters if provided
-        if filter_metadata:
-            for key, value in filter_metadata.items():
-                results = results.where(f"{key} = '{value}'")
+        # One predicate preserves conjunction on older SDKs. Eligibility is
+        # applied before top-k; post-filtering can hide eligible neighbors.
+        if predicate:
+            results = results.where(predicate, prefilter=True)
 
         # Execute search
         search_results = []
@@ -508,13 +517,14 @@ class LanceDBProvider(BaseEmbeddingProvider):
         Args:
             doc_id: Document identifier
         """
+        predicate = lance_string_predicate("id", doc_id)
         if not self._initialized:
             await self.initialize()
 
         if self.table is None:
             return
 
-        self.table.delete(f"id = '{doc_id}'")
+        self.table.delete(predicate)
 
     async def delete_by_file(self, file_path: str) -> int:
         """Delete all documents from a specific file.
@@ -528,6 +538,7 @@ class LanceDBProvider(BaseEmbeddingProvider):
         Returns:
             Number of documents deleted
         """
+        predicate = lance_string_predicate("file_path", file_path)
         if not self._initialized:
             await self.initialize()
 
@@ -542,7 +553,7 @@ class LanceDBProvider(BaseEmbeddingProvider):
 
         # Delete documents with matching file_path
         # LanceDB uses SQL-like predicates
-        self.table.delete(f"file_path = '{file_path}'")
+        self.table.delete(predicate)
 
         # Count documents after deletion
         try:

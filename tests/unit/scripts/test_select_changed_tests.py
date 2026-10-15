@@ -241,6 +241,22 @@ def test_selector_changes_select_its_own_regressions():
                 "tests/unit/framework/policies/test_middleware.py",
             ],
         ),
+        (
+            "victor/storage/vector_stores/_lancedb_compat.py",
+            [
+                "tests/unit/storage/test_lancedb_compat.py",
+                "tests/unit/providers/test_lancedb_provider.py",
+                "tests/unit/storage/test_sqlite_lancedb.py",
+            ],
+        ),
+        (
+            "victor/storage/vector_stores/lancedb_provider.py",
+            ["tests/unit/providers/test_lancedb_provider.py"],
+        ),
+        (
+            "victor/storage/unified/sqlite_lancedb.py",
+            ["tests/unit/storage/test_sqlite_lancedb.py"],
+        ),
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
         (
             "victor/integrations/protocol/__init__.py",

@@ -553,8 +553,13 @@ left the index unchanged; rerunning with cache access succeeded.
 | **Structural review candidates, not automatic refactors** | Current source-backed coupling suggests examining `chat_stream_helpers` (9 incoming/15 outgoing), `sandhi_transport` (15/12), `orchestrator` (27/59), and runtime assembly (5/11). Review ownership, duplicated transitions and actual call sites; measure representative latency/memory/reliability before any performance claim or language change. |
 
 The semantic CLI outcome is **failed acceptance**, despite its success banner.
-A canonical graph recovery is running separately; do not run another semantic
-rebuild against the same live store until lifecycle ownership is fixed. Keep
+A separately started canonical graph recovery subsequently completed in 1,407s,
+reporting 1,543,242 persisted nodes / 3,696,594 edges and zero partial parses this
+pass. This restores derived graph availability; it does not repair the semantic
+CLI lifecycle or establish semantic freshness/whole-repository correctness. Do not
+run another semantic rebuild against the same live store until lifecycle ownership
+is fixed. The canonical [DATA-01–06 remediation plan](victor-agent-service-plan.md#data-correctness-remediation-plan-g102-2026-10-14)
+owns prerequisite transaction, filtering and publication work. Keep
 private graphs local. Evidence: `var/codegraph-victor-20261012/dogfood-graph-*`
 and `dogfood-semantic-index.log`. The one-second sampling trace is diagnostic,
 not a complete indexing profile. No source is removed based on graph scores.
