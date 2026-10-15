@@ -590,28 +590,21 @@ class TestPreloadSemanticIndex:
     """Tests for _preload_semantic_index async function."""
 
     @pytest.mark.asyncio
-    async def test_preload_semantic_index_import_error(self, mock_console, mock_settings):
-        """Test handling of ImportError."""
-        from victor.ui.commands.utils import preload_semantic_index
+    @pytest.mark.parametrize(
+        "error", [ImportError("missing provider"), RuntimeError("build failed")]
+    )
+    async def test_preload_semantic_index_failure(
+        self, tmp_path, mock_console, mock_settings, monkeypatch, error
+    ):
+        from victor.ui.commands import utils
 
-        with patch(
-            "victor.tools.code_search_tool._get_or_build_index",
-            side_effect=ImportError("Test"),
-        ):
-            result = await preload_semantic_index("/tmp", mock_settings, mock_console)
-            assert result is False
-
-    @pytest.mark.asyncio
-    async def test_preload_semantic_index_generic_error(self, mock_console, mock_settings):
-        """Test handling of generic errors."""
-        from victor.ui.commands.utils import preload_semantic_index
-
-        with patch(
-            "victor.tools.code_search_tool._get_or_build_index",
-            side_effect=Exception("Test error"),
-        ):
-            result = await preload_semantic_index("/tmp", mock_settings, mock_console)
-            assert result is False
+        builder = AsyncMock(side_effect=error)
+        monkeypatch.setattr(utils, "_load_code_search_index_builder", lambda: builder)
+        assert (
+            await utils.preload_semantic_index(str(tmp_path), mock_settings, mock_console) is False
+        )
+        builder.assert_awaited_once()
+        assert builder.call_args.kwargs["require_ready"] is True
 
 
 # =============================================================================
@@ -1219,3 +1212,18 @@ class TestErrorHandling:
 
         result = runner.invoke(app, ["security", "--help"])
         assert result.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_preload_stale_cache_requires_builder_readiness(tmp_path, monkeypatch):
+    from victor.ui.commands import utils
+
+    monkeypatch.setattr(
+        "victor.core.search.indexer._INDEX_CACHE", {str(tmp_path.resolve()): {"stale": True}}
+    )
+    builder = AsyncMock(side_effect=RuntimeError("index not ready"))
+    monkeypatch.setattr(utils, "_load_code_search_index_builder", lambda: builder)
+    assert await utils.preload_semantic_index(str(tmp_path), SimpleNamespace(), Mock()) is False
+    builder.assert_awaited_once_with(
+        tmp_path.resolve(), SimpleNamespace(), force_reindex=False, require_ready=True
+    )

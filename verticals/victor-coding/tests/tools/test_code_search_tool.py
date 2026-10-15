@@ -17,7 +17,6 @@ from victor_coding.tools import code_search_tool as search
 @pytest.fixture(autouse=True)
 def isolated_cache(monkeypatch):
     monkeypatch.setattr(search, "_INDEX_CACHE", {})
-    monkeypatch.setattr(search, "_INFLIGHT_INDEX_REBUILDS", {})
 
 
 @pytest.mark.parametrize(
@@ -25,8 +24,6 @@ def isolated_cache(monkeypatch):
     [
         (True, search.IntegrityProbeOutcome(rebuilt=True)),
         (False, search.IntegrityProbeOutcome()),
-        (None, search.IntegrityProbeOutcome()),
-        (1, search.IntegrityProbeOutcome()),
     ],
 )
 def test_legacy_probe_outcomes(value, expected):
@@ -191,8 +188,8 @@ def test_failure_cache_suppresses_build_until_expiry(monkeypatch):
 async def test_integrity_skips_active_indexing(monkeypatch):
     index = SimpleNamespace(_is_indexing=True, semantic_search=AsyncMock())
     rebuild = AsyncMock()
-    monkeypatch.setattr(search, "_background_index_rebuild", rebuild)
-    assert await search._probe_index_integrity(index) == search.IntegrityProbeOutcome()
+    monkeypatch.setattr(search, "_rebuild_index_inline", rebuild)
+    assert await search._probe_index_integrity(index) == search.IntegrityProbeOutcome(stale=True)
     index.semantic_search.assert_not_called()
     rebuild.assert_not_called()
 
@@ -221,8 +218,8 @@ async def test_integrity_search_probe_success():
 async def test_integrity_transient_errors_do_not_rebuild(monkeypatch, error):
     index = SimpleNamespace(semantic_search=AsyncMock(side_effect=RuntimeError(error)))
     rebuild = AsyncMock()
-    monkeypatch.setattr(search, "_background_index_rebuild", rebuild)
-    assert await search._probe_index_integrity(index) == search.IntegrityProbeOutcome()
+    monkeypatch.setattr(search, "_rebuild_index_inline", rebuild)
+    assert await search._probe_index_integrity(index) == search.IntegrityProbeOutcome(stale=True)
     rebuild.assert_not_called()
 
 
@@ -233,7 +230,7 @@ async def test_integrity_corruption_rebuild_outcome(monkeypatch, rebuilt):
         _is_indexed=True, semantic_search=AsyncMock(side_effect=ValueError("corrupt index"))
     )
     rebuild = AsyncMock(return_value=rebuilt)
-    monkeypatch.setattr(search, "_background_index_rebuild", rebuild)
+    monkeypatch.setattr(search, "_rebuild_index_inline", rebuild)
     assert await search._probe_index_integrity(index) == search.IntegrityProbeOutcome(
         rebuilt=rebuilt, stale=not rebuilt
     )
@@ -255,7 +252,7 @@ async def test_integrity_timeout_cancels_probe_before_rebuild(monkeypatch):
         assert cancelled.is_set()
         return False
 
-    monkeypatch.setattr(search, "_background_index_rebuild", rebuild)
+    monkeypatch.setattr(search, "_rebuild_index_inline", rebuild)
     outcome = await search._probe_index_integrity(
         SimpleNamespace(semantic_search=blocked), timeout=0
     )
@@ -274,7 +271,7 @@ async def test_integrity_parent_cancellation_cleans_probe(monkeypatch):
             cancelled.set()
 
     rebuild = AsyncMock()
-    monkeypatch.setattr(search, "_background_index_rebuild", rebuild)
+    monkeypatch.setattr(search, "_rebuild_index_inline", rebuild)
     task = asyncio.create_task(
         search._probe_index_integrity(SimpleNamespace(semantic_search=blocked))
     )
@@ -295,30 +292,19 @@ async def test_background_rebuild_outcomes(monkeypatch, error, expected):
     index = SimpleNamespace(index_codebase=AsyncMock(side_effect=error))
     finalize = AsyncMock()
     monkeypatch.setattr(search, "_finalize_index_storage", finalize)
-    assert await search._background_index_rebuild(index) is expected
+    assert await search._rebuild_index_inline(index) is expected
     assert finalize.await_count == int(expected)
 
 
 @pytest.mark.asyncio
-async def test_rebuild_single_flight_and_cleanup():
-    release = asyncio.Event()
-    factory = Mock(side_effect=lambda: release.wait())
-    first = search._spawn_index_rebuild_once("root", factory)
-    assert search._spawn_index_rebuild_once("root", factory) is first
-    assert factory.call_count == 1
-    release.set()
-    await first
-    await asyncio.sleep(0)
-    assert "root" not in search._INFLIGHT_INDEX_REBUILDS
-    second = search._spawn_index_rebuild_once("root", factory)
-    assert second is not first
-    await second
-
-
-@pytest.mark.asyncio
 async def test_incremental_refresh_clears_staleness(monkeypatch, tmp_path):
-    index = SimpleNamespace(incremental_reindex=AsyncMock())
-    entry = {"index": index, "stale": True}
+    index = SimpleNamespace(incremental_reindex=AsyncMock(return_value={"errors": []}))
+    entry = {
+        "index": index,
+        "stale": True,
+        "persist_directory": str(tmp_path / "index"),
+        "index_manifest": {"version": 1},
+    }
     monkeypatch.setattr(search, "_latest_mtime", lambda root: 42)
     monkeypatch.setattr(search, "_finalize_index_storage", AsyncMock())
     watcher = AsyncMock()
@@ -512,7 +498,9 @@ def index_factory(tmp_path, monkeypatch):
     import victor_contracts.indexing_runtime as indexing
 
     index = SimpleNamespace(
-        _is_indexed=False, index_codebase=AsyncMock(), incremental_reindex=AsyncMock()
+        _is_indexed=False,
+        index_codebase=AsyncMock(),
+        incremental_reindex=AsyncMock(return_value={"errors": []}),
     )
     factory = SimpleNamespace(create=Mock(return_value=index))
     lock = SimpleNamespace(__aenter__=AsyncMock(), __aexit__=AsyncMock())
@@ -601,3 +589,264 @@ async def test_failed_build_releases_lock_without_caching(tmp_path, index_factor
         await search._get_or_build_index(tmp_path, SimpleNamespace())
     lock.__aexit__.assert_awaited_once()
     assert str(tmp_path) not in search._INDEX_CACHE
+
+
+@pytest.mark.asyncio
+async def test_manifest_mismatch_rebuild_is_owned_until_publication(
+    tmp_path, index_factory, monkeypatch
+):
+    index, _, lock = index_factory
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def build():
+        entered.set()
+        await release.wait()
+
+    index.index_codebase.side_effect = build
+    monkeypatch.setattr(search, "has_persisted_codebase_index_data", lambda path: True)
+    monkeypatch.setattr(search, "has_compatible_codebase_index_manifest", lambda *args: False)
+    task = asyncio.create_task(search._get_or_build_index(tmp_path, SimpleNamespace()))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        assert not task.done()
+        search.write_codebase_index_manifest.assert_not_called()
+        lock.__aexit__.assert_not_awaited()
+        release.set()
+        assert await task == (index, True)
+        search.write_codebase_index_manifest.assert_called_once()
+        lock.__aexit__.assert_awaited_once()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["build", "finalize", "publish", "cancel"])
+async def test_failed_forced_rebuild_invalidates_old_readiness(
+    tmp_path, index_factory, monkeypatch, failure
+):
+    index, _, lock = index_factory
+    await search._get_or_build_index(tmp_path, SimpleNamespace())
+    entry = search._INDEX_CACHE[str(tmp_path)]
+    persist = tmp_path / "index"
+    persist.mkdir(exist_ok=True)
+    manifest = persist / search.CODEBASE_INDEX_MANIFEST_NAME
+    manifest.write_text('{"version":1}')
+    search.write_codebase_index_manifest.reset_mock()
+    error = asyncio.CancelledError() if failure == "cancel" else OSError("disk full")
+    if failure in {"build", "cancel"}:
+        index.index_codebase.side_effect = error
+    elif failure == "finalize":
+        search._finalize_index_storage.side_effect = error
+    else:
+        search.write_codebase_index_manifest.side_effect = error
+    with pytest.raises(type(error)):
+        await search._get_or_build_index(tmp_path, SimpleNamespace(), force_reindex=True)
+    assert entry["stale"] is True
+    assert not manifest.exists()
+    assert lock.__aexit__.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("require_ready", [False, True])
+async def test_lock_timeout_cannot_report_strict_readiness(tmp_path, index_factory, require_ready):
+    _, factory, lock = index_factory
+    lock.__aenter__.side_effect = TimeoutError("writer busy")
+    if require_ready:
+        with pytest.raises(TimeoutError):
+            await search._get_or_build_index(tmp_path, SimpleNamespace(), require_ready=True)
+        factory.create.assert_not_called()
+    else:
+        await search._get_or_build_index(tmp_path, SimpleNamespace())
+        assert factory.create.call_args.kwargs["graph_writer_mode"] == "off"
+    lock.__aexit__.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_strict_readiness_rejects_stale_probe_without_publication(
+    tmp_path, index_factory, monkeypatch
+):
+    monkeypatch.setattr(search, "has_persisted_codebase_index_data", lambda path: True)
+    monkeypatch.setattr(
+        search,
+        "_probe_index_integrity",
+        AsyncMock(return_value=search.IntegrityProbeOutcome(stale=True)),
+    )
+    with pytest.raises(RuntimeError, match="not ready"):
+        await search._get_or_build_index(tmp_path, SimpleNamespace(), require_ready=True)
+    search.write_codebase_index_manifest.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_storage_finalization_failure_propagates():
+    provider = SimpleNamespace(
+        config=SimpleNamespace(vector_store=search.STRUCTURAL_CODEBASE_VECTOR_STORE),
+        get_stats=AsyncMock(side_effect=OSError("flush failed")),
+    )
+    with pytest.raises(OSError, match="flush failed"):
+        await search._finalize_index_storage(SimpleNamespace(embedding_provider=provider))
+
+
+@pytest.mark.parametrize("value", [None, 1, "ready"])
+def test_invalid_probe_contract_is_rejected(value):
+    with pytest.raises(TypeError, match="Invalid integrity"):
+        search._coerce_integrity_probe_outcome(value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["refresh", "finalize", "publish", "cancel"])
+async def test_incremental_failure_retains_staleness(tmp_path, index_factory, failure):
+    index, _, _ = index_factory
+    await search._get_or_build_index(tmp_path, SimpleNamespace())
+    entry = search._INDEX_CACHE[str(tmp_path)]
+    error = asyncio.CancelledError() if failure == "cancel" else OSError("incomplete")
+    if failure in {"refresh", "cancel"}:
+        index.incremental_reindex.side_effect = error
+    elif failure == "finalize":
+        search._finalize_index_storage.side_effect = error
+    else:
+        search.write_codebase_index_manifest.side_effect = error
+    with pytest.raises(type(error)):
+        await search._refresh_cached_index_incrementally(entry, tmp_path)
+    assert entry["stale"] is True
+    assert entry["latest_mtime"] == 10
+
+
+@pytest.mark.asyncio
+async def test_invalidation_failure_prevents_destructive_build(
+    tmp_path, index_factory, monkeypatch
+):
+    index, factory, _ = index_factory
+
+    def cannot_invalidate(*args, **kwargs):
+        raise PermissionError("readiness marker is read-only")
+
+    monkeypatch.setattr(search.Path, "unlink", cannot_invalidate)
+    with pytest.raises(PermissionError):
+        await search._get_or_build_index(tmp_path, SimpleNamespace(), force_reindex=True)
+    index.index_codebase.assert_not_called()
+    factory.create.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [None, "build", "publish", "provider", "busy"])
+def test_index_cli_reports_owned_completion(tmp_path, index_factory, monkeypatch, failure):
+    from typer.testing import CliRunner
+    from victor.ui.commands import index as command, utils
+
+    index, factory, lock = index_factory
+    index.graph_store = None
+    monkeypatch.setattr(command, "load_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        utils, "_load_code_search_index_builder", lambda: search._get_or_build_index
+    )
+    if failure == "build":
+        index.index_codebase.side_effect = OSError("build failed")
+    elif failure == "publish":
+        search.write_codebase_index_manifest.side_effect = OSError("publish failed")
+    elif failure == "provider":
+        factory.create.side_effect = ImportError("requested embedding unavailable")
+    elif failure == "busy":
+        lock.__aenter__.side_effect = TimeoutError("writer busy")
+    result = CliRunner().invoke(command.index_app, ["--path", str(tmp_path)])
+    assert result.exit_code == (0 if failure is None else 1), result.output
+    assert ("Indexing complete" in result.output) == (failure is None)
+    assert ("Indexing failed" in result.output) == (failure is not None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "result", [{"errors": [{"file": "app.py", "error": "disk full"}]}, {}, None, {"errors": None}]
+)
+async def test_incremental_result_must_confirm_success(tmp_path, index_factory, result):
+    index, _, _ = index_factory
+    await search._get_or_build_index(tmp_path, SimpleNamespace())
+    entry = search._INDEX_CACHE[str(tmp_path)]
+    search.write_codebase_index_manifest.reset_mock()
+    index.incremental_reindex.return_value = result
+    with pytest.raises((RuntimeError, TypeError)):
+        await search._refresh_cached_index_incrementally(entry, tmp_path)
+    search.write_codebase_index_manifest.assert_not_called()
+    assert entry["stale"] is True
+    assert entry["latest_mtime"] == 10
+
+
+@pytest.mark.asyncio
+async def test_index_builder_preserves_nested_project_state(tmp_path, index_factory):
+    nested = tmp_path / "victor" / ".victor"
+    nested.mkdir(parents=True)
+    sentinel = nested / "project.db"
+    sentinel.write_bytes(b"independent project state")
+    await search._get_or_build_index(tmp_path, SimpleNamespace())
+    assert sentinel.read_bytes() == b"independent project state"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_builders_wait_and_reuse_published_index(
+    tmp_path, index_factory, monkeypatch
+):
+    import victor_contracts.indexing_runtime as indexing
+
+    index, factory, _ = index_factory
+    entered, release, queued = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    writer_lock = asyncio.Lock()
+
+    async def acquire(*args, **kwargs):
+        if writer_lock.locked():
+            queued.set()
+        return writer_lock
+
+    registry = SimpleNamespace(acquire_lock=acquire, mark_lock_used=Mock())
+    monkeypatch.setattr(indexing.IndexLockRegistry, "get_instance", lambda: registry)
+
+    async def build():
+        entered.set()
+        await release.wait()
+
+    index.index_codebase.side_effect = build
+    first = asyncio.create_task(
+        search._get_or_build_index(tmp_path, SimpleNamespace(), require_ready=True)
+    )
+    second = None
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        second = asyncio.create_task(
+            search._get_or_build_index(tmp_path, SimpleNamespace(), require_ready=True)
+        )
+        await asyncio.wait_for(queued.wait(), 2)
+        assert not first.done() and not second.done()
+        search.write_codebase_index_manifest.assert_not_called()
+        release.set()
+        assert await asyncio.wait_for(first, 2) == (index, True)
+        assert await asyncio.wait_for(second, 2) == (index, False)
+        factory.create.assert_called_once()
+        search.write_codebase_index_manifest.assert_called_once()
+        assert not writer_lock.locked()
+    finally:
+        tasks = [task for task in (first, second) if task is not None]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("require_ready", [False, True])
+async def test_cached_readiness_requires_current_disk_manifest(
+    tmp_path, index_factory, monkeypatch, require_ready
+):
+    from victor_contracts.search_runtime import (
+        has_compatible_codebase_index_manifest,
+        write_codebase_index_manifest,
+    )
+
+    index, factory, _ = index_factory
+    monkeypatch.setattr(
+        search, "has_compatible_codebase_index_manifest", has_compatible_codebase_index_manifest
+    )
+    monkeypatch.setattr(search, "write_codebase_index_manifest", write_codebase_index_manifest)
+    await search._get_or_build_index(tmp_path, SimpleNamespace(), require_ready=require_ready)
+    await search._get_or_build_index(tmp_path, SimpleNamespace(), require_ready=require_ready)
+    factory.create.assert_called_once()
+    (tmp_path / "index" / search.CODEBASE_INDEX_MANIFEST_NAME).unlink()
+    await search._get_or_build_index(tmp_path, SimpleNamespace(), require_ready=require_ready)
+    assert factory.create.call_count == 2
+    assert index.index_codebase.await_count == 2

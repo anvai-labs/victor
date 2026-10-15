@@ -2310,12 +2310,18 @@ stream pass and original failed evidence were preserved and not repeated.
   Its investigation additionally found
   lifecycle calls bypassing admission, a first-edge schema probe racing close,
   and file deletion reacquiring its own batch lock. See the canonical tracker
-  for evidence, exclusions and next gates. DATA-03 is active: migration errors
-  currently permit false version publication, project indexes run before upgrades,
-  and the v9 classifier DROP can discard populated data. The local repair uses
-  scoped, atomic migration admission and explicit preservation/rejection rules.
-  Other repairs remain open; no production migration, release or live acceptance
-  is claimed.
+  for evidence, exclusions and next gates. DATA-03 scoped, atomic migration
+  admission and version publication is ✅ merged in
+  [#1364](https://github.com/anvai-labs/victor/pull/1364), including migrate-before-index
+  initialization and v9 data-preservation/rejection guards. DATA-04a is locally
+  implemented and under review: owned rebuild completion, readiness invalidation,
+  strict CLI validation and propagated storage/publication errors. Its review
+  additionally found ignored incremental error results, silently disabled requested
+  embeddings and automatic deletion of nested project state; regression tests now
+  cover these repairs. Parser completeness and atomic generation replacement remain
+  DATA-04b; cross-representation reconciliation remains DATA-05. See the canonical
+  tracker for validation and exact merge status. No production migration, release
+  or live acceptance is claimed.
 
 ## 4. Suggested follow-up session plan
 

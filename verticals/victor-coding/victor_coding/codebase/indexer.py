@@ -36,7 +36,7 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, TypedDict
 
 from pydantic import BaseModel, Field
 from tree_sitter import Query
@@ -1074,6 +1074,23 @@ class FileMetadata(BaseModel):
     content_hash: Optional[str] = None  # SHA256 hash for change detection
 
 
+class IncrementalIndexError(TypedDict):
+    """Failed file operation retained in an incremental result."""
+
+    file: str
+    error: str
+
+
+class IncrementalIndexResult(TypedDict):
+    """Existing incremental wire shape; any errors prevent readiness publication."""
+
+    updated: List[str]
+    added: List[str]
+    removed: List[str]
+    unchanged: int
+    errors: List[IncrementalIndexError]
+
+
 class CodebaseIndex:
     """Indexes codebase for intelligent code understanding.
 
@@ -1370,6 +1387,8 @@ class CodebaseIndex:
         Performance: Uses parallel processing with ProcessPoolExecutor when
         _parallel_workers > 1, providing 3-8x speedup on multi-core systems.
         """
+        self._is_indexed = False
+        self._is_stale = True
         self._reset_graph_buffers()
         self.files.clear()
         self.symbols.clear()
@@ -1377,11 +1396,8 @@ class CodebaseIndex:
 
         # Clear graph store first to remove stale entries from renamed/deleted files
         if self.graph_store:
-            try:
-                await self.graph_store.delete_by_repo()
-                logger.debug("Cleared graph store for full rebuild")
-            except Exception as e:
-                logger.warning(f"Failed to clear graph store: {e}")
+            await self.graph_store.delete_by_repo()
+            logger.debug("Cleared graph store for full rebuild")
 
         # Discover all files matching watched patterns
         files_to_index: List[Tuple[Path, str]] = []
@@ -1415,11 +1431,8 @@ class CodebaseIndex:
         # Build embeddings for all indexed symbols (batched for performance)
         if self.use_embeddings and self.embedding_provider:
             # Clear existing embeddings first (handles schema changes like adding end_line)
-            try:
-                await self.embedding_provider.clear_index()
-                logger.debug("Cleared embedding index for full rebuild")
-            except Exception as e:
-                logger.warning(f"Failed to clear embedding index: {e}")
+            await self.embedding_provider.clear_index()
+            logger.debug("Cleared embedding index for full rebuild")
 
             # Collect all documents for batch embedding
             # Uses unified IDs for graph-embedding correlation
@@ -1449,13 +1462,10 @@ class CodebaseIndex:
             embedding_count = 0
             for i in range(0, len(documents), batch_size):
                 batch = documents[i : i + batch_size]
-                try:
-                    await self.embedding_provider.index_documents(batch)
-                    embedding_count += len(batch)
-                    if i > 0 and i % 5000 == 0:
-                        logger.info(f"Embedded {embedding_count}/{len(documents)} symbols...")
-                except Exception as e:
-                    logger.warning(f"Failed to embed batch at {i}: {e}")
+                await self.embedding_provider.index_documents(batch)
+                embedding_count += len(batch)
+                if i > 0 and i % 5000 == 0:
+                    logger.info(f"Embedded {embedding_count}/{len(documents)} symbols...")
 
             logger.info(f"Created {embedding_count} embeddings for semantic search")
 
@@ -1583,7 +1593,9 @@ class CodebaseIndex:
             logger.debug("Index is stale, rebuilding")
             await self.index_codebase()
 
-    async def incremental_reindex(self, files: Optional[List[str]] = None) -> Dict[str, Any]:
+    async def incremental_reindex(
+        self, files: Optional[List[str]] = None
+    ) -> IncrementalIndexResult:
         """Perform incremental reindexing of changed files only.
 
         This method efficiently updates the index by only processing files that:
@@ -1605,7 +1617,7 @@ class CodebaseIndex:
             - unchanged: Count of files that didn't need updating
             - errors: List of files that failed to index
         """
-        stats = {
+        stats: IncrementalIndexResult = {
             "updated": [],
             "added": [],
             "removed": [],
@@ -1619,6 +1631,13 @@ class CodebaseIndex:
             await self.index_codebase()
             stats["added"] = list(self.files.keys())
             return stats
+
+        # In-place updates may leave partial derived state on failure/cancellation.
+        # Keep readiness false until every operation succeeds; the next attempt
+        # must rebuild rather than trust mtimes already changed by partial writes.
+        with self._staleness_lock:
+            self._is_indexed = False
+            self._is_stale = True
 
         # Determine which files to process
         if files:
@@ -1674,15 +1693,20 @@ class CodebaseIndex:
             for indexed_path in list(self.files.keys()):
                 if indexed_path not in current_files:
                     # File was deleted - remove from index
-                    await self._remove_file_from_index(indexed_path)
-                    stats["removed"].append(indexed_path)
-                    logger.debug(f"Removed from index: {indexed_path}")
+                    try:
+                        await self._remove_file_from_index(indexed_path)
+                        stats["removed"].append(indexed_path)
+                        logger.debug(f"Removed from index: {indexed_path}")
+                    except Exception as exc:
+                        logger.warning("Failed to remove %s from index: %s", indexed_path, exc)
+                        stats["errors"].append({"file": indexed_path, "error": str(exc)})
 
-        # Clear staleness flag and update changed files set
-        with self._staleness_lock:
-            self._is_stale = False
-            self._changed_files.clear()
-            self._last_indexed = time.time()
+        if not stats["errors"]:
+            with self._staleness_lock:
+                self._is_indexed = True
+                self._is_stale = False
+                self._changed_files.clear()
+                self._last_indexed = time.time()
 
         # Log summary
         total_changes = len(stats["updated"]) + len(stats["added"]) + len(stats["removed"])
@@ -1725,21 +1749,18 @@ class CodebaseIndex:
                 # Generate embedding for symbol if it has meaningful content
                 text_for_embedding = self._get_symbol_embedding_text(symbol)
                 if text_for_embedding:
-                    try:
-                        # Use unified ID for graph-embedding correlation
-                        unified_id = self.make_symbol_id(rel_path, symbol.name)
-                        await self.embedding_provider.index_document(
-                            doc_id=unified_id,
-                            content=text_for_embedding,
-                            metadata={
-                                "file_path": rel_path,
-                                "symbol_name": symbol.name,
-                                "symbol_type": symbol.type,
-                                "line_number": symbol.line_number,
-                            },
-                        )
-                    except Exception as e:
-                        logger.debug(f"Failed to embed symbol {symbol.name}: {e}")
+                    # Use unified ID for graph-embedding correlation
+                    unified_id = self.make_symbol_id(rel_path, symbol.name)
+                    await self.embedding_provider.index_document(
+                        doc_id=unified_id,
+                        content=text_for_embedding,
+                        metadata={
+                            "file_path": rel_path,
+                            "symbol_name": symbol.name,
+                            "symbol_type": symbol.type,
+                            "line_number": symbol.line_number,
+                        },
+                    )
 
     async def _remove_file_from_index(self, rel_path: str) -> None:
         """Remove a file and its symbols from the index.
@@ -1747,30 +1768,19 @@ class CodebaseIndex:
         Args:
             rel_path: Relative path of the file to remove
         """
-        # Remove symbols
-        if rel_path in self.symbol_index:
-            for symbol_key in self.symbol_index[rel_path]:
-                self.symbols.pop(symbol_key, None)
-
-                # Remove from embeddings if enabled
-                if self.use_embeddings and self.embedding_provider:
-                    try:
-                        await self.embedding_provider.delete_document(symbol_key)
-                    except Exception:
-                        pass  # Ignore deletion errors
-
-            del self.symbol_index[rel_path]
-
-        # Remove file metadata
-        self.files.pop(rel_path, None)
-
-        # Remove from graph store if available
+        # Preserve identities until durable deletes complete, so failures remain
+        # visible and a subsequent rebuild can reconcile partial derived state.
+        symbol_keys = self.symbol_index.get(rel_path, [])
+        if self.use_embeddings and self.embedding_provider:
+            for symbol_key in symbol_keys:
+                await self.embedding_provider.delete_document(symbol_key)
         if self.graph_store:
-            try:
-                # Delete nodes and edges associated with this file
-                await self.graph_store.delete_by_file(rel_path)
-            except Exception as e:
-                logger.debug(f"Failed to remove graph nodes for {rel_path}: {e}")
+            await self.graph_store.delete_by_file(rel_path)
+
+        for symbol_key in symbol_keys:
+            self.symbols.pop(symbol_key, None)
+        self.symbol_index.pop(rel_path, None)
+        self.files.pop(rel_path, None)
 
     def _get_symbol_embedding_text(self, symbol: Symbol) -> str:
         """Generate text representation of a symbol for embedding.
@@ -3019,10 +3029,10 @@ class CodebaseIndex:
                 print(f"  Storage: {embedding_config.persist_directory}")
 
         except ImportError as e:
-            print(f"⚠️  Warning: Embeddings not available: {e}")
-            print("   Install with: pip install chromadb sentence-transformers")
-            self.use_embeddings = False
-            self.embedding_provider = None
+            raise ImportError(
+                "Requested embedding provider is unavailable; install its dependencies "
+                "or explicitly disable embeddings for structural-only indexing"
+            ) from e
 
     async def semantic_search(
         self,

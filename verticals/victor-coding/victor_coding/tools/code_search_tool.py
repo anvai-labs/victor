@@ -8,7 +8,7 @@ import warnings
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from victor_contracts.enrichment_runtime import CODE_PATTERNS
 from victor_contracts.search_runtime import (
@@ -55,7 +55,7 @@ def _coerce_integrity_probe_outcome(value: Any) -> IntegrityProbeOutcome:
         return value
     if isinstance(value, bool):
         return IntegrityProbeOutcome(rebuilt=value, stale=False)
-    return IntegrityProbeOutcome()
+    raise TypeError("Invalid integrity probe outcome")
 
 
 @dataclass
@@ -274,7 +274,7 @@ async def _probe_index_integrity(
         # NEW: Check if index is currently being built
         if _get_instance_attr(index, "_is_indexing", False) is True:
             logger.debug("Index currently being built, skipping integrity check")
-            return IntegrityProbeOutcome()  # Don't trigger rebuild during init
+            return IntegrityProbeOutcome(stale=True)  # Not yet qualified for reuse
 
         # Quick check: does the vector store have data?
         store = _get_instance_attr(index, "_vector_store", None)
@@ -302,7 +302,7 @@ async def _probe_index_integrity(
             )
             if hasattr(index, "_is_indexed"):
                 index._is_indexed = False
-            rebuilt = await _background_index_rebuild(index)
+            rebuilt = await _rebuild_index_inline(index)
             return IntegrityProbeOutcome(rebuilt=rebuilt, stale=not rebuilt)
         await probe_task
         return IntegrityProbeOutcome()  # Healthy — no rebuild needed
@@ -331,7 +331,7 @@ async def _probe_index_integrity(
 
         if any(kw in error_msg.lower() for kw in transient_keywords):
             logger.debug("Transient init issue detected (%s), skipping rebuild", error_msg)
-            return IntegrityProbeOutcome()  # Don't rebuild for transient issues
+            return IntegrityProbeOutcome(stale=True)  # Unknown is not healthy
 
         # Log with full error details for debugging
         logger.warning("Persistent index corrupt (%s); rebuilding inline", error_msg)
@@ -340,7 +340,7 @@ async def _probe_index_integrity(
             index._is_indexed = False
 
         # Rebuild inline while the startup path already holds the index lock.
-        rebuilt = await _background_index_rebuild(index)
+        rebuilt = await _rebuild_index_inline(index)
         return IntegrityProbeOutcome(rebuilt=rebuilt, stale=not rebuilt)
 
 
@@ -469,56 +469,20 @@ async def _finalize_index_storage(index: Any) -> None:
 
     get_stats = getattr(provider, "get_stats", None)
     if not callable(get_stats):
-        return
+        raise TypeError("Structural index provider cannot finalize buffered writes")
 
-    try:
-        await get_stats()
-    except Exception as exc:
-        logger.debug("Failed to finalize structural code_search provider writes: %s", exc)
+    await get_stats()
 
 
-def _cleanup_nested_victor_dirs(root: Path) -> None:
-    """Remove .victor directories in unexpected locations.
-
-    Addresses the issue where nested .victor directories are created
-    when Victor is run from subdirectories. Only the top-level
-    {project_root}/.victor should exist.
-
-    Args:
-        root: Project root directory
-    """
-    import shutil
-
-    # List of known nested .victor paths to clean up
-    nested_patterns = [
-        root / "victor" / ".victor",  # victor/.victor
-        root / ".victor" / "embeddings" / ".victor",  # .victor/embeddings/.victor
-        root / "victor" / ".victor" / "embeddings",  # victor/.victor/embeddings
-    ]
-
-    for nested_path in nested_patterns:
-        if nested_path.exists():
-            try:
-                size = sum(f.stat().st_size for f in nested_path.rglob("*") if f.is_file())
-                logger.info(
-                    "[code_search] Removing nested .victor directory: %s (%.1f MB)",
-                    nested_path.relative_to(root),
-                    size / (1024 * 1024),
-                )
-                shutil.rmtree(nested_path)
-            except (OSError, PermissionError) as exc:
-                logger.warning("[code_search] Failed to remove %s: %s", nested_path, exc)
-
-
-async def _background_index_rebuild(index: Any, rebuild_timeout: float = 120.0) -> bool:
-    """Rebuild a corrupt index in the background without blocking callers."""
+async def _rebuild_index_inline(index: Any, rebuild_timeout: float = 120.0) -> bool:
+    """Rebuild under the caller's writer lock; failure leaves readiness stale."""
     import time
 
     start_time = time.time()
     try:
         index_path = getattr(index, "root", "unknown")
         logger.info(
-            "Background index rebuild started (timeout=%ds, index=%s)",
+            "Inline index rebuild started (timeout=%ds, index=%s)",
             rebuild_timeout,
             index_path,
         )
@@ -526,14 +490,14 @@ async def _background_index_rebuild(index: Any, rebuild_timeout: float = 120.0) 
         await _finalize_index_storage(index)
         elapsed = time.time() - start_time
         logger.info(
-            "Background index rebuild completed successfully in %.2fs (index=%s)",
+            "Inline index rebuild completed successfully in %.2fs (index=%s)",
             elapsed,
             index_path,
         )
         return True
     except asyncio.TimeoutError:
         logger.warning(
-            "Background index rebuild timed out after %ds; index remains stale (index=%s)",
+            "Inline index rebuild timed out after %ds; index remains stale (index=%s)",
             rebuild_timeout,
             getattr(index, "root", "unknown"),
         )
@@ -541,7 +505,7 @@ async def _background_index_rebuild(index: Any, rebuild_timeout: float = 120.0) 
     except Exception as err:
         error_msg = str(err) if str(err) else f"{type(err).__name__}"
         logger.warning(
-            "Background index rebuild failed after %.2fs: %s (index=%s)",
+            "Inline index rebuild failed after %.2fs: %s (index=%s)",
             time.time() - start_time,
             error_msg,
             getattr(index, "root", "unknown"),
@@ -561,41 +525,6 @@ def _filename_search_timeout() -> float:
             os.environ.get("VICTOR_FILENAME_SEARCH_TIMEOUT", "45.0"),
         )
     )
-
-
-# Single-flight registry for background index rebuilds, keyed by project root.
-# Without this, every stale code_search call spawns a fresh fire-and-forget
-# rebuild; concurrent rebuilds on a large repo thrash the same embeddings store
-# and cascade into repeated probe timeouts.
-_INFLIGHT_INDEX_REBUILDS: Dict[str, "asyncio.Task[Any]"] = {}
-
-
-def _spawn_index_rebuild_once(
-    root_key: str, coro_factory: Callable[[], Any]
-) -> "asyncio.Task[Any]":
-    """Spawn a background rebuild for ``root_key`` unless one is already running.
-
-    Returns the in-flight task (existing or newly created). ``coro_factory`` is
-    only invoked when a new task is actually spawned, so no orphan coroutine is
-    created when a rebuild is deduplicated.
-    """
-    existing = _INFLIGHT_INDEX_REBUILDS.get(root_key)
-    if existing is not None and not existing.done():
-        logger.info(
-            "[code_search] Index rebuild already in-flight for %s; skipping duplicate",
-            root_key,
-        )
-        return existing
-
-    task = asyncio.create_task(coro_factory())
-    _INFLIGHT_INDEX_REBUILDS[root_key] = task
-
-    def _clear(done_task: "asyncio.Task[Any]", key: str = root_key) -> None:
-        if _INFLIGHT_INDEX_REBUILDS.get(key) is done_task:
-            _INFLIGHT_INDEX_REBUILDS.pop(key, None)
-
-    task.add_done_callback(_clear)
-    return task
 
 
 def _get_index_cache(exec_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1692,6 +1621,17 @@ async def _ensure_file_watcher_subscription(
     return subscribed
 
 
+def _invalidate_index_readiness(persist_path: Path, cache_entry: Optional[Dict[str, Any]]) -> None:
+    """Invalidate readiness before mutation; failure prevents destructive work.
+
+    The writer lock must be held. This marks incomplete state truthfully; it
+    does not provide atomic generation replacement or preserve old artifacts.
+    """
+    if cache_entry is not None:
+        cache_entry["stale"] = True
+    (persist_path / CODEBASE_INDEX_MANIFEST_NAME).unlink(missing_ok=True)
+
+
 async def _refresh_cached_index_incrementally(
     cache_entry: Dict[str, Any],
     root: Path,
@@ -1715,8 +1655,17 @@ async def _refresh_cached_index_incrementally(
         cache_entry["stale"] = True
         return False
 
-    await index.incremental_reindex()
+    persist_path = Path(cache_entry["persist_directory"])
+    _invalidate_index_readiness(persist_path, cache_entry)
+    result = await index.incremental_reindex()
+    if not isinstance(result, dict) or not isinstance(result.get("errors"), list):
+        raise TypeError("Invalid incremental index result: an errors list is required")
+    if result["errors"]:
+        raise RuntimeError(
+            f"Incremental index is incomplete: {len(result['errors'])} file operations failed"
+        )
     await _finalize_index_storage(index)
+    write_codebase_index_manifest(persist_path, cache_entry["index_manifest"])
     cache_entry["latest_mtime"] = _latest_mtime(root)
     cache_entry["indexed_at"] = time.time()
     cache_entry["stale"] = False
@@ -2218,6 +2167,8 @@ async def _get_or_build_index(
     settings: Any,
     force_reindex: bool = False,
     exec_ctx: Optional[Dict[str, Any]] = None,
+    *,
+    require_ready: bool = False,
 ) -> Tuple[Any, bool]:
     """Return cached CodebaseIndex or build/update one. Returns (index, rebuilt?).
 
@@ -2232,10 +2183,8 @@ async def _get_or_build_index(
         settings: Application settings
         force_reindex: Force full re-index
         exec_ctx: Execution context for DI-based cache access
+        require_ready: Reject stale or lock-busy fallback for indexing commands.
     """
-    # Clean up nested .victor directories on first access
-    _cleanup_nested_victor_dirs(root)
-
     from victor_contracts.capability_runtime import (
         CodebaseIndexFactoryProtocol,
         get_capability_provider,
@@ -2245,6 +2194,7 @@ async def _get_or_build_index(
 
     embedding_config = _build_codebase_embedding_config(settings, root)
     index_manifest = build_codebase_index_manifest(embedding_config)
+    persist_path = Path(embedding_config["persist_directory"])
 
     # Get or create failure cache for index build failures before attempting
     # provider bootstrap so missing-provider failures can short-circuit.
@@ -2287,12 +2237,14 @@ async def _get_or_build_index(
     latest = _latest_mtime(root)
 
     # Check if we have a valid cached index
-    if cached_index and not force_reindex:
+    if cache_entry is not None and cached_index and not force_reindex and not require_ready:
         # Check if cache is marked as stale from file watcher
         if cache_entry.get("stale", False):
             logger.info(f"[code_search] Cache marked stale for {root}, will rebuild")
             # Fall through to rebuild below
-        elif not _cache_entry_matches_manifest(cache_entry, index_manifest):
+        elif not _cache_entry_matches_manifest(
+            cache_entry, index_manifest
+        ) or not has_compatible_codebase_index_manifest(persist_path, index_manifest):
             logger.info("[code_search] Cache manifest mismatch for %s, rebuilding", root)
             # Fall through to rebuild below
         elif latest <= last_mtime:
@@ -2328,13 +2280,15 @@ async def _get_or_build_index(
         latest = _latest_mtime(root)
 
         # Check if we have a valid cached index (double-check)
-        if cached_index and not force_reindex:
+        if cache_entry is not None and cached_index and not force_reindex:
             if cache_entry.get("stale", False):
                 logger.info(
                     "[code_search] Cache marked stale for %s (inside lock), rebuilding",
                     root,
                 )
-            elif not _cache_entry_matches_manifest(cache_entry, index_manifest):
+            elif not _cache_entry_matches_manifest(
+                cache_entry, index_manifest
+            ) or not has_compatible_codebase_index_manifest(persist_path, index_manifest):
                 logger.info(
                     "[code_search] Cache manifest mismatch for %s (inside lock), rebuilding",
                     root,
@@ -2367,6 +2321,20 @@ async def _get_or_build_index(
         graph_path = getattr(settings, "codebase_graph_path", None)
         graph_writer_mode = _resolve_graph_writer_mode(settings)
 
+        # Only do full index if forced or no persistent data exists
+        has_persistent_data = has_persisted_codebase_index_data(persist_path)
+        has_compatible_manifest = has_compatible_codebase_index_manifest(
+            persist_path, index_manifest
+        )
+        if has_persistent_data and not has_compatible_manifest:
+            logger.info(
+                "Persistent code_search index manifest mismatch for %s; rebuilding (%s)",
+                persist_path,
+                CODEBASE_INDEX_MANIFEST_NAME,
+            )
+
+        _invalidate_index_readiness(persist_path, cache_entry)
+
         # Create new index - it will load from disk if available
         index = _index_factory.create(
             root_path=str(root),
@@ -2379,110 +2347,8 @@ async def _get_or_build_index(
 
         logger.info(f"[code_search] Index creation complete for {root}")
 
-        # Only do full index if forced or no persistent data exists
-        persist_path = Path(embedding_config["persist_directory"])
-        has_persistent_data = has_persisted_codebase_index_data(persist_path)
-        has_compatible_manifest = has_compatible_codebase_index_manifest(
-            persist_path, index_manifest
-        )
-        if has_persistent_data and not has_compatible_manifest:
-            logger.info(
-                "Persistent code_search index manifest mismatch for %s; rebuilding (%s)",
-                persist_path,
-                CODEBASE_INDEX_MANIFEST_NAME,
-            )
-
         if force_reindex or not has_persistent_data or not has_compatible_manifest:
-            # First time or forced - full index
-            # Check if we have stale persistent data we can use immediately
-            has_usable_stale_data = has_persistent_data and not has_compatible_manifest
-
-            if has_usable_stale_data and not force_reindex:
-                # Mark current index as usable with stale data
-                if hasattr(index, "_is_indexed"):
-                    index._is_indexed = True
-                logger.info(
-                    "[code_search] Returning stale index immediately (manifest mismatch), rebuilding in background"
-                )
-
-                # Write manifest FIRST to prevent rebuild loop on next access
-                try:
-                    write_codebase_index_manifest(persist_path, index_manifest)
-                    logger.info(
-                        "[code_search] Wrote manifest for stale index, background rebuild in progress"
-                    )
-                except OSError as exc:
-                    logger.warning(
-                        "[code_search] Failed to write manifest before stale return: %s",
-                        exc,
-                    )
-
-                # Spawn background rebuild task (fire and forget)
-                async def _rebuildInBackground():
-                    try:
-                        logger.info("[code_search] Background rebuild started for %s", root)
-                        await index.index_codebase()
-                        await _finalize_index_storage(index)
-                        # Write manifest after successful rebuild
-                        try:
-                            write_codebase_index_manifest(persist_path, index_manifest)
-                            logger.info(
-                                "[code_search] Wrote manifest after background rebuild for %s",
-                                root,
-                            )
-                        except OSError as exc:
-                            logger.warning(
-                                "[code_search] Failed to write manifest after rebuild: %s",
-                                exc,
-                            )
-                        # Update cache with fresh index after rebuild
-                        current_cache = index_cache.get(str(root))
-                        if current_cache:
-                            current_cache["stale"] = False
-                            current_cache["latest_mtime"] = _latest_mtime(root)
-                            current_cache["index_manifest"] = index_manifest
-                        logger.info("[code_search] Background rebuild complete for %s", root)
-                    except Exception as exc:
-                        error_str = str(exc).lower()
-                        # Detect embedding-specific errors
-                        if "end_line" in error_str and "int64" in error_str:
-                            logger.error(
-                                "[code_search] Background rebuild failed due to embedding schema error: %s. "
-                                "This may be caused by None values in metadata. "
-                                "Consider using mode='literal' for text search instead.",
-                                exc,
-                            )
-                        elif "embed" in error_str or "lance" in error_str:
-                            logger.warning(
-                                "[code_search] Background rebuild failed due to embedding error: %s. "
-                                "Graph data may still be available for structural queries.",
-                                exc,
-                            )
-                        else:
-                            logger.warning(
-                                "[code_search] Background rebuild failed for %s: %s",
-                                root,
-                                exc,
-                            )
-
-                # Spawn background task (single-flight per root to avoid concurrent
-                # rebuilds thrashing the same embeddings store).
-                _spawn_index_rebuild_once(str(root), _rebuildInBackground)
-
-                # Cache stale index for immediate use
-                index_cache[str(root)] = {
-                    "index": index,
-                    "latest_mtime": latest,
-                    "indexed_at": time.time(),
-                    "index_manifest": index_manifest,
-                    "watcher_subscribed": False,
-                    "stale": True,  # Mark as stale since rebuild is in progress
-                }
-
-                # Return immediately with stale data
-                return index, False  # Not rebuilt from caller's perspective
-
-            # No stale data available, must block for initial build
+            # Rebuild remains owned by this caller and its exclusive lock.
             try:
                 await index.index_codebase()
             except Exception as exc:
@@ -2529,17 +2395,16 @@ async def _get_or_build_index(
             rebuilt = probe_outcome.rebuilt
             cache_stale = probe_outcome.stale
 
-        try:
-            write_codebase_index_manifest(persist_path, index_manifest)
-        except OSError as exc:
-            logger.warning(
-                "Failed to write code_search index manifest to %s: %s",
-                persist_path,
-                exc,
+        if cache_stale and require_ready:
+            raise RuntimeError(
+                "Semantic index is not ready; rebuild or retry after the active writer completes"
             )
+        if not cache_stale:
+            write_codebase_index_manifest(persist_path, index_manifest)
 
         index_cache[str(root)] = {
             "index": index,
+            "persist_directory": str(persist_path),
             "latest_mtime": latest,
             "indexed_at": time.time(),
             "index_manifest": index_manifest,
@@ -2553,11 +2418,12 @@ async def _get_or_build_index(
         logger.info(f"[code_search] Index build complete for {root} (releasing lock)")
 
     except TimeoutError:
-        if _lock_entered:
+        if _lock_entered or require_ready:
             raise
         # Lock busy (a background refresh holds it) — serve the stale cache
         # rather than block, otherwise fall back to a read-only on-disk load.
-        if cached_index:
+        if cache_entry is not None and cached_index:
+            cache_entry["stale"] = True
             logger.info(
                 "[code_search] Lock busy (background refresh active), serving cached index for %s",
                 root,
@@ -2577,6 +2443,13 @@ async def _get_or_build_index(
                 ),
                 graph_writer_mode="off",  # Force read-only
             )
+            index_cache[str(root)] = {
+                "index": index,
+                "latest_mtime": latest,
+                "stale": True,
+                "persist_directory": str(persist_path),
+                "index_manifest": index_manifest,
+            }
             return index, False
         except Exception as e:
             logger.warning("[code_search] Read-only index load failed: %s", e)
