@@ -2335,8 +2335,12 @@ stream pass and original failed evidence were preserved and not repeated.
   CodeGraph 0.10.3 after review, green CI and published-wheel verification. A bounded
   follow-up probe found eight completed parse results despite queue capacity one,
   and eight pending tasks after consumer failure; streaming ownership/settlement
-  now precedes consumer preflight and atomic publication. The canonical tracker
-  owns these remaining gates; DATA-04b remains open.
+  now precedes consumer preflight and atomic publication. The current unmerged
+  `fix/index-stream-ownership` candidate bounds producers and settles native work
+  on failure/cancellation, with existing-owner regression coverage. Review also
+  identified retained prior result payloads; a failing regression now covers their
+  release. This is not atomic publication or a hard parser cancellation deadline.
+  The canonical tracker owns validation and remaining gates; DATA-04b remains open.
 
 ## 4. Suggested follow-up session plan
 

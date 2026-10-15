@@ -3143,6 +3143,42 @@ before allowing a reused pipeline to switch effective roots. This is the next
 logical PR (`fix/index-stream-ownership`, baseline `4bfdaf630`). Do not restore the
 preflight patch unchanged or mistake source/prepared identity for committed state.
 
+### DATA-04b stream ownership repair (2026-10-15, candidate)
+
+Owner: Victor co-design; branch `fix/index-stream-ownership`, baseline `4bfdaf630`.
+The shared-inventory release above is complete; this increment repairs the existing
+stream before adopting that inventory in consumer preflight. A fixed number of async
+producers share one iterator and the existing executor. Each owns at most one parse
+or result awaiting queue space. Failure or cancellation settles producer/consumer
+coroutines and submitted native work before `run()` returns; repeated cancellation
+cannot abandon that work. Native parsers have no hard stop deadline. Committed
+mini-batches are not rolled back, and concurrent parent-pipeline reuse is not yet
+qualified. Limits bound result count, not bytes or repository-wide parser state.
+Nonpositive batch/queue limits fail explicitly. Executor submission failure fails
+the stream; individual source parse exceptions retain per-file error statistics.
+
+TDD reproduced three failures in the old implementation (all 40 inputs parsed
+behind a capacity-one queue; consumer failure and cancellation returning before
+native completion). Existing-owner tests also cover late native exceptions,
+repeated cancellation, empty input, normal delivery and per-file errors, invalid
+limits and executor failure. Independent review identified retained prior payloads;
+a weak-reference regression failed before promptly releasing those references.
+There was no existing producer ownership suite to duplicate; the existing consumer
+cooperative-yield test remains. No alternate executor, parser, native extension,
+schema or dependency is introduced. These bounded fixtures establish correctness,
+not workload throughput or memory-byte targets. Final local validation passes 86
+consumer tests, five isolated indexing integration tests (including the explicit
+slow case), 100% changed production-line coverage, configured mypy (2,117 files),
+full collection (35,264 tests), Black (3,925 files), Ruff, dependency locks, docs
+and hygiene. Independent review is clean after the retention fix; its owner suite
+passed 68 tests before the final case, and the final stream subset passes 12
+(overlapping counts, not additive). Exact-commit review and PR CI remain merge
+gates; this candidate is not merged/released and does not close DATA-04b.
+
+Next remains consumer root/inventory qualification, then atomic generation
+publication and contention/headroom evidence. Rollback is reverting this stream
+repair; no data migration is involved. Do not restore the preflight stash unchanged.
+
 The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
 (58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
 completed milestone. Per-subtask percentages are unknown until acceptance gates close.
