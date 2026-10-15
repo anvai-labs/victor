@@ -10,6 +10,13 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+## [0.10.0] - release candidate
+
+### Changed
+
+- Require Python 3.12 or newer. This minor release raises the interpreter floor
+  from the published 0.9.2 package; existing 0.9.2 artifacts remain unchanged.
+
 ### Fixed
 
 - Runtime `MemoryConfig` and `TeamAgentCategory` now re-export their canonical SDK

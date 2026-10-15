@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-15
-baseline_develop: 4bfdaf630ebb8dbfed0d0155564599e5920e3bf3
-next_task: DATA-04b
+baseline_develop: 697b7eef7122ba78a678f2ac77fb88f3bff04caf
+next_task: VAS-17 release qualification
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -3190,7 +3190,7 @@ exclusion semantics, and keep preparation results on the owning async task. Exis
 force-mode, snapshot and indexing suites own its failure/reuse regressions. Atomic
 publication remains a later gate, even when preparation preserves old data on error.
 
-### DATA-04b consumer preflight qualification (2026-10-15, candidate)
+### DATA-04b consumer preflight qualification (2026-10-15, merged)
 
 Owner: Victor co-design; `fix/index-preflight-qualification`, baseline `824609ea7`.
 The existing snapshot boundary now sends the selected inventory to released
@@ -3223,8 +3223,9 @@ checks, 148/156 changed production lines covered (94.9%); configured mypy passes
 2,117 files; full collection passes 35,294 tests, Black passes 3,925 files, and
 Ruff, dependency locks, docs drift and hygiene pass. The final force-mode owner
 passes 17 tests after strengthening the existing empty-input case. Independent
-implementation review is clean; exact-commit review and CI remain merge gates.
-No merge or release is claimed yet.
+implementation and exact-commit reviews are clean. [#1369](https://github.com/anvai-labs/victor/pull/1369)
+merged as `697b7eef7122ba78a678f2ac77fb88f3bff04caf` after all applicable checks,
+including Vertical Py3.12, passed. This is merged source, not release or C5 acceptance.
 
 Limits and next work: force writes after qualification can still destroy the old
 generation on failure; incremental planning still mutates before qualification.
@@ -3240,6 +3241,48 @@ revert without migration; retain failed evidence and do not restore the old stas
 The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
 (58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
 completed milestone. Per-subtask percentages are unknown until acceptance gates close.
+
+### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
+
+Owner: Victor co-design; branch `chore/release-013`, baseline
+`697b7eef7122ba78a678f2ac77fb88f3bff04caf`. Close the current release batch before
+resuming DATA-04b generation publication; the DATA milestone denominator stays
+5/12 complete. No formation or C5 acceptance is inferred from package publication.
+
+| Component / gate | Verified state | Next action |
+|---|---|---|
+| Sandhi 0.14.0 | Published from `805d786909ef72cce67a6d896d3fcc0e54815170`; main CI 38772328861 and all-target release 38774114587 attempt 2 passed; independent verifier passed | Consumer installation and managed deployment remain distinct |
+| Sandhi release history | [#371](https://github.com/anvai-labs/sandhi/pull/371), [#373](https://github.com/anvai-labs/sandhi/pull/373), promotion [#372](https://github.com/anvai-labs/sandhi/pull/372), back-sync [#374](https://github.com/anvai-labs/sandhi/pull/374) and release docs [#375](https://github.com/anvai-labs/sandhi/pull/375) merged | Preserve failed first verifier attempt (npm propagation 404); no tag/artifact replacement |
+| SentinelPass | Latest GitHub release and non-yanked protocol remain 0.17.0; Sandhi pins `=0.17.0` exactly | No speculative upgrade; no daemon or credentials changed |
+| InferFlux | Released 0.5.0 remains the runtime baseline; subsequent upstream changes are documentation | No new runtime release justified by those docs changes |
+| Homebrew Sandhi | [tap #103](https://github.com/anvai-labs/homebrew-tap/pull/103) merged after independent review and real formula/cask install CI | Running services are not upgraded by merging a formula |
+| Victor CodeGraph | Published 0.10.3 and exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
+| Contracts SDK | 0.10.0 candidate wheel builds; Python floor rises from published 0.9.2's 3.10 to 3.12; typed exports/markers and runtime bridge repairs included | Publish independent `sdk-v0.10.0` after reviewed promotion, before root package publication |
+| Victor AI/native | 0.13.0 candidate identities synchronized; root plus three snapshots pin Sandhi 0.14.0 and contracts 0.10.0 | Finish review/CI, promote to main, publish artifacts and verify installs |
+| Homebrew Victor | Existing 0.12.0 package and documented 0.11.0 private-CA override preserved | Update only after coordinated Victor release; never downgrade to historical 0.10.1 |
+
+Local qualification uses the official Sandhi 0.14.0 wheel in an isolated temporary
+environment; recorded import paths distinguish it from the shared development
+binding. SDK/version suites pass 347 tests. Provider suites pass 1,777 tests with
+six explicit skips after rerunning the two sandbox-denied TLS listeners; all seven
+TLS diagnostic tests pass. Real loopback HTTP parity passes 59 tests for embedded
+and gateway-shaped OpenAI-compatible/Anthropic paths. The first sandbox-denied
+runs remain evidence, not runtime defect claims. The installed contracts wheel
+passes both positive and negative MyPy consumer checks with both typing markers.
+The root wheel installs under the core dependency snapshot; `pip check`, CLI
+`--version` and `--help` pass. The bare CLI still emits the existing optional
+`victor-coding` discovery warning; no plugin acceptance is implied. Full collection
+passes 35,294 tests, configured MyPy passes 2,117 source files, Black passes 3,925
+files, and Ruff, dependency lock consistency, version sync, docs drift and repository
+hygiene pass.
+These fixtures do not establish live OAuth, model quality, deployment, weighted
+budget enforcement or mixed-team C5 acceptance.
+
+Source versions and metadata are prepared locally, not published Victor artifacts.
+Review, full applicable CI, main promotion and per-artifact release verification
+remain gates. Preserve current credentials/services/caches. After the release
+checkpoint, resume atomic generation publication and the original durable action,
+member-continuation and C5 gates without restarting completed workstreams.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 
