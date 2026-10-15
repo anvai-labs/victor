@@ -31,7 +31,6 @@ except ImportError:
 # on the external victor-coding package. Only the vertical-specific index
 # builder (_get_or_build_index) is loaded dynamically below.
 from victor.config.settings import _resolve_graph_writer_mode
-from victor.core.search.indexer import _INDEX_CACHE
 
 
 def _load_code_search_index_builder():
@@ -520,11 +519,6 @@ async def preload_semantic_index(
     """Preload semantic codebase index with embeddings and graph upfront."""
     try:
         root_path = Path(cwd).resolve()
-        cache_entry = _INDEX_CACHE.get(str(root_path))
-        if cache_entry and not force:
-            console_obj.print("[dim]✓ Semantic index already loaded[/]")
-            return True
-
         # Show progress during indexing (can take 20-30s)
         from rich.console import Console as RichConsole
 
@@ -539,12 +533,16 @@ async def preload_semantic_index(
             ) as status:
                 status.update("Indexing files...")
                 start_time = time.time()
-                index, rebuilt = await _get_or_build_index(root_path, settings, force_reindex=force)
+                index, rebuilt = await _get_or_build_index(
+                    root_path, settings, force_reindex=force, require_ready=True
+                )
                 elapsed = time.time() - start_time
         else:
             console_obj.print("[dim]⏳ Building semantic code index (one-time)...[/]")
             start_time = time.time()
-            index, rebuilt = await _get_or_build_index(root_path, settings, force_reindex=force)
+            index, rebuilt = await _get_or_build_index(
+                root_path, settings, force_reindex=force, require_ready=True
+            )
             elapsed = time.time() - start_time
 
         # Get graph stats if available
@@ -569,7 +567,7 @@ async def preload_semantic_index(
         if empty_graph_warning:
             console_obj.print(
                 "[yellow]⚠ No symbols were added to the project graph. "
-                "Verify --path points at your repo root and rerun `victor index --reset --debug` "
+                "Verify --path points at your repo root and rerun `victor index --force` "
                 "if you expected code to be indexed.[/yellow]"
             )
         return True

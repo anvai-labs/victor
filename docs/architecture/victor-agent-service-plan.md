@@ -2647,7 +2647,7 @@ user-approved scope change; a TODO plan entry is not delivery.
 
 ## Data correctness remediation plan (G102, 2026-10-14)
 
-**DATA-01/02/03 merged; DATA-04a active (design/reproduction).** Owner: Victor co-design session. DATA-01
+**DATA-01/02/03 merged; DATA-04a active (implementation/review).** Owner: Victor co-design session. DATA-01
 landed in [#1362](https://github.com/anvai-labs/victor/pull/1362), squash commit
 `b27c263f738598fe969ca11408226c3082e38d13`. DATA-02 landed in
 [#1363](https://github.com/anvai-labs/victor/pull/1363), squash commit
@@ -2712,7 +2712,7 @@ only against new evidence, retaining unknowns and readiness blockers.
 | DATA-01 / CG-P2, VAS-05c | ✅ merged [#1362](https://github.com/anvai-labs/victor/pull/1362); High (Critical if authorization boundary) / Medium; vector adapter | Shared helper now replaces interpolated deletion/search literals and repeated filters with one typed conjunction, allowlisted identifiers and explicit NULL semantics. Include analogous unified-store deletion. All eligibility predicates apply before top-k; invalid input never broadens reads or deletes. No dependency upgrade required to claim a fix. |
 | DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
 | DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
-| DATA-04a / CG-P2 | ACTIVE, design/reproduction; High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
+| DATA-04a / CG-P2 | ACTIVE, implementation/review; High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
 | DATA-04b / CG-P2 | TODO; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
@@ -2886,9 +2886,11 @@ for actual-member acceptance.
 ### DATA-04a owned index completion and readiness design
 
 Owner: Victor co-design session; branch `fix/index-readiness-publication` at
-DATA-03's merged baseline. **Design and two failing local reproducers only; no
-implementation or live rebuild yet.** Evidence is `data04a-discovery.json`,
-`data04a-reproducer.py` and `data04a-reproduction.log` under
+DATA-03's merged baseline `59bb3dd768ed155b1524e7281124557ab46330a6`.
+**Implementation and independent review are locally complete; CI/merge and release
+remain separate gates.**
+Original evidence is `data04a-discovery.json`, `data04a-reproducer.py` and
+`data04a-reproduction.log` under
 `var/codegraph-victor-20261012/`. The earlier temporary-root collection permission
 failure is preserved separately and is not evidence of a product defect.
 
@@ -2899,7 +2901,7 @@ Observed in disposable fake-index checks:
 - `_get_or_build_index` publishes a desired manifest while a mismatch-triggered
   rebuild is still blocked, then returns and releases its exclusive writer lock.
 
-Independent design review orders the repair as follows:
+The implemented design follows this order:
 
 1. Make build, finalization and manifest-publication failure observable before
    claiming readiness. `_finalize_index_storage` and the final manifest write
@@ -2924,8 +2926,49 @@ Independent design review orders the repair as follows:
    Add no tests that only mirror the removed helper. Require a disposable
    end-to-end CLI smoke before claiming user-visible completion.
 
+Local qualification and scope:
+
+- Build, graph/vector clear, embedding batch, finalization and publication errors
+  propagate. Cancellation leaves readiness invalidated. The CLI uses the builder's
+  strict option; ordinary search retains explicitly stale lock-timeout fallback.
+- Independent review found two additional false-success paths: incremental
+  results with `errors` were ignored, and requested embedding dependencies could
+  silently disable semantic indexing. Both now fail closed. Per-file write/delete
+  failures retain stale state and trigger full repair on the next attempt; partial
+  mtimes cannot skip that repair. Explicit `use_embeddings=False` is preserved.
+- Removed implicit deletion of nested project `.victor` directories from index
+  startup. A nested project may own authoritative state; search cannot infer that
+  it is disposable. A sentinel regression confirms preservation.
+- Reused the existing test owners. Removed the retired detached-task helper's test
+  and consolidated two preload-error tests that patched the wrong dispatch path.
+  New negative cases failed first (9 initial readiness, 4 storage, 10 review cases).
+  Current broader local result: **405 passed, 69 skipped** across coding indexers,
+  coding tools and core CLI. Disposable CLI smokes cover success, build/publication
+  errors, unavailable embedding provider and writer contention. No actual model
+  or production index is used. Skips are not acceptance evidence.
+- Queued builders use a controlled async lock and publish once; real manifest I/O
+  tests reject invalidated disk readiness despite an in-memory cache hit. These
+  tests do not qualify cross-process reader snapshots or distributed locking.
+- Evidence: `data04a-*-tests.log`, `data04a-review-red.log`, `data04a-mypy.log` and
+  `data04a-collection.log` in the existing local evidence directory. Configured
+  core MyPy passes; its documented legacy suppressions remain, so this is not
+  unsuppressed repository-wide typing qualification. Two-module vertical MyPy is
+  advisory (Makefile): **91 baseline diagnostics → 78**, no new diagnostic after
+  normalized baseline comparison; no suppressions added. The existing incremental
+  result now has a `TypedDict` contract without changing its dictionary shape.
+- Selected core gate: **104 passed, 1 skipped, 6 deselected**, 100% changed core-line
+  coverage. Full core collection: **35,235 tests**. Black, Ruff, configured core
+  MyPy (2,117 files), repository hygiene, docs drift, strict MkDocs and built-site
+  links pass. These do not replace hosted CI or live acceptance.
+- Independent corrected review: **195 passed, 7 skipped**, no scoped blockers;
+  final typing delta also reviewed. Reviewed source/test diff SHA256
+  `393cbebc05231e803ba254d382ae83c233c816fe8b4c85380e08218dae4db7ae`.
+
 No new model downloads, production rebuilds or generation-preservation claims.
-DATA-04b remains separate; release, hosted authorization and C5 gates remain open.
+Readiness here means the observed build/storage lifecycle completed successfully,
+not proven parser completeness. Parser error accounting, source/parser/encoder
+identity, cold-load inventory and preserving the old generation remain DATA-04b;
+cross-representation deletion/reconciliation remains DATA-05. Release, hosted authorization and C5 gates remain open.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 

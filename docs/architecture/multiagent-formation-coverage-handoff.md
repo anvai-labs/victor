@@ -2313,11 +2313,15 @@ stream pass and original failed evidence were preserved and not repeated.
   for evidence, exclusions and next gates. DATA-03 scoped, atomic migration
   admission and version publication is ✅ merged in
   [#1364](https://github.com/anvai-labs/victor/pull/1364), including migrate-before-index
-  initialization and v9 data-preservation/rejection guards. DATA-04a now has two
-  disposable failing reproducers for stale-cache CLI success and premature
-  manifest publication; its design also covers suppressed finalization failures
-  and readiness invalidation before destructive rebuilding. Other repairs remain
-  open; no production migration, release or live acceptance is claimed.
+  initialization and v9 data-preservation/rejection guards. DATA-04a is locally
+  implemented and under review: owned rebuild completion, readiness invalidation,
+  strict CLI validation and propagated storage/publication errors. Its review
+  additionally found ignored incremental error results, silently disabled requested
+  embeddings and automatic deletion of nested project state; regression tests now
+  cover these repairs. Parser completeness and atomic generation replacement remain
+  DATA-04b; cross-representation reconciliation remains DATA-05. See the canonical
+  tracker for validation and exact merge status. No production migration, release
+  or live acceptance is claimed.
 
 ## 4. Suggested follow-up session plan
 
