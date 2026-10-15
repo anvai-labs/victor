@@ -43,6 +43,7 @@ from victor.framework.message_execution import (
 from victor.framework.task import TaskResult
 
 if TYPE_CHECKING:
+    from victor.agent.conversation.store import ConversationStore
     from victor.framework.approval_pause import ApprovalDecision
     from victor.framework.session_config import SessionConfig
     from victor.framework.agent import Agent
@@ -743,7 +744,7 @@ class VictorClient:
         """Get conversation messages.
 
         Args:
-            limit: Maximum number of messages to return (most recent first)
+            limit: Maximum number of recent messages, in conversation order
             role: Optional filter by message role (e.g., "user", "assistant")
 
         Returns:
@@ -757,10 +758,18 @@ class VictorClient:
 
         services = self._resolve_runtime_services()
         if services.context is not None:
-            return await services.context.get_messages(limit=limit, role=role)
+            return services.context.get_messages(limit=limit, role=role)
         else:
             logger.warning("ContextService not available for get_messages")
             return []
+
+    def _stored_conversations(self) -> "ConversationStore":
+        """Use the same authoritative store for picker and resume."""
+        from victor.agent.conversation.store import ConversationStore
+
+        orchestrator = getattr(self._agent, "_orchestrator", None)
+        store = getattr(orchestrator, "memory_manager", None)
+        return store if store is not None else ConversationStore()
 
     def list_recent_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
         """List recent stored sessions for a resume picker (cross-visit).
@@ -777,8 +786,6 @@ class VictorClient:
             last_activity, …); empty on any lookup failure.
         """
         try:
-            from victor.agent.conversation.store import ConversationStore
-
             return [
                 {
                     "session_id": session.session_id,
@@ -789,11 +796,11 @@ class VictorClient:
                     "created_at": session.created_at,
                     "updated_at": session.last_activity,
                     "last_activity": session.last_activity,
-                    "message_count": len(session.messages),
-                    "preview_count": len(session.preview_messages),
-                    "tags": session.tags,
+                    "message_count": session.message_count,
+                    "preview_count": session.preview_count,
+                    "tags": list(session.tags),
                 }
-                for session in ConversationStore().list_sessions(limit=limit)
+                for session in self._stored_conversations().list_session_summaries(limit=limit)
             ]
         except Exception as exc:  # a picker must never take the surface down
             logger.warning("list_recent_sessions failed: %s", exc)
@@ -824,9 +831,11 @@ class VictorClient:
             raise RuntimeError("VictorClient not initialized. Call initialize() first.")
 
         from victor.agent.conversation.session_resume import hydrate_session
-        from victor.agent.conversation.store import ConversationStore
 
-        session_data = ConversationStore().load_session(session_id)
+        agent = self._agent
+        orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
+        store = self._stored_conversations()
+        session_data = store.load_session(session_id)
         if not session_data:
             return None
 
@@ -834,8 +843,6 @@ class VictorClient:
         # resolved service) and the ConversationController the streaming turn
         # loop reads (reached through the orchestrator, as active_session_id is
         # below). Both are the live DI-container instances the turn path uses.
-        agent = self._agent
-        orchestrator = getattr(agent, "_orchestrator", None) if agent is not None else None
         if orchestrator is not None:
             orchestrator._runtime_identity.validate_session_transition(session_id)
         context_service = self._resolve_runtime_services().context
@@ -845,7 +852,7 @@ class VictorClient:
         # Stamp the resumed id/state on the orchestrator so continuation turns
         # append to the same session rather than minting a fresh one.
         if orchestrator is not None:
-            orchestrator.active_session_id = session_id
+            orchestrator._get_session_runtime().bind_restored_session(store, session_id)
             state_dict = session_data.get("conversation_state")
             if state_dict:
                 try:

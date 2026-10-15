@@ -60,25 +60,28 @@ async def test_victor_client_reset_conversation_raises_when_not_initialized() ->
         await client.reset_conversation()
 
 
-@pytest.mark.asyncio
-async def test_victor_client_get_messages_delegates_to_context_service() -> None:
-    """Test get_messages delegates to ContextService."""
-    config = SessionConfig()
-    client = VictorClient(config, container=object())
+@pytest.mark.parametrize("binding", ["context", "container"])
+async def test_victor_client_get_messages_uses_real_context_adapter(binding):
+    from victor.agent.conversation.controller import ConversationController
+    from victor.agent.services.adapters.context_adapter import ContextServiceAdapter
 
-    fake_messages = [MagicMock(role="user", content="hello")]
-    mock_context_service = AsyncMock()
-    mock_context_service.get_messages.return_value = fake_messages
-
-    execution_context = SimpleNamespace(services=SimpleNamespace(context=mock_context_service))
-
-    client._context = execution_context
+    controller = ConversationController()
+    controller.add_message("user", "Atlas")
+    controller.add_message("assistant", "History before Monaco")
+    service = ContextServiceAdapter(controller)
+    client = VictorClient(SessionConfig(), container=object())
+    container = MagicMock()
+    container.get_optional.side_effect = lambda protocol: {
+        service_protocols.ContextServiceProtocol: service,
+    }.get(protocol)
+    client._context = SimpleNamespace(
+        services=SimpleNamespace(context=service if binding == "context" else None),
+        container=container,
+    )
     client._initialized = True
-
     messages = await client.get_messages(limit=10, role="user")
-
-    mock_context_service.get_messages.assert_called_once_with(limit=10, role="user")
-    assert messages == fake_messages
+    assert [(m.role, m.content) for m in messages] == [("user", "Atlas")]
+    assert [m.content for m in await client.get_messages(limit=1)] == ["History before Monaco"]
 
 
 @pytest.mark.asyncio
@@ -123,33 +126,6 @@ async def test_victor_client_reset_conversation_handles_missing_service() -> Non
 
 
 @pytest.mark.asyncio
-async def test_victor_client_get_messages_resolves_context_service_from_context_container() -> None:
-    """Test get_messages uses canonical runtime service resolution."""
-    config = SessionConfig()
-    client = VictorClient(config, container=object())
-
-    fake_messages = [MagicMock(role="assistant", content="resolved")]
-    mock_context_service = AsyncMock()
-    mock_context_service.get_messages.return_value = fake_messages
-    container = MagicMock()
-    container.get_optional.side_effect = lambda protocol: {
-        service_protocols.ContextServiceProtocol: mock_context_service,
-    }.get(protocol)
-    execution_context = SimpleNamespace(
-        services=SimpleNamespace(context=None),
-        container=container,
-    )
-
-    client._context = execution_context
-    client._initialized = True
-
-    messages = await client.get_messages(limit=5)
-
-    mock_context_service.get_messages.assert_awaited_once_with(limit=5, role=None)
-    assert messages == fake_messages
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("allowed", [True, False])
 async def test_victor_client_resume_session_validates_before_hydration(
     monkeypatch, allowed
@@ -189,6 +165,10 @@ async def test_victor_client_resume_session_validates_before_hydration(
         _conversation_controller=controller,
         _runtime_identity=SimpleNamespace(validate_session_transition=MagicMock()),
     )
+    binding = MagicMock(
+        side_effect=lambda store, sid: setattr(orchestrator, "active_session_id", sid)
+    )
+    orchestrator._get_session_runtime = lambda: SimpleNamespace(bind_restored_session=binding)
     client._agent = SimpleNamespace(_orchestrator=orchestrator)
 
     if not allowed:
@@ -198,6 +178,7 @@ async def test_victor_client_resume_session_validates_before_hydration(
         with pytest.raises(ValueError, match="member session"):
             await client.resume_session("s42")
         assert captured == {}
+        binding.assert_not_called()
         assert orchestrator.active_session_id is None
         return
 
@@ -231,39 +212,24 @@ async def test_victor_client_resume_session_raises_when_not_initialized() -> Non
         await client.resume_session("s1")
 
 
-def test_victor_client_list_recent_sessions(monkeypatch) -> None:
-    session = SimpleNamespace(
-        session_id="s1",
-        title="a",
-        provider="openai",
-        model="gpt-4.1",
-        profile="default",
-        created_at="created",
-        last_activity="updated",
-        messages=[object()],
-        preview_messages=[],
-        tags=["demo"],
-    )
-    monkeypatch.setattr(
-        "victor.agent.conversation.store.ConversationStore",
-        lambda *a, **k: SimpleNamespace(list_sessions=lambda limit: [session][:limit]),
-    )
+def test_victor_client_list_recent_sessions(monkeypatch, tmp_path) -> None:
+    from victor.agent.conversation.store import ConversationStore
+    from victor.agent.conversation.types import MessageRole
+
+    store = ConversationStore(db_path=tmp_path / "history.db")
+    session = store.create_session(provider="openai", model="gpt-4.1")
+    store.add_message(session.session_id, MessageRole.USER, "Atlas conversation history")
+    store.add_message(session.session_id, MessageRole.ASSISTANT, "History before Monaco")
+    reopened = ConversationStore(db_path=store.db_path)
+    monkeypatch.setattr("victor.agent.conversation.store.ConversationStore", lambda: reopened)
     client = VictorClient(SessionConfig(), container=object())
-    assert client.list_recent_sessions(limit=5) == [
-        {
-            "session_id": "s1",
-            "title": "a",
-            "provider": "openai",
-            "model": "gpt-4.1",
-            "profile": "default",
-            "created_at": "created",
-            "updated_at": "updated",
-            "last_activity": "updated",
-            "message_count": 1,
-            "preview_count": 0,
-            "tags": ["demo"],
-        }
-    ]
+    summaries = client.list_recent_sessions(limit=5)
+    assert len(summaries) == 1
+    assert summaries[0]["session_id"] == session.session_id
+    assert summaries[0]["message_count"] == 2
+    assert summaries[0]["title"] == "Atlas conversation history"
+    assert summaries[0]["preview_count"] == 0
+    assert summaries[0]["tags"] == []
 
 
 def test_victor_client_list_recent_sessions_survives_failure(monkeypatch) -> None:
@@ -285,6 +251,9 @@ async def test_resume_rejects_active_turn_before_hydration(monkeypatch, entry, t
 
     owner = SimpleNamespace(active_session_id="active", _memory_session_id=None)
     identity = owner._runtime_identity = RuntimeIdentity(owner)
+    owner._get_session_runtime = lambda: SimpleNamespace(
+        bind_restored_session=lambda store, sid: setattr(owner, "active_session_id", sid)
+    )
     service = ChatService(ChatServiceConfig(), None, None, None, None, None, None)
     identity.bind_turn_lock(service._turn_lock)
     started, finish = asyncio.Event(), asyncio.Event()
@@ -417,3 +386,86 @@ async def test_client_reset_rejects_active_turn_without_mutation(entry):
     await client.reset_conversation()
     controller.reset.assert_called_once()
     assert [message.role for message in controller.messages] == ["system"]
+
+
+@pytest.mark.parametrize("memory_enabled", [True, False])
+async def test_resume_continuation_persists_to_selected_session(
+    tmp_path, monkeypatch, memory_enabled
+):
+    from victor.agent.conversation.store import ConversationStore
+    from victor.agent.conversation.controller import ConversationController
+    from victor.agent.conversation.types import MessageRole
+    from victor.agent.runtime.context import RuntimeIdentity
+    from victor.agent.services.adapters.context_adapter import ContextServiceAdapter
+    from victor.agent.services.session_runtime import SessionRuntime
+
+    store = ConversationStore(db_path=tmp_path / "sessions.db")
+    store.create_session(session_id="assembly")
+    store.create_session(session_id="atlas")
+    store.add_message("atlas", MessageRole.USER, "Atlas before Monaco")
+    controller = ConversationController()
+    if memory_enabled:
+        controller.set_conversation_store(store, "assembly")
+    host = SimpleNamespace(
+        active_session_id=None,
+        _memory_session_id="assembly" if memory_enabled else None,
+        _conversation_controller=controller,
+        memory_manager=store if memory_enabled else None,
+        _session_service=MagicMock(),
+        _lifecycle_manager=None,
+        _checkpoint_manager=None,
+        _session_cost_tracker=None,
+        conversation_state=None,
+    )
+    host._runtime_identity = RuntimeIdentity(host)
+    runtime = SessionRuntime(
+        host, validate_session=host._runtime_identity.validate_session_transition
+    )
+    host._get_session_runtime = lambda: runtime
+    client = VictorClient(SessionConfig(), container=object())
+    client._agent = SimpleNamespace(_orchestrator=host)
+    client._context, client._initialized = object(), True
+    monkeypatch.setattr(
+        client,
+        "_resolve_runtime_services",
+        lambda: SimpleNamespace(context=ContextServiceAdapter(controller)),
+    )
+    monkeypatch.setattr("victor.agent.conversation.store.ConversationStore", lambda: store)
+    await client.resume_session("atlas")
+    assert host.active_session_id == "atlas"
+    assert host._memory_session_id == ("atlas" if memory_enabled else None)
+    assert controller._session_id == ("atlas" if memory_enabled else None)
+    assert controller._conversation_store is (store if memory_enabled else None)
+    assert [m.content for m in controller.messages if m.role == "user"] == ["Atlas before Monaco"]
+    host._session_service.bind_runtime_components.assert_called_once()
+    from victor.agent.services.chat_persistence import ChatPersistenceMixin
+
+    host.usage_logger = None
+    host.conversation = controller
+    ChatPersistenceMixin.publish_message(
+        host,
+        "assistant",
+        "Continued",
+        persist_synchronously=True,
+        require_persistence=memory_enabled,
+    )
+    reopened = type(store)(db_path=store.db_path)
+    assert {s.session_id: s.message_count for s in reopened.list_session_summaries()} == {
+        "atlas": 2 if memory_enabled else 1,
+        "assembly": 0,
+    }
+
+
+def test_picker_uses_runtime_store_instead_of_default(tmp_path, monkeypatch):
+    from victor.agent.conversation.store import ConversationStore
+
+    runtime_store = ConversationStore(db_path=tmp_path / "runtime.db")
+    runtime_store.create_session(session_id="runtime")
+    default_store = ConversationStore(db_path=tmp_path / "default.db")
+    default_store.create_session(session_id="default")
+    monkeypatch.setattr("victor.agent.conversation.store.ConversationStore", lambda: default_store)
+    client = VictorClient(SessionConfig(), container=object())
+    assert [s["session_id"] for s in client.list_recent_sessions()] == ["default"]
+    client._agent = SimpleNamespace(_orchestrator=SimpleNamespace(memory_manager=runtime_store))
+    assert [s["session_id"] for s in client.list_recent_sessions()] == ["runtime"]
+    assert client._stored_conversations() is runtime_store

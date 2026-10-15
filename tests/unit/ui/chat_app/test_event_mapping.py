@@ -269,3 +269,18 @@ def test_awaiting_approval_renders_paused_lane_via_wire_timeline() -> None:
     rendered = " ".join(str(line) for line in lines)
     assert "awaiting approval" in rendered
     assert "deploy" in rendered
+
+
+def test_history_messages_hides_tagged_internal_turns_without_parsing_user_text():
+    from victor.providers.base import Message
+
+    messages = [
+        Message(role="user", content="What does <system-reminder> mean?"),
+        Message(role="user", content="internal guidance", metadata={"interactive_history": False}),
+        {"role": "assistant", "content": "hidden", "metadata": {"interactive_history": False}},
+        {"role": "assistant", "content": "Visible answer"},
+    ]
+    assert history_messages(messages) == [
+        ("You", "What does <system-reminder> mean?"),
+        ("Victor", "Visible answer"),
+    ]

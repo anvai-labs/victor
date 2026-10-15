@@ -58,6 +58,10 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/agent/conversation/session_model.py": (
+        "tests/unit/agent/conversation/test_store_rich_metadata.py",
+        "tests/unit/framework/test_client_conversation.py",
+    ),
     "victor/agent/factory/runtime_builders.py": (
         "tests/unit/agent/services/test_chat_runtime_services.py",
         "tests/unit/agent/runtime/test_component_assembler.py",

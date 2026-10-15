@@ -74,13 +74,21 @@ def _load_session_data(session_id: str) -> Optional[dict[str, Any]]:
 def _list_session_summaries(limit: int) -> list[dict[str, Any]]:
     """List session summaries with a consistent cross-backend schema."""
 
-    backend = _get_session_backend()
-    summaries: list[dict[str, Any]] = []
-    for session in backend.list_sessions(limit=limit):
-        loaded = backend.load_session(session.session_id)
-        if loaded:
-            summaries.append(_summary_from_loaded_session(loaded))
-    return summaries
+    return [
+        {
+            "session_id": session.session_id,
+            "title": session.title,
+            "model": session.model or "unknown",
+            "provider": session.provider or "unknown",
+            "profile": session.profile or "default",
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.last_activity.isoformat(),
+            "message_count": session.message_count,
+            "preview_count": session.preview_count,
+            "tags": list(session.tags),
+        }
+        for session in _get_session_backend().list_session_summaries(limit=limit)
+    ]
 
 
 def _search_session_summaries(query: str, limit: int) -> list[dict[str, Any]]:

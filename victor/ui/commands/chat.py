@@ -1320,7 +1320,7 @@ victor chat --sessionid abc123            # Resume session
             from victor.agent.conversation.store import ConversationStore
 
             store = ConversationStore()
-            sessions = store.list_sessions(limit=20)
+            sessions = store.list_session_summaries(limit=20)
 
             if not sessions:
                 console.print("[dim]No sessions found[/]")
@@ -1336,13 +1336,13 @@ victor chat --sessionid abc123            # Resume session
 
             for session in sessions:
                 date_str = session.created_at.strftime("%Y-%m-%d %H:%M")
-                title = "Untitled"  # ConversationSession doesn't have title
+                title = session.title
                 table.add_row(
                     session.session_id,
                     title,
                     session.model or "unknown",
                     session.provider or "unknown",
-                    str(len(session.messages)),
+                    str(session.message_count),
                     date_str,
                 )
 

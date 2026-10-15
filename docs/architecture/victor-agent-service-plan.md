@@ -3,7 +3,7 @@ plan_id: VAS-2026-10
 status: active
 updated: 2026-10-14
 baseline_develop: 3ce744b063e6404fb27c003f8eba212ed2fc4a9f
-next_task: VAS-17
+next_task: UX-10
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -301,6 +301,47 @@ edit. A mock test is not live provider or C5 evidence.
   including vertical tests; merge `3a6b078317d863c2fc0ce22416b17f660fbafab8`.
   Shared progress/cancellation ownership remains open before consolidated API
   lifecycle parity can be claimed.
+
+- **UX-10 conversation continuity dogfood — ACTIVE, local qualification** — owner:
+  Victor co-design session; branch `fix/ui-dogfood-continuity`, baseline
+  `43756b90f342d3c645155235e81bd4130e86b72c`. Stabilize existing Chainlit and shared
+  client contracts before the Monaco/CodeMirror authoring spike or new service API.
+  Direct `codex-local` uses Codex OAuth and in-process Sandhi; no external gateway
+  hop. Qualification still uses the isolated Sandhi 0.13.0 candidate from
+  `7df5947bcb7bca21d7be6af9d86399f37062a2ea`, not released-dependency acceptance.
+
+  | Dogfood case | Observed result / repair |
+  | --- | --- |
+  | Proposed-design Markdown table + Mermaid source | Table and fenced code render; Mermaid is **not** rendered as a diagram. One call, 5.4s, 8,763 reported tokens. |
+  | In-session Atlas memory question | Correct name/milestone; one call, 1.8s, 9,053 reported tokens. |
+  | Fresh-visit resume | Model recalled Atlas, but picker showed zero messages and replay was empty. Metadata-only sessions were counted as loaded histories; client awaited synchronous context history. |
+  | Corrected picker/replay | One typed persisted summary query shared across web/CLI/slash lists; true counts and bounded title fallback, no transcript hydration/N+1. Synchronous adapter bridge; replay honors existing hidden-message metadata and exposes rendering failure. |
+  | Resumed continuation | Baseline wrote to assembly session. Existing SessionRuntime now binds persistence/controller/runtime identity to the selected store/session; live checkpoint beta appears once per user/assistant in original `session_091ebcba78d4`. One call, 5.1s, 9,471 tokens. |
+  | Bounded source-grounded review | Three requested files reviewed, five cited bullets, no edits or unrun-test claims; 12.1s, three calls, 35,285 tokens. Citations verified against the candidate. |
+  | Isolated edit/test through approvals | Only fixture `labels.py` changed; baseline three failing cases became four passing tests using worktree Python. Five model calls, 79,435 tokens, 148.8s including five approvals (three shell reads, edit, test). Correctness passed; this does not establish efficient UX. |
+
+  Replace inaccurate populated-session/AsyncMock tests with real SQLite/context
+  adapter cases. Preserve disabled persistence on explicit history resume; picker
+  and resume use the same runtime-selected store. Test hidden metadata without
+  parsing user prose, preview truthiness/sidecars, empty sessions, filtering/limits,
+  deterministic ties, fresh counts after append/clear, one SQL query, missing-target
+  rejection and existing active-turn/member guards. Independent review caught the
+  custom-store mismatch and accidental memory enablement; both are repaired before
+  publication. No performance improvement follows from these small stochastic runs.
+  Final local CI-selector qualification: **1,053 passed, one platform skip, 12 slow
+  deselections, 93% changed-line coverage**; **35,136 tests collected**. Configured
+  MyPy on 11 production modules, Black/Ruff, repository hygiene, docs drift/build
+  and built-site links pass. Independent review is clean after the store-boundary
+  guard; 40 final client/runtime tests and 186 earlier owner/selector checks passed.
+  Local evidence: `var/codegraph-victor-20261012/ui-continuity-*`. CI, merge and
+  release remain separate gates. Shell-read approval friction and token overhead
+  remain measurable follow-ups; do not bypass policy to make this smoke faster.
+
+  **Next dependency order:** finish this continuity checkpoint; repair graph/index
+  lifecycle under CG-P2; broaden bounded read/edit/test/cancel/recovery dogfood;
+  complete shared API lifecycle contracts; then measure editor candidates. Existing
+  #1360 edit/cache live evidence is retained rather than relabeled as this run.
+  Full self-audit, all-provider/formations, lifecycle and C5 acceptance remain open.
 
 - **UX-09 structured tool intent and truthful usage — ACTIVE** — owner: Victor
   co-design session; active branch `fix/provider-invocation-accounting`, baseline
@@ -765,8 +806,10 @@ edit. A mock test is not live provider or C5 evidence.
   after failure). Exact-selector local requalification with CI's diff-cover 9.x:
   **241 passed, zero skipped, two slow cases deselected, 94% changed-line coverage**.
   Independent correction review passed 84 checks. Collection remains 35,116;
-  source behavior is unchanged by this CI/test correction. Await the updated PR's
-  complete checks before merge; the previous failed gate is retained as evidence.
+  source behavior is unchanged by this CI/test correction. **Merged #1360** at
+  `43756b90f342d3c645155235e81bd4130e86b72c`: 40 successful checks, one configured
+  deployment skip and neutral Trivy, with clean independent review. The earlier
+  failed coverage gate remains evidence; source merge is not release/C5 acceptance.
 
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced
@@ -2217,6 +2260,7 @@ claims of measured performance:
 | Logic / prompt / YAML / JSON editor | Compare Monaco and CodeMirror 6 | Monaco fits the existing VS Code ecosystem and language-service UX; CodeMirror offers composable cell editors. Measure startup/bundle/memory and accessibility; choose one primary editor after the spike. No browser eval of user logic. |
 | Audit charts | Prefer an existing lightweight chart surface; evaluate D3/Observable Plot if necessary | D3 supplies low-level visualization primitives; Rickshaw targets interactive time-series graphs, not workflow authoring. Introduce neither merely for visual novelty. Charts use recorded outcomes and neutral usage, with accessible tables. |
 | Notebook-style authoring | Begin with ordered Markdown, input, typed operation and result cells | Cells reference the canonical workflow definition and recorded run/step IDs. Editing/import does not execute code. Bound, sanitize and label output provenance. |
+| Conversation and rich artifacts | Keep Markdown/history first; later typed PNG/SVG/Mermaid/PlantUML outputs | Preserve author/order/run/step provenance. Bound artifact size and render time, sanitize SVG, disable active/external content, retain accessible source/download views. PlantUML rendering must be local or explicitly authorized; never upload private diagrams silently. No renderer dependency is selected by this plan row. |
 | Full notebook compatibility | Optional JupyterLab/nbformat adapter after core editor | A kernel and server are separate execution/authorization surfaces. Require isolated per-user execution, quotas, cancellation, retention, explicit trust and existing action/approval gates; never silently execute imported cells. |
 
 Primary references: [React Flow accessibility](https://reactflow.dev/learn/advanced-use/accessibility),

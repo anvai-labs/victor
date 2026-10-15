@@ -921,3 +921,75 @@ class TestSearchSessions:
         assert len(results_lower) == 1
         assert len(results_upper) == 1
         assert len(results_mixed) == 1
+
+
+class TestSessionSummaryProjection:
+    @pytest.mark.parametrize("preview", [True, False, None, 0, 1, "", "[]", [], [1], {}, {"x": 1}])
+    def test_persisted_counts_titles_and_freshness_without_hydration(
+        self, temp_store, monkeypatch, preview
+    ):
+        session = temp_store.create_session(project_path="/atlas", provider="openai", model="gpt-4")
+        sid = session.session_id
+        temp_store.add_message(sid, MessageRole.USER, "preview", metadata={"is_preview": preview})
+        temp_store.add_message(sid, MessageRole.USER, "Atlas " + "x" * 100)
+        temp_store.add_message(sid, MessageRole.ASSISTANT, "Answer")
+        reopened = ConversationStore(db_path=temp_store.db_path)
+
+        def forbid(*args, **kwargs):
+            raise AssertionError("Summary must not hydrate conversations")
+
+        monkeypatch.setattr(reopened, "_load_session", forbid)
+        monkeypatch.setattr(reopened, "_session_from_row", forbid)
+        monkeypatch.setattr(reopened, "_message_from_row", forbid)
+        queries = []
+        connect = sqlite3.connect
+
+        def traced_connect(*args, **kwargs):
+            conn = connect(*args, **kwargs)
+            conn.set_trace_callback(queries.append)
+            return conn
+
+        monkeypatch.setattr(sqlite3, "connect", traced_connect)
+        summary = reopened.list_session_summaries(project_path="/atlas")[0]
+        assert len(queries) == 1
+        assert (summary.message_count, summary.preview_count) == (
+            3 - bool(preview),
+            int(bool(preview)),
+        )
+        assert summary.title == (("Atlas " + "x" * 100)[:50] if preview else "preview")
+        temp_store.add_message(sid, MessageRole.ASSISTANT, "Later")
+        assert reopened.list_session_summaries()[0].message_count == 4 - bool(preview)
+        with sqlite3.connect(temp_store.db_path) as conn:
+            conn.execute(
+                "UPDATE sessions SET metadata=? WHERE session_id=?",
+                (
+                    json.dumps(
+                        {
+                            "title": "Explicit",
+                            "tags": ["demo"],
+                            "preview_messages": [{"role": "assistant", "content": "sidecar"}],
+                        }
+                    ),
+                    sid,
+                ),
+            )
+        summary = reopened.list_session_summaries()[0]
+        assert (summary.title, summary.tags, summary.preview_count) == (
+            "Explicit",
+            ("demo",),
+            1 + bool(preview),
+        )
+        temp_store.clear_session(sid)
+        assert reopened.list_session_summaries()[0].message_count == 0
+
+    def test_filter_limit_order_and_empty_session(self, temp_store):
+        for sid, project in [("a", "/atlas"), ("b", "/atlas"), ("c", "/other")]:
+            temp_store.create_session(session_id=sid, project_path=project)
+        with sqlite3.connect(temp_store.db_path) as conn:
+            conn.execute("UPDATE sessions SET last_activity='2026-10-14T00:00:00'")
+        summaries = temp_store.list_session_summaries(project_path="/atlas", limit=1)
+        assert [s.session_id for s in summaries] == ["b"]
+        assert summaries[0].message_count == summaries[0].preview_count == 0
+        assert summaries[0].title == "Untitled"
+        assert temp_store.list_session_summaries(limit=0) == []
+        assert [s.session_id for s in temp_store.list_session_summaries()] == ["c", "b", "a"]
