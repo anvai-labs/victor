@@ -242,6 +242,17 @@ def test_selector_changes_select_its_own_regressions():
             ],
         ),
         (
+            "victor/storage/graph/sqlite_store.py",
+            {
+                "tests/unit/storage/test_sqlite_graph_store.py",
+                "tests/unit/storage/test_sqlite_graph_store_concurrency.py",
+                "tests/unit/storage/graph/test_sqlite_store_cleanup.py",
+                "tests/unit/storage/graph/test_sqlite_store_edge_file_tracking.py",
+                "tests/unit/storage/graph/test_sqlite_store_edge_integrity.py",
+                "tests/unit/storage/graph/test_sqlite_store_embedding_cleanup.py",
+            },
+        ),
+        (
             "victor/storage/vector_stores/_lancedb_compat.py",
             [
                 "tests/unit/storage/test_lancedb_compat.py",

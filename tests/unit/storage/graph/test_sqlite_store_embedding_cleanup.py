@@ -263,14 +263,3 @@ async def test_delete_by_file_nonexistent_file(graph_store):
     # Verify no errors occurred
     all_nodes = await graph_store.get_all_nodes()
     assert len(all_nodes) == 0
-
-
-@pytest.mark.asyncio
-async def test_delete_by_file_with_batch_connection(graph_store):
-    """Test that delete_by_file works with active batch connection.
-
-    Note: This test is skipped due to potential blocking in vector store
-    initialization. The batch connection logic is tested indirectly through
-    other tests and the write_batch() is used throughout the codebase.
-    """
-    pytest.skip("Batch connection test may block on vector store initialization")

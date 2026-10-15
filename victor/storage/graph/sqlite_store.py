@@ -207,30 +207,61 @@ class SqliteGraphStore(GraphStoreProtocol):
         intact: ``asyncio.current_task()`` is only meaningful on the loop).
         """
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._get_db_executor(), fn)
+        pending = loop.run_in_executor(self._get_db_executor(), fn)
+        try:
+            return await asyncio.shield(pending)
+        except asyncio.CancelledError as cancelled:
+            # Cancelling an asyncio waiter cannot stop a running SQLite call.
+            # Keep admission until this exact call settles; never replay it.
+            while not pending.done():
+                try:
+                    await asyncio.shield(pending)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            try:
+                pending.result()
+            except Exception as worker_error:
+                logger.error("SQLite worker failed while cancellation was settling", exc_info=True)
+                raise cancelled from worker_error
+            raise
+
+    def _reject_batch_lifecycle(self, operation: str) -> None:
+        if self._get_active_write_batch_connection() is not None:
+            raise RuntimeError(f"Cannot {operation} during an active write batch")
 
     async def initialize(self) -> None:
-        """Ensure schema exists for compatibility with higher-level stores."""
-        await self._run_db(self._ensure_schema)
+        """Ensure schema under admission; never implicitly commit an active batch."""
+        self._reject_batch_lifecycle("initialize")
+        async with self._lock:
+            await self._run_db(self._ensure_schema)
+
+    async def _discard_connection(self, conn: sqlite3.Connection) -> None:
+        """Close an admitted connection on its worker, even during cancellation."""
+        try:
+            await self._run_db(conn.close)
+        finally:
+            # _run_db settles its callable before it propagates cancellation.
+            # An uncertain/failed close must not make this connection reusable.
+            if self._conn is conn:
+                self._conn = None
 
     async def close(self) -> None:
-        """Release store resources without closing the shared project database.
+        """Wait for admitted work and release only this store's connection.
 
-        ``ProjectDatabaseManager`` is a shared singleton per project path.
-        Closing it here invalidates other live components on the same thread.
-        Test isolation and process shutdown already clean up the shared manager.
-
-        Shuts down the dedicated SQLite worker thread (``wait=False`` lets an
-        in-flight operation finish without blocking the caller) and closes
-        this store's dedicated connection; a later operation lazily reopens it.
+        The shared project manager remains usable. Later store operations may
+        lazily reopen, preserving the existing lifecycle contract.
         """
-        if self._db_executor is not None:
-            self._db_executor.shutdown(wait=False)
-            self._db_executor = None
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
-        logger.debug("SqliteGraphStore close skipped shared project database shutdown")
+        self._reject_batch_lifecycle("close")
+        async with self._lock:
+            try:
+                if self._conn is not None:
+                    await self._discard_connection(self._conn)
+            finally:
+                if self._db_executor is not None:
+                    self._db_executor.shutdown(wait=False)
+                    self._db_executor = None
 
     @property
     def repo_root(self) -> Path:
@@ -459,12 +490,25 @@ class SqliteGraphStore(GraphStoreProtocol):
             self._write_batch_owner = current_task
             self._write_batch_conn = conn
             self._write_batch_depth = 1
+            committing = False
             try:
                 await self._run_db(lambda: conn.execute("BEGIN IMMEDIATE"))
                 yield
+                committing = True
                 await self._run_db(conn.commit)
-            except Exception:
-                await self._run_db(conn.rollback)
+            except BaseException as error:
+                if committing and isinstance(error, asyncio.CancelledError):
+                    logger.warning(
+                        "Graph batch cancelled during commit; commit settled and may have "
+                        "succeeded. Reconcile durable state before retrying."
+                    )
+                try:
+                    await self._run_db(conn.rollback)
+                except BaseException:
+                    # Failed/interrupted cleanup must not hand this connection
+                    # to the next writer. Closing rolls back any remaining work.
+                    await self._discard_connection(conn)
+                    raise
                 raise
             finally:
                 self._write_batch_owner = None
@@ -781,9 +825,17 @@ class SqliteGraphStore(GraphStoreProtocol):
     async def upsert_edges(self, edges: Iterable[GraphEdge]) -> None:
         has_file_column = self._edge_has_file_column
         if has_file_column is None:
-            has_file_column = await self._run_db(
-                lambda: self._has_table_column(self._connect(), _EDGE_TABLE, "file")
-            )
+            batch_conn = self._get_active_write_batch_connection()
+            if batch_conn is not None:
+                has_file_column = await self._run_db(
+                    lambda: self._has_table_column(batch_conn, _EDGE_TABLE, "file")
+                )
+            else:
+                async with self._lock:
+                    conn = self._connect()
+                    has_file_column = await self._run_db(
+                        lambda: self._has_table_column(conn, _EDGE_TABLE, "file")
+                    )
             self._edge_has_file_column = has_file_column
 
         if has_file_column:
@@ -1157,25 +1209,28 @@ class SqliteGraphStore(GraphStoreProtocol):
             return await self._run_db(_work)
 
     async def get_nodes_by_file(self, file: str) -> List[GraphNode]:
-        """Get all symbols in a specific file."""
+        """Get file symbols, sharing the connection when called by a batch owner."""
         file_variants = self._file_path_variants(file)
         placeholders = ",".join("?" for _ in file_variants)
+
+        def _work(conn: sqlite3.Connection) -> List[GraphNode]:
+            cur = conn.execute(
+                f"""
+                SELECT {self._NODE_COLS}
+                FROM {_NODE_TABLE}
+                WHERE file IN ({placeholders})
+                ORDER BY line
+                """,
+                file_variants,
+            )
+            return [self._row_to_node(row) for row in cur.fetchall()]
+
+        batch_conn = self._get_active_write_batch_connection()
+        if batch_conn is not None:
+            return await self._run_db(lambda: _work(batch_conn))
         async with self._lock:
             conn = self._connect()
-
-            def _work() -> List[GraphNode]:
-                cur = conn.execute(
-                    f"""
-                    SELECT {self._NODE_COLS}
-                    FROM {_NODE_TABLE}
-                    WHERE file IN ({placeholders})
-                    ORDER BY line
-                    """,
-                    file_variants,
-                )
-                return [self._row_to_node(row) for row in cur.fetchall()]
-
-            return await self._run_db(_work)
+            return await self._run_db(lambda: _work(conn))
 
     async def update_node_metadata(self, node_id: str, metadata: Dict[str, Any]) -> None:
         """Merge ``metadata`` into a node's metadata JSON (read-modify-write).
@@ -1209,10 +1264,9 @@ class SqliteGraphStore(GraphStoreProtocol):
         if batch_conn is not None:
             await self._run_db(lambda: _apply(batch_conn))
             return
-        async with self._lock:
+        async with self.write_batch():
             conn = self._connect()
             await self._run_db(lambda: _apply(conn))
-            await self._run_db(conn.commit)
 
     async def update_nodes_metadata(self, pairs: List[Tuple[str, Dict[str, Any]]]) -> None:
         """Batched ``update_node_metadata``: one SELECT + one executemany UPDATE
@@ -1275,10 +1329,9 @@ class SqliteGraphStore(GraphStoreProtocol):
         if batch_conn is not None:
             await self._run_db(lambda: _apply(batch_conn))
             return
-        async with self._lock:
+        async with self.write_batch():
             conn = self._connect()
             await self._run_db(lambda: _apply(conn))
-            await self._run_db(conn.commit)
 
     async def update_file_mtime(
         self, file: str, mtime: float, content_hash: str | None = None
