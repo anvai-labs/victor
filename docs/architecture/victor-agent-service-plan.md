@@ -641,7 +641,7 @@ edit. A mock test is not live provider or C5 evidence.
   and actual bounded task outcomes together. Cross-placement prompt deduplication,
   live CLI/UI efficiency and mixed-team C5 acceptance remain open.
 
-  **Model publication checkpoint (2026-10-14):** #1358 merged collection-state
+  **Model publication checkpoint (2026-10-14, ✅ merged [#1359](https://github.com/anvai-labs/victor/pull/1359)):** #1358 merged collection-state
   protection; owner: Victor co-design session, branch
   `fix/embedding-readiness-publication`, baseline
   `8396472d9c8e37ac3fb39fa88d9894872507d92a`. Model loading previously exposed
@@ -690,6 +690,83 @@ edit. A mock test is not live provider or C5 evidence.
   The existing fallback dimension/zero-vector behavior is not proof of readiness;
   this increment preserves it without claiming full lifecycle acceptance. Running
   model workers/encodes cannot be forcibly cancelled by this publication guard.
+
+  **UI edit-history checkpoint (2026-10-14, local candidate):** owner: Victor
+  co-design session; branch `fix/ui-tool-context`, baseline
+  `5a7a35a44655a9ee1e25b3c8b36002d4da6876b7` (#1359). Headed Chainlit dogfooding
+  with `codex-local`, direct OAuth and in-process Sandhi exposed a successful
+  filesystem edit followed by `UNIQUE constraint failed: file_changes.id`.
+  Multiple operations within one sequential call generated millisecond/basename
+  ID collisions. Repeated same-file operations also recorded an absent original
+  instead of the preceding operation's content; preview commits bypassed history
+  finalization and cache invalidation. These are bookkeeping defects, not evidence
+  that the dispatcher ran same-file writes concurrently.
+
+  Use collision-resistant session/group/change IDs, preserve persisted insertion
+  order for equal timestamps, and publish undo availability only after persistence.
+  Both preview and ordinary commits use one finalization path; aborted/preview-only
+  operations discard pending history. Each operation retains its own before/after
+  content using canonical paths. Retention errors report saved history with failed
+  cleanup; actual history-write failures report an applied edit with unavailable
+  undo, without incorrectly attributing every exception to a busy database.
+  Result-only UI tool events use structured arguments when no matching start event
+  exists; an explicit start event, including empty arguments, remains authoritative.
+
+  Existing test owners cover frozen-clock same-file/same-basename IDs, ordered
+  reopen and undo/redo, persistence/retention failures, queued-operation abort,
+  preview/non-preview edits and UI argument precedence. No parallel dispatcher or
+  duplicate test suite was added. The canonical `ToolPipeline` already serializes
+  all write calls as barriers between parallel read batches; its existing tests
+  qualify that behavior. Cross-client/process ownership of overlapping paths and
+  shared editor/tracker instances is **not** established by batch serialization.
+  G101 owns remaining durability, operation-parity and ownership work before broader
+  edit acceptance; do not add per-file parallel writes until shared state is isolated.
+
+  Live evidence is retained under `var/codegraph-victor-20261012/ui-*` (private,
+  ignored), including the original failed log and unmerged patch backup. The initial
+  read-only UI review completed in 40.4s / 12 model calls / 336,690 reported tokens;
+  the isolated implementation turn used 105.8s / 11 calls / 263,052 tokens including
+  approval waits. These uncontrolled runs demonstrate operability and expose issues;
+  they do not establish token efficiency or C5 acceptance. The local Sandhi wheel
+  remains source `7df5947bcb7bca21d7be6af9d86399f37062a2ea`, not released-dependency
+  acceptance. Final validation and bounded live-edit results are recorded below.
+
+  The first candidate live edit persisted two undo operations and changed the file,
+  but its verification read returned pre-edit text from the pipeline result cache.
+  The existing invalidator inspected only top-level `path`, whereas edit uses
+  `ops[].path`. Canonical structured path extraction now covers single-file writes,
+  batched edits, rename destinations and JSON-string operations, including path
+  aliases. Successful mutations whose paths remain unresolved explicitly log and
+  clear the idempotent result cache; no second legacy repair parser is introduced.
+  Broader search/root caches, unknown shell effects and external changes remain
+  separate qualification work; this is not a universal freshness guarantee.
+
+  A fresh headed UI repeat applied two replacements, displayed structured read/edit
+  arguments, and read back the exact new contents: 18.4s, four model calls, 37,916
+  reported tokens (37,621 input / 295 output; 13% cached). Both actual UI histories
+  were reopened independently and verified through undo and redo against disk.
+  Preserve `ui-edit-stale-read-*` and `ui-edit-fresh-read-browser.json` alongside
+  candidate logs. This native-list live smoke precedes the final JSON compatibility
+  hardening; offline tests qualify that additional path. Independent review found
+  and required stable timestamp-tie ordering and JSON compatibility. Extend existing
+  test matrices rather than creating another suite. No performance claim follows
+  from these small, stochastic runs with different approval waits.
+  Final local validation: **419 passed**, four existing deprecation warnings,
+  **35,116 tests collected**, MyPy clean for all four production modules, Black/Ruff,
+  repository hygiene and docs drift/build/internal-link checks passed. Independent
+  review passed 104 owner tests (two opt-in slow skips), then 67 final pipeline cases;
+  no remaining scoped blockers. Merge/release and full lifecycle/C5 remain distinct
+  gates. Preserve the tested patch outside `/tmp` until committed and pushed.
+  [PR #1360](https://github.com/anvai-labs/victor/pull/1360) first CI candidate
+  passed its tests but failed changed-line coverage: the quick job omitted the
+  coding editor plugin, silently skipping 54 editor checks (49% diff coverage).
+  Install the real editable capability in that job; preserve the 80% threshold.
+  Extend the existing workflow contract and retention test (successful cleanup
+  after failure). Exact-selector local requalification with CI's diff-cover 9.x:
+  **241 passed, zero skipped, two slow cases deselected, 94% changed-line coverage**.
+  Independent correction review passed 84 checks. Collection remains 35,116;
+  source behavior is unchanged by this CI/test correction. Await the updated PR's
+  complete checks before merge; the previous failed gate is retained as evidence.
 
 - **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
   acceptance preflight found that the existing `openai-cheap` profile referenced
