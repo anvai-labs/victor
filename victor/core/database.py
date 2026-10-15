@@ -75,13 +75,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import queue
-import shutil
+import os
 import sqlite3
+import time
 
 from victor.core.sql_utils import quote_identifier
 import tempfile
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -94,6 +95,76 @@ def _apply_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
     from victor.core.migrations import apply_sql
 
     apply_sql(conn, sql)
+
+
+def _backup_sqlite_snapshot(db_path: Path, *, timeout_seconds: float = 300.0) -> Path:
+    """Publish a private, validated online backup without replacing prior backups.
+
+    The progress deadline is cooperative: SQLite/OS operations and fsync may
+    exceed it. A post-publication error leaves the completed backup in place;
+    callers must stop consolidation rather than assume durability or retry writes.
+    Each database is a separate snapshot, not a cross-database transaction.
+    """
+    deadline = time.monotonic() + timeout_seconds
+
+    def check_deadline() -> None:
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"SQLite backup exceeded its deadline: {db_path.name}")
+
+    def progress(status: int, remaining: int, total: int) -> None:
+        check_deadline()
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fd, name = tempfile.mkstemp(
+        prefix=f".{db_path.name}.bak.{timestamp}.", suffix=".partial", dir=db_path.parent
+    )
+    os.close(fd)
+    staging = Path(name)
+    backup_path = staging.with_name(staging.name[1:].removesuffix(".partial"))
+    published = False
+    try:
+        # mode=ro prevents a vanished source from becoming an empty database.
+        # Do not use immutable=1: the source may contain committed WAL pages.
+        uri = db_path.resolve().as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0.1)) as source:
+            with closing(sqlite3.connect(staging, timeout=0.1)) as target:
+                check_deadline()
+                source.backup(target, pages=256, progress=progress, sleep=0.05)
+                # Make the artifact self-contained; recovery cannot depend on
+                # staging WAL/SHM files which are not part of the published file.
+                target.execute("PRAGMA journal_mode=DELETE")
+                target.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+                check = target.execute("PRAGMA quick_check").fetchall()
+                if check != [("ok",)]:
+                    raise sqlite3.DatabaseError("SQLite backup integrity validation failed")
+                check_deadline()
+        with staging.open("rb+") as artifact:
+            os.fsync(artifact.fileno())
+        check_deadline()
+        # Hard-link publication is atomic and refuses existing destinations.
+        # Unsupported filesystems fail explicitly; no overwrite-capable fallback.
+        os.link(staging, backup_path)
+        published = True
+        if os.name == "posix":
+            directory_fd = os.open(db_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        return backup_path
+    except BaseException:
+        if published:
+            logger.warning(
+                "Backup exists at %s but publication durability is unconfirmed; "
+                "consolidation must stop",
+                backup_path,
+            )
+        raise
+    finally:
+        try:
+            staging.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove backup staging file %s", staging, exc_info=True)
 
 
 # =============================================================================
@@ -196,8 +267,6 @@ class DatabaseConsolidator:
 
     def _backup_legacy_databases(self) -> None:
         """Backup legacy databases with .bak.<timestamp> suffix."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
         legacy_dbs = [
             self.victor_dir / "conversation.db",
             self.victor_dir / "profile_learning.db",
@@ -207,8 +276,7 @@ class DatabaseConsolidator:
 
         for db_path in legacy_dbs:
             if db_path.exists() and db_path.stat().st_size > 0:
-                backup_path = Path(f"{db_path}.bak.{timestamp}")
-                shutil.copy2(db_path, backup_path)
+                backup_path = _backup_sqlite_snapshot(db_path)
                 logger.info(f"Backed up {db_path.name} to {backup_path.name}")
 
     def _migrate_global_database(self) -> None:

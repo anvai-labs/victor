@@ -23,6 +23,7 @@ from typing import (
 )
 
 from victor.core.schema import Tables
+from victor.core.migrations import apply_sql
 from victor.storage.graph.protocol import (
     GraphEdge,
     GraphNode,
@@ -45,8 +46,7 @@ _MTIME_TABLE = Tables.GRAPH_FILE_MTIME
 _FTS_TABLE = f"{_NODE_TABLE}_fts"
 
 # Schema for consolidated database
-SCHEMA = f"""
-PRAGMA journal_mode=WAL;
+_TABLE_SCHEMA = f"""
 
 -- Core symbol/node table (body read from file via line numbers, not stored here)
 CREATE TABLE IF NOT EXISTS {_NODE_TABLE} (
@@ -99,6 +99,8 @@ CREATE INDEX IF NOT EXISTS idx_{_EDGE_TABLE}_src_type ON {_EDGE_TABLE}(src, type
 CREATE INDEX IF NOT EXISTS idx_{_EDGE_TABLE}_dst_type ON {_EDGE_TABLE}(dst, type);
 CREATE INDEX IF NOT EXISTS idx_{_MTIME_TABLE}_mtime ON {_MTIME_TABLE}(mtime);
 """
+
+SCHEMA = "PRAGMA journal_mode=WAL;\n" + _TABLE_SCHEMA
 
 # FTS5 schema for full-text search on symbols
 FTS_SCHEMA = f"""
@@ -342,36 +344,6 @@ class SqliteGraphStore(GraphStoreProtocol):
             ("graph_file_path_identity", "repo_relative"),
         )
         conn.commit()
-
-    def _enable_bulk_load_mode(self, conn: sqlite3.Connection) -> None:
-        """Enable optimizations for bulk data loading.
-
-        These settings significantly speed up bulk INSERT operations during
-        force rebuilds by reducing fsync overhead and increasing cache sizes.
-
-        WARNING: These settings assume a transaction will be committed atomically.
-        Always call _disable_bulk_load_mode after bulk operations complete.
-        """
-        # Increase cache size to 50MB (negative value = KB)
-        conn.execute("PRAGMA cache_size=-50000")
-        # Enable memory-mapped I/O for 256MB
-        conn.execute("PRAGMA mmap_size=268435456")
-        # Store temporary tables in memory (not on disk)
-        conn.execute("PRAGMA temp_store=MEMORY")
-        # Disable fsync during transaction (safe because we commit atomically).
-        # Keep WAL journal mode intact: changing journal_mode is database-wide
-        # and can require an exclusive lock while other project DB connections
-        # are alive.
-        conn.execute("PRAGMA synchronous=OFF")
-
-    def _disable_bulk_load_mode(self, conn: sqlite3.Connection) -> None:
-        """Restore normal settings after bulk load completes.
-
-        This restores safe defaults for normal operation where durability
-        is important.
-        """
-        # Restore normal synchronous mode (still fast with WAL)
-        conn.execute("PRAGMA synchronous=NORMAL")
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         """Add new columns if upgrading from older schema."""
@@ -706,16 +678,17 @@ class SqliteGraphStore(GraphStoreProtocol):
         )
 
     def _delete_by_repo_conn(self, conn: sqlite3.Connection) -> None:
-        """Clear all repo graph tables using DROP + CREATE (O(1) vs O(n) DELETE FROM).
+        """Recreate derived graph tables inside the caller's transaction.
 
-        SQLite's WAL mode journals every deleted row, making DELETE FROM on millions of
-        rows extremely slow. DROP TABLE + CREATE TABLE is the SQLite TRUNCATE equivalent:
-        it rewrites only the root page, completing in milliseconds regardless of row count.
+        Do not use executescript: its implicit commit would publish partial
+        cleanup and break rollback of both standalone and outer batch writes.
         """
         # Drop in dependency order: triggers first, then FTS, then edge (FK ref), then node, then mtime.
         # Triggers are automatically dropped with their table, but FTS must be dropped before graph_node
         # because it holds a content= reference to it.
-        conn.executescript(f"""
+        apply_sql(
+            conn,
+            f"""
             DROP TABLE IF EXISTS {_FTS_TABLE};
             DROP TRIGGER IF EXISTS {_NODE_TABLE}_ai;
             DROP TRIGGER IF EXISTS {_NODE_TABLE}_ad;
@@ -723,10 +696,11 @@ class SqliteGraphStore(GraphStoreProtocol):
             DROP TABLE IF EXISTS {_EDGE_TABLE};
             DROP TABLE IF EXISTS {_NODE_TABLE};
             DROP TABLE IF EXISTS {_MTIME_TABLE};
-            """)
+            """,
+        )
         # Recreate all tables, indexes, FTS virtual table, and sync triggers.
-        conn.executescript(SCHEMA)
-        conn.executescript(FTS_SCHEMA)
+        apply_sql(conn, _TABLE_SCHEMA)
+        apply_sql(conn, FTS_SCHEMA)
         # Re-apply column migrations: SCHEMA is the base definition without newer columns
         # (e.g. ast_kind added in v5). _migrate_schema() adds them idempotently.
         self._migrate_schema(conn)
@@ -1055,26 +1029,14 @@ class SqliteGraphStore(GraphStoreProtocol):
             clear_embeddings: If True, also clear all embeddings from vector store.
                 This is useful for force rebuilds where embeddings need to be regenerated.
 
-        Note:
-            Uses bulk load PRAGMA optimizations for faster truncate operation.
-            These are safe within a single transaction that commits atomically.
+        Graph mutation reuses write_batch for transaction ownership, rollback
+        and cancellation settlement. Connection durability settings are retained.
+        Vector cleanup is separate and is not part of this SQLite transaction.
         """
-        batch_conn = self._get_active_write_batch_connection()
-        if batch_conn is not None:
-            await self._run_db(lambda: self._delete_by_repo_conn(batch_conn))
-        else:
-            async with self._lock:
-                conn = self._connect()
-
-                def _work() -> None:
-                    self._enable_bulk_load_mode(conn)
-                    try:
-                        self._delete_by_repo_conn(conn)
-                        conn.commit()
-                    finally:
-                        self._disable_bulk_load_mode(conn)
-
-                await self._run_db(_work)
+        async with self.write_batch():
+            conn = self._get_active_write_batch_connection()
+            assert conn is not None
+            await self._run_db(lambda: self._delete_by_repo_conn(conn))
 
         if clear_embeddings:
             await self._clear_all_embeddings()

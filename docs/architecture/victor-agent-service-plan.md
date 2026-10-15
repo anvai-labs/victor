@@ -2647,7 +2647,7 @@ user-approved scope change; a TODO plan entry is not delivery.
 
 ## Data correctness remediation plan (G102, 2026-10-14)
 
-**DATA-01/02/03/04a merged; DATA-08a next (design/reproduction).** Owner: Victor co-design session. DATA-01
+**DATA-01/02/03/04a merged; DATA-08a locally validated/reviewed, awaiting PR gates.** Owner: Victor co-design session. DATA-01
 landed in [#1362](https://github.com/anvai-labs/victor/pull/1362), squash commit
 `b27c263f738598fe969ca11408226c3082e38d13`. DATA-02 landed in
 [#1363](https://github.com/anvai-labs/victor/pull/1363), squash commit
@@ -2720,7 +2720,7 @@ only against new evidence, retaining unknowns and readiness blockers.
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
 | DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
-| DATA-08a / VAS-16, storage foundation | NEXT, design/reproduction; High / Medium; storage operations owner | After DATA-03: remove unsafe bulk durability assumptions for mixed authoritative/derived stores; choose explicit durability by authority; use online backup rather than live file-copy consolidation. Test backup/restore and maintenance failures on isolated copies. Do not separate databases merely for aesthetics. |
+| DATA-08a / VAS-16, storage foundation | IN PROGRESS, implemented; High / Medium; storage operations owner | After DATA-03: remove unsafe bulk durability assumptions for mixed authoritative/derived stores; choose explicit durability by authority; use online backup rather than live file-copy consolidation. Test backup/restore and maintenance failures on isolated copies. Do not separate databases merely for aesthetics. |
 | DATA-08b / VAS-16 | TODO; High / Complex; operations/recovery owner | After DATA-05/08a and agreed RPO/RTO/retention: qualify restore, derived rebuild, disk-full, maintenance contention and deletion/retention. Record machine, engine/settings, data shape, loss boundary and recovery duration. No resilience claim from unit tests alone. |
 | DATA-09 / VAS-16/22 | TODO; Medium / Medium; query/runtime owner | After correctness gates: compare session composite indexes and bounded async ripgrep against unchanged design on representative skew. Bound output before capture, propagate cancellation, profile repeated scans/queue growth. No numerical performance target or native rewrite inferred from file size. |
 | DATA-10 / UX-09, G100 | TODO; Medium / Medium; metrics/presentation owner | Reuse canonical invocation accounting: preserve measured fresh input/cache read/cache write/output/reasoning and per-field coverage. Reasoning inclusion and provider prompt conventions determine conservation; unknown is not zero. Derive ratios from summed compatible counts, never average ratios. Shared CLI/TUI/web footer plus session summary; no second meter. |
@@ -2977,7 +2977,7 @@ not proven parser completeness. Parser error accounting, source/parser/encoder
 identity, cold-load inventory and preserving the old generation remain DATA-04b;
 cross-representation deletion/reconciliation remains DATA-05. Release, hosted authorization and C5 gates remain open.
 
-### DATA-08a next checkpoint and generation-work ordering
+### DATA-08a durability checkpoint and generation-work ordering
 
 **Priority:** DATA-08a before DATA-04b publication. Independent design review
 confirmed this ordering, already permitted by the dependency table: the shared
@@ -3011,9 +3011,53 @@ state (`victor/agent/conversation/store.py`, default `paths.project_db`).
 
 Current data-plan delivery: **4 of 12 increments merged (33.3% by unweighted
 milestone count), 8 remain (66.7%)**. This is not effort completed, audit rubric
-score, release readiness or C5 acceptance. DATA-08a has design/reproduction only;
-no implementation is claimed. Source findings and independent design review are
-preserved in `data04b-discovery.json`; the canonical table remains the task ledger.
+score, release readiness or C5 acceptance. DATA-08a is implemented locally; merge
+and release remain separate gates. Source findings and independent design review
+are preserved in `data04b-discovery.json`; the canonical table remains the task ledger.
+
+Implementation and qualification (base `f1c3330f1`, branch
+`fix/storage-durability-backup`):
+
+- Graph-wide deletion now uses the existing cancellation-safe `write_batch` owner
+  and transaction-preserving `apply_sql`. A new negative test exposed a second
+  integrity defect: `executescript` committed the outer transaction during nested
+  deletion. Rollback now restores graph rows, FTS data and triggers. Configured
+  synchronous/journal/cache settings remain unchanged, and unrelated sessions
+  survive success and failure. No new transaction dispatcher or database added.
+- Consolidation backs up each SQLite source with its online backup API through an
+  escaped read-only URI. Private staging, `quick_check`, standalone rollback-journal
+  output, file fsync, no-overwrite hard-link publication and POSIX directory fsync
+  precede migration. Failure stops consolidation; old backups survive, and a
+  completed backup remains available if directory sync fails after publication.
+- The 300-second progress deadline is **cooperative**, not a hard I/O deadline.
+  Snapshots are per database, not a multi-database transaction. A source can change
+  after backup; online backup does not establish exclusive migration ownership.
+  `DatabaseManager.backup()` is a separate existing API, not qualified by this fix.
+  Vector cleanup still has a separate commit/error boundary (DATA-05). Normal
+  durability defaults are preserved; no power-loss RPO or restore SLO is claimed.
+- TDD retained the original backup reproduction and ten genuine failing regression
+  cases (five backup, five graph). An earlier four-case fixture setup failure is
+  not product evidence. The final targeted run passed **53 tests**; independent
+  review reran those 53 and approved the scoped implementation. Coverage includes
+  uncheckpointed WAL restore, an interleaved writer, mid-copy timeout, corruption,
+  sync/publication failure, collisions, nested FTS rollback and cancellation.
+- Removed three obsolete helper-oriented tests that asserted disabled durability
+  or did not measure their claimed optimization. Existing public-behavior cleanup,
+  concurrency and WAL suites own the regressions. Graph-only unit/integration
+  fixtures isolate embedding initialization; real embedding behavior is not
+  inferred from them. Affected suites: **238 passed, one slow test skipped**;
+  pipeline callers: **72 passed, one slow test skipped** (overlapping targets,
+  not additive unique coverage). Changed production-line coverage: **96%**.
+  Strict configured mypy passed 2,117 files; full collection passed 35,252 tests.
+  Black (3,925 files), Ruff, repository hygiene, locks and docs drift passed.
+  The integration file was then run explicitly with `--run-slow`: **5 passed**,
+  including the previously skipped case. Its bounded synthetic timings do not
+  establish production throughput. Applicable CI, including Vertical Py3.12,
+  must pass before merge.
+- Rollback: revert the code increment; it introduces no persisted schema change.
+  Preserve newly created backups and original failed evidence. Do not restore the
+  whole shared project database to undo derived graph changes. DATA-04b is next
+  after this checkpoint; DATA-08b retains operational restore/maintenance acceptance.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 
