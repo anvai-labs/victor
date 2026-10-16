@@ -5,11 +5,16 @@ per-repo flag; SQLite remains default (tracked as TD-11, TD-12, TD-13 in
 `../tech-stack.md`). Proxima columnar/service mode is WIP.
 Date: 2026-08-12
 
-## Dependency status (2026-09-08)
+## Dependency contract
 
-Victor’s optional extra now declares `proximadb>=0.3,<0.4`; install it with
-`pip install "victor-ai[proximadb]"`. Embedded execution additionally needs its compatible
-native/server artifact. The August live-run notes below preserve their original evidence
+Victor’s optional extra now declares `proximadb>=0.4.1,<0.5`; install it with
+`pip install "victor-ai[proximadb]"`. The current Victor adapter additionally needs a compatible
+`proximadb-server` executable: the SDK manages it as a child process.
+`proximadb_embedded` is a separate in-process engine; installing its wheel does
+not replace this adapter or supply that executable. Both Python distributions
+publish 0.4.1 artifacts. Qualification and remaining release gates live in the
+[canonical tracker](victor-agent-service-plan.md#vas-17-dependency-and-release-checkpoint-2026-10-15-local-candidate).
+The August live-run notes below preserve their original evidence
 and are not a claim that every later backend version was retested.
 
 ## Implementation evidence (2026-08-05)

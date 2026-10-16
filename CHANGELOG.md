@@ -9,6 +9,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Patch the Rust workspace TLS dependency to Rustls 0.23.46 for
+  RUSTSEC-2026-0346–0349; this path is used by the edge runtime.
 - Preserve failed, paused, cancelled and exhausted outcomes across buffered and
   streaming execution, CLI exits, planning dependencies and response synthesis
   (#1306, #1307, #1336–#1349). Independent plan branches can continue; failed
@@ -35,6 +37,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   acceptance remain separate from this release.
 
 ### Changed
+
+- Prepare the five extracted first-party verticals at suite version 0.13.0;
+  their separate publication gate is required for the coding extra update.
+- Align the optional ProximaDB SDK extra in core and victor-coding on
+  `proximadb>=0.4.1,<0.5`. The native wheel remains a separate optional
+  installation; installing it does not replace the managed-server adapter.
 
 - Prepare Victor 0.13.0 with contracts 0.10.0 (Python 3.12+ and packaged typing
   markers) and released `victor-codegraph[treesitter]==0.10.3`. CodeGraph owns the

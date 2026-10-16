@@ -139,7 +139,7 @@ embeddings = [
 # providers when absent. Pin kept identical to victor-coding's proximadb extra
 # so the backend version stays aligned across packages.
 proximadb = [
-    "proximadb>=0.3,<0.4",
+    "proximadb>=0.4.1,<0.5",
 ]
 
 # LangChain interop: adapt LangChain tools as native Victor tools

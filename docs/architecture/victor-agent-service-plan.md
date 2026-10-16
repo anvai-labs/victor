@@ -1,7 +1,7 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-15
+updated: 2026-10-16
 baseline_develop: 697b7eef7122ba78a678f2ac77fb88f3bff04caf
 next_task: VAS-17 release qualification
 ---
@@ -3257,8 +3257,10 @@ resuming DATA-04b generation publication; the DATA milestone denominator stays
 | InferFlux | Released 0.5.0 remains the runtime baseline; subsequent upstream changes are documentation | No new runtime release justified by those docs changes |
 | Homebrew Sandhi | [tap #103](https://github.com/anvai-labs/homebrew-tap/pull/103) merged after independent review and real formula/cask install CI | Running services are not upgraded by merging a formula |
 | Victor CodeGraph | Published 0.10.3 and exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
+| ProximaDB SDK/native | LOCAL_PASS — owner Victor co-design, `chore/release-013`, baseline `697b7eef7`; PyPI 0.4.1 artifacts verified on 2026-10-16, fetched develop unchanged. Both SDK extras now declare `>=0.4.1,<0.5` | Independent review and release CI; preserve the distinction between the SDK-managed server and the separately installed native wheel |
 | Contracts SDK | 0.10.0 candidate wheel builds; Python floor rises from published 0.9.2's 3.10 to 3.12; typed exports/markers and runtime bridge repairs included | Publish independent `sdk-v0.10.0` after reviewed promotion, before root package publication |
 | Victor AI/native | 0.13.0 candidate identities synchronized; root plus three snapshots pin Sandhi 0.14.0 and contracts 0.10.0 | Finish review/CI, promote to main, publish artifacts and verify installs |
+| First-party verticals | ACTIVE — suite-aligned 0.13.0 source candidates; published victor-coding 0.7.2 still requires ProximaDB `<0.3` | All five wheels build/install and plugin entry points load in the isolated environment; broader vertical suites pass as qualified below. Independently gate `verticals-v0.13.0` after contracts publication. Root release alone does not publish verticals; mixed-extra installation must be verified before closing this milestone |
 | Homebrew Victor | Existing 0.12.0 package and documented 0.11.0 private-CA override preserved | Update only after coordinated Victor release; never downgrade to historical 0.10.1 |
 
 Local qualification uses the official Sandhi 0.14.0 wheel in an isolated temporary
@@ -3277,6 +3279,80 @@ files, and Ruff, dependency lock consistency, version sync, docs drift and repos
 hygiene pass.
 These fixtures do not establish live OAuth, model quality, deployment, weighted
 budget enforcement or mixed-team C5 acceptance.
+
+The Rust workspace lock also moves Rustls 0.23.45 to 0.23.46 for
+RUSTSEC-2026-0346–0349; `cargo tree` locates it under the edge runtime's Reqwest
+client. All 256 Rust unit/doc tests and formatting pass. No parser or native
+algorithm changes are included.
+
+ProximaDB consumer qualification (2026-10-16) uses the published SDK and native
+0.4.1 wheels, installed in an isolated Python 3.12 environment. Both imports,
+`pip check` and root-extra resolution under `requirements.txt` pass. Existing
+ProximaDB adapter suites pass 101 tests; including packaging/dependency guards,
+114 pass. No duplicate tests were added for the version-only changes. Four real
+managed-server integration cases pass with `--run-slow`: graph parity against
+SQLite, refcounted shared connections and correlated graph/vector records.
+The first ordinary invocation skipped the slow marker; the first active run
+was interrupted after sandbox-denied Unix socket binds. Neither is a pass;
+the explicit socket-enabled rerun passes all four with no skips.
+The native macOS arm64 wheel separately passes graph traversal, typed properties,
+vector search and graph-identity lookup using the upstream release smoke plus a
+bounded two-vector extension. This is not Victor native-adapter acceptance:
+Victor still uses `proximadb_sdk.embedded.EmbeddedProximaDB`, which manages a
+server child process. Installing `proximadb_embedded` neither switches that
+adapter nor supplies its executable. No new native dependency is imposed on
+SDK-only consumers. The existing local server executable (SHA-256
+`a46326809c7670feb28920fe3486fc9b298760eba120058a02bcd4ebbc46b50c`)
+is used only with fresh
+temporary test stores; its release provenance is unverified, so these tests do
+not qualify a newly released server binary or a deployment. Published native
+wheel availability on Linux/Windows is metadata evidence, not local execution.
+The PyPI authentication mechanism is not inferred from successful publication.
+With the SDK installed, the final collection includes 35,361 tests (43.56 seconds);
+the earlier 35,294 count above records the pre-extra candidate.
+Release review identified published victor-coding 0.7.2’s incompatible `<0.3`
+extra. Suite version alignment and separate vertical publication are required;
+source-only alignment is not a released consumer fix.
+
+All five suite-aligned vertical 0.13.0 wheels build, install and load through
+`victor.plugins` entry points in the isolated environment. Rebuilt root/coding
+wheel extras resolve together on 0.4.1; `pip check` passes. Vertical suites pass
+2,145 tests with 163 explicit coding skips: coding 1,252, DevOps 275, research
+257, RAG 83 and data analysis 278. Coding runs with `--benchmark-disable`
+(execute assertions once, no calibrated performance claim); the earlier run’s
+large-file calibration hit the 60-second bound/interruption and is preserved.
+An initial combined invocation produced test-module namespace collisions, so
+final suites run separately with `--import-mode=importlib`. DevOps RED reproduced
+five failures because tests assumed optional MLflow was absent. GREEN sets that
+absence explicitly in the existing class fixture; all existing assertions remain
+and no duplicate tests or runtime behavior were added. The accidental local
+MLflow experiment files are retained with qualification evidence, outside source.
+No services or credentials were changed. Final configured MyPy passes 2,117 files,
+Black passes 3,925 root files plus the changed fixture, and Ruff/metadata/docs
+checks pass. Release order is contracts, independently gated verticals and root
+artifacts, then the combined published-extra installation check and Homebrew.
+
+The Victor native release wheel (portable macOS arm64 target, no
+`target-cpu=native`) additionally passes 333 unique native tests with 11 explicit
+skips after the 30 public-tokenizer-download failures were rerun with network
+access (35 tests in that rerun, five overlapping). Cross-platform native release
+CI remains required.
+
+**DEP-YAML — open, owned by Victor native maintenance:** an exploratory current
+`cargo deny check advisories` remains **FAILED/unresolved** for the pre-existing
+RUSTSEC-2024-0449 unmaintained `unsafe-libyaml 0.2.11` dependency through
+`serde_yaml 0.9.34+deprecated`. Native YAML entrypoints are exposed. This advisory
+is not evidence of an identified exploitable defect, and independent review
+allows a separate maintenance follow-up for this scoped metadata/TLS release;
+no advisory is suppressed and no clean full Rust audit is claimed. Existing
+required security gates remain mandatory. Before changing the engine, qualify
+duplicate keys, aliases/merges, tags, multiple documents, numeric/Unicode values,
+environment interpolation, errors and bounded hostile nesting/alias inputs;
+verify installed-wheel parity against the typed Python reference and measure
+representative latency, CPU and peak memory. Choose the simplest qualifying
+implementation under the native acceleration policy. A demonstrated vulnerability
+would require immediate reassessment. This maintenance item does not change the
+DATA milestone denominator.
 
 Source versions and metadata are prepared locally, not published Victor artifacts.
 Review, full applicable CI, main promotion and per-artifact release verification
