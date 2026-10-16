@@ -3244,13 +3244,34 @@ completed milestone. Per-subtask percentages are unknown until acceptance gates 
 
 ### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
 
+Promotion repair ACTIVE (2026-10-16): owner Victor co-design, branch
+`fix/promotion-runtime-contract-tests`, release baseline `8811c9477` plus the
+local tracker checkpoint. Eight completed failing shards reduce to four stale
+test cases across two owners: facade prompt tests still assert pre-consolidation
+pipeline dispatch, and C0 usage tests call the removed manual accumulator.
+Local RED reproduced all four failures (76 other tests passed). LOCAL_GREEN:
+178 owner tests and 118 affected binding/runtime/accounting/prompt tests pass;
+all 296 pass again in the isolated release environment (Sandhi 0.14.0,
+contracts 0.10.0, worktree Victor source). Full collection in that environment
+passes 35,360 tests, one fewer after removing the duplicate facade case. The
+shared environment's 35,293 collection pass is separate evidence; its older
+Sandhi/contracts installations are not release qualification. Black, Ruff,
+docs drift and repository hygiene pass. The corrective candidate consolidates two obsolete facade
+tests into one canonical-delegation test, retaining pipeline/fallback behavior
+coverage in the existing runtime/pipeline owners. Parameterized C0 usage tests
+drive the real capability/view/invocation path and assert exact task totals and
+one request despite repeated snapshots and presentation finalization. No production
+path or dependency changed. Fresh-context review found no bounded repair blocker;
+exact-commit attestation is required before push. Next: finish review, then one
+corrective PR into develop and a new full promotion run.
+
 2026-10-16 promotion boundary: extension [PR #1371](https://github.com/anvai-labs/victor/pull/1371)
 **MERGED** at `8811c9477` after clean independent review of
 `0daf0849be3dc563b6e1ae3838d16c55dd2f6f0c` and successful feature CI,
 including Vertical Py3.12 (8m55s). Promotion
 [PR #1372](https://github.com/anvai-labs/victor/pull/1372) is **OPEN** from
-develop `8811c9477` to main `a18b26e2`; full promotion CI and required main
-approval remain pending. This is Victor **0.13.0, a minor release**; no package
+develop `8811c9477` to main `a18b26e2`; the first promotion run failed as recorded
+above, and required main approval remains pending. This is Victor **0.13.0, a minor release**; no package
 publication is claimed. Owner Victor co-design tracks this boundary on
 `docs/release-013-progress`, baseline `8811c9477`. Next: inspect
 `gh pr checks 1372`, resolve any failures, then merge by merge commit only after
@@ -3264,8 +3285,8 @@ untracked local configuration was preserved. Main protection requires one
 approving review and currently reports `REVIEW_REQUIRED`; local independent
 review does not satisfy that GitHub gate. Build, CLI smoke, provider/workflow/tool
 integration, native integration and blocking dependency/security scans passed.
-The 24 Python 3.12/3.13 unit-test shards and remaining checks are still running
-in run `38964887957` and related promotion workflows; no full-suite pass is claimed.
+Run `38964887957` completed with 16 passing and eight failing Python shards;
+coverage and test summaries correctly fail closed. No full-suite pass is claimed.
 No release tags were created. The existing `v0.13.0` and `sdk-v0.10.0` tag names
 were checked and are unused.
 

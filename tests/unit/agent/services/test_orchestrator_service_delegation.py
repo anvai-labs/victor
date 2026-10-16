@@ -1537,37 +1537,25 @@ class TestChatServiceBootstrapLaziness:
 
         helper.sync_prompt_builder_runtime_state.assert_called_once_with()
 
-    def test_build_system_prompt_uses_helper_before_pipeline(self):
+    def test_build_system_prompt_delegates_only_to_canonical_runtime(self):
         from victor.agent.orchestrator import AgentOrchestrator
+        from victor.agent.services.prompt_builder_runtime import PromptBuilderRuntime
 
         obj = object.__new__(AgentOrchestrator)
-        helper = MagicMock()
-        helper.build_system_prompt_fallback.return_value = "fallback prompt"
+        helper = MagicMock(spec=PromptBuilderRuntime)
+        helper.build_system_prompt.return_value = "complete prompt"
         obj._prompt_builder_runtime = helper
         obj._prompt_pipeline = MagicMock()
-        obj._prompt_pipeline.build_system_prompt.return_value = "pipeline prompt"
 
         result = AgentOrchestrator.build_system_prompt(obj)
 
-        assert result == "pipeline prompt"
-        helper.sync_prompt_builder_runtime_state.assert_called_once_with()
-        obj._prompt_pipeline.build_system_prompt.assert_called_once_with()
+        assert result == "complete prompt"
+        helper.build_system_prompt.assert_called_once_with()
+        # The runtime owns pipeline/fallback selection and synchronization.
+        # The facade must not assemble or synchronize the same prompt again.
+        helper.sync_prompt_builder_runtime_state.assert_not_called()
+        obj._prompt_pipeline.build_system_prompt.assert_not_called()
         helper.build_system_prompt_fallback.assert_not_called()
-
-    def test_build_system_prompt_delegates_fallback_to_helper(self):
-        from victor.agent.orchestrator import AgentOrchestrator
-
-        obj = object.__new__(AgentOrchestrator)
-        helper = MagicMock()
-        helper.build_system_prompt_fallback.return_value = "fallback prompt"
-        obj._prompt_builder_runtime = helper
-        obj._prompt_pipeline = None
-
-        result = AgentOrchestrator.build_system_prompt(obj)
-
-        assert result == "fallback prompt"
-        helper.sync_prompt_builder_runtime_state.assert_called_once_with()
-        helper.build_system_prompt_fallback.assert_called_once_with()
 
     def test_update_system_prompt_for_query_delegates_to_helper(self):
         from victor.agent.orchestrator import AgentOrchestrator
