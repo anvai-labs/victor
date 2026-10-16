@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock
 
@@ -545,7 +546,12 @@ class TestEscapeHatches:
 
 
 class TestMLOpsHandler:
-    """Tests for MLOpsHandler."""
+    """Missing-dependency behavior, independent of installed optional packages."""
+
+    @pytest.fixture(autouse=True)
+    def missing_mlflow(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Keep negative-path tests from calling a real MLflow installation."""
+        monkeypatch.setitem(sys.modules, "mlflow", None)
 
     @pytest.fixture
     def handler(self):

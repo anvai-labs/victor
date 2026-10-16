@@ -1,9 +1,9 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-15
-baseline_develop: 4bfdaf630ebb8dbfed0d0155564599e5920e3bf3
-next_task: DATA-04b
+updated: 2026-10-16
+baseline_develop: 697b7eef7122ba78a678f2ac77fb88f3bff04caf
+next_task: VAS-17 release qualification
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -3190,7 +3190,7 @@ exclusion semantics, and keep preparation results on the owning async task. Exis
 force-mode, snapshot and indexing suites own its failure/reuse regressions. Atomic
 publication remains a later gate, even when preparation preserves old data on error.
 
-### DATA-04b consumer preflight qualification (2026-10-15, candidate)
+### DATA-04b consumer preflight qualification (2026-10-15, merged)
 
 Owner: Victor co-design; `fix/index-preflight-qualification`, baseline `824609ea7`.
 The existing snapshot boundary now sends the selected inventory to released
@@ -3223,8 +3223,9 @@ checks, 148/156 changed production lines covered (94.9%); configured mypy passes
 2,117 files; full collection passes 35,294 tests, Black passes 3,925 files, and
 Ruff, dependency locks, docs drift and hygiene pass. The final force-mode owner
 passes 17 tests after strengthening the existing empty-input case. Independent
-implementation review is clean; exact-commit review and CI remain merge gates.
-No merge or release is claimed yet.
+implementation and exact-commit reviews are clean. [#1369](https://github.com/anvai-labs/victor/pull/1369)
+merged as `697b7eef7122ba78a678f2ac77fb88f3bff04caf` after all applicable checks,
+including Vertical Py3.12, passed. This is merged source, not release or C5 acceptance.
 
 Limits and next work: force writes after qualification can still destroy the old
 generation on failure; incremental planning still mutates before qualification.
@@ -3240,6 +3241,124 @@ revert without migration; retain failed evidence and do not restore the old stas
 The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
 (58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
 completed milestone. Per-subtask percentages are unknown until acceptance gates close.
+
+### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
+
+Owner: Victor co-design; branch `chore/release-013`, baseline
+`697b7eef7122ba78a678f2ac77fb88f3bff04caf`. Close the current release batch before
+resuming DATA-04b generation publication; the DATA milestone denominator stays
+5/12 complete. No formation or C5 acceptance is inferred from package publication.
+
+| Component / gate | Verified state | Next action |
+|---|---|---|
+| Sandhi 0.14.0 | Published from `805d786909ef72cce67a6d896d3fcc0e54815170`; main CI 38772328861 and all-target release 38774114587 attempt 2 passed; independent verifier passed | Consumer installation and managed deployment remain distinct |
+| Sandhi release history | [#371](https://github.com/anvai-labs/sandhi/pull/371), [#373](https://github.com/anvai-labs/sandhi/pull/373), promotion [#372](https://github.com/anvai-labs/sandhi/pull/372), back-sync [#374](https://github.com/anvai-labs/sandhi/pull/374) and release docs [#375](https://github.com/anvai-labs/sandhi/pull/375) merged | Preserve failed first verifier attempt (npm propagation 404); no tag/artifact replacement |
+| SentinelPass | Latest GitHub release and non-yanked protocol remain 0.17.0; Sandhi pins `=0.17.0` exactly | No speculative upgrade; no daemon or credentials changed |
+| InferFlux | Released 0.5.0 remains the runtime baseline; subsequent upstream changes are documentation | No new runtime release justified by those docs changes |
+| Homebrew Sandhi | [tap #103](https://github.com/anvai-labs/homebrew-tap/pull/103) merged after independent review and real formula/cask install CI | Running services are not upgraded by merging a formula |
+| Victor CodeGraph | Published 0.10.3 and exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
+| ProximaDB SDK/native | LOCAL_PASS — owner Victor co-design, `chore/release-013`, baseline `697b7eef7`; PyPI 0.4.1 artifacts verified on 2026-10-16, fetched develop unchanged. Both SDK extras now declare `>=0.4.1,<0.5` | Independent review and release CI; preserve the distinction between the SDK-managed server and the separately installed native wheel |
+| Contracts SDK | 0.10.0 candidate wheel builds; Python floor rises from published 0.9.2's 3.10 to 3.12; typed exports/markers and runtime bridge repairs included | Publish independent `sdk-v0.10.0` after reviewed promotion, before root package publication |
+| Victor AI/native | 0.13.0 candidate identities synchronized; root plus three snapshots pin Sandhi 0.14.0 and contracts 0.10.0 | Finish review/CI, promote to main, publish artifacts and verify installs |
+| First-party verticals | ACTIVE — suite-aligned 0.13.0 source candidates; published victor-coding 0.7.2 still requires ProximaDB `<0.3` | All five wheels build/install and plugin entry points load in the isolated environment; broader vertical suites pass as qualified below. Independently gate `verticals-v0.13.0` after contracts publication. Root release alone does not publish verticals; mixed-extra installation must be verified before closing this milestone |
+| Homebrew Victor | Existing 0.12.0 package and documented 0.11.0 private-CA override preserved | Update only after coordinated Victor release; never downgrade to historical 0.10.1 |
+
+Local qualification uses the official Sandhi 0.14.0 wheel in an isolated temporary
+environment; recorded import paths distinguish it from the shared development
+binding. SDK/version suites pass 347 tests. Provider suites pass 1,777 tests with
+six explicit skips after rerunning the two sandbox-denied TLS listeners; all seven
+TLS diagnostic tests pass. Real loopback HTTP parity passes 59 tests for embedded
+and gateway-shaped OpenAI-compatible/Anthropic paths. The first sandbox-denied
+runs remain evidence, not runtime defect claims. The installed contracts wheel
+passes both positive and negative MyPy consumer checks with both typing markers.
+The root wheel installs under the core dependency snapshot; `pip check`, CLI
+`--version` and `--help` pass. The bare CLI still emits the existing optional
+`victor-coding` discovery warning; no plugin acceptance is implied. Full collection
+passes 35,294 tests, configured MyPy passes 2,117 source files, Black passes 3,925
+files, and Ruff, dependency lock consistency, version sync, docs drift and repository
+hygiene pass.
+These fixtures do not establish live OAuth, model quality, deployment, weighted
+budget enforcement or mixed-team C5 acceptance.
+
+The Rust workspace lock also moves Rustls 0.23.45 to 0.23.46 for
+RUSTSEC-2026-0346–0349; `cargo tree` locates it under the edge runtime's Reqwest
+client. All 256 Rust unit/doc tests and formatting pass. No parser or native
+algorithm changes are included.
+
+ProximaDB consumer qualification (2026-10-16) uses the published SDK and native
+0.4.1 wheels, installed in an isolated Python 3.12 environment. Both imports,
+`pip check` and root-extra resolution under `requirements.txt` pass. Existing
+ProximaDB adapter suites pass 101 tests; including packaging/dependency guards,
+114 pass. No duplicate tests were added for the version-only changes. Four real
+managed-server integration cases pass with `--run-slow`: graph parity against
+SQLite, refcounted shared connections and correlated graph/vector records.
+The first ordinary invocation skipped the slow marker; the first active run
+was interrupted after sandbox-denied Unix socket binds. Neither is a pass;
+the explicit socket-enabled rerun passes all four with no skips.
+The native macOS arm64 wheel separately passes graph traversal, typed properties,
+vector search and graph-identity lookup using the upstream release smoke plus a
+bounded two-vector extension. This is not Victor native-adapter acceptance:
+Victor still uses `proximadb_sdk.embedded.EmbeddedProximaDB`, which manages a
+server child process. Installing `proximadb_embedded` neither switches that
+adapter nor supplies its executable. No new native dependency is imposed on
+SDK-only consumers. The existing local server executable (SHA-256
+`a46326809c7670feb28920fe3486fc9b298760eba120058a02bcd4ebbc46b50c`)
+is used only with fresh
+temporary test stores; its release provenance is unverified, so these tests do
+not qualify a newly released server binary or a deployment. Published native
+wheel availability on Linux/Windows is metadata evidence, not local execution.
+The PyPI authentication mechanism is not inferred from successful publication.
+With the SDK installed, the final collection includes 35,361 tests (43.56 seconds);
+the earlier 35,294 count above records the pre-extra candidate.
+Release review identified published victor-coding 0.7.2’s incompatible `<0.3`
+extra. Suite version alignment and separate vertical publication are required;
+source-only alignment is not a released consumer fix.
+
+All five suite-aligned vertical 0.13.0 wheels build, install and load through
+`victor.plugins` entry points in the isolated environment. Rebuilt root/coding
+wheel extras resolve together on 0.4.1; `pip check` passes. Vertical suites pass
+2,145 tests with 163 explicit coding skips: coding 1,252, DevOps 275, research
+257, RAG 83 and data analysis 278. Coding runs with `--benchmark-disable`
+(execute assertions once, no calibrated performance claim); the earlier run’s
+large-file calibration hit the 60-second bound/interruption and is preserved.
+An initial combined invocation produced test-module namespace collisions, so
+final suites run separately with `--import-mode=importlib`. DevOps RED reproduced
+five failures because tests assumed optional MLflow was absent. GREEN sets that
+absence explicitly in the existing class fixture; all existing assertions remain
+and no duplicate tests or runtime behavior were added. The accidental local
+MLflow experiment files are retained with qualification evidence, outside source.
+No services or credentials were changed. Final configured MyPy passes 2,117 files,
+Black passes 3,925 root files plus the changed fixture, and Ruff/metadata/docs
+checks pass. Release order is contracts, independently gated verticals and root
+artifacts, then the combined published-extra installation check and Homebrew.
+
+The Victor native release wheel (portable macOS arm64 target, no
+`target-cpu=native`) additionally passes 333 unique native tests with 11 explicit
+skips after the 30 public-tokenizer-download failures were rerun with network
+access (35 tests in that rerun, five overlapping). Cross-platform native release
+CI remains required.
+
+**DEP-YAML — open, owned by Victor native maintenance:** an exploratory current
+`cargo deny check advisories` remains **FAILED/unresolved** for the pre-existing
+RUSTSEC-2024-0449 unmaintained `unsafe-libyaml 0.2.11` dependency through
+`serde_yaml 0.9.34+deprecated`. Native YAML entrypoints are exposed. This advisory
+is not evidence of an identified exploitable defect, and independent review
+allows a separate maintenance follow-up for this scoped metadata/TLS release;
+no advisory is suppressed and no clean full Rust audit is claimed. Existing
+required security gates remain mandatory. Before changing the engine, qualify
+duplicate keys, aliases/merges, tags, multiple documents, numeric/Unicode values,
+environment interpolation, errors and bounded hostile nesting/alias inputs;
+verify installed-wheel parity against the typed Python reference and measure
+representative latency, CPU and peak memory. Choose the simplest qualifying
+implementation under the native acceleration policy. A demonstrated vulnerability
+would require immediate reassessment. This maintenance item does not change the
+DATA milestone denominator.
+
+Source versions and metadata are prepared locally, not published Victor artifacts.
+Review, full applicable CI, main promotion and per-artifact release verification
+remain gates. Preserve current credentials/services/caches. After the release
+checkpoint, resume atomic generation publication and the original durable action,
+member-continuation and C5 gates without restarting completed workstreams.
 
 ## Agentic-loop fitness audit (G97/G98, 2026-10-13)
 

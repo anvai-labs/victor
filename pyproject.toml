@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.12.0"
+version = "0.13.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -51,14 +51,14 @@ classifiers = [
 
 dependencies = [
     # Core
-    "victor-contracts>=0.9.2,<1.0",  # Contract protocol definitions (independent semver)
+    "victor-contracts>=0.10.0,<1.0",  # Contract protocol definitions (independent semver)
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
     "typing-extensions>=4.9",  # Shared typing helpers used by runtime and contracts
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
-    "sandhi-gateway==0.13.0",
+    "sandhi-gateway==0.14.0",
     # Imported on the `import victor` path (core.verticals.version_matrix) and for
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.
@@ -139,7 +139,7 @@ embeddings = [
 # providers when absent. Pin kept identical to victor-coding's proximadb extra
 # so the backend version stays aligned across packages.
 proximadb = [
-    "proximadb>=0.3,<0.4",
+    "proximadb>=0.4.1,<0.5",
 ]
 
 # LangChain interop: adapt LangChain tools as native Victor tools
@@ -562,7 +562,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.12.0",
+    "victor-native>=0.13.0",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
