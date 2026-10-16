@@ -38,6 +38,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Give the refreshed VS Code extension its own 0.5.2 artifact version so it can
+  be distinguished from the 0.5.1 VSIX bundled with Victor 0.12.0.
+
 - Prepare the five extracted first-party verticals at suite version 0.13.0;
   their separate publication gate is required for the coding extra update.
 - Align the optional ProximaDB SDK extra in core and victor-coding on

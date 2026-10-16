@@ -2,7 +2,7 @@
   "name": "victor-ai",
   "displayName": "Victor AI Assistant",
   "description": "AI-powered coding assistant with multi-provider support, semantic code search, and enterprise tools",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "victor-ai",
   "license": "Apache-2.0",
   "icon": "resources/icon.png",

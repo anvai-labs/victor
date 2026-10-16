@@ -3244,8 +3244,34 @@ completed milestone. Per-subtask percentages are unknown until acceptance gates 
 
 ### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
 
-Owner: Victor co-design; branch `chore/release-013`, baseline
-`697b7eef7122ba78a678f2ac77fb88f3bff04caf`. Close the current release batch before
+Owner: Victor co-design; branch `chore/extension-release-052`, baseline
+`5be89837af41b8d22a2c8221e3d0ef3d18be8ae9`. Release-preparation
+[PR #1370](https://github.com/anvai-labs/victor/pull/1370) **MERGED** by squash at
+that SHA after clean independent review of `fea87597a7a9d60b5306b3e506bf4ee55e5ec35f`.
+CI Fast 38949502683, Verticals 38949502655 (Py3.12: 8m44s), Contracts,
+CodeGraph and build completed successfully. GitHub's Gitleaks check retained an
+inconsistent `in_progress` status despite `conclusion=success`, a completion
+timestamp and every step completed; the containing workflow and CI aggregate
+both completed successfully. This discrepancy is preserved, not silently treated
+as an unexecuted scan. No CI override or admin bypass was used.
+Cumulative promotion review against main `a18b26e2` found no blocking finding
+in the reviewed migration/WAL/cancellation/loop/contract scope; 418 focused tests
+pass. Review identified an extension artifact follow-up: 0.5.1 is already shipped
+in Victor 0.12.0, while bundled dependencies changed. Owner Victor co-design is
+preparing independent extension version 0.5.2 on this baseline. LOCAL_PASS:
+Node 24.21.0 locked install, lint and compilation; 113 unit tests and 1,011 tests
+in an actual VS Code 1.142.0 extension host pass. Production VSIX packaging
+passes; JSON and XML both identify version 0.5.2, with compiled extension and
+webview JS/CSS present (SHA-256
+`210bf62670e25f23fd5f89496c3db3c6e6bac868946e85999ee724f2eda2cb37`).
+The sandbox-denied webview download and unrelated system Python 3.15 XML import
+error are preserved; packaging passes with registry access and artifact checks
+use the supported Python 3.12 environment. No dependency graph or runtime code
+changed. Independent review is clean; 35,361 tests collect. Next: reviewed
+feature PR, then develop-to-main promotion and the full sharded test/integration
+battery. Required
+main approval and all gates must pass before merge; package publication is later.
+Close the current release batch before
 resuming DATA-04b generation publication; the DATA milestone denominator stays
 5/12 complete. No formation or C5 acceptance is inferred from package publication.
 
@@ -3253,11 +3279,12 @@ resuming DATA-04b generation publication; the DATA milestone denominator stays
 |---|---|---|
 | Sandhi 0.14.0 | Published from `805d786909ef72cce67a6d896d3fcc0e54815170`; main CI 38772328861 and all-target release 38774114587 attempt 2 passed; independent verifier passed | Consumer installation and managed deployment remain distinct |
 | Sandhi release history | [#371](https://github.com/anvai-labs/sandhi/pull/371), [#373](https://github.com/anvai-labs/sandhi/pull/373), promotion [#372](https://github.com/anvai-labs/sandhi/pull/372), back-sync [#374](https://github.com/anvai-labs/sandhi/pull/374) and release docs [#375](https://github.com/anvai-labs/sandhi/pull/375) merged | Preserve failed first verifier attempt (npm propagation 404); no tag/artifact replacement |
-| SentinelPass | Latest GitHub release and non-yanked protocol remain 0.17.0; Sandhi pins `=0.17.0` exactly | No speculative upgrade; no daemon or credentials changed |
+| SentinelPass | GitHub release rechecked 2026-10-16: 0.17.0; non-yanked protocol remains 0.17.0; Sandhi pins `=0.17.0` exactly | No speculative upgrade; no daemon or credentials changed |
 | InferFlux | Released 0.5.0 remains the runtime baseline; subsequent upstream changes are documentation | No new runtime release justified by those docs changes |
 | Homebrew Sandhi | [tap #103](https://github.com/anvai-labs/homebrew-tap/pull/103) merged after independent review and real formula/cask install CI | Running services are not upgraded by merging a formula |
-| Victor CodeGraph | Published 0.10.3 and exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
-| ProximaDB SDK/native | LOCAL_PASS — owner Victor co-design, `chore/release-013`, baseline `697b7eef7`; PyPI 0.4.1 artifacts verified on 2026-10-16, fetched develop unchanged. Both SDK extras now declare `>=0.4.1,<0.5` | Independent review and release CI; preserve the distinction between the SDK-managed server and the separately installed native wheel |
+| Victor CodeGraph | Latest PyPI release rechecked 2026-10-16: 0.10.3; exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
+| ProximaDB SDK/native | MERGED in #1370 — owner Victor co-design, `chore/release-013`, baseline `697b7eef7`; PyPI 0.4.1 artifacts verified on 2026-10-16, fetched develop unchanged. Both SDK extras now declare `>=0.4.1,<0.5` | Independent review and release CI; preserve the distinction between the SDK-managed server and the separately installed native wheel |
+| VS Code extension | LOCAL_PASS — independent 0.5.2 candidate, Node 24.21.0; 113 unit and 1,011 extension-host tests pass; VSIX identity/assets verified | Merge the reviewed patch before promotion; Marketplace publication is not part of the existing release workflow |
 | Contracts SDK | 0.10.0 candidate wheel builds; Python floor rises from published 0.9.2's 3.10 to 3.12; typed exports/markers and runtime bridge repairs included | Publish independent `sdk-v0.10.0` after reviewed promotion, before root package publication |
 | Victor AI/native | 0.13.0 candidate identities synchronized; root plus three snapshots pin Sandhi 0.14.0 and contracts 0.10.0 | Finish review/CI, promote to main, publish artifacts and verify installs |
 | First-party verticals | ACTIVE — suite-aligned 0.13.0 source candidates; published victor-coding 0.7.2 still requires ProximaDB `<0.3` | All five wheels build/install and plugin entry points load in the isolated environment; broader vertical suites pass as qualified below. Independently gate `verticals-v0.13.0` after contracts publication. Root release alone does not publish verticals; mixed-extra installation must be verified before closing this milestone |
@@ -3308,6 +3335,10 @@ temporary test stores; its release provenance is unverified, so these tests do
 not qualify a newly released server binary or a deployment. Published native
 wheel availability on Linux/Windows is metadata evidence, not local execution.
 The PyPI authentication mechanism is not inferred from successful publication.
+A fresh 2026-10-16 upstream check confirms Sandhi 0.14.0, both ProximaDB
+packages 0.4.1, CodeGraph 0.10.3, InferFlux 0.5.0 and SentinelPass 0.17.0.
+This is key-component release verification, not a claim that every transitive
+lock entry is the latest available version.
 With the SDK installed, the final collection includes 35,361 tests (43.56 seconds);
 the earlier 35,294 count above records the pre-extra candidate.
 Release review identified published victor-coding 0.7.2’s incompatible `<0.3`
@@ -3354,8 +3385,9 @@ implementation under the native acceleration policy. A demonstrated vulnerabilit
 would require immediate reassessment. This maintenance item does not change the
 DATA milestone denominator.
 
-Source versions and metadata are prepared locally, not published Victor artifacts.
-Review, full applicable CI, main promotion and per-artifact release verification
+The #1370 source versions and metadata are merged to develop, not published
+Victor artifacts; the extension 0.5.2 follow-up remains a local candidate.
+Cumulative review, promotion CI, main approval and per-artifact release verification
 remain gates. Preserve current credentials/services/caches. After the release
 checkpoint, resume atomic generation publication and the original durable action,
 member-continuation and C5 gates without restarting completed workstreams.
