@@ -3244,6 +3244,39 @@ completed milestone. Per-subtask percentages are unknown until acceptance gates 
 
 ### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
 
+2026-10-16 promotion boundary: extension [PR #1371](https://github.com/anvai-labs/victor/pull/1371)
+**MERGED** at `8811c9477` after clean independent review of
+`0daf0849be3dc563b6e1ae3838d16c55dd2f6f0c` and successful feature CI,
+including Vertical Py3.12 (8m55s). Promotion
+[PR #1372](https://github.com/anvai-labs/victor/pull/1372) is **OPEN** from
+develop `8811c9477` to main `a18b26e2`; full promotion CI and required main
+approval remain pending. This is Victor **0.13.0, a minor release**; no package
+publication is claimed. Owner Victor co-design tracks this boundary on
+`docs/release-013-progress`, baseline `8811c9477`. Next: inspect
+`gh pr checks 1372`, resolve any failures, then merge by merge commit only after
+all gates and required approval pass. Publish contracts 0.10.0 before the
+separately gated vertical/root/native releases, verify published combined-extra
+installs, then update Homebrew. The detailed qualification below records earlier
+candidate evidence; the extension is now merged, not merely locally qualified.
+
+Promotion preflight on 2026-10-16: root develop fast-forwarded to `8811c9477`;
+untracked local configuration was preserved. Main protection requires one
+approving review and currently reports `REVIEW_REQUIRED`; local independent
+review does not satisfy that GitHub gate. Build, CLI smoke, provider/workflow/tool
+integration, native integration and blocking dependency/security scans passed.
+The 24 Python 3.12/3.13 unit-test shards and remaining checks are still running
+in run `38964887957` and related promotion workflows; no full-suite pass is claimed.
+No release tags were created. The existing `v0.13.0` and `sdk-v0.10.0` tag names
+were checked and are unused.
+
+Homebrew upstream was fetched at `7733942` without changing its unrelated active
+branch. Its Victor formula still contains Sandhi 0.11.0 and contracts 0.9.0.
+After publication, regenerate the complete wheel resource closure with the tap's
+existing `tools/gen-victor-resources.py`, verify downloaded checksums and perform
+real formula installation tests; updating only the root sdist URL is insufficient.
+Do not treat the already published Sandhi formula as an upgrade of Victor's
+embedded dependency resources.
+
 Owner: Victor co-design; branch `chore/extension-release-052`, baseline
 `5be89837af41b8d22a2c8221e3d0ef3d18be8ae9`. Release-preparation
 [PR #1370](https://github.com/anvai-labs/victor/pull/1370) **MERGED** by squash at
@@ -3257,8 +3290,8 @@ as an unexecuted scan. No CI override or admin bypass was used.
 Cumulative promotion review against main `a18b26e2` found no blocking finding
 in the reviewed migration/WAL/cancellation/loop/contract scope; 418 focused tests
 pass. Review identified an extension artifact follow-up: 0.5.1 is already shipped
-in Victor 0.12.0, while bundled dependencies changed. Owner Victor co-design is
-preparing independent extension version 0.5.2 on this baseline. LOCAL_PASS:
+in Victor 0.12.0, while bundled dependencies changed. Independent extension
+version 0.5.2 is now merged in #1371. Its local qualification established:
 Node 24.21.0 locked install, lint and compilation; 113 unit tests and 1,011 tests
 in an actual VS Code 1.142.0 extension host pass. Production VSIX packaging
 passes; JSON and XML both identify version 0.5.2, with compiled extension and
@@ -3267,10 +3300,12 @@ webview JS/CSS present (SHA-256
 The sandbox-denied webview download and unrelated system Python 3.15 XML import
 error are preserved; packaging passes with registry access and artifact checks
 use the supported Python 3.12 environment. No dependency graph or runtime code
-changed. Independent review is clean; 35,361 tests collect. Next: reviewed
-feature PR, then develop-to-main promotion and the full sharded test/integration
-battery. Required
-main approval and all gates must pass before merge; package publication is later.
+changed. Independent review is clean; 35,361 tests collect. Next: finish #1372's
+full sharded test/integration battery and required main approval before merge;
+package publication is later. The previous successful promotion test run
+`38320270669` took about 86 minutes overall, with the slowest shard taking about
+81 minutes. Use this measured history for a conditional CI estimate, not the
+roughly nine-minute feature-PR vertical gate.
 Close the current release batch before
 resuming DATA-04b generation publication; the DATA milestone denominator stays
 5/12 complete. No formation or C5 acceptance is inferred from package publication.
@@ -3284,7 +3319,7 @@ resuming DATA-04b generation publication; the DATA milestone denominator stays
 | Homebrew Sandhi | [tap #103](https://github.com/anvai-labs/homebrew-tap/pull/103) merged after independent review and real formula/cask install CI | Running services are not upgraded by merging a formula |
 | Victor CodeGraph | Latest PyPI release rechecked 2026-10-16: 0.10.3; exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
 | ProximaDB SDK/native | MERGED in #1370 — owner Victor co-design, `chore/release-013`, baseline `697b7eef7`; PyPI 0.4.1 artifacts verified on 2026-10-16, fetched develop unchanged. Both SDK extras now declare `>=0.4.1,<0.5` | Independent review and release CI; preserve the distinction between the SDK-managed server and the separately installed native wheel |
-| VS Code extension | LOCAL_PASS — independent 0.5.2 candidate, Node 24.21.0; 113 unit and 1,011 extension-host tests pass; VSIX identity/assets verified | Merge the reviewed patch before promotion; Marketplace publication is not part of the existing release workflow |
+| VS Code extension | MERGED in #1371 — independent 0.5.2 version, Node 24.21.0; 113 unit and 1,011 extension-host tests pass; VSIX identity/assets verified; feature CI passed | Included in promotion #1372; release artifact publication remains pending. Marketplace publication is not part of the existing release workflow |
 | Contracts SDK | 0.10.0 candidate wheel builds; Python floor rises from published 0.9.2's 3.10 to 3.12; typed exports/markers and runtime bridge repairs included | Publish independent `sdk-v0.10.0` after reviewed promotion, before root package publication |
 | Victor AI/native | 0.13.0 candidate identities synchronized; root plus three snapshots pin Sandhi 0.14.0 and contracts 0.10.0 | Finish review/CI, promote to main, publish artifacts and verify installs |
 | First-party verticals | ACTIVE — suite-aligned 0.13.0 source candidates; published victor-coding 0.7.2 still requires ProximaDB `<0.3` | All five wheels build/install and plugin entry points load in the isolated environment; broader vertical suites pass as qualified below. Independently gate `verticals-v0.13.0` after contracts publication. Root release alone does not publish verticals; mixed-extra installation must be verified before closing this milestone |
