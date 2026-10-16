@@ -22,10 +22,15 @@ analysis read. This pins the fix: finalized stream metrics emit prompt/completio
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock
 
+import pytest
+
 from victor.agent.metrics_collector import MetricsCollector, MetricsCollectorConfig
+from victor.providers.base import BaseProvider, StreamChunk
 
 
 class _FakeUsageLogger:
@@ -127,32 +132,38 @@ def _metrics_service():
     return service, ChatStreamMetrics(_ChatStreamMetricsView(owner)), owner
 
 
-def test_task_report_tokens_follow_streaming_accumulation():
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200},
+        {"prompt_tokens": 500, "completion_tokens": 50},
+    ],
+    ids=["reported-total", "derived-total"],
+)
+async def test_task_report_counts_stream_usage_once_through_presentation(usage):
     service, stream_metrics, _owner = _metrics_service()
 
+    async def stream(**kwargs: Any) -> AsyncIterator[StreamChunk]:
+        yield StreamChunk(usage=usage)
+        yield StreamChunk(content="done", usage=usage, is_final=True)
+
+    provider = MagicMock(spec=BaseProvider)
+    provider.name = "ollama"
+    provider.stream = MagicMock(side_effect=stream)
     service.start_task_report("explain the codebase", task_type="general")
-    # ServiceStreamingRuntime accumulates each turn before finalizing its tracker record.
     stream_metrics.begin()
-    usage = {"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200}
-    stream_metrics.accumulate_usage(usage)
+    # Drive the same capability/view/invocation-owner path as production.
+    # Repeated usage snapshots are one invocation, not additional token charges.
+    async with aclosing(stream_metrics.stream(provider, messages=[], model="qwen3.5:4b")) as chunks:
+        assert [chunk.content async for chunk in chunks] == ["", "done"]
+    # Presentation finalization must not settle that invocation a second time,
+    # even if a consumer asks for the final metrics again.
+    stream_metrics.finalize(usage)
     stream_metrics.finalize(usage)
     report = service.finish_task_report(True)
 
-    assert report["api_prompt_tokens"] == 1000
-    assert report["api_completion_tokens"] == 200
-    assert report["api_total_tokens"] == 1200
-
-
-def test_task_report_tokens_not_double_counted():
-    # Guard against over-counting: a single finalized turn must produce a delta equal to that
-    # turn's usage, not a multiple of it.
-    service, stream_metrics, _owner = _metrics_service()
-
-    service.start_task_report("task", task_type="general")
-    stream_metrics.begin()
-    usage = {"prompt_tokens": 500, "completion_tokens": 50}
-    stream_metrics.accumulate_usage(usage)
-    stream_metrics.finalize(usage)
-    report = service.finish_task_report(True)
-
-    assert report["api_total_tokens"] == 550
+    provider.stream.assert_called_once_with(messages=[], model="qwen3.5:4b")
+    assert report["request_count"] == 1
+    assert report["api_prompt_tokens"] == usage["prompt_tokens"]
+    assert report["api_completion_tokens"] == usage["completion_tokens"]
+    assert report["api_total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"]
