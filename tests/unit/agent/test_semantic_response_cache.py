@@ -1,6 +1,9 @@
 """Tests for semantic response cache."""
 
+import subprocess
 import sys
+import textwrap
+from pathlib import Path
 
 import pytest
 import time
@@ -212,17 +215,44 @@ class TestSemanticResponseCache:
         assert score == pytest.approx(0.0, abs=1e-5)
 
 
-def test_module_import_survives_without_numpy(monkeypatch):
-    """Bare-install simulation: reloading the module with numpy poisoned must
-    take the ImportError guard branch (NUMPY_AVAILABLE False, np None)."""
+def test_module_import_survives_without_numpy():
+    """Probe a bare installation without replacing live module/class identities."""
     import importlib
 
-    monkeypatch.setitem(sys.modules, "numpy", None)
-    monkeypatch.delitem(sys.modules, "victor.agent.semantic_response_cache", raising=False)
-    reloaded = importlib.import_module("victor.agent.semantic_response_cache")
-    try:
-        assert reloaded.NUMPY_AVAILABLE is False
-        assert reloaded.np is None
-    finally:
-        monkeypatch.undo()
-        importlib.reload(importlib.import_module("victor.agent.semantic_response_cache"))
+    import victor.agent
+
+    module = importlib.import_module("victor.agent.semantic_response_cache")
+    source = Path(module.__file__).resolve()
+    singleton = get_semantic_cache()
+    # Removing a live module from sys.modules and importing it again also replaces
+    # its parent-package attribute. Restoring only sys.modules leaves two modules:
+    # dotted monkeypatch targets and runtime imports then disagree. A fresh process
+    # exercises the real optional import without resetting callers' cache state.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent("""
+                import sys
+                from pathlib import Path
+                sys.modules["numpy"] = None
+                from victor.agent import semantic_response_cache as cache
+                assert Path(cache.__file__).resolve() == Path(sys.argv[1])
+                assert cache.NUMPY_AVAILABLE is False
+                assert cache.np is None
+                assert cache.SemanticResponseCache().get("uncached") is None
+                """),
+            str(source),
+        ],
+        cwd=source.parents[2],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert importlib.import_module("victor.agent.semantic_response_cache") is module
+    assert victor.agent.semantic_response_cache is module
+    assert module.SemanticResponseCache is SemanticResponseCache
+    assert module.get_semantic_cache is get_semantic_cache
+    assert get_semantic_cache() is singleton

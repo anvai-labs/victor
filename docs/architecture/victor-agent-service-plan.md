@@ -3244,7 +3244,32 @@ completed milestone. Per-subtask percentages are unknown until acceptance gates 
 
 ### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
 
-Promotion repair ACTIVE (2026-10-16): owner Victor co-design, branch
+Promotion cache-isolation correction LOCAL_GREEN (2026-10-17): owner Victor co-design,
+branch `fix/semantic-cache-test-isolation`, baseline `origin/develop` at
+`ee77239f36560122cf9f9004b47db78d3c41e049`. Full promotion run `38975809301`
+finished with 22/24 passing unit shards. Both Python versions fail the same
+semantic-cache deadline case with `timeout=None`; coverage and summary fail
+closed because of those failures. RED: running the NumPy-absence import test
+before the deadline parameters reproduces two failures / two passes locally.
+Its in-process reimport restores `sys.modules` but leaves the parent-package
+attribute pointing at a different module, so later dotted patches and runtime
+imports disagree. Replace that existing import test with a bounded subprocess
+that selects and verifies the exact source file. Assert the parent's module,
+class, getter and singleton identities remain intact. No production change or
+additional duplicate test suite is needed. Both complete cache/deadline owners
+pass 30 tests on Python 3.12 and 3.13. Final affected cache, verification,
+streaming and deadline suites pass 172 tests on each version, including reversed
+owner order on 3.13. The system Homebrew Python 3.13 has broken Expat linkage;
+qualification instead uses isolated managed Python 3.13.12, leaving shared
+installations untouched. Independent review is CLEAN after fixing its source
+identity finding: alternate installed-source/cwd scenario passes and a deliberate
+source mismatch is rejected; four ordered regression cases pass independently.
+Full collection passes 35,360 tests; Black, Ruff, docs drift and repository hygiene
+pass. Test membership is unchanged. Next: open one corrective PR, then require
+its CI and a new full promotion run before publication. Preserve original CI logs under
+`var/codegraph-victor-20261012/victor1372-final-*.log`. No release is published.
+
+Promotion repair MERGED (2026-10-16): owner Victor co-design, branch
 `fix/promotion-runtime-contract-tests`, release baseline `8811c9477` plus the
 local tracker checkpoint. Eight completed failing shards reduce to four stale
 test cases across two owners: facade prompt tests still assert pre-consolidation
@@ -3261,16 +3286,21 @@ tests into one canonical-delegation test, retaining pipeline/fallback behavior
 coverage in the existing runtime/pipeline owners. Parameterized C0 usage tests
 drive the real capability/view/invocation path and assert exact task totals and
 one request despite repeated snapshots and presentation finalization. No production
-path or dependency changed. Fresh-context review found no bounded repair blocker;
-exact-commit attestation is required before push. Next: finish review, then one
-corrective PR into develop and a new full promotion run.
+path or dependency changed. Fresh-context review is clean for `e640f5a3282e6d91cba8e6928f5cd5929301e4f8`.
+[PR #1373](https://github.com/anvai-labs/victor/pull/1373) squash-merged at
+`ee77239f36560122cf9f9004b47db78d3c41e049` after all 39 applicable feature checks
+passed. The subsequent promotion run failed only as recorded above. Cumulative
+adversarial review of main `a18b26e2` through that source head found no blocker
+in its inspected scope: 1,063 tests passed / four skipped, and the parent passed
+57 streaming/buffered parity cases using cached-model offline settings. Those
+local results do not supersede the failed full matrix or required main approval.
 
 2026-10-16 promotion boundary: extension [PR #1371](https://github.com/anvai-labs/victor/pull/1371)
 **MERGED** at `8811c9477` after clean independent review of
 `0daf0849be3dc563b6e1ae3838d16c55dd2f6f0c` and successful feature CI,
 including Vertical Py3.12 (8m55s). Promotion
 [PR #1372](https://github.com/anvai-labs/victor/pull/1372) is **OPEN** from
-develop `8811c9477` to main `a18b26e2`; the first promotion run failed as recorded
+develop `ee77239f3` to main `a18b26e2`; the promotion runs failed as recorded
 above, and required main approval remains pending. This is Victor **0.13.0, a minor release**; no package
 publication is claimed. Owner Victor co-design tracks this boundary on
 `docs/release-013-progress`, baseline `8811c9477`. Next: inspect
