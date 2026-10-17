@@ -556,49 +556,21 @@ def test_turn_runtime_rejects_nonweakrefable_owner() -> None:
         bind_chat_turn_runtime(SimpleNamespace())
 
 
-def test_stream_usage_resolves_live_totals_without_replacing_shared_dictionary():
+def test_stream_invocations_resolve_live_metrics_owner():
     owner = _owner()
-    original = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-    owner._cumulative_token_usage = original
-    other = _owner()
-    other._cumulative_token_usage = {}
     view = bind_chat_runtime_services(owner)
-    usage = {
-        "prompt_tokens": 2,
-        "completion_tokens": 3,
-        "reasoning_tokens": 4,
-        "reasoning_included": False,
-    }
-
-    view.metrics.accumulate_usage(usage)
-    assert owner._cumulative_token_usage is original
-    assert original["total_tokens"] == 9
-    assert original["billable_completion_tokens"] == 7
-    assert other._cumulative_token_usage == {}
-
-    restored = {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
-    owner._cumulative_token_usage = restored
-    view.metrics.accumulate_usage(usage)
-    assert owner._cumulative_token_usage is restored
-    assert restored["total_tokens"] == 39
-    assert original["total_tokens"] == 9
-
-
-def test_stream_usage_preserves_raw_state_fallback_and_absent_accumulator():
-    class PropertyOwner(_Owner):
-        @property
-        def _cumulative_token_usage(self):
-            return None
-
-    owner = _owner()
-    owner.__class__ = PropertyOwner
-    view = bind_chat_runtime_services(owner)
-    view.metrics.accumulate_usage({"prompt_tokens": 2})
-    assert "_cumulative_token_usage" not in owner.__dict__
-    totals = {}
-    owner.__dict__["_cumulative_token_usage"] = totals
-    view.metrics.accumulate_usage({"prompt_tokens": 2})
-    assert totals["prompt_tokens"] == 2
+    owner.provider = SimpleNamespace(name="unknown")
+    first = owner._metrics_coordinator
+    expected = first.stream.return_value
+    assert view.metrics.stream(owner.provider, messages=[], model="m") is expected
+    first.stream.assert_called_once_with(owner.provider, messages=[], model="m")
+    replacement = MagicMock()
+    owner._metrics_coordinator = replacement
+    assert (
+        view.metrics.stream(owner.provider, messages=[], model="other")
+        is replacement.stream.return_value
+    )
+    replacement.stream.assert_called_once_with(owner.provider, messages=[], model="other")
 
 
 def test_stream_context_publication_uses_live_owner_and_does_not_retain_it():
@@ -618,7 +590,7 @@ def test_stream_context_publication_uses_live_owner_and_does_not_retain_it():
     with pytest.raises(RuntimeError, match="no longer available"):
         view.task_state.record_stream_context({})
     with pytest.raises(RuntimeError, match="no longer available"):
-        view.metrics.accumulate_usage({})
+        view.metrics.stream(None, messages=[], model="m")
 
 
 @pytest.mark.parametrize("wrapped", [False, True])

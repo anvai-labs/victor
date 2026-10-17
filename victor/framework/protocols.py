@@ -461,7 +461,7 @@ class FrameworkOrchestratorProtocol(
             ToolError: If tool execution fails critically
         """
         ...
-        yield OrchestratorStreamChunk()  # type: ignore (protocol stub)
+        yield OrchestratorStreamChunk()  # Preserve the async-iterator protocol shape.
 
     async def chat(
         self,
@@ -630,7 +630,7 @@ class OrchestratorCapability:
     deprecated: bool = False
     deprecated_message: str = ""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate capability declaration."""
         # Validate access method
         if not any([self.setter, self.getter, self.attribute]):

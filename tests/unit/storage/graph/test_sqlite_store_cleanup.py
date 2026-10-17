@@ -21,10 +21,12 @@ work correctly for force mode rebuilds.
 import asyncio
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 import sqlite3
 
+from victor.core.database import reset_project_database
 from victor.storage.graph.protocol import GraphNode, GraphEdge
 from victor.storage.graph.sqlite_store import SqliteGraphStore
 
@@ -39,7 +41,8 @@ class TestDeleteByRepo:
         store = SqliteGraphStore(project_path=tmp_path)
         await store.initialize()
         yield store
-        # Cleanup is handled by store's own lifecycle
+        await store.close()
+        reset_project_database(tmp_path)
 
     async def test_delete_by_repo_removes_all_nodes(self, graph_store: SqliteGraphStore) -> None:
         """Verify all nodes are deleted by delete_by_repo()."""
@@ -187,11 +190,14 @@ class TestDeleteByFileIntegrity:
     """Test delete_by_file() for atomic cleanup of all file-related data."""
 
     @pytest.fixture
-    async def graph_store(self, tmp_path: Path) -> SqliteGraphStore:
+    async def graph_store(self, tmp_path: Path, monkeypatch) -> SqliteGraphStore:
         """Create a graph store for testing."""
         store = SqliteGraphStore(project_path=tmp_path)
         await store.initialize()
+        monkeypatch.setattr(store, "_delete_embeddings_for_file", AsyncMock())
         yield store
+        await store.close()
+        reset_project_database(tmp_path)
 
     async def test_delete_by_file_removes_nodes(self, graph_store: SqliteGraphStore) -> None:
         """Verify delete_by_file removes all nodes for a file."""
@@ -303,67 +309,88 @@ class TestDeleteByFileIntegrity:
 
 
 @pytest.mark.asyncio
-class TestBulkLoadOptimizations:
-    """Test PRAGMA optimizations for bulk loading."""
+@pytest.mark.parametrize("synchronous", [1, 2])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_delete_preserves_policy_and_sessions(tmp_path, monkeypatch, synchronous, fail):
+    from victor.core.database import reset_project_database
+    from victor.core.schema import Schema
 
-    @pytest.fixture
-    async def graph_store(self, tmp_path: Path) -> SqliteGraphStore:
-        """Create a graph store for testing."""
-        store = SqliteGraphStore(project_path=tmp_path)
+    store = SqliteGraphStore(project_path=tmp_path)
+    try:
         await store.initialize()
-        yield store
+        await store.upsert_nodes([GraphNode(node_id="old", type="file", name="old", file="old.py")])
+        conn = store._connect()
+        conn.execute(Schema.CONV_SESSION)
+        conn.execute(
+            "INSERT INTO sessions (session_id, created_at, last_activity) VALUES ('chat', 'now', 'now')"
+        )
+        conn.commit()
+        conn.execute(f"PRAGMA synchronous={synchronous}")
+        pragmas = ("synchronous", "journal_mode", "cache_size", "mmap_size", "temp_store")
+        before = {key: conn.execute(f"PRAGMA {key}").fetchone()[0] for key in pragmas}
+        original = store._delete_by_repo_conn
+        observed = []
 
-    async def test_enable_bulk_load_mode_sets_pragmas(self, graph_store: SqliteGraphStore) -> None:
-        """Verify _enable_bulk_load_mode sets performance pragmas."""
-        # This test verifies the PRAGMA settings are applied
-        # The actual test is that the methods exist and don't error
+        def delete(connection):
+            observed.append(connection.execute("PRAGMA synchronous").fetchone()[0])
+            original(connection)
+            if fail:
+                raise RuntimeError("injected deletion failure")
 
-        # Get internal connection to check pragmas
-        if hasattr(graph_store, "_enable_bulk_load_mode"):
-            # Just verify it can be called without error
-            conn = graph_store._connect()
-            try:
-                if hasattr(graph_store, "_enable_bulk_load_mode"):
-                    graph_store._enable_bulk_load_mode(conn)
+        monkeypatch.setattr(store, "_delete_by_repo_conn", delete)
+        if fail:
+            with pytest.raises(RuntimeError, match="injected deletion failure"):
+                await store.delete_by_repo()
+        else:
+            await store.delete_by_repo()
+        assert observed == [synchronous]
+        assert {key: conn.execute(f"PRAGMA {key}").fetchone()[0] for key in pragmas} == before
+        assert not conn.in_transaction
+        await store.upsert_nodes(
+            [GraphNode(node_id="later", type="file", name="later", file="later.py")]
+        )
+        with sqlite3.connect(store.db_path) as observer:
+            assert {r[0] for r in observer.execute("SELECT node_id FROM graph_node")} == (
+                {"old", "later"} if fail else {"later"}
+            )
+            assert observer.execute("SELECT session_id FROM sessions").fetchall() == [("chat",)]
+    finally:
+        await store.close()
+        reset_project_database(tmp_path)
 
-                # Check cache_size was set (should be negative for KB)
-                cur = conn.execute("PRAGMA cache_size")
-                cache_size = cur.fetchone()[0]
-                # Cache size should be set to a negative value (KB) or large positive (pages)
-                assert isinstance(cache_size, int)
 
-                # Check temp_store (can be 0=DEFAULT, 1=FILE, 2=MEMORY, or string)
-                cur = conn.execute("PRAGMA temp_store")
-                temp_store = cur.fetchone()[0]
-                assert temp_store in (
-                    0,
-                    1,
-                    2,
-                    "0",
-                    "1",
-                    "2",
-                    "MEMORY",
-                    "FILE",
-                    "DEFAULT",
+@pytest.mark.asyncio
+async def test_nested_repository_delete_does_not_commit_outer_transaction(tmp_path):
+    from victor.core.database import reset_project_database
+
+    store = SqliteGraphStore(project_path=tmp_path)
+    try:
+        await store.upsert_nodes([GraphNode(node_id="old", type="file", name="old", file="old.py")])
+        with pytest.raises(RuntimeError, match="abort outer batch"):
+            async with store.write_batch():
+                await store.delete_by_repo()
+                await store.upsert_nodes(
+                    [GraphNode(node_id="new", type="file", name="new", file="new.py")]
                 )
-
-            finally:
-                conn.close()
-
-    async def test_disable_bulk_load_mode_restores_settings(
-        self, graph_store: SqliteGraphStore
-    ) -> None:
-        """Verify _disable_bulk_load_mode restores normal settings."""
-        if hasattr(graph_store, "_disable_bulk_load_mode"):
-            conn = graph_store._connect()
-            try:
-                graph_store._enable_bulk_load_mode(conn)
-                graph_store._disable_bulk_load_mode(conn)
-
-                # Verify synchronous is restored to NORMAL
-                cur = conn.execute("PRAGMA synchronous")
-                synchronous = cur.fetchone()[0]
-                # NORMAL is 1
-                assert synchronous == 1
-            finally:
-                conn.close()
+                raise RuntimeError("abort outer batch")
+        with sqlite3.connect(store.db_path) as observer:
+            assert observer.execute("SELECT node_id FROM graph_node").fetchall() == [("old",)]
+            assert observer.execute(
+                "SELECT node_id FROM graph_node_fts WHERE graph_node_fts MATCH 'old'"
+            ).fetchall() == [("old",)]
+            assert (
+                observer.execute(
+                    "SELECT node_id FROM graph_node_fts WHERE graph_node_fts MATCH 'new'"
+                ).fetchall()
+                == []
+            )
+        await store.upsert_nodes(
+            [GraphNode(node_id="later", type="file", name="later", file="later.py")]
+        )
+        with sqlite3.connect(store.db_path) as observer:
+            assert observer.execute(
+                "SELECT node_id FROM graph_node_fts WHERE graph_node_fts MATCH 'later'"
+            ).fetchall() == [("later",)]
+    finally:
+        await store.close()
+        reset_project_database(tmp_path)

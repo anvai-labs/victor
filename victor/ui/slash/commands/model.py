@@ -53,7 +53,7 @@ def _show_resume_selection(ctx: CommandContext) -> None:
 
     try:
         store = ConversationStore()
-        sessions = store.list_sessions(limit=20)
+        sessions = store.list_session_summaries(limit=20)
 
         if not sessions:
             ctx.console.print("[yellow]No sessions to resume[/]")
@@ -75,7 +75,7 @@ def _show_resume_selection(ctx: CommandContext) -> None:
                 session.session_id,
                 title,
                 session.model or "unknown",
-                str(len(session.messages)),
+                str(session.message_count),
             )
 
         ctx.console.print(table)
@@ -98,7 +98,7 @@ def _resume_session(ctx: CommandContext, session_id: str = None, index: int = No
         store = ConversationStore()
 
         if index is not None:
-            sessions = store.list_sessions(limit=20)
+            sessions = store.list_session_summaries(limit=20)
             if not sessions or index > len(sessions):
                 ctx.console.print(f"[red]Invalid session index:[/] {index}")
                 return False

@@ -5,12 +5,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.13.0] - release candidate
+
+### Fixed
+
+- Patch the Rust workspace TLS dependency to Rustls 0.23.46 for
+  RUSTSEC-2026-0346–0349; this path is used by the edge runtime.
+- Preserve failed, paused, cancelled and exhausted outcomes across buffered and
+  streaming execution, CLI exits, planning dependencies and response synthesis
+  (#1306, #1307, #1336–#1349). Independent plan branches can continue; failed
+  prerequisites cannot silently become satisfied.
+- Serialize chat replacement, resume and teardown; preserve selected profiles and
+  persisted conversation continuity. Ship the shared Victor chat theme and
+  packaged workflow graph assets (#1271, #1348, #1350, #1361).
+- Keep project instructions in the stable prompt prefix, preserve enabled guidance
+  during deduplication, and account for the migrated buffered, streaming, recovery
+  and planning model calls (#1353, #1355–#1357). Optional judges, LLM compaction,
+  resilience helpers and legacy continuation remain outside that qualification.
+  Prompt experiments are measured separately from provider token accounting.
+- Settle embedding initialization before publishing model/collection state; retain
+  edit undo history and invalidate stale verification reads (#1358–#1360).
+- Preserve vector eligibility and exact deletion, settle graph cancellation before
+  connection reuse, run scoped atomic schema migrations, and publish WAL-aware
+  SQLite backups (#1362–#1366).
+- Qualify selected source inventories before force cleanup and bound parser/stream
+  ownership (#1367–#1369). Atomic generation publication, cross-store reconciliation
+  and cross-process snapshot acceptance remain open; preflight is not a rollback
+  guarantee after writes start.
+- Preserve bound backend receipts without replay and retain failed member checkpoint
+  evidence (#1255, #1258, #1260). Full durable continuation and mixed-team C5
+  acceptance remain separate from this release.
+
 ### Changed
-- Require `sandhi-gateway==0.11.0`: the 0.11.0 gateway binding loads
-  private CA roots in its provider clients, so gateways fronted by a
-  private certificate authority (e.g. the homelab TLS gateway) work on a
-  fresh install. The 0.10.1 pin predates that fix and fails the TLS
-  handshake against such gateways.
+
+- Give the refreshed VS Code extension its own 0.5.2 artifact version so it can
+  be distinguished from the 0.5.1 VSIX bundled with Victor 0.12.0.
+
+- Prepare the five extracted first-party verticals at suite version 0.13.0;
+  their separate publication gate is required for the coding extra update.
+- Align the optional ProximaDB SDK extra in core and victor-coding on
+  `proximadb>=0.4.1,<0.5`. The native wheel remains a separate optional
+  installation; installing it does not replace the managed-server adapter.
+
+- Prepare Victor 0.13.0 with contracts 0.10.0 (Python 3.12+ and packaged typing
+  markers) and released `victor-codegraph[treesitter]==0.10.3`. CodeGraph owns the
+  shared polyglot parser, ambiguity diagnostics and selected-input contract.
+- Require `sandhi-gateway==0.14.0`, published and artifact-verified upstream. It
+  retains private-CA support and brings completed Codex tool arguments, bounded
+  stream admission and an opt-in allowance calculator; live weighted enforcement
+  is not included. The network gateway remains optional.
+- Textual is an explicit `tui` extra. Keep the core installation independent of
+  optional UI/embedding accelerators; qualify each installed deployment shape.
 
 ### Deprecated
 - **`FrameworkShim` compatibility surface**, **`TeamNode*` workflow
@@ -18,6 +63,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `victor.workflows.graph`** remain warning-backed shims — full
   deprecation inventory (replacement paths and target removal dates) in
   the 0.7.0 entries below.
+
+## [0.12.0] - 2026-10-04
+
+- Publish Linux x86_64 standalone binaries with per-artifact smoke tests, portable
+  Windows secure paths, and frozen-binary dynamic import fixes (#1231, #1233, #1234).
+- Make NumPy optional for the core runtime and add a clean bare-install artifact
+  gate (#1224, #1225, #1227, #1230, #1238, #1239).
+- Recommend `uv` for isolated CLI installation (#1226). Historical 0.12.0 package
+  metadata pins Sandhi 0.10.1; the tap's later documented 0.11.0 private-CA override
+  does not rewrite that published metadata.
 
 ## [0.11.0] - 2026-10-02
 
@@ -99,7 +154,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   per-execution context so concurrent and hierarchical runs cannot overwrite
   one another's assignments.
 
-Version metadata is prepared on `develop`; no `v0.10.0` release tag has been published.
+The historical `v0.10.0` release was published on 2026-09-26; its artifacts remain unchanged.
 
 ### Added
 

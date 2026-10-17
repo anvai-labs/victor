@@ -75,13 +75,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import queue
-import shutil
+import os
 import sqlite3
+import time
 
 from victor.core.sql_utils import quote_identifier
 import tempfile
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -89,47 +90,81 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-# Substrings of sqlite3.OperationalError messages that are expected when a
-# migration statement is applied to a database that already satisfies it (an
-# idempotent re-run, or a cross-scope statement that targets tables owned by the
-# other database). These are benign and logged at DEBUG rather than WARNING.
-_BENIGN_MIGRATION_ERRORS = (
-    "no such table",
-    "duplicate column name",
-    "already exists",
-    "already another table",
-)
-
-
 def _apply_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
-    """Apply a single migration statement (or multi-statement block) idempotently.
+    """Execute trusted migration SQL without committing or suppressing failures."""
+    from victor.core.migrations import apply_sql
 
-    Migration entries may be a single statement or a multi-statement block (e.g.
-    the ``Schema.*_INDEXES`` constants). ``sqlite3.Connection.execute`` rejects
-    the latter ("You can only execute one statement at a time"), so blocks are
-    routed to ``executescript``. Errors that are expected on an already-migrated
-    or cross-scope database are logged at DEBUG; anything else stays a WARNING.
+    apply_sql(conn, sql)
 
-    Args:
-        conn: Target database connection.
-        sql: A SQL statement or ``;``-separated block from ``get_migration_sql``.
+
+def _backup_sqlite_snapshot(db_path: Path, *, timeout_seconds: float = 300.0) -> Path:
+    """Publish a private, validated online backup without replacing prior backups.
+
+    The progress deadline is cooperative: SQLite/OS operations and fsync may
+    exceed it. A post-publication error leaves the completed backup in place;
+    callers must stop consolidation rather than assume durability or retry writes.
+    Each database is a separate snapshot, not a cross-database transaction.
     """
-    # A block still containing ';' after dropping trailing whitespace/semicolons
-    # holds more than one statement and must go through executescript.
-    is_multi = ";" in sql.strip().rstrip(";").rstrip()
+    deadline = time.monotonic() + timeout_seconds
+
+    def check_deadline() -> None:
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"SQLite backup exceeded its deadline: {db_path.name}")
+
+    def progress(status: int, remaining: int, total: int) -> None:
+        check_deadline()
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fd, name = tempfile.mkstemp(
+        prefix=f".{db_path.name}.bak.{timestamp}.", suffix=".partial", dir=db_path.parent
+    )
+    os.close(fd)
+    staging = Path(name)
+    backup_path = staging.with_name(staging.name[1:].removesuffix(".partial"))
+    published = False
     try:
-        if is_multi:
-            conn.executescript(sql)
-        else:
-            conn.execute(sql)
-    except sqlite3.OperationalError as e:
-        message = str(e).lower()
-        if any(token in message for token in _BENIGN_MIGRATION_ERRORS):
-            logger.debug(f"Migration SQL skipped (already satisfied): {e}")
-        else:
-            logger.warning(f"Migration SQL failed: {e}")
-    except Exception as e:  # pragma: no cover - defensive
-        logger.warning(f"Migration SQL failed: {e}")
+        # mode=ro prevents a vanished source from becoming an empty database.
+        # Do not use immutable=1: the source may contain committed WAL pages.
+        uri = db_path.resolve().as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0.1)) as source:
+            with closing(sqlite3.connect(staging, timeout=0.1)) as target:
+                check_deadline()
+                source.backup(target, pages=256, progress=progress, sleep=0.05)
+                # Make the artifact self-contained; recovery cannot depend on
+                # staging WAL/SHM files which are not part of the published file.
+                target.execute("PRAGMA journal_mode=DELETE")
+                target.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+                check = target.execute("PRAGMA quick_check").fetchall()
+                if check != [("ok",)]:
+                    raise sqlite3.DatabaseError("SQLite backup integrity validation failed")
+                check_deadline()
+        with staging.open("rb+") as artifact:
+            os.fsync(artifact.fileno())
+        check_deadline()
+        # Hard-link publication is atomic and refuses existing destinations.
+        # Unsupported filesystems fail explicitly; no overwrite-capable fallback.
+        os.link(staging, backup_path)
+        published = True
+        if os.name == "posix":
+            directory_fd = os.open(db_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        return backup_path
+    except BaseException:
+        if published:
+            logger.warning(
+                "Backup exists at %s but publication durability is unconfirmed; "
+                "consolidation must stop",
+                backup_path,
+            )
+        raise
+    finally:
+        try:
+            staging.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove backup staging file %s", staging, exc_info=True)
 
 
 # =============================================================================
@@ -232,8 +267,6 @@ class DatabaseConsolidator:
 
     def _backup_legacy_databases(self) -> None:
         """Backup legacy databases with .bak.<timestamp> suffix."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
         legacy_dbs = [
             self.victor_dir / "conversation.db",
             self.victor_dir / "profile_learning.db",
@@ -243,8 +276,7 @@ class DatabaseConsolidator:
 
         for db_path in legacy_dbs:
             if db_path.exists() and db_path.stat().st_size > 0:
-                backup_path = Path(f"{db_path}.bak.{timestamp}")
-                shutil.copy2(db_path, backup_path)
+                backup_path = _backup_sqlite_snapshot(db_path)
                 logger.info(f"Backed up {db_path.name} to {backup_path.name}")
 
     def _migrate_global_database(self) -> None:
@@ -744,8 +776,6 @@ class DatabaseManager(_DatabaseManagerBase):
 
     def _ensure_database(self) -> None:
         """Ensure database exists and is up to date."""
-        from victor.core.schema import Tables, Schema
-
         # Run database consolidation if needed
         consolidator = DatabaseConsolidator(self._victor_dir)
         if consolidator.needs_consolidation():
@@ -755,11 +785,6 @@ class DatabaseManager(_DatabaseManagerBase):
         # Create database if needed
         conn = self._get_raw_connection()
 
-        # Create metadata table using schema constant
-        conn.execute(Schema.SYS_METADATA)
-        conn.commit()
-
-        # Run schema version migrations if needed
         self._run_schema_version_migrations(conn)
 
         # Run legacy migrations if needed
@@ -893,86 +918,10 @@ class DatabaseManager(_DatabaseManagerBase):
         return [row[0] for row in rows]
 
     def _run_schema_version_migrations(self, conn: sqlite3.Connection) -> None:
-        """Run schema version migrations.
+        """Apply scoped schema upgrades atomically; unexpected failures propagate."""
+        from victor.core.migrations import migrate
 
-        Args:
-            conn: Database connection
-        """
-        from victor.core.schema import Tables, CURRENT_SCHEMA_VERSION, get_migration_sql
-
-        # Get current schema version
-        cursor = conn.execute(
-            f"SELECT value FROM {Tables.SYS_METADATA} WHERE key = 'schema_version'"
-        )
-        row = cursor.fetchone()
-
-        if row:
-            current_version = int(row[0])
-        else:
-            # Check if this is a legacy database (has tables but no schema_version tracking)
-            # vs a truly empty database (first ever access)
-            existing_tables = {
-                r[0]
-                for r in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-            non_meta_tables = existing_tables - {Tables.SYS_METADATA, "sqlite_sequence"}
-            # Only treat as a pre-v2 legacy Victor DB (needing the table-rename
-            # migrations) when the pre-migration sentinel table `_db_metadata` is
-            # present. A modern DB that merely accumulated tables lazily (via the
-            # Schema.* constants) has no version row yet but is already at the
-            # current schema — replaying the rename/ALTER chain against it only
-            # produces "no such table"/"duplicate column" noise. Mirrors the
-            # project-DB guard in ProjectDatabaseManager._run_schema_version_migrations.
-            if non_meta_tables and "_db_metadata" in existing_tables:
-                # Legacy database — run all migrations so missing columns get added
-                current_version = 0
-                logger.info(
-                    f"Legacy database detected (tables: {len(non_meta_tables)}), "
-                    f"running migrations from 0 to {CURRENT_SCHEMA_VERSION}"
-                )
-            else:
-                # Truly empty DB, or a modern DB pre-populated by lazy table
-                # creation — mark at current version without replaying migrations.
-                conn.execute(
-                    f"""
-                    INSERT INTO {Tables.SYS_METADATA} (key, value, updated_at)
-                    VALUES ('schema_version', ?, datetime('now'))
-                    """,
-                    (str(CURRENT_SCHEMA_VERSION),),
-                )
-                conn.commit()
-                logger.info(f"Database initialized at schema version {CURRENT_SCHEMA_VERSION}")
-                return
-
-        # Run migrations if needed
-        if current_version < CURRENT_SCHEMA_VERSION:
-            logger.info(
-                f"Migrating database from version {current_version} to {CURRENT_SCHEMA_VERSION}"
-            )
-
-            migration_sqls = get_migration_sql(current_version, CURRENT_SCHEMA_VERSION)
-
-            for sql in migration_sqls:
-                _apply_migration_sql(conn, sql)
-
-            # Record the new schema version. Use an upsert: the legacy branch
-            # reaches here with current_version=0 but no schema_version row, so a
-            # plain UPDATE would match nothing and the version would never persist
-            # — forcing a full migration replay on every startup.
-            conn.execute(
-                f"""
-                INSERT INTO {Tables.SYS_METADATA} (key, value, updated_at)
-                VALUES ('schema_version', ?, datetime('now'))
-                ON CONFLICT(key) DO UPDATE SET
-                    value = excluded.value,
-                    updated_at = excluded.updated_at
-                """,
-                (str(CURRENT_SCHEMA_VERSION),),
-            )
-            conn.commit()
-            logger.info(f"Database migrated to schema version {CURRENT_SCHEMA_VERSION}")
+        migrate(conn, "global")
 
     def _run_migrations(self, conn: sqlite3.Connection) -> None:
         """Run database migrations from legacy databases."""
@@ -1696,88 +1645,18 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
                 )
 
     def _ensure_database(self) -> None:
-        """Ensure database exists and is up to date."""
-        from victor.core.schema import Schema
+        """Migrate before creating dependent indexes, with atomic publication."""
+        from victor.core.migrations import migrate
 
         conn = self._get_raw_connection()
-
-        # Create metadata table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS _project_metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at TEXT
-            )
-        """)
-
-        # Create project-level tables (graph, etc.)
-        for schema_sql in Schema.get_project_schemas():
-            conn.execute(schema_sql)
-
-        # Create project-level indexes
-        for index_sql in Schema.get_project_indexes():
-            conn.executescript(index_sql)
-
-        conn.commit()
-
-        # Run schema version migrations (adds columns like ast_kind to existing tables)
-        self._run_schema_version_migrations(conn)
-
-        # Run migrations if needed
+        migrate(conn, "project", initialize=True)
         self._run_migrations(conn)
 
     def _run_schema_version_migrations(self, conn: sqlite3.Connection) -> None:
-        """Apply versioned column migrations to existing project tables."""
-        from victor.core.schema import CURRENT_SCHEMA_VERSION, get_migration_sql
+        """Apply scoped schema upgrades atomically; unexpected failures propagate."""
+        from victor.core.migrations import migrate
 
-        cursor = conn.execute("SELECT value FROM _project_metadata WHERE key = 'schema_version'")
-        row = cursor.fetchone()
-
-        if row:
-            current_version = int(row[0])
-        else:
-            # Check if this is an existing project DB (has tables but no version tracking)
-            existing_tables = {
-                r[0]
-                for r in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-            non_meta = existing_tables - {"_project_metadata", "sqlite_sequence"}
-            # Only treat as a legacy Victor DB (needing rename migrations) when the
-            # pre-migration sentinel table _db_metadata is present.  A database that
-            # has ConversationStore tables (sessions, messages, …) but no _db_metadata
-            # is NOT a legacy Victor global DB — running rename migrations would destroy
-            # the ConversationStore session table by renaming it to UI_SESSION.
-            if non_meta and "_db_metadata" in existing_tables:
-                # Genuine legacy Victor DB — run all migrations to pick up schema renames
-                current_version = 0
-                logger.info(
-                    f"Legacy project DB detected ({len(non_meta)} tables), "
-                    f"migrating to schema v{CURRENT_SCHEMA_VERSION}"
-                )
-            else:
-                # Brand-new project DB or project DB pre-populated by ConversationStore —
-                # mark at current version without running rename migrations.
-                conn.execute(
-                    "INSERT OR REPLACE INTO _project_metadata (key, value, updated_at) "
-                    "VALUES ('schema_version', ?, datetime('now'))",
-                    (str(CURRENT_SCHEMA_VERSION),),
-                )
-                conn.commit()
-                return
-
-        if current_version < CURRENT_SCHEMA_VERSION:
-            migration_sqls = get_migration_sql(current_version, CURRENT_SCHEMA_VERSION)
-            for sql in migration_sqls:
-                _apply_migration_sql(conn, sql)
-            conn.execute(
-                "INSERT OR REPLACE INTO _project_metadata (key, value, updated_at) "
-                "VALUES ('schema_version', ?, datetime('now'))",
-                (str(CURRENT_SCHEMA_VERSION),),
-            )
-            conn.commit()
-            logger.info(f"Project DB migrated to schema version {CURRENT_SCHEMA_VERSION}")
+        migrate(conn, "project")
 
     def get_connection(self) -> sqlite3.Connection:
         """Get database connection."""

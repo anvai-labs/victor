@@ -25,7 +25,10 @@ from victor.agent.topology_telemetry import (
     build_topology_telemetry_event,
     emit_topology_telemetry_event,
 )
-from victor.agent.services.chat_runtime_services import ChatRuntimeServices
+from victor.agent.services.chat_runtime_services import (
+    ChatRuntimeServices,
+    _raise_if_stream_cancelled,
+)
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.core.errors import (
@@ -43,7 +46,6 @@ from victor.framework.topology_runtime import prepare_topology_runtime_contract
 from victor.framework.task import TaskComplexity
 from victor.providers.base import Message, StreamChunk
 from victor.providers.openai_compat import consume_last_tool_message_cleanup_stats
-from victor.providers.usage_accounting import accumulate_usage
 
 if TYPE_CHECKING:
     from victor.agent.streaming.context import StreamingChatContext
@@ -1002,7 +1004,9 @@ class ChatStreamHelperMixin:
             and supports_reasoning(orch.model)
         ):
             provider_kwargs = {**provider_kwargs, "reasoning_effort": reasoning_effort}
-        provider_stream = orch.provider.stream(
+        provider_stream = self.services.metrics.stream(
+            orch.provider,
+            usage_totals=stream_ctx.cumulative_usage,
             messages=assembled,
             model=orch.model,
             temperature=stream_temperature,
@@ -1192,15 +1196,6 @@ class ChatStreamHelperMixin:
                     refusal_delta = chunk_meta.get("refusal")
                     if refusal_delta:
                         refusal_chars += len(str(refusal_delta))
-
-                raw_usage = getattr(chunk, "usage", None)
-                if raw_usage:
-                    accumulate_usage(stream_ctx.cumulative_usage, raw_usage)
-                    logger.debug(
-                        f"Chunk usage: in={raw_usage.get('prompt_tokens', 0)} "
-                        f"out={raw_usage.get('completion_tokens', 0)} "
-                        f"cache_read={raw_usage.get('cache_read_input_tokens', 0)}"
-                    )
 
                 # Sandhi attaches transport diagnostics (retry attempts, usage
                 # completeness, upstream request id) to the same terminal chunk
@@ -1537,7 +1532,11 @@ class ChatStreamHelperMixin:
                 # tool-call `break` below, rather than left to GC (which would close it
                 # off-task and raise "ignored GeneratorExit" / "no running event loop").
                 async with contextlib.aclosing(
-                    orch.provider.stream(
+                    self.services.metrics.stream(
+                        orch.provider,
+                        usage_totals=(
+                            stream_ctx.cumulative_usage if stream_ctx is not None else None
+                        ),
                         messages=retry_assembled,
                         model=orch.model,
                         temperature=temp,
@@ -1579,28 +1578,7 @@ class ChatStreamHelperMixin:
                     return True, recovered_tool_calls, None
 
                 if full_content.strip():
-                    logger.info(
-                        f"Recovery at temperature {temp} produced content "
-                        f"({len(full_content)} chars)"
-                    )
-                    sanitized = self.services.delivery.sanitize(full_content)
-                    if sanitized:
-                        from victor.agent.conversation.types import (
-                            MESSAGE_SOURCE_METADATA_KEY,
-                            MessageSource,
-                        )
-
-                        orch.add_message(
-                            "assistant",
-                            sanitized,
-                            metadata={
-                                MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value
-                            },
-                        )
-                    final_chunk = self.services.delivery.content_chunk(
-                        sanitized or full_content, is_final=True
-                    )
-                    return True, None, final_chunk
+                    break
 
             except ProviderPolicyError:
                 raise
@@ -1610,4 +1588,19 @@ class ChatStreamHelperMixin:
                 logger.warning(f"Recovery attempt at temperature {temp} failed: {exc}")
                 continue
 
-        return False, None, None
+        else:
+            return False, None, None
+
+        # Publication is outside the retry ladder: a policy or persistence failure
+        # cannot authorize another provider attempt or expose ungoverned content.
+        logger.info("Empty-response recovery produced content (%d chars)", len(full_content))
+        sanitized = self.services.delivery.sanitize(full_content)
+        governed = await self.services.governance.govern_response(sanitized or full_content)
+        _raise_if_stream_cancelled(self.services)
+        orch.add_message(
+            "assistant",
+            governed,
+            metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
+        )
+        final_chunk = self.services.delivery.content_chunk(governed, is_final=True)
+        return True, None, final_chunk

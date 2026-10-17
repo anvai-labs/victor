@@ -122,7 +122,7 @@ class TestTokenAccountingWiring:
         assert legacy_turn_executor is service_turn_executor
 
     def test_accumulate_calls_record_actual_usage(self):
-        """_accumulate_token_usage() calls record_actual_usage on the controller."""
+        """_record_conversation_usage() calls record_actual_usage on the controller."""
         from victor.providers.base import CompletionResponse
         from victor.agent.services.turn_execution_runtime import TurnExecutor
 
@@ -137,7 +137,7 @@ class TestTokenAccountingWiring:
         executor._token_tracker = None
 
         # Bind the real method to our mock instance
-        TurnExecutor._accumulate_token_usage(
+        TurnExecutor._record_conversation_usage(
             executor,
             CompletionResponse(
                 content="response",
@@ -155,7 +155,7 @@ class TestTokenAccountingWiring:
         assert call_args[0][0] == 50
 
     def test_accumulate_no_crash_when_controller_raises(self):
-        """_accumulate_token_usage() never raises even if record_actual_usage fails."""
+        """_record_conversation_usage() never raises even if record_actual_usage fails."""
         from victor.providers.base import CompletionResponse
         from victor.agent.services.turn_execution_runtime import TurnExecutor
 
@@ -171,7 +171,7 @@ class TestTokenAccountingWiring:
         executor._token_tracker = None
 
         # Should not raise
-        TurnExecutor._accumulate_token_usage(
+        TurnExecutor._record_conversation_usage(
             executor,
             CompletionResponse(
                 content="ok",
@@ -197,7 +197,7 @@ class TestTokenAccountingWiring:
         executor._chat_context = mock_conversation
         executor._token_tracker = None
 
-        TurnExecutor._accumulate_token_usage(
+        TurnExecutor._record_conversation_usage(
             executor,
             CompletionResponse(
                 content="ok",
@@ -300,26 +300,23 @@ class TestExtendedTokenFieldsSourcing:
     accumulator must behave identically when it is absent."""
 
     @staticmethod
-    def _accumulate(response):
-        from victor.agent.services.turn_execution_runtime import TurnExecutor
+    async def _accumulate(response):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        from victor.agent.services.metrics_service import AgentMetricsService
+        from victor.agent.session_cost_tracker import SessionCostTracker
 
-        cum = {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
-        executor = MagicMock(spec=TurnExecutor)
-        executor._chat_context = MagicMock()
-        executor._chat_context._cumulative_token_usage = cum
-        executor._token_tracker = None
-        TurnExecutor._accumulate_token_usage(executor, response)
+        cum = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        metrics = AgentMetricsService(MagicMock(), SessionCostTracker(), cum)
+        provider = SimpleNamespace(name="unknown", chat=AsyncMock(return_value=response))
+        await metrics.complete(provider, messages=[], model="m")
         return cum
 
-    def test_neutral_usage_without_raw_body(self):
+    async def test_neutral_usage_without_raw_body(self):
         """Typed transports with extensions absent lose nothing."""
         from victor.providers.base import CompletionResponse
 
-        cum = self._accumulate(
+        cum = await self._accumulate(
             CompletionResponse(
                 content="r",
                 usage={
@@ -336,10 +333,10 @@ class TestExtendedTokenFieldsSourcing:
         assert cum["cache_miss_tokens"] == 0
         assert cum["cost_usd_micros"] == 0
 
-    def test_diagnostics_supply_native_only_fields(self):
+    async def test_diagnostics_supply_native_only_fields(self):
         from victor.providers.base import CompletionResponse
 
-        cum = self._accumulate(
+        cum = await self._accumulate(
             CompletionResponse(
                 content="r",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -349,11 +346,11 @@ class TestExtendedTokenFieldsSourcing:
         assert cum["cache_miss_tokens"] == 7
         assert cum["cost_usd_micros"] == 123
 
-    def test_legacy_raw_body_fallback_still_works(self):
+    async def test_legacy_raw_body_fallback_still_works(self):
         """Non-typed providers keep their raw-usage extraction unchanged."""
         from victor.providers.base import CompletionResponse
 
-        cum = self._accumulate(
+        cum = await self._accumulate(
             CompletionResponse(
                 content="r",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -372,11 +369,11 @@ class TestExtendedTokenFieldsSourcing:
         assert cum["cache_miss_tokens"] == 9
         assert cum["cost_usd_micros"] == 55
 
-    def test_neutral_usage_wins_over_raw_body(self):
+    async def test_neutral_usage_wins_over_raw_body(self):
         """No double counting: neutral values take precedence over the body."""
         from victor.providers.base import CompletionResponse
 
-        cum = self._accumulate(
+        cum = await self._accumulate(
             CompletionResponse(
                 content="r",
                 usage={

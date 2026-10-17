@@ -24,9 +24,11 @@ Tests cover:
 """
 
 import builtins
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import pytest
 import numpy as np
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 
 class TestDefaultEmbeddingModel:
@@ -519,6 +521,141 @@ class TestLazyLoading:
         service = EmbeddingService()
 
         assert service._model is None
+        assert not service.is_loaded
+
+    @pytest.mark.parametrize("dimension", [None, 0, -1, True, "384"])
+    def test_invalid_dimension_does_not_publish_or_erase_cache(self, dimension, caplog):
+        from victor.storage.embeddings.service import EmbeddingService
+
+        service = EmbeddingService()
+        cached = np.ones(384, dtype=np.float32)
+        service._embedding_cache["preserved"] = cached
+        with patch("sentence_transformers.SentenceTransformer") as constructor:
+            constructor.return_value.get_sentence_embedding_dimension.return_value = dimension
+            with patch("victor.storage.embeddings.service.time.sleep") as sleep:
+                service._ensure_model_loaded()
+            constructor.assert_called_once()
+            sleep.assert_not_called()
+        assert service._model is None
+        assert service._dimension is None
+        assert not service._initialized
+        assert not service.is_loaded
+        assert service._embedding_cache["preserved"] is cached
+        assert "invalid embedding dimension" in caplog.text.lower()
+
+    @pytest.mark.parametrize("failure_stage", ["dimension", "device"])
+    def test_failed_preparation_can_retry_with_complete_model(self, failure_stage):
+        from victor.storage.embeddings.service import EmbeddingService
+
+        service = EmbeddingService()
+        broken, healthy = MagicMock(), MagicMock()
+        if failure_stage == "dimension":
+            broken.get_sentence_embedding_dimension.side_effect = FileNotFoundError("offline model")
+        else:
+            broken.get_sentence_embedding_dimension.return_value = 8
+            type(broken).device = PropertyMock(side_effect=FileNotFoundError("offline device"))
+        healthy.get_sentence_embedding_dimension.return_value = 8
+        healthy.encode.return_value = np.ones(8, dtype=np.float32)
+        with patch(
+            "sentence_transformers.SentenceTransformer", side_effect=[broken, healthy]
+        ) as ctor:
+            result = service.embed_text_sync("first", use_cache=False)
+            assert not result.any()
+            assert not service.is_loaded
+            assert service._model is None
+            assert service._dimension is None
+            assert not service._initialized
+            result = service.embed_text_sync("second", use_cache=False)
+        assert ctor.call_count == 2
+        broken.encode.assert_not_called()
+        assert service._model is healthy
+        assert service.dimension == 8
+        assert service._initialized
+        np.testing.assert_array_equal(result, np.ones(8, dtype=np.float32))
+
+    @pytest.mark.parametrize("shutdown", [False, True])
+    def test_concurrent_load_publishes_only_complete_live_model(self, shutdown):
+        from victor.storage.embeddings.service import EmbeddingService
+
+        service = EmbeddingService()
+        entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
+
+        def dimension():
+            entered.set()
+            assert release.wait(5), "Test did not release dimension discovery"
+            return 8
+
+        def second_load():
+            second_started.set()
+            service._ensure_model_loaded()
+
+        with patch("sentence_transformers.SentenceTransformer") as constructor:
+            model = constructor.return_value
+            model.get_sentence_embedding_dimension.side_effect = dimension
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                first = pool.submit(service._ensure_model_loaded)
+                try:
+                    assert entered.wait(2)
+                    assert not service.is_loaded
+                    assert service._model is None
+                    assert service._dimension is None
+                    assert not service._initialized
+                    second = pool.submit(second_load)
+                    assert second_started.wait(2)
+                    assert not second.done()
+                    if shutdown:
+                        pool.submit(service.shutdown).result(timeout=2)
+                finally:
+                    release.set()
+                first.result(timeout=2)
+                second.result(timeout=2)
+            constructor.assert_called_once()
+            if shutdown:
+                assert not service.is_loaded
+                assert service._model is None
+                assert service._dimension is None
+                assert not service._initialized
+                service._ensure_model_loaded()
+                constructor.assert_called_once()
+            else:
+                assert service._model is model
+                assert service.dimension == 8
+                assert service._initialized
+
+    async def test_shutdown_before_load_does_not_activate_model(self):
+        from victor.storage.embeddings.service import EmbeddingService
+
+        service = EmbeddingService()
+        service.shutdown()
+        with patch("sentence_transformers.SentenceTransformer") as constructor:
+            assert not (await service.embed_text("closed")).any()
+            assert not (await service.embed_batch(["closed"])).any()
+            constructor.assert_not_called()
+        assert not service.is_loaded
+
+    def test_shutdown_at_publication_boundary_discards_prepared_model(self):
+        from victor.storage.embeddings.service import EmbeddingService
+
+        service = EmbeddingService()
+        with patch("sentence_transformers.SentenceTransformer") as constructor:
+            constructor.return_value.get_sentence_embedding_dimension.return_value = 8
+            with patch.object(service, "clear_cache", side_effect=service.shutdown):
+                service._ensure_model_loaded()
+        assert service._model is None
+        assert service._dimension is None
+        assert not service._initialized
+
+    def test_shutdown_during_backoff_does_not_start_another_attempt(self):
+        from victor.storage.embeddings.service import EmbeddingService
+
+        service = EmbeddingService()
+        with patch("sentence_transformers.SentenceTransformer", side_effect=TimeoutError) as ctor:
+            with patch(
+                "victor.storage.embeddings.service.time.sleep",
+                side_effect=lambda _: service.shutdown(),
+            ):
+                service._ensure_model_loaded()
+        ctor.assert_called_once()
         assert not service.is_loaded
 
     def test_model_loaded_on_first_embedding(self):

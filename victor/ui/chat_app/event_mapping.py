@@ -334,8 +334,13 @@ def history_messages(messages: Iterable[Any]) -> List[tuple[str, str]]:
     ``.content``, where ``role`` may be a str or an enum with ``.value``) or plain dicts. Pure +
     Chainlit-free for unit testing.
     """
+    from victor.ui.history_utils import is_hidden_from_interactive_history
+
     pairs: List[tuple[str, str]] = []
     for msg in messages or []:
+        metadata = msg.get("metadata") if isinstance(msg, dict) else getattr(msg, "metadata", None)
+        if is_hidden_from_interactive_history(metadata):
+            continue
         raw_role = getattr(msg, "role", None)
         if raw_role is None and isinstance(msg, dict):
             raw_role = msg.get("role")

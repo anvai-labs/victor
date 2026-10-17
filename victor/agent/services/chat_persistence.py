@@ -46,13 +46,8 @@ class ChatPersistenceMixin:
         if require_persistence:
             persist()  # Before trimming or resolving any in-memory tool-call ID.
 
-        max_history = getattr(runtime.settings, "max_conversation_history", 100)
-        if len(runtime.conversation._messages) >= max_history:
-            for i, msg in enumerate(runtime.conversation._messages):
-                if i == 0 and getattr(msg, "role", None) == "system":
-                    continue
-                runtime.conversation._messages.pop(i)
-                break
+        # MessageHistory owns count retention after publication. Pre-trimming here
+        # could delete the active user request before its owner could protect it.
 
         if role == "tool":
             logging.getLogger("victor.agent.orchestrator").debug(

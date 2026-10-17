@@ -101,7 +101,8 @@ async def test_planning_compaction_prefers_context_service_before_legacy_compact
 
 
 @pytest.mark.asyncio
-async def test_chat_with_planning_attaches_execution_state_to_response_metadata():
+@pytest.mark.parametrize("success", [True, False, "false", None, 1])
+async def test_chat_with_planning_attaches_execution_state_to_response_metadata(success):
     service = PlanningRuntimeService(
         SimpleNamespace(),
         config=PlanningConfig(show_plan_before_execution=False),
@@ -115,12 +116,12 @@ async def test_chat_with_planning_attaches_execution_state_to_response_metadata(
     execution_state = {
         "plan_id": "plan-1",
         "execution_mode": "team_adapter",
-        "success": True,
+        "success": success,
         "step_statuses": {"1": "completed"},
     }
     result = PlanResult(
         plan_id="plan-1",
-        success=True,
+        success=success,
         total_steps=1,
         steps_completed=1,
         metadata={"plan_execution_state": execution_state},
@@ -128,12 +129,19 @@ async def test_chat_with_planning_attaches_execution_state_to_response_metadata(
     response = CompletionResponse(
         content="summary",
         role="assistant",
-        metadata={"provider": "test-provider"},
+        metadata={"provider": "test-provider", "agentic_loop_success": True},
     )
     service._compact_context_if_needed = AsyncMock()
     service._generate_plan = AsyncMock(return_value=plan)
     service._execute_plan = AsyncMock(return_value=result)
     service._generate_final_response = AsyncMock(return_value=response)
+
+    if type(success) is not bool:
+        with pytest.raises(ValueError, match="Plan success must be a boolean"):
+            await service.chat_with_planning("plan this", mode=PlanningMode.ALWAYS)
+        service._generate_final_response.assert_not_awaited()
+        assert service._compact_context_if_needed.await_count == 1
+        return
 
     returned = await service.chat_with_planning("plan this", mode=PlanningMode.ALWAYS)
 
@@ -144,6 +152,11 @@ async def test_chat_with_planning_attaches_execution_state_to_response_metadata(
     assert returned.metadata["planning"]["plan_name"] == "Graph Native Plan"
     assert returned.metadata["planning"]["steps_completed"] == 1
     assert returned.metadata["planning"]["steps_total"] == 1
+
+    assert returned.metadata["agentic_loop_success"] is success
+    assert returned.metadata["planning"]["success"] is success
+    if not success:
+        assert returned.metadata["agentic_loop_error"]
 
 
 @pytest.mark.asyncio
@@ -191,7 +204,7 @@ async def test_team_plan_execution_bounds_independent_step_concurrency():
 
 
 @pytest.mark.asyncio
-async def test_team_plan_continues_read_only_step_when_prior_read_lacks_evidence():
+async def test_team_plan_blocks_read_only_step_when_required_inventory_fails():
     orchestrator = SimpleNamespace(active_session_id="session_root")
     service = PlanningRuntimeService(orchestrator)
     plan = ReadableTaskPlan(
@@ -229,24 +242,18 @@ async def test_team_plan_continues_read_only_step_when_prior_read_lacks_evidence
     result = await service._execute_plan_via_team_adapter(plan, adapter)
 
     assert result.success is False
-    assert result.steps_completed == 1
+    assert result.steps_completed == 0
     assert result.steps_failed == 1
-    assert adapter.execute_step.await_count == 2
-    assert [call.kwargs["step"].id for call in adapter.execute_step.await_args_list] == [
-        "1",
-        "2",
-    ]
-    second_step = adapter.execute_step.await_args_list[1].kwargs["step"]
-    assert second_step.context["partial_failed_dependencies"] == ["1"]
+    assert adapter.execute_step.await_count == 1
+    assert result.step_results["2"].tool_calls_used == 0
     assert "Insufficient execution evidence" in result.error_message
     execution_state = result.metadata["plan_execution_state"]
     assert execution_state["execution_mode"] == "team_adapter"
     assert execution_state["success"] is False
-    assert execution_state["step_statuses"]["1"] == "failed"
-    assert execution_state["step_statuses"]["2"] == "completed"
+    assert execution_state["step_statuses"] == {"1": "failed", "2": "blocked"}
     assert execution_state["failed_step_ids"] == ["1"]
     assert execution_state["skipped_step_ids"] == []
-    assert execution_state["blocked_step_ids"] == []
+    assert execution_state["blocked_step_ids"] == ["2"]
 
 
 @pytest.mark.asyncio
@@ -464,6 +471,49 @@ def test_plan_requires_execution_approval_works_with_dict_steps():
     )
     result = svc._plan_requires_execution_approval(plan)
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_failed_plan_reports_recorded_status_without_summary_provider(tmp_path):
+    artifact = tmp_path / "inventory.md"
+    artifact.write_text("Verified repository inventory", encoding="utf-8")
+    provider = SimpleNamespace(chat=AsyncMock(side_effect=RuntimeError("summary unavailable")))
+    service = PlanningRuntimeService(
+        SimpleNamespace(provider=provider, model="test", max_tokens=100)
+    )
+    plan = ReadableTaskPlan(
+        name="Audit",
+        desc="Inspect code",
+        complexity=TaskComplexity.COMPLEX,
+        steps=[["1", "research", "Inventory", "read"], ["2", "review", "Review", "read"]],
+    )
+    result = PlanResult(
+        plan_id="audit",
+        success=False,
+        total_steps=3,
+        steps_completed=1,
+        step_results={
+            "1": StepResult(success=True, output="Inventory recorded", artifacts=[str(artifact)]),
+            "2": StepResult(success=False, output="", error="Provider failed"),
+            "3": StepResult(
+                success=False, output="", metadata={"blocked_by_failed_dependencies": ["2"]}
+            ),
+        },
+        metadata={
+            "plan_execution_state": {
+                "failed_step_ids": ["2"],
+                "blocked_step_ids": ["3"],
+                "step_statuses": {"1": "completed", "2": "failed", "3": "blocked"},
+            }
+        },
+    )
+    response = await service._generate_final_response(plan, result)
+    provider.chat.assert_not_awaited()
+    assert "1/3" in response.content
+    assert "Failed steps: 2" in response.content
+    assert "Blocked steps: 3" in response.content
+    assert str(artifact) in response.content
+    assert response.usage is None  # No invented provider accounting.
 
 
 def test_summary_prompt_surfaces_evidence_validation_failure():
@@ -1702,8 +1752,8 @@ def test_toml_content_passes_evidence_contract():
     assert result.success, f"TOML dependency audit should pass evidence: {result.error}"
 
 
-def test_synthesis_step_not_skipped_when_upstream_fails():
-    """Synthesis steps must survive upstream evidence failures and run with partial data."""
+def test_report_cannot_waive_required_input_by_description():
+    """A report is still blocked when its declared input failed."""
     from victor.agent.planning.base import ExecutionPlan, PlanStep, StepStatus, StepType
     from victor.agent.services.planning_runtime import PlanningRuntimeService
 
@@ -1729,21 +1779,14 @@ def test_synthesis_step_not_skipped_when_upstream_fails():
     plan = ExecutionPlan(id="test-plan", goal="audit rust", steps=[analysis, synthesis])
     svc._skip_team_plan_dependents(plan, ["dep_audit"])
 
-    # Synthesis step must NOT be skipped — it should survive and report partial results.
-    assert (
-        synthesis.status == StepStatus.PENDING
-    ), "Synthesis step should not be cascaded to SKIPPED when upstream fails"
-    assert synthesis.depends_on == []
-    assert synthesis.context["partial_failed_dependencies"] == ["dep_audit"]
+    assert synthesis.status == StepStatus.BLOCKED
+    assert synthesis.depends_on == ["dep_audit"]
+    assert synthesis.result.metadata["blocked_by_failed_dependencies"] == ["dep_audit"]
 
 
 @pytest.mark.asyncio
-async def test_synthesis_step_runs_after_failed_upstream_with_partial_state():
-    """A final report should still run after an analysis branch fails.
-
-    The failed analysis remains failed, so the overall plan is unsuccessful, but the
-    synthesis step can produce a partial report instead of being BLOCKED.
-    """
+async def test_failed_branch_blocks_report_but_independent_work_continues():
+    """Keep independent work and evidence without executing a blocked report."""
     from victor.agent.planning.team_execution import PlanningTeamExecutionAdapter
 
     svc = PlanningRuntimeService(SimpleNamespace(active_session_id="s"))
@@ -1759,15 +1802,13 @@ async def test_synthesis_step_runs_after_failed_upstream_with_partial_state():
                 error="Insufficient execution evidence",
                 tool_calls_used=3,
             )
-        if step.id == "3":
-            assert step.context["partial_failed_dependencies"] == ["2"]
-            return StepResult(success=True, output="partial report", tool_calls_used=1)
+        assert step.id != "3", "Required failed input must prevent dispatch"
         return StepResult(success=True, output="src/lib.rs:1 inspected", tool_calls_used=1)
 
     plan = ReadableTaskPlan(
-        name="Partial synthesis after failure",
+        name="Independent work after failure",
         complexity=TaskComplexity.COMPLEX,
-        desc="Verify synthesis survives failed analysis",
+        desc="Verify independent work survives failed analysis",
         steps=[
             {"id": "1", "type": "analyze", "desc": "Collect baseline findings"},
             {
@@ -1784,6 +1825,13 @@ async def test_synthesis_step_runs_after_failed_upstream_with_partial_state():
                 "deps": ["1", "2"],
                 "tools": ["write"],
             },
+            {
+                "id": "4",
+                "type": "research",
+                "desc": "Inspect independent README",
+                "deps": [],
+                "tools": ["read"],
+            },
         ],
     )
 
@@ -1796,17 +1844,17 @@ async def test_synthesis_step_runs_after_failed_upstream_with_partial_state():
     ):
         result = await svc._execute_plan_via_team_adapter(plan, mock_adapter)
 
-    assert executed == ["1", "2", "3"]
-    assert result.step_results["3"].success is True
-    assert result.step_results["3"].output == "partial report"
+    assert set(executed) == {"1", "2", "4"}
+    assert result.step_results["3"].success is False
+    assert result.step_results["3"].tool_calls_used == 0
+    assert result.metadata["plan_execution_state"]["step_statuses"]["3"] == "blocked"
     assert result.success is False
 
 
 def test_failed_dependency_blocks_non_synthesis_dependents():
     """A failed predecessor still blocks effectful dependent steps.
 
-    Read-only review can continue with partial context, but implementation/testing
-    work must not proceed on missing required inputs.
+    Implementation/testing work must not proceed on missing required inputs.
     """
     from victor.agent.planning.base import ExecutionPlan, PlanStep, StepStatus, StepType
     from victor.agent.services.planning_runtime import PlanningRuntimeService
@@ -1847,8 +1895,8 @@ def test_failed_dependency_blocks_non_synthesis_dependents():
     assert plan.get_ready_steps() == []
 
 
-def test_read_only_dependents_continue_after_failed_dependency_with_partial_context():
-    """Analysis/reporting steps should keep running and disclose missing coverage."""
+def test_read_only_dependents_remain_blocked_transitively_without_rewriting_edges():
+    """Analysis and report labels cannot override required dependencies."""
     from victor.agent.planning.base import ExecutionPlan, PlanStep, StepStatus, StepType
     from victor.agent.services.planning_runtime import PlanningRuntimeService
 
@@ -1883,10 +1931,11 @@ def test_read_only_dependents_continue_after_failed_dependency_with_partial_cont
     )
     svc._skip_team_plan_dependents(plan, ["per_crate_review"])
 
-    assert cross_crate.status == StepStatus.PENDING
-    assert cross_crate.depends_on == []
-    assert cross_crate.context["partial_failed_dependencies"] == ["per_crate_review"]
-    assert plan.get_ready_steps() == [cross_crate]
+    assert cross_crate.status == StepStatus.BLOCKED
+    assert cross_crate.depends_on == ["per_crate_review"]
+    assert report.status == StepStatus.BLOCKED
+    assert report.depends_on == ["cross_crate"]
+    assert plan.get_ready_steps() == []
 
 
 @pytest.mark.asyncio
@@ -2960,3 +3009,21 @@ async def test_standalone_direct_chat_acquires_public_turn_boundary():
     service = PlanningRuntimeService(owner)
     assert await service._direct_chat("hello") is response
     owner.chat.assert_awaited_once_with("hello")
+
+
+def test_evidence_validation_preserves_blocked_dispatch_status():
+    from victor.agent.planning.base import ExecutionPlan, PlanStep, PlanResult, StepStatus, StepType
+
+    service = PlanningRuntimeService(SimpleNamespace(active_session_id="s"))
+    blocked = PlanStep(id="2", description="Review", step_type=StepType.REVIEW, depends_on=["1"])
+    blocked.status = StepStatus.BLOCKED
+    blocked.result = StepResult(success=False, output="", error="Required dependency 1 failed")
+    plan = ExecutionPlan(id="plan", goal="review", steps=[blocked])
+    result = PlanResult(
+        plan_id="plan", success=False, total_steps=1, step_results={"2": blocked.result}
+    )
+    service._apply_plan_evidence_contracts(plan, result)
+    assert blocked.status == StepStatus.BLOCKED
+    assert result.steps_failed == 0
+    assert result.steps_completed == 0
+    assert not result.success

@@ -346,6 +346,7 @@ async def test_graph_indexing_pipeline_refreshes_module_metrics_after_changed_gr
     monkeypatch,
     tmp_path: Path,
 ):
+    (tmp_path / "sample.py").write_text("def sample(): return 1\n")
     store = MagicMock()
     store.initialize = AsyncMock()
     store.delete_by_repo = AsyncMock()
@@ -1310,7 +1311,9 @@ def test_provider_symbols_recover_identity_from_prepared_repository(tmp_path: Pa
     path = tmp_path / "m.py"
     path.write_text("def target():\n    return 1\n", encoding="utf-8")
     pipeline = _make_pipeline(tmp_path)
-    pipeline._prepare_codegraph_repository(tmp_path, [path])
+    from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
+
+    pipeline._bind_codegraph_repository(prepare_repository_snapshot(tmp_path, ["m.py"]))
     expected = next(
         symbol
         for symbol in pipeline._codegraph_repository.symbols
@@ -2326,3 +2329,202 @@ async def test_consume_yields_between_flushes(monkeypatch, tmp_path: Path) -> No
     assert flush_calls == [1, 1, 1]
     assert sleep_count["n"] >= 2
     assert stats.files_processed == 3
+
+
+@pytest.mark.asyncio
+async def test_stream_bounds_completed_parses_without_consumer(monkeypatch, tmp_path):
+    """A full result queue must stop new submissions, not just result delivery."""
+    import asyncio
+
+    from victor.core.graph_rag.indexing import _IndexingStreamPipeline
+
+    pipeline = _make_pipeline(tmp_path)
+    pipeline.config.parse_workers = 2
+    streaming = _IndexingStreamPipeline(pipeline, queue_maxsize=1)
+    queue = asyncio.Queue(maxsize=1)
+    parsed = []
+
+    def parse(path):
+        parsed.append(path)
+        return ParseResult(file_path=path, language=None)
+
+    monkeypatch.setattr(pipeline, "_parse_file_sync", parse)
+    before = asyncio.all_tasks()
+    producer = asyncio.create_task(
+        streaming._produce([tmp_path / str(i) for i in range(40)], queue)
+    )
+    try:
+        # Allow the small fixture to reach a blocked queue; this is not a throughput test.
+        await asyncio.sleep(0.1)
+        assert queue.qsize() == 1
+        assert 1 <= len(parsed) <= 3  # queue + one held result per worker
+        assert len(asyncio.all_tasks() - before) <= 4
+    finally:
+        producer.cancel()
+        await asyncio.gather(producer, return_exceptions=True)
+        leftovers = asyncio.all_tasks() - before
+        for task in leftovers:
+            task.cancel()
+        await asyncio.gather(*leftovers, return_exceptions=True)
+        pipeline._get_executor().shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["consumer", "cancel"])
+@pytest.mark.parametrize("native_error", [False, True])
+async def test_stream_settles_native_work_before_return(
+    failure, native_error, monkeypatch, tmp_path
+):
+    """Failure/cancellation cannot release ownership while a parser is still running."""
+    import asyncio
+    import threading
+
+    from victor.core.graph_rag.indexing import _IndexingStreamPipeline
+
+    pipeline = _make_pipeline(tmp_path)
+    pipeline.config.parse_workers = 1
+    streaming = _IndexingStreamPipeline(pipeline, queue_maxsize=1)
+    entered = asyncio.Event()
+    release = threading.Event()
+    completed = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def parse(path):
+        loop.call_soon_threadsafe(entered.set)
+        release.wait(5)  # bounded fixture cleanup even if the test itself fails
+        completed.set()
+        if native_error:
+            raise ValueError("late parser failure")
+        return ParseResult(file_path=path, language=None)
+
+    async def consume(*args):
+        await entered.wait()
+        raise RuntimeError("consumer failed")
+
+    monkeypatch.setattr(pipeline, "_parse_file_sync", parse)
+    if failure == "consumer":
+        monkeypatch.setattr(streaming, "_consume", consume)
+    before = asyncio.all_tasks()
+    task = asyncio.create_task(streaming.run([tmp_path / "a.py"]))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        if failure == "cancel":
+            task.cancel()
+        await asyncio.sleep(0.02)
+        if failure == "cancel":
+            task.cancel()  # repeated cancellation must not abandon native work
+        await asyncio.sleep(0.02)
+        assert not task.done()
+        assert not completed.is_set()
+        release.set()
+        with pytest.raises(RuntimeError if failure == "consumer" else asyncio.CancelledError):
+            await asyncio.wait_for(asyncio.shield(task), 2)
+        assert completed.is_set()
+        assert not (asyncio.all_tasks() - before)
+    finally:
+        release.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        leftovers = asyncio.all_tasks() - before
+        for leftover in leftovers:
+            leftover.cancel()
+        await asyncio.gather(*leftovers, return_exceptions=True)
+        pipeline._get_executor().shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_stream_delivers_each_file_and_aggregates_parse_errors(monkeypatch, tmp_path):
+    import asyncio
+
+    from victor.core.graph_rag.indexing import _IndexingStreamPipeline
+
+    pipeline = _make_pipeline(tmp_path)
+    pipeline.config.parse_workers = 2
+    streaming = _IndexingStreamPipeline(pipeline, queue_maxsize=1)
+    files = [tmp_path / str(i) for i in range(9)]
+    seen = []
+
+    def parse(path):
+        seen.append(path)
+        if path == files[3]:
+            raise ValueError("invalid source")
+        return ParseResult(file_path=path, language=None)
+
+    monkeypatch.setattr(pipeline, "_parse_file_sync", parse)
+    before = asyncio.all_tasks()
+    try:
+        stats = await asyncio.wait_for(streaming.run(files), 2)
+        assert sorted(seen) == files
+        assert stats.files_skipped == 8
+        assert stats.error_count == 1
+        assert "invalid source" in stats.errors[0]
+        assert not (asyncio.all_tasks() - before)
+        assert (await streaming.run([])).files_processed == 0
+    finally:
+        pipeline._get_executor().shutdown(wait=True)
+
+
+@pytest.mark.parametrize("batch,capacity", [(0, 1), (-1, 1), (1, 0), (1, -1)])
+def test_stream_rejects_unbounded_limits(tmp_path, batch, capacity):
+    from victor.core.graph_rag.indexing import _IndexingStreamPipeline
+
+    with pytest.raises(ValueError, match="must be positive"):
+        _IndexingStreamPipeline(_make_pipeline(tmp_path), batch, capacity)
+
+
+@pytest.mark.asyncio
+async def test_stream_producer_failure_settles_waiting_consumer(monkeypatch, tmp_path):
+    """An unavailable executor fails the stream instead of hanging its consumer."""
+    import asyncio
+
+    from victor.core.graph_rag.indexing import _IndexingStreamPipeline
+
+    pipeline = _make_pipeline(tmp_path)
+    executor = pipeline._get_executor()
+    executor.shutdown(wait=True)
+    streaming = _IndexingStreamPipeline(pipeline)
+    before = asyncio.all_tasks()
+    with pytest.raises(RuntimeError, match="cannot schedule"):
+        await asyncio.wait_for(streaming.run([tmp_path / "a.py"]), 2)
+    assert not (asyncio.all_tasks() - before)
+
+
+@pytest.mark.asyncio
+async def test_stream_releases_delivered_payload_before_next_parse(monkeypatch, tmp_path):
+    import asyncio
+    import gc
+    import threading
+    import weakref
+
+    from victor.core.graph_rag.indexing import _IndexingStreamPipeline
+
+    pipeline = _make_pipeline(tmp_path)
+    pipeline.config.parse_workers = 1
+    streaming = _IndexingStreamPipeline(pipeline, queue_maxsize=1)
+    queue = asyncio.Queue(maxsize=1)
+    next_started = asyncio.Event()
+    release = threading.Event()
+    references = []
+    loop = asyncio.get_running_loop()
+
+    def parse(path):
+        if references:
+            loop.call_soon_threadsafe(next_started.set)
+            release.wait(5)
+        result = ParseResult(file_path=path, language=None)
+        references.append(weakref.ref(result))
+        return result
+
+    monkeypatch.setattr(pipeline, "_parse_file_sync", parse)
+    task = asyncio.create_task(streaming._produce([tmp_path / "a", tmp_path / "b"], queue))
+    try:
+        delivered = await asyncio.wait_for(queue.get(), 2)
+        del delivered
+        await asyncio.wait_for(next_started.wait(), 2)
+        gc.collect()
+        assert references[0]() is None
+    finally:
+        release.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        pipeline._get_executor().shutdown(wait=True)

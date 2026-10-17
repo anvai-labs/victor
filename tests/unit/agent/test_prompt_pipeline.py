@@ -824,12 +824,40 @@ class TestChannelDeclarationPlacement:
             n += 1
         return n
 
-    def test_declaration_is_the_final_block(self):
+    @pytest.fixture(params=["pipeline", "orchestrator"])
+    def assemble(self, request):
+        """Exercise both the pipeline and its actual runtime integration."""
+
+        def build(pipeline, project_context=None):
+            if request.param == "pipeline":
+                return pipeline.build_system_prompt(project_context=project_context)
+
+            from types import SimpleNamespace
+            from victor.agent.orchestrator import AgentOrchestrator
+            from victor.agent.services.prompt_builder_runtime import PromptBuilderRuntime
+
+            host = SimpleNamespace(
+                _prompt_pipeline=pipeline,
+                project_context=SimpleNamespace(
+                    content=project_context,
+                    get_system_prompt_addition=lambda: project_context,
+                ),
+                _sync_prompt_builder_runtime_state=MagicMock(),
+            )
+            runtime = PromptBuilderRuntime(host)
+            runtime.sync_prompt_builder_runtime_state = MagicMock()
+            host._get_prompt_builder_runtime = lambda: runtime
+            return AgentOrchestrator.build_system_prompt(host)
+
+        return build
+
+    def test_declaration_is_the_final_block(self, assemble):
         pipeline = _make_pipeline()
 
-        prompt = pipeline.build_system_prompt(project_context="PROJECT CONTEXT BODY")
+        prompt = assemble(pipeline, "PROJECT CONTEXT BODY")
 
         nonce = pipeline._channel_nonce
+        assert prompt.count("PROJECT CONTEXT BODY") == 1
         assert nonce in prompt
         tail = prompt[prompt.index("SYSTEM GUIDANCE CHANNEL") :]
         assert "PROJECT CONTEXT BODY" not in tail, (
@@ -837,10 +865,10 @@ class TestChannelDeclarationPlacement:
             "sessions — the declaration must be appended last"
         )
 
-    def test_project_context_stays_in_the_shared_prefix(self):
+    def test_project_context_stays_in_the_shared_prefix(self, assemble):
         """Two sessions must agree byte-for-byte up to the declaration."""
-        a = _make_pipeline().build_system_prompt(project_context="PROJECT CONTEXT BODY")
-        b = _make_pipeline().build_system_prompt(project_context="PROJECT CONTEXT BODY")
+        a = assemble(_make_pipeline(), "PROJECT CONTEXT BODY")
+        b = assemble(_make_pipeline(), "PROJECT CONTEXT BODY")
 
         shared = self._shared_prefix_len(a, b)
 
@@ -848,7 +876,7 @@ class TestChannelDeclarationPlacement:
             "PROJECT CONTEXT BODY" in a[:shared]
         ), "project context falls outside the shared cross-session prefix"
 
-    def test_only_the_declaration_varies_between_sessions(self):
+    def test_only_the_declaration_varies_between_sessions(self, assemble):
         """Nothing but the declaration block may fall outside the shared prefix.
 
         Bounded against the declaration's own length rather than a fixed number,
@@ -858,8 +886,8 @@ class TestChannelDeclarationPlacement:
         from victor.agent.control_plane import channel_declaration
 
         pa, pb = _make_pipeline(), _make_pipeline()
-        a = pa.build_system_prompt(project_context="PROJECT CONTEXT BODY")
-        b = pb.build_system_prompt(project_context="PROJECT CONTEXT BODY")
+        a = assemble(pa, "PROJECT CONTEXT BODY")
+        b = assemble(pb, "PROJECT CONTEXT BODY")
 
         shared = self._shared_prefix_len(a, b)
         varying = len(a) - shared
@@ -870,10 +898,10 @@ class TestChannelDeclarationPlacement:
             f"{budget}; something stable was pushed after the nonce"
         )
 
-    def test_two_sessions_still_get_distinct_keys(self):
+    def test_two_sessions_still_get_distinct_keys(self, assemble):
         """Placement must not accidentally make the nonce constant."""
         a, b = _make_pipeline(), _make_pipeline()
 
         assert a._channel_nonce != b._channel_nonce
-        assert a._channel_nonce in a.build_system_prompt()
-        assert b._channel_nonce in b.build_system_prompt()
+        assert a._channel_nonce in assemble(a)
+        assert b._channel_nonce in assemble(b)

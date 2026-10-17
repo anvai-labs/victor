@@ -5,9 +5,10 @@ from __future__ import annotations
 import ast
 import hashlib
 import os
+import stat
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 if TYPE_CHECKING:
     from .rust_repository import RustBinding
@@ -24,6 +25,7 @@ from .model import (
     stable_symbol_key,
 )
 from .repo import iter_source_files, read_source_text
+from .languages import detect_language
 from .javascript_repository import JavaScriptRepository
 
 
@@ -287,21 +289,72 @@ def _file_projection_metadata(parsed: ParsedCode) -> dict[str, object]:
     }
 
 
+def _selected_source_paths(
+    root: Path,
+    selected_paths: Iterable[str | os.PathLike[str]],
+    languages: list[str] | None,
+) -> list[Path]:
+    """Validate the whole explicit inventory before reading any source content."""
+    if isinstance(selected_paths, (str, bytes, os.PathLike)):
+        raise ValueError("selected inventory must be an iterable of file paths, not one path")
+    if not root.is_dir():
+        raise ValueError("selected inventory requires an existing repository directory")
+    paths: set[Path] = set()
+    for selected in selected_paths:
+        path = (root / selected).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError(f"selected inventory path is outside repository: {selected}")
+        try:
+            mode = path.stat().st_mode
+        except FileNotFoundError:
+            pass  # read_source_text preserves missing-input evidence by omission.
+        else:
+            if not stat.S_ISREG(mode):
+                raise ValueError(f"selected inventory path is not a regular file: {selected}")
+        paths.add(path)
+    allowed = set(languages) if languages else None
+    return [
+        path
+        for path in sorted(paths, key=lambda p: (p.relative_to(root).parent.parts, p.name))
+        if allowed is None or detect_language(str(path)) in allowed
+    ]
+
+
 def parse_repo(
     root: str | os.PathLike[str],
     *,
     repo_id: str | None = None,
     languages: list[str] | None = None,
     revision: str | None = None,
+    selected_paths: Iterable[str | os.PathLike[str]] | None = None,
 ) -> ParsedRepository:
-    """Parse one consistent read of every recognized source file and resolve the graph."""
+    """Read each selected source once and resolve the repository graph.
+
+    With ``selected_paths=None``, retain the default language-aware walker and
+    its exclusions. An explicit iterable (including an empty one) replaces that
+    discovery policy; hidden/build paths are permitted. Paths may be relative to
+    root or absolute within root. Resolve/deduplicate aliases and validate the
+    entire inventory before source reads; non-regular files and paths escaping root
+    are rejected. ``languages`` still filters the resulting inventory.
+
+    Missing files and source-content read failures remain absent from ``files``
+    and ``manifest``, as in default discovery. Path/type validation errors propagate
+    before source reads. Consumers requiring complete preparation must compare the
+    selected inventory with the returned manifest before publishing. This is not
+    a filesystem snapshot or protection against concurrent path replacement.
+    """
 
     from .parser import parse
 
     root_path = Path(root).resolve()
     files: dict[str, ParsedCode] = {}
     manifest: dict[str, str] = {}
-    for path in iter_source_files(root_path, languages=languages):
+    paths = (
+        iter_source_files(root_path, languages=languages)
+        if selected_paths is None
+        else _selected_source_paths(root_path, selected_paths, languages)
+    )
+    for path in paths:
         content = read_source_text(path)
         if content is None:
             continue

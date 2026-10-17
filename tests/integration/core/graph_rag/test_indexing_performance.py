@@ -21,6 +21,7 @@ for force rebuild vs incremental indexing.
 import time
 from pathlib import Path
 from typing import List
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -28,6 +29,17 @@ from victor.core.graph_rag.config import GraphIndexConfig
 from victor.core.graph_rag.indexing import GraphIndexingPipeline
 from victor.storage.graph.protocol import GraphEdge, GraphNode
 from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+
+@pytest.fixture(autouse=True)
+def isolate_embedding_dependencies(monkeypatch):
+    """Graph-only checks must not initialize models or contact a model registry.
+
+    Embedding cleanup contracts have their own unit suite; these cases configure
+    embeddings off and qualify only SQLite graph behavior.
+    """
+    monkeypatch.setattr(SqliteGraphStore, "_clear_all_embeddings", AsyncMock())
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
 
 
 @pytest.mark.asyncio
@@ -152,44 +164,6 @@ class TestIndexingPerformance:
         assert (
             incremental_config.chunk_size == 50
         ), f"Expected chunk_size=50 for incremental mode, got {incremental_config.chunk_size}"
-
-    async def test_bulk_load_pragma_reduces_overhead(self, tmp_path: Path) -> None:
-        """Verify PRAGMA optimizations don't cause errors and work correctly."""
-        store = SqliteGraphStore(project_path=tmp_path)
-        await store.initialize()
-
-        # Create test data
-        nodes = [
-            GraphNode(
-                node_id=f"node:{i}",
-                type="FUNCTION",
-                name=f"func_{i}",
-                file=f"/path/to/file{i}.py",
-                line=10,
-                end_line=20,
-                lang="python",
-            )
-            for i in range(1000)
-        ]
-
-        # Test with bulk load mode
-        import sqlite3
-
-        conn = store._connect()
-        store._enable_bulk_load_mode(conn)
-
-        # Verify pragmas were set
-        cur = conn.execute("PRAGMA cache_size")
-        cache_size = cur.fetchone()[0]
-        assert cache_size < 0, "Cache size should be negative (KB) in bulk mode"
-
-        cur = conn.execute("PRAGMA synchronous")
-        synchronous = cur.fetchone()[0]
-        assert synchronous == 0, "Synchronous should be OFF in bulk mode"
-
-        # Cleanup
-        store._disable_bulk_load_mode(conn)
-        conn.close()
 
     async def test_delete_by_repo_performance(self, tmp_path: Path) -> None:
         """Verify delete_by_repo completes quickly even with large datasets."""

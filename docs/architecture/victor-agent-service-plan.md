@@ -1,9 +1,9 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-12
-baseline_develop: e9db76a9d4e05752413dc33aa82b0d8ea40ee167
-next_task: VAS-17
+updated: 2026-10-16
+baseline_develop: 697b7eef7122ba78a678f2ac77fb88f3bff04caf
+next_task: VAS-17 release qualification
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -67,32 +67,1281 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **Promotion checkpoint ACTIVE [#1323](https://github.com/anvai-labs/victor/pull/1323)** —
-  owner: Victor co-design session. Main ancestry sync [#1324](https://github.com/anvai-labs/victor/pull/1324)
-  merged as `7e7ad5462b63b70c8b931e921f0de6e86d9846f5`, preserving production behavior
-  and main's AgentBrowser acceptance correction. Its 39 successful checks, two
-  configured skips and neutral Trivy are recorded. Main is now an ancestor of develop.
-  The first full promotion matrix (`38311891912`) passed 20 of 24 Python shards;
-  two stale fixture failures each affected Python 3.12 and 3.13. Coverage Gate and
-  Test Summary correctly failed closed. Other blocking build, integration and
-  security checks passed; the promotion is not accepted.
-  Branch `fix/promotion-session-coverage`, based on that merge, consolidates obsolete
-  facade identity mocks into the real service/facade test and replaces incomplete
-  subagent construction and a copied conditional with actual inheritance cases.
-  No production workaround is introduced. Local qualification: 193 affected tests,
-  64 focused tests, 34,582 collected tests, and no lost production lines or branches
-  across 1,796 coverage files. Disabling canonical session binding makes the new
-  facade case fail, preserving negative regression evidence. Initial failures and
-  the interrupted broad baseline are retained separately from completed evidence.
-  Next: independent repair review, feature CI/merge, then full promotion CI on the
-  new develop head and required GitHub approval before main, with no admin bypass.
-  Broader typing and unrelated dependency updates stay outside this batch.
-  Cumulative runtime review passes 645 tests. Client/release review passes 219
-  Python checks, 113 TypeScript tests and 11 real HTTP tests (overlapping counts).
-  The existing VAS-06/G62/G70 approval-continuation lock gap reproduces on main and
-  the candidate: G94 protects hydration, not the whole resumed execution. Keep
-  consumed approval claims closed on failure. Review receipts and reboot state
-  live under `var/codegraph-victor-20261012/promotion-*`; live C5 remains open.
+- **UX-01 self-audit failure recovery — MERGED, [#1347](https://github.com/anvai-labs/victor/pull/1347)** — owner: Victor co-design session;
+  branch `fix/self-audit-ux-recovery`, baseline `0839c34d3c17c43c1828b48555d8e25fca85b8e0`.
+  The user's 2026-10-13 21:36–21:40 `homelab-openai-subscription` run failed its
+  first inventory step with a retryable OpenAI transport 502 (`cec7bdad`). Its
+  required dependent nevertheless ran because `planning_runtime` removed failed
+  edges using description/type heuristics. The log records 21 compactions and
+  21 failed compaction-audit inserts (SQLite foreign-key violations); the startup
+  embedding spinner remained visible during execution. Sanitized evidence is
+  preserved locally in `var/codegraph-victor-20261012/ux-self-audit-incident.json`.
+  Merged repair: preserve required dependency edges and block dependents;
+  retain independent branches and blocked status through evidence validation;
+  register the member session before identity publication; persist sessions before
+  publishing them in the store cache; compact actual provider history through a
+  typed history port; preserve genuine user intent and complete/pending tool-call
+  batches in simple and scored compaction; stop startup status before execution.
+  Normal console errors retain the error/request ID, with full tracebacks in file
+  logs and debug mode. Existing test owners cover these contracts; unsafe heuristic
+  expectations were replaced rather than retained alongside conflicting tests.
+  Broad validation: 2,654 pass, seven skip, one sandbox keychain permission failure;
+  that exact test passes outside the sandbox. The final controller/lifecycle matrix
+  passes 61 cases. Independent review passed 88 cases and both original retention
+  reproducers; its pending-call fixture correction is applied and passes.
+  Final selected validation passes 894 tests (seven skips). A redundant mock-only
+  session failure test was then folded into the stronger SQLite test: nine final
+  session tests pass, with identical executed lines in SessionRuntime (51) and
+  store_session (80). MyPy passes 2,003 files; 34,963 tests collect. Black/Ruff,
+  repository hygiene, documentation drift and diff checks pass. CI selection now
+  maps the extracted controller/store and CLI logging owner to their existing suites.
+  The gateway journal did not explain the original upstream 502; its root cause
+  remains unverified. A new bounded CLI read smoke passed on the selected profile;
+  this is not a replay of the failed eight-step audit or C5 acceptance.
+  Prompt wording about “plan mode” is not evidence that CLI `--mode plan` was set;
+  preserve configured approval policy while clarifying preview versus execution.
+  Source `dda1d9a619a9e7828500baae56c5f8354b7a599f` passed independent review;
+  merge `b27a4e6a4fd068c0531105e090a54e800743aef4` is on develop. All applicable
+  CI gates passed (40 successful checks, two intentional skips and one neutral
+  historical Trivy comparison); the current blocking security checks passed.
+  The merged worktree was archived locally and removed. Next: qualify the full
+  audit and browser recovery without whole-member replay.
+
+- **UX-02 real web-chat qualification — ACTIVE** — owner: Victor co-design session;
+  branch `fix/web-chat-controls`, baseline `b27a4e6a4fd068c0531105e090a54e800743aef4`. `victor ui` launches the existing
+  Chainlit web chat using `VictorClient`; `victor serve` is the HTTP API, and its
+  `--mode` selects agent behavior rather than a browser frontend. The workflow
+  visualizer remains distinct from both chat and the planned authoring editor.
+  Launched loopback `http://127.0.0.1:8767` with
+  `--profile homelab-openai-subscription`, using `gpt-6-sol` through the configured
+  Sandhi endpoint. AgentBrowser 1.17.0 ran headed on a separate explicitly approved
+  loopback-enabled instance; the original browser service was preserved.
+  New actual UI evidence: `read(pyproject.toml)` returned the correct project name
+  and Python floor with lines 20/28; a second `read(CLAUDE.md)` produced a grounded
+  architecture explanation. No source files were modified by either agent task.
+  Runtime session: `39df2e77-2890-40d7-9e3b-338b49bf6fa0`.
+  UI repairs merged in [#1348](https://github.com/anvai-labs/victor/pull/1348),
+  `51bd89eb89541667679c6c6d1c3869af17325678`: display the launch profile with Chainlit's actual
+  `initial_value` contract; keep provider/model overrides explicit; confirming
+  unchanged settings preserves the client/history. Changed settings validate the
+  configuration, stop the active turn and close the prior client before publication;
+  they explicitly start a new conversation. Constructor validation is not provider
+  readiness; a failed close preserves stored identity, not restored availability.
+  One session lock serializes replacement, resume, close and turn admission. A
+  disconnect latch rejects queued work before lock acquisition. Use Chainlit's
+  native Stop, remove the disabled duplicate action and close the UI-owned client
+  iterator in its task, including cancellation during rendering. Register one
+  approval handler for startup and replacement; include canonical `write`/`edit`
+  names in the existing ASK policy. Existing control/settings tests own coverage;
+  regressions cover queue ordering, malformed approval input and close failure.
+  Validation: 413 affected UI/rendering/client/config tests passed; MyPy passes
+  2,003 files and 34,980 tests collect. Black/Ruff, hygiene and docs drift pass. Independent
+  adversarial review passed the final 25 control/settings cases with no scoped
+  blockers. Installed headed UI shows the launch profile and inherited overrides;
+  a real read returned the correct project name/Python floor with line references.
+  The exact user-requested browser audit **failed**, not accepted: plan
+  `plan_96101cca`, root session `session_fd0e0a21ef7c`, 699.9 seconds,
+  one of seven steps completed. Step 2 failed after upstream 502s
+  (`10d62958`, `bfaa984e`); steps 3–7 were correctly blocked. A subsequent
+  summary call failed with 400 (`bc52b0c7`), obscuring the recorded plan status.
+  No foreign-key compaction errors appeared in this new run. Plan progress reached
+  the server console while the browser stayed at “Thinking…”. Repeated inspected
+  repository-read shell approvals interrupted execution and their displayed command
+  disappeared after selection. Preserve the failed run, plan and artifacts under
+  `var/codegraph-victor-20261012/ux-full-audit-*`; these are new evidence, not a
+  successful reproduction or C5 acceptance. All applicable #1348 CI gates passed
+  (39 success, two intentional skips, one neutral historical comparison).
+  Remaining: generic Assistant branding and unnamed icon buttons; explicit mode
+  controls; plan/progress event delivery; failed terminal-outcome rendering;
+  approval/recovery and usage/request joins. Review reproduced a separate downstream
+  iterator ownership gap in `VictorClient.stream`/`message_execution`: closing the
+  outer client iterator can clear active-stream accounting before a retained inner
+  generator closes. UI-owned iterator closure is not full runtime/provider drain.
+  A post-audit continuity probe retained the marker JADE after unchanged settings,
+  but repeated it three times and stopped with “3 turns without tool calls”. This
+  is a separate no-tool completion defect, not a passing UX smoke. Preserve
+  `ux-marker-followup.json` and qualify answer-only completion before acceptance.
+  Earlier native Stop evidence showed “Turn stopped”/“Task manually stopped” and
+  runtime `success=False`; it proves local cancellation, not origin cancellation.
+  Preserve evidence under `var/codegraph-victor-20261012/ux-web-*` and
+  `ux-full-audit-*`; do not claim OIDC, workflow authoring, gateway accounting or C5
+  from chat turns. Credentials stay server-side. The local UI has no configured
+  user authentication and must remain loopback-only for this test.
+
+- **UX-03 effect-aware shell approvals — PLANNED** — requested during the actual
+  browser audit. Ordinary verified repository reads should not prompt; the current
+  `AskOnToolsPolicy` matches only tool names, so read-only shell inventories repeatedly
+  block on ASK. Keep typed read tools friction-free. Reuse one authoritative command
+  classifier; a model-provided `readonly` hint is not authorization. The existing
+  legacy shell allowlist permits test/build commands and cannot by itself prove a
+  harmless read. Preserve DENY precedence, protected-path policy and exact payload
+  binding. Add explicit once/session approval choices with visible, revocable,
+  expiring grants bound to session, workspace, policy and execution authority;
+  invalidate them on configuration/identity changes. Similar-command grants require
+  parsed command/argument scope and negative tests for substitutions, redirections,
+  interpreters, wrappers and scope changes. Broad all-shell approval is a separate
+  deliberate choice, never a default or bypass of policy denial. Qualify across
+  actual member requests and simultaneous browser sessions before acceptance.
+
+- **UX-04 authoritative plan outcomes — MERGED, [#1349](https://github.com/anvai-labs/victor/pull/1349)** — owner: Victor co-design;
+  branch `fix/planning-stream-outcome`, baseline `51bd89eb89541667679c6c6d1c3869af17325678`.
+  Validate the executed plan's boolean verdict before further model dispatch, carry
+  it through streamed and buffered responses and finalize task reports once.
+  Reject malformed/duplicate explicit verdicts; trailing metadata-free chunks cannot
+  upgrade failure. Failed plans return recorded completed/failed/blocked status and
+  artifact links without a new summary-provider dependency. The deterministic failed-plan
+  branch makes no summary call and leaves summary usage absent; this says nothing
+  about member consumption. This repairs shared
+  service semantics for all clients; UI plan-progress delivery remains separate.
+  Existing chat/planning suites own the regression matrix: 278 affected tests
+  passed, 35,018 tests collected, MyPy passed 2,114 source files, and independent adversarial review
+  passed after fixing malformed/duplicate verdict finalization and absent usage. All
+  applicable CI gates passed; merged as `7ec09531ea1d9bbf5885e4045ddd73617c026c82`.
+  No whole-member replay, origin retry or cancellation acceptance is implied.
+
+- **UX-05 shared progress and professional presentation — MERGED (presentation, [#1350](https://github.com/anvai-labs/victor/pull/1350)), PLANNED (progress)** — first expose
+  structured per-request/plan/step/member/tool progress and terminal outcomes to CLI,
+  TUI and web UI, using common event semantics with snapshot reconciliation. Keep
+  turn history grouped and make nested activity independently inspectable; distinguish
+  waiting on provider, running tools, awaiting approval, failed and blocked. Do not
+  manufacture progress from a spinner or parse console prose. Close the known
+  downstream iterator ownership gap before claiming cancellation drain.
+  Align Victor's OSS presentation with AnvaiOps' teal/slate token palette, compact
+  IDE spacing, readable code typography, accessible focus/contrast, responsive wide
+  layouts and dark/light/system preferences. Reference sibling
+  `apps/control-plane/src/tokens.css` (fetched origin/develop) without copying
+  commercial product behavior.
+  Use headed AgentBrowser snapshots for reading, code blocks, tool activity,
+  approvals, failures and mobile/wide layouts; preserve server-side credentials.
+  Presentation increment: branch `feat/chat-workspace-theme`, baseline
+  `7ec09531ea1d9bbf5885e4045ddd73617c026c82`. Packaged CSS/SVG assets and a narrow
+  static mount provide Victor branding, teal/slate light/dark palettes, native
+  system selection, wider chat, code typography, visible focus and reduced motion.
+  Default-valued Chainlit name/layout become Victor/wide; explicit nondefault
+  name, CSS, logo and avatar settings remain. No repository assets are overwritten.
+  Browser qualification: headed 1440×1000 real repository read produced the correct
+  project name/Python floor with line references, a code block and expandable tool
+  activity; light/dark switches and profile settings were exercised. A separate
+  390×844 headed session checks wrapping/composer fit. The browser exposed and
+  fixed default-stylesheet precedence before acceptance. Evidence stays in
+  `var/codegraph-victor-20261012/chat-theme-*`. Package assets passed an isolated
+  built-wheel install and HTTP/MIME/content smoke. 99 UI/packaging tests passed;
+  MyPy passed 2,116 files. Independent review found no scoped blocker. This is
+  presentation qualification, not full editor, plan-event or C5 acceptance.
+  Presentation merged as `af12c984e2f6de66b41f9b9f0f0d68518cf1cc9b` with all
+  applicable CI gates green; the local UI runs that merged baseline.
+
+- **UX-06 unattended policy behavior — PLANNED** — auto mode evaluates the same
+  authoritative ALLOW/DENY/ASK policy as interactive use. Verified allowed work
+  proceeds; policy denial stops; ASK durably pauses with exact action binding and
+  resumes only after authorization. Missing approvers must not imply permission.
+  Share scoped grant semantics across CLI/TUI/UI and workflow workers. Extend
+  existing policy and approval owners, avoiding a second dispatcher or UI-only
+  authorization rules. This depends on UX-03, durable approval storage and the
+  accepted public-contract process where applicable.
+
+- **UX-07 answer-only completion — MERGED, [#1351](https://github.com/anvai-labs/victor/pull/1351)** — the post-audit marker
+  request was classified `edit`/`action`; its valid four-character answer was retried
+  three times before the spin guard failed. The streamed duplicates were already
+  visible despite a later “suppressing repeated visible output” log. Logs at
+  `chat-controls-live-final.log:1007` onward preserve the sequence. Investigate
+  current-turn intent ownership and typed completion through both delivery modes;
+  do not simply lower the character threshold or declare every nonempty response
+  successful. Negative cases must retain rejection of promises, unfulfilled tool
+  actions and blocked/failed execution. Reproduce in the existing classification,
+  evaluation and stream owners, then qualify a concise answer following a failed
+  plan without whole-member replay.
+  Owner: Victor co-design session; branch `fix/answer-only-completion`, baseline
+  `af12c984e2f6de66b41f9b9f0f0d68518cf1cc9b`. The immediate cause was lexical:
+  the shared direct-response classifier treated “do not use tools” as tool context,
+  and a trailing answer-format clause obscured the short question. This is not
+  embedding similarity or proof that all task classifiers understand negation.
+  Ignore only complete, delimited trailing no-tools/answer-format constraints for
+  classification; retain the original provider prompt and all execution-policy
+  checks. Standalone exact requests, repository references, requested effects and
+  conditional constraints retain their previous behavior. Do not globally strip
+  negative words: “do not modify files” permits reads and “do not skip tests” can
+  require execution. Unrecognized wording stays on the existing classification path.
+  Extend the existing classifier and real-loop owners rather than adding parallel
+  heuristic/test modules. Both delivery-mode tests assert one ACT, no tools, one
+  answer and successful terminal metadata with the real completion evaluator.
+  Local validation: 344 affected tests passed; 35,037 tests collected; MyPy passed
+  2,116 source files; Black, Ruff, hygiene and documentation drift checks passed.
+  Adversarial review caught and repaired standalone exact-request compatibility;
+  negative cases retain conditional negation and repository/action routing. Existing
+  effect-gate and failed/blocked tests remain authoritative; no duplicate test owner
+  or completion threshold was introduced.
+  Headed AgentBrowser, `homelab-openai-subscription` via Sandhi: a new conversation
+  remembered JADE and answered the original marker question once in 1.4 seconds,
+  one model call, zero tools; runtime reported success. The first browser session
+  expired before screenshot archival; its observed result is retained in the live
+  log. A fresh final-source browser smoke failed during marker setup with gateway
+  transport error `f0e003a4`; readiness probes failed (sandbox DNS timeout;
+  escalated connection timeout), without an established network root cause.
+  Preserve both outcomes: `var/codegraph-victor-20261012/answer-only-live.log` and
+  `answer-only-browser-final.{json,png}`. The user then selected direct Victor +
+  in-process Sandhi with local Codex OAuth for acceptance, excluding the external
+  gateway hop. Local `codex-local` account/profile explicitly overrides inherited
+  gateway configuration with `gateway: null` (no gateway URL environment override)
+  and uses `gpt-6-sol`, OAuth source `codex`, endpoint
+  `https://chatgpt.com/backend-api/codex`. No token is copied into the profile.
+  Runtime assertions verify `SandhiOpenAIProvider`, OAuth, Codex token source and
+  absent gateway override before any model call. Buffered two-turn acceptance
+  passed ACK then JADE, both successful with zero tools; marker latency 1.855s.
+  Evidence: `answer-only-direct-smoke.{py,json,log}`; Sandhi binding 0.13.0.
+  Final-source headed Chainlit acceptance also passed on `codex-local`: ACK then
+  JADE exactly once, one model call per turn, marker latency 1.9s, zero tools and
+  recorded runtime success. Archived `answer-only-direct-browser.{json,png}` and
+  `answer-only-direct-live.log`. The explicit account and transport assertions
+  qualify the direct route; the failed external route is not relabeled as passing.
+  This fresh smoke does not repeat the failed audit or establish post-failed-plan
+  lifecycle/C5 acceptance. Broader semantic negation and shared task-classifier
+  consolidation remain future work, requiring a representative labeled corpus
+  before changing default routing. Independent review and all required CI passed,
+  including vertical tests; merge `3a6b078317d863c2fc0ce22416b17f660fbafab8`.
+  Shared progress/cancellation ownership remains open before consolidated API
+  lifecycle parity can be claimed.
+
+- **UX-10 conversation continuity dogfood — MERGED #1361, local qualification** — owner:
+  Victor co-design session; branch `fix/ui-dogfood-continuity`, baseline
+  `43756b90f342d3c645155235e81bd4130e86b72c`. Stabilize existing Chainlit and shared
+  client contracts before the Monaco/CodeMirror authoring spike or new service API.
+  Direct `codex-local` uses Codex OAuth and in-process Sandhi; no external gateway
+  hop. Qualification still uses the isolated Sandhi 0.13.0 candidate from
+  `7df5947bcb7bca21d7be6af9d86399f37062a2ea`, not released-dependency acceptance.
+
+  | Dogfood case | Observed result / repair |
+  | --- | --- |
+  | Proposed-design Markdown table + Mermaid source | Table and fenced code render; Mermaid is **not** rendered as a diagram. One call, 5.4s, 8,763 reported tokens. |
+  | In-session Atlas memory question | Correct name/milestone; one call, 1.8s, 9,053 reported tokens. |
+  | Fresh-visit resume | Model recalled Atlas, but picker showed zero messages and replay was empty. Metadata-only sessions were counted as loaded histories; client awaited synchronous context history. |
+  | Corrected picker/replay | One typed persisted summary query shared across web/CLI/slash lists; true counts and bounded title fallback, no transcript hydration/N+1. Synchronous adapter bridge; replay honors existing hidden-message metadata and exposes rendering failure. |
+  | Resumed continuation | Baseline wrote to assembly session. Existing SessionRuntime now binds persistence/controller/runtime identity to the selected store/session; live checkpoint beta appears once per user/assistant in original `session_091ebcba78d4`. One call, 5.1s, 9,471 tokens. |
+  | Bounded source-grounded review | Three requested files reviewed, five cited bullets, no edits or unrun-test claims; 12.1s, three calls, 35,285 tokens. Citations verified against the candidate. |
+  | Isolated edit/test through approvals | Only fixture `labels.py` changed; baseline three failing cases became four passing tests using worktree Python. Five model calls, 79,435 tokens, 148.8s including five approvals (three shell reads, edit, test). Correctness passed; this does not establish efficient UX. |
+
+  Replace inaccurate populated-session/AsyncMock tests with real SQLite/context
+  adapter cases. Preserve disabled persistence on explicit history resume; picker
+  and resume use the same runtime-selected store. Test hidden metadata without
+  parsing user prose, preview truthiness/sidecars, empty sessions, filtering/limits,
+  deterministic ties, fresh counts after append/clear, one SQL query, missing-target
+  rejection and existing active-turn/member guards. Independent review caught the
+  custom-store mismatch and accidental memory enablement; both are repaired before
+  publication. No performance improvement follows from these small stochastic runs.
+  Final local CI-selector qualification: **1,053 passed, one platform skip, 12 slow
+  deselections, 93% changed-line coverage**; **35,136 tests collected**. Configured
+  MyPy on 11 production modules, Black/Ruff, repository hygiene, docs drift/build
+  and built-site links pass. Independent review is clean after the store-boundary
+  guard; 40 final client/runtime tests and 186 earlier owner/selector checks passed.
+  Local evidence: `var/codegraph-victor-20261012/ui-continuity-*`. Release and
+  live acceptance remain separate gates. Shell-read approval friction and token overhead
+  remain measurable follow-ups; do not bypass policy to make this smoke faster.
+
+  Reviewed candidate `44a98097032d05d87698018f6ed6bbe79c2baa9a` is published in
+  [#1361](https://github.com/anvai-labs/victor/pull/1361), squash-merged as
+  `3090d7bc2d2e4d92b166be959a520efe574c3313` after clean independent review and
+  all applicable CI gates, including Vertical tests Py3.12. Its review does not
+  qualify later edits or released-dependency/C5 acceptance.
+
+  **Next dependency order:** address DATA-01–04
+  below, including graph/index lifecycle under CG-P2; broaden bounded read/edit/test/cancel/recovery dogfood;
+  complete shared API lifecycle contracts; then measure editor candidates. Existing
+  #1360 edit/cache live evidence is retained rather than relabeled as this run.
+  Full self-audit, all-provider/formations, lifecycle and C5 acceptance remain open.
+
+- **UX-09 structured tool intent and truthful usage — ACTIVE** — owner: Victor
+  co-design session; active branch `fix/provider-invocation-accounting`, baseline
+  `adf3af5546dd7d86dc49974b74d37f5211480a22`. Parser checkpoint merged in
+  [#1352](https://github.com/anvai-labs/victor/pull/1352) after independent review
+  and all required CI, including vertical tests. The bounded UX-08 review through
+  headed Chainlit and direct Codex OAuth failed on published Sandhi 0.13.0 with
+  empty tool arguments: 81,031 reported tokens, seven observed model turns, no
+  completed review. Sandhi [#368](https://github.com/anvai-labs/sandhi/pull/368)
+  preserves arguments sent only in completed Codex events. An isolated wheel from
+  `7df5947bcb7bca21d7be6af9d86399f37062a2ea` plus editable Victor passed 182
+  transport/OAuth tests and 95 binding tests; the fresh bounded UI review completed
+  in 61.5s with 215,082 reported tokens and 13 observed model turns. This is local
+  candidate evidence, not a published dependency, C5 or an efficiency improvement.
+  Preserve both failed and completed evidence under
+  `var/codegraph-victor-20261012/` (`ux08-dogfood-failed-browser.json`,
+  `codex-arguments-candidate-{provenance,browser}.json` and candidate live log).
+
+  The completed run exposed two independent Victor defects: Python-call inference
+  extracted `get_account(...)` from explanatory prose twice, and the footer reported
+  one call for a whole user stream. First checkpoint: the shared OpenAI-compatible
+  adapter accepts only provider-structured tool calls, preserving assistant content
+  unchanged. Native calls retain validation and policy checks. Dedicated local-model
+  text adapters keep their existing protocol; this change introduces no heuristic
+  model-name exceptions, parser or setting. Replace the old test requiring OpenAI
+  prose execution with the expanded existing adapter matrix and service-boundary
+  tests. Next checkpoint: define/count actual runtime model dispatches across
+  buffered, streaming, recovery, cancellation and failures separately from physical
+  transport retries and user turns; reconcile per-request raw usage/cache totals
+  before optimizing prompt size. Do not equate aggregate input tokens with system
+  prompt size or with uncached/billable tokens. Publish and pin the Sandhi fix, then
+  repeat qualification with built packages before release acceptance.
+
+  Parser checkpoint validation: RED reproduced ten unsafe prose/JSON/XML cases;
+  GREEN passed 366 affected tests (four existing deprecation warnings), MyPy passed
+  2,116 source files and 35,049 tests collected. Black, Ruff, repository hygiene
+  and docs drift passed. With the same isolated Sandhi candidate and unchanged
+  bounded prompt, a fresh headed Chainlit conversation completed in 32.6s, six
+  observed model turns, zero Python-call fallbacks and 121,364 reported tokens
+  (119,798 input / 1,566 output). The prior candidate used 61.5s, 13 turns and
+  215,082 tokens. This single uncontrolled model trial is scoped smoke evidence,
+  not a benchmark or raw-usage reconciliation; the footer still incorrectly says
+  one call. Preserve `native-tool-prose-{live.log,browser.json,browser.png}` and
+  test/collection/type-check logs beside the prior evidence.
+
+  **Invocation-accounting checkpoint ([#1353](https://github.com/anvai-labs/victor/pull/1353), ✅ merged):** dispatch
+  and settlement now belong to `AgentMetricsService`; `SessionCostTracker` records
+  each invocation at dispatch and settles it once. Buffered, streamed, recovery,
+  response synthesis, planning generation/summaries, context-limit summaries and
+  optional KV warm-up use that boundary. Stream presentation finalization no longer
+  records an extra call or folds usage twice. Repeated per-call usage snapshots
+  replace prior values; transport attempts remain a separate observation. Unknown
+  and partial usage are explicit in JSON, CSV, task reports and the shared UI footer.
+  Cancellation/early close closes the provider in its consuming task without
+  draining it for usage. Reset rejects pending invocations; malformed optional
+  telemetry cannot discard a successful provider answer. Existing test owners were
+  extended; obsolete aggregate-fold/fallback tests were removed or migrated.
+
+  Local validation: 2,028 main affected tests and 452 additional accounting/orchestrator
+  owner tests passed, 35,066 tests collected; MyPy passed
+  2,116 Victor/contracts source files. A further 145 compatibility checks passed
+  after migrating legacy accounting owners and preserving raw cache-miss/cost fields. Independent review reproduced and then verified fixes
+  for pending-reset attribution, malformed telemetry and unknown-usage export;
+  110 independent checks plus 65 final-delta checks passed. The CI selector now maps
+  runtime builders to existing assembly/runtime/completer owners; the existing
+  assembly test exercises the real completer builder and injected metrics owner.
+  The selector/assembly correction passed 70 independent checks. The exact
+  CI-selected set passed 1,422 tests with 93% changed-line coverage (80% gate).
+  An isolated rebuilt-wheel
+  smoke verified buffered, streamed and unknown-usage failure accounting, footer
+  coverage and packaged UI assets (existing dependencies; not release acceptance).
+  A fresh headed AgentBrowser/Chainlit task using
+  direct Codex OAuth and the same isolated in-process Sandhi candidate completed in
+  39.4s. The footer reports **5 calls**, matching five model dispatch observations,
+  and 90,938 tokens (89,349 input / 1,589 output). Preserve
+  `provider-invocation-{live.log,browser.json,browser.png,result-text.json}` in the
+  ignored evidence directory. The result's account-fallback diagnosis, exception
+  bypass analysis, test references and transport-scope separation were checked
+  against source. Before implementing UX-08, add a no-provider-dispatch acceptance
+  assertion and select a clear configuration error. These are implemented in the
+  scoped UX-08 increment below.
+
+  **Remaining qualification:** optional completion judges, LLM compaction,
+  runtime-intelligence resilience helpers and legacy continuation provider calls
+  are not yet migrated or qualified; these totals are not an all-provider ledger.
+  Per-request raw wire/cache reconciliation, published Sandhi qualification,
+  built-package live acceptance and C5 remain open. The live timing/token comparison
+  is a smoke observation, not an efficiency benchmark. Reviewed source
+  `55354e35b67138a25e02787c1947dffd92409703` passed 40 CI checks, including
+  Py3.12 verticals; merge `5864a0aa272f977811a7cd25c7bd862d42237b03`. One
+  deployment skip and one neutral historical Trivy comparison remained; blocking
+  security checks passed. The scoped UX-08 missing-name rejection subsequently
+  merged in #1354; explicit transport selection remains separate.
+
+  **Prompt-efficiency checkpoint (2026-10-14, source validation):** owner: Victor
+  co-design session; branch `fix/prompt-efficiency-evidence`, baseline
+  `210e3b97b3b27f59e0776064fc11925df068b1c5`. Measure actual streamed requests
+  before reducing prompts. Direct `codex-local` / `gpt-6-sol` through the isolated
+  in-process Sandhi candidate from #368 remains the qualification shape; no
+  external gateway, credential changes, shared-cache clearing or release claim.
+  The private observer retains component sizes/hashes and numeric usage, not
+  request bodies. Evidence and the runnable observer stay under ignored
+  `var/codegraph-victor-20261012/prompt-efficiency-*`.
+
+  | Observed component | Local `o200k_base` proxy tokens | Interpretation |
+  | --- | ---: | --- |
+  | Complete system text | 7,708–7,709 | Not the aggregate usage of a task |
+  | Repository instruction file contents | 5,839 | init 2,213; AGENTS 726; CLAUDE 2,900; preserve authority/scope |
+  | Base / mode / completion / tool-effectiveness blocks | 424 / 196 / 342 / 573 | Learned completion text varied across sessions |
+  | Seven serialized neutral tool schemas | 2,364 | `read` alone 445; removing others is a counterfactual, not a qualified permission policy |
+  | Injected user-role guidance, excluding the actual question | About 1,170–1,537 | Serialized proxy; exact duplicate tool-effectiveness block found in system and turn guidance |
+
+  Proxy counts exclude provider rendering/hidden content and are **not billing
+  counts**. Numeric Sandhi final usage reconciled with Victor per call: inclusive
+  input = fresh input + cache read (cache creation was explicitly zero), and total
+  = inclusive input + output. Reasoning is included in output; never add it twice.
+  Interim unavailable observations are not measured zero and do not replace final usage.
+
+  Actual integration placed repository context **after** the session nonce even
+  though `UnifiedPromptPipeline` already supported correct ordering. The complete
+  prompt now has one service-owned assembly path: project context enters the
+  pipeline before its nonce; bootstrap, refresh and workspace switching do not
+  append it again. Preserve explicit bootstrap overrides, legacy fallback bytes,
+  per-session distinct nonces and existing invalidation. Two redundant return-string
+  tests were removed; existing pipeline properties now exercise the canonical
+  orchestrator too. TDD reproduced the missing shared-prefix context; 545 main and
+  198 related tests passed, plus 79 final focused checks, MyPy on both touched
+  modules and collection of 35,075 tests. Independent review passed 81 checks and
+  verified no-context parity / refresh across all three cache tiers. Merged in
+  #1355 (`941cedae77a37ab33c948d98ba92a319bed1ed84`) after 39 successful CI checks,
+  including Py3.12 verticals; two non-applicable skips and one neutral historical
+  Trivy comparison remained. Local develop was fast-forwarded and the worktree removed.
+
+  | Small experiment | Result | Decision |
+  | --- | --- | --- |
+  | Two fresh baseline sessions | Completion variant differed; only 657 system-prefix proxy tokens matched | Measure/group by prompt variant; do not credit ordering alone for the difference |
+  | Two fresh candidate sessions with matching variant | 7,572 of 7,708 system proxy tokens shared; context precedes nonce | Keep complete assembly in the existing pipeline; no new cache layer |
+  | Two-turn candidate conversation | Second turn cache reads 9,600/12,532 and 12,416/12,638 inclusive input; 3,154 fresh input across both calls | Stable history/schema reuse is feasible on this direct path |
+  | Matched two-turn unchanged-source control | Second turn cache reads 0/12,533 and 1,920/12,639; 23,252 fresh input across both calls | Exploratory observations only: backend routing, cache state and stochastic variants were uncontrolled |
+  | Remove repeated 573-token tool-effectiveness block | About 1,146 proxy input tokens avoided across a two-call task, before framing | Next: deduplicate through structured rendered-block identity; preserve optimizer provenance and differing guidance |
+  | Change tools every call / drop repository rules / prewarm every session | Potential schema savings also change cache prefixes; rule loss or extra billed calls | Reject as defaults without outcome/permission and amortized-use evidence |
+
+  All four fresh tasks and both two-turn conversations produced source-grounded
+  account-resolution answers with two model invocations per turn. Repeated reads
+  in the second turn returned compact unchanged-file evidence, so tool payloads
+  also differ from the first turn. These small observations are not a throughput,
+  cost or quality benchmark. The nonce-order repair is a cache-layout correctness
+  checkpoint; performance acceptance remains open. Official
+  [OpenAI caching guidance](https://developers.openai.com/api/docs/guides/prompt-caching)
+  requires exact rendered-prefix compatibility, including tools/settings; public
+  API documentation does not establish subscription billing or Codex backend guarantees.
+
+  **Next, in order:** (1) qualify reproducible prompt controls and structured
+  cross-placement guidance deduplication;
+  (2) fix read-only/negation classification and the shell-to-database guidance
+  conflation before selecting narrower session tool bundles; (3) compare pinned,
+  versioned prompt variants with exploration using repeated paired task suites;
+  (4) report fresh/cache/output/reasoning and unknown coverage distinctly in UX;
+  (5) qualify raw wire mapping, published dependencies and representative longer
+  tasks. Keep user authority, grounding, current permissions and evidence outside
+  opportunistic trimming. Track deletion invalidation and persistent override
+  lifetime separately; this checkpoint does not qualify those existing paths.
+
+  **Prompt controls and harness measurements (2026-10-14, source qualification):**
+  owner: Victor co-design session; branch `fix/prompt-experiment-controls`, baseline
+  `941cedae77a37ab33c948d98ba92a319bed1ed84`. `VICTOR_FROZEN_PROMPTS` previously
+  froze the system resolver but still sampled learned turn sections, few-shots
+  and experiment prompt hints. The shared flag now gates both learned injector
+  entrypoints before their caches and suppresses experiment-memory prompt hints.
+  Registry-backed baseline tool guidance, current task context and factual failure
+  hints remain. Explicit candidate binding in frozen mode raises rather than
+  silently benchmarking a baseline as a candidate. Default behavior is unchanged.
+  Set the flag **before session creation**: it does not rebuild an already frozen
+  pipeline or freeze routing/planning policy, workspace state or backend caches.
+
+  Extended the existing benchmark-hygiene owner instead of adding a duplicate
+  suite. TDD: 3 failed / 4 passed before repair; 62 focused checks and 347 affected
+  checks passed (two existing skips). MyPy passed all five production files;
+  collection found 35,078 tests. Independent scoped review passed 62 checks.
+  Source review, CI and merge evidence must remain distinct from release/C5 acceptance.
+  Initial PR #1356 CI exposed an unmapped descriptive test owner and a five-line
+  runtime-service size regression. Both reproduced locally (two failures): the
+  selector now uses the existing benchmark-hygiene suite, and shared text coercion
+  plus simpler conditionals keep the service below its unchanged size cap. The
+  corrective focused run passed 135 checks; independent delta review passed 113.
+  Combined CI-equivalent suites passed 224 checks, six source files passed MyPy,
+  and final collection found 35,079 tests after extending the selector parameter set.
+  Merged in #1356 (`122374011fafa8fd0e055c84082cba67ffd02c8e`) after clean
+  exact-commit independent review and 40 successful CI checks (one skip, one neutral).
+
+  Four direct `codex-local` conversations used two bounded source-reading tasks,
+  each repeated once: normal accounts, frozen accounts, frozen prompt-document,
+  normal prompt-document. All 16 model calls succeeded and all eight answers were
+  checked against the cited source. Final neutral usage reconciled with Victor
+  for every call; reasoning is a subset of output. The initial sandbox-restricted
+  attempt failed and is retained separately, excluded from the comparison.
+
+  | Arm / task | Inclusive input | Cache read | Fresh input | Output (reasoning subset) | Session wall / CPU seconds |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | Normal / accounts | 48,275 | 14,592 | 33,683 | 615 (199) | 26.249 / 10.164 |
+  | Frozen / accounts | 48,773 | 3,840 | 44,933 | 539 (168) | 22.900 / 9.021 |
+  | Frozen / prompt document | 49,060 | 14,720 | 34,340 | 521 (164) | 25.159 / 9.271 |
+  | Normal / prompt document | 48,554 | 7,680 | 40,874 | 598 (237) | 28.177 / 9.712 |
+
+  Each row covers two turns / four model calls. Frozen first requests used 132–138
+  **more** provider input tokens than the matching normal arm. Component hashes
+  identify the tool-effectiveness block as 573 proxy tokens in the selected learned
+  variant and 654 in the static baseline; both were duplicated across system and
+  turn guidance. The seven tool schemas matched across all four arms. Decision: use freezing as an
+  opt-in experiment control, not a production efficiency default. Reversed task
+  order does not control backend routing/cache state, learned execution policy or
+  stochastic outputs; concurrent local validation also limits latency comparisons.
+  Peak process RSS during the task runs was 930–1,021 MB (decimal).
+
+  Separate no-model initialization measurements distinguished profiling overhead
+  from real latency: unprofiled cold initialization was 1.842 seconds wall / 1.816
+  CPU, followed by 0.866/0.856 and 0.925/0.912 for new clients in the same process.
+  Peak process RSS grew from 273 to 327 MB; this high-water mark alone does not prove
+  a leak. CPU profiling located four persisted-feedback loads per initialization,
+  repeated YAML parsing and cold plugin discovery. Profiled elapsed times are not
+  performance evidence; review service lifetimes and scope before consolidating
+  work. Keep orchestration in Python and reduce repeated work before considering
+  native acceleration.
+
+  A separate, explicitly synthetic transport-interception diagnostic sent **zero**
+  provider requests. Unprofiled initialization took 1.737 seconds, followed by
+  6.565 seconds wall / 6.376 CPU before its first request; peak RSS rose from
+  271 to 934 MB. A diagnostic-only profiler located conversation-store/LanceDB
+  initialization, Transformers/Torch imports and embedding work. Its synthetic
+  terminal text triggered three bounded local dispatches, all intercepted; those
+  are not model successes or answer-quality evidence. Earlier diagnostic failures
+  are retained. These observations justify profiling capability activation and
+  useful retrieval before changing dependencies, not blindly disabling embeddings.
+
+  Evidence, observers and summaries are private ignored `prompt-controls-*` artifacts
+  under the existing evidence directory. Next: qualify unnecessary first-turn
+  dependency loading and exact authority-aware guidance deduplication with
+  provenance as separate increments, then representative longer-task outcome
+  gates. Preserve retrieval quality and session/permission isolation when making
+  initialization lazy or reusing feedback snapshots. Do not trim repository
+  authority, hide unknown cache counts or claim that freezing implies cache hits.
+  Small synthetic document probes also found a prerequisite correctness gap:
+  `PromptDeduplicationProcessor` lets a disabled predecessor suppress an enabled
+  duplicate. Its default case-folding and insertion-order choice also lose distinct
+  identifiers or render-order intent. Repair the disabled-block case before using
+  this processor more widely; cross-placement deduplication requires canonical
+  identity, exact content, actual rendering and provenance rather than generic
+  text normalization. Existing document/builder tests own those next regressions.
+
+  **Visible guidance and demand experiment (2026-10-14):** owner: Victor co-design
+  session; branch `fix/prompt-visible-deduplication`, baseline
+  `122374011fafa8fd0e055c84082cba67ffd02c8e`. The canonical deduplication processor
+  now preserves nonempty disabled blocks without adding their content to the
+  visible-content set. Enabled guidance survives either insertion order; disabled
+  configuration remains available for later activation. Empty-block removal and
+  enabled-only case/ordering policy are unchanged. Two regressions failed before
+  repair; 106 document/builder/normalizer checks passed afterward and independently.
+  This is a correctness prerequisite, not the cross-placement token-saving change.
+
+  Six sequential subprocess diagnostics compared baseline initialization with a
+  private counterfactual that omits conversation-store setup: A/B/B/A/A/B, three
+  samples per arm. All model dispatches were intercepted; **zero provider calls**
+  were sent. Median first-request preparation was 6.246 seconds baseline versus
+  5.891 seconds without the store (ranges 6.195–6.430 and 5.851–6.360). Median CPU
+  was 6.162 versus 5.802 seconds; peak RSS at first dispatch was 928 versus 900 MB.
+  Both arms still imported Torch, Transformers and sentence-transformers. The
+  0.355-second median difference and overlapping latency ranges do not justify
+  adding a new retrieval lifecycle yet. Keep production retrieval unchanged;
+  isolate other embedding consumers before choosing the next optimization.
+  Earlier sandbox-restricted measurements are retained but excluded; shared cache
+  and learned state were not reset, so this is a diagnostic, not a controlled
+  answer-quality, cache-reuse or throughput acceptance test. Private evidence is
+  saved as `prompt-demand-*` beside the prior `prompt-controls-*` artifacts.
+  A second C/A/C/A diagnostic pair omitted query-aware few-shot lookup only:
+  median preparation was 5.608 versus 6.441 seconds and peak RSS 844 versus 929 MB,
+  but both arms still loaded the ML stack. This omission changes learned guidance;
+  it is not an accepted production optimization or answer-quality result.
+
+  One further traced run located the first embedding-model load in
+  `AgentFactory._initialize_skill_matcher`'s background task, through
+  `StaticEmbeddingCollection._load_from_cache` → dimension validation →
+  `EmbeddingService.dimension`. That synchronous call took 4.747 seconds before
+  first dispatch. Scheduling the coroutine does not move its synchronous work off
+  the event loop. Task classification, skill matching and learned-example lookup
+  subsequently use the same service. Prioritize **event-loop responsiveness and
+  bounded initialization ownership** before a store-only lazy refactor: preserve
+  dimension validation, deterministic readiness, project/session scope and shutdown;
+  a cancelled coroutine must not publish a late worker result. Measure loop lag,
+  first-dispatch latency and actual task/skill outcomes before adopting offloading.
+  This trace identifies a caller, not an exclusive accounting of all startup cost.
+  The scoped deduplication repair passes 273 affected tests and MyPy; full
+  collection found 35,081 tests, and formatting/lint/hygiene/docs checks passed. Broader
+  cross-placement deduplication, startup performance and C5 acceptance remain open.
+
+  **Initialization experiment and cancellation checkpoint (2026-10-14):** #1357
+  merged the visible-guidance repair; owner: Victor co-design session, current
+  branch `fix/embedding-async-initialization`, baseline
+  `e9e8bd2652f37c44fe8a14b06b0ae4611c1a26e8`. A private candidate moved only model
+  dimension resolution out of cached collection initialization onto the existing
+  blocking-work helper. Four sequential A/B/B/A subprocess diagnostics retained
+  normal retrieval and skills, intercepted every model dispatch, and sent zero
+  provider requests. The result did **not** meet the performance gate:
+
+  | First-request measurement | Baseline median (2 runs) | Candidate median (2 runs) |
+  |---|---:|---:|
+  | Preparation wall time | 6.451 s | 6.523 s |
+  | Preparation CPU time | 6.301 s | 6.390 s |
+  | Maximum event-loop heartbeat gap through first dispatch | 7.810 s | 7.845 s |
+  | Peak RSS at first dispatch | 931.6 MB | 928.2 MB |
+
+  Heartbeat gaps include client initialization; skills were ready by first
+  dispatch in all four runs. Shared caches and learned state were preserved.
+  This small diagnostic does not establish throughput, answer quality, cache
+  reuse or provider acceptance. The isolated offload and its extra dimension
+  argument were removed. Private `embedding-init-*` evidence is retained beside
+  `prompt-demand-*`; no prompt, model or token-policy defaults change.
+
+  The retained increment fixes a separately reproduced correctness defect:
+  async collection reinitialization published new IDs before embedding finished.
+  Stage items/IDs/vectors until successful completion, serialize async initializers
+  on the owning loop, reject overlapping synchronous initialization explicitly,
+  and clear the hash on empty publication. Cancellation or embedding failure
+  preserves the previous complete collection and its valid cache. Existing cache
+  validation is unchanged; invalid cache deletion retains its existing behavior.
+  Extend the existing embedding-infrastructure suite rather than adding another
+  suite; cache security and skill readiness retain their existing owners.
+  Four regression cases failed before the repair; 423 affected tests pass (two
+  existing skips), including the complete embedding directory. MyPy, Black, Ruff,
+  repository hygiene and documentation drift checks pass; full collection finds
+  35,086 tests. Independent review also passed 105 collection/cache/selector cases.
+  This is collection-local correctness, not a startup speedup or general thread
+  safety. Cache validation/model loading remains synchronous; an already running
+  embedding worker can outlive cancellation without publishing collection state.
+
+  **Next:** trace all synchronous first-turn embedding consumers and design one
+  explicit readiness boundary with shutdown ownership before attempting another
+  offload. Qualify heartbeat gaps, first-dispatch latency, preserved skill selection
+  and actual bounded task outcomes together. Cross-placement prompt deduplication,
+  live CLI/UI efficiency and mixed-team C5 acceptance remain open.
+
+  **Model publication checkpoint (2026-10-14, ✅ merged [#1359](https://github.com/anvai-labs/victor/pull/1359)):** #1358 merged collection-state
+  protection; owner: Victor co-design session, branch
+  `fix/embedding-readiness-publication`, baseline
+  `8396472d9c8e37ac3fb39fa88d9894872507d92a`. Model loading previously exposed
+  `_model` before dimension discovery completed. Failed discovery could leave a
+  partially initialized model visible to another caller and prevent recovery.
+  Prepare the model, positive integer dimension and device metadata locally;
+  publish the loaded-model marker last, guarded against concurrent shutdown.
+  Invalid dimensions log a contract failure without transient retries or cache
+  clearing. Shutdown takes only a short state lock and prevents later publication
+  or a fresh load attempt after backoff. Existing service/selector test owners
+  cover malformed dimensions, failed preparation followed by recovery, concurrent
+  load observers, shutdown-before-load and shutdown during preparation/backoff.
+  No new executor, readiness API or startup scheduling is introduced.
+
+  Test-cache discovery found that the isolated test `HOME` can redirect implicit
+  Hugging Face cache lookup away from already downloaded BGE weights. Preserve
+  Victor's isolated test data, but explicitly set `HF_HOME`/`HF_HUB_CACHE` to the
+  preseeded model cache and use `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` for cached
+  qualification. Do not interpret zero-vector skips as semantic acceptance or
+  perform recurring downloads as normal validation. Production cache-only loading,
+  model/revision preparation and explicit missing-model reporting remain to qualify;
+  this increment does not silently change the runtime's download policy.
+  Ten initial regressions failed before repair; the final cached/offline affected
+  suite passes 409 tests with only two opt-in slow tests skipped. The three semantic
+  tests skipped under implicit cache lookup pass with the explicit cache. Focused
+  service/selector checks pass 120 tests; independent review passes 84 checks plus
+  a focused recheck of the three final preparation/publication cases. Full collection
+  finds 35,099 tests; MyPy, Black, Ruff, hygiene, docs drift/build/link checks pass.
+
+  The follow-up private A/C/C/A prototype awaited shared model loading before
+  factory skill initialization. Across two runs per arm, median maximum heartbeat
+  gap fell 7.485 → 1.680 seconds, while total client-initialization-to-dispatch time
+  stayed 8.023 → 8.110 seconds (CPU 7.885 → 8.013 seconds; peak RSS 927.8 → 924.6 MB).
+  Every dispatch was intercepted, zero provider requests were sent, and skills
+  were ready at first dispatch. This is evidence for a responsiveness investigation,
+  not faster total startup, token savings or task-quality acceptance. The prototype
+  remains private; its evidence and design review are in `embedding-readiness-*`
+  and `embedding-init-checkpoint.json` beside the previous local diagnostics.
+
+  **Foundational ownership gap before async readiness:** per-client
+  `LifecycleManager` currently shuts down the process-global embedding service
+  and closes all registry providers, which can affect other clients. Establish
+  explicit application ownership and shutdown after the final borrower before
+  changing that cleanup. Qualify two live clients, one cancelled waiter,
+  initialization failure, shutdown during loading and empty/disabled consumers.
+  The existing fallback dimension/zero-vector behavior is not proof of readiness;
+  this increment preserves it without claiming full lifecycle acceptance. Running
+  model workers/encodes cannot be forcibly cancelled by this publication guard.
+
+  **UI edit-history checkpoint (2026-10-14, local candidate):** owner: Victor
+  co-design session; branch `fix/ui-tool-context`, baseline
+  `5a7a35a44655a9ee1e25b3c8b36002d4da6876b7` (#1359). Headed Chainlit dogfooding
+  with `codex-local`, direct OAuth and in-process Sandhi exposed a successful
+  filesystem edit followed by `UNIQUE constraint failed: file_changes.id`.
+  Multiple operations within one sequential call generated millisecond/basename
+  ID collisions. Repeated same-file operations also recorded an absent original
+  instead of the preceding operation's content; preview commits bypassed history
+  finalization and cache invalidation. These are bookkeeping defects, not evidence
+  that the dispatcher ran same-file writes concurrently.
+
+  Use collision-resistant session/group/change IDs, preserve persisted insertion
+  order for equal timestamps, and publish undo availability only after persistence.
+  Both preview and ordinary commits use one finalization path; aborted/preview-only
+  operations discard pending history. Each operation retains its own before/after
+  content using canonical paths. Retention errors report saved history with failed
+  cleanup; actual history-write failures report an applied edit with unavailable
+  undo, without incorrectly attributing every exception to a busy database.
+  Result-only UI tool events use structured arguments when no matching start event
+  exists; an explicit start event, including empty arguments, remains authoritative.
+
+  Existing test owners cover frozen-clock same-file/same-basename IDs, ordered
+  reopen and undo/redo, persistence/retention failures, queued-operation abort,
+  preview/non-preview edits and UI argument precedence. No parallel dispatcher or
+  duplicate test suite was added. The canonical `ToolPipeline` already serializes
+  all write calls as barriers between parallel read batches; its existing tests
+  qualify that behavior. Cross-client/process ownership of overlapping paths and
+  shared editor/tracker instances is **not** established by batch serialization.
+  G101 owns remaining durability, operation-parity and ownership work before broader
+  edit acceptance; do not add per-file parallel writes until shared state is isolated.
+
+  Live evidence is retained under `var/codegraph-victor-20261012/ui-*` (private,
+  ignored), including the original failed log and unmerged patch backup. The initial
+  read-only UI review completed in 40.4s / 12 model calls / 336,690 reported tokens;
+  the isolated implementation turn used 105.8s / 11 calls / 263,052 tokens including
+  approval waits. These uncontrolled runs demonstrate operability and expose issues;
+  they do not establish token efficiency or C5 acceptance. The local Sandhi wheel
+  remains source `7df5947bcb7bca21d7be6af9d86399f37062a2ea`, not released-dependency
+  acceptance. Final validation and bounded live-edit results are recorded below.
+
+  The first candidate live edit persisted two undo operations and changed the file,
+  but its verification read returned pre-edit text from the pipeline result cache.
+  The existing invalidator inspected only top-level `path`, whereas edit uses
+  `ops[].path`. Canonical structured path extraction now covers single-file writes,
+  batched edits, rename destinations and JSON-string operations, including path
+  aliases. Successful mutations whose paths remain unresolved explicitly log and
+  clear the idempotent result cache; no second legacy repair parser is introduced.
+  Broader search/root caches, unknown shell effects and external changes remain
+  separate qualification work; this is not a universal freshness guarantee.
+
+  A fresh headed UI repeat applied two replacements, displayed structured read/edit
+  arguments, and read back the exact new contents: 18.4s, four model calls, 37,916
+  reported tokens (37,621 input / 295 output; 13% cached). Both actual UI histories
+  were reopened independently and verified through undo and redo against disk.
+  Preserve `ui-edit-stale-read-*` and `ui-edit-fresh-read-browser.json` alongside
+  candidate logs. This native-list live smoke precedes the final JSON compatibility
+  hardening; offline tests qualify that additional path. Independent review found
+  and required stable timestamp-tie ordering and JSON compatibility. Extend existing
+  test matrices rather than creating another suite. No performance claim follows
+  from these small, stochastic runs with different approval waits.
+  Final local validation: **419 passed**, four existing deprecation warnings,
+  **35,116 tests collected**, MyPy clean for all four production modules, Black/Ruff,
+  repository hygiene and docs drift/build/internal-link checks passed. Independent
+  review passed 104 owner tests (two opt-in slow skips), then 67 final pipeline cases;
+  no remaining scoped blockers. Merge/release and full lifecycle/C5 remain distinct
+  gates. Preserve the tested patch outside `/tmp` until committed and pushed.
+  [PR #1360](https://github.com/anvai-labs/victor/pull/1360) first CI candidate
+  passed its tests but failed changed-line coverage: the quick job omitted the
+  coding editor plugin, silently skipping 54 editor checks (49% diff coverage).
+  Install the real editable capability in that job; preserve the 80% threshold.
+  Extend the existing workflow contract and retention test (successful cleanup
+  after failure). Exact-selector local requalification with CI's diff-cover 9.x:
+  **241 passed, zero skipped, two slow cases deselected, 94% changed-line coverage**.
+  Independent correction review passed 84 checks. Collection remains 35,116;
+  source behavior is unchanged by this CI/test correction. **Merged #1360** at
+  `43756b90f342d3c645155235e81bd4130e86b72c`: 40 successful checks, one configured
+  deployment skip and neutral Trivy, with clean independent review. The earlier
+  failed coverage gate remains evidence; source merge is not release/C5 acceptance.
+
+- **UX-08 explicit account and transport selection — ACTIVE, scoped account fix** — direct
+  acceptance preflight found that the existing `openai-cheap` profile referenced
+  a missing account and selected the provider default instead. A newly named OAuth
+  account still inherited the provider-wide gateway block until explicitly cleared.
+  Preflight assertions stopped both routes before model dispatch. Fail closed for
+  missing explicitly named accounts; show effective authentication source, transport,
+  endpoint and configuration provenance without secrets in CLI/UI. Define explicit
+  direct-versus-inherited routing with deployment-policy checks, including gateway
+  environment precedence; selecting OAuth must not implicitly bypass a required
+  gateway. Preserve existing gateway profiles. Extend configuration/account/creation
+  test owners and qualify CLI/UI parity before changing routing defaults.
+
+  **Missing-name increment:** owner: Victor co-design session; branch
+  `fix/explicit-account-fail-closed`, rebased baseline
+  `5864a0aa272f977811a7cd25c7bd862d42237b03` (accounting #1353). `Settings.get_provider_settings` now rejects
+  missing named accounts, absent account files and propagated lookup/credential
+  errors with nonrecoverable `ConfigurationError` before provider resolution or
+  creation. Underlying credential exception text is suppressed. Unnamed profiles
+  keep provider-default behavior. TDD replaced the existing unsafe fallback
+  expectation and extended the existing account-resolution owner, including the
+  real orchestrator creation boundary: six RED cases, then 110 passing affected
+  tests and 506 configuration tests. The final CI-selected set passes 52 tests
+  with 100% changed-line coverage after rebase; 34,923 tests collect in the scoped
+  worktree environment, MyPy/Black/Ruff and
+  repository/docs guards pass. Independent review passed 19 checks plus 17 final
+  owner checks. Merged in [#1354](https://github.com/anvai-labs/victor/pull/1354)
+  as `210e3b97b3b27f59e0776064fc11925df068b1c5` after 39 successful CI checks,
+  including vertical tests. Headed UI smoke: 9.7s, two model calls, 23,325 reported
+  tokens; the source-cited answer was verified. Release qualification remains separate.
+
+  **Separate follow-ups:** an existing account whose credential backend returns
+  `None` can still use environment/provider credentials; legacy `ProviderResolver`
+  in `victor/config/resolution.py` has its own account/ad-hoc fallback. This increment
+  does not claim strict credential-source isolation or legacy resolver convergence.
+  Explicit transport selection, effective routing display and headed CLI/UI error
+  parity remain open; no authentication or gateway policy default changes here.
+
+- **LOOP-03 executor configuration ownership — MERGED, [#1346](https://github.com/anvai-labs/victor/pull/1346)** — owner: Victor co-design session;
+  branch `fix/loop-config-ownership`, baseline `a8438fceb6e09cc3b102ca75d77d61b454a9662f`.
+  Resolve the existing executor choice from session settings once before admission;
+  carry the concrete selection to dispatch. Reject invalid values, resolver failures
+  and unsupported token-streaming StateGraph selection explicitly. Preserve default
+  AUTO/legacy-flag behavior without mutating global configuration. Reuse existing
+  resolver, session, loop and public service test owners; add no deadline/attempt knob.
+  Validation: 2,339 affected tests pass; MyPy passes 2,003 source files; 34,945 tests
+  collect; Black/Ruff, repository hygiene and documentation drift checks pass.
+  Independent review caught and fixed positional-config compatibility and early
+  verifier rejection; a minimal delivery fixture now supplies session settings.
+  Default and explicit modes, concurrent session isolation and admission-time
+  configuration changes are covered in existing suites. Source
+  `ed10a898c08f6dafb41ca0564c5e343ad480428a` passed independent review and
+  40 CI checks; merge `0839c34d3c17c43c1828b48555d8e25fca85b8e0`.
+  Two intentional skips and one neutral historical Trivy comparison remained;
+  blocking security checks passed. No live provider or C5 claim.
+
+- **LOOP-03 terminal recovery admission — MERGED, [#1345](https://github.com/anvai-labs/victor/pull/1345)** — owner: Victor co-design session;
+  branch `fix/terminal-recovery-admission`, baseline
+  `a9848b61a11a4be147531bfc3a9da5d027ca293c`. The buffered wrapper previously
+  regenerated after guard, terminal ACT and escalation stops. Nine new cases in the
+  existing synthesis matrix reproduced unwanted completer calls. One private admission
+  predicate now honors structured stops while preserving ordinary failed-verification
+  summaries. Guard diagnostics take precedence over stale evaluations; ordinary
+  exception details keep the existing evaluation-reason/generic disclosure boundary. ACT results
+  stored before a terminally interrupted evaluation retain their response, usage and tool receipts;
+  a stop before ACT returns empty content with a failed verdict, without generation.
+  Public service/loop integration covers both boundaries with the real guard owner.
+  Independent review found and repaired a draft compatibility regression: current ACT
+  selection is restricted to terminal stops. Two additional matrix rows preserve the
+  original zero-iteration fallback and recorded-iteration synthesis for ordinary errors.
+  No duplicated coverage owner was added or existing coverage removed.
+  Qualification: 1,820 broader affected tests passed, followed by 160 passing final
+  targeted checks after the compatibility/disclosure refinements. All 30 changed
+  executable runtime lines are covered. MyPy passes 2,003 source files; 34,903 tests
+  collect. Black/Ruff, repository hygiene and docs drift pass. Independent review
+  passed 182 executions across review stages with no remaining findings.
+  Evidence: `var/codegraph-victor-20261012/terminal-recovery-evidence.json` and
+  companion logs/patch (local only). Reviewed source
+  `64392562fa95cc4b2b67c8db1a3f04edfaf7e341` merged as
+  `a8438fceb6e09cc3b102ca75d77d61b454a9662f` with identical trees. All 40
+  applicable CI checks passed (two intentional skips and the historical Trivy
+  comparison warning are not test passes).
+  This does not establish whole-run attempt/deadline ownership, remote cancellation,
+  streaming team routing, durable action reconciliation or released live C5 acceptance.
+
+- **LOOP-03 streaming publication — MERGED, [#1344](https://github.com/anvai-labs/victor/pull/1344)** — owner: Victor co-design session;
+  branch `fix/stream-publication-governance`, baseline
+  `eeafb7d091234c7583438fb50fc0a2a149344bbf`. The live ACT boundary now governs
+  every nonempty provider narrative, including tool-bearing responses, before history,
+  delivery, tool dispatch or evaluation. Exhausted-recovery fallback text uses the
+  same boundary. Empty tool envelopes retain separate tool authorization.
+  Removed the redundant governed flag and forced-only emitter rechecks: the sole
+  ACT caller owns provider checks; newly generated summaries/recovery text retain
+  their own checks. No new registry, policy cache or dispatcher.
+  Reachability audit corrected the preceding private-helper reproducer: the three
+  prepared-team streaming helpers had no production or test callers. They are
+  removed; their direct invocation demonstrated an orphan-path flaw, not a live
+  streaming-team leak. Streaming topology/team dispatch still needs integration
+  with the canonical loop owner. The live streaming adapter also never sets
+  `forced_task_completion=True`; forced-summary tests qualify the callable
+  primitive, not live adapter routing. Both gaps remain in G98.
+  TDD reproduced 13 publication/dispatch failures plus policy-stage cancellation.
+  Independent review additionally reproduced cancellation during recovered/summary
+  governance persisting assistant history. Their producer boundaries now use the
+  relocated shared stream-cancellation check before persistence, outside retries.
+  Existing matrices now cover tool-bearing absent/redact/deny/malformed/error results,
+  natural/exhausted recovery and both terminal summary sources; tool-only and
+  cancellation checks extend their existing owners. No duplicate suite or deletion
+  of live coverage was needed for the unused helpers. Broader validation repaired an
+  older recovery fixture missing its governance capability and added it to helper
+  CI selection. The promotion oracle's E4 fingerprint was stale on both unchanged
+  develop and this branch: the old hash represents the recovered answer duplicated
+  twice; current execution returns exactly "Finally, a real answer." once, with
+  two provider calls and no tools. Only E4's fingerprint is updated; all battery
+  scores, thresholds and other fingerprints remain unchanged. This is consistent
+  with #1341's accepted-recovery stop repair; no isolated historical causality run
+  was performed. Final qualification: 1,664 affected tests pass (plus 16 final
+  oracle/characterization checks after strengthening the E4 assertion); all 12
+  changed executable runtime lines are covered. MyPy passes 2,003 source files;
+  34,889 tests collect. Black/Ruff, repository hygiene and docs drift pass.
+  Independent adversarial review passed 220 executions with no open findings.
+  Evidence: `var/codegraph-victor-20261012/stream-publication-evidence.json`
+  and companion logs/patch (local only). Reviewed source
+  `3c6321d7cebe6a4e1ac1959a57cb1c4c8d9baef5` merged as
+  `a9848b61a11a4be147531bfc3a9da5d027ca293c` with an identical tree. All 40
+  applicable CI checks passed; two intentional skips and the historical Trivy
+  comparison warning do not represent additional test passes. This is offline
+  contract evidence, not released-provider, rollback or C5 acceptance.
+
+- **LOOP-03 buffered publication governance — MERGED** — owner:
+  Victor co-design session; branch `fix/buffered-response-governance`, baseline
+  `0ccabda6d814801e067e666665601de389766b73`. ✅
+  [#1343](https://github.com/anvai-labs/victor/pull/1343) merged as
+  `eeafb7d091234c7583438fb50fc0a2a149344bbf`; reviewed source
+  `7e56f4d2f909dbb8595557ba735263ed7271433f` has the identical tree.
+  All applicable CI gates passed (40 successes, two intentional skips; historical
+  Trivy comparison neutral). This is a source milestone, not release/live acceptance.
+  Offline reproducers confirmed that buffered model/recovery text entered assistant
+  history before the outer response gate, and that swallowed policy exceptions could
+  cause synthesis. Governance now belongs to raw candidate producers: ordinary model
+  turns, deterministic read summaries, recovery/fallback summaries and team aggregates.
+  They reuse `ChatGovernance`; the late outer gate is removed. Redaction precedes
+  history/evaluation/publication, usage is recorded before denial, and tool-bearing
+  narrative is checked before requested tools execute. Existing effects are retained.
+  Denial, total redaction, invalid gate fields and policy implementation errors are
+  terminal; cancellation propagates. Neither retries nor completion evaluation can
+  turn these failures into another generation. No-gate responses preserve bytes and
+  identity. Tool-only envelopes retain their existing separate tool-policy boundary.
+  Configured message policy with StateGraph is explicitly unsupported: the wrapper,
+  loop and direct graph executor reject before prompt/history/dispatch, independent
+  of environment selection for direct graph calls. This is not StateGraph parity.
+  TDD retained 24 baseline failures and six malformed-field failures. Replaced two
+  late-return-only examples with producer/history checks; extended existing synthesis
+  and streaming parity matrices rather than introducing another governance suite.
+  Final local qualification: 801 affected/graph/integration/boundary tests pass,
+  with all 36 changed runtime lines covered; 34,844 tests collect. MyPy passes 2,003
+  files (existing suppressions remain), and Black/Ruff, docs drift and repository
+  hygiene pass. Independent adversarial review passed 178 executions and found no
+  remaining blockers after malformed-field and direct-graph fixes. The first broader
+  run exposed two stale graph test doubles; the final cohort includes their repairs
+  and removes unawaited-mock warnings. Exact review/CI evidence is retained in
+  `var/codegraph-victor-20261012/buffered-governance-evidence.json` (local only).
+  Remaining: streaming team/forced-summary/tool-bearing publication, whole-run provider
+  attempts/deadlines including buffered post-loop synthesis, adaptive bounds,
+  StateGraph/iteration lifecycle parity, durable reconciliation and released live C5.
+  Raw `execute_single_turn`, arbitrary custom ACT/legacy orchestration, reasoning and
+  tool argument/result filtering are outside this assistant-text guarantee.
+  Evidence: `var/codegraph-victor-20261012/buffered-governance-evidence.json`.
+
+- **LOOP-03 intent-aware nudge dispatch — ✅ MERGED [#1342](https://github.com/anvai-labs/victor/pull/1342)** — owner:
+  Victor co-design session; branch `fix/intent-aware-loop-nudges`, baseline `e58329d42`.
+  Both live loop modes capture the first `Perception.intent` for guidance, including
+  unknown intent, without adopting later model reinterpretation or caller state.
+  One typed `TurnDecision` carries the controller-selected nudge to DECIDE. Delivery
+  never evaluates the policy again; effect-gate evidence feedback takes precedence
+  over generic nudges. Terminal decisions and controller stops publish no continuation
+  prompt. `TurnObservation.intent` replaces its independently writable write flag.
+  Read/display/unknown tasks receive no edit/write/shell instructions; write-specific
+  guidance requires canonical `WRITE_ALLOWED`. Internal provenance is preserved.
+  This is guidance consistency, not a replacement for tool authorization or durable
+  approval. Missing runtime permission cannot be granted by a nudge.
+  TDD reproduced 15 behavioral failures in existing policy and loop suites. Existing
+  dispatch tests now consume the typed contract; no new test suite or dispatcher.
+  Local qualification: 428 affected and 101 integration/boundary tests pass;
+  34,793 tests collect; configured strict MyPy passes 2,003 files (existing
+  suppressions remain). All 27 changed runtime lines are covered. Black/Ruff,
+  repository hygiene and docs drift pass. Separate adversarial review passed 279
+  owner tests and 31 final-delta checks with no blockers. One redundant budget
+  example was removed; identical coverage retains 245 policy lines and 63 branches.
+  The broader run caught stale intent fixtures and wording assertions; all repaired
+  cases pass in the final cohort. A dotted-source coverage run deadlocked during
+  telemetry import; the standard repository coverage configuration passed instead.
+  Merge `0ccabda6d`: independent exact-commit review passed; 40 checks succeeded,
+  two were intentionally skipped and the Trivy historical comparison was neutral.
+  Required CI/vertical aggregates passed. Reviewed and merged trees match; this is
+  not release or live acceptance.
+  Remaining: forced-summary/tool-bearing publication, whole-run attempt/deadline
+  ownership including buffered post-loop synthesis, adaptive bounds, StateGraph/
+  iteration parity, durable unknown-effect reconciliation and full live C5.
+  Evidence: `var/codegraph-victor-20261012/nudge-evidence.json`.
+
+- **LOOP-03 typed ACT disposition — ✅ MERGED [#1341](https://github.com/anvai-labs/victor/pull/1341)** — owner: Victor
+  co-design session; branch `fix/typed-turn-disposition`, baseline `02f888109`.
+  The canonical `TurnResult` carries source-classified continuation, recovery retry,
+  completion candidate, recovery exhaustion, tool-budget exhaustion or forced stop.
+  Internal stop/retry boolean views derive from that value. Streaming no longer
+  drops the stop channel or the delivered recovery content; malformed/missing ACT
+  contracts fail at the adapter boundary. Exhausted/forced turns retain effect
+  receipts and fail without another model-based evaluation. Candidates still need
+  evaluator/effect/audit/backslide/verifier acceptance; rejection cannot authorize
+  another ACT. A recovery retry cannot override FAIL/ESCALATE, and escalation ends
+  both live loops pending caller intervention. Ordinary turns retain their current
+  retry behavior and cooperative deadline/cancellation guarantees.
+  TDD initially reproduced ten failures in existing source/adapter/loop test owners.
+  Independent review additionally reproduced three recovery RESPONSE-policy
+  failures. Normal and recovered final publication now share `ChatGovernance`;
+  recovery policy/persistence runs outside the retry ladder, before history or
+  delivery. Denial/empty redaction does not make another provider call. Redacted
+  bytes agree across history, delivery and evaluation. No new test suite or runtime
+  dispatcher was introduced. One duplicate no-gate example was removed against
+  the real ACT matrix; before/after owner coverage is recorded with validation.
+  Final local qualification: 686 affected cases passed, 106 integration/boundary
+  cases passed and 64 selector cases passed. Changed runtime-line coverage is
+  112/121 (92%); 34,759 tests collect. Configured strict MyPy passed 2,114 files
+  (legacy suppressions remain), with Black/Ruff, repository hygiene and docs drift
+  passing. Independent review passed 168 focused and 100 capability/recovery/selector
+  cases, then approved the final selector and recovery-retry test additions.
+  The duplicate removal preserved exactly 206 capability lines and 62 branches.
+  A stale local coverage database failed aggregation; an isolated final run passed.
+  Merged as `e58329d42` after clean exact-commit review and all required CI gates
+  (40 successful, two intentional skips and one neutral historical Trivy comparison).
+  Merged/reviewed trees match; this is not release or live C5 acceptance. Preserved evidence location:
+  `var/codegraph-victor-20261012/disposition-evidence.json`.
+  Next: intent-aware nudge dispatch and remaining forced-summary/publication
+  qualification, then run-wide provider-attempt accounting and lifecycle acceptance.
+  Include buffered `TurnExecutor` post-loop presentation synthesis in the attempt/
+  deadline audit: it can call `_ensure_complete_response` after a failed loop and
+  is not an ACT, so the new no-further-ACT guarantee alone does not bound that call.
+  Unknown/partial external effects still require durable reconciliation; a
+  terminal disposition does not roll them back or establish replay safety.
+
+- **LOOP-03 shared cooperative deadlines ✅ MERGED, [PR #1340](https://github.com/anvai-labs/victor/pull/1340)** — owner:
+  Victor co-design session; branch `fix/shared-loop-deadline`, baseline `aa2d2a744`.
+  Existing `LoopGuards` owns the elapsed budget and bounds each owned await in
+  buffered and token-streamed execution. Timeout/context scopes end before outward
+  yields; a consumer pause counts toward elapsed time without cancelling consumer
+  work. Expiry prevents further dispatch, preserves partial output, and fails the
+  run, including expiry during verification or semantic-cache lookup. Recorded
+  COMPLETE cannot survive a verification timeout. `None` retains the disabled
+  default; unsupported StateGraph/iteration streaming rejects configured deadlines.
+  Initial tests reproduced eight failures; verification qualification additionally
+  reproduced stale COMPLETE before repair. Existing guard, streaming, verification
+  and spin-test owners hold the regressions; no alternate loop or queue is added.
+  Local validation: 389 affected cases passed; after extending the existing cache
+  case with the disabled default, its full 16-case owner passed. The broader loop,
+  streaming integration and ACT-adapter cohort passed 406 cases. Changed runtime
+  coverage is 109/115 lines (94%); 34,717 tests collect. Configured strict MyPy
+  passed 2,114 files (legacy suppressions remain), with Black/Ruff, repository
+  hygiene and docs drift checks passing. Independent review passed 118 lifecycle
+  cases plus 33 final guard/matrix cases without blockers. CI passed 40 checks,
+  with two intentional skips and a neutral historical SARIF comparison (the blocking
+  security gate passed). Squash merge `02f888109` matches reviewed tree `9a880878c`;
+  root develop synchronized and the completed worktree removed. Evidence is preserved at
+  `var/codegraph-victor-20261012/deadline-evidence.json`.
+  Limits: cancellation is cooperative; awaited cleanup can extend return latency.
+  Synchronous callbacks are not rolled back. Threads, native work and remote
+  effects may continue, so a timeout never grants
+  permission to replay an effect. Perception backstop remains a between-iteration
+  check. Recovery disposition, intent-aware nudges, attempt accounting and full
+  lifecycle/C5 acceptance remain open.
+
+- **LOOP-03 shared stop-controller dispatch ✅ MERGED, [PR #1339](https://github.com/anvai-labs/victor/pull/1339)** — owner:
+  Victor co-design session; branch `fix/shared-loop-controller`, baseline `9743e4bad`.
+  One helper adapts ACT results to a typed turn observation for both buffered and
+  streaming execution, without double-counting spin. Controller convergence cannot
+  upgrade FAIL, CONTINUE, RETRY or ESCALATE to success: only evaluator-confirmed
+  COMPLETE proceeds to backslide/verification checks. Repetition stops both modes;
+  evaluation metadata, metrics and failure diagnostics survive. The initial mode
+  matrix reproduced 11 failures before repair. Existing loop/controller/verifier
+  owners hold the regressions; no new test file or alternate dispatch was added.
+  Validation passed: 397 affected tests, 192 focused cases (including streaming
+  integration), 59 selector cases and 100% changed runtime-line coverage. Independent
+  adversarial review is clean with 233 cases passed. Full collection found 34,692
+  tests; configured strict MyPy passed 2,114 files (legacy suppressions remain).
+  Black/Ruff, repo hygiene and docs drift checks passed. All required CI passed (40 successful checks including vertical tests); squash
+  merge `aa2d2a744` matches the reviewed candidate. Local develop synchronized and
+  the completed worktree removed. Reboot evidence:
+  `var/codegraph-victor-20261012/controller-parity-evidence.json`.
+  Next: shared run guards/deadlines, intent-aware nudge/recovery dispatch and
+  run-wide attempt accounting. Convergence does not execute synthesis; complete
+  lifecycle, StateGraph and live C5 acceptance remain open.
+
+- **LOOP-02 CLI terminal failures ✅ MERGED, [PR #1338](https://github.com/anvai-labs/victor/pull/1338)** — owner: Victor
+  co-design session; branch `fix/cli-terminal-failure`, baseline `c00fad7150`.
+  Extends #1337's verdict through the shared CLI handler: ERROR, failed STREAM_END
+  and excessive-thinking abort finalize partial output and raise a UI-specific
+  `AgentError` subtype. One-shot commands exit 1; interactive streaming returns to
+  new user input without retry or duplicate error rendering. Buffered output is
+  flushed on failure; JSON uses the existing error/details envelope and preserves
+  partial evidence without a success response. VictorClient's metadata error text
+  is retained. A configuration-warning arity bug found by the JSON smoke is fixed.
+  Five initial failing regressions reproduced the silent-success paths; review
+  additionally exposed terminal metadata reason loss, and JSON/abort regressions
+  reproduced before repair. The affected rendering/CLI cohort passed 577 tests
+  (7 existing skips). Existing handler, CLI and renderer owners were extended;
+  one ineffective generator-close test with no assertions was removed, while real
+  asynchronous close and cancellation coverage remains. CI selection now includes
+  these legacy owners for handler/dispatcher/chat changes. Independent review is
+  clean: 269 runtime/CLI cases passed with 7 existing skips; two selector expectation
+  failures were corrected without reducing selection, then all 57 selector cases
+  passed. Parent selection passed 290 cases before those same two test-only repairs;
+  changed runtime coverage is 40/41 lines (97%). Full collection found 34,672 tests;
+  configured strict MyPy passed 2,003 source files (legacy suppressions remain),
+  with Black/Ruff, repo hygiene and documentation drift checks passing. No provider
+  was called in these deterministic CLI smokes. All required CI passed, including Vertical tests Py3.12; squash-merged as
+  `9743e4bad`, with the merged tree matching the reviewed candidate. Local develop
+  is synchronized and its worktree removed. Reboot evidence: `var/codegraph-victor-20261012/cli-failure-evidence.json`.
+  Next: shared controller/guard dispatch, recovery dispositions and run-wide
+  attempt accounting. Interactive non-streaming/planning result semantics, durable
+  approval presentation and complete lifecycle/C5 acceptance remain open.
+
+- **LOOP-02/03 terminal delivery ✅ MERGED, [PR #1337](https://github.com/anvai-labs/victor/pull/1337)** — owner: Victor co-design session;
+  branch `fix/stream-terminal-delivery`, rebased onto `e52b771a0` after #1335.
+  Reviewed runtime commit `c75a8c91468ac4a83193e3941fee783e8310f515`;
+  all 18 reviewed files survived rebase unchanged and 139 post-rebase tests passed.
+  Squash-merged as `c00fad7150`; local develop synchronized and worktree removed.
+  Governs normal no-tool assistant candidates before history, publication and
+  completion detection; a denied or completely removed answer terminates with a
+  nonrecoverable error, never another provider attempt. No gate preserves output
+  bytes. Tool-bearing intermediate narration and provider telemetry remain outside
+  this RESPONSE boundary. Streaming COMPLETE/FAIL/exhaustion use the existing
+  buffered `agentic_loop_success/iterations/error` metadata; framework events,
+  VictorClient and runtime finalizers preserve failure and suppress stale summary
+  fallback. Existing owners cover regression cases; no new loop/status registry.
+  Tests first reproduced 15 policy/status/client failures; independent review found
+  empty-redaction regeneration and contradictory runtime finalization, now covered
+  by real pipeline/provider-count and runtime finalization regressions. Qualification
+  is complete locally: 538 CI-selected tests passed, 47/51 changed runtime lines
+  covered (92%), 34,659 tests collected, Black/Ruff and configured strict MyPy
+  passed (2,114 files; legacy suppressions remain). Independent final review is
+  clean with 109 focused tests; its interrupted mixed run is not parity evidence.
+  The parent's full affected cohort passed 431 cases including the real parity
+  harness, followed by the final 538-case selection after helper consolidation.
+  Two redundant helper-level policy tests were replaced by the actual ACT matrix;
+  CI maps the existing delivery/ACT/guard/governance owners explicitly. The runtime
+  candidate passed all 40 applicable CI checks, including the required CI Success
+  aggregate and vertical tests. Two conditional jobs were skipped. GitHub's neutral
+  Trivy comparison warns about missing historical SARIF configurations (the former
+  security-quick category and release-only container); the blocking security scan
+  passed under `repository-dependencies`. This advisory comparison remains a CI
+  hygiene follow-up, not a completed release-container scan. Documentation-only
+  checkpoint passed 41 final-head checks (deployment skipped; same Trivy advisory).
+  No release, performance or full parity claim.
+  Next after this increment: CLI exit semantics, shared controller/guard dispatch,
+  recovery dispositions and run-wide attempt accounting. Reboot evidence will be
+  preserved in `var/codegraph-victor-20261012/terminal-delivery-evidence.json`, with
+  exact head, review, CI and final landing status before worktree removal.
+
+- **G97 retention / G98 run isolation MERGED, [PR #1336](https://github.com/anvai-labs/victor/pull/1336)** — owner: Victor
+  co-design session; branch `fix/retain-active-task`, baseline
+  `5e2afec204d046d979354166f2048d74259262d6` (freshly fetched; unchanged).
+  The original subscription self-audit lost its task at the history count boundary.
+  Preserved failed evidence also includes a gateway policy HTTP 503 and an
+  interrupted ten-message-window run (2/20 requests retained the task).
+  `MessageHistory` now owns count retention; the competing publisher pre-trim is
+  removed. It protects genuine task intent, system context, the newest pending or
+  completed tool batch by call ID and the latest publication. An oversized current
+  batch has an observable count floor; model context/token limits remain in force.
+  History and assembly share one genuine-user predicate. All four task-guidance
+  injection sites and verification feedback use canonical internal metadata.
+  Producer-repair live evidence: `session_cc9aa0e6d369`, eight provider requests,
+  task present in 8/8 raw/assembled/neutral requests; the bounded read-only audit
+  returned two concrete findings. Gateway fresh input 99,693 + cache read 27,136 +
+  output 1,195 = 128,024 neutral tokens. This run preceded the final predicate
+  extraction/assembler and run-isolation changes. Final-candidate replay
+  `session_3cfba21c27f1` subsequently passed: task retained on 21/21 provider/neutral
+  requests and 22/22 pre/post-assembly checks, ten-message history window, exit zero,
+  two correctly scoped findings. Gateway records the same 21 calls: 214,238 fresh
+  input + 111,360 cache read + 3,538 output = 329,136 neutral tokens. This qualifies
+  task retention, not efficiency: 21 calls for four files leaves LOOP-04 attempt and
+  continuation accounting open; outer iteration limits are not provider-attempt limits.
+  Gateway was unchanged: PID 561574, `/usr/local/libexec/sandhi-proxy-b6123c1`, SHA256
+  `3093ea221547499e5178e99b3f796acc1037bb0dcba48aba3303554728751fae`.
+  Independent review additionally found cross-run completion scores and stale
+  recorded success after a backslide. Both real drivers now share run-state reset;
+  buffered results retain the actual decision with or without a verifier. Seven
+  new RED cases reproduced these defects and verifier provenance, then passed.
+  Four source-inspection/manual-copy tests were replaced by real driver tests.
+  Final local checks: 430 history/assembly/task/loop/policy/adapter/parity tests,
+  18 service-publication tests and six stream-metrics/add-message tests passed;
+  34,642 tests collected. Black, Ruff, repository hygiene/docs drift, configured
+  MyPy and `mypy --strict` pass (2,114 files; legacy suppressions remain). Independent
+  final loop cohort: 71 passed; scoped production/test review approved. Squash merged
+  as `cd018968e51d559ba64115e92000a355caa3f201`; all 41 CI checks passed, including
+  1,109 selected-owner tests and coverage of all 64 changed runtime lines. Merge tree
+  equals the reviewed final head. No release or full lifecycle/C5 claim.
+  Initial CI stopped before pytest because three source modules lacked selector
+  mappings to their existing descriptive test owners. The correction adds those
+  mappings, not duplicate suites; three RED selector cases reproduced it, all 53
+  selector tests now pass, and independent review approves the correction.
+  Broader selected-owner coverage run: 705 passed, 100% of 64 changed runtime lines
+  covered. Local coverage used the changed service-publication owner instead of
+  repeating the previously passed full orchestrator suite; CI still selects that
+  full suite without exclusions. Collection after the selector cases: 34,642.
+  Worktree and branch removed after merge. Next: LOOP-02/03 terminal governance/status,
+  shared controller/guard dispatch, and context-limit final-summary retention.
+  Evidence and reboot patch: `var/codegraph-victor-20261012/` (private, ignored).
+
+- **Weighted allowance foundation ✅ MERGED [Sandhi #370](https://github.com/anvai-labs/sandhi/pull/370)** —
+  exact reviewed source `f35739420c18f2de11cccc4abbad6278fb95e2ec`, merge
+  `3d661a3e09f560113f9ae5229933e5eb56ace2c0`; identical trees. Fixed-point,
+  opt-in input/cache/output/reasoning weights preserve raw neutral accounting.
+  Independent review clean; 894 workspace tests passed (6 ignored) and all
+  applicable CI gates green. Live policy remains unchanged. Sandhi TD-0032 owns
+  provenance, immutable admitted policy, durable settlement, operator controls and
+  release/live acceptance (W02–W05). Exact development subject allowance was raised
+  from 1M to 10M neutral tokens/day without resetting spend; weighted discounts
+  are not deployed and no broad rate-limit changes were made.
+
+- **TYPE-03 coordination assembly ✅ MERGED [#1332](https://github.com/anvai-labs/victor/pull/1332)** —
+  merge `5e2afec204d046d979354166f2048d74259262d6`; reviewed candidate
+  `b6e90bc346b06057017035da3bf73206c5a640e3`. Five lazy coordination handles
+  and their factory use canonical service protocols, retaining dispatch, component
+  identity, initialization and recovery binding timing. TDD/static consumers accept
+  the real factory and reject incompatible factory/components. Final qualification:
+  198 affected tests; 34,624 collected; strict two-module and configured 2,113-file
+  MyPy gates pass. Independent review clean; 40 CI successes, one configured skip
+  and neutral Trivy. Adapter dynamic forwarding, optional recovery accessor and
+  remaining payload `Any` boundaries remain open under G96/SA-04. This is not
+  release or C5 acceptance. Evidence: `var/codegraph-victor-20261012/assembly-*`.
+
+- **TYPE-06 shared feature-flag fixture ✅ MERGED [#1330](https://github.com/anvai-labs/victor/pull/1330)** — owner: Victor co-design session;
+  branch `fix/feature-flag-test-isolation`, baseline
+  `f8b252cc2b7877393f8cf546227a704b747c6467`. The shared fixture now uses the
+  canonical lock-protected reset before and after each case, including failures,
+  without importing an unused feature-flag module. One existing-owner subprocess
+  regression verifies collection pollution, normal/failure transitions and final
+  teardown; the original fixture fails all three child cases and retains its
+  singleton. Removed redundant registration/formatter flag resets; no existing
+  behavior tests were removed and no production dispatch/defaults changed.
+  Final consumer qualification: **981 passed / 2 skipped** across flag consumers,
+  formatter, registration, execution and typed-contract suites. BGE CPU encoding
+  was verified from the local cache before running those suites offline, matching
+  CI's cached-model approach. Interrupted online/setup runs remain separate evidence.
+  Full collection: 34,598 tests; configured MyPy: 2,113 files. Independent review
+  is clean with 284 owner tests passing (overlapping cohort); its incorrect-default
+  probe finding is fixed. Merge `9d94135679410a530271f13566d69e8dd936c10e` matches
+  reviewed `9a7badca15a9bf000859a577f82aad88a397827a`. All 39 CI checks passed,
+  with two configured skips and neutral Trivy; CI-selected tests: 80 passed.
+  Evidence: `var/codegraph-victor-20261012/feature-flags-*`. SA-04, broader
+  unsuppressed typing, release and C5 remain open.
+
+- **TYPE-02 tool-registration exports ✅ MERGED [#1329](https://github.com/anvai-labs/victor/pull/1329)** — owner: Victor co-design session;
+  branch `fix/registration-contract-exports`, baseline
+  `04162f583167ad16ba08ed39a87756ada2cdd926`. Repaired the compatibility module's
+  self-import by re-exporting the four canonical strategy classes. No duplicate
+  implementation, dispatch change or opt-in default change. TDD reproduced the
+  cold-import failure, four strict typing diagnostics and an untyped constructor
+  escaping the compatibility boundary. The registration package now passes strict
+  MyPy (five files); the configured 2,113-file gate is separately qualified and
+  does not imply full unsuppressed compliance. All 144 affected tests pass and
+  34,597 tests collect. The existing owner retains 29 cases after replacing vacuous
+  assertions and consolidating overlaps; sequential coverage comparison loses no
+  executed lines or branches across 1,796 production files. Independent review
+  found shared feature-flag state leakage in the test fixture; the local fixture
+  now restores both singleton owners, and 79 independent review tests pass.
+  Merge `f8b252cc2b7877393f8cf546227a704b747c6467` matches reviewed candidate
+  `8511148132a2e3d3d23cc1d80ad1efc34cea1b0a`. All 39 CI checks passed, with two
+  configured skips and neutral Trivy; CI-selected tests: 104 passed / 4 skipped,
+  100% changed-line coverage. TYPE-02, SA-04 and C5 remain open. Evidence: `var/codegraph-victor-20261012/type02-registration-*`.
+
+- **TYPE-02 mutable registry contract ✅ MERGED [#1328](https://github.com/anvai-labs/victor/pull/1328)** — owner: Victor co-design session;
+  branch `fix/typed-registry-contracts`, baseline
+  `80fd59fcfabb08a7151cbee224ea9b5991e618d6`. The registry both accepts and returns
+  keys and values, but its contravariant key/covariant value declarations allow
+  unsafe aliases. TDD reproduces three strict MyPy diagnostics and a consumer test
+  that incorrectly accepts two of four incompatible aliases. Qualify invariant
+  parameters without changing registry methods, dispatch or runtime behavior.
+  Extend the existing shared-contract consumer harness; retain the registry runtime
+  owner and remove its duplicate empty-key-list case only after coverage parity.
+  Final qualification: 103 affected tests, 161 CI-selected tests and 23 independent
+  review tests pass (overlapping cohorts); 34,584 tests collect. Strict MyPy passes
+  the protocol and the configured 2,113-file gate. All four unsafe aliases are now
+  rejected. The removed duplicate loses no executed production lines or branches
+  across 1,796 measured files. Independent adversarial review is clean. All 39 CI
+  checks pass, with two configured skips and neutral Trivy. Merge
+  `04162f583167ad16ba08ed39a87756ada2cdd926` matches the reviewed source tree.
+  This is one bounded definition-layer repair, not completion
+  of TYPE-02, SA-04 or C5.
+  Evidence: `var/codegraph-victor-20261012/type02-registry-*`.
+
+- **TYPE-02 shared event/stream contracts ✅ MERGED [#1327](https://github.com/anvai-labs/victor/pull/1327)** —
+  merge `80fd59fcfabb08a7151cbee224ea9b5991e618d6`; tree matches reviewed candidate
+  `4f8088d6ad896cb06723e121bfdee4e31de0ae84`. Event timestamp annotations resolve,
+  dataclass initialization hooks are typed and the streaming protocol preserves its
+  existing async-generator shape without an invalid MyPy ignore. Both modules
+  have explicit unsuppressed overrides. TDD reproduced four checker diagnostics
+  and two failing consumers. Strict checks and the configured 2,113-file gate pass;
+  226 affected tests, 182 CI-selected tests, 22 focused tests and 59 independent
+  review tests pass (overlapping cohorts). Collection finds 34,584 tests. Changed
+  executable-line coverage is 83%; the unchanged protocol yield is checked
+  statically. Final CI: 39 successes, two configured skips and neutral Trivy.
+  The increment stayed outside #1323 and merged after that promotion. Repository
+  typing and lifecycle acceptance remain open. Evidence: `type02-shared-*`.
+
+- **Promotion checkpoint ✅ MERGED [#1323](https://github.com/anvai-labs/victor/pull/1323)** —
+  main merge `a18b26e23bb59d5412b9642ccba7b44016dc0509` has the exact reviewed
+  develop tree `69c119454e773fc33ea98f9bcfb8c52206a0e687`. Main ancestry sync #1324
+  preserves production behavior and the main AgentBrowser acceptance correction.
+  The first matrix (`38311891912`) remains failed evidence: 20/24 Python shards
+  passed; two stale fixtures failed on both versions and summary/coverage gates
+  correctly failed closed. Fixture repair #1326 changed no production behavior;
+  193 affected and 87 independent tests passed, with no lost executed production
+  lines or branches across 1,796 files and a rejected session-binding mutation.
+  The final matrix (`38320270669`) passes all 24 Python 3.12/3.13 shards, summary
+  and coverage gates; combined Python 3.12 coverage is 71%. All 129 successful
+  promotion checks, four configured skips and neutral Trivy were reverified on
+  the unchanged candidate. Independent cumulative adversarial review is clean.
+  The user explicitly authorized the admin exception for this promotion after
+  review/CI qualification; the normal main policy remains unchanged. Post-merge
+  workflows are separate evidence. The existing VAS-06/G62/G70 approval-continuation
+  lock gap remains: hydration ownership does not cover the whole resumed execution.
+  Consumed approval claims stay closed on failure. This source promotion does not
+  publish a new Victor AI release or establish live C5 acceptance. Receipts and
+  retained failed evidence: `var/codegraph-victor-20261012/promotion-*` and
+  `pr1323-merge-receipt.json`.
 
 - **CG-S06 ✅ MERGED and package RELEASED [#1322](https://github.com/anvai-labs/victor/pull/1322)** —
   merge/source `e1970fee1ebb658040277ba0865020d4af135cc5`; 39 successful checks,
@@ -1017,6 +2266,7 @@ claims of measured performance:
 | Logic / prompt / YAML / JSON editor | Compare Monaco and CodeMirror 6 | Monaco fits the existing VS Code ecosystem and language-service UX; CodeMirror offers composable cell editors. Measure startup/bundle/memory and accessibility; choose one primary editor after the spike. No browser eval of user logic. |
 | Audit charts | Prefer an existing lightweight chart surface; evaluate D3/Observable Plot if necessary | D3 supplies low-level visualization primitives; Rickshaw targets interactive time-series graphs, not workflow authoring. Introduce neither merely for visual novelty. Charts use recorded outcomes and neutral usage, with accessible tables. |
 | Notebook-style authoring | Begin with ordered Markdown, input, typed operation and result cells | Cells reference the canonical workflow definition and recorded run/step IDs. Editing/import does not execute code. Bound, sanitize and label output provenance. |
+| Conversation and rich artifacts | Keep Markdown/history first; later typed PNG/SVG/Mermaid/PlantUML outputs | Preserve author/order/run/step provenance. Bound artifact size and render time, sanitize SVG, disable active/external content, retain accessible source/download views. PlantUML rendering must be local or explicitly authorized; never upload private diagrams silently. No renderer dependency is selected by this plan row. |
 | Full notebook compatibility | Optional JupyterLab/nbformat adapter after core editor | A kernel and server are separate execution/authorization surfaces. Require isolated per-user execution, quotas, cancellation, retention, explicit trust and existing action/approval gates; never silently execute imported cells. |
 
 Primary references: [React Flow accessibility](https://reactflow.dev/learn/advanced-use/accessibility),
@@ -1074,6 +2324,35 @@ cover desktop light/dark/system and a corrected narrow-screen canvas. Independen
 review found stylesheet growth; the canonical style owner and 100-switch regression
 fix it. [Evidence manifest](evidence/workflow-visualizer-ui-2026-10-09.json) records
 hashes and the explicit synthetic, authentication and streaming limits.
+
+## Web chat and API hosting consolidation
+
+Current inspection (2026-10-14): `victor ui` starts Chainlit and creates a
+per-browser-session in-process `VictorClient`. `victor serve` starts
+`VictorFastAPIServer`, whose session runner also creates `VictorClient` instances.
+VS Code uses HTTP/SSE and WebSocket adapters; the existing workflow visualizer is
+separate from the planned authoring editor. `web/server/main.py` is another
+FastAPI compatibility entry point with its own bounded session store; migrate its
+consumers through the same VAS-03b/14 parity gates before retiring it. These surfaces share runtime services
+but do not yet share one authoritative session/run lifecycle.
+
+| Layer | Target ownership | Qualification gate |
+| --- | --- | --- |
+| Deployment | One optional `victor serve` host for API, chat UI and workflow assets | Mount-path/static routes, startup/shutdown, reverse proxy and optional extras smoke |
+| Execution | One typed application-service boundary for sessions, runs, approval decisions, cancellation and results | VAS-03/07/09/10/11; same success/failure/recovery across clients |
+| In-process clients | Python/CLI and co-hosted adapters call the same service directly | No required self-HTTP hop, no alternate policy or runtime dispatcher |
+| Remote clients | Chainlit remote mode, VS Code and workflow editor consume the same versioned HTTP/event contracts | VAS-08/13/14; actual shared-server consumer fixtures |
+| Authentication | One trusted principal and resource policy across API and mounted chat | VAS-05; parent FastAPI route dependencies do not automatically guard a mounted app or its sockets |
+| Presentation | Chainlit owns chat rendering; workflow editor owns graph/code authoring; both share design tokens | VAS-14/21, headed UI tests and accessible theme parity |
+
+Chainlit provides `mount_chainlit(app, target, path)`; this enables co-hosting but
+must not be treated as API/session consolidation by itself. Keep the chat extra
+optional. Reuse the existing VAS-14 row and FEP-0039 review process rather than add
+another server framework or parallel roadmap. Order: shared lifecycle/identity
+contracts, adapter parity tests, optional co-hosting, then deprecate redundant
+entry points only after compatible consumers are verified. The standalone UI
+remains available while this migration is qualified. The proposed deployment
+shape is not implemented or accepted merely by merging this tracker update.
 
 ## OpenAI-compatible provider consolidation
 
@@ -1366,6 +2645,982 @@ source completion as a proxy for C5/model quality. Before claiming full closure,
 all requested outcomes above must have accepted evidence or an explicit,
 user-approved scope change; a TODO plan entry is not delivery.
 
+## Data correctness remediation plan (G102, 2026-10-14)
+
+**DATA-01/02/03/04a/08a merged; DATA-04b shared inventory released; stream ownership next.** Owner: Victor co-design session. DATA-01
+landed in [#1362](https://github.com/anvai-labs/victor/pull/1362), squash commit
+`b27c263f738598fe969ca11408226c3082e38d13`. DATA-02 landed in
+[#1363](https://github.com/anvai-labs/victor/pull/1363), squash commit
+`78be84093735e21e3ef572da0077fc1fa599540b`. DATA-03 landed in
+[#1364](https://github.com/anvai-labs/victor/pull/1364), squash commit
+`59bb3dd768ed155b1524e7281124557ab46330a6`. All three passed independent review
+and applicable CI, including Vertical tests Py3.12. DATA-04a uses linked worktree
+branch `fix/index-readiness-publication` from the DATA-03 merged baseline and
+landed in [#1365](https://github.com/anvai-labs/victor/pull/1365), squash commit
+`f1c3330f1de8aeb03169f40cce4ab68688665b3d`, after independent review and green CI.
+DATA-08a landed in [#1366](https://github.com/anvai-labs/victor/pull/1366), squash
+commit `7d22d28da7de8cd37c7269ae6f1cffd9ff77ac30`, after clean independent review
+and all applicable CI. The linked worktree now owns
+`fix/index-stream-ownership` from `4bfdaf630`; the consumer preflight remains
+preserved separately until its ownership and root-identity blockers are repaired.
+The original assessment at `43756b90f342d3c645155235e81bd4130e86b72c` remains
+historical evidence. Production migration, deployment and write/load tests are
+outside these local increments. Other DATA implementations remain TODO; local tests and
+merges are not release or live acceptance.
+
+The immediate target is local single-user Victor; hosted multi-user acceptance is
+a separate VAS-05 requirement. Workload rate/growth/skew, concurrency, numerical
+latency/freshness/quality targets, availability, RPO/RTO, retention and budget are
+**Unknown**. Confirm these before performance or hosted readiness sign-off; do not
+block isolated correctness regressions on missing performance targets. The audit
+score is **32.9/100 at 92% evidence coverage**, not completion or certification:
+A=U, B=2, C=2, D=2, E=2, F=0, G=0, H=1, I=2, J=1, K=1, L=2 using the supplied
+weights (30.25 weighted points / 92 scored weight). No dimension is N/A. Re-score
+only against new evidence, retaining unknowns and readiness blockers.
+
+### Evidence and authority
+
+- Source files remain authoritative; graph/FTS/vectors/metrics are derived.
+  Conversations, approvals and action evidence require their own durable contract.
+  SQLite transactions do not include LanceDB or external tool effects. Backend
+  receipts, not local deduplication or checkpoints, establish external effects.
+- Disposable local reproduction on SQLite 3.45.3 / LanceDB 0.30.2: two conjunctive
+  metadata filters returned both tenant A and B; a crafted quoted document ID
+  deleted both synthetic rows; a failed migration recorded the new schema version;
+  a cancelled graph batch stayed open and an unrelated write committed its row.
+  These demonstrate defects, not production exploitation or authoritative data loss.
+  Preserve the reproducer locally and transcribe cases into existing test owners.
+- 69 existing vector/edge/WAL/API-auth/paused-run tests passed in 9.71s; their pass
+  does not cover those failure cases. PR #1361 validation is separate.
+- Earlier CG-P2 evidence: the graph refresh completed, but the semantic CLI then
+  published success before a detached destructive rebuild; interruption left the
+  graph empty. Retain original failure and recovery evidence. Metrics contained
+  17,941 missing paths out of 22,772; the LCOM4 label denotes a size heuristic.
+  The already-running canonical recovery subsequently completed in 1,407s,
+  reporting 1,543,242 persisted nodes / 3,696,594 edges; this does not qualify
+  semantic freshness or fix publication ownership. No new rebuild was started
+  during assessment/planning.
+- Read-only plans: session listing scans/sorts; message counts use a covering
+  index; graph file lookup uses an index. Database snapshot during recovery:
+  5,992,009,728 bytes, WAL 291,716,632 bytes, 639,505 free pages at 4,096 bytes.
+  Free pages are reusable space, not proof that VACUUM improves response latency.
+- Installed-version behavior controls acceptance. LanceDB documentation identifies
+  filter replacement before Python SDK 0.34.0; use one composed predicate rather
+  than depending on an incidental upgrade. WAL/NORMAL lacks guaranteed durability
+  across power loss; transaction atomicity does not justify synchronous=OFF on a
+  database containing authoritative state. See [LanceDB filters](https://docs.lancedb.com/search/filtering),
+  [SQLite sync settings](https://www.sqlite.org/pragma.html#pragma_synchronous) and
+  [online backups](https://www.sqlite.org/backup.html).
+
+### Ordered PR-sized increments
+
+| ID / existing parent | State; severity / effort; proposed owner | Scope, dependency and exit invariant |
+| --- | --- | --- |
+| DATA-01 / CG-P2, VAS-05c | ✅ merged [#1362](https://github.com/anvai-labs/victor/pull/1362); High (Critical if authorization boundary) / Medium; vector adapter | Shared helper now replaces interpolated deletion/search literals and repeated filters with one typed conjunction, allowlisted identifiers and explicit NULL semantics. Include analogous unified-store deletion. All eligibility predicates apply before top-k; invalid input never broadens reads or deletes. No dependency upgrade required to claim a fix. |
+| DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
+| DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
+| DATA-04a / CG-P2 | ✅ merged [#1365](https://github.com/anvai-labs/victor/pull/1365); High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
+| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight/publication pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
+| DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
+| DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
+| DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
+| DATA-08a / VAS-16, storage foundation | ✅ merged [#1366](https://github.com/anvai-labs/victor/pull/1366); High / Medium; storage operations owner | Configured durability is retained during graph cleanup, and the existing batch owner prevents implicit commits. Consolidation uses validated online backups preserving committed WAL and prior artifacts. Disposable restore/failure checks passed; operational restore, migration ownership and cross-store guarantees remain separate. |
+| DATA-08b / VAS-16 | TODO; High / Complex; operations/recovery owner | After DATA-05/08a and agreed RPO/RTO/retention: qualify restore, derived rebuild, disk-full, maintenance contention and deletion/retention. Record machine, engine/settings, data shape, loss boundary and recovery duration. No resilience claim from unit tests alone. |
+| DATA-09 / VAS-16/22 | TODO; Medium / Medium; query/runtime owner | After correctness gates: compare session composite indexes and bounded async ripgrep against unchanged design on representative skew. Bound output before capture, propagate cancellation, profile repeated scans/queue growth. No numerical performance target or native rewrite inferred from file size. |
+| DATA-10 / UX-09, G100 | TODO; Medium / Medium; metrics/presentation owner | Reuse canonical invocation accounting: preserve measured fresh input/cache read/cache write/output/reasoning and per-field coverage. Reasoning inclusion and provider prompt conventions determine conservation; unknown is not zero. Derive ratios from summed compatible counts, never average ratios. Shared CLI/TUI/web footer plus session summary; no second meter. |
+
+DATA-01–03 are independent correctness fixes; execute serially by default to keep
+worktrees and CI bounded. DATA-08a may precede generation work once its migration
+dependency is met. DATA-07 and DATA-10 need not wait for index redesign when separately
+owned; neither may obscure the higher-priority integrity work. Existing VAS-11c/12
+receipt/continuation, VAS-17 released foundations and VAS-18 C5 retain their original
+acceptance gates. Do not restart completed WS-A–WS-I work or substitute these tests
+for actual-member acceptance.
+
+### Design alternatives, costs and scope boundaries
+
+| Decision | Application-side alternative | Database-side alternative | Keep current design / cost and decision rule |
+| --- | --- | --- | --- |
+| Filters and deletion | Validate typed keys/values; combine once in a shared adapter | Engine expressions/literals; prefilter before top-k | Existing string interpolation/filter replacement is rejected. Small predicate allocation; no new component. |
+| Cancellation | Own and settle asynchronous worker operations before releasing connection | Explicit rollback/commit outcome and transaction isolation | Current cleanup is rejected. Cleanup may increase cancellation latency; measure bounded behavior. |
+| Generation publication | Own jobs and reconciliation; expose stale/unknown state | Stage derived rows/collections; atomically select active manifest/generation | Destructive live replacement is rejected. Extra generation disk and cleanup I/O are explicit costs; no distributed transaction service proposed. |
+| Session/query performance | Bound reads, result buffers and subprocess execution | Composite indexes for measured filter/order shapes; SQL aggregation near data | Keep unchanged if it meets agreed targets. Indexes add write/storage cost; measure rather than promise speedup. |
+| Durability and recovery | Schedule maintenance/admission; preserve receipts and source provenance | Appropriate sync, online backup, explicit migration transactions | SQLite/LanceDB remain candidates; stronger sync costs latency, store separation costs operations. Compare on agreed loss/recovery contract. |
+| Metrics and usage | Existing analyzers/invocation owner compute once and retain provenance | Batch/current-generation publication; distinct invocation keys | Keep useful shared owners, remove misleading derivations. No warehouse, lakehouse, Data Vault, broker or extra native toolchain justified by current evidence. |
+
+### TDD, acceptance and rollback
+
+1. Inventory existing tests before adding cases. DATA-01/05 extend
+   `tests/unit/providers/test_lancedb_provider.py` and
+   `tests/unit/storage/test_sqlite_lancedb.py`; DATA-02 extends graph-store owners;
+   DATA-03/08 extend database migration/WAL/backup owners; DATA-04 extends
+   `verticals/victor-coding/tests/tools/test_code_search_tool.py` plus canonical
+   pipeline tests; DATA-06 extends `test_module_analyzer.py`; DATA-07 uses API auth,
+   session ownership and approval suites; DATA-10 uses metrics/usage/presenter owners.
+   Remove tests only when unique assertions and coverage survive in those owners.
+2. Preserve failing baseline evidence, then pass positive/negative cases for NULLs,
+   quoted/Unicode keys, duplicates, deterministic ties, changed payload/expiry,
+   cancellation, concurrent writers, retries and failure at every publication step.
+   Use real temporary engines where mocks would conceal engine-version behavior.
+3. Functional acceptance is exact: zero broadened eligibility/deletion; no later
+   commit of rolled-back work; schema/version agreement; previous usable generation
+   retained on failed replacement; no current stale identities after reconciled
+   deletion; no automatic unknown-effect replay; token conservation without duplicate
+   reasoning. A completed commit whose acknowledgement is lost remains distinct from
+   a rolled-back operation. Never replay effects to recover telemetry.
+4. After isolated fixes, qualify cold/warm and maintenance-active workloads, skewed
+   histories, large outputs, concurrent search/index/chat, deletion and revocation.
+   Record p50/p95/p99, CPU, peak memory, bytes, disk headroom, lock waits and failures.
+   Numerical targets remain Unknown until agreed; improvements are hypotheses until
+   the same-workload comparison supports them. Synthetic tests are not C5 evidence.
+5. Each implementation PR: worktree `.venv-codesign/bin/python -m pytest`, cited and
+   touched suites, configured typing/lint, full collection, independent adversarial
+   review before first push for these shared-state/security changes, all required
+   CI green before squash into develop. Formal API changes still require FEP review.
+6. Rollback: additive indexes can be removed after query verification; retain old
+   derived generations until new acceptance and reader release. Authoritative schema
+   changes require verified backup and explicit backwards-compatibility/forward-repair
+   plan. Never restore old action evidence over newer external effects. Releases,
+   deployment, restore drills and C5 have separate status/evidence, not a plan checkmark.
+
+### DATA-01 implementation checkpoint
+
+- One shared scalar predicate compiler validates existing column names, bounded
+  scalar values and exact string literals. All conditions are composed in one
+  prefilter, before top-k; NULL uses `IS NULL`. Provider and unified-store deletes
+  use the same exact string compiler. No schema migration or new dependency.
+- Real disposable LanceDB **0.30.2** tables reproduce the defects and qualify the
+  fix. This is not qualification of every version permitted by the dependency
+  range. Invalid metadata is rejected before query embedding on an initialized
+  table; cold initialization may still run. Invalid deletion identity is rejected
+  before initialization or graph mutation. Cross-store atomicity is DATA-05.
+- TDD: initial baseline **21 failed / 3 passed**, plus a strengthened conjunctive
+  regression **4 failed / 1 passed**; fixed candidate **172 passed**, **100% of
+  43 changed production lines covered**. Full collection: **35,173 tests**.
+  Existing provider/unified test owners were extended; one mock-only deletion
+  test was replaced by exact-result engine tests. CI mapping includes these owners
+  rather than creating duplicate mirrored suites.
+- Independent adversarial review found no remaining scoped runtime/test blocker:
+  99 owner tests, seven additional admission/prefilter cases and exact-string
+  escaping probes passed. Formatting, configured typing and docs gates must stay
+  green on the final candidate. Evidence: local
+  `var/codegraph-victor-20261012/data01-{red,filter-red,green,collection}.log`.
+- Exact candidate `772b5285606f32ea12151d6aa95a210587404422` independently
+  approved; all applicable CI passed, including vertical tests. Merged #1362 as
+  `b27c263f738598fe969ca11408226c3082e38d13`. Twelve additional import/unified
+  caller checks, strict docs build and built-site links also passed.
+
+### DATA-02 cancellation and connection admission checkpoint
+
+- Candidate: retain and settle the original database worker future under repeated
+  cancellation, then propagate cancellation without replaying work. Record a
+  subsequent worker error as the cancellation cause. Cleanup retains transaction
+  ownership; a connection that cannot be safely reused is discarded on the worker.
+- Existing `write_batch` owns metadata mutation and commit. Initialize/close and
+  the first edge-schema probe respect the same admission. Owner-task lifecycle
+  calls fail explicitly instead of deadlocking or implicitly committing a batch.
+  File lookup reuses its owner's batch connection, fixing file-deletion self-lock.
+- Cancellation during commit is logged as possibly committed; reconcile durable
+  state before retrying. Waiting for a native SQLite operation is not a hard
+  cancellation-latency guarantee. A permanently stalled worker still requires
+  process-level recovery; do not close its connection concurrently or replay it.
+- TDD: eleven cancellation/lifecycle/metadata regressions failed on the baseline;
+  file deletion in its own batch timed out; two worker-close/schema-probe cases
+  failed before admission repair. Existing test owners are extended rather than
+  duplicated. Verification includes separately reopened durable contents, nested
+  batches, repeated cancellation, queued writers, worker failure, rollback failure,
+  lifecycle success and connection reopen after close. Final local qualification:
+  **133 passed**, **98.4% changed-line coverage (63/64)** and **35,188 tests
+  collected**. Black/Ruff, configured MyPy, repository hygiene, docs drift, strict
+  build and built-site links pass. Independent review: 94 concurrency/selector
+  checks passed; final immutable candidate review and every applicable CI gate
+  passed before #1363 merged (Vertical tests Py3.12: 12m47s). Removed
+  an always-skipped deletion placeholder now covered by an executable regression,
+  preserving its cross-store limitation. Evidence is under
+  `var/codegraph-victor-20261012/data02-*`; the failed fixture run is preserved too.
+- Explicit exclusions: other standalone mutation-plus-commit closures may commit
+  before cancellation is reported; no blanket cancellation-means-rollback claim.
+  Their SQL-error rollback remains a follow-up. Bulk `synchronous=OFF` is DATA-08a;
+  embedding cleanup outside SQLite is DATA-05. Other same-task read methods do not
+  automatically become batch-reentrant. No hosted or C5 acceptance is established.
+- Next: DATA-03 migration version integrity before DATA-04 index publication.
+  Preserve failed evidence and avoid production reindex.
+
+### DATA-03 schema migration integrity checkpoint
+
+- ✅ Merged in [#1364](https://github.com/anvai-labs/victor/pull/1364).
+- Implementation: one typed registry declares database scope and optional lazy-table
+  preconditions. `get_migration_sql` remains a raw compatibility projection; its
+  callers own safety checks. Both database managers use the same executor.
+- The executor takes `BEGIN IMMEDIATE` before reading the version, or a savepoint
+  within an existing caller transaction. It never commits the caller's transaction.
+  SQL blocks execute statement-by-statement using SQLite completeness parsing;
+  transaction control and connection PRAGMAs are rejected. Unexpected errors
+  propagate and roll back schema changes and version publication together.
+- Project initialization migrates before creating dependent indexes; an index
+  failure rolls back the upgrade. Global tables retain their lazy creation policy.
+  Future versions are rejected. Modern unversioned adoption retains its existing
+  policy and is **not** a guarantee of exhaustive schema validation.
+- Legacy metadata is reconciled without deleting its source: equal values are
+  retained; conflicting values, duplicate/invalid keys and missing columns stop
+  migration. Rename collisions and incompatible existing columns also stop it.
+  v9 preserves an already-current classifier table, replaces only an empty known
+  scalar layout, and rejects populated/incompatible legacy data for reconciliation.
+- TDD began with **7 failures / 4 passes** on the old implementation. Extend the
+  existing migration test owner instead of duplicating it; replace the test that
+  expected invalid SQL to be swallowed. Tests use disposable databases, including
+  independently reopened contents, nested transactions, quoted SQL/trigger blocks,
+  legacy/current layouts, concurrent migration admission and retry after failure.
+  Final selected gate: **157 passed**, **97.5% changed-line coverage (159/163)**;
+  broader database/graph/conversation callers: **206 passed**; full collection:
+  **35,234 tests**. Black/Ruff, configured MyPy (including unsuppressed executor
+  and schema), repository hygiene, docs drift, strict docs build and built-site
+  links pass. The raw SQL projection is byte-identical across all 55 version
+  intervals from 0 through 9. Independent review found and fixed wrong-kind
+  object handling: a view/index is not an absent optional table. Its four new
+  regressions failed before repair; the corrected review passed 133 checks.
+  Exact candidate `ec7c3a95a0b0a9f46c285b3b8d507cc48b82c204` passed independent
+  review and every applicable CI gate before squash merge; Vertical tests Py3.12
+  took 8m28s. Evidence: `var/codegraph-victor-20261012/data03-*`.
+  This checkpoint is not a release or live upgrade.
+- Rollback: a failed schema upgrade retains the old durable version and schema.
+  Preserve a verified online backup before any eventual live upgrade; do not
+  overwrite a live database from a stale snapshot. No production migration runs
+  in this increment. Historical import/consolidation transactions and backup/
+  restore guarantees remain DATA-08a. Next: DATA-04a's owned index rebuild and
+  truthful readiness publication.
+
+### DATA-04a owned index completion and readiness design
+
+Owner: Victor co-design session; branch `fix/index-readiness-publication` at
+DATA-03's merged baseline `59bb3dd768ed155b1524e7281124557ab46330a6`.
+**Merged [#1365](https://github.com/anvai-labs/victor/pull/1365)** at
+`f1c3330f1de8aeb03169f40cce4ab68688665b3d`. Exact candidate
+`e5bce0ce37f75bb98dd10d764fa734739c5425ad` passed independent review and all
+applicable CI: 39 successful checks; Vertical tests Py3.12 took 10m11s. The two
+conditional skipped jobs and neutral Trivy check are not passes. Release and live
+acceptance remain separate gates.
+Original evidence is `data04a-discovery.json`, `data04a-reproducer.py` and
+`data04a-reproduction.log` under
+`var/codegraph-victor-20261012/`. The earlier temporary-root collection permission
+failure is preserved separately and is not evidence of a product defect.
+
+Observed in disposable fake-index checks:
+
+- `preload_semantic_index` returns success for a cached entry explicitly marked
+  stale, without invoking the builder/validation owner.
+- `_get_or_build_index` publishes a desired manifest while a mismatch-triggered
+  rebuild is still blocked, then returns and releases its exclusive writer lock.
+
+The implemented design follows this order:
+
+1. Make build, finalization and manifest-publication failure observable before
+   claiming readiness. `_finalize_index_storage` and the final manifest write
+   suppress errors; `CodebaseIndex.index_codebase` also suppresses graph/vector
+   clearing and embedding-batch errors before marking itself indexed. Audit these
+   existing owners, with explicit failure outcomes; do not add a second dispatcher.
+2. Invalidate current in-memory and persisted readiness before destructive
+   rebuilding, including forced rebuilds with an unchanged manifest. Failure or
+   cancellation must not leave an old compatible manifest advertising partial
+   results. This does **not** preserve the old generation; DATA-04b owns that.
+3. Remove mismatch-triggered detached rebuilding and early publication. Await
+   build/finalization under the existing exclusive lock; publish only afterward.
+   Remove the resulting unused single-flight registry/helper and its helper-only
+   test. Do not introduce a background-job service for this synchronous CLI repair.
+4. Remove CLI's unconditional cache-success shortcut; delegate validation to the
+   builder. Preserve the existing tuple result contract and ordinary search's
+   explicitly labelled stale fallback. An internal strict-readiness option can
+   reject stale, unknown-probe or lock-timeout fallback for indexing commands.
+5. Extend existing coding `test_code_search_tool.py` fixtures and core CLI tests:
+   blocked build, cancellation, build/finalization/publication errors, same-manifest
+   force failure, queued callers, and strict versus ordinary lock-timeout behavior.
+   Add no tests that only mirror the removed helper. Require a disposable
+   end-to-end CLI smoke before claiming user-visible completion.
+
+Local qualification and scope:
+
+- Build, graph/vector clear, embedding batch, finalization and publication errors
+  propagate. Cancellation leaves readiness invalidated. The CLI uses the builder's
+  strict option; ordinary search retains explicitly stale lock-timeout fallback.
+- Independent review found two additional false-success paths: incremental
+  results with `errors` were ignored, and requested embedding dependencies could
+  silently disable semantic indexing. Both now fail closed. Per-file write/delete
+  failures retain stale state and trigger full repair on the next attempt; partial
+  mtimes cannot skip that repair. Explicit `use_embeddings=False` is preserved.
+- Removed implicit deletion of nested project `.victor` directories from index
+  startup. A nested project may own authoritative state; search cannot infer that
+  it is disposable. A sentinel regression confirms preservation.
+- Reused the existing test owners. Removed the retired detached-task helper's test
+  and consolidated two preload-error tests that patched the wrong dispatch path.
+  New negative cases failed first (9 initial readiness, 4 storage, 10 review cases).
+  Current broader local result: **405 passed, 69 skipped** across coding indexers,
+  coding tools and core CLI. Disposable CLI smokes cover success, build/publication
+  errors, unavailable embedding provider and writer contention. No actual model
+  or production index is used. Skips are not acceptance evidence.
+- Queued builders use a controlled async lock and publish once; real manifest I/O
+  tests reject invalidated disk readiness despite an in-memory cache hit. These
+  tests do not qualify cross-process reader snapshots or distributed locking.
+- Evidence: `data04a-*-tests.log`, `data04a-review-red.log`, `data04a-mypy.log` and
+  `data04a-collection.log` in the existing local evidence directory. Configured
+  core MyPy passes; its documented legacy suppressions remain, so this is not
+  unsuppressed repository-wide typing qualification. Two-module vertical MyPy is
+  advisory (Makefile): **91 baseline diagnostics → 78**, no new diagnostic after
+  normalized baseline comparison; no suppressions added. The existing incremental
+  result now has a `TypedDict` contract without changing its dictionary shape.
+- Selected core gate: **104 passed, 1 skipped, 6 deselected**, 100% changed core-line
+  coverage. Full core collection: **35,235 tests**. Black, Ruff, configured core
+  MyPy (2,117 files), repository hygiene, docs drift, strict MkDocs and built-site
+  links pass. These do not replace hosted CI or live acceptance.
+- Independent corrected review: **195 passed, 7 skipped**, no scoped blockers;
+  final typing delta also reviewed. Reviewed source/test diff SHA256
+  `393cbebc05231e803ba254d382ae83c233c816fe8b4c85380e08218dae4db7ae`.
+
+No new model downloads, production rebuilds or generation-preservation claims.
+Readiness here means the observed build/storage lifecycle completed successfully,
+not proven parser completeness. Parser error accounting, source/parser/encoder
+identity, cold-load inventory and preserving the old generation remain DATA-04b;
+cross-representation deletion/reconciliation remains DATA-05. Release, hosted authorization and C5 gates remain open.
+
+### DATA-08a durability checkpoint and generation-work ordering
+
+**Priority:** DATA-08a before DATA-04b publication. Independent design review
+confirmed this ordering, already permitted by the dependency table: the shared
+project database contains authoritative conversations as well as derived graph
+state (`victor/agent/conversation/store.py`, default `paths.project_db`).
+
+- Observed: `SqliteGraphStore.delete_by_repo` temporarily sets
+  `synchronous=OFF`, then hardcodes `NORMAL`; atomic commit does not justify
+  lowering the configured durability. Preserve existing connection policy through
+  success, failure and cancellation; do not claim NORMAL provides power-loss RPO=0.
+- Reproduced on disposable SQLite 3.45.3: the source has **one committed WAL row**,
+  while `DatabaseConsolidator._backup_legacy_databases` produces a backup with
+  **zero rows**. Replace live file copying with bounded online backup, publish only
+  a validated complete backup and preserve existing backups on failure. No live
+  database was opened; `data08a-backup-reproducer.py` and adjacent JSON retain the
+  original evidence under `var/codegraph-victor-20261012/`.
+- TDD owners: extend `tests/unit/core/test_project_database_wal.py` for uncheckpointed
+  WAL, reopened backup contents and failures; extend existing graph cleanup and
+  concurrency suites for retained durability and session-state preservation. Audit
+  overlapping cleanup tests before adding cases. No production migration/restore.
+- DATA-04b then starts with qualification using `GraphIndexStats` and parser
+  diagnostics. Zero `error_count` is insufficient: partial files are separately
+  reported. Bind the selected inventory, source identity, parser/settings and
+  embedding profile without changing stable symbol IDs. Filtering a parsed
+  snapshot changes its inventory after its source generation hash is computed.
+- Compare derived-only staging with generation-qualified rows after establishing
+  reader lifetime, disk headroom and publication-lock targets (currently Unknown).
+  Never replace/restore the whole shared `project.db` to publish a graph generation.
+  The existing force pipeline deletes before discovery; a post-build flag alone
+  cannot preserve the previous graph. DATA-05 retains cross-store reconciliation.
+
+Current data-plan delivery: **5 of 12 increments merged (41.7% by unweighted
+milestone count), 7 remain (58.3%)**. This is not effort completed, audit rubric
+score, release readiness or C5 acceptance. DATA-08a is merged; release and live
+acceptance remain separate gates. Source findings and independent design review
+are preserved in `data04b-discovery.json`; the canonical table remains the task ledger.
+
+Implementation and qualification (base `f1c3330f1`, branch
+`fix/storage-durability-backup`):
+
+- Graph-wide deletion now uses the existing cancellation-safe `write_batch` owner
+  and transaction-preserving `apply_sql`. A new negative test exposed a second
+  integrity defect: `executescript` committed the outer transaction during nested
+  deletion. Rollback now restores graph rows, FTS data and triggers. Configured
+  synchronous/journal/cache settings remain unchanged, and unrelated sessions
+  survive success and failure. No new transaction dispatcher or database added.
+- Consolidation backs up each SQLite source with its online backup API through an
+  escaped read-only URI. Private staging, `quick_check`, standalone rollback-journal
+  output, file fsync, no-overwrite hard-link publication and POSIX directory fsync
+  precede migration. Failure stops consolidation; old backups survive, and a
+  completed backup remains available if directory sync fails after publication.
+- The 300-second progress deadline is **cooperative**, not a hard I/O deadline.
+  Snapshots are per database, not a multi-database transaction. A source can change
+  after backup; online backup does not establish exclusive migration ownership.
+  `DatabaseManager.backup()` is a separate existing API, not qualified by this fix.
+  Vector cleanup still has a separate commit/error boundary (DATA-05). Normal
+  durability defaults are preserved; no power-loss RPO or restore SLO is claimed.
+- TDD retained the original backup reproduction and ten genuine failing regression
+  cases (five backup, five graph). An earlier four-case fixture setup failure is
+  not product evidence. The final targeted run passed **53 tests**; independent
+  review reran those 53 and approved the scoped implementation. Coverage includes
+  uncheckpointed WAL restore, an interleaved writer, mid-copy timeout, corruption,
+  sync/publication failure, collisions, nested FTS rollback and cancellation.
+- Removed three obsolete helper-oriented tests that asserted disabled durability
+  or did not measure their claimed optimization. Existing public-behavior cleanup,
+  concurrency and WAL suites own the regressions. Graph-only unit/integration
+  fixtures isolate embedding initialization; real embedding behavior is not
+  inferred from them. Affected suites: **238 passed, one slow test skipped**;
+  pipeline callers: **72 passed, one slow test skipped** (overlapping targets,
+  not additive unique coverage). Changed production-line coverage: **96%**.
+  Strict configured mypy passed 2,117 files; full collection passed 35,252 tests.
+  Black (3,925 files), Ruff, repository hygiene, locks and docs drift passed.
+  The integration file was then run explicitly with `--run-slow`: **5 passed**,
+  including the previously skipped case. Its bounded synthetic timings do not
+  establish production throughput. All applicable PR CI passed: **39 successful**
+  checks, including Vertical Py3.12; two conditional skips and one neutral Trivy
+  advisory are not test passes. The exact reviewed candidate was
+  `e98bda0e7a1d889e0a35bcae2335a80339ed16cb`; merge is #1366 / `7d22d28da`.
+  Original failed evidence, review hash, local logs and final GitHub check records
+  remain in `var/codegraph-victor-20261012/data08a-*`.
+- Rollback: revert the code increment; it introduces no persisted schema change.
+  Preserve newly created backups and original failed evidence. Do not restore the
+  whole shared project database to undo derived graph changes. DATA-04b is next
+  after this checkpoint; DATA-08b retains operational restore/maintenance acceptance.
+
+DATA-04b next action (no generation implementation claimed): extend existing
+indexing/force-mode/readiness test owners with failure-before-publication,
+partial-parse qualification, filtered-inventory identity and preserved-session
+cases. Reuse the existing graph CLI's explicit coverage-gap presentation. Compare
+derived-only staging with generation-qualified rows before selecting a storage
+shape; measure publication lock contention with session writers and staging disk
+headroom on authorized representative fixtures. Source discovery is retained in
+`data04b-discovery.json`. Never swap the entire mixed-authority project database,
+rerun a live rebuild, or advertise cross-store atomicity as part of this design.
+
+### DATA-04b selected-inventory prerequisite (2026-10-15)
+
+Owner: Victor co-design; linked worktree branch `fix/codegraph-selected-inputs`,
+baseline `7d22d28da`; merged as [#1367](https://github.com/anvai-labs/victor/pull/1367)
+/ `4bfdaf630ebb8dbfed0d0155564599e5920e3bf3`. The consumer preflight candidate is **not approved or merged**.
+Independent review found three blockers despite 30 focused passes: root overrides
+used two path bases; Graph-RAG selected files omitted by the shared parser's hidden/
+build exclusions; and directory pruning changed rooted `/pkg/*` file semantics,
+potentially turning a nonempty input into an empty destructive rebuild. Preserve
+these negative cases in the consumer follow-up before publishing any ready state.
+
+The prerequisite adds `parse_repo(selected_paths=...)` to the existing shared OSS
+parser/resolver. Default discovery is unchanged. Explicit inventories are validated
+before source reads, normalized/deduplicated, and sorted; empty means empty. Hidden/
+build files are permitted, root escapes/non-regular files rejected, and language
+filters remain explicit. Missing files/content read failures remain absent from the manifest: the
+consumer must compare expected inputs before deletion. This is neither an atomic
+filesystem snapshot nor a security boundary against concurrent path replacement.
+Source/runtime/root graph-extra versions are aligned to **0.10.3**, now published
+on PyPI and [GitHub](https://github.com/anvai-labs/victor/releases/tag/victor-codegraph-v0.10.3).
+The new API is available for consumer adoption; atomic publication is still open.
+
+- TDD: eight inventory cases failed before implementation; the existing repository
+  delta suite now passes 15 tests. The full CodeGraph suite passes 228 tests, with
+  default/explicit snapshot parity, resolver reuse, aliases, escapes and missing
+  input. These are bounded fixtures, not throughput or production acceptance.
+- Review reproduced nested ordering drift and FIFO admission; both were fixed
+  with failing regression cases before the final package pass. Independent
+  implementation review approved exact candidate `a0953c5f337ba24a6e966e49cfd70bfece2fd9ca`;
+  commit-bound attestation passed. All 39 applicable PR CI checks passed, including
+  Vertical Py3.12. Two conditional skips and neutral Trivy are not test passes.
+  Consumer indexing suites pass 74 tests. Changed production-line coverage is
+  100%; configured strict mypy passes 2,117 files, full collection 35,252 tests,
+  Black 3,961 files and Ruff pass. Dependency locks, docs drift and repository
+  hygiene pass. Wheel/sdist metadata validate, and an isolated Python 3.12 wheel
+  install with no optional dependencies passes default/explicit/empty-inventory
+  and symbol smoke checks. Release run [38718183891](https://github.com/anvai-labs/victor/actions/runs/38718183891)
+  passed Python 3.12/3.13, build and PyPI publication gates. Both downloaded PyPI
+  artifacts match registry SHA256 values; wheel Python sources match the reviewed
+  merge, and the published wheel passes isolated default/explicit/empty-input,
+  escape-rejection and symbol smoke checks. This is the independent CodeGraph
+  release, not a Victor AI promotion or live C5 acceptance.
+  Existing test owners are extended; no parallel suite or resolver is added.
+- Preserved consumer work: local branch `fix/index-generation-publication`, checkpoint
+  `d81305fec`, git stash `data04b-preflight-awaits-shared-inventory`, and persistent
+  patch/review evidence `var/codegraph-victor-20261012/data04b-preflight-*`.
+- Next: repair streaming ownership first, then the three consumer blockers and
+  pre-delete qualification using the released input contract; then choose and test
+  atomic derived-generation publication with session-writer contention and disk
+  headroom evidence. Incremental mutation, CCG rereads and cross-store atomicity are
+  not solved by this prerequisite. No schema migration or production write is needed;
+  rollback is reverting the additive API before consumers require it.
+
+A further bounded reproducer found that `_IndexingStreamPipeline` completes eight
+parse results with queue capacity one and no consumer, and leaves eight pending
+tasks after an injected consumer failure escapes `run()`. The bounded queue does
+not bound all submitted work/results; the outer `gather` does not settle the
+producer on sibling failure. The probe cancels its owned tasks during cleanup;
+it uses no model, source extraction or database writes and establishes no throughput
+claim. Preserve it as `data04b-stream-ownership-probe.py` and its JSON result under
+`var/codegraph-victor-20261012/`. Extend existing `test_indexing.py` coverage for
+bounded submission, consumer failure, cancellation and late-worker settlement
+before allowing a reused pipeline to switch effective roots. This is the next
+logical PR (`fix/index-stream-ownership`, baseline `4bfdaf630`). Do not restore the
+preflight patch unchanged or mistake source/prepared identity for committed state.
+
+### DATA-04b stream ownership repair (2026-10-15, merged)
+
+Owner: Victor co-design; branch `fix/index-stream-ownership`, baseline `4bfdaf630`;
+✅ merged [#1368](https://github.com/anvai-labs/victor/pull/1368) as
+`824609ea7d81982e98eadf11e866482e99802481`.
+The shared-inventory release above is complete; this increment repairs the existing
+stream before adopting that inventory in consumer preflight. A fixed number of async
+producers share one iterator and the existing executor. Each owns at most one parse
+or result awaiting queue space. Failure or cancellation settles producer/consumer
+coroutines and submitted native work before `run()` returns; repeated cancellation
+cannot abandon that work. Native parsers have no hard stop deadline. Committed
+mini-batches are not rolled back, and concurrent parent-pipeline reuse is not yet
+qualified. Limits bound result count, not bytes or repository-wide parser state.
+Nonpositive batch/queue limits fail explicitly. Executor submission failure fails
+the stream; individual source parse exceptions retain per-file error statistics.
+
+TDD reproduced three failures in the old implementation (all 40 inputs parsed
+behind a capacity-one queue; consumer failure and cancellation returning before
+native completion). Existing-owner tests also cover late native exceptions,
+repeated cancellation, empty input, normal delivery and per-file errors, invalid
+limits and executor failure. Independent review identified retained prior payloads;
+a weak-reference regression failed before promptly releasing those references.
+There was no existing producer ownership suite to duplicate; the existing consumer
+cooperative-yield test remains. No alternate executor, parser, native extension,
+schema or dependency is introduced. These bounded fixtures establish correctness,
+not workload throughput or memory-byte targets. Final local validation passes 86
+consumer tests, five isolated indexing integration tests (including the explicit
+slow case), 100% changed production-line coverage, configured mypy (2,117 files),
+full collection (35,264 tests), Black (3,925 files), Ruff, dependency locks, docs
+and hygiene. Independent review is clean after the retention fix; its owner suite
+passed 68 tests before the final case, and the final stream subset passes 12
+(overlapping counts, not additive). Exact candidate
+`c882aa23de113f0aac139144f075c16ff5d217d6` was independently approved with a
+commit-bound attestation. All 39 applicable CI checks passed (Vertical Py3.12:
+12m23s); two conditional skips and one neutral scan are not passes. This is merged
+source, not a Victor release or live acceptance, and does not close DATA-04b.
+
+Next remains consumer root/inventory qualification, then atomic generation
+publication and contention/headroom evidence. Rollback is reverting this stream
+repair; no data migration is involved. Do not restore the preflight stash unchanged.
+The next linked-worktree branch is `fix/index-preflight-qualification`, based on
+`824609ea7`. It must qualify the selected inventory before destructive force cleanup,
+use one effective root for parser/canonical/hash identities, preserve file-level
+exclusion semantics, and keep preparation results on the owning async task. Existing
+force-mode, snapshot and indexing suites own its failure/reuse regressions. Atomic
+publication remains a later gate, even when preparation preserves old data on error.
+
+### DATA-04b consumer preflight qualification (2026-10-15, merged)
+
+Owner: Victor co-design; `fix/index-preflight-qualification`, baseline `824609ea7`.
+The existing snapshot boundary now sends the selected inventory to released
+CodeGraph 0.10.3, rather than parsing a different default inventory and filtering
+it afterwards. Force cleanup follows root validation, discovery and input
+qualification. Selected missing files, failed parses and manifest disagreement stop
+before graph/vector cleanup. Partial parses retain diagnostics; intentionally empty
+valid roots remain valid empty inventories. This is prepared-input evidence, not a
+committed generation. Optional-package absence remains explicitly legacy-unqualified;
+a broken installed parser now raises instead of permitting destructive fallback.
+
+Runs on one pipeline are serialized; one active root derives parser/file/hash/mtime
+keys without mutating configuration. Preparation returns data to its async owner;
+shared settlement waits for native preparation before releasing that root even under
+repeated cancellation. Discovery prunes only proven all-descendant `/**` exclusions;
+matching a directory with `/pkg/*` does not justify pruning nested source files.
+Explicitly excluded subtrees do not need to be readable. No new parser, dispatcher,
+store or native extension is introduced.
+
+TDD: 17 preflight/identity cases failed on baseline before passing. Independent
+review additionally found broken-installed-parser ImportError being mistaken for
+optional absence; two regression cases failed before narrowing that boundary. Real
+SQLite cases preserve old nodes, mtimes and sessions on preflight failures. Root
+coverage includes hidden/build inputs, rooted glob descendants and canonical stored
+mtime keys. A queued second-root run waits for cancelled preparation to settle.
+Existing test owners are extended; three mock-only/log-only tests are removed,
+and an existing metrics fixture now supplies the real source file it claimed to
+have discovered. Local validation: 154 affected tests, five isolated integration
+checks, 148/156 changed production lines covered (94.9%); configured mypy passes
+2,117 files; full collection passes 35,294 tests, Black passes 3,925 files, and
+Ruff, dependency locks, docs drift and hygiene pass. The final force-mode owner
+passes 17 tests after strengthening the existing empty-input case. Independent
+implementation and exact-commit reviews are clean. [#1369](https://github.com/anvai-labs/victor/pull/1369)
+merged as `697b7eef7122ba78a678f2ac77fb88f3bff04caf` after all applicable checks,
+including Vertical Py3.12, passed. This is merged source, not release or C5 acceptance.
+
+Limits and next work: force writes after qualification can still destroy the old
+generation on failure; incremental planning still mutates before qualification.
+CCG source rereads and filesystem races are not an atomic snapshot. Prepared parser
+versions describe installed metadata, not an editable source fingerprint. Same-instance
+ownership does not serialize separate pipeline instances/processes. Root overrides
+still leave downstream metrics/maintenance targeting the override-root project DB,
+which may differ from the supplied graph store; that existing alignment remains
+unqualified and must be resolved before broad override acceptance. Then select and
+qualify atomic publication, reader lifetime and disk/lock costs. Rollback is a code
+revert without migration; retain failed evidence and do not restore the old stash.
+
+The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
+(58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
+completed milestone. Per-subtask percentages are unknown until acceptance gates close.
+
+### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
+
+Promotion cache-isolation correction LOCAL_GREEN (2026-10-17): owner Victor co-design,
+branch `fix/semantic-cache-test-isolation`, baseline `origin/develop` at
+`ee77239f36560122cf9f9004b47db78d3c41e049`. Full promotion run `38975809301`
+finished with 22/24 passing unit shards. Both Python versions fail the same
+semantic-cache deadline case with `timeout=None`; coverage and summary fail
+closed because of those failures. RED: running the NumPy-absence import test
+before the deadline parameters reproduces two failures / two passes locally.
+Its in-process reimport restores `sys.modules` but leaves the parent-package
+attribute pointing at a different module, so later dotted patches and runtime
+imports disagree. Replace that existing import test with a bounded subprocess
+that selects and verifies the exact source file. Assert the parent's module,
+class, getter and singleton identities remain intact. No production change or
+additional duplicate test suite is needed. Both complete cache/deadline owners
+pass 30 tests on Python 3.12 and 3.13. Final affected cache, verification,
+streaming and deadline suites pass 172 tests on each version, including reversed
+owner order on 3.13. The system Homebrew Python 3.13 has broken Expat linkage;
+qualification instead uses isolated managed Python 3.13.12, leaving shared
+installations untouched. Independent review is CLEAN after fixing its source
+identity finding: alternate installed-source/cwd scenario passes and a deliberate
+source mismatch is rejected; four ordered regression cases pass independently.
+Full collection passes 35,360 tests; Black, Ruff, docs drift and repository hygiene
+pass. Test membership is unchanged. Next: open one corrective PR, then require
+its CI and a new full promotion run before publication. Preserve original CI logs under
+`var/codegraph-victor-20261012/victor1372-final-*.log`. No release is published.
+
+Promotion repair MERGED (2026-10-16): owner Victor co-design, branch
+`fix/promotion-runtime-contract-tests`, release baseline `8811c9477` plus the
+local tracker checkpoint. Eight completed failing shards reduce to four stale
+test cases across two owners: facade prompt tests still assert pre-consolidation
+pipeline dispatch, and C0 usage tests call the removed manual accumulator.
+Local RED reproduced all four failures (76 other tests passed). LOCAL_GREEN:
+178 owner tests and 118 affected binding/runtime/accounting/prompt tests pass;
+all 296 pass again in the isolated release environment (Sandhi 0.14.0,
+contracts 0.10.0, worktree Victor source). Full collection in that environment
+passes 35,360 tests, one fewer after removing the duplicate facade case. The
+shared environment's 35,293 collection pass is separate evidence; its older
+Sandhi/contracts installations are not release qualification. Black, Ruff,
+docs drift and repository hygiene pass. The corrective candidate consolidates two obsolete facade
+tests into one canonical-delegation test, retaining pipeline/fallback behavior
+coverage in the existing runtime/pipeline owners. Parameterized C0 usage tests
+drive the real capability/view/invocation path and assert exact task totals and
+one request despite repeated snapshots and presentation finalization. No production
+path or dependency changed. Fresh-context review is clean for `e640f5a3282e6d91cba8e6928f5cd5929301e4f8`.
+[PR #1373](https://github.com/anvai-labs/victor/pull/1373) squash-merged at
+`ee77239f36560122cf9f9004b47db78d3c41e049` after all 39 applicable feature checks
+passed. The subsequent promotion run failed only as recorded above. Cumulative
+adversarial review of main `a18b26e2` through that source head found no blocker
+in its inspected scope: 1,063 tests passed / four skipped, and the parent passed
+57 streaming/buffered parity cases using cached-model offline settings. Those
+local results do not supersede the failed full matrix or required main approval.
+
+2026-10-16 promotion boundary: extension [PR #1371](https://github.com/anvai-labs/victor/pull/1371)
+**MERGED** at `8811c9477` after clean independent review of
+`0daf0849be3dc563b6e1ae3838d16c55dd2f6f0c` and successful feature CI,
+including Vertical Py3.12 (8m55s). Promotion
+[PR #1372](https://github.com/anvai-labs/victor/pull/1372) is **OPEN** from
+develop `ee77239f3` to main `a18b26e2`; the promotion runs failed as recorded
+above, and required main approval remains pending. This is Victor **0.13.0, a minor release**; no package
+publication is claimed. Owner Victor co-design tracks this boundary on
+`docs/release-013-progress`, baseline `8811c9477`. Next: inspect
+`gh pr checks 1372`, resolve any failures, then merge by merge commit only after
+all gates and required approval pass. Publish contracts 0.10.0 before the
+separately gated vertical/root/native releases, verify published combined-extra
+installs, then update Homebrew. The detailed qualification below records earlier
+candidate evidence; the extension is now merged, not merely locally qualified.
+
+Promotion preflight on 2026-10-16: root develop fast-forwarded to `8811c9477`;
+untracked local configuration was preserved. Main protection requires one
+approving review and currently reports `REVIEW_REQUIRED`; local independent
+review does not satisfy that GitHub gate. Build, CLI smoke, provider/workflow/tool
+integration, native integration and blocking dependency/security scans passed.
+Run `38964887957` completed with 16 passing and eight failing Python shards;
+coverage and test summaries correctly fail closed. No full-suite pass is claimed.
+No release tags were created. The existing `v0.13.0` and `sdk-v0.10.0` tag names
+were checked and are unused.
+
+Homebrew upstream was fetched at `7733942` without changing its unrelated active
+branch. Its Victor formula still contains Sandhi 0.11.0 and contracts 0.9.0.
+After publication, regenerate the complete wheel resource closure with the tap's
+existing `tools/gen-victor-resources.py`, verify downloaded checksums and perform
+real formula installation tests; updating only the root sdist URL is insufficient.
+Do not treat the already published Sandhi formula as an upgrade of Victor's
+embedded dependency resources.
+
+Owner: Victor co-design; branch `chore/extension-release-052`, baseline
+`5be89837af41b8d22a2c8221e3d0ef3d18be8ae9`. Release-preparation
+[PR #1370](https://github.com/anvai-labs/victor/pull/1370) **MERGED** by squash at
+that SHA after clean independent review of `fea87597a7a9d60b5306b3e506bf4ee55e5ec35f`.
+CI Fast 38949502683, Verticals 38949502655 (Py3.12: 8m44s), Contracts,
+CodeGraph and build completed successfully. GitHub's Gitleaks check retained an
+inconsistent `in_progress` status despite `conclusion=success`, a completion
+timestamp and every step completed; the containing workflow and CI aggregate
+both completed successfully. This discrepancy is preserved, not silently treated
+as an unexecuted scan. No CI override or admin bypass was used.
+Cumulative promotion review against main `a18b26e2` found no blocking finding
+in the reviewed migration/WAL/cancellation/loop/contract scope; 418 focused tests
+pass. Review identified an extension artifact follow-up: 0.5.1 is already shipped
+in Victor 0.12.0, while bundled dependencies changed. Independent extension
+version 0.5.2 is now merged in #1371. Its local qualification established:
+Node 24.21.0 locked install, lint and compilation; 113 unit tests and 1,011 tests
+in an actual VS Code 1.142.0 extension host pass. Production VSIX packaging
+passes; JSON and XML both identify version 0.5.2, with compiled extension and
+webview JS/CSS present (SHA-256
+`210bf62670e25f23fd5f89496c3db3c6e6bac868946e85999ee724f2eda2cb37`).
+The sandbox-denied webview download and unrelated system Python 3.15 XML import
+error are preserved; packaging passes with registry access and artifact checks
+use the supported Python 3.12 environment. No dependency graph or runtime code
+changed. Independent review is clean; 35,361 tests collect. Next: finish #1372's
+full sharded test/integration battery and required main approval before merge;
+package publication is later. The previous successful promotion test run
+`38320270669` took about 86 minutes overall, with the slowest shard taking about
+81 minutes. Use this measured history for a conditional CI estimate, not the
+roughly nine-minute feature-PR vertical gate.
+Close the current release batch before
+resuming DATA-04b generation publication; the DATA milestone denominator stays
+5/12 complete. No formation or C5 acceptance is inferred from package publication.
+
+| Component / gate | Verified state | Next action |
+|---|---|---|
+| Sandhi 0.14.0 | Published from `805d786909ef72cce67a6d896d3fcc0e54815170`; main CI 38772328861 and all-target release 38774114587 attempt 2 passed; independent verifier passed | Consumer installation and managed deployment remain distinct |
+| Sandhi release history | [#371](https://github.com/anvai-labs/sandhi/pull/371), [#373](https://github.com/anvai-labs/sandhi/pull/373), promotion [#372](https://github.com/anvai-labs/sandhi/pull/372), back-sync [#374](https://github.com/anvai-labs/sandhi/pull/374) and release docs [#375](https://github.com/anvai-labs/sandhi/pull/375) merged | Preserve failed first verifier attempt (npm propagation 404); no tag/artifact replacement |
+| SentinelPass | GitHub release rechecked 2026-10-16: 0.17.0; non-yanked protocol remains 0.17.0; Sandhi pins `=0.17.0` exactly | No speculative upgrade; no daemon or credentials changed |
+| InferFlux | Released 0.5.0 remains the runtime baseline; subsequent upstream changes are documentation | No new runtime release justified by those docs changes |
+| Homebrew Sandhi | [tap #103](https://github.com/anvai-labs/homebrew-tap/pull/103) merged after independent review and real formula/cask install CI | Running services are not upgraded by merging a formula |
+| Victor CodeGraph | Latest PyPI release rechecked 2026-10-16: 0.10.3; exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
+| ProximaDB SDK/native | MERGED in #1370 — owner Victor co-design, `chore/release-013`, baseline `697b7eef7`; PyPI 0.4.1 artifacts verified on 2026-10-16, fetched develop unchanged. Both SDK extras now declare `>=0.4.1,<0.5` | Independent review and release CI; preserve the distinction between the SDK-managed server and the separately installed native wheel |
+| VS Code extension | MERGED in #1371 — independent 0.5.2 version, Node 24.21.0; 113 unit and 1,011 extension-host tests pass; VSIX identity/assets verified; feature CI passed | Included in promotion #1372; release artifact publication remains pending. Marketplace publication is not part of the existing release workflow |
+| Contracts SDK | 0.10.0 candidate wheel builds; Python floor rises from published 0.9.2's 3.10 to 3.12; typed exports/markers and runtime bridge repairs included | Publish independent `sdk-v0.10.0` after reviewed promotion, before root package publication |
+| Victor AI/native | 0.13.0 candidate identities synchronized; root plus three snapshots pin Sandhi 0.14.0 and contracts 0.10.0 | Finish review/CI, promote to main, publish artifacts and verify installs |
+| First-party verticals | ACTIVE — suite-aligned 0.13.0 source candidates; published victor-coding 0.7.2 still requires ProximaDB `<0.3` | All five wheels build/install and plugin entry points load in the isolated environment; broader vertical suites pass as qualified below. Independently gate `verticals-v0.13.0` after contracts publication. Root release alone does not publish verticals; mixed-extra installation must be verified before closing this milestone |
+| Homebrew Victor | Existing 0.12.0 package and documented 0.11.0 private-CA override preserved | Update only after coordinated Victor release; never downgrade to historical 0.10.1 |
+
+Local qualification uses the official Sandhi 0.14.0 wheel in an isolated temporary
+environment; recorded import paths distinguish it from the shared development
+binding. SDK/version suites pass 347 tests. Provider suites pass 1,777 tests with
+six explicit skips after rerunning the two sandbox-denied TLS listeners; all seven
+TLS diagnostic tests pass. Real loopback HTTP parity passes 59 tests for embedded
+and gateway-shaped OpenAI-compatible/Anthropic paths. The first sandbox-denied
+runs remain evidence, not runtime defect claims. The installed contracts wheel
+passes both positive and negative MyPy consumer checks with both typing markers.
+The root wheel installs under the core dependency snapshot; `pip check`, CLI
+`--version` and `--help` pass. The bare CLI still emits the existing optional
+`victor-coding` discovery warning; no plugin acceptance is implied. Full collection
+passes 35,294 tests, configured MyPy passes 2,117 source files, Black passes 3,925
+files, and Ruff, dependency lock consistency, version sync, docs drift and repository
+hygiene pass.
+These fixtures do not establish live OAuth, model quality, deployment, weighted
+budget enforcement or mixed-team C5 acceptance.
+
+The Rust workspace lock also moves Rustls 0.23.45 to 0.23.46 for
+RUSTSEC-2026-0346–0349; `cargo tree` locates it under the edge runtime's Reqwest
+client. All 256 Rust unit/doc tests and formatting pass. No parser or native
+algorithm changes are included.
+
+ProximaDB consumer qualification (2026-10-16) uses the published SDK and native
+0.4.1 wheels, installed in an isolated Python 3.12 environment. Both imports,
+`pip check` and root-extra resolution under `requirements.txt` pass. Existing
+ProximaDB adapter suites pass 101 tests; including packaging/dependency guards,
+114 pass. No duplicate tests were added for the version-only changes. Four real
+managed-server integration cases pass with `--run-slow`: graph parity against
+SQLite, refcounted shared connections and correlated graph/vector records.
+The first ordinary invocation skipped the slow marker; the first active run
+was interrupted after sandbox-denied Unix socket binds. Neither is a pass;
+the explicit socket-enabled rerun passes all four with no skips.
+The native macOS arm64 wheel separately passes graph traversal, typed properties,
+vector search and graph-identity lookup using the upstream release smoke plus a
+bounded two-vector extension. This is not Victor native-adapter acceptance:
+Victor still uses `proximadb_sdk.embedded.EmbeddedProximaDB`, which manages a
+server child process. Installing `proximadb_embedded` neither switches that
+adapter nor supplies its executable. No new native dependency is imposed on
+SDK-only consumers. The existing local server executable (SHA-256
+`a46326809c7670feb28920fe3486fc9b298760eba120058a02bcd4ebbc46b50c`)
+is used only with fresh
+temporary test stores; its release provenance is unverified, so these tests do
+not qualify a newly released server binary or a deployment. Published native
+wheel availability on Linux/Windows is metadata evidence, not local execution.
+The PyPI authentication mechanism is not inferred from successful publication.
+A fresh 2026-10-16 upstream check confirms Sandhi 0.14.0, both ProximaDB
+packages 0.4.1, CodeGraph 0.10.3, InferFlux 0.5.0 and SentinelPass 0.17.0.
+This is key-component release verification, not a claim that every transitive
+lock entry is the latest available version.
+With the SDK installed, the final collection includes 35,361 tests (43.56 seconds);
+the earlier 35,294 count above records the pre-extra candidate.
+Release review identified published victor-coding 0.7.2’s incompatible `<0.3`
+extra. Suite version alignment and separate vertical publication are required;
+source-only alignment is not a released consumer fix.
+
+All five suite-aligned vertical 0.13.0 wheels build, install and load through
+`victor.plugins` entry points in the isolated environment. Rebuilt root/coding
+wheel extras resolve together on 0.4.1; `pip check` passes. Vertical suites pass
+2,145 tests with 163 explicit coding skips: coding 1,252, DevOps 275, research
+257, RAG 83 and data analysis 278. Coding runs with `--benchmark-disable`
+(execute assertions once, no calibrated performance claim); the earlier run’s
+large-file calibration hit the 60-second bound/interruption and is preserved.
+An initial combined invocation produced test-module namespace collisions, so
+final suites run separately with `--import-mode=importlib`. DevOps RED reproduced
+five failures because tests assumed optional MLflow was absent. GREEN sets that
+absence explicitly in the existing class fixture; all existing assertions remain
+and no duplicate tests or runtime behavior were added. The accidental local
+MLflow experiment files are retained with qualification evidence, outside source.
+No services or credentials were changed. Final configured MyPy passes 2,117 files,
+Black passes 3,925 root files plus the changed fixture, and Ruff/metadata/docs
+checks pass. Release order is contracts, independently gated verticals and root
+artifacts, then the combined published-extra installation check and Homebrew.
+
+The Victor native release wheel (portable macOS arm64 target, no
+`target-cpu=native`) additionally passes 333 unique native tests with 11 explicit
+skips after the 30 public-tokenizer-download failures were rerun with network
+access (35 tests in that rerun, five overlapping). Cross-platform native release
+CI remains required.
+
+**DEP-YAML — open, owned by Victor native maintenance:** an exploratory current
+`cargo deny check advisories` remains **FAILED/unresolved** for the pre-existing
+RUSTSEC-2024-0449 unmaintained `unsafe-libyaml 0.2.11` dependency through
+`serde_yaml 0.9.34+deprecated`. Native YAML entrypoints are exposed. This advisory
+is not evidence of an identified exploitable defect, and independent review
+allows a separate maintenance follow-up for this scoped metadata/TLS release;
+no advisory is suppressed and no clean full Rust audit is claimed. Existing
+required security gates remain mandatory. Before changing the engine, qualify
+duplicate keys, aliases/merges, tags, multiple documents, numeric/Unicode values,
+environment interpolation, errors and bounded hostile nesting/alias inputs;
+verify installed-wheel parity against the typed Python reference and measure
+representative latency, CPU and peak memory. Choose the simplest qualifying
+implementation under the native acceleration policy. A demonstrated vulnerability
+would require immediate reassessment. This maintenance item does not change the
+DATA milestone denominator.
+
+The #1370 source versions and metadata are merged to develop, not published
+Victor artifacts; the extension 0.5.2 follow-up remains a local candidate.
+Cumulative review, promotion CI, main approval and per-artifact release verification
+remain gates. Preserve current credentials/services/caches. After the release
+checkpoint, resume atomic generation publication and the original durable action,
+member-continuation and C5 gates without restarting completed workstreams.
+
+## Agentic-loop fitness audit (G97/G98, 2026-10-13)
+
+Scope: source at `5e2afec204d046d979354166f2048d74259262d6` plus the local G97
+retention candidate. This is a control-flow and live-failure audit, not a latency
+profile or a claim that all optional collaborators execute on every run. The user
+requested this audit before further loop simplification. Preserve public defaults
+until a reviewed opt-in change or explicitly approved migration qualifies them.
+
+| Stage / owner | Assessment | Direction |
+| --- | --- | --- |
+| Factory, immutable session settings, session turn lock | Necessary | Keep one configuration and execution owner; preserve explicit user limits |
+| Request governance, tool schema/authorization, exact approvals | Necessary | Keep independent model proposals and runtime permission checks |
+| Perception / task classification / requirement extraction | Useful conditionally | Run once initially; update only after relevant new evidence; never broaden a bounded request |
+| Planning gate / topology / paradigm routing | Optional capability | Simple tasks need no extra planner; specialist formation only when requested or measured benefit warrants it |
+| Task guidance / generic analysis/action prompts | Provenance repaired locally; pressure still under review | Four injection sites now mark runtime guidance; broad analysis directives can still contradict bounded tasks |
+| History, context assembly, session ledger / retrieval | Necessary with one task anchor | Fix source provenance first; synthetic guidance must not count as a human turn; preserve tool exchanges |
+| Prompt optimizer / temperature ratchet / online learning | Experimental optimization | Keep opt-in and evaluate against a fixed-model baseline; no speed/quality benefit established by this audit |
+| Provider execution through optional Sandhi | Necessary boundary | Preserve provider finish reasons, usage provenance and policy errors; record each actual provider attempt |
+| Tool dispatch / dedup / result correlation | Necessary | Keep exact call IDs; recover schema errors once from structured feedback; never force a different tool solely to defeat dedup |
+| Transport retries / empty-response recovery / context recovery | Useful but overlapping | One run-wide model-attempt, elapsed-time and token budget; explicit changed recovery condition; no blind side-effect replay |
+| Enhanced completion / fulfillment / terminal-answer overrides | Overlapping completion authorities | Prefer typed outcomes and task-specific evidence; prose length, keywords and confidence are advisory |
+| Verifier / effect gate | Valuable for concrete writes and claims | Run relevant verification before success; exact failures can permit bounded correction, subject to original permissions |
+| Rubric judge / per-turn auditor | Optional, currently opt-in | Use calibrated eval evidence for difficult tasks; do not add model judging to every ordinary read/tool turn |
+| Spin/repetition/plateau guards | Necessary reliability control | Stop or diagnose stalled work; nudges do not themselves prove progress |
+| Loop execution variants | Incomplete semantic parity | `run`, `run_streaming`, iteration `stream` and optional StateGraph have different surrounding guards and terminal behavior |
+| Final publication / UI / CLI status | Necessary, defects confirmed | Nonzero terminal failure; exact result IDs; distinguish completed, failed, blocked, cancelled and exhausted |
+
+Specific findings:
+
+- `TaskCoordinator.apply_task_guidance` tells every analysis task to inspect multiple
+  modules and not stop after a few files, even when the user explicitly bounded the
+  task. Its four analysis/action injection sites omit internal metadata (two execute for
+  analysis; one action branch executes for an action task). This is a
+  concrete producer defect at the audited baseline, repaired in this candidate using
+  canonical metadata (including verifier feedback). Broad prompt pressure remains
+  open; do not compensate with content parsing or larger budgets.
+- `NudgePolicy.budget_warning` says "Make your edits NOW" without task intent.
+  `_inject_decide_nudges` calls the otherwise intent-aware evaluator without intent.
+  Read-only work must never acquire implied write permission through these prompts.
+- `run_streaming` reuses phase methods but does not call `LoopGuards.enforce`,
+  `TurnEvaluationController.evaluate` or `_check_adaptive_termination` where buffered
+  `run` does. A reset/shared object is not parity. Exhaustion returns without the
+  same explicit `LoopResult` terminal contract. Buffered `total_timeout` also defaults
+  to `None` (off); the missing deadline parity matters when configured.
+  The optional StateGraph path rejects
+  an attached verifier; it is not a transparent equivalent of the ordinary loop.
+- Tool budget is intentionally advisory in `UnifiedTaskTracker.should_stop`, while
+  `ToolPipeline._dispatch_unique_calls` has `remaining_budget` admission and budget-
+  exhausted skips. Audit propagation/ownership rather than claim no hard tool limit.
+  Iteration caps and transport attempts are different quantities. The observed twenty provider
+  requests with a ten-iteration request require attribution before claiming a limit
+  bypass: retries/recovery can add model calls within one outer iteration.
+- Completion still uses response text/length and cascading evaluators. There are
+  valuable Q&A/terminal-answer fast paths; do not remove them merely to reduce files.
+  A short response warning in `chat_stream_helpers` alone does NOT trigger retry.
+- Live errors currently appear as normal CLI completion, and buffered rendering pairs
+  repeated tool names in reverse order rather than by ID. These undermine self-test
+  trust even when transport succeeds.
+
+Recommended loop contract: admitted task → bounded context → model turn → either
+validated tool calls/results, a typed terminal outcome, or one specific recovery.
+Continue automatically after legitimate tool results while work remains. Do not
+inject generic "continue", minimum-tool-count or minimum-answer-length pressure after
+an acceptable final answer. A clarification/approval wait is not permission to answer
+on the user's behalf. Denial, unresolved effect, cancellation and exhausted allowance
+are terminal recorded outcomes. Internal feedback retains internal provenance.
+
+| Increment | Status | Acceptance before advancing |
+| --- | --- | --- |
+| LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
+| LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
+| LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication ✅ #1344; terminal post-loop recovery admission ✅ #1345; executor configuration ✅ #1346; team/forced adapter routing and StateGraph parity remain open |
+| LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
+| LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
+| LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
+
+### Full execution-path review and contract fit
+
+Reviewed the buffered `run`, token `run_streaming`, iteration `stream` and optional
+StateGraph adapter, together with `TurnExecutor`, `StreamingChatExecutor`,
+`StreamingActAdapter`, `TurnEvaluationController`, context/history owners and the
+existing streaming parity/governance suites. Buffered tool batches are ACT results,
+not a reason for a third control loop. Concurrent members require separate run state;
+the reset helper does not make one mutable loop instance concurrency-safe.
+
+| Severity / status | Code owner and evidence | Required repair / acceptance |
+| --- | --- | --- |
+| P1 — ✅ MERGED #1336 | `AgenticLoop._reset_run_state`: completion scores survived consecutive calls; all four buffered/streaming mode pairs failed before repair | Reset once per run; retain within-run score history; no change to thresholds |
+| P1 — ✅ MERGED #1336 | Buffered DECIDE recorded pre-backslide COMPLETE without a verifier; existing verifier test expanded to prove false success | Always record the actual decision; both verifier configurations pass |
+| P1 — ✅ MERGED #1336 | `_inject_verify_feedback` used an unrecognized source and could replace the protected task | Shared internal-metadata helper; real verification retry + history eviction tests in both modes |
+| P1 — ✅ qualified #1337 | Normal no-tool streaming candidates previously bypassed RESPONSE governance | Check the candidate once before publication/history/detection; real unified allow/redact/deny/empty tests. Completely removed content is an explicit failure, not inferred completion or retry. Intermediate tool-bearing output remains separately scoped |
+| P1 — PARTIAL #1337 | `run_streaming` previously emitted identical content for COMPLETE, FAIL and CONTINUE at cap | Explicit run verdict now reaches framework/client events and audit finalizers. CLI process exit status ✅ #1338; provider finish reason is not a verdict |
+| P1 — ✅ MERGED #1339 | Streaming omitted controller evaluation; buffered convergence could overwrite evaluator failure | Shared stop helper over `TurnObservation`; convergence never promotes non-COMPLETE; mode precedence, real repetition/reset and downstream verifier tests |
+| P1 — ✅ MERGED #1340 | Shared guard now bounds owned awaits in both modes, restoring context before outward yield | Qualify blocked phases, timeout/underlying-error distinction, consumer pause, cancellation, awaited cleanup and stale verification success. Perception counts remain checked between iterations; no remote-cancellation guarantee |
+| P2 — ✅ MERGED #1341 | Streaming ACT previously lost source recovery/stop decisions | Canonical typed disposition, no further ACT after terminal recovery, governed recovered text; post-loop synthesis remains separate |
+| P1 — ✅ MERGED #1343 | Buffered assistant history preceded response policy; terminal/malformed policy failures could trigger synthesis | Govern each raw producer once, account usage before denial, retain effects, reject unqualified graph policy execution and prevent regeneration |
+| P1 — ✅ MERGED #1344 | Streaming tool-bearing narration and exhausted fallback bypassed response policy; summary/recovered policy cancellation could persist assistant history | Shared candidate policy and cancellation checks before publication/dispatch; public-loop and eight-source regression matrices; orphan team dispatcher removed, streaming team/forced routing still open |
+| P1 — ✅ MERGED #1345 | Buffered wrapper could synthesize after guard, terminal ACT or escalation; interrupted evaluation hid current ACT response | One structured admission check, preserve current response/usage/receipts and exact terminal error; ordinary failed-verification summaries remain permitted |
+| P2 — OPEN | Adaptive extension changes the bound after `range` construction | A bounded driver must consult the current limit; real executed-turn-count test, including absolute cap |
+| P2 — PARTIAL #1341 | Production `StreamingActAdapter` now rejects missing/malformed results; custom-port/outcome and ACT session fields still use `Any` | Narrow remaining protocols and declare current dynamic fields; preserve the qualified production-boundary rejection |
+| P2 — PARTIAL #1341 | ESCALATE now terminates both live loops; string/enum decision normalization remains open | Normalize supported decisions once; preserve documented custom graph routing outside the loop; no autonomous retry on escalation |
+| P2 — OPEN | Executor resolver constructs fresh `AgenticLoopSettings()` instead of accepting the resolved session config | One factory/config authority, invalid-value rejection, explicit unsupported-capability error; no new flag path |
+| P2 — OPEN | Iteration `stream` independently replans and omits reset/guards/nudges; StateGraph rejects verifier | Treat iteration output as an observer of the same lifecycle; keep unsupported combinations explicit until qualified |
+| P2 — ✅ MERGED #1342 | Read-only audits previously received write-oriented nudges and a second policy decision | Capture initial intent and dispatch one typed decision; guidance grants no permission. Run-wide provider attempts remain open |
+
+| Pattern / principle | Fit | Concrete application |
+| --- | --- | --- |
+| State machine + composition | Keep | One lifecycle decides transition/termination; adapters change output timing, not authorization or success |
+| Adapter / ports and adapters | Keep, tighten contracts | Existing ACT port converts provider I/O into `TurnResult`; reject an unset result; no second provider or tool registry |
+| Strategy | Keep conditionally | Select completion/planning strategy once from validated config; optional judges require measured benefit, not nested fallback authorities |
+| Single responsibility | Repair | History owns retention; run owns counters/decisions; delivery owns governed publication; tools own effects and receipts |
+| Interface segregation / dependency inversion | Repair | Depend on narrow typed services already present, replacing runtime `getattr` probing at internal seams; adapt legacy inputs at entry only |
+| Substitutability | Not yet established | Every mode must honor the same failure, recovery, cancellation and governance contracts; same answer text is insufficient |
+| Factory / dependency injection | Keep | Assemble one validated configuration and supported capabilities; never silently reconstruct defaults mid-run |
+| Template Method inheritance, new event bus or loop framework | Unnecessary here | Extract shared behavior into existing owners; avoid a class hierarchy or generic registry merely to reduce line count |
+
+Target flow (implementation is staged in LOOP-02–05, not an acceptance claim):
+
+```mermaid
+flowchart LR
+  A[Admitted task and run state] --> B[Shared bounded lifecycle]
+  B --> C[Buffered or streaming ACT adapter]
+  C --> D[Typed turn and tool results]
+  D --> E[Shared evaluation and decision]
+  E -->|bounded continuation| B
+  E -->|terminal or needs input| F[Governed terminal delivery]
+  F --> G[CLI / API / UI outcome and audit]
+```
+
+Test consolidation: removed four `test_agentic_loop_decide.py` cases that asserted
+source strings or duplicated a decision `if` statement. Retained four score-velocity
+boundary tests; the existing verification owner now executes real drivers for
+cross-run isolation, nonterminal behavior and stale completion. The streaming
+characterization battery remains useful for output/tool ordering; extend it with
+failure contracts instead of creating a second parity suite. No performance gain
+is claimed: only correctness, less duplicated reset code and stronger regression
+coverage have been established. Optional planner/judge/learning removal or native
+acceleration still requires representative end-to-end measurements.
+
+PR #1336 promoted retention/reset/recorded-result repairs; its worktree was removed
+and immutable evidence preserved. No failed smoke was relabelled as passed. Sandhi #370 is a
+separate merged arithmetic foundation, not live weighted-policy or C5 acceptance.
+
 ## Repository-wide typing qualification (G96)
 
 Scope: root runtime, contracts SDK, codegraph, all five first-party verticals and
@@ -1377,11 +3632,11 @@ errors is not an acceptance result for this program.
 | ID | Dependency / work | Status and acceptance |
 | --- | --- | --- |
 | TYPE-01 | Unsuppressed inventory, reproducible commands, file/error ownership and existing test audit | ACTIVE; core audit 7,794 errors / 1,082 files; independent-package targets report 1,101 package-local errors; root tests/scripts also inventoried below; package tests remain; SDK compatibility sources now inventoried (5 additional diagnostics) |
-| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK slice merged #1319; 11 SDK/compatibility diagnostics repaired, real export and type-identity regressions covered; remaining definition-layer work open |
-| TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | TODO after TYPE-02; required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
+| TYPE-02 | Definition-layer contracts, missing symbols and concrete signature mismatches | SDK #1319, shared event/stream #1327 and mutable registry #1328 merged; registration compatibility exports #1329 merged (checkpoint above); remaining definition-layer work open |
+| TYPE-03 | Typed runtime assembly and adapters, completing SA-04 | Coordination assembly ✅ MERGED #1332 (checkpoint above); broader adapter qualification remains open: required collaborators explicit, optional capabilities centralized; no dynamic forwarding as evidence of protocol implementation |
 | TYPE-04 | Services, providers, tools, workflows, storage and client consumers | TODO in dependency order; retire each reviewed exception only with affected tests and strict checks |
 | TYPE-05 | Package/vertical integration and full unsuppressed matrix | TODO after contributing groups; build/install and supported Python jobs pass, no broad suppression, unused ignores removed |
-| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
+| TYPE-06 | Test and development-script typing | TODO after their production contracts; root tests 48,242 diagnostics, scripts 440; shared feature-flag fixture prerequisite merged #1330 (checkpoint above); use canonical reset and remove duplicated flag isolation; retain intentional negative fixtures and behavior coverage; no blanket test exclusion as a compliance claim |
 
 Each increment records exact source SHA, diagnostics before/after, tests, independent
 review and CI. Correct types at their owning boundary; do not replace errors with

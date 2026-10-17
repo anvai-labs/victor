@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
+from victor.agent.action_authorizer import ActionIntent
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.tools.tool_names import get_canonical_name
 
@@ -273,7 +274,7 @@ class NudgePolicy:
         detector: SpinDetector,
         iteration: int = 0,
         max_iterations: int = 10,
-        intent: Optional[Any] = None,
+        intent: Optional[ActionIntent] = None,
     ) -> NudgeDecision:
         """Evaluate whether a nudge is needed.
 
@@ -287,6 +288,10 @@ class NudgePolicy:
             NudgeDecision with nudge type and message
         """
         state = detector.state
+        write_task = intent is ActionIntent.WRITE_ALLOWED
+        tool_examples = (
+            "read, edit, write, shell, code_search" if write_task else "read, code_search"
+        )
 
         # All tools blocked by dedup
         if state == SpinState.BLOCKED:
@@ -295,8 +300,8 @@ class NudgePolicy:
                 message=(
                     "Your last tool calls were blocked because you already "
                     "called them with the same arguments. Try a DIFFERENT "
-                    "tool or different arguments. If you've made your fix, "
-                    "provide your final answer."
+                    "permitted tool or different arguments within the original request. "
+                    "If the task is complete, provide your final answer."
                 ),
                 role="user",
             )
@@ -310,7 +315,7 @@ class NudgePolicy:
                     message=(
                         f"STOP. You have not called any tools in {detector.consecutive_no_tool_turns} turns. "
                         f"This is a repetition loop. You MUST:\n"
-                        f"1. Use a tool NOW (read, edit, write, shell, code_search)\n"
+                        f"1. Use a permitted tool within the original request ({tool_examples})\n"
                         f"2. OR provide your final answer if the task is complete\n"
                         f"Do NOT respond with more text analysis. Take action or conclude."
                     ),
@@ -323,7 +328,7 @@ class NudgePolicy:
                     message=(
                         f"You have not called any tools in the last "
                         f"{detector.consecutive_no_tool_turns} turns. You MUST "
-                        f"use a tool now (read, edit, write, shell) to make "
+                        f"use a permitted tool within the original request ({tool_examples}) to make "
                         f"progress on the task. Do not respond with text only."
                     ),
                     role="user",
@@ -332,10 +337,7 @@ class NudgePolicy:
 
         # Too many read-only turns: tailor based on intent
         if detector.consecutive_read_only_turns >= self._config.read_only_escalation_threshold:
-            _is_write_task = (
-                intent is not None and hasattr(intent, "value") and intent.value == "write_allowed"
-            )
-            if _is_write_task:
+            if write_task:
                 # Model has gathered enough context — push it to edit, not search
                 return NudgeDecision(
                     nudge_type=NudgeType.CODE_SEARCH,
@@ -365,23 +367,30 @@ class NudgePolicy:
         self,
         iteration: int,
         max_iterations: int,
+        *,
+        intent: Optional[ActionIntent] = None,
     ) -> NudgeDecision:
         """Check if a budget warning should be issued.
 
         Args:
             iteration: Current iteration
             max_iterations: Maximum iterations
+            intent: Original task intent; absence never implies permission to edit.
 
         Returns:
             NudgeDecision with budget warning if past halfway
         """
         if iteration > max_iterations // 2:
             remaining = max_iterations - iteration
+            guidance = (
+                "Make your edits NOW."
+                if intent is ActionIntent.WRITE_ALLOWED
+                else "Conclude from available evidence within the original request."
+            )
             return NudgeDecision(
                 nudge_type=NudgeType.BUDGET_WARNING,
                 message=(
-                    f"WARNING: {remaining} turns remaining out of "
-                    f"{max_iterations}. Make your edits NOW."
+                    f"WARNING: {remaining} turns remaining out of " f"{max_iterations}. {guidance}"
                 ),
                 role="user",
             )
@@ -546,8 +555,8 @@ class ContentRepetitionDetector:
     loop using a cruder content-length heuristic). Uses an exact MD5-hash match over the
     last 3 turns plus a Jaccard word-overlap check via :func:`evaluate_overlap_repetition`.
     Stateful per conversation; call :meth:`record` once per turn with the turn's full
-    assistant content and read ``action`` — the caller decides how to stop (the headless
-    loop marks the turn FAILED, the streaming loop force-completes and emits a chunk).
+    assistant content and read ``action``. Both AgenticLoop execution modes map a
+    repetition stop to failure; a repeated answer is not proof of completion.
     """
 
     def __init__(self, min_content_len: int = 20, history: int = 5) -> None:
@@ -671,8 +680,7 @@ class TurnObservation:
     tool_signatures: Optional[Set[str]] = None
     iteration: int = 1
     max_iterations: int = 1
-    intent_is_write: bool = False
-    intent: Optional[Any] = None
+    intent: Optional[ActionIntent] = None
     tool_results: Optional[List[Dict[str, Any]]] = None
 
 
@@ -680,11 +688,11 @@ class TurnObservation:
 class TurnDecision:
     """The shared continue/nudge/stop verdict for one turn; the loop applies it.
 
-    ``stop`` ends the loop. ``terminal_success`` distinguishes a clean finish (map to
-    COMPLETE / force-completion) from a degraded stop (map to FAIL). ``stop_message`` is the
-    user-facing chunk text for the streaming loop. ``nudge_message`` (if set) is injected by
-    the loop via its own message channel (headless ``chat_ctx.add_message`` vs streaming
-    ``orch.add_message``), so injection mechanics stay loop-local.
+    ``stop`` requests termination. ``terminal_success`` denotes convergence rather
+    than degradation, but cannot establish task success: AgenticLoop retains COMPLETE
+    only when evaluation already permits it, then applies verification. The controller
+    neither synthesizes an answer nor executes another model turn. ``stop_message``
+    and ``nudge_message`` are policy suggestions; delivery belongs to the caller.
     """
 
     stop: bool = False
@@ -706,11 +714,10 @@ class TurnEvaluationController:
     """One per-turn decision point shared by the headless and streaming loops.
 
     Composes the already-shared guards (:class:`SpinDetector`, :class:`NudgePolicy`) with the
-    now-shared :class:`ContentRepetitionDetector` and :class:`PlateauDetector`. Both loops
-    feed a :class:`TurnObservation` and apply the returned :class:`TurnDecision`, so spin /
-    repetition / plateau / nudge logic exists once. Turn *execution* (streamed vs buffered)
-    stays loop-local. Convergence (fulfillment-completion + search-novelty) plugs in here in a
-    follow-up so both loops gain it at once.
+    :class:`ContentRepetitionDetector`, :class:`PlateauDetector` and search novelty.
+    Both AgenticLoop modes feed one :class:`TurnObservation` and apply the stop verdict.
+    Turn execution stays loop-local; the loop dispatches the selected nudge after its
+    terminal gates without re-evaluating this policy.
     """
 
     def __init__(
@@ -834,9 +841,8 @@ class TurnEvaluationController:
                 metadata={"repetition_action": action},
             )
 
-        # 2.5 Search novelty — diminishing returns on successive searches. After persistent
-        # saturation, force-complete so the agent SYNTHESIZES the gathered context (a clean
-        # finish, not a failure) instead of thrashing distinct queries to the iteration cap.
+        # 2.5 Search novelty — stop redundant exploration after persistent saturation.
+        # This signal does not synthesize an answer or override completion checks.
         novelty = self.search_novelty.record_turn(observation.tool_results)
         _editing = bool(
             {get_canonical_name(t) for t in (observation.tool_names or set())}
@@ -850,7 +856,7 @@ class TurnEvaluationController:
         ):
             logger.info(
                 "[search-novelty] %d consecutive low-novelty searches (ratio=%.2f) — "
-                "force-completing to synthesize.",
+                "requesting convergence stop.",
                 novelty.consecutive_low_novelty,
                 novelty.novelty_ratio,
             )
@@ -858,7 +864,7 @@ class TurnEvaluationController:
                 stop=True,
                 terminal_success=True,
                 stop_reason="search_saturated",
-                stop_message="\n\n[Enough context gathered — synthesizing the answer.]",
+                stop_message="\n\n[Search saturated — stopping further exploration.]",
                 metadata={"novelty_ratio": novelty.novelty_ratio},
             )
 
@@ -914,11 +920,11 @@ class TurnEvaluationController:
             nudge_message = synthesize_nudge_message()
             nudge_kind = "synthesize"
         elif plateau_should_nudge:
-            nudge_message = self._plateau_message(observation.intent_is_write)
+            nudge_message = self._plateau_message(observation.intent is ActionIntent.WRITE_ALLOWED)
             nudge_kind = "plateau"
         elif self._enable_budget_warning:
             budget_nudge = self.nudge_policy.budget_warning(
-                observation.iteration, observation.max_iterations
+                observation.iteration, observation.max_iterations, intent=observation.intent
             )
             if budget_nudge.should_inject:
                 nudge_message, nudge_role = budget_nudge.message, budget_nudge.role

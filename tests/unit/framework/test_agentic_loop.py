@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from victor.agent.turn_policy import TurnDecision, TurnEvaluationController
 from victor.agent.action_authorizer import ActionIntent
 from victor.agent.services.turn_execution_runtime import TurnResult
 from victor.agent.topology_contract import (
@@ -172,6 +173,100 @@ class TestAgenticLoop:
             enable_fulfillment_check=kwargs.pop("enable_fulfillment_check", False),
             **kwargs,
         )
+
+    @pytest.mark.parametrize("mode", ["buffered", "streaming"])
+    @pytest.mark.parametrize(
+        ("evaluation_decision", "controller_stop", "controller_success", "expected"),
+        [
+            (EvaluationDecision.COMPLETE, False, False, True),
+            (EvaluationDecision.CONTINUE, True, False, False),
+            (EvaluationDecision.COMPLETE, True, False, False),
+            (EvaluationDecision.FAIL, True, True, False),
+            (EvaluationDecision.CONTINUE, True, True, False),
+            (EvaluationDecision.RETRY, True, True, False),
+            (EvaluationDecision.ESCALATE, True, True, False),
+            (EvaluationDecision.COMPLETE, True, True, True),
+        ],
+    )
+    async def test_run_modes_apply_controller_without_promoting_success(
+        self, mode, evaluation_decision, controller_stop, controller_success, expected
+    ):
+        """Controller stop is not task completion and cannot bypass the evaluator."""
+        turn = TurnResult(
+            response=CompletionResponse(content="Partial findings"),
+            tool_results=[{"name": "read", "success": True}],
+            has_tool_calls=True,
+            tool_calls_count=1,
+        )
+        executor = SimpleNamespace(execute_turn=AsyncMock(return_value=turn))
+        loop = self._make_loop(
+            orchestrator=MagicMock(spec=[]),
+            turn_executor=executor,
+            max_iterations=3,
+            enable_adaptive_iterations=False,
+            config={"disable_enhanced_completion": True},
+        )
+        loop._analyze_turn = AsyncMock(return_value=_make_perception())
+        loop._plan = AsyncMock(return_value={})
+        evaluation = EvaluationResult(
+            decision=evaluation_decision,
+            score=0.9,
+            reason="Evaluator verdict",
+            metrics={"quality": 0.9},
+            metadata={"evidence": "checked"},
+        )
+        states = []
+
+        async def evaluate(perception, result, state):
+            states.append(state)
+            return evaluation
+
+        loop._evaluate = evaluate
+        loop.turn_evaluation_controller = MagicMock(spec=TurnEvaluationController)
+        loop.turn_evaluation_controller.evaluate.return_value = TurnDecision(
+            stop=controller_stop,
+            terminal_success=controller_success,
+            stop_reason="search_saturated" if controller_success else "content_repetition",
+        )
+
+        class Port:
+            async def stream_turn_act(self, **kwargs):
+                kwargs["outcome"].turn_result = await executor.execute_turn()
+                from victor.providers.base import StreamChunk
+
+                yield StreamChunk(content=turn.content)
+
+        if mode == "buffered":
+            result = await loop.run("Inspect the code")
+            success = result.success
+            actual = result.iterations[-1].evaluation
+            assert actual.metadata == evaluation.metadata
+            assert actual.metrics == evaluation.metrics
+        else:
+            loop.streaming_act_port = Port()
+            chunks = [chunk async for chunk in loop.run_streaming("Inspect the code")]
+            success = chunks[-1].metadata["agentic_loop_success"]
+        assert success is expected
+        assert executor.execute_turn.await_count == 1
+        loop.turn_evaluation_controller.evaluate.assert_called_once()
+        observation = loop.turn_evaluation_controller.evaluate.call_args.args[0]
+        assert observation.content == turn.content
+        assert observation.tool_names == {"read"}
+        assert observation.productive_count == 1
+        assert observation.iteration == 1
+        assert observation.max_iterations == 3
+        assert loop.turn_evaluation_controller.evaluate.call_args.kwargs == {"record_spin": False}
+        assert loop.spin_detector.total_tool_calls == 1
+        if evaluation_decision == EvaluationDecision.FAIL:
+            if mode == "buffered":
+                assert actual.reason == "Evaluator verdict"
+            else:
+                assert chunks[-1].metadata["agentic_loop_error"] == "Evaluator verdict"
+        elif controller_stop and not expected:
+            assert states[0]["degradation_events"][0]["kind"] in {
+                "content_repetition",
+                "search_saturated",
+            }
 
     async def test_run_completes_on_high_confidence(self):
         """Loop should complete when perception confidence is high."""
@@ -891,6 +986,7 @@ class TestAgenticLoop:
         perception = _make_perception()
         perception.confidence = 0.9
         turn_executor = MagicMock()
+        turn_executor.govern_response = AsyncMock(side_effect=lambda response: response)
         turn_executor.prepare_runtime_topology = AsyncMock(
             return_value={
                 "action": "team_plan",

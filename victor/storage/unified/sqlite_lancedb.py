@@ -32,6 +32,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from victor.storage.vector_stores._lancedb_compat import lance_string_predicate
+
 from victor.storage.unified.protocol import (
     GraphEdge,
     GraphNode,
@@ -952,6 +954,8 @@ class SqliteLanceDBStore:
 
     async def delete_file(self, rel_path: str) -> None:
         """Delete all symbols for a file (graph + embeddings)."""
+        # Validate before the graph mutation, even when vector storage is absent.
+        predicate = lance_string_predicate("file_path", rel_path)
         if not self._initialized:
             await self.initialize()
 
@@ -961,7 +965,7 @@ class SqliteLanceDBStore:
         # Delete from vector store (by file_path prefix)
         if self._vector_table:
             # LanceDB delete by predicate
-            self._vector_table.delete(f"file_path = '{rel_path}'")
+            self._vector_table.delete(predicate)
 
     async def delete_all(self) -> None:
         """Clear entire store."""

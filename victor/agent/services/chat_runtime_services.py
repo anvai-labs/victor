@@ -15,13 +15,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import AsyncGenerator, Any, Protocol
 
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.framework.policies.gate import GateResult
+from victor.providers.base import BaseProvider, Message, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,13 @@ class ChatGovernance:
 
     @staticmethod
     def _require_result(result: Any, phase: str) -> GateResult:
-        if not isinstance(result, GateResult):
+        if (
+            not isinstance(result, GateResult)
+            or not isinstance(result.allowed, bool)
+            or not isinstance(result.content, str)
+            or not isinstance(result.reason, str)
+            or not isinstance(result.blocked_by, str)
+        ):
             raise TypeError(f"Configured chat governance gate returned an invalid {phase} result")
         return result
 
@@ -117,6 +124,31 @@ class ChatGovernance:
         if self.gate is None:
             return None
         return self._require_result(await self.gate.gate_response(content), "response")
+
+    async def govern_response(self, text: str) -> str:
+        """Apply RESPONSE policy once before persisting or publishing a candidate.
+
+        A denial or total redaction is nonrecoverable. An absent gate preserves bytes.
+        """
+        from victor.core.errors import AgentError
+
+        if not text:
+            return text
+        try:
+            result = await self.check_response(text)
+        except Exception as exc:
+            # Policy implementation/contract failures are terminal, never recovery hints.
+            # CancelledError remains outside Exception and propagates unchanged.
+            raise AgentError("Response policy evaluation failed.", recoverable=False) from exc
+        if result is None:
+            return text
+        if not result.allowed:
+            raise AgentError(
+                result.reason or "The response was withheld by policy.", recoverable=False
+            )
+        if text.strip() and not result.content.strip():
+            raise AgentError("Response policy produced no deliverable content.", recoverable=False)
+        return result.content
 
 
 class CompletionDetector(Protocol):
@@ -340,6 +372,15 @@ class ChatRuntimeIntelligence:
             )
 
 
+class _StreamingCancelled(Exception):
+    """Internal cooperative signal used to unwind the live loop before side effects."""
+
+
+def _raise_if_stream_cancelled(services: ChatRuntimeServices) -> None:
+    if services.stream_lifecycle.is_cancelled():
+        raise _StreamingCancelled
+
+
 class StreamLifecycleRuntime(Protocol):
     """Mutable stream state exposed at the chat composition boundary."""
 
@@ -398,7 +439,9 @@ class StreamMetricsRuntime(Protocol):
 
     def record_first_token(self) -> None: ...
 
-    def accumulate_usage(self, usage_data: dict[str, int]) -> None: ...
+    def stream(
+        self, provider: BaseProvider, *, messages: list[Message], model: str, **kwargs: Any
+    ) -> AsyncGenerator[StreamChunk, None]: ...
 
     def finalize(
         self,
@@ -425,9 +468,11 @@ class ChatStreamMetrics:
     def record_first_token(self) -> None:
         self._require_runtime().record_first_token()
 
-    def accumulate_usage(self, usage_data: dict[str, int]) -> None:
-        """Fold turn usage into the live session totals before report finalization."""
-        self._require_runtime().accumulate_usage(usage_data)
+    def stream(
+        self, provider: BaseProvider, *, messages: list[Message], model: str, **kwargs: Any
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Dispatch through the session invocation owner."""
+        return self._require_runtime().stream(provider, messages=messages, model=model, **kwargs)
 
     def finalize(
         self,

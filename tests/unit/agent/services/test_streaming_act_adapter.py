@@ -22,11 +22,14 @@ internals (covered by the streaming-ACT-port tests).
 
 from types import SimpleNamespace
 
+import pytest
+
 from victor.agent.services.streaming_act_adapter import (
     StreamActSession,
     StreamingActAdapter,
 )
-from victor.providers.base import StreamChunk
+from victor.providers.base import StreamChunk, CompletionResponse
+from victor.agent.services.turn_execution_runtime import TurnResult
 
 
 async def test_stream_turn_act_bridges_and_maps_turn_result():
@@ -54,7 +57,7 @@ async def test_stream_turn_act_bridges_and_maps_turn_result():
         )
         yield StreamChunk(content="a")
         yield StreamChunk(content="b")
-        result.turn_result = SimpleNamespace(content="ab")
+        result.turn_result = TurnResult(response=CompletionResponse(content="ab"))
 
     executor = SimpleNamespace(execute_turn_streaming=fake_execute_turn_streaming)
     stream_ctx = SimpleNamespace(total_iterations=0)
@@ -162,3 +165,33 @@ async def test_prepare_prefers_recovery_service_when_present():
     adapter = await StreamingActAdapter.prepare(executor, "hi")
 
     assert adapter.session.recovery == "SVC"
+
+
+@pytest.mark.parametrize("invalid", [None, SimpleNamespace(content="missing contract"), "bad_enum"])
+async def test_adapter_rejects_missing_or_malformed_turn_contract(invalid):
+    async def execute(*args, result, **kwargs):
+        if invalid == "bad_enum":
+            turn = TurnResult(response=CompletionResponse(content="claimed done"))
+            turn.disposition = "continue"
+            result.turn_result = turn
+        else:
+            result.turn_result = invalid
+        if False:
+            yield
+
+    adapter = StreamingActAdapter(
+        SimpleNamespace(execute_turn_streaming=execute),
+        StreamActSession(None, None, SimpleNamespace(total_iterations=0), None, None, None),
+    )
+    with pytest.raises(TypeError, match="Streaming ACT"):
+        _ = [
+            c
+            async for c in adapter.stream_turn_act(
+                query="q",
+                state={},
+                perception=None,
+                plan=None,
+                turn_index=1,
+                outcome=SimpleNamespace(turn_result=None),
+            )
+        ]

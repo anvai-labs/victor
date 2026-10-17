@@ -59,7 +59,12 @@ class EventDispatcher:
         self.reasoning_normalizer = reasoning_normalizer
         self.suppress_thinking = suppress_thinking
         self.was_thinking = False
-        self.error_surfaced = False
+        self.error: str | None = None
+
+    @property
+    def error_surfaced(self) -> bool:
+        """Whether a terminal failure has been sent to the renderer."""
+        return self.error is not None
 
     def dispatch(self, event: Any) -> None:
         """Route a single event to the appropriate handler.
@@ -72,8 +77,13 @@ class EventDispatcher:
         event_metadata = getattr(event, "metadata", None)
         event_content = getattr(event, "content", "")
 
+        # Terminal failures take precedence over ancillary display metadata.
+        if event_type == EventType.ERROR:
+            self._handle_error(event, event_content)
+        elif event_type == EventType.STREAM_END and getattr(event, "success", None) is False:
+            self._handle_error(event, "The agent run failed.")
         # Structured tool events (metadata-based)
-        if event_metadata and "tool_start" in event_metadata:
+        elif event_metadata and "tool_start" in event_metadata:
             self._handle_tool_start_metadata(event_metadata, event_tool_name)
         elif event_metadata and "tool_result" in event_metadata:
             self._handle_tool_result_metadata(event_metadata, event_tool_name)
@@ -82,9 +92,6 @@ class EventDispatcher:
             self._handle_tool_call(event, event_tool_name)
         elif event_type == EventType.TOOL_RESULT:
             self._handle_tool_result(event, event_tool_name)
-        # Error events
-        elif event_type == EventType.ERROR:
-            self._handle_error(event, event_content)
         # Tool progress events
         elif self._is_tool_progress_event(event_metadata, event_type):
             self._handle_tool_progress(event_metadata, event_tool_name, event_content)
@@ -171,11 +178,18 @@ class EventDispatcher:
 
     def _handle_error(self, event: Any, event_content: str) -> None:
         """Handle an ERROR event."""
-        error_text = (
-            getattr(event, "error", None) or event_content or "The provider returned an error."
+        metadata = getattr(event, "metadata", None) or {}
+        self.surface_error(
+            getattr(event, "error", None)
+            or metadata.get("error")
+            or event_content
+            or "The provider returned an error."
         )
-        self.renderer.on_status(f"\u274c {error_text}")
-        self.error_surfaced = True
+
+    def surface_error(self, message: str) -> None:
+        """Record a terminal failure and deliver its reason to the renderer."""
+        self.error = message
+        self.renderer.on_status(f"\u274c {self.error}")
 
     def _handle_tool_progress(
         self,

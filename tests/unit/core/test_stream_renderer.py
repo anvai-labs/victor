@@ -8,6 +8,8 @@ Tests cover:
 - Edge cases and error handling
 """
 
+import asyncio
+
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch, call
 from rich.console import Console
@@ -1259,38 +1261,21 @@ class TestStreamResponse:
         assert result == "Response content"
 
     @pytest.mark.asyncio
-    async def test_cleanup_on_exception(self, mock_agent, mock_renderer):
+    @pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])
+    async def test_cleanup_on_exception(self, mock_agent, mock_renderer, error_type):
         """Test stream_response cleans up even on exception."""
 
         async def mock_stream():
             yield StreamChunk(content="test", metadata=None)
-            raise RuntimeError("Simulated error")
+            raise error_type("Simulated error")
 
         mock_agent.stream = MagicMock(return_value=mock_stream())
 
-        with pytest.raises(RuntimeError, match="Simulated error"):
+        with pytest.raises(error_type, match="Simulated error"):
             await stream_response(mock_agent, "test message", mock_renderer)
 
         # Cleanup should still be called
         mock_renderer.cleanup.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_closes_generator_on_success(self, mock_agent, mock_renderer):
-        """Test stream_response closes async generator on success."""
-        mock_gen = AsyncMock()
-        mock_gen.__aiter__ = MagicMock(return_value=iter([]))
-        mock_gen.aclose = AsyncMock()
-
-        async def mock_stream():
-            return
-            yield  # Never reached
-
-        gen = mock_stream()
-        mock_agent.stream_chat = MagicMock(return_value=gen)
-
-        await stream_response(mock_agent, "test message", mock_renderer)
-
-        # Generator should be closed (aclose called in finally)
 
     @pytest.mark.asyncio
     async def test_handles_mixed_events(self, mock_agent, mock_renderer):

@@ -1,3 +1,5 @@
+import pytest
+
 from victor.framework.task.direct_response import (
     DirectResponseOutputState,
     classify_direct_response_prompt,
@@ -7,8 +9,41 @@ from victor.framework.task.direct_response import (
 )
 
 
-def test_exact_direct_response_prompt_is_detected():
-    result = classify_direct_response_prompt("Reply with exactly READY")
+@pytest.mark.parametrize(
+    "prompt, expected",
+    [
+        (
+            "What harmless marker did I ask you to remember? "
+            "Reply with only the marker; do not use tools.",
+            True,
+        ),
+        ("What harmless marker did I ask you to remember? Don't use tools.", True),
+        ("What harmless marker did I ask you to remember? Reply with only the answer.", True),
+        ("What does the auth module do? Reply with only the answer; do not use tools.", False),
+        ("Read pyproject.toml. Reply with only the answer; do not use tools.", False),
+        ("Delete the files. Reply with only the answer; do not use tools.", False),
+        ("What harmless marker? Do not use tools unless you need to read files.", False),
+        ("What harmless marker? Reply with only the marker; then delete files.", False),
+        ("Don't skip the tests. Reply with only the answer.", False),
+        ("Read the files; do not modify them. Reply with only the answer.", False),
+        ("What tools are available? Do not use tools.", False),
+        ("Do not use tools.", False),
+    ],
+)
+def test_answer_constraints_do_not_change_underlying_request(prompt, expected):
+    result = classify_direct_response_prompt(prompt)
+
+    assert result.is_direct_response is expected
+    # A requested answer format is not a literal to substitute for the model's answer.
+    assert result.is_exact_response is False
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["Reply with exactly READY", "Reply with only the answer.", "Respond only the marker."],
+)
+def test_exact_direct_response_prompt_is_detected(prompt):
+    result = classify_direct_response_prompt(prompt)
 
     assert result.is_direct_response is True
     assert result.is_exact_response is True

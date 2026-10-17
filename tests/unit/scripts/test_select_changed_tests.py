@@ -68,6 +68,120 @@ def test_selector_changes_select_its_own_regressions():
     [
         *[
             (
+                source,
+                {
+                    "tests/unit/core/test_schema_version_migration.py",
+                    "tests/unit/core/test_project_database_wal.py",
+                    "tests/unit/core/test_decision_schema.py",
+                    "tests/unit/core/test_global_db_isolation.py",
+                    "tests/unit/core/test_sql_identifier_security.py",
+                },
+            )
+            for source in (
+                "victor/core/database.py",
+                "victor/core/schema.py",
+                "victor/core/migrations.py",
+            )
+        ],
+        (
+            "victor/agent/conversation/session_model.py",
+            {
+                "tests/unit/agent/conversation/test_store_rich_metadata.py",
+                "tests/unit/framework/test_client_conversation.py",
+            },
+        ),
+        (
+            "victor/agent/factory/runtime_builders.py",
+            {
+                "tests/unit/agent/services/test_chat_runtime_services.py",
+                "tests/unit/agent/runtime/test_component_assembler.py",
+                "tests/unit/agent/test_response_completer.py",
+            },
+        ),
+        (
+            "victor/agent/turn_policy.py",
+            {
+                "tests/unit/agent/test_turn_policy.py",
+                "tests/unit/agent/test_turn_evaluation_controller.py",
+                "tests/unit/framework/test_agentic_loop.py",
+                "tests/unit/framework/test_agentic_loop_run_streaming.py",
+                "tests/unit/framework/test_agentic_loop_verification.py",
+            },
+        ),
+        (
+            "victor/framework/agentic_loop.py",
+            {
+                "tests/unit/agent/test_turn_evaluation_controller.py",
+                "tests/unit/framework/test_loop_guards.py",
+                *glob.glob("tests/unit/framework/test_agentic_loop*.py"),
+            },
+        ),
+        (
+            "victor/framework/loop/guards.py",
+            {
+                "tests/unit/framework/test_loop_guards.py",
+                "tests/unit/framework/test_agentic_loop_spin_guard.py",
+                "tests/unit/framework/test_agentic_loop_run_streaming.py",
+                "tests/unit/framework/test_agentic_loop_verification.py",
+            },
+        ),
+        *[
+            (
+                source,
+                {
+                    "tests/unit/commands/test_cli.py",
+                    "tests/unit/core/test_stream_renderer.py",
+                    "tests/unit/ui/rendering/test_handler.py",
+                    *mirrors,
+                },
+            )
+            for source, mirrors in (
+                (
+                    "victor/ui/commands/chat.py",
+                    [
+                        "tests/unit/ui/commands/test_chat_modes.py",
+                        "tests/unit/ui/commands/test_chat_rl_feedback.py",
+                        "tests/unit/ui/commands/test_chat_workflow_mode.py",
+                    ],
+                ),
+                ("victor/ui/rendering/handler.py", []),
+                (
+                    "victor/ui/rendering/event_dispatcher.py",
+                    [
+                        "tests/unit/ui/rendering/test_event_dispatcher.py",
+                    ],
+                ),
+            )
+        ],
+        (
+            "victor/agent/services/chat_stream_executor.py",
+            {
+                "tests/unit/agent/services/test_chat_stream_executor_lifetime.py",
+                "tests/unit/agent/services/test_chat_stream_governance.py",
+                "tests/unit/agent/services/test_chat_delivery.py",
+                "tests/unit/agent/services/test_stream_turn_guards.py",
+                "tests/unit/agent/services/test_streaming_act_port.py",
+                "tests/unit/agent/services/test_streaming_act_adapter.py",
+            },
+        ),
+        (
+            "victor/agent/message_history.py",
+            ["tests/unit/agent/test_agent_conversation.py"],
+        ),
+        (
+            "victor/agent/conversation/history_metadata.py",
+            [
+                "tests/unit/agent/test_agent_conversation.py",
+                "tests/unit/agent/test_context_assembler.py",
+                "tests/unit/agent/conversation/test_message_source.py",
+            ],
+        ),
+        (
+            "victor/agent/services/task_runtime.py",
+            ["tests/unit/agent/test_task_coordinator.py"],
+        ),
+        *[
+            (
                 f"victor/providers/{provider}_provider.py",
                 [
                     "tests/unit/providers/test_provider_stream_aclosing.py",
@@ -144,6 +258,33 @@ def test_selector_changes_select_its_own_regressions():
                 "tests/unit/framework/policies/test_middleware.py",
             ],
         ),
+        (
+            "victor/storage/graph/sqlite_store.py",
+            {
+                "tests/unit/storage/test_sqlite_graph_store.py",
+                "tests/unit/storage/test_sqlite_graph_store_concurrency.py",
+                "tests/unit/storage/graph/test_sqlite_store_cleanup.py",
+                "tests/unit/storage/graph/test_sqlite_store_edge_file_tracking.py",
+                "tests/unit/storage/graph/test_sqlite_store_edge_integrity.py",
+                "tests/unit/storage/graph/test_sqlite_store_embedding_cleanup.py",
+            },
+        ),
+        (
+            "victor/storage/vector_stores/_lancedb_compat.py",
+            [
+                "tests/unit/storage/test_lancedb_compat.py",
+                "tests/unit/providers/test_lancedb_provider.py",
+                "tests/unit/storage/test_sqlite_lancedb.py",
+            ],
+        ),
+        (
+            "victor/storage/vector_stores/lancedb_provider.py",
+            ["tests/unit/providers/test_lancedb_provider.py"],
+        ),
+        (
+            "victor/storage/unified/sqlite_lancedb.py",
+            ["tests/unit/storage/test_sqlite_lancedb.py"],
+        ),
         ("victor/ui/cli_group.py", ["tests/unit/ui/test_cli_command_resolution.py"]),
         (
             "victor/integrations/protocol/__init__.py",
@@ -202,6 +343,10 @@ def test_selector_changes_select_its_own_regressions():
             ],
         ),
         (
+            "victor/config/prompt_optimization_settings.py",
+            ["tests/unit/evaluation/test_benchmark_ab_hygiene.py"],
+        ),
+        (
             "victor/framework/agent_factory.py",
             [
                 "tests/unit/framework/test_skill_registry_wiring.py",
@@ -226,6 +371,25 @@ def test_selector_changes_select_its_own_regressions():
         (
             "victor/storage/vector_stores/models.py",
             ["tests/unit/embeddings/test_embedding_models.py"],
+        ),
+        (
+            "victor/storage/embeddings/collections.py",
+            [
+                "tests/unit/embeddings/test_embedding_infrastructure.py",
+                "tests/unit/core/test_data_cache_security.py",
+                "tests/unit/framework/test_skill_matcher.py",
+                "tests/unit/framework/test_skill_matcher_multi.py",
+                "tests/unit/framework/test_skill_registry_wiring.py",
+            ],
+        ),
+        (
+            "victor/storage/embeddings/service.py",
+            [
+                "tests/unit/embeddings/test_embedding_service.py",
+                "tests/unit/embeddings/test_embedding_infrastructure.py",
+                "tests/unit/embeddings/test_import_guards.py",
+                "tests/unit/processing/test_graph_embeddings_batch.py",
+            ],
         ),
         (
             "victor/framework/policies/gate.py",
@@ -328,7 +492,44 @@ def test_mcp_schema_owners_include_legacy_location_and_end_to_end_contract(sourc
 
 def test_stream_helper_changes_select_retry_and_boundary_regressions():
     assert {
+        "tests/unit/agent/services/test_chat_stream_governance.py",
         "tests/unit/agent/services/test_chat_runtime_services_boundary.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",
         "tests/unit/agent/services/test_chat_stream_helpers_gateway_retry.py",
     } <= set(select(["victor/agent/services/chat_stream_helpers.py"]))
+
+
+def test_governance_capability_changes_select_actual_publication_regression():
+    selected = select(["victor/agent/services/chat_runtime_services.py"])
+    assert {
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+    } <= set(selected)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "victor/agent/services/turn_execution_runtime.py",
+        "victor/agent/services/streaming_act_adapter.py",
+        "victor/agent/streaming/tool_execution.py",
+    ],
+)
+def test_turn_contract_changes_select_producer_consumer_regressions(source):
+    assert {
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/agent/services/test_streaming_act_adapter.py",
+        "tests/unit/agent/services/test_streaming_act_port.py",
+        "tests/unit/agent/test_streaming_tool_execution_handler.py",
+        "tests/unit/framework/test_agentic_loop_run_streaming.py",
+        "tests/unit/framework/test_agentic_loop_verification.py",
+        "tests/unit/framework/test_agentic_loop_effect_gate.py",
+    } <= set(select([source]))
+
+
+def test_agentic_graph_executor_selects_actual_owner_not_unrelated_executors():
+    assert set(select(["victor/framework/agentic_graph/executor.py"])) == {
+        "tests/unit/framework/agentic_graph/test_builder.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/providers/test_gateway_policy_resilience.py",
+    }

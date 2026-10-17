@@ -24,6 +24,8 @@ import importlib
 import sys
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+from unittest.mock import AsyncMock
+import asyncio
 
 import pytest
 
@@ -75,6 +77,14 @@ def _widget(**kwargs: Any) -> SimpleNamespace:
     return SimpleNamespace(**kwargs)
 
 
+def _select(**kwargs: Any) -> SimpleNamespace:
+    # Chainlit 2 Select resolves initial_value/index and overwrites initial.
+    values = kwargs.get("values", [])
+    index = kwargs.get("initial_index")
+    kwargs["initial"] = values[index] if index is not None else kwargs.get("initial_value")
+    return _widget(**kwargs)
+
+
 @pytest.fixture
 def app_module(monkeypatch):
     _FakeMessage.created.clear()
@@ -92,7 +102,7 @@ def app_module(monkeypatch):
         user_session=_FakeUserSession(),
     )
     fake_widgets = SimpleNamespace(
-        Select=lambda **k: _widget(**k),
+        Select=_select,
         Switch=lambda **k: _widget(**k),
         TextInput=lambda **k: _widget(**k),
     )
@@ -174,6 +184,9 @@ async def test_settings_update_rebuilds_client_with_new_config(app_module, monke
         def __init__(self, config) -> None:
             captured["config"] = config
 
+        def set_approval_handler(self, handler):
+            captured["approval_handler"] = handler
+
     old = _OldClient()
     fake_cl.user_session.set(module._CLIENT_KEY, old)
     monkeypatch.setattr(module, "VictorClient", _RecordingClient)
@@ -195,17 +208,129 @@ async def test_settings_update_rebuilds_client_with_new_config(app_module, monke
     assert cfg.tool_approval.enabled is False
     # New client is stored for the session.
     assert isinstance(fake_cl.user_session.get(module._CLIENT_KEY), _RecordingClient)
+    assert captured["approval_handler"] is module.chainlit_approval_handler
+    assert any("new conversation" in m.content for m in _FakeMessage.created)
 
 
 async def test_settings_update_keeps_approval_tools_when_enabled(app_module, monkeypatch):
     module, fake_cl = app_module
     captured = {}
-    monkeypatch.setattr(
-        module, "VictorClient", lambda config: captured.setdefault("config", config)
-    )
+
+    def client_factory(config):
+        captured["config"] = config
+        return SimpleNamespace(set_approval_handler=lambda handler: None)
+
+    monkeypatch.setattr(module, "VictorClient", client_factory)
 
     await module.on_settings_update({"provider": "ollama", "tool_approval": True})
 
     cfg = captured["config"]
     assert cfg.tool_approval.enabled is True
     assert cfg.tool_approval.ask_on_tools  # non-empty when approval is on
+
+
+async def test_settings_show_launch_profile_without_inventing_overrides(app_module, monkeypatch):
+    module, fake_cl = app_module
+    monkeypatch.setenv(module._PROFILE_ENV, "subscription")
+    monkeypatch.setattr(module, "_profile_names", lambda: ["default", "subscription"])
+    # Active provider/model are resolved values, not user-selected overrides.
+    client = _ClientWithHistory()
+    await module._send_settings(client)
+    controls = {widget.id: widget for widget in _FakeChatSettings.created[-1].inputs}
+    assert controls["profile"].initial == "subscription"
+    assert controls["provider"].initial == module._PROFILE_DEFAULT
+    assert controls["model"].initial == ""
+
+
+async def test_unchanged_settings_preserve_client_and_conversation(app_module, monkeypatch):
+    module, fake_cl = app_module
+    monkeypatch.setenv(module._PROFILE_ENV, "subscription")
+    client = _ClientWithHistory()
+    fake_cl.user_session.set(module._CLIENT_KEY, client)
+    await module._send_settings(client)
+    settings = {widget.id: widget.initial for widget in _FakeChatSettings.created[-1].inputs}
+    monkeypatch.setattr(
+        module, "VictorClient", lambda config: pytest.fail("rebuilt unchanged client")
+    )
+    await module.on_settings_update(settings)
+    assert fake_cl.user_session.get(module._CLIENT_KEY) is client
+
+
+async def test_invalid_settings_do_not_close_existing_client(app_module, monkeypatch):
+    module, fake_cl = app_module
+    old = SimpleNamespace(close=AsyncMock())
+    fake_cl.user_session.set(module._CLIENT_KEY, old)
+
+    def reject(config):
+        raise ValueError("invalid configuration")
+
+    monkeypatch.setattr(module, "VictorClient", reject)
+    with pytest.raises(ValueError, match="invalid configuration"):
+        await module.on_settings_update({"provider": "anthropic"})
+    old.close.assert_not_called()
+    assert fake_cl.user_session.get(module._CLIENT_KEY) is old
+
+
+async def test_failed_close_does_not_publish_replacement(app_module, monkeypatch):
+    module, fake_cl = app_module
+    old = SimpleNamespace(close=AsyncMock(side_effect=RuntimeError("cleanup failed")))
+    fake_cl.user_session.set(module._CLIENT_KEY, old)
+    config = module._current_config()
+    monkeypatch.setattr(
+        module,
+        "VictorClient",
+        lambda config: SimpleNamespace(set_approval_handler=lambda handler: None),
+    )
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        await module.on_settings_update({"provider": "anthropic"})
+    assert fake_cl.user_session.get(module._CLIENT_KEY) is old
+    assert module._current_config() == config
+
+
+async def test_settings_transition_serializes_turn_admission(app_module, monkeypatch):
+    module, fake_cl = app_module
+    closing, release = asyncio.Event(), asyncio.Event()
+
+    async def close():
+        closing.set()
+        await release.wait()
+
+    old = SimpleNamespace(close=close)
+    new = SimpleNamespace(set_approval_handler=lambda handler: None)
+    fake_cl.user_session.set(module._CLIENT_KEY, old)
+    monkeypatch.setattr(module, "VictorClient", lambda config: new)
+    seen = []
+
+    async def turn(client, content):
+        seen.append(client)
+
+    monkeypatch.setattr(module, "_run_turn", turn)
+    change = asyncio.create_task(module.on_settings_update({"provider": "anthropic"}))
+    await asyncio.wait_for(closing.wait(), 1)
+    start = asyncio.create_task(module._start_turn("question"))
+    await asyncio.sleep(0)
+    assert seen == []
+    release.set()
+    await asyncio.wait_for(asyncio.gather(change, start), 1)
+    assert seen == [new]
+
+
+def test_ui_approval_policy_covers_canonical_mutating_file_tools(app_module):
+    from victor.framework.policies.builtins import AskOnToolsPolicy
+
+    module, _ = app_module
+    policy = AskOnToolsPolicy(module._session_config(None).tool_approval.ask_on_tools)
+    assert policy.applies_to("write")
+    assert policy.applies_to("edit")
+    assert policy.applies_to("shell")
+    assert not policy.applies_to("read")
+
+
+@pytest.mark.parametrize("value", ["false", 0, None])
+async def test_malformed_approval_setting_preserves_client(app_module, value):
+    module, fake_cl = app_module
+    old = SimpleNamespace(close=AsyncMock())
+    fake_cl.user_session.set(module._CLIENT_KEY, old)
+    with pytest.raises(ValueError, match="approval must be a boolean"):
+        await module.on_settings_update({"tool_approval": value})
+    old.close.assert_not_called()

@@ -182,7 +182,8 @@ class OrchestratorProtocolAdapter:
         # but this is the root-cause fix and covers every provider path).
         kwargs = {key: value for key, value in kwargs.items() if key not in _INTERNAL_KWARG_KEYS}
         orch = self._orchestrator
-        return await orch.provider.chat(
+        return await orch._metrics_coordinator.complete(
+            orch.provider,
             messages=messages,
             model=model,
             temperature=temperature,

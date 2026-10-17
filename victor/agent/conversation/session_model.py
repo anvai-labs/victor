@@ -6,6 +6,22 @@ from victor.agent.conversation.types import ConversationMessage
 from victor.agent.ml_metadata import ContextSize, ModelFamily, ModelSize
 
 
+@dataclass(frozen=True)
+class ConversationSessionSummary:
+    """Persisted picker metadata, without transcript or execution-state hydration."""
+
+    session_id: str
+    title: str
+    created_at: datetime
+    last_activity: datetime
+    provider: Optional[str]
+    model: Optional[str]
+    profile: Optional[str]
+    message_count: int
+    preview_count: int
+    tags: tuple[str, ...]
+
+
 @dataclass
 class ConversationSession:
     """A conversation session with context management."""

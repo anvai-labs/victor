@@ -24,7 +24,6 @@ from victor.agent.streaming.context import StreamingChatContext
 from victor.config.metrics_capabilities import ProviderMetricsCapabilities
 from victor.providers.base import StreamChunk
 from victor.providers.usage_parsing import usage_dict_from_neutral
-from victor.providers.usage_accounting import accumulate_usage
 
 
 class _MetricsRuntime:
@@ -39,8 +38,8 @@ class _MetricsRuntime:
     def record_first_token(self):
         self.collector.record_first_token()
 
-    def accumulate_usage(self, usage_data):
-        accumulate_usage(self.cumulative, usage_data)
+    def stream(self, provider, **kwargs):
+        return self.coordinator.stream(provider, **kwargs)
 
     def finalize(self, usage_data, *, provider_diagnostics=None):
         return self.coordinator.finalize_stream_metrics(
@@ -134,7 +133,7 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
                 },
             )
 
-        orch.provider = SimpleNamespace(stream=stream)
+        orch.provider = SimpleNamespace(name="test", stream=stream)
         await helper._stream_provider_response_inner({}, {}, ctx)
 
     raw_completion = sum(call[0] for call in calls)
@@ -171,9 +170,9 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     assert metrics.billable_completion_tokens == expected_output
     assert metrics.total_cost == pytest.approx(expected_cost)
     assert metrics.effective_total_tokens == expected_prompt + expected_output
-    assert len(tracker.requests) == 1
-    assert tracker.requests[0].completion_tokens == raw_completion
-    assert tracker.requests[0].billable_completion_tokens == expected_output
+    assert len(tracker.requests) == len(calls)
+    assert sum(r.completion_tokens for r in tracker.requests) == raw_completion
+    assert sum(r.billable_completion_tokens for r in tracker.requests) == expected_output
     assert tracker.total_cost == pytest.approx(expected_cost)
     assert tracker.total_tokens == expected_prompt + expected_output
     assert orch._cumulative_token_usage["total_tokens"] == expected_prompt + expected_output
@@ -182,7 +181,7 @@ async def test_terminal_usage_reaches_session_cost_and_canonical_record(
     assert report["api_completion_tokens"] == raw_completion
     assert report["api_total_tokens"] == expected_prompt + expected_output
     assert report["total_cost_usd"] == pytest.approx(expected_cost)
-    assert report["request_count"] == 1
+    assert report["request_count"] == len(calls)
     record = [
         call.args[1]
         for call in logger.log_event.call_args_list
@@ -211,4 +210,5 @@ def test_explicit_provider_total_is_preserved_through_finalization():
     )
     collector.init_stream_metrics()
     assert service.finalize_stream_metrics(usage).total_tokens == 90
-    assert tracker.total_tokens == 90
+    assert tracker.total_tokens == 0  # A presentation summary is not a model dispatch.
+    assert not tracker.requests

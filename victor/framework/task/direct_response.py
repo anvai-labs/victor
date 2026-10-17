@@ -92,6 +92,18 @@ _EXPLANATORY_QUERY_PREFIX = re.compile(
     re.IGNORECASE,
 )
 
+# Only complete trailing constraints are ignored for intent classification.
+# Do not remove arbitrary negated phrases: repository references, conditional
+# clauses and requested effects must still keep a task on the full runtime path.
+# This never rewrites the prompt sent to the provider or grants tool permission.
+_ANSWER_CONSTRAINT_SUFFIX = re.compile(
+    r"(?<=[?!.;])\s*(?:"
+    r"(?:do\s+not|don't)\s+use\s+tools|"
+    r"(?:reply|respond|answer)\s+(?:with\s+)?only\s+the\s+(?:marker|answer)"
+    r")\s*[.!;]*\s*$",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class DirectResponseClassification:
@@ -184,6 +196,8 @@ def classify_direct_response_prompt(message: str) -> DirectResponseClassificatio
     """
 
     text = (message or "").strip()
+    while constraint := _ANSWER_CONSTRAINT_SUFFIX.search(text):
+        text = text[: constraint.start()].rstrip()
     if not text:
         return DirectResponseClassification(False, False, 0.0, "empty")
 

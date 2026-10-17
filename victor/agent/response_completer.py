@@ -33,7 +33,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from victor.core.errors import ProviderRateLimitError, ProviderPolicyError
 from victor.providers.base import CompletionResponse, BaseProvider, Message
@@ -93,6 +93,14 @@ class CompletionResult:
         return self.status == CompletionStatus.SUCCESS and len(self.content) > 10
 
 
+class CompletionInvocation(Protocol):
+    """Explicit dispatch capability for session-owned completion helpers."""
+
+    async def complete(
+        self, provider: BaseProvider, *, messages: List[Message], model: str, **kwargs: Any
+    ) -> CompletionResponse: ...
+
+
 class ResponseCompleter:
     """Ensures complete responses after tool execution.
 
@@ -110,6 +118,8 @@ class ResponseCompleter:
         self,
         provider: BaseProvider,
         config: Optional[CompletionConfig] = None,
+        *,
+        invocations: Optional[CompletionInvocation] = None,
     ):
         """Initialize response completer.
 
@@ -119,6 +129,18 @@ class ResponseCompleter:
         """
         self.provider = provider
         self.config = config or CompletionConfig()
+        self._invocations = invocations
+
+    async def _complete(
+        self, *, messages: List[Message], model: str, **kwargs: Any
+    ) -> CompletionResponse:
+        if self._invocations is None:
+            # Standalone helper use has no owning session. Runtime composition
+            # always supplies the shared invocation capability.
+            return await self.provider.chat(messages=messages, model=model, **kwargs)
+        return await self._invocations.complete(
+            self.provider, messages=messages, model=model, **kwargs
+        )
 
     async def ensure_response(
         self,
@@ -228,7 +250,7 @@ class ResponseCompleter:
         # Retain each structured response so callers can account for recovery usage.
         responses: List[CompletionResponse] = []
         try:
-            response = await self.provider.chat(
+            response = await self._complete(
                 messages=modified_messages,
                 model=model,
                 temperature=temperature,
@@ -314,7 +336,7 @@ class ResponseCompleter:
                 )
 
             try:
-                response = await self.provider.chat(
+                response = await self._complete(
                     messages=modified_messages,
                     model=model,
                     temperature=current_temp,
@@ -421,6 +443,8 @@ def create_response_completer(
     provider: BaseProvider,
     max_retries: int = 3,
     force_response: bool = True,
+    *,
+    invocations: Optional[CompletionInvocation] = None,
 ) -> ResponseCompleter:
     """Factory function to create a response completer.
 
@@ -436,7 +460,7 @@ def create_response_completer(
         max_retries=max_retries,
         force_response_on_error=force_response,
     )
-    return ResponseCompleter(provider=provider, config=config)
+    return ResponseCompleter(provider=provider, config=config, invocations=invocations)
 
 
 class AgenticLoop:

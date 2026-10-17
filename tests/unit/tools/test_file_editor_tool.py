@@ -443,8 +443,13 @@ class TestEditPreviewMode:
     """Tests for preview mode."""
 
     @pytest.mark.asyncio
-    async def test_preview_without_commit(self, tmp_path):
+    async def test_preview_without_commit(self, tmp_path, monkeypatch):
         """Test preview mode doesn't apply changes when commit=False."""
+        from victor.agent.change_tracker import FileChangeHistory
+        import victor.agent.change_tracker as change_tracker
+
+        tracker = FileChangeHistory(project_path=tmp_path)
+        monkeypatch.setattr(change_tracker, "get_change_tracker", lambda: tracker)
         test_file = tmp_path / "test.txt"
         original = "original content"
         test_file.write_text(original)
@@ -460,6 +465,7 @@ class TestEditPreviewMode:
         assert "Preview" in result["message"]
         # File should NOT be modified
         assert test_file.read_text() == original
+        assert tracker._current_group is None
 
     @pytest.mark.asyncio
     async def test_preview_with_commit(self, tmp_path):
@@ -495,13 +501,66 @@ class TestEditCommitMode:
 
         assert result["success"] is True
         assert result["operations_applied"] == 0
-        assert "not applied" in result["message"]
+        assert "not applied" in result["message"].lower()
         # File should NOT be modified
         assert test_file.read_text() == original
 
 
 class TestEditMultipleOperations:
     """Tests for multiple operations in single edit call."""
+
+    @pytest.mark.parametrize("preview", [False, True])
+    @pytest.mark.asyncio
+    async def test_two_replacements_same_file_undo_redo(self, tmp_path, monkeypatch, preview):
+        from victor.agent.change_tracker import FileChangeHistory
+        import victor.agent.change_tracker as change_tracker
+        import victor.tools.filesystem as filesystem
+
+        tracker = FileChangeHistory(project_path=tmp_path)
+        monkeypatch.setattr(change_tracker, "get_change_tracker", lambda: tracker)
+        cache = MagicMock()
+        monkeypatch.setattr(filesystem, "is_file_cache_enabled", lambda: True)
+        monkeypatch.setattr(filesystem, "get_file_content_cache", lambda: cache)
+        test_file = tmp_path / "test.txt"
+        original = "alpha beta gamma"
+        final = "ALPHA BETA gamma"
+        test_file.write_text(original)
+
+        result = await edit(
+            ops=[
+                {
+                    "type": "replace",
+                    "path": str(test_file),
+                    "old_str": "alpha",
+                    "new_str": "ALPHA",
+                },
+                {
+                    "type": "replace",
+                    "path": str(test_file),
+                    "old_str": "beta",
+                    "new_str": "BETA",
+                },
+            ],
+            preview=preview,
+            commit=True,
+        )
+
+        assert result["success"] is True
+        assert result["operations_applied"] == 2
+        assert "undo history not recorded" not in result["message"]
+        assert test_file.read_text() == final
+        cache.invalidate.assert_any_call(str(test_file))
+        groups = tracker._db.get_connection().execute("SELECT id FROM change_groups").fetchall()
+        changes = tracker._db.get_connection().execute("SELECT id FROM file_changes").fetchall()
+        assert len(groups) == 1
+        assert len(changes) == 2
+        assert len({row[0] for row in changes}) == 2
+        success, _, _ = tracker.undo()
+        assert success
+        assert test_file.read_text() == original
+        success, _, _ = tracker.redo()
+        assert success
+        assert test_file.read_text() == final
 
     @pytest.mark.asyncio
     @pytest.mark.slow
@@ -611,11 +670,54 @@ class TestEditUndoLogResilience:
     model's retry would then hit 'old_str not found' on the mutated file).
     """
 
+    async def test_queue_failure_discards_unapplied_history(self, tmp_path, monkeypatch):
+        import victor.agent.change_tracker as change_tracker
+        import victor.tools.file_editor_tool as editor_tool
+
+        tracker = change_tracker.FileChangeHistory(project_path=tmp_path)
+        monkeypatch.setattr(change_tracker, "get_change_tracker", lambda: tracker)
+        first, second = tmp_path / "first.txt", tmp_path / "second.txt"
+        for path in (first, second):
+            path.write_text("before")
+        editor = editor_tool._create_file_editor(str(tmp_path / "backups"))
+        original_add = editor.add_modify
+
+        def fail_second(path, content):
+            if Path(path) == second:
+                raise OSError("injected queue failure")
+            return original_add(path, content)
+
+        monkeypatch.setattr(editor, "add_modify", fail_second)
+        monkeypatch.setattr(editor_tool, "_create_file_editor", lambda **kwargs: editor)
+        result = await edit(
+            ops=[
+                {"type": "replace", "path": str(path), "old_str": "before", "new_str": "after"}
+                for path in (first, second)
+            ]
+        )
+        assert result["success"] is False
+        assert "injected queue failure" in result["error"]
+        assert first.read_text() == second.read_text() == "before"
+        assert tracker._current_group is None
+        assert not tracker.can_undo()
+        assert (
+            tracker._db.get_connection().execute("SELECT count(*) FROM change_groups").fetchone()[0]
+            == 0
+        )
+
+    @pytest.mark.parametrize("preview", [False, True])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pytest.param("locked", id="database-locked"),
+            pytest.param("integrity", id="duplicate-change-id"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_db_lock_after_file_commit_returns_success_with_warning(
-        self, tmp_path, monkeypatch
+    async def test_db_error_after_file_commit_returns_success_with_warning(
+        self, tmp_path, monkeypatch, error, preview
     ):
-        """Edit succeeds (with a warning note) when the undo-log db write fails."""
+        """Committed edits stay successful even if undo-log bookkeeping fails."""
         import sqlite3
 
         from victor.agent.change_tracker import FileChangeHistory, reset_change_tracker
@@ -623,10 +725,12 @@ class TestEditUndoLogResilience:
         test_file = tmp_path / "test.txt"
         test_file.write_text("hello world")
 
-        def _raise_locked(self):
-            raise sqlite3.OperationalError("database is locked")
+        def _raise_db_error(self):
+            if error == "locked":
+                raise sqlite3.OperationalError("database is locked")
+            raise sqlite3.IntegrityError("UNIQUE constraint failed: file_changes.id")
 
-        monkeypatch.setattr(FileChangeHistory, "commit_change_group", _raise_locked)
+        monkeypatch.setattr(FileChangeHistory, "commit_change_group", _raise_db_error)
         try:
             result = await edit(
                 ops=[
@@ -636,7 +740,8 @@ class TestEditUndoLogResilience:
                         "old_str": "hello",
                         "new_str": "goodbye",
                     }
-                ]
+                ],
+                preview=preview,
             )
         finally:
             # The patched commit never clears the singleton's current group.
@@ -647,6 +752,8 @@ class TestEditUndoLogResilience:
         assert result["success"] is True
         assert "undo history not recorded" in result["message"]
         assert "⚠️" in result["message"]
+        if error == "integrity":
+            assert "database busy" not in result["message"].lower()
 
     @pytest.mark.asyncio
     async def test_undo_note_absent_on_clean_commit(self, tmp_path):

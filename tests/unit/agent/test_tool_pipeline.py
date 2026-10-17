@@ -945,6 +945,56 @@ async def test_after_failure_is_terminal_and_preserves_write_invalidation(pipeli
     assert "private-result" not in repr(result)
 
 
+@pytest.mark.parametrize("mutation", ["write", "edit", "rename", "json-edit", "repaired-json"])
+async def test_read_after_mutation_observes_disk_not_cached_result(pipeline, tmp_path, mutation):
+    path = tmp_path / "example.txt"
+    path.write_text("before")
+    source = tmp_path / "source.txt"
+    source.write_text("after")
+    read_args = {"path": str(tmp_path) + "/./example.txt"}
+    pipeline.config.tool_budget = 10
+
+    async def execute(tool_name, arguments, context):
+        if tool_name == "read":
+            content = path.read_text()
+            return ToolExecutionResult(tool_name="read", success=True, result=content)
+        if mutation == "rename":
+            source.replace(path)
+        else:
+            path.write_text("after")
+        return ToolExecutionResult(tool_name=tool_name, success=True, result={"success": True})
+
+    pipeline.executor.execute.side_effect = execute
+    first = await pipeline._execute_single_call({"name": "read", "arguments": read_args}, {})
+    assert first.result == "before"
+    cached = await pipeline._execute_single_call({"name": "read", "arguments": read_args}, {})
+    assert cached.cached and cached.result == "before"
+    pipeline.tools.get.return_value.access_mode = AccessMode.WRITE
+    arguments = {"path": str(path), "content": "after"}
+    tool = "write"
+    if mutation != "write":
+        tool = "edit"
+        arguments = {"ops": [{"type": "modify", "path": str(path), "content": "after"}]}
+        if mutation == "rename":
+            arguments = {"ops": [{"type": "rename", "path": str(source), "new_path": str(path)}]}
+        if mutation in {"json-edit", "repaired-json"}:
+            from victor.core.json_utils import json_dumps
+
+            arguments["ops"][0]["force"] = True
+            if mutation == "repaired-json":
+                arguments["ops"][0]["content"] = "after\n"
+            arguments["ops"] = json_dumps(arguments["ops"])
+            if mutation == "repaired-json":
+                arguments["ops"] = arguments["ops"].replace("\\n", "\n")
+    changed = await pipeline._execute_single_call({"name": tool, "arguments": arguments}, {})
+    assert changed.success
+    pipeline.tools.get.return_value.access_mode = AccessMode.READONLY
+    verified = await pipeline._execute_single_call({"name": "read", "arguments": read_args}, {})
+    assert verified.success and not verified.cached
+    assert verified.result == path.read_text() == "after"
+    assert pipeline.executor.execute.await_count == 3
+
+
 async def test_result_withholding_keeps_unknown_outcome_and_duplicate_veto(pipeline):
     from victor.core.verticals.protocols import MiddlewareResult
     from victor.core.errors import ErrorInfo, ErrorCategory, ErrorSeverity

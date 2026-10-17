@@ -11,6 +11,8 @@ to the orchestrator, with focus on:
 import logging
 
 import httpx
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -554,6 +556,44 @@ class TestStreamWithEvents:
         content_events = [e for e in events if e.type == EventType.CONTENT]
         assert [event.content for event in content_events] == ["Final architecture findings"]
         assert content_events[0].metadata["source"] == "completion_summary_fallback"
+
+    @pytest.mark.parametrize("success", [True, False])
+    async def test_explicit_loop_outcome_prevents_summary_fallback(self, success):
+        from victor.providers.base import StreamChunk
+
+        orchestrator = MagicMock()
+        orchestrator._task_completion_detector._state.last_summary = "ungoverned prior summary"
+        metadata = {"agentic_loop_success": success, "agentic_loop_iterations": 2}
+        if not success:
+            metadata["agentic_loop_error"] = "verification failed"
+
+        async def stream(prompt):
+            yield StreamChunk(is_final=True, metadata=metadata)
+
+        orchestrator.stream_chat = stream
+        events = [event async for event in stream_with_events(orchestrator, "test")]
+        assert not [e for e in events if e.type == EventType.CONTENT]
+        ends = [e for e in events if e.type == EventType.STREAM_END]
+        errors = [e for e in events if e.type == EventType.ERROR]
+        assert len(ends) == 1
+        assert ends[0].success is success
+        assert ends[0].metadata == metadata
+        assert len(errors) == (0 if success else 1)
+        if errors:
+            assert errors[0].error == "verification failed"
+            assert errors[0].recoverable is False
+
+    async def test_invalid_loop_verdict_is_not_truthy_success(self):
+        from victor.providers.base import StreamChunk
+
+        async def stream(prompt):
+            yield StreamChunk(is_final=True, metadata={"agentic_loop_success": "false"})
+
+        events = [
+            event async for event in stream_with_events(SimpleNamespace(stream_chat=stream), "q")
+        ]
+        assert events[-1].type == EventType.STREAM_END
+        assert events[-1].success is False
 
 
 class TestFormatContextMessage:

@@ -889,27 +889,14 @@ async def edit(
     tracker = get_change_tracker()
     tracker.begin_change_group("edit", desc or f"Edit {len(ops)} files")
 
-    # Maintain pending contents for files being modified multiple times in one transaction
-    pending_contents: Dict[str, str] = {}
-    # Track paths for which we've already captured the original disk content for the tracker
-    captured_original: Set[str] = set()
+    # Canonical paths keep aliases in the same chain; None is a deletion tombstone.
+    pending_contents: Dict[str, Optional[str]] = {}
 
-    def _get_current_content(path: str, file_path: Path) -> str:
-        if path in pending_contents:
-            return pending_contents[path]
-        if file_path.exists():
-            content = file_path.read_text(encoding="utf-8")
-            pending_contents[path] = content
-            return content
-        return ""
-
-    def _get_tracker_original(path: str, file_path: Path) -> Optional[str]:
-        if path in captured_original:
-            return None
-        captured_original.add(path)
-        if file_path.exists():
-            return file_path.read_text(encoding="utf-8")
-        return None
+    def _get_tracker_original(file_path: Path) -> Optional[str]:
+        key = str(file_path)
+        if key in pending_contents:
+            return pending_contents[key]
+        return file_path.read_text(encoding="utf-8") if file_path.exists() else None
 
     # Count operations by type
     by_type = {"create": 0, "modify": 0, "delete": 0, "rename": 0}
@@ -930,9 +917,9 @@ async def edit(
                 content = op.get("content", "")
 
                 # If creating over existing file, capture original
-                tracker_original = _get_tracker_original(path, file_path)
+                tracker_original = _get_tracker_original(file_path)
 
-                pending_contents[path] = content
+                pending_contents[str(file_path)] = content
                 editor.add_create(path, content)
                 by_type["create"] += 1
                 # Track for undo
@@ -947,7 +934,9 @@ async def edit(
 
             elif op_type == "modify":
                 # Support both "content" and "new_content" keys
-                content = op.get("new_content") or op.get("content")
+                content = op.get("new_content")
+                if content is None:
+                    content = op.get("content")
                 if content is None:
                     return {
                         "success": False,
@@ -955,9 +944,9 @@ async def edit(
                     }
 
                 # Read original content for undo
-                tracker_original = _get_tracker_original(path, file_path)
+                tracker_original = _get_tracker_original(file_path)
 
-                pending_contents[path] = content
+                pending_contents[str(file_path)] = content
                 editor.add_modify(path, content)
                 by_type["modify"] += 1
                 # Track for undo
@@ -972,9 +961,9 @@ async def edit(
 
             elif op_type == "delete":
                 # Read content before delete for undo
-                tracker_original = _get_tracker_original(path, file_path)
+                tracker_original = _get_tracker_original(file_path)
 
-                pending_contents.pop(path, None)
+                pending_contents[str(file_path)] = None
                 editor.add_delete(path)
                 by_type["delete"] += 1
                 # Track for undo
@@ -991,11 +980,10 @@ async def edit(
                 new_path = op["new_path"]
 
                 # If renamed file is already in transaction state
-                if path in pending_contents:
-                    pending_contents[new_path] = pending_contents.pop(path)
-                if path in captured_original:
-                    captured_original.remove(path)
-                    captured_original.add(new_path)
+                if str(file_path) in pending_contents:
+                    pending_contents[str(Path(new_path).expanduser().resolve())] = (
+                        pending_contents.pop(str(file_path))
+                    )
 
                 editor.add_rename(path, new_path)
                 by_type["rename"] += 1
@@ -1026,7 +1014,7 @@ async def edit(
                     }
 
                 # Read current content (from pending state if already modified in this call)
-                current_content = _get_current_content(path, file_path)
+                current_content = _get_tracker_original(file_path) or ""
 
                 # The validation pre-pass already resolved this op (including any
                 # whitespace-tolerant fuzzy match) into concrete new content.
@@ -1035,7 +1023,7 @@ async def edit(
                     new_content = resolved
                 else:
                     # Defensive path (pre-pass should have caught any failure).
-                    if not file_path.exists() and path not in pending_contents:
+                    if not file_path.exists() and str(file_path) not in pending_contents:
                         return {
                             "success": False,
                             "error": f"Replace operation failed: file {path} does not exist",
@@ -1045,10 +1033,10 @@ async def edit(
                         return {"success": False, "error": res["reason"]}
                     new_content = res["new_content"]
 
-                # Read original content for undo (true disk state)
-                tracker_original = _get_tracker_original(path, file_path)
+                # Record the state immediately before this operation for undo
+                tracker_original = _get_tracker_original(file_path)
 
-                pending_contents[path] = new_content
+                pending_contents[str(file_path)] = new_content
 
                 # Queue as a modify operation (overwrites previous add_modify for this path)
                 editor.add_modify(path, new_content)
@@ -1072,7 +1060,7 @@ async def edit(
 
     except Exception as e:
         editor.abort()
-        tracker.commit_change_group()  # Empty commit to reset state
+        tracker._current_group = None  # Nothing was applied; discard pending undo.
         return {"success": False, "error": f"Failed to queue operations: {str(e)}"}
 
     operations_queued = len(ops)
@@ -1143,57 +1131,30 @@ async def edit(
 
         if not commit:
             editor.abort()
-            return {
+            tracker._current_group = None
+            result = {
                 "success": True,
                 "operations_queued": operations_queued,
                 "operations_applied": 0,
                 "by_type": by_type,
                 "preview_output": preview_text,
-                "diff": preview_text,  # Raw diff for programmatic use
-                "diff_formatted": formatted_diff,  # Rich-formatted diff for console
+                "diff": preview_text,
+                "diff_formatted": formatted_diff,
                 "message": f"Preview generated for {operations_queued} operations (not applied)",
             }
-        else:
-            # Preview but still commit (suppress FileEditor's commit stdout)
-            _capture_stdout(lambda: None)  # discard; real commit captured below
-            success_ref = [False]
-
-            def _do_commit():
-                success_ref[0] = editor.commit(dry_run=False)
-
-            _capture_stdout(_do_commit)
-            success = success_ref[0]
-            if success:
-                # FileEditor clears its transaction on commit, so preserve the
-                # already-computed preview diff as the authoritative change view.
-                diff_output = preview_text
-                formatted_diff = _format_diff_for_console(diff_output)
-                return {
-                    "success": True,
-                    "operations_queued": operations_queued,
-                    "operations_applied": operations_queued,
-                    "by_type": by_type,
-                    "preview_output": preview_text,
-                    "diff": diff_output,  # Raw diff for programmatic use
-                    "diff_formatted": formatted_diff,  # Rich-formatted diff for console
-                    "message": f"Applied {operations_queued} operations successfully",
-                }
-            else:
-                _detail = getattr(editor, "last_commit_error", None) or ""
-                return {
-                    "success": False,
-                    "error": (
-                        "Failed to commit changes. Transaction rolled back."
-                        + (f" Reason: {_detail}" if _detail else "")
-                    ),
-                }
+            if failed_files:
+                result["partial"] = True
+                result["failed"] = failed_files
+            return result
+        diff_output = preview_text
 
     # Handle commit (suppress FileEditor's transaction stdout — Victor formats its own output)
     if commit:
         # FileEditor clears current_transaction during commit(), so capture the
         # diff while the transaction is still active.
-        diff_output = _capture_stdout(lambda: editor.preview_diff(context_lines=ctx))
-        formatted_diff = _format_diff_for_console(diff_output) if diff_output else None
+        if not preview:
+            diff_output = _capture_stdout(lambda: editor.preview_diff(context_lines=ctx))
+            formatted_diff = _format_diff_for_console(diff_output) if diff_output else None
         success_ref = [False]
 
         def _do_commit():
@@ -1211,10 +1172,9 @@ async def edit(
             try:
                 tracker.commit_change_group()
             except Exception as exc:
+                tracker._current_group = None
                 logger.warning("edit applied but undo history not recorded: %s", exc)
-                undo_note = (
-                    "⚠️ note: edit applied; undo history not recorded (project database busy)"
-                )
+                undo_note = "⚠️ note: edit applied; undo unavailable (undo history not recorded)"
 
             # Invalidate file content cache for all modified paths
             try:
@@ -1265,6 +1225,8 @@ async def edit(
                 result["diff"] = diff_output
             if formatted_diff:
                 result["diff_formatted"] = formatted_diff
+            if preview:
+                result["preview_output"] = preview_text
 
             return result
         else:

@@ -536,6 +536,9 @@ jobs:
           pip install -e ./victor-codegraph
           pip install -e ".[dev]"
           pip install 'diff-cover>=9,<10'
+          # The core edit tool delegates to this real capability. Without it,
+          # editor tests silently skip and changed-line coverage is meaningless.
+          pip install -e ./verticals/victor-coding
 
       - name: Run unit tests for changed files
         # Map changed files -> mirror unit tests (scripts/ci/select_changed_tests.py). No mapped

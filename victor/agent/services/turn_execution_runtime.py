@@ -45,6 +45,7 @@ import asyncio
 import hashlib
 import inspect
 import logging
+from enum import Enum
 
 import re
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
@@ -55,9 +56,13 @@ from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, Message
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
+from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
 from victor.providers.base import CompletionResponse
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 
 if TYPE_CHECKING:
+    from victor.framework.agentic_loop import LoopResult
+
     from victor.agent.services.protocols.chat_runtime import (
         ChatContextProtocol,
         OrchestratorRuntimeProtocol,
@@ -66,6 +71,25 @@ if TYPE_CHECKING:
         StatePassedExplorationProtocol,
         ToolContextProtocol,
     )
+
+
+class TurnDisposition(str, Enum):
+    """ACT control outcome; a completion candidate is never proof of success."""
+
+    CONTINUE = "continue"
+    RECOVERY_RETRY = "recovery_retry"
+    COMPLETION_CANDIDATE = "completion_candidate"
+    RECOVERY_EXHAUSTED = "recovery_exhausted"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    FORCED_STOP = "forced_stop"
+
+    @property
+    def stops_run(self) -> bool:
+        return self not in (self.CONTINUE, self.RECOVERY_RETRY)
+
+    @property
+    def is_failure(self) -> bool:
+        return self.stops_run and self is not self.COMPLETION_CANDIDATE
 
 
 @dataclass
@@ -93,6 +117,11 @@ class TurnResult:
     tool_calls_count: int = 0
     all_tools_blocked: bool = False
     is_qa_response: bool = False
+    disposition: TurnDisposition = TurnDisposition.CONTINUE
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.disposition, TurnDisposition):
+            raise TypeError("TurnResult.disposition must be a TurnDisposition")
 
     @property
     def content(self) -> str:
@@ -145,7 +174,7 @@ from victor.agent.services.runtime_overrides import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["TurnExecutor", "TurnResult"]
+__all__ = ["TurnExecutor", "TurnResult", "TurnDisposition"]
 
 # Module-level guard to prevent recursive subagent exploration
 _EXPLORATION_IN_PROGRESS = False
@@ -178,7 +207,7 @@ class TurnExecutor:
         provider_context: "ProviderContextProtocol",
         execution_provider: Any,  # ExecutionProvider protocol
         exploration_coordinator: Optional[Any] = None,
-        message_policy_gate: Optional[Any] = None,
+        message_policy_gate: Optional[MessagePolicyGate] = None,
         runtime_context: Optional[RuntimeContextResolver] = None,
     ) -> None:
         """Initialize the TurnExecutor.
@@ -207,7 +236,7 @@ class TurnExecutor:
         self._execution_provider = execution_provider
         self._exploration_coordinator = exploration_coordinator
         self._runtime_context = runtime_context
-        self._message_policy_gate = message_policy_gate
+        self._governance = ChatGovernance(gate=message_policy_gate)
         self._exploration_done = False  # Instance-level: fires once per conversation
         self._last_tool_follow_up_guidance_signature: Optional[tuple[str, ...]] = None
 
@@ -454,11 +483,13 @@ class TurnExecutor:
         Returns:
             CompletionResponse with complete response
         """
+        executor = self.require_supported_loop_executor()
+
         # Governance REQUEST phase: gate/redact the user message before it
         # enters history or reaches the LLM. A block short-circuits the turn
         # (no LLM call, nothing stored); a redaction substitutes the text.
-        if self._message_policy_gate is not None:
-            gate_result = await self._message_policy_gate.gate_request(user_message)
+        gate_result = await self._governance.check_request(user_message)
+        if gate_result is not None:
             if not gate_result.allowed:
                 return CompletionResponse(
                     content=gate_result.reason or "Your message was blocked by policy.",
@@ -484,26 +515,48 @@ class TurnExecutor:
             user_message,
             max_iterations,
             runtime_context_overrides=runtime_context_overrides,
+            executor=executor,
         )
 
-        # Governance RESPONSE phase: gate/redact the assistant's final output.
-        if self._message_policy_gate is not None and response is not None:
-            response = await self._gate_final_response(response)
         return response
 
-    async def _gate_final_response(self, response: CompletionResponse) -> CompletionResponse:
-        """Apply the RESPONSE-phase policy gate to a final assistant response."""
-        original = response.content or ""
-        gate_result = await self._message_policy_gate.gate_response(original)
-        if not gate_result.allowed:
-            return response.model_copy(
-                update={
-                    "content": gate_result.reason or "The response was withheld by policy.",
-                    "tool_calls": None,
-                }
+    def require_supported_loop_executor(
+        self, *, stategraph: bool | None = None
+    ) -> AgenticLoopExecutor:
+        """Resolve once before admission and reject unqualified graph governance.
+
+        Direct graph callers pass their already selected mode explicitly. Ordinary
+        service callers use the resolved session settings and pass the returned
+        concrete selection through to the loop, never re-reading a global flag.
+        """
+        from victor.framework.agentic_loop_executor import resolve_agentic_loop_executor
+
+        if stategraph is None:
+            config = getattr(self._chat_context.settings, "agentic_loop", None)
+            configured = config.executor if config is not None else AgenticLoopExecutor.AUTO
+            selected = resolve_agentic_loop_executor(configured)
+        else:
+            selected = (
+                AgenticLoopExecutor.STATEGRAPH if stategraph else AgenticLoopExecutor.STANDARD
             )
-        if gate_result.content != original:
-            return response.model_copy(update={"content": gate_result.content})
+        if self._governance.gate is not None and selected is AgenticLoopExecutor.STATEGRAPH:
+            raise NotImplementedError("StateGraph execution does not support message governance")
+        if (
+            selected is AgenticLoopExecutor.STATEGRAPH
+            and getattr(self, "_verifier", None) is not None
+        ):
+            raise NotImplementedError("StateGraph execution does not support verification")
+        return selected
+
+    async def govern_response(self, response: CompletionResponse) -> CompletionResponse:
+        """Govern one raw candidate before history, evaluation or publication.
+
+        Producers call once; callers receive publication-ready content. Usage and
+        tool envelopes are preserved. Tool authorization remains a separate boundary.
+        """
+        content = await self._governance.govern_response(response.content or "")
+        if content != (response.content or ""):
+            return response.model_copy(update={"content": content})
         return response
 
     async def prepare_runtime_topology(
@@ -553,7 +606,8 @@ class TurnExecutor:
         """Execute a single model turn (raw LLM call, no tool execution).
 
         This is the lowest-level execution path — a single LLM API call.
-        For a full turn with tool execution, use execute_turn().
+        No message governance or publication is performed here. For a governed
+        turn with tool execution, use execute_turn().
 
         Args:
             messages: Conversation history
@@ -674,7 +728,8 @@ class TurnExecutor:
             response = await self._execute_model_turn(tools=tools, **provider_kwargs)
 
             # Track tokens
-            self._accumulate_token_usage(response)
+            self._record_conversation_usage(response)
+            response = await self.govern_response(response)
 
             # Add assistant response/tool-call envelope to conversation history.
             # OpenAI-compatible providers require every subsequent tool message
@@ -826,11 +881,13 @@ class TurnExecutor:
         tool_results = await self._execute_tool_calls(tool_calls)
         response_content = self._summarize_deterministic_tool_results(tool_calls, tool_results)
         return TurnResult(
-            response=CompletionResponse(
-                content=response_content,
-                role="assistant",
-                tool_calls=tool_calls,
-                metadata={"deterministic_tool_execution": True},
+            response=await self.govern_response(
+                CompletionResponse(
+                    content=response_content,
+                    role="assistant",
+                    tool_calls=tool_calls,
+                    metadata={"deterministic_tool_execution": True},
+                )
             ),
             tool_results=tool_results,
             has_tool_calls=True,
@@ -1019,6 +1076,7 @@ class TurnExecutor:
         user_message: str,
         max_iterations: int,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO,
     ) -> CompletionResponse:
         """Delegate execution to AgenticLoop for enhanced evaluation.
 
@@ -1074,7 +1132,11 @@ class TurnExecutor:
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
             exploration_settings=getattr(self._chat_context.settings, "exploration", None),
-            config={"completion_strategy": _strategy, "enable_effect_gate": _effect_gate},
+            config={
+                "executor": executor,
+                "completion_strategy": _strategy,
+                "enable_effect_gate": _effect_gate,
+            },
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
             max_verify_retries=getattr(self, "_max_verify_retries", 0),
@@ -1105,51 +1167,73 @@ class TurnExecutor:
             loop_run_kwargs["conversation_history"] = conversation_history
 
         loop_result = await loop.run(user_message, **loop_run_kwargs)
-        loop_success = getattr(loop_result, "success", True)
-        # Real agentic-loop iteration count (excludes rubric-judge / recovery sub-calls) — surfaced on
-        # the response metadata so it can reach TaskResult.metadata for observability + A/B harnesses.
-        loop_iterations = len(getattr(loop_result, "iterations", []) or [])
+        loop_success = loop_result.success
+        # Iterations exclude unfinished evaluation and recovery sub-calls.
+        loop_iterations = len(loop_result.iterations)
+        last = loop_result.iterations[-1] if loop_result.iterations else None
         loop_error = None
         if not loop_success:
-            loop_error = "Agentic loop ended before satisfying the task"
-            if loop_result.iterations and loop_result.iterations[-1].evaluation:
-                loop_error = loop_result.iterations[-1].evaluation.reason or loop_error
-        has_tool_evidence = self._loop_has_successful_tool_evidence(loop_result)
+            loop_error = (
+                (
+                    loop_result.metadata.get("error")
+                    if loop_result.metadata.get("terminated_by") == "loop_spin_guard"
+                    else None
+                )
+                or (last.evaluation.reason if last and last.evaluation else None)
+                or "Agentic loop ended before satisfying the task"
+            )
 
-        # Extract the last TurnResult's response
-        if loop_result.iterations:
-            last = loop_result.iterations[-1]
-            if last.action_result is not None:
-                turn_result = last.action_result
-                if hasattr(turn_result, "response"):
-                    response = turn_result.response
-                    if not loop_success and has_tool_evidence and not response.content:
-                        # Synthesis recovers presentation, not task completion.
-                        # Preserve the loop/verifier verdict even when an earlier
-                        # read succeeded and the summary claims the work is done.
-                        synthesized = await self.synthesize_from_tool_evidence(
-                            recovery_reason=loop_error,
-                        )
-                        response = synthesized.response
+        # ACT is committed to state before EVALUATE finishes and the iteration is
+        # appended. Preserve that current result if a guard interrupts evaluation.
+        action_result = loop_result.final_state.get("action_result")
+        if action_result is None and last is not None:
+            action_result = last.action_result
+        recovery_allowed = self._allows_post_loop_recovery(loop_result, action_result)
+        # Ordinary presentation recovery retains its recorded-iteration/fallback
+        # contract. Only a terminal stop publishes an unfinished iteration's ACT.
+        response_source = (
+            action_result if not recovery_allowed else (last.action_result if last else None)
+        )
+        response = getattr(response_source, "response", None)
+        if response is not None:
+            if (
+                recovery_allowed
+                and not loop_success
+                and not response.content
+                and self._loop_has_successful_tool_evidence(loop_result)
+            ):
+                # Recover presentation without changing the verifier's verdict.
+                synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
+                response = synthesized.response
+        elif recovery_allowed:
+            response = await self._ensure_complete_response(None, ToolFailureContext())
+        else:
+            # No generated fallback after terminal admission denial. The failed
+            # metadata explains the stop without inventing ungoverned assistant text.
+            response = CompletionResponse(content="", role="assistant")
 
-                    metadata = dict(getattr(response, "metadata", None) or {})
-                    metadata["agentic_loop_success"] = loop_success
-                    metadata["agentic_loop_iterations"] = loop_iterations
-                    if loop_error:
-                        metadata["agentic_loop_error"] = loop_error
-                    response.metadata = metadata
-                    return response
-
-        # Fallback: ensure we have a response
-        failure_context = ToolFailureContext()
-        response = await self._ensure_complete_response(None, failure_context)
-        metadata = dict(getattr(response, "metadata", None) or {})
+        metadata = dict(response.metadata or {})
         metadata["agentic_loop_success"] = loop_success
         metadata["agentic_loop_iterations"] = loop_iterations
         if loop_error:
             metadata["agentic_loop_error"] = loop_error
         response.metadata = metadata
         return response
+
+    @staticmethod
+    def _allows_post_loop_recovery(loop_result: LoopResult, action_result: object) -> bool:
+        """Honor structured terminal stops without reclassifying ordinary failed verification."""
+        from victor.framework.evaluation_nodes import EvaluationDecision
+
+        if loop_result.metadata.get("terminated_by") == "loop_spin_guard":
+            return False
+        if isinstance(action_result, TurnResult) and action_result.disposition.stops_run:
+            return False
+        if loop_result.iterations:
+            evaluation = loop_result.iterations[-1].evaluation
+            if evaluation and evaluation.decision in (EvaluationDecision.ESCALATE, "escalate"):
+                return False
+        return True
 
     async def synthesize_from_tool_evidence(
         self,
@@ -1639,20 +1723,15 @@ class TurnExecutor:
         except (TypeError, ValueError):
             return None
 
-    def _accumulate_token_usage(self, response: CompletionResponse) -> None:
-        """Accumulate token usage for evaluation tracking.
+    def _record_conversation_usage(self, response: CompletionResponse) -> None:
+        """Calibrate and persist conversation usage after a metered model call.
 
-        Token usage is accumulated through chat_context._cumulative_token_usage.
+        Invocation dispatch owns session accounting; do not fold it again here.
 
         Args:
             response: Response from model
         """
         if response.usage:
-            cum = self._chat_context._cumulative_token_usage
-            cum["prompt_tokens"] += response.usage.get("prompt_tokens", 0)
-            cum["completion_tokens"] += response.usage.get("completion_tokens", 0)
-            cum["total_tokens"] += response.usage.get("total_tokens", 0)
-
             # Feed actual prompt_tokens back to ConversationController so that
             # get_context_metrics() uses real counts instead of char estimation.
             # Also persist cumulative token usage to ConversationStore (session analytics).
@@ -1673,38 +1752,6 @@ class TurnExecutor:
                         )
                 except Exception:
                     pass  # Never break the hot path over metrics
-
-            # Extended token fields: neutral usage first, transport
-            # diagnostics (metadata["sandhi_usage"]) for the fields with no
-            # neutral home yet, and the raw native body only as a legacy
-            # fallback for non-typed providers. The native body must never be
-            # load-bearing (foundations strategy F1) — typed transports work
-            # identically with extensions absent.
-            usage = response.usage or {}
-            meta = getattr(response, "metadata", None) or {}
-            sandhi_usage = meta.get("sandhi_usage") or {}
-            raw = getattr(response, "raw_response", None)
-            raw_usage = (raw.get("usage") or {}) if isinstance(raw, dict) else {}
-            prompt_details = raw_usage.get("prompt_tokens_details", {}) or {}
-            comp_details = raw_usage.get("completion_tokens_details", {}) or {}
-
-            cum = self._chat_context._cumulative_token_usage
-            cum["cached_tokens"] = cum.get("cached_tokens", 0) + (
-                usage.get("cache_read_input_tokens", 0)
-                or prompt_details.get("cached_tokens", 0)
-                or raw_usage.get("prompt_cache_hit_tokens", 0)
-                or raw_usage.get("cache_read_input_tokens", 0)
-            )
-            cum["cache_miss_tokens"] = cum.get("cache_miss_tokens", 0) + (
-                sandhi_usage.get("cache_miss_tokens", 0)
-                or raw_usage.get("prompt_cache_miss_tokens", 0)
-            )
-            cum["reasoning_tokens"] = cum.get("reasoning_tokens", 0) + (
-                usage.get("reasoning_tokens", 0) or comp_details.get("reasoning_tokens", 0)
-            )
-            cum["cost_usd_micros"] = cum.get("cost_usd_micros", 0) + (
-                sandhi_usage.get("cost_in_usd_ticks", 0) or raw_usage.get("cost_in_usd_ticks", 0)
-            )
 
     async def _check_context_compaction(
         self,
@@ -1797,6 +1844,7 @@ class TurnExecutor:
         result = after_agent_turn(
             runtime_context,
             messages=self._root_runtime_messages(orchestrator),
+            history=getattr(orchestrator, "_conversation_controller", None),
             min_messages=6,
         )
         if inspect.isawaitable(result):
@@ -1836,14 +1884,14 @@ class TurnExecutor:
         to generate a response or use a fallback.
 
         Args:
-            final_response: Response from agentic loop (may be None)
+            final_response: Raw candidate, not yet governed (may be None)
             failure_context: Tool failure context for fallback messages
 
         Returns:
             CompletionResponse with content
         """
         if final_response is not None and final_response.content:
-            return final_response
+            return await self.govern_response(final_response)
 
         # Use response completer to generate a response
         completion_result = await self._provider_context.response_completer.ensure_response(
@@ -1855,7 +1903,7 @@ class TurnExecutor:
         )
 
         for provider_response in completion_result.provider_responses:
-            self._accumulate_token_usage(provider_response)
+            self._record_conversation_usage(provider_response)
 
         content = completion_result.content
         if not content:
@@ -1869,16 +1917,19 @@ class TurnExecutor:
                     failure_context
                 )
 
+        response = await self.govern_response(
+            CompletionResponse(
+                content=content,
+                role="assistant",
+                tool_calls=None,
+            )
+        )
         self._chat_context.add_message(
             "assistant",
-            content,
+            response.content,
             metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.AGENT_RESPONSE.value},
         )
-        return CompletionResponse(
-            content=content,
-            role="assistant",
-            tool_calls=None,
-        )
+        return response
 
     # =====================================================================
     # Static Heuristics

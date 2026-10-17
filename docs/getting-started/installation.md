@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers all methods for installing Victor, from the simplest pip install to development setups and Docker containers.
+Use uv for an isolated CLI installation. This guide also covers existing virtual environments, source checkouts, and Docker.
 
 ## System Requirements
 
@@ -53,11 +53,79 @@ victor --version
 - Easy upgrades with `uv tool upgrade victor-ai`
 - Clean uninstalls with `uv tool uninstall victor-ai`
 
-Optional dependencies install through `--with`:
+For coding, semantic search, and conversation checkpoints, install the matching
+extras together. `--force` updates an existing tool installation and records the
+extras in uv's tool receipt so future upgrades retain them:
 
 ```bash
-uv tool install --python 3.12 victor-ai --with "victor-ai[embeddings]"
+uv tool install --force --python 3.12 "victor-ai[coding,embeddings,checkpoints]"
+uv tool update-shell
+# Open a new shell, or add uv's executable directory to PATH.
+victor --version
+victor doctor
+victor onboarding --force
 ```
+
+`victor onboarding --force` provides interactive provider and credential setup.
+It displays dependency mismatches and a repair command before setup. It does not
+install packages automatically. If your provider/profile is already configured,
+skip onboarding and test it directly:
+
+```bash
+victor chat --profile YOUR_PROFILE "Reply exactly OK. Do not call tools."
+```
+
+If another virtual environment is active, its `victor` may shadow the uv tool.
+Run `deactivate`, then `hash -r` and `command -v victor` (bash), or invoke
+`"$(uv tool dir --bin)/victor"` explicitly. A Homebrew Python interpreter does not
+mean Victor itself was installed by Homebrew; `uv tool list` identifies uv tools.
+
+### Updating after dependency pins change
+
+A source pull does not reinstall dependencies or refresh editable package
+metadata. Victor checks core requirements at chat startup, in `victor doctor`,
+and during onboarding. An editable checkout is checked against its current
+`pyproject.toml`; wheel installs use their packaged requirements. Mismatches
+produce a warning with a repair command for the running environment. These checks
+are offline, do not install anything, and do not infer which optional extras you
+want. Use `uv pip check --python PATH_TO_PYTHON` for all installed distributions.
+
+For the published CLI installation:
+
+```bash
+uv tool upgrade victor-ai
+victor doctor
+```
+
+When testing source changes before a release, install from the intended checkout
+so its dependency pins and first-party packages are resolved together:
+
+```bash
+cd /path/to/victor
+uv tool install --force --python 3.12 \
+  ".[coding,embeddings,checkpoints]" \
+  --with ./victor-contracts --with ./verticals/victor-coding
+```
+
+For an existing development environment, refresh the editable installs explicitly
+(use your actual environment path):
+
+```bash
+cd /path/to/victor
+uv pip install --python ../.venv/bin/python \
+  -e ".[coding,embeddings,checkpoints]" \
+  -e ./victor-contracts -e ./verticals/victor-coding -e ./victor-codegraph
+uv pip check --python ../.venv/bin/python
+../.venv/bin/victor doctor
+```
+
+`uv pip install` retains unrelated packages in a shared environment. It can still
+change shared dependency versions; inspect `uv pip check` results. Prefer the
+isolated uv tool for daily CLI use. Rerun the source installation command after
+pulling dependency changes; use `uv tool upgrade` for a published installation.
+Do not independently override Sandhi's pinned version. Server credential setup
+is separate; see [the subscription gateway guide](../architecture/sandhi-subscription-gateway.md).
+
 
 ### Method 2: pipx (Equivalent, If You Already Use It)
 

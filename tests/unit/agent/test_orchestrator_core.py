@@ -381,10 +381,15 @@ class TestSystemPrompt:
     """Tests for system prompt building."""
 
     def test_build_system_prompt(self, orchestrator):
-        """Test canonical build_system_prompt returns a prompt string."""
+        """Bootstrap and canonical rebuild include repository rules once, before the nonce."""
         result = orchestrator.build_system_prompt()
         assert isinstance(result, str)
         assert len(result) > 0
+        context = orchestrator.project_context.get_system_prompt_addition()
+        assert context
+        for prompt in (orchestrator._system_prompt, result):
+            assert prompt.count(context) == 1
+            assert prompt.index(context) < prompt.index("SYSTEM GUIDANCE CHANNEL")
 
     def test_build_system_prompt_for_provider(self, orchestrator):
         """Test prompt building via prompt_builder (dead code removed from orchestrator)."""
@@ -1092,6 +1097,35 @@ class TestServiceFirstDelegation:
                     for m in orchestrator.conversation._messages
                 )
         writer.assert_called_once()
+
+    def test_publication_retains_original_task_past_configured_history_limit(self, orchestrator):
+        from victor.agent.message_history import MessageHistory
+
+        orchestrator.settings.max_conversation_history = 10
+        orchestrator.conversation = MessageHistory(system_prompt="System", max_history_messages=10)
+        orchestrator.conversation.ensure_system_prompt()
+        orchestrator._conversation_controller.load_history(orchestrator.conversation)
+        with patch("victor.agent.services.chat_service.ChatService.persist_message"):
+            orchestrator.add_message("user", "Active task", metadata={"source": "u"})
+            orchestrator._apply_task_guidance(
+                user_message="Active task",
+                unified_task_type=MagicMock(value="analyze"),
+                is_analysis_task=True,
+                is_action_task=False,
+                needs_execution=False,
+                max_exploration_iterations=10,
+            )
+            guidance = [
+                m
+                for m in orchestrator.conversation.messages
+                if (m.metadata or {}).get("source") == "ag"
+            ]
+            assert len(guidance) == 2
+            assert all(m.metadata["interactive_history"] is False for m in guidance)
+            for i in range(25):
+                orchestrator.add_message("assistant", f"Evidence {i}")
+        assert any(m.content == "Active task" for m in orchestrator.conversation.messages)
+        assert len(orchestrator.conversation.messages) == 10
 
     def test_add_message_uses_chat_service_persist_message(self, orchestrator):
         """Message persistence should go through ChatService, not ChatCoordinator."""
@@ -3870,16 +3904,6 @@ class TestAddMessage:
         assert len(orchestrator.messages) >= 1
 
 
-class TestBuildSystemPrompt:
-    """Tests for build_system_prompt method."""
-
-    def test_returns_string(self, orchestrator):
-        """Test build_system_prompt returns string."""
-        prompt = orchestrator.build_system_prompt()
-        assert isinstance(prompt, str)
-        assert len(prompt) > 0
-
-
 class TestGetModelContextWindow:
     """Tests for _get_model_context_window method."""
 
@@ -4371,16 +4395,6 @@ class TestPromptBuilderAttr:
         assert builder is not None
 
 
-class TestBuildSystemPromptSecondary:
-    """Additional tests for build_system_prompt method."""
-
-    def test_returns_string(self, orchestrator):
-        """Test build_system_prompt returns string."""
-        prompt = orchestrator.build_system_prompt()
-        assert isinstance(prompt, str)
-        assert len(prompt) > 0
-
-
 class TestCheckContextOverflowMethod:
     """Tests for _check_context_overflow method."""
 
@@ -4779,19 +4793,21 @@ class TestTaskUsageAccumulatorIdentity:
             is orchestrator._cumulative_token_usage
         )
 
-    def test_buffered_accumulation_is_visible_to_the_task_report_reader(self, orchestrator):
-        """A fold through the real shared dict must move the value the task
-        report snapshot reads — no per-path copy in between."""
+    async def test_buffered_accumulation_is_visible_to_the_task_report_reader(self, orchestrator):
+        """The real invocation seam must update the same session dictionary."""
         from victor.providers.base import CompletionResponse
-        from victor.agent.services.turn_execution_runtime import TurnExecutor
 
-        executor = TurnExecutor.__new__(TurnExecutor)
-        executor._chat_context = orchestrator.protocol_adapter
-        executor._accumulate_token_usage(
-            CompletionResponse(
+        orchestrator.provider.chat = AsyncMock(
+            return_value=CompletionResponse(
                 content="",
                 usage={"prompt_tokens": 26, "completion_tokens": 0, "total_tokens": 26},
             )
+        )
+        await orchestrator.protocol_adapter.execute_turn(
+            messages=[],
+            model=orchestrator.model,
+            temperature=0.0,
+            max_tokens=10,
         )
         assert orchestrator._cumulative_token_usage.get("total_tokens") >= 26
         snapshot = orchestrator._metrics_coordinator._snapshot_task_usage()

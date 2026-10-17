@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Literal, Dict, List, Optional
 
 
 class Tables:
@@ -1283,85 +1283,143 @@ class Schema:
 # Version 9: FEP-0012 Phase 6 — per-label local_classifier_delta. The v8 scalar
 #   schema could not hold a multi-class head's per-label nudge (task_completion is
 #   fail/partial/pass). Redefined to one row per (decision_type, feature_hash,
-#   label) + a feature_spec_version guard. The table had never been written, so
-#   the v9 migration DROPs+recreates it losslessly.
+#   label) + a feature_spec_version guard. Only empty legacy tables may be
+#   replaced automatically; populated incompatible tables require reconciliation.
 CURRENT_SCHEMA_VERSION = 9
 
 
-def get_migration_sql(from_version: int, to_version: int) -> List[str]:
-    """Get SQL statements needed to migrate between schema versions.
+MigrationScope = Literal["global", "project"]
+MigrationOperation = Literal["sql", "rename", "add_text", "metadata", "reset_empty_delta"]
 
-    Args:
-        from_version: Current schema version
-        to_version: Target schema version
 
-    Returns:
-        List of SQL statements to execute
+@dataclass(frozen=True)
+class MigrationStep:
+    """A trusted migration with explicit scope and optional-table preconditions.
+
+    ``table`` declares an optional, lazily created table. Its absence is a
+    deliberate no-op; SQL errors on an existing table are never suppressed.
+    ``target`` names the destination table or nullable TEXT column.
     """
-    migrations: Dict[int, List[str]] = {
+
+    scope: MigrationScope
+    sql: str
+    operation: MigrationOperation = "sql"
+    table: Optional[str] = None
+    target: Optional[str] = None
+
+    @classmethod
+    def rename(cls, scope: MigrationScope, source: str, target: str) -> "MigrationStep":
+        return cls(scope, f"ALTER TABLE {source} RENAME TO {target}", "rename", source, target)
+
+    @classmethod
+    def add_text(cls, scope: MigrationScope, table: str, column: str) -> "MigrationStep":
+        return cls(
+            scope, f"ALTER TABLE {table} ADD COLUMN {column} TEXT", "add_text", table, column
+        )
+
+
+def get_migration_steps(from_version: int, to_version: int) -> List[MigrationStep]:
+    """Return the single registry's ordered, scoped migration definitions."""
+    migrations: Dict[int, List[MigrationStep]] = {
         # Version 1 -> 2: Rename tables to new naming convention
         2: [
             # Rename system tables
-            f"ALTER TABLE _db_metadata RENAME TO {Tables.SYS_METADATA}",
+            MigrationStep(
+                "global",
+                f"ALTER TABLE _db_metadata RENAME TO {Tables.SYS_METADATA}",
+                operation="metadata",
+            ),
             # Create new RL tables
-            Schema.RL_LEARNER,
-            Schema.RL_Q_VALUE,
-            Schema.RL_TRANSITION,
-            Schema.RL_PARAM,
-            Schema.RL_TASK_STAT,
-            Schema.RL_METRIC,
+            MigrationStep("global", Schema.RL_LEARNER),
+            MigrationStep("global", Schema.RL_Q_VALUE),
+            MigrationStep("global", Schema.RL_TRANSITION),
+            MigrationStep("global", Schema.RL_PARAM),
+            MigrationStep("global", Schema.RL_TASK_STAT),
+            MigrationStep("global", Schema.RL_METRIC),
             # Rename existing tables
-            f"ALTER TABLE rl_outcomes RENAME TO {Tables.RL_OUTCOME}",
-            f"ALTER TABLE cross_vertical_patterns RENAME TO {Tables.RL_PATTERN}",
-            f"ALTER TABLE cross_vertical_applications RENAME TO {Tables.RL_PATTERN_USE}",
+            MigrationStep.rename("global", "rl_outcomes", Tables.RL_OUTCOME),
+            MigrationStep.rename("global", "cross_vertical_patterns", Tables.RL_PATTERN),
+            MigrationStep.rename("global", "cross_vertical_applications", Tables.RL_PATTERN_USE),
             # Rename agent tables
-            f"ALTER TABLE team_composition_stats RENAME TO {Tables.AGENT_TEAM_CONFIG}",
-            f"ALTER TABLE team_execution_history RENAME TO {Tables.AGENT_TEAM_RUN}",
-            f"ALTER TABLE workflow_executions RENAME TO {Tables.AGENT_WORKFLOW_RUN}",
-            f"ALTER TABLE prompt_template_styles RENAME TO {Tables.AGENT_PROMPT_STYLE}",
-            f"ALTER TABLE prompt_template_elements RENAME TO {Tables.AGENT_PROMPT_ELEMENT}",
-            f"ALTER TABLE curriculum_stages RENAME TO {Tables.AGENT_CURRICULUM_STAGE}",
-            f"ALTER TABLE curriculum_metrics RENAME TO {Tables.AGENT_CURRICULUM_METRIC}",
-            f"ALTER TABLE policy_checkpoints RENAME TO {Tables.AGENT_POLICY_SNAPSHOT}",
+            MigrationStep.rename("global", "team_composition_stats", Tables.AGENT_TEAM_CONFIG),
+            MigrationStep.rename("global", "team_execution_history", Tables.AGENT_TEAM_RUN),
+            MigrationStep.rename("global", "workflow_executions", Tables.AGENT_WORKFLOW_RUN),
+            MigrationStep.rename("global", "prompt_template_styles", Tables.AGENT_PROMPT_STYLE),
+            MigrationStep.rename("global", "prompt_template_elements", Tables.AGENT_PROMPT_ELEMENT),
+            MigrationStep.rename("global", "curriculum_stages", Tables.AGENT_CURRICULUM_STAGE),
+            MigrationStep.rename("global", "curriculum_metrics", Tables.AGENT_CURRICULUM_METRIC),
+            MigrationStep.rename("global", "policy_checkpoints", Tables.AGENT_POLICY_SNAPSHOT),
             # Rename UI tables
-            f"ALTER TABLE sessions RENAME TO {Tables.UI_SESSION}",
-            f"ALTER TABLE failed_signatures RENAME TO {Tables.UI_FAILED_CALL}",
+            MigrationStep.rename("global", "sessions", Tables.UI_SESSION),
+            MigrationStep.rename("global", "failed_signatures", Tables.UI_FAILED_CALL),
         ],
         # Version 2 -> 3: Add module-level graph metrics tables
         3: [
-            Schema.GRAPH_MODULE_METRIC,
-            Schema.GRAPH_MODULE_METRIC_HISTORY,
-            Schema.GRAPH_MODULE_METRIC_INDEXES,
+            MigrationStep("project", Schema.GRAPH_MODULE_METRIC),
+            MigrationStep("project", Schema.GRAPH_MODULE_METRIC_HISTORY),
+            MigrationStep("project", Schema.GRAPH_MODULE_METRIC_INDEXES),
         ],
         # Version 3 -> 4: Priority 4 - Add session_id column to rl_outcome for user feedback linking
         4: [
             # Add session_id column for conversation linking
-            f"ALTER TABLE {Tables.RL_OUTCOME} ADD COLUMN session_id TEXT",
+            MigrationStep.add_text("global", Tables.RL_OUTCOME, "session_id"),
             # Add indexes for performance
-            f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_session ON {Tables.RL_OUTCOME}(session_id, created_at)",
-            f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_repo ON {Tables.RL_OUTCOME}(repo_id, created_at)",
+            MigrationStep(
+                "global",
+                f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_session ON {Tables.RL_OUTCOME}(session_id, created_at)",
+                table=Tables.RL_OUTCOME,
+            ),
+            MigrationStep(
+                "global",
+                f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_repo ON {Tables.RL_OUTCOME}(repo_id, created_at)",
+                table=Tables.RL_OUTCOME,
+            ),
         ],
         # Version 4 -> 5: Phase 14 - Graph-Based Enhancements (CCG + Graph RAG)
         5: [
             # Add CCG columns to graph_node
-            f"ALTER TABLE {Tables.GRAPH_NODE} ADD COLUMN ast_kind TEXT",
-            f"ALTER TABLE {Tables.GRAPH_NODE} ADD COLUMN scope_id TEXT",
-            f"ALTER TABLE {Tables.GRAPH_NODE} ADD COLUMN statement_type TEXT",
-            f"ALTER TABLE {Tables.GRAPH_NODE} ADD COLUMN requirement_id TEXT",
-            f"ALTER TABLE {Tables.GRAPH_NODE} ADD COLUMN visibility TEXT",
+            MigrationStep.add_text("project", Tables.GRAPH_NODE, "ast_kind"),
+            MigrationStep.add_text("project", Tables.GRAPH_NODE, "scope_id"),
+            MigrationStep.add_text("project", Tables.GRAPH_NODE, "statement_type"),
+            MigrationStep.add_text("project", Tables.GRAPH_NODE, "requirement_id"),
+            MigrationStep.add_text("project", Tables.GRAPH_NODE, "visibility"),
             # Create indexes for new query patterns
-            f"CREATE INDEX IF NOT EXISTS idx_graph_node_statement_type ON {Tables.GRAPH_NODE}(statement_type)",
-            f"CREATE INDEX IF NOT EXISTS idx_graph_node_requirement ON {Tables.GRAPH_NODE}(requirement_id)",
-            f"CREATE INDEX IF NOT EXISTS idx_graph_node_visibility ON {Tables.GRAPH_NODE}(visibility)",
+            MigrationStep(
+                "project",
+                f"CREATE INDEX IF NOT EXISTS idx_graph_node_statement_type ON {Tables.GRAPH_NODE}(statement_type)",
+                table=Tables.GRAPH_NODE,
+            ),
+            MigrationStep(
+                "project",
+                f"CREATE INDEX IF NOT EXISTS idx_graph_node_requirement ON {Tables.GRAPH_NODE}(requirement_id)",
+                table=Tables.GRAPH_NODE,
+            ),
+            MigrationStep(
+                "project",
+                f"CREATE INDEX IF NOT EXISTS idx_graph_node_visibility ON {Tables.GRAPH_NODE}(visibility)",
+                table=Tables.GRAPH_NODE,
+            ),
             # Partial indexes for CCG edges (performance)
-            f"CREATE INDEX IF NOT EXISTS idx_graph_edge_cfg ON {Tables.GRAPH_EDGE}(src, type) WHERE type LIKE 'CFG_%'",
-            f"CREATE INDEX IF NOT EXISTS idx_graph_edge_cdg ON {Tables.GRAPH_EDGE}(src, type) WHERE type LIKE 'CDG_%'",
-            f"CREATE INDEX IF NOT EXISTS idx_graph_edge_ddg ON {Tables.GRAPH_EDGE}(src, type) WHERE type LIKE 'DDG_%'",
+            MigrationStep(
+                "project",
+                f"CREATE INDEX IF NOT EXISTS idx_graph_edge_cfg ON {Tables.GRAPH_EDGE}(src, type) WHERE type LIKE 'CFG_%'",
+                table=Tables.GRAPH_EDGE,
+            ),
+            MigrationStep(
+                "project",
+                f"CREATE INDEX IF NOT EXISTS idx_graph_edge_cdg ON {Tables.GRAPH_EDGE}(src, type) WHERE type LIKE 'CDG_%'",
+                table=Tables.GRAPH_EDGE,
+            ),
+            MigrationStep(
+                "project",
+                f"CREATE INDEX IF NOT EXISTS idx_graph_edge_ddg ON {Tables.GRAPH_EDGE}(src, type) WHERE type LIKE 'DDG_%'",
+                table=Tables.GRAPH_EDGE,
+            ),
             # Create new tables for requirement tracking and subgraph caching
-            Schema.GRAPH_REQUIREMENT,
-            Schema.GRAPH_SUBGRAPH,
-            Schema.GRAPH_SUBGRAPH_NODE,
-            Schema.GRAPH_RAG_INDEXES,
+            MigrationStep("project", Schema.GRAPH_REQUIREMENT),
+            MigrationStep("project", Schema.GRAPH_SUBGRAPH),
+            MigrationStep("project", Schema.GRAPH_SUBGRAPH_NODE),
+            MigrationStep("project", Schema.GRAPH_RAG_INDEXES),
         ],
         # Version 5 -> 6: Database Consolidation - Single Canonical Databases
         # This migration marks the consolidation where:
@@ -1370,45 +1428,75 @@ def get_migration_sql(from_version: int, to_version: int) -> List[str]:
         # Legacy databases are migrated to their canonical locations
         6: [
             # Add consolidation metadata to track completion
-            f"INSERT OR REPLACE INTO {Tables.SYS_METADATA} (key, value, updated_at) VALUES ('consolidated_version', '6', datetime('now'))",
+            MigrationStep(
+                "global",
+                f"INSERT OR REPLACE INTO {Tables.SYS_METADATA} (key, value, updated_at) VALUES ('consolidated_version', '6', datetime('now'))",
+            ),
             # Create additional indexes for performance
-            f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_vertical ON {Tables.RL_OUTCOME}(vertical, created_at)",
-            f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_session ON {Tables.RL_OUTCOME}(session_id, created_at)",
+            MigrationStep(
+                "global",
+                f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_vertical ON {Tables.RL_OUTCOME}(vertical, created_at)",
+                table=Tables.RL_OUTCOME,
+            ),
+            MigrationStep(
+                "global",
+                f"CREATE INDEX IF NOT EXISTS idx_rl_outcome_session ON {Tables.RL_OUTCOME}(session_id, created_at)",
+                table=Tables.RL_OUTCOME,
+            ),
             # Ensure graph node FTS is up to date
-            f"CREATE INDEX IF NOT EXISTS idx_graph_node_file_line ON {Tables.GRAPH_NODE}(file, line)",
+            MigrationStep(
+                "project",
+                f"CREATE INDEX IF NOT EXISTS idx_graph_node_file_line ON {Tables.GRAPH_NODE}(file, line)",
+                table=Tables.GRAPH_NODE,
+            ),
         ],
         # Version 6 -> 7: RL unified tables - wire all learners to consolidated schema
         # Adds value_text TEXT column to rl_param for JSON blob storage (model_selector
         # threshold observations, prompt_template enrichment stats, etc.)
         7: [
-            f"ALTER TABLE {Tables.RL_PARAM} ADD COLUMN value_text TEXT",
-            f"INSERT OR REPLACE INTO {Tables.SYS_METADATA} (key, value, updated_at) VALUES ('rl_unified_schema_version', '7', datetime('now'))",
+            MigrationStep.add_text("global", Tables.RL_PARAM, "value_text"),
+            MigrationStep(
+                "global",
+                f"INSERT OR REPLACE INTO {Tables.SYS_METADATA} (key, value, updated_at) VALUES ('rl_unified_schema_version', '7', datetime('now'))",
+            ),
         ],
         # Version 8 (FEP-0012): edge-classifier decision learning. Idempotent
         # CREATE TABLE — decision_log/decision_outcome are global (join
         # rl_outcome for training); local_classifier_delta is per-project.
         # Indexes are created via Schema.get_all_indexes()/get_project_indexes().
         8: [
-            Schema.DECISION_LOG,
-            Schema.DECISION_OUTCOME,
-            Schema.LOCAL_CLASSIFIER_DELTA,
+            MigrationStep("global", Schema.DECISION_LOG),
+            MigrationStep("global", Schema.DECISION_OUTCOME),
+            MigrationStep("project", Schema.LOCAL_CLASSIFIER_DELTA),
         ],
         # Version 9 (FEP-0012 Phase 6): local_classifier_delta becomes per-label.
-        # The table has never been written (Phase 6 is the first writer), so
-        # DROP+CREATE is lossless. DROP is a no-op on the global DB (the table is
-        # project-scoped). Indexes are re-created via get_project_indexes().
+        # The executor preserves an already-current table and refuses to discard
+        # populated legacy data. Indexes are created after migration.
         9: [
-            f"DROP TABLE IF EXISTS {Tables.LOCAL_CLASSIFIER_DELTA}",
-            Schema.LOCAL_CLASSIFIER_DELTA,
+            MigrationStep(
+                "project",
+                f"DROP TABLE IF EXISTS {Tables.LOCAL_CLASSIFIER_DELTA}",
+                operation="reset_empty_delta",
+                table=Tables.LOCAL_CLASSIFIER_DELTA,
+            ),
+            MigrationStep("project", Schema.LOCAL_CLASSIFIER_DELTA),
         ],
     }
 
-    sql_statements = []
-    for version in range(from_version + 1, to_version + 1):
-        if version in migrations:
-            sql_statements.extend(migrations[version])
+    return [
+        step
+        for version in range(from_version + 1, to_version + 1)
+        for step in migrations.get(version, [])
+    ]
 
-    return sql_statements
+
+def get_migration_sql(from_version: int, to_version: int) -> List[str]:
+    """Return the compatibility SQL projection, without executor safety checks.
+
+    Database managers use the scoped transactional executor. Raw SQL consumers
+    own applicability, destructive-change checks, transactions and versioning.
+    """
+    return [step.sql for step in get_migration_steps(from_version, to_version)]
 
 
 __all__ = [

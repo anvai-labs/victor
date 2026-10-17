@@ -120,7 +120,11 @@ class PromptDocument:
 
 
 class PromptDeduplicationProcessor:
-    """Remove duplicate or empty blocks while preserving first occurrence."""
+    """Remove empty blocks and duplicate enabled content, keeping its first occurrence.
+
+    Nonempty disabled blocks are copied but never claim content in the visible
+    prompt. They must not suppress an enabled block or lose their configuration.
+    """
 
     def __init__(self, case_insensitive: bool = True) -> None:
         self._case_insensitive = case_insensitive
@@ -132,6 +136,10 @@ class PromptDeduplicationProcessor:
         for _, block in document.iter_named_blocks():
             normalized = " ".join(block.content.split())
             if not normalized:
+                continue
+
+            if not block.enabled:
+                deduped.upsert(replace(block))
                 continue
 
             key = normalized.lower() if self._case_insensitive else normalized

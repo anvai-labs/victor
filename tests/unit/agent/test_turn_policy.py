@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import pytest
 
+from victor.agent.action_authorizer import ActionIntent
+
 from victor.agent.turn_policy import (
     FulfillmentCriteria,
     FulfillmentCriteriaBuilder,
@@ -190,14 +192,6 @@ class TestNudgePolicy:
         decision = policy.evaluate(detector)
         # Should NOT nudge for code_search since it was already used
         assert decision.nudge_type != NudgeType.CODE_SEARCH
-
-    def test_budget_warning_past_halfway(self):
-        policy = NudgePolicy()
-        decision = policy.budget_warning(iteration=7, max_iterations=10)
-        assert decision.nudge_type == NudgeType.BUDGET_WARNING
-        assert decision.should_inject is True
-        assert "remaining" in decision.message
-        assert decision.role == "user"
 
     def test_no_budget_warning_before_halfway(self):
         policy = NudgePolicy()
@@ -591,3 +585,36 @@ class TestSpinDetectorConfig:
 
         assert MAX_NO_TOOL_TURNS == 3
         assert READ_ONLY_ESCALATION_THRESHOLD == 5
+
+
+@pytest.mark.parametrize("intent", [None, *ActionIntent])
+@pytest.mark.parametrize("trigger", ["budget", "repetition", "blocked", "reading"])
+def test_nudges_preserve_task_intent(intent, trigger):
+    policy = NudgePolicy()
+    detector = SpinDetector()
+    if trigger == "budget":
+        decision = policy.budget_warning(7, 10, intent=intent)
+    else:
+        if trigger == "repetition":
+            for _ in range(2):
+                detector.record_turn(has_tool_calls=False)
+        elif trigger == "blocked":
+            for _ in range(2):
+                detector.record_turn(has_tool_calls=True, all_blocked=True)
+        else:
+            for _ in range(READ_ONLY_ESCALATION_THRESHOLD):
+                detector.record_turn(has_tool_calls=True, tool_names={"read"}, tool_count=1)
+        decision = policy.evaluate(detector, intent=intent)
+    assert decision.should_inject
+    assert decision.role == "user"
+    if trigger == "budget":
+        assert decision.nudge_type is NudgeType.BUDGET_WARNING
+        assert "3 turns remaining out of 10" in decision.message
+    if intent is ActionIntent.WRITE_ALLOWED:
+        if trigger != "blocked":
+            assert "edit" in decision.message.lower()
+    else:
+        assert "edit" not in decision.message.lower()
+        assert "write" not in decision.message.lower()
+        assert "shell" not in decision.message.lower()
+        assert "apply the fix" not in decision.message.lower()

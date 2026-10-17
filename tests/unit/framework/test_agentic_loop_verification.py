@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from victor.agent.services.turn_execution_runtime import TurnResult
+from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.task_analyzer import TaskAnalysis, TaskAnalyzer
 from victor.framework.agentic_loop import AgenticLoop
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
@@ -125,9 +125,9 @@ async def test_default_without_verifier_retains_completion(streaming):
 
 
 async def test_stategraph_cannot_silently_ignore_verifier(monkeypatch):
-    monkeypatch.setattr(
-        "victor.framework.agentic_loop_executor.use_stategraph_executor", lambda: True
-    )
+    from victor.core.feature_flags import FeatureFlag
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
     loop = make_loop(MagicMock(), retries=1)
     with pytest.raises(NotImplementedError, match="StateGraph.*verification"):
         await loop.run("task")
@@ -164,20 +164,27 @@ async def test_retry_budget_resets_when_loop_is_reused(streaming):
     assert verifier.verify.await_count == 4
 
 
-async def test_controller_completion_cannot_leave_stale_success_after_verification():
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_controller_completion_cannot_leave_stale_success_after_verification(streaming):
     loop = make_loop(MagicMock(verify=AsyncMock(return_value=VerificationResult(0, 1))), retries=0)
     loop.turn_evaluation_controller.evaluate = MagicMock(
         return_value=SimpleNamespace(
             stop=True, terminal_success=True, stop_reason="search_saturation"
         )
     )
-    result = await loop.run("task")
-    assert result.success is False
-    assert result.iterations[-1].evaluation.decision == EvaluationDecision.FAIL
+    result = await execute(loop, streaming)
+    final, state = loop._emit_prompt_reward_outcome.call_args.args
+    assert final.decision == EvaluationDecision.FAIL
+    assert state["verification"]["verified"] is False
+    loop.turn_evaluation_controller.evaluate.assert_called_once()
+    if result is not None:
+        assert result.success is False
+        assert result.iterations[-1].evaluation is final
 
 
-async def test_backslide_downgrade_cannot_leave_stale_complete_iteration():
-    verifier = MagicMock(verify=AsyncMock())
+@pytest.mark.parametrize("with_verifier", [False, True])
+async def test_backslide_downgrade_cannot_leave_stale_complete_iteration(with_verifier):
+    verifier = MagicMock(verify=AsyncMock()) if with_verifier else None
     loop = make_loop(verifier, retries=0, iterations=1)
     loop._apply_backslide_guard = lambda evaluation: EvaluationResult(
         EvaluationDecision.CONTINUE, 0.5
@@ -185,4 +192,241 @@ async def test_backslide_downgrade_cannot_leave_stale_complete_iteration():
     result = await loop.run("task")
     assert result.success is False
     assert result.iterations[-1].evaluation.decision == EvaluationDecision.CONTINUE
-    verifier.verify.assert_not_awaited()
+    if verifier is not None:
+        verifier.verify.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "first_streaming,second_streaming", [(False, False), (True, True), (False, True), (True, False)]
+)
+async def test_completion_scores_are_scoped_to_each_run(first_streaming, second_streaming):
+    loop = make_loop(None, retries=0, iterations=1)
+    loop._evaluate.side_effect = [
+        EvaluationResult(EvaluationDecision.COMPLETE, 1.0),
+        EvaluationResult(EvaluationDecision.COMPLETE, 0.75),
+    ]
+    for streaming in (first_streaming, second_streaming):
+        result = await execute(loop, streaming)
+        final, _ = loop._emit_prompt_reward_outcome.call_args.args
+        assert final.decision == EvaluationDecision.COMPLETE
+        if result is not None:
+            assert result.success is True
+    assert loop._score_history == [0.75]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_nonterminal_turn_does_not_enter_completion_guard(streaming):
+    loop = make_loop(None, retries=0, iterations=1)
+    loop._evaluate.side_effect = lambda *args: EvaluationResult(EvaluationDecision.CONTINUE, 0.5)
+    await execute(loop, streaming)
+    assert loop._score_history == []
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_verification_feedback_preserves_original_task(streaming):
+    from victor.agent.conversation.history_metadata import is_hidden_from_interactive_history
+    from victor.agent.message_history import MessageHistory
+
+    history = MessageHistory(max_history_messages=3)
+    history.add_message("system", "system")
+    task = history.add_user_message("Write the requested files")
+    verifier = MagicMock(
+        verify=AsyncMock(return_value=VerificationResult(0, 1, feedback="Fix failed check"))
+    )
+    loop = make_loop(verifier, retries=1)
+    loop.turn_executor._chat_context = history
+    await execute(loop, streaming)
+    feedback = history.messages[-1]
+    assert feedback.content == "Fix failed check"
+    assert is_hidden_from_interactive_history(feedback.metadata)
+    history.add_assistant_message("Retry result")
+    assert task in history.messages
+    assert history.messages[-1].content == "Retry result"
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_deadline_during_verification_cannot_succeed_or_retry(streaming):
+    import asyncio
+
+    closed = asyncio.Event()
+
+    async def verify(**kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    loop = make_loop(MagicMock(verify=AsyncMock(side_effect=verify)), retries=2)
+    loop.config.total_timeout = 0.03
+    if streaming:
+        chunks = await asyncio.wait_for(_collect_deadline_stream(loop), 1)
+        assert chunks[-1].metadata["agentic_loop_success"] is False
+        assert "deadline" in chunks[-1].metadata["agentic_loop_error"]
+    else:
+        result = await asyncio.wait_for(loop.run("bounded task"), 1)
+        assert result.success is False
+        assert result.iterations[-1].evaluation.decision == EvaluationDecision.FAIL
+    assert closed.is_set()
+    assert loop._evaluate.await_count == 1
+    loop._emit_prompt_reward_outcome.assert_not_called()
+
+
+async def _collect_deadline_stream(loop):
+    return [chunk async for chunk in loop.run_streaming("bounded task")]
+
+
+@pytest.mark.parametrize("mode", ["stategraph", "iterations"])
+async def test_unsupported_mode_rejects_configured_deadline_before_execution(monkeypatch, mode):
+    loop = make_loop(None, retries=0)
+    loop.config.total_timeout = 1
+    loop._run_with_stategraph = AsyncMock()
+    if mode == "stategraph":
+        from victor.core.feature_flags import FeatureFlag
+
+        monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
+        with pytest.raises(NotImplementedError, match="deadlines"):
+            await loop.run("q")
+        loop._run_with_stategraph.assert_not_called()
+    else:
+        with pytest.raises(NotImplementedError, match="deadlines"):
+            await anext(loop.stream("q"))
+    loop._act.assert_not_called()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("rejection", ["evaluator", "backslide", "verifier", "none"])
+async def test_terminal_candidate_is_checked_without_authorizing_another_act(streaming, rejection):
+    verify = AsyncMock(return_value=VerificationResult(0 if rejection == "verifier" else 1, 1))
+    loop = make_loop(MagicMock(verify=verify), retries=2)
+    loop._act.return_value.disposition = TurnDisposition.COMPLETION_CANDIDATE
+    if rejection == "evaluator":
+        loop._evaluate.side_effect = lambda *a: EvaluationResult(EvaluationDecision.CONTINUE, 0.4)
+    if rejection == "backslide":
+        loop._apply_backslide_guard = lambda e: EvaluationResult(EvaluationDecision.CONTINUE, 0.4)
+    result = await execute(loop, streaming)
+    assert loop._evaluate.await_count == 1
+    assert verify.await_count == (1 if rejection in ("none", "verifier") else 0)
+    final, _ = loop._emit_prompt_reward_outcome.call_args.args
+    assert final.decision == (
+        EvaluationDecision.COMPLETE if rejection == "none" else EvaluationDecision.FAIL
+    )
+    if result is not None:
+        assert result.success is (rejection == "none")
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("decision", [EvaluationDecision.FAIL, EvaluationDecision.ESCALATE])
+async def test_recovery_retry_cannot_override_failure_or_escalation(streaming, decision):
+    loop = make_loop(None, retries=2)
+    loop._act.return_value.disposition = TurnDisposition.RECOVERY_RETRY
+    loop._evaluate.side_effect = lambda *a: EvaluationResult(decision, 0.1, "needs human")
+    result = await execute(loop, streaming)
+    assert loop._evaluate.await_count == 1
+    final, _ = loop._emit_prompt_reward_outcome.call_args.args
+    assert final.decision is decision
+    if result is not None:
+        assert result.success is False
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize(
+    "initial_intent", [None, "read_only", "write_allowed", "ambiguous", "display_only"]
+)
+async def test_continuation_consumes_one_controller_decision_with_original_intent(
+    streaming, initial_intent
+):
+    from victor.agent.action_authorizer import ActionIntent
+    from victor.agent.turn_policy import TurnDecision
+
+    loop = make_loop(None, retries=0, iterations=3)
+    original = ActionIntent(initial_intent) if initial_intent else None
+    perceptions = [
+        SimpleNamespace(intent=original, to_dict=lambda: {}),
+        SimpleNamespace(intent=ActionIntent.WRITE_ALLOWED, to_dict=lambda: {}),
+        SimpleNamespace(intent=ActionIntent.WRITE_ALLOWED, to_dict=lambda: {}),
+    ]
+    # A later, separately invoked run can use its own initial scope.
+    loop._analyze_turn = AsyncMock(side_effect=perceptions + [perceptions[-1]] * 3)
+    loop._plan = AsyncMock(return_value={})
+    loop._evaluate = AsyncMock(
+        side_effect=[
+            EvaluationResult(EvaluationDecision.CONTINUE, 0.4),
+            EvaluationResult(EvaluationDecision.CONTINUE, 0.5),
+            EvaluationResult(EvaluationDecision.COMPLETE, 1.0),
+        ]
+        * 2
+    )
+    loop.turn_evaluation_controller.evaluate = MagicMock(
+        return_value=TurnDecision(
+            nudge_message="Preserve the original request.",
+            nudge_kind="plateau",
+            nudge_role="system",
+        )
+    )
+    loop.nudge_policy.evaluate = MagicMock(side_effect=AssertionError("second policy evaluation"))
+    loop.nudge_policy.budget_warning = MagicMock(
+        side_effect=AssertionError("second budget decision")
+    )
+    await execute(loop, streaming)
+    await execute(loop, streaming)
+    observations = [
+        call.args[0] for call in loop.turn_evaluation_controller.evaluate.call_args_list
+    ]
+    assert len(observations) == 6
+    assert all(obs.intent is original for obs in observations[:3])
+    assert all(obs.intent is ActionIntent.WRITE_ALLOWED for obs in observations[3:])
+    messages = loop.turn_executor._chat_context.add_message.call_args_list
+    assert len(messages) == 4
+    assert all(call.args == ("system", "Preserve the original request.") for call in messages)
+    assert all(call.kwargs["metadata"]["interactive_history"] is False for call in messages)
+
+
+async def test_direct_loop_resolves_auto_each_run_without_mutating_config(monkeypatch):
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.agentic_loop import LoopResult
+
+    loop = make_loop(None, retries=0)
+    graph_result = LoopResult(success=True, iterations=[], final_state={}, total_duration=0)
+    loop._run_with_stategraph = AsyncMock(return_value=graph_result)
+    env = FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name()
+    monkeypatch.setenv(env, "true")
+    assert await loop.run("first") is graph_result
+    loop._act.assert_not_awaited()
+    monkeypatch.setenv(env, "false")
+    result = await loop.run("second")
+    assert result.success
+    loop._act.assert_awaited_once()
+    loop._run_with_stategraph.assert_awaited_once()
+    assert loop.config.executor is AgenticLoopExecutor.AUTO
+
+
+@pytest.mark.parametrize("mode", ["buffered", "iterations", "tokens"])
+async def test_direct_loop_explicit_executor_overrides_legacy_flag(mode, monkeypatch):
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.agentic_loop import LoopResult
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "false")
+    loop = make_loop(None, retries=0)
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    graph_result = LoopResult(success=True, iterations=[], final_state={}, total_duration=0)
+    loop._run_with_stategraph = AsyncMock(return_value=graph_result)
+    visited = []
+
+    async def graph_stream(**kwargs):
+        visited.append(kwargs["query"])
+        if False:
+            yield
+
+    loop._stream_with_stategraph = graph_stream
+    if mode == "buffered":
+        assert await loop.run("q") is graph_result
+        loop._run_with_stategraph.assert_awaited_once()
+    elif mode == "iterations":
+        assert [event async for event in loop.stream("q")] == []
+        assert visited == ["q"]
+    else:
+        with pytest.raises(NotImplementedError, match="StateGraph.*token streaming"):
+            await anext(loop.run_streaming("q"))
+    loop._act.assert_not_awaited()

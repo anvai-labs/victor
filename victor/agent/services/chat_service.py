@@ -270,6 +270,7 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                         user_message,
                         runtime_context_overrides=runtime_context_overrides,
                     )
+                execution_success = self._response_execution_success(response)
             except asyncio.CancelledError as exc:
                 await self._finish_task_report(
                     False,
@@ -290,7 +291,7 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                 raise
 
             await self._finish_task_report(
-                self._response_execution_success(response),
+                execution_success,
                 user_message=user_message,
                 stream=False,
                 response=response,
@@ -398,6 +399,7 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             response: Optional[Any] = None
             finished = False
             failure: Optional[BaseException] = None
+            terminal_outcome: Optional[bool] = None
             try:
                 if self._planning_handler is not None:
                     explicit_planning_request = self._is_explicit_planning_request(user_message)
@@ -411,10 +413,23 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                         )
                         if isinstance(response, dict):
                             content = str(response.get("content", "") or "")
+                            metadata = response.get("metadata")
+                            usage = response.get("usage")
+                            stop_reason = response.get("stop_reason")
                         else:
                             content = str(getattr(response, "content", response) or "")
+                            metadata = getattr(response, "metadata", None)
+                            usage = getattr(response, "usage", None)
+                            stop_reason = getattr(response, "stop_reason", None)
+                        terminal_outcome = self._response_execution_outcome(response)
+                        yield StreamChunk(
+                            content=content,
+                            is_final=True,
+                            metadata=metadata,
+                            usage=usage,
+                            stop_reason=stop_reason,
+                        )
                         finished = True
-                        yield StreamChunk(content=content, is_final=True)
                         return
                     if use_planning is None and self._should_use_planning(user_message):
                         self._logger.info(
@@ -432,14 +447,19 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                 async with aclosing_if_supported(handler(user_message, **kwargs)) as runtime_stream:
                     async for chunk in runtime_stream:
                         response = chunk
+                        observed = self._response_execution_outcome(chunk)
+                        if observed is not None:
+                            if terminal_outcome is not None:
+                                raise ValueError("Duplicate agentic loop terminal outcome")
+                            terminal_outcome = observed
                         yield chunk
                 finished = True
-            except Exception as exc:
+            except BaseException as exc:
                 failure = exc
                 raise
             finally:
                 await self._finish_task_report(
-                    finished and failure is None and self._response_execution_success(response),
+                    finished and failure is None and terminal_outcome is not False,
                     user_message=user_message,
                     stream=True,
                     response=response,
@@ -843,10 +863,22 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             (chunk.usage.get("total_tokens", 0) if chunk.usage else 0) for chunk in chunks
         )
 
+        terminal_metadata = None
+        for chunk in chunks:
+            if chunk.metadata and "agentic_loop_success" in chunk.metadata:
+                self._response_execution_success(chunk)  # Validate the explicit verdict.
+                if terminal_metadata is not None:
+                    raise ValueError("Duplicate agentic loop terminal outcome")
+                terminal_metadata = dict(chunk.metadata)
+        # A planned response is one final chunk: preserve its reported usage fields.
+        planned = (
+            len(chunks) == 1 and terminal_metadata is not None and "planning" in terminal_metadata
+        )
         return CompletionResponse(
             content=content,
-            stop_reason="stop",
-            usage={"total_tokens": total_tokens},
+            stop_reason=chunks[0].stop_reason if planned else "stop",
+            usage=chunks[0].usage if planned else {"total_tokens": total_tokens},
+            metadata=terminal_metadata,
         )
 
     def _build_recovery_context(self, error: Exception) -> Any:

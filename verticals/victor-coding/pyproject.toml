@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-coding"
-version = "0.8.2"
+version = "0.13.0"
 description = "Coding vertical for Victor AI - Software development, debugging, and code generation"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -52,7 +52,7 @@ native = [
 # victor_coding/codebase/embeddings/proximadb_provider.py. Pin kept identical
 # to victor-ai's proximadb extra so the backend version stays aligned.
 proximadb = [
-    "proximadb>=0.3,<0.4",
+    "proximadb>=0.4.1,<0.5",
 ]
 # Shared code->CPG chunker (ADR-014). Opt-in: when installed AND
 # VICTOR_CODING_USE_CODEGRAPH=1, CodeChunker delegates to it. Published on PyPI
@@ -61,13 +61,13 @@ codegraph = [
     "victor-codegraph>=0.1.0,<1.0",
 ]
 dev = [
-    "numpy>=1.24,<2.5",  # Synthetic embeddings in indexer tests
+    "numpy>=1.24,<2.6",  # Synthetic embeddings in indexer tests
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.0",
     "pytest-benchmark>=5.0",
-    "black==26.5.1",
+    "black==26.10.0",
     "ruff>=0.5",
     "mypy==2.4.0",
 ]

@@ -27,8 +27,9 @@ import asyncio
 
 import pytest
 
-from victor.agent.turn_policy import SpinDetector
-from victor.framework.agentic_loop import AgenticLoop, StreamingTurnOutcome
+from victor.agent.action_authorizer import ActionIntent
+from victor.agent.turn_policy import SpinDetector, TurnDecision, TurnEvaluationController
+from victor.framework.agentic_loop import AgenticLoop, AgenticLoopConfig, StreamingTurnOutcome
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.providers.base import StreamChunk
 
@@ -52,6 +53,7 @@ def _fake_port(turns):
 def _loop(port, *, evaluations, turn_executor=None):
     """A bare AgenticLoop with the run_streaming collaborators stubbed."""
     loop = AgenticLoop.__new__(AgenticLoop)
+    loop.config = AgenticLoopConfig()
     loop.streaming_act_port = port
     loop.max_iterations = 5
     loop._progress_scores = []
@@ -60,8 +62,12 @@ def _loop(port, *, evaluations, turn_executor=None):
     # run_streaming now records per-turn spin (+ advances the temperature ratchet) like the buffered
     # _act path (ADR-013), so it needs a real SpinDetector rather than a bare stub.
     loop.spin_detector = SpinDetector()
-    loop.turn_evaluation_controller = SimpleNamespace(reset=lambda: None)
+    loop.turn_evaluation_controller = TurnEvaluationController(
+        spin_detector=loop.spin_detector, enable_plateau_nudge=False, enable_budget_warning=False
+    )
     loop.criteria_builder = SimpleNamespace(reset=lambda: None)
+    loop.effect_gate = SimpleNamespace(reset=lambda: None)
+    loop.per_turn_auditor = SimpleNamespace(reset=lambda: None)
     loop.nudge_policy = SimpleNamespace(
         evaluate=lambda spin: SimpleNamespace(should_inject=False),
         budget_warning=lambda i, m: SimpleNamespace(should_inject=False),
@@ -69,6 +75,7 @@ def _loop(port, *, evaluations, turn_executor=None):
 
     async def fake_analyze(query, context, history):
         return SimpleNamespace(
+            intent=ActionIntent.READ_ONLY,
             to_dict=lambda: {"query": query},
             task_analysis=SimpleNamespace(task_type="qa"),
         )
@@ -101,8 +108,10 @@ async def test_run_streaming_yields_chunks_and_completes_on_first_turn():
 
     chunks = [c async for c in loop.run_streaming("q")]
 
-    assert [c.content for c in chunks] == ["hello ", "world"]
+    assert [c.content for c in chunks if c.content] == ["hello ", "world"]
     assert loop._progress_scores == [1.0]
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata == {"agentic_loop_success": True, "agentic_loop_iterations": 1}
 
 
 async def test_run_streaming_iterates_until_complete():
@@ -118,7 +127,7 @@ async def test_run_streaming_iterates_until_complete():
     chunks = [c async for c in loop.run_streaming("q")]
 
     # Both turns' chunks stream through in order; progress recorded per turn.
-    assert [c.content for c in chunks] == ["a", "b"]
+    assert [c.content for c in chunks if c.content] == ["a", "b"]
     assert loop._progress_scores == [0.4, 0.9]
 
 
@@ -157,8 +166,14 @@ async def test_run_streaming_stops_on_fail():
 
     chunks = [c async for c in loop.run_streaming("q")]
 
-    assert [c.content for c in chunks] == ["x"]
+    assert [c.content for c in chunks if c.content] == ["x"]
     assert loop._progress_scores == [0.0]
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata == {
+        "agentic_loop_success": False,
+        "agentic_loop_iterations": 1,
+        "agentic_loop_error": "bad",
+    }
 
 
 async def test_run_streaming_requires_a_port():
@@ -167,6 +182,29 @@ async def test_run_streaming_requires_a_port():
     with pytest.raises(RuntimeError, match="streaming ACT port"):
         async for _ in loop.run_streaming("q"):
             pass
+
+
+async def test_run_streaming_stops_repeated_content_and_resets_between_runs():
+    # Use the real controller, and the same loop across runs: no additional ACT
+    # after repetition, and no previous run's content history stopping the next.
+    repeated = "Inspecting repository module dependencies before producing the final review."
+    loop = _loop(None, evaluations=[])
+    for _ in range(2):
+        loop.streaming_act_port = _fake_port([[repeated]] * 5)
+        seen = []
+
+        async def evaluate(perception, action_result, state):
+            seen.append(state)
+            return EvaluationResult(EvaluationDecision.CONTINUE, 0.4, "more")
+
+        loop._evaluate = evaluate
+        chunks = [chunk async for chunk in loop.run_streaming("review")]
+
+        assert len(seen) == 2
+        assert len([chunk for chunk in chunks if chunk.content]) == 2
+        assert chunks[-1].metadata["agentic_loop_success"] is False
+        assert "content_repetition" in chunks[-1].metadata["agentic_loop_error"]
+        assert seen[-1]["degradation_events"][0]["kind"] == "content_repetition"
 
 
 def test_extract_turn_content_handles_empty_tool_turn():
@@ -195,65 +233,81 @@ def test_extract_turn_content_handles_empty_tool_turn():
     )
 
 
-def _nudge_loop(chat_ctx, *, should_inject_nudge, should_inject_budget=False):
+def _nudge_loop(chat_ctx):
     loop = AgenticLoop.__new__(AgenticLoop)
     loop.turn_executor = SimpleNamespace(_chat_context=chat_ctx)
-    loop.spin_detector = object()
-    loop.nudge_policy = SimpleNamespace(
-        evaluate=lambda spin: SimpleNamespace(
-            should_inject=should_inject_nudge,
-            role="system",
-            message="use a tool",
-            nudge_type=SimpleNamespace(value="USE_TOOLS"),
-        ),
-        budget_warning=lambda i, m: SimpleNamespace(
-            should_inject=should_inject_budget,
-            role="system",
-            message="budget low",
-        ),
-    )
+    # No policy or detector: dispatch must use the already-selected decision.
     return loop
 
 
-def test_inject_decide_nudges_adds_message_on_continue():
+@pytest.mark.parametrize("kind", ["plateau", "budget_warning"])
+def test_inject_decide_nudges_adds_selected_message_on_continue(kind):
     added = []
     chat_ctx = SimpleNamespace(
-        add_message=lambda role, message, metadata=None: added.append((role, message))
+        add_message=lambda role, message, metadata: added.append((role, message, metadata))
     )
-    loop = _nudge_loop(chat_ctx, should_inject_nudge=True)
-
+    loop = _nudge_loop(chat_ctx)
     loop._inject_decide_nudges(
         EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.3, reason="x"),
-        1,
-        5,
+        TurnDecision(nudge_message="use permitted evidence", nudge_role="system", nudge_kind=kind),
+    )
+    assert len(added) == 1
+    assert added[0][:2] == ("system", "use permitted evidence")
+    assert added[0][2]["interactive_history"] is False
+    assert added[0][2]["internal_prompt_kind"] == (
+        "budget_nudge" if kind == "budget_warning" else "nudge"
     )
 
-    assert added == [("system", "use a tool")]
 
-
-def test_inject_decide_nudges_noop_on_terminal_decision():
+@pytest.mark.parametrize(
+    "terminal", [EvaluationDecision.COMPLETE, EvaluationDecision.FAIL, EvaluationDecision.ESCALATE]
+)
+def test_inject_decide_nudges_noop_on_terminal_decision(terminal):
     added = []
-    chat_ctx = SimpleNamespace(add_message=lambda *a, **k: added.append(a))
-    loop = _nudge_loop(chat_ctx, should_inject_nudge=True)
-
+    loop = _nudge_loop(SimpleNamespace(add_message=lambda *a, **k: added.append(a)))
     loop._inject_decide_nudges(
-        EvaluationResult(decision=EvaluationDecision.COMPLETE, score=1.0, reason="done"),
-        1,
-        5,
+        EvaluationResult(terminal, 1.0, metadata={"completion_without_effect": True}),
+        TurnDecision(nudge_message="never publish"),
     )
-
     assert added == []
 
 
 def test_inject_decide_nudges_noop_without_turn_executor():
     loop = AgenticLoop.__new__(AgenticLoop)
     loop.turn_executor = None
-    # Should simply return without touching nudge_policy / chat context.
     loop._inject_decide_nudges(
         EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.2, reason="x"),
-        2,
-        5,
+        TurnDecision(nudge_message="never publish"),
     )
+
+
+@pytest.mark.parametrize("stop", [False, True])
+def test_effect_retry_guidance_never_expands_scope(stop):
+    added = []
+    loop = _nudge_loop(
+        SimpleNamespace(
+            add_message=lambda role, message, metadata: added.append((message, metadata))
+        )
+    )
+    loop._inject_decide_nudges(
+        EvaluationResult(
+            EvaluationDecision.RETRY,
+            0.4,
+            metadata={
+                "completion_without_effect": True,
+                "expected_effect_class": "workspace_write",
+            },
+        ),
+        TurnDecision(stop=stop, nudge_message="generic guidance must not compete"),
+    )
+    if stop:
+        assert added == []
+    else:
+        assert len(added) == 1
+        assert "within the original request" in added[0][0]
+        assert "ask the user before acting" in added[0][0]
+        assert added[0][1]["interactive_history"] is False
+        assert added[0][1]["internal_prompt_kind"] == "effect_gate_nudge"
 
 
 def _terminal_loop(total_tool_calls=0):
@@ -450,8 +504,14 @@ async def test_run_streaming_emits_prompt_reward_on_exhaustion(monkeypatch):
         lambda identities, *, completion_score, **kw: captured.append(completion_score),
     )
 
-    [c async for c in loop.run_streaming("q")]
+    chunks = [c async for c in loop.run_streaming("q")]
 
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata == {
+        "agentic_loop_success": False,
+        "agentic_loop_iterations": 2,
+        "agentic_loop_error": "Maximum iterations (2) reached without completion",
+    }
     assert captured == [0.5]  # final evaluation score (not the mid-loop 0.3), once
 
 
@@ -497,7 +557,7 @@ async def test_run_streaming_verify_gate_fires_and_reenters():
 
     chunks = [c async for c in loop.run_streaming("q")]
 
-    assert [c.content for c in chunks] == ["hello", "fixed"]  # both turns ran
+    assert [c.content for c in chunks if c.content] == ["hello", "fixed"]  # both turns ran
     assert call_count[0] == 2  # verify called twice (fail -> re-enter -> pass)
 
 
@@ -552,4 +612,152 @@ async def test_run_streaming_accepts_plain_async_iterator_without_aclose():
 
     chunks = [chunk async for chunk in loop.run_streaming("q")]
 
-    assert [chunk.content for chunk in chunks] == ["plain"]
+    assert [chunk.content for chunk in chunks if chunk.content] == ["plain"]
+
+
+async def test_streaming_deadline_interrupts_act_and_preserves_partial_output():
+    from victor.framework.agentic_loop import AgenticLoopConfig
+    from victor.framework.loop.guards import current_guards
+
+    cleaned = asyncio.Event()
+    calls = []
+
+    class Port:
+        async def stream_turn_act(self, **kwargs):
+            calls.append(kwargs["turn_index"])
+            try:
+                assert current_guards() is not None
+                yield StreamChunk(content="partial")
+                await asyncio.Event().wait()
+            finally:
+                cleaned.set()
+
+    loop = _loop(Port(), evaluations=[])
+    loop.config = AgenticLoopConfig(total_timeout=0.03)
+
+    async def consume():
+        return [chunk async for chunk in loop.run_streaming("q")]
+
+    chunks = await asyncio.wait_for(consume(), timeout=1)
+    assert [chunk.content for chunk in chunks if chunk.content] == ["partial"]
+    assert chunks[-1].metadata["agentic_loop_success"] is False
+    assert "deadline" in chunks[-1].metadata["agentic_loop_error"]
+    assert calls == [1]
+    assert cleaned.is_set()
+    assert current_guards() is None
+
+
+async def test_stream_deadline_counts_consumer_pause_without_cancelling_consumer():
+    from victor.framework.loop.guards import current_guards
+
+    resumed = []
+    cleaned = asyncio.Event()
+
+    class Port:
+        async def stream_turn_act(self, **kwargs):
+            try:
+                yield StreamChunk(content="partial")
+                resumed.append(True)
+                yield StreamChunk(content="late")
+            finally:
+                cleaned.set()
+
+    loop = _loop(Port(), evaluations=[])
+    loop.config.total_timeout = 0.03
+    stream = loop.run_streaming("q")
+    first = await asyncio.create_task(anext(stream))
+    assert first.content == "partial"
+    assert current_guards() is None
+    # No timeout or ContextVar can stay active while control belongs to the consumer.
+    await asyncio.sleep(0.06)
+    terminal = await asyncio.create_task(anext(stream))
+    assert terminal.metadata["agentic_loop_success"] is False
+    assert "deadline" in terminal.metadata["agentic_loop_error"]
+    assert resumed == []
+    assert cleaned.is_set()
+    await asyncio.create_task(stream.aclose())
+    assert current_guards() is None
+
+
+async def test_streaming_external_cancellation_waits_for_cleanup():
+    entered, cleanup_started, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    class Port:
+        async def stream_turn_act(self, **kwargs):
+            try:
+                yield StreamChunk(content="partial")
+                entered.set()
+                await asyncio.Event().wait()
+            finally:
+                cleanup_started.set()
+                await release.wait()
+
+    loop = _loop(Port(), evaluations=[])
+    loop.config.total_timeout = 60
+    stream = loop.run_streaming("q")
+    await anext(stream)
+    advancing = asyncio.create_task(anext(stream))
+    await entered.wait()
+    advancing.cancel()
+    try:
+        await asyncio.wait_for(cleanup_started.wait(), 1)
+        assert not advancing.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await advancing
+    await stream.aclose()
+
+
+@pytest.mark.parametrize("disposition", ["recovery_exhausted", "budget_exhausted", "forced_stop"])
+@pytest.mark.parametrize("decision", [EvaluationDecision.CONTINUE, EvaluationDecision.COMPLETE])
+async def test_real_adapter_terminal_act_cannot_retry_or_claim_success(disposition, decision):
+    from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
+    from victor.agent.services.streaming_act_adapter import StreamActSession, StreamingActAdapter
+    from victor.providers.base import CompletionResponse
+
+    turns = []
+
+    async def execute(*args, result, **kwargs):
+        turns.append(1)
+        yield StreamChunk(content="partial")
+        result.turn_result = TurnResult(
+            response=CompletionResponse(content="partial"), disposition=TurnDisposition(disposition)
+        )
+
+    adapter = StreamingActAdapter(
+        SimpleNamespace(execute_turn_streaming=execute),
+        StreamActSession(None, None, SimpleNamespace(total_iterations=0), None, None, None),
+    )
+    loop = _loop(adapter, evaluations=[EvaluationResult(decision=decision, score=1.0)] * 5)
+    chunks = [chunk async for chunk in loop.run_streaming("q")]
+    assert len(turns) == 1
+    assert chunks[-1].metadata["agentic_loop_success"] is False
+    assert disposition in chunks[-1].metadata["agentic_loop_error"]
+
+
+async def test_recovery_status_cannot_complete_but_next_answer_can():
+    from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
+    from victor.agent.services.streaming_act_adapter import StreamActSession, StreamingActAdapter
+    from victor.providers.base import CompletionResponse
+
+    turns = []
+
+    async def execute(*args, result, **kwargs):
+        turns.append(1)
+        retry = len(turns) == 1
+        result.turn_result = TurnResult(
+            response=CompletionResponse(content="" if retry else "actual answer"),
+            disposition=TurnDisposition.RECOVERY_RETRY if retry else TurnDisposition.CONTINUE,
+        )
+        yield StreamChunk(content="retrying" if retry else "actual answer")
+
+    adapter = StreamingActAdapter(
+        SimpleNamespace(execute_turn_streaming=execute),
+        StreamActSession(None, None, SimpleNamespace(total_iterations=0), None, None, None),
+    )
+    loop = _loop(adapter, evaluations=[EvaluationResult(EvaluationDecision.COMPLETE, 1.0)] * 2)
+    chunks = [c async for c in loop.run_streaming("q")]
+    assert len(turns) == 2
+    assert chunks[-1].metadata["agentic_loop_success"] is True
+    assert chunks[-1].metadata["agentic_loop_iterations"] == 2

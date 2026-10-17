@@ -19,11 +19,21 @@ Section strategy resolution:
 
 from __future__ import annotations
 
+import os
 from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
 from victor.config.gepa_settings import GEPASettings
+
+
+def frozen_prompts_enabled() -> bool:
+    """Whether this process requests static baseline prompt guidance.
+
+    Set before creating sessions. Preserve the existing nonempty environment
+    flag semantics; this does not freeze task context or provider cache state.
+    """
+    return bool(os.environ.get("VICTOR_FROZEN_PROMPTS"))
 
 
 def get_builtin_section_strategies() -> Dict[str, List[str]]:

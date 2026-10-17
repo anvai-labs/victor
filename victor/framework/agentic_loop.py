@@ -56,11 +56,12 @@ Example:
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.core.errors import AgentError, ProviderPolicyError
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 
 import inspect
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -79,11 +80,13 @@ from typing import (
 )
 
 from victor.core.async_utils import aclosing_if_supported
+from victor.agent.action_authorizer import ActionIntent
 from victor.agent.turn_policy import (
     FulfillmentCriteriaBuilder,
     NudgePolicy,
     SpinDetector,
     SpinState,
+    TurnDecision,
     TurnEvaluationController,
     TurnObservation,
 )
@@ -526,13 +529,18 @@ class AgenticLoopConfig:
     enable_paradigm_router: bool = True
     enable_topology_routing: bool = True
     planning_gate: "PlanningGateConfig" = field(default_factory=lambda: PlanningGateConfig())
-    # Loop spin guards (per-run). total_timeout: hard wall-clock deadline for a
-    # single loop.run in seconds; None (default) = off/unchanged. On breach the
+    # Loop spin guards (per-run). total_timeout: cooperative elapsed deadline for
+    # buffered/token-streamed runs; None (default) = off/unchanged. On breach the
     # run terminates with a FAIL result instead of spinning. perception_backstop_factor:
-    # terminate a within-run runaway (perception >> iterations).
+    # checked between iterations for runaway perception counts. Awaited cleanup can
+    # exceed the deadline; cancellation does not prove remote effects stopped.
     total_timeout: Optional[float] = None
     perception_backstop_factor: int = 8
     extra_config: Dict[str, Any] = field(default_factory=dict)
+    executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO
+
+    def __post_init__(self) -> None:
+        self.executor = AgenticLoopExecutor.parse(self.executor)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AgenticLoopConfig":
@@ -809,6 +817,18 @@ class AgenticLoop:
             return snapshot.perception
         raise RuntimeError("Runtime intelligence did not produce a perception snapshot")
 
+    def _reset_run_state(self) -> None:
+        """Reset run-owned evaluation state for buffered and token-streamed execution."""
+        self._progress_scores = []
+        self._score_history = []
+        self._verify_retries = 0  # FEP-0018: reset per run
+        self._last_lsp_signature = None  # FEP-0019 Phase 3: reset per run
+        self.turn_evaluation_controller.reset()  # resets spin_detector + content-repetition + plateau
+        self.criteria_builder.reset()
+        # Both collaborators exist even when disabled; their state belongs to this run.
+        self.effect_gate.reset()
+        self.per_turn_auditor.reset()
+
     async def run(
         self,
         query: str,
@@ -830,7 +850,11 @@ class AgenticLoop:
         # Phase 1 Consolidation: Use StateGraph-based executor when enabled
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
-        if use_stategraph_executor():
+        if use_stategraph_executor(self.config.executor):
+            if self.turn_executor is not None:
+                self.turn_executor.require_supported_loop_executor(stategraph=True)
+            if self.config.total_timeout is not None:
+                raise NotImplementedError("StateGraph execution does not support run deadlines")
             if getattr(self, "_verifier", None) is not None:
                 raise NotImplementedError("StateGraph execution does not support verification")
             return await self._run_with_stategraph(
@@ -839,71 +863,56 @@ class AgenticLoop:
                 conversation_history=conversation_history,
             )
 
+        # Buffered and token-streamed drivers share the same cooperative guard.
+        from victor.framework.loop.guards import LoopGuards, LoopSpinError
+
+        _loop_guards = LoopGuards(total_timeout=self.config.total_timeout)
         # Legacy path: original while loop implementation
         start_time = time.time()
         iterations: List[LoopIteration] = []
         state: Dict[str, Any] = {"query": query, **(context or {})}
-        self._progress_scores = []
-        self._verify_retries = 0  # FEP-0018: reset per run
-        self._last_lsp_signature = None  # FEP-0019 Phase 3: reset per run
-        self.turn_evaluation_controller.reset()  # resets spin_detector + content-repetition + plateau
-        self.criteria_builder.reset()
-        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
-        # partial loops via __new__ without the gate; a missing gate means no gating).
-        _effect_gate = getattr(self, "effect_gate", None)
-        if _effect_gate is not None:
-            _effect_gate.reset()
-        _auditor = getattr(self, "per_turn_auditor", None)
-        if _auditor is not None:
-            _auditor.reset()
+        self._reset_run_state()
         effective_max = self.max_iterations
+        nudge_intent: Optional[ActionIntent] = None
 
-        # Semantic response cache check (arXiv:2508.07675)
-        # Only on first query of a loop — multi-turn queries are session-specific
-        _sem_cache = None
-        from victor.core.feature_flags import FeatureFlag, is_feature_enabled
-
-        # Cached prose does not establish that this workspace's artifacts verify.
-        if getattr(self, "_verifier", None) is None and is_feature_enabled(
-            FeatureFlag.USE_SEMANTIC_RESPONSE_CACHE
-        ):
-            try:
-                from victor.agent.semantic_response_cache import get_semantic_cache
-
-                _sem_cache = get_semantic_cache()
-                _cached = _sem_cache.get(query)
-                if _cached:
-                    logger.info("[SemanticResponseCache] HIT — skipping LLM call")
-                    return LoopResult(
-                        success=True,
-                        iterations=[],
-                        final_state={"query": query, "response": _cached["response"]},
-                        total_duration=time.time() - start_time,
-                        metadata={
-                            "source": "semantic_cache",
-                            "similarity": _cached.get("similarity", 1.0),
-                        },
-                    )
-            except Exception as _ce:
-                logger.debug(f"Semantic cache check skipped: {_ce}")
-                _sem_cache = None
-
-        # Spin telemetry (loop guards): per-run counters + timers, threaded to the
-        # shared perception seam via a contextvar so both loop paths are covered.
-        # Log-only here; the terminating deadline/backstop reuse these counters.
-        from victor.framework.loop.guards import (
-            LoopGuards,
-            LoopSpinError,
-            reset_current_guards,
-            set_current_guards,
-        )
-
-        _loop_guards = LoopGuards()
-        _loop_guards_token = set_current_guards(_loop_guards)
         try:
+            _loop_guards.enforce()
+            # Semantic response cache check (arXiv:2508.07675)
+            # Only on first query of a loop — multi-turn queries are session-specific
+            _sem_cache = None
+            from victor.core.feature_flags import FeatureFlag, is_feature_enabled
+
+            # Cached prose does not establish that this workspace's artifacts verify.
+            if getattr(self, "_verifier", None) is None and is_feature_enabled(
+                FeatureFlag.USE_SEMANTIC_RESPONSE_CACHE
+            ):
+                try:
+                    from victor.agent.semantic_response_cache import get_semantic_cache
+
+                    _sem_cache = get_semantic_cache()
+                    _cached = _sem_cache.get(query)
+                    if _cached:
+                        logger.info("[SemanticResponseCache] HIT — skipping LLM call")
+                        _loop_guards.enforce()
+                        return LoopResult(
+                            success=True,
+                            iterations=[],
+                            final_state={"query": query, "response": _cached["response"]},
+                            total_duration=time.time() - start_time,
+                            metadata={
+                                "source": "semantic_cache",
+                                "similarity": _cached.get("similarity", 1.0),
+                            },
+                        )
+                except LoopSpinError:
+                    raise
+                except Exception as _ce:
+                    logger.debug(f"Semantic cache check skipped: {_ce}")
+                    _sem_cache = None
+
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
-                # Spin guards (C2/C3): hard wall-clock deadline + within-run
+                # Spin guards: cooperative deadline + between-iteration
                 # perception backstop. Raises LoopSpinError → caught below → FAIL.
                 # Default total_timeout=None = off (no behavior change).
                 _loop_guards.enforce(
@@ -1067,8 +1076,12 @@ class AgenticLoop:
 
                 # PERCEIVE
                 logger.info(f"[Iteration {i}/{effective_max}] PERCEIVE")
-                perception = await self._analyze_turn(query, context, conversation_history)
+                perception = await _loop_guards.run(
+                    lambda: self._analyze_turn(query, context, conversation_history)
+                )
                 iteration.perception = perception
+                if i == 1:
+                    nudge_intent = perception.intent
                 self._last_perception = perception  # Cache for next iteration check
 
                 # Update task_type from perception for more accurate gating
@@ -1079,7 +1092,7 @@ class AgenticLoop:
 
                 # FEP-0019 Phase 3: proactively inject live LSP symbols + errors for
                 # the files being edited, so generation matches the codebase first try.
-                await self._maybe_inject_lsp_context(state)
+                await _loop_guards.run(lambda: self._maybe_inject_lsp_context(state))
 
                 # RESEARCH TASK PROGRESS REPORTING
                 # Report progress every 10 iterations for research tasks
@@ -1096,12 +1109,14 @@ class AgenticLoop:
                     )
 
                 if i == 1:
-                    topology_plan = await self._initialize_topology_plan(
-                        query=query,
-                        perception=perception,
-                        state=state,
-                        context=context,
-                        conversation_history=conversation_history,
+                    topology_plan = await _loop_guards.run(
+                        lambda: self._initialize_topology_plan(
+                            query=query,
+                            perception=perception,
+                            state=state,
+                            context=context,
+                            conversation_history=conversation_history,
+                        )
                     )
                     if topology_plan and topology_plan.iteration_budget is not None:
                         effective_max = min(
@@ -1109,10 +1124,12 @@ class AgenticLoop:
                             max(1, int(topology_plan.iteration_budget)),
                         )
                     if topology_plan is not None:
-                        topology_preparation = await self._prepare_topology_runtime(
-                            topology_plan=topology_plan,
-                            query=query,
-                            state=state,
+                        topology_preparation = await _loop_guards.run(
+                            lambda: self._prepare_topology_runtime(
+                                topology_plan=topology_plan,
+                                query=query,
+                                state=state,
+                            )
                         )
                         if topology_preparation:
                             state["topology_preparation"] = topology_preparation
@@ -1130,7 +1147,7 @@ class AgenticLoop:
                 else:
                     # PLAN (use existing PlanningCoordinator if available)
                     logger.info(f"[Iteration {i}/{effective_max}] PLAN")
-                    plan = await self._plan(perception, state)
+                    plan = await _loop_guards.run(lambda: self._plan(perception, state))
                     iteration.plan = plan
                     state["plan"] = plan
                 state["perception"] = perception.to_dict()
@@ -1185,13 +1202,13 @@ class AgenticLoop:
                 if plan is None:
                     # PLAN (use existing PlanningCoordinator if available)
                     logger.info(f"[Iteration {i}/{effective_max}] PLAN")
-                    plan = await self._plan(perception, state)
+                    plan = await _loop_guards.run(lambda: self._plan(perception, state))
                     iteration.plan = plan
                     state["plan"] = plan
 
                 # ACT
                 logger.info(f"[Iteration {i}/{effective_max}] ACT")
-                action_result = await self._act(plan, state)
+                action_result = await _loop_guards.run(lambda: self._act(plan, state))
                 iteration.action_result = action_result
                 state["action_result"] = action_result
 
@@ -1202,83 +1219,30 @@ class AgenticLoop:
 
                 # EVALUATE
                 logger.info(f"[Iteration {i}/{effective_max}] EVALUATE")
-                evaluation = await self._evaluate(perception, action_result, state)
+                evaluation = await _loop_guards.run(
+                    lambda: self._evaluate(perception, action_result, state)
+                )
                 iteration.evaluation = evaluation
                 iteration.stage = LoopStage.EVALUATE
 
                 # Track progress (SubSearch intermediate rewards)
                 self._progress_scores.append(evaluation.score)
 
-                # Content-repetition detection via the shared TurnEvaluationController (the same
-                # hash/overlap detector the streaming loop uses — replaces the cruder
-                # content-length heuristic). The loop already fed the spin detector in _act, so
-                # don't re-record. Plateau/nudge stay owned by this loop below.
-                _action_content = self._extract_turn_content(action_result)
-                _tool_results = getattr(action_result, "tool_results", None) or []
-                _turn_obs = TurnObservation(
-                    content=_action_content,
-                    productive_count=int(getattr(action_result, "successful_tool_count", 0) or 0),
-                    has_tool_calls=bool(getattr(action_result, "has_tool_calls", False)),
-                    all_blocked=bool(getattr(action_result, "all_tools_blocked", False)),
-                    tool_names={
-                        (r.get("tool_name") or r.get("name") or "")
-                        for r in _tool_results
-                        if isinstance(r, dict)
-                    },
-                    tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0),
-                    tool_signatures=getattr(action_result, "tool_signatures", None),
-                    tool_results=_tool_results,
+                evaluation, turn_decision = self._apply_turn_controller(
+                    action_result,
+                    evaluation,
+                    state,
                     iteration=i,
                     max_iterations=effective_max,
+                    intent=nudge_intent,
                 )
-                turn_decision = self.turn_evaluation_controller.evaluate(
-                    _turn_obs, record_spin=False
-                )
-                if turn_decision.stop and turn_decision.terminal_success:
-                    # Search-saturation (or other clean stop) -> COMPLETE so the loop synthesizes
-                    # the gathered context instead of thrashing to the iteration cap.
-                    logger.info(
-                        "Converged at iteration %d (%s) - completing to synthesize",
-                        i,
-                        turn_decision.stop_reason,
-                    )
-                    evaluation = EvaluationResult(
-                        decision=EvaluationDecision.COMPLETE,
-                        score=evaluation.score,
-                        reason=f"Converged: {turn_decision.stop_reason} (iteration {i})",
-                    )
-                elif turn_decision.stop:
-                    state.setdefault("degradation_events", []).append(
-                        {
-                            "source": "agentic_loop",
-                            "kind": turn_decision.stop_reason or "content_repetition",
-                            "failure_type": "STUCK_LOOP",
-                            "iteration": i,
-                            "task_type": state.get("task_type"),
-                            "post_degraded": True,
-                            "recovered": False,
-                            "adaptation_cost": float(i),
-                            "degradation_reasons": [
-                                turn_decision.stop_reason or "content_repetition"
-                            ],
-                        }
-                    )
-                    logger.warning(
-                        "Content degradation detected (%s) at iteration %d - stopping loop",
-                        turn_decision.stop_reason,
-                        i,
-                    )
-                    evaluation = EvaluationResult(
-                        decision=EvaluationDecision.FAIL,
-                        score=evaluation.score,
-                        reason=f"Content repetition detected (iteration {i})",
-                    )
-                    # Continue to exit logic below
 
                 # FULFILLMENT CHECK (optional)
                 if self.enable_fulfillment_check:
                     logger.info(f"[Iteration {i}/{effective_max}] FULFILLMENT")
-                    fulfillment = await self._check_fulfillment(perception, state)
+                    fulfillment = await _loop_guards.run(
+                        lambda: self._check_fulfillment(perception, state)
+                    )
                     iteration.fulfillment = fulfillment
                     state["fulfillment"] = fulfillment
 
@@ -1328,7 +1292,7 @@ class AgenticLoop:
                         outcome=outcome,
                     )
                     state.setdefault("topology_events", []).append(topology_event.to_dict())
-                    await emit_topology_telemetry_event(topology_event)
+                    await _loop_guards.run(lambda: emit_topology_telemetry_event(topology_event))
                     if hasattr(self.runtime_intelligence, "record_topology_outcome"):
                         try:
                             tool_call_count = getattr(action_result, "tool_calls_count", None)
@@ -1352,8 +1316,7 @@ class AgenticLoop:
                 # DECIDE
                 logger.info(f"[Iteration {i}/{effective_max}] DECIDE: {evaluation.decision}")
                 iteration.stage = LoopStage.DECIDE
-                if getattr(self, "_verifier", None) is not None:
-                    iteration.evaluation = evaluation
+                iteration.evaluation = evaluation
                 iterations.append(iteration)
 
                 # Check termination conditions
@@ -1361,36 +1324,31 @@ class AgenticLoop:
                 # drop from the previous turn means the model regressed and should not
                 # be considered done yet.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
-                    evaluation = self._apply_backslide_guard(evaluation)
-                    if getattr(self, "_verifier", None) is not None:
-                        iteration.evaluation = evaluation
+                    evaluation = self._apply_turn_disposition(
+                        action_result, self._apply_backslide_guard(evaluation)
+                    )
+                    iteration.evaluation = evaluation
                     # FEP-0018: framework verification hook — verify before accepting.
-                    if await self._maybe_verify_and_retry(i, evaluation, state, streaming=False):
+                    if await _loop_guards.run(
+                        lambda: self._maybe_verify_and_retry(i, evaluation, state, streaming=False)
+                    ):
                         continue  # re-enter the loop (skip break)
                 if evaluation.decision == EvaluationDecision.COMPLETE:
                     logger.info("Task complete - exiting loop")
                     break
 
-                if evaluation.decision == EvaluationDecision.FAIL:
-                    logger.warning("Task failed - exiting loop")
+                if evaluation.decision in (EvaluationDecision.FAIL, EvaluationDecision.ESCALATE):
+                    logger.warning("Task failed or needs escalation - exiting loop")
                     break
 
                 # NUDGE INJECTION via shared NudgePolicy (consistent with streaming).
                 # Inject on any non-terminal decision (RETRY or CONTINUE). Shared with
                 # run_streaming() so buffered and streaming nudge behavior can't drift.
-                self._inject_decide_nudges(evaluation, i, effective_max)
+                self._inject_decide_nudges(evaluation, turn_decision)
 
+            _loop_guards.enforce()
             # Determine success
             success = self._determine_success(iterations)
-
-            # Attribute this turn's outcome to the served prompt candidates so
-            # their Thompson posteriors update (closes the prompt-optimization
-            # reward loop — FEP-0017). Shared with run_streaming() so buffered
-            # and streaming chat train the learner identically; success is
-            # derived from the completion SCORE, not the COMPLETE flag.
-            self._emit_prompt_reward_outcome(
-                iterations[-1].evaluation if iterations else None, state
-            )
 
             self._record_provider_degradation_event(
                 state,
@@ -1419,6 +1377,17 @@ class AgenticLoop:
 
             duration = time.time() - start_time
 
+            _loop_guards.enforce()
+            # Attribute this turn's outcome to the served prompt candidates so
+            # their Thompson posteriors update (closes the prompt-optimization
+            # reward loop — FEP-0017). Shared with run_streaming() so buffered
+            # and streaming chat train the learner identically; success is
+            # derived from the completion SCORE, not the COMPLETE flag.
+            self._emit_prompt_reward_outcome(
+                iterations[-1].evaluation if iterations else None, state
+            )
+
+            _loop_guards.enforce()
             return LoopResult(
                 success=success,
                 iterations=iterations,
@@ -1441,6 +1410,15 @@ class AgenticLoop:
             # A guard terminated the run (wall-clock deadline / perception backstop).
             # Return a FAIL result with the diagnostic reason instead of spinning.
             logger.warning("[AgenticLoop] terminated by spin guard: %s", spin)
+            if iterations and iterations[-1].evaluation is not None:
+                # Verification can time out after DECIDE recorded COMPLETE.
+                # Preserve evidence, but never leave the terminal iteration successful.
+                if iterations[-1].evaluation.should_complete:
+                    iterations[-1].evaluation = replace(
+                        iterations[-1].evaluation,
+                        decision=EvaluationDecision.FAIL,
+                        reason=str(spin),
+                    )
             return LoopResult(
                 success=False,
                 iterations=iterations,
@@ -1458,6 +1436,9 @@ class AgenticLoop:
             # A denial must not become an empty result that triggers LLM recovery.
             raise
         except Exception as e:
+            if isinstance(e, AgentError) and not e.recoverable:
+                # A terminal failure is not an empty result eligible for synthesis.
+                raise
             logger.error(f"Agentic loop error: {e}", exc_info=True)
             duration = time.time() - start_time
             self._record_provider_degradation_event(
@@ -1480,8 +1461,6 @@ class AgenticLoop:
                     "degradation_events": list(state.get("degradation_events", [])),
                 },
             )
-        finally:
-            reset_current_guards(_loop_guards_token)
 
     @staticmethod
     def _extract_turn_content(action_result: Any) -> str:
@@ -1502,6 +1481,104 @@ class AgenticLoop:
         resp = getattr(action_result, "response", "")
         content = resp if isinstance(resp, str) else getattr(resp, "content", "")
         return content if isinstance(content, str) else ""
+
+    @staticmethod
+    def _apply_turn_disposition(
+        action_result: Any, evaluation: EvaluationResult
+    ) -> EvaluationResult:
+        """Honor ACT control without treating a stop or recovery prompt as success."""
+        from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
+
+        if not isinstance(action_result, TurnResult):
+            return evaluation  # Legacy buffered adapters retain their existing behavior.
+        disposition = action_result.disposition
+        if disposition is TurnDisposition.CONTINUE or evaluation.decision in (
+            EvaluationDecision.FAIL,
+            EvaluationDecision.ESCALATE,
+        ):
+            return evaluation
+        if disposition is TurnDisposition.RECOVERY_RETRY:
+            return replace(
+                evaluation,
+                decision=EvaluationDecision.RETRY,
+                reason="ACT requested recovery_retry; completion has not been established",
+            )
+        if disposition is TurnDisposition.COMPLETION_CANDIDATE and evaluation.should_complete:
+            return evaluation
+        return replace(
+            evaluation,
+            decision=EvaluationDecision.FAIL,
+            reason=f"ACT stopped ({disposition.value}); evaluator: {evaluation.reason}",
+        )
+
+    def _apply_turn_controller(
+        self,
+        action_result: Any,
+        evaluation: EvaluationResult,
+        state: Dict[str, Any],
+        *,
+        iteration: int,
+        max_iterations: int,
+        intent: Optional[ActionIntent],
+    ) -> tuple[EvaluationResult, TurnDecision]:
+        """Apply one shared stop decision without manufacturing task success.
+
+        Adapt the existing ACT/legacy result boundary to the controller's typed
+        observation. ACT already recorded spin. A clean controller stop is not
+        proof of completion: only the evaluator (including effect/audit gates)
+        can establish that, and backslide/verification still run afterward.
+        """
+        evaluation = self._apply_turn_disposition(action_result, evaluation)
+        tool_results = getattr(action_result, "tool_results", None) or []
+        observation = TurnObservation(
+            content=self._extract_turn_content(action_result),
+            productive_count=int(getattr(action_result, "successful_tool_count", 0) or 0),
+            has_tool_calls=bool(getattr(action_result, "has_tool_calls", False)),
+            all_blocked=bool(getattr(action_result, "all_tools_blocked", False)),
+            tool_names={
+                (result.get("tool_name") or result.get("name") or "")
+                for result in tool_results
+                if isinstance(result, dict)
+            },
+            tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0),
+            tool_signatures=getattr(action_result, "tool_signatures", None),
+            tool_results=tool_results,
+            iteration=iteration,
+            max_iterations=max_iterations,
+            intent=intent,
+        )
+        decision = self.turn_evaluation_controller.evaluate(observation, record_spin=False)
+        if not decision.stop or evaluation.should_fail:
+            return evaluation, decision
+        if decision.terminal_success and evaluation.should_complete:
+            return evaluation, decision
+
+        reason = decision.stop_reason or "turn_controller_stop"
+        state.setdefault("degradation_events", []).append(
+            {
+                "source": "agentic_loop",
+                "kind": reason,
+                "failure_type": "STUCK_LOOP",
+                "iteration": iteration,
+                "task_type": state.get("task_type"),
+                "post_degraded": True,
+                "recovered": False,
+                "adaptation_cost": float(iteration),
+                "degradation_reasons": [reason],
+            }
+        )
+        logger.warning("Turn controller stopped run (%s) at iteration %d", reason, iteration)
+        return (
+            replace(
+                evaluation,
+                decision=EvaluationDecision.FAIL,
+                reason=(
+                    f"Turn controller stopped before verified completion: {reason} "
+                    f"(iteration {iteration}); evaluator: {evaluation.reason}"
+                ),
+            ),
+            decision,
+        )
 
     def _populate_session_ledger(self, action_result: Any, turn_index: int) -> None:
         """Record a completed turn onto the live SessionLedger (FEP-0023 Phase 1).
@@ -1555,19 +1632,17 @@ class AgenticLoop:
     def _inject_decide_nudges(
         self,
         evaluation: EvaluationResult,
-        iteration: int,
-        effective_max: int,
+        decision: TurnDecision,
     ) -> None:
-        """Inject shared NudgePolicy nudges on a non-terminal DECIDE (RETRY/CONTINUE/ESCALATE).
+        """Deliver the controller's selected nudge only when DECIDE allows continuation.
 
-        Extracted from run() so the buffered and streaming loops share one nudge path and can't
-        drift (FEP-0007 Addendum A). The nudge *decision* already comes from the shared
-        ``self.nudge_policy`` / ``self.spin_detector``; this is the conversation-injection glue.
-        No-op on terminal decisions or when no turn executor / chat context is available.
+        The turn-local decision is consumed once by either loop. Never re-run policy
+        here: precedence and original task intent belong to the controller observation.
+        Internal history metadata keeps these messages distinct from user permission.
         """
-        if evaluation.decision in (
-            EvaluationDecision.COMPLETE,
-            EvaluationDecision.FAIL,
+        if decision.stop or evaluation.decision not in (
+            EvaluationDecision.RETRY,
+            EvaluationDecision.CONTINUE,
         ):
             return
         if self.turn_executor is None:
@@ -1576,46 +1651,32 @@ class AgenticLoop:
         if not (chat_ctx and hasattr(chat_ctx, "add_message")):
             return
 
-        from victor.agent.conversation.history_metadata import (
-            build_internal_history_metadata,
-        )
+        from victor.agent.conversation.history_metadata import build_internal_history_metadata
         from victor.agent.conversation.types import MessageSource
 
-        nudge = self.nudge_policy.evaluate(self.spin_detector)
-        if nudge.should_inject:
-            chat_ctx.add_message(
-                nudge.role,
-                nudge.message,
-                metadata=build_internal_history_metadata("nudge", source=MessageSource.AGENT_NUDGE),
-            )
-            logger.info(f"Nudge injected: {nudge.nudge_type.value}")
-
-        budget_nudge = self.nudge_policy.budget_warning(iteration, effective_max)
-        if budget_nudge.should_inject:
-            chat_ctx.add_message(
-                budget_nudge.role,
-                budget_nudge.message,
-                metadata=build_internal_history_metadata(
-                    "budget_nudge", source=MessageSource.AGENT_NUDGE
-                ),
-            )
-
-        # ADR-010: the effect gate downgraded a COMPLETE to RETRY — tell the model why, so the
-        # retry turn produces a verifiable effect (or grounds its claim) instead of restating.
+        # An effect-gate retry explains missing evidence; it grants no new authority.
         if evaluation.metadata.get("completion_without_effect"):
             expected = evaluation.metadata.get("expected_effect_class", "effect")
             chat_ctx.add_message(
                 "user",
                 (
                     "Your completion claim has no verifiable effect on record "
-                    f"(expected: {expected}). Use tools to actually perform the work "
-                    "(e.g. write/edit files, run the relevant checks) or ground your answer "
-                    "in tool evidence before finishing."
+                    f"(expected: {expected}). Use permitted tools within the original request "
+                    "to obtain verifiable evidence, or report what remains unverified. "
+                    "If more permission is needed, ask the user before acting."
                 ),
                 metadata=build_internal_history_metadata(
                     "effect_gate_nudge", source=MessageSource.AGENT_NUDGE
                 ),
             )
+        elif decision.nudge_message:
+            kind = "budget_nudge" if decision.nudge_kind == "budget_warning" else "nudge"
+            chat_ctx.add_message(
+                decision.nudge_role,
+                decision.nudge_message,
+                metadata=build_internal_history_metadata(kind, source=MessageSource.AGENT_NUDGE),
+            )
+            logger.info("Nudge injected: %s", decision.nudge_kind)
 
     async def _run_verification(self, state: Dict[str, Any]) -> "VerificationResult":
         """Run the framework verification hook (FEP-0018).
@@ -1640,6 +1701,9 @@ class AgenticLoop:
 
     def _inject_verify_feedback(self, result: "VerificationResult") -> None:
         """Inject the verifier's feedback as a user message for the retry turn."""
+        from victor.agent.conversation.history_metadata import build_internal_history_metadata
+        from victor.agent.conversation.types import MessageSource
+
         feedback = result.feedback or (
             f"Verification: {result.passed}/{result.total} checks passed.\n"
             f"{result.raw_output[:2000]}"
@@ -1650,7 +1714,9 @@ class AgenticLoop:
                 chat_ctx.add_message(
                     role="user",
                     content=feedback,
-                    metadata={"source": "verification"},
+                    metadata=build_internal_history_metadata(
+                        "verification", source=MessageSource.AGENT_GUIDANCE
+                    ),
                 )
         except Exception:
             logger.debug("Failed to inject verify feedback", exc_info=True)
@@ -1694,6 +1760,13 @@ class AgenticLoop:
             return False
         evaluation.score = 0.0
         evaluation.reason = vr.feedback or "Verification did not pass all checks"
+        from victor.agent.services.turn_execution_runtime import TurnResult
+
+        action_result = state.get("action_result")
+        if isinstance(action_result, TurnResult) and action_result.disposition.stops_run:
+            evaluation.decision = EvaluationDecision.FAIL
+            evaluation.reason += f"; ACT stopped ({action_result.disposition.value})"
+            return False
         if self._verify_retries < self._max_verify_retries:
             evaluation.decision = EvaluationDecision.RETRY
             self._inject_verify_feedback(vr)
@@ -1795,30 +1868,47 @@ class AgenticLoop:
         except Exception as exc:
             logger.debug("Prompt candidate outcome attribution skipped: %s", exc)
 
+    @staticmethod
+    def _terminal_stream_outcome(
+        *, success: bool, iterations: int, error: str | None = None
+    ) -> StreamChunk:
+        """Publish the buffered response's run verdict contract without repeating content."""
+        metadata: Dict[str, Any] = {
+            "agentic_loop_success": success,
+            "agentic_loop_iterations": iterations,
+        }
+        if error:
+            metadata["agentic_loop_error"] = error
+        return StreamChunk(is_final=True, metadata=metadata)
+
     async def run_streaming(
         self,
         query: str,
         context: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncIterator[StreamChunk]:
-        """Stream the agentic loop — the SAME loop as run(), differing only in I/O.
+        """Stream ACT output through the shared agentic-loop phases and stop policy.
 
         FEP-0007 Addendum A (framing B): ``run_streaming`` drives the identical
         PERCEIVE -> PLAN -> ACT -> EVALUATE -> DECIDE sequence as the buffered ``run()``. It
         reuses the same non-yielding ``_analyze_turn`` / ``_plan`` / ``_evaluate`` phase methods
-        and the shared ``turn_evaluation_controller`` / ``nudge_policy``. The ONLY difference is
-        ACT: instead of a buffered ``_act`` returning a ``TurnResult``, it drives the injected
+        and the shared ``turn_evaluation_controller`` / ``nudge_policy``. In ACT,
+        instead of a buffered ``_act`` returning a ``TurnResult``, it drives the injected
         streaming ACT port, which yields ``StreamChunk``s for live delivery and produces the same
-        ``TurnResult`` the shared EVALUATE phase consumes. Streaming thus becomes a pure I/O mode
-        of the one research-rooted loop rather than a separate, thinner loop.
+        ``TurnResult`` the shared EVALUATE phase consumes. Both modes apply one controller
+        observation per completed turn; controller convergence cannot bypass evaluation,
+        effect/audit gates or the subsequent verifier. Remaining differences are listed below.
 
         This is the LIVE streaming path as of the FEP-0007 step-3 cutover: ``run_streaming`` is
         driven via ``StreamingChatExecutor.run_unified`` (``ChatStreamRuntime``'s stream entry
         point), with the service-layer ``StreamingActAdapter`` wired as the ``streaming_act_port``.
         Still owned by the buffered ``run()``'s preamble only (reconciling them here is the
         remaining FEP-0007 follow-up): the fast-slow planning gate, the semantic response cache,
-        paradigm/topology routing, the content-repetition controller feed, and adaptive
-        termination. Run/stream behavioral parity is pinned by
+        paradigm/topology routing and adaptive termination. Run deadlines and
+        perception counters use the same guard owner in both modes; each owned await
+        is bounded, with no timeout or guard context spanning a yielded chunk. Controller nudge
+        output and intent-aware nudge dispatch are not consolidated by the shared stop helper.
+        Covered run/stream behavioral parity is pinned by
         ``tests/integration/streaming/test_run_stream_parity.py``.
 
         Args:
@@ -1832,101 +1922,147 @@ class AgenticLoop:
         Raises:
             RuntimeError: if no streaming ACT port has been wired.
         """
+        from victor.framework.agentic_loop_executor import use_stategraph_executor
+
+        if use_stategraph_executor(self.config.executor):
+            raise NotImplementedError("StateGraph execution does not support token streaming")
         if self.streaming_act_port is None:
             raise RuntimeError(
                 "AgenticLoop.run_streaming requires a streaming ACT port; it is wired at the "
                 "FEP-0007 cutover. Construct AgenticLoop(streaming_act_port=...) to drive it."
             )
 
+        from victor.framework.loop.guards import LoopGuards, LoopSpinError
+
+        _loop_guards = LoopGuards(total_timeout=self.config.total_timeout)
         state: Dict[str, Any] = {"query": query, **(context or {})}
-        self._progress_scores = []
-        self._verify_retries = 0  # FEP-0018: reset per run
-        self._last_lsp_signature = None  # FEP-0019 Phase 3: reset per run
-        # Resets the shared spin detector + content-repetition + plateau (same as run()).
-        self.turn_evaluation_controller.reset()
-        self.criteria_builder.reset()
-        # ADR-010: session-scoped effect ledger + downgrade budget (getattr: tests build
-        # partial loops via __new__ without the gate; a missing gate means no gating).
-        _effect_gate = getattr(self, "effect_gate", None)
-        if _effect_gate is not None:
-            _effect_gate.reset()
-        _auditor = getattr(self, "per_turn_auditor", None)
-        if _auditor is not None:
-            _auditor.reset()
+        self._reset_run_state()
         effective_max = self.max_iterations
+        nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
-        for i in range(1, effective_max + 1):
-            # PERCEIVE (shared, non-yielding)
-            perception = await self._analyze_turn(query, context, conversation_history)
-            self._last_perception = perception
-            state["iteration"] = i
-            if getattr(perception, "task_analysis", None):
-                state["task_type"] = getattr(perception.task_analysis, "task_type", "unknown")
-            state["perception"] = (
-                perception.to_dict() if hasattr(perception, "to_dict") else perception
+        try:
+            for i in range(1, effective_max + 1):
+                _loop_guards.note_iteration()
+                _loop_guards.enforce(
+                    effective_max=effective_max,
+                    backstop_factor=self.config.perception_backstop_factor,
+                )
+                # PERCEIVE (shared, non-yielding)
+                perception = await _loop_guards.run(
+                    lambda: self._analyze_turn(query, context, conversation_history)
+                )
+                if i == 1:
+                    nudge_intent = perception.intent
+                self._last_perception = perception
+                state["iteration"] = i
+                if getattr(perception, "task_analysis", None):
+                    state["task_type"] = getattr(perception.task_analysis, "task_type", "unknown")
+                state["perception"] = (
+                    perception.to_dict() if hasattr(perception, "to_dict") else perception
+                )
+
+                # FEP-0019 Phase 3: proactively inject live LSP symbols + errors for the
+                # files being edited (mirrors run()'s perceive→plan injection point).
+                await _loop_guards.run(lambda: self._maybe_inject_lsp_context(state))
+
+                # PLAN (shared, non-yielding) — planned once, reused across turns like run().
+                plan = state.get("plan")
+                if plan is None:
+                    plan = await _loop_guards.run(lambda: self._plan(perception, state))
+                    state["plan"] = plan
+
+                # ACT (streaming) — yields chunks; produces a TurnResult via the outcome holder.
+                act_outcome = StreamingTurnOutcome()
+                async with aclosing_if_supported(
+                    self.streaming_act_port.stream_turn_act(
+                        query=query,
+                        state=state,
+                        perception=perception,
+                        plan=plan,
+                        turn_index=i,
+                        outcome=act_outcome,
+                    )
+                ) as stream:
+                    iterator = aiter(stream)
+                    while True:
+                        try:
+                            chunk = await _loop_guards.run(lambda: anext(iterator))
+                        except StopAsyncIteration:
+                            break
+                        yield chunk
+                action_result = act_outcome.turn_result
+                state["action_result"] = action_result
+
+                # FEP-0023 Phase 1: record the turn onto the live SessionLedger
+                # (streaming parity with run(); populates <SESSION_STATE>). No-op
+                # unless USE_SESSION_LEDGER is enabled.
+                self._populate_session_ledger(action_result, i)
+
+                # Update shared spin detector + advance the temperature ratchet — the same per-turn step
+                # the buffered _act path runs, so streaming detects spin and escalates temperature
+                # identically (closes a latent streaming parity gap; ADR-013).
+                self._record_spin_and_ratchet(action_result)
+
+                # EVALUATE (shared, non-yielding)
+                evaluation = await _loop_guards.run(
+                    lambda: self._evaluate(perception, action_result, state)
+                )
+                self._progress_scores.append(evaluation.score)
+
+                evaluation, turn_decision = self._apply_turn_controller(
+                    action_result,
+                    evaluation,
+                    state,
+                    iteration=i,
+                    max_iterations=effective_max,
+                    intent=nudge_intent,
+                )
+
+                # DECIDE — terminal decisions end the stream; non-terminal nudge + continue.
+                if evaluation.decision == EvaluationDecision.COMPLETE:
+                    evaluation = self._apply_turn_disposition(
+                        action_result, self._apply_backslide_guard(evaluation)
+                    )
+                    # FEP-0018: framework verification hook — verify before accepting.
+                    if await _loop_guards.run(
+                        lambda: self._maybe_verify_and_retry(i, evaluation, state, streaming=True)
+                    ):
+                        continue  # re-enter (skip return)
+                if evaluation.decision in (
+                    EvaluationDecision.COMPLETE,
+                    EvaluationDecision.FAIL,
+                    EvaluationDecision.ESCALATE,
+                ):
+                    # Streaming parity: attribute the turn outcome to served prompt
+                    # candidates before ending the stream (FEP-0017; mirrors run()).
+                    _loop_guards.enforce()
+                    self._emit_prompt_reward_outcome(evaluation, state)
+                    success = evaluation.decision == EvaluationDecision.COMPLETE
+                    _loop_guards.enforce()
+                    yield self._terminal_stream_outcome(
+                        success=success,
+                        iterations=i,
+                        error=None if success else evaluation.reason or "Agentic loop failed",
+                    )
+                    return
+                self._inject_decide_nudges(evaluation, turn_decision)
+
+            # Loop exhausted without a terminal decision — attribute the final turn's
+            # evaluation too (FEP-0017 streaming parity; mirrors run()'s epilogue).
+            self._emit_prompt_reward_outcome(evaluation, state)
+            yield self._terminal_stream_outcome(
+                success=False,
+                iterations=max(0, effective_max),
+                error=f"Maximum iterations ({effective_max}) reached without completion",
             )
 
-            # FEP-0019 Phase 3: proactively inject live LSP symbols + errors for the
-            # files being edited (mirrors run()'s perceive→plan injection point).
-            await self._maybe_inject_lsp_context(state)
-
-            # PLAN (shared, non-yielding) — planned once, reused across turns like run().
-            plan = state.get("plan")
-            if plan is None:
-                plan = await self._plan(perception, state)
-                state["plan"] = plan
-
-            # ACT (streaming) — yields chunks; produces a TurnResult via the outcome holder.
-            act_outcome = StreamingTurnOutcome()
-            async with aclosing_if_supported(
-                self.streaming_act_port.stream_turn_act(
-                    query=query,
-                    state=state,
-                    perception=perception,
-                    plan=plan,
-                    turn_index=i,
-                    outcome=act_outcome,
-                )
-            ) as stream:
-                async for chunk in stream:
-                    yield chunk
-            action_result = act_outcome.turn_result
-            state["action_result"] = action_result
-
-            # FEP-0023 Phase 1: record the turn onto the live SessionLedger
-            # (streaming parity with run(); populates <SESSION_STATE>). No-op
-            # unless USE_SESSION_LEDGER is enabled.
-            self._populate_session_ledger(action_result, i)
-
-            # Update shared spin detector + advance the temperature ratchet — the same per-turn step
-            # the buffered _act path runs, so streaming detects spin and escalates temperature
-            # identically (closes a latent streaming parity gap; ADR-013).
-            self._record_spin_and_ratchet(action_result)
-
-            # EVALUATE (shared, non-yielding)
-            evaluation = await self._evaluate(perception, action_result, state)
-            self._progress_scores.append(evaluation.score)
-
-            # DECIDE — terminal decisions end the stream; non-terminal nudge + continue.
-            if evaluation.decision == EvaluationDecision.COMPLETE:
-                evaluation = self._apply_backslide_guard(evaluation)
-                # FEP-0018: framework verification hook — verify before accepting.
-                if await self._maybe_verify_and_retry(i, evaluation, state, streaming=True):
-                    continue  # re-enter (skip return)
-            if evaluation.decision in (
-                EvaluationDecision.COMPLETE,
-                EvaluationDecision.FAIL,
-            ):
-                # Streaming parity: attribute the turn outcome to served prompt
-                # candidates before ending the stream (FEP-0017; mirrors run()).
-                self._emit_prompt_reward_outcome(evaluation, state)
-                return
-            self._inject_decide_nudges(evaluation, i, effective_max)
-
-        # Loop exhausted without a terminal decision — attribute the final turn's
-        # evaluation too (FEP-0017 streaming parity; mirrors run()'s epilogue).
-        self._emit_prompt_reward_outcome(evaluation, state)
+        except LoopSpinError as exc:
+            yield self._terminal_stream_outcome(
+                success=False,
+                iterations=_loop_guards.iteration_count,
+                error=str(exc),
+            )
 
     async def stream(
         self,
@@ -1944,13 +2080,17 @@ class AgenticLoop:
         Yields:
             LoopIteration for each iteration
         """
+        if self.config.total_timeout is not None:
+            raise NotImplementedError("Iteration streaming does not support run deadlines")
         if getattr(self, "_verifier", None) is not None:
             raise NotImplementedError(
                 "Iteration streaming does not support verification; use run or run_streaming"
             )
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
-        if use_stategraph_executor():
+        if use_stategraph_executor(self.config.executor):
+            if self.turn_executor is not None:
+                self.turn_executor.require_supported_loop_executor(stategraph=True)
             async for iteration in self._stream_with_stategraph(
                 query=query,
                 context=context,
@@ -2399,9 +2539,9 @@ class AgenticLoop:
 
     def _apply_backslide_guard(
         self,
-        evaluation: Any,
+        evaluation: EvaluationResult,
         backslide_threshold: float = -0.10,
-    ) -> Any:
+    ) -> EvaluationResult:
         """Downgrade COMPLETE to CONTINUE if score velocity indicates backslide.
 
         A significant drop in score from the previous turn (velocity below
@@ -2420,10 +2560,7 @@ class AgenticLoop:
             EvaluationResult,
         )
 
-        score = getattr(evaluation, "score", None)
-        if score is None:
-            return evaluation
-
+        score = evaluation.score
         self._score_history.append(score)
         if len(self._score_history) < 2:
             return evaluation
@@ -2445,8 +2582,8 @@ class AgenticLoop:
                     f"Backslide guard: velocity {velocity:.2f} below threshold "
                     f"{backslide_threshold:.2f} — deferring completion"
                 ),
-                metrics=getattr(evaluation, "metrics", {}),
-                metadata=getattr(evaluation, "metadata", {}),
+                metrics=evaluation.metrics,
+                metadata=evaluation.metadata,
             )
         return evaluation
 
@@ -2799,6 +2936,8 @@ class AgenticLoop:
                 "total_tool_calls": team_result.total_tool_calls,
             },
         )
+        if self.turn_executor is not None:
+            response = await self.turn_executor.govern_response(response)
         return TurnResult(
             response=response,
             tool_results=[],
@@ -3075,7 +3214,18 @@ class AgenticLoop:
         gate = getattr(self, "effect_gate", None)
         if gate is not None:
             gate.record(action_result, state)
-        evaluation = await self._evaluate_core(perception, action_result, state)
+        from victor.agent.services.turn_execution_runtime import TurnResult
+
+        if isinstance(action_result, TurnResult) and action_result.disposition.is_failure:
+            # Retain effect receipts, but do not spend another model call judging
+            # a source-classified failure or let fallback prose establish success.
+            evaluation = EvaluationResult(
+                decision=EvaluationDecision.FAIL,
+                score=0.0,
+                reason=f"ACT stopped ({action_result.disposition.value})",
+            )
+        else:
+            evaluation = await self._evaluate_core(perception, action_result, state)
         if gate is not None:
             evaluation = await gate.apply(evaluation, action_result, state)
         # EVR-6: online per-turn auditor — a second post-filter on the same seam (no-op when off).

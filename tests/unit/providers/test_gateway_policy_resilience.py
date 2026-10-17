@@ -249,7 +249,9 @@ async def test_real_stategraph_preserves_denial_through_act_and_runtime(streamin
     context = MagicMock()
     context.metadata = {}
     executor = AgenticLoopGraphExecutor(execution_context=context, max_iterations=1)
-    executor.turn_executor = SimpleNamespace(execute_turn=AsyncMock(side_effect=error))
+    executor.turn_executor = SimpleNamespace(
+        execute_turn=AsyncMock(side_effect=error), require_supported_loop_executor=Mock()
+    )
     with pytest.raises(ProviderPolicyError) as caught:
         if streaming:
             async for _ in executor.stream("test"):

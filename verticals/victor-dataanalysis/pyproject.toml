@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-dataanalysis"
-version = "0.8.2"
+version = "0.13.0"
 description = "Data Analysis vertical for Victor AI - Data processing, analysis, and visualization"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,7 +35,7 @@ classifiers = [
 dependencies = [
     "victor-contracts[yaml]>=0.6.0,<1.0",
     "pandas>=2.0",
-    "numpy>=1.24,<2.5",
+    "numpy>=1.24,<2.6",
 ]
 
 [project.optional-dependencies]
@@ -47,7 +47,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
-    "black==26.5.1",
+    "black==26.10.0",
     "ruff>=0.5",
     "mypy==2.4.0",
 ]

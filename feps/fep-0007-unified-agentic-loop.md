@@ -4,7 +4,7 @@ title: "Unified Agentic Loop (single loop, two I/O modes)"
 type: Standards Track
 status: Implemented
 created: 2026-06-21
-modified: 2026-09-06
+modified: 2026-10-13
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -22,6 +22,25 @@ The [canonical unified streaming diagram](../docs/architecture.md#agenticloop) s
 The #1043 cleanup removed `StreamingChatExecutor.run()` and `AgenticLoop.stream_chat()`.
 The original problem, implementation plan, and dated progress reports below are retained as
 design history; the final cleanup section records their completed disposition.
+
+## Execution-contract qualification (2026-10-13)
+
+The streaming ACT cutover remains implemented. The later
+[execution-path audit](../docs/architecture/victor-agent-service-plan.md#full-execution-path-review-and-contract-fit)
+found that shared phase methods do not yet establish full lifecycle parity.
+G97/G98 in the canonical tracker own current repairs and acceptance; this FEP does
+not introduce another loop, feature flag or fallback path.
+
+- One run-state reset now serves buffered and token streaming in the local candidate;
+  completion-score isolation and truthful recorded decisions are regression-tested.
+- Terminal RESPONSE governance/status, controller/guard dispatch, recovery disposition
+  and iteration/StateGraph parity remain open. The current text/tool parity battery
+  does not prove those contracts.
+- Extend existing typed turn/terminal contracts and ACT adapters. A provider finish
+  reason is not a run-success verdict. Tool batching remains inside ACT.
+- Strict response policy must gate content before exposure; a terminal check cannot
+  retract earlier streaming deltas. Cancellation must close the active iterator and
+  preserve an unknown effect outcome rather than retry a write blindly.
 
 ## Original problem statement (historical)
 
@@ -387,8 +406,8 @@ a latent buffered-`run()` bug (a tool-only turn's empty content fell through to 
 cleanup, not new design):
 
 1. **Reconcile the run()-only preamble/DECIDE bands into `run_streaming`.** The fast-slow
-   planning gate, semantic response cache, paradigm/topology routing, the content-repetition
-   controller feed, and adaptive termination each still have their sole production call site in
+   planning gate, semantic response cache, paradigm/topology routing
+   and adaptive termination still have their sole production call site in
    the buffered `run()`'s inline body — the streaming path shares PERCEIVE/ACT/EVALUATE
    (fulfillment, effect gate, auditor, backslide/verify) but not yet those bands.
 2. Delete the deprecated `StreamingChatExecutor.run()` alias (zero production callers; the only
@@ -436,3 +455,240 @@ class in `chat_stream_runtime.py`.
 The buffered-only preamble/DECIDE bands listed in the September refresh remain
 separate follow-up work. Removing obsolete entry points does not claim those
 optional capabilities have gained streaming parity.
+
+
+### Terminal delivery qualification — 2026-10-13
+
+The LOOP-02/03 increment extends the existing buffered result metadata to streaming:
+`agentic_loop_success` (boolean), `agentic_loop_iterations` (completed ACT turns),
+and `agentic_loop_error` on failure. A provider's `is_final` or stop reason is not
+an agent verdict. The loop emits an empty final marker after accepted COMPLETE (after any configured
+verification), FAIL or iteration exhaustion; framework events and VictorClient preserve its
+verdict, and audit/resume finalizers must not override failure with a quality score.
+Existing consumers without a loop marker retain their legacy EOF behavior.
+
+Normal no-tool assistant candidates pass RESPONSE policy before publication,
+history and completion detection. Forced delivery reuses that result rather than
+invoking policy twice. Denial and a policy that removes all deliverable content
+raise a nonrecoverable error before publication; neither retries the model nor
+recovers an earlier ungoverned summary. The latter is a delivery failure, not proof
+of task completion. With no configured gate, content bytes and provider attempts
+are unchanged. Tool-bearing intermediate narration, raw provider diagnostics and
+separate recovery paths require their own qualification; this is not an assertion
+that all possible emissions are governed.
+
+Acceptance is tracked in the canonical agent-service plan. Existing policy, ACT,
+loop, runtime-finalization, framework/client and run/stream parity suites own the
+regressions. No additional loop framework or terminal-status registry is introduced.
+The CLI failure increment (`fix/cli-terminal-failure`, tracked in LOOP-02) carries
+terminal events and local thinking aborts through renderer finalization to one-shot
+exit 1, while interactive streaming waits for new input. JSON failures retain the
+existing error/details envelope. This is deterministic CLI evidence, not live C5.
+The shared stop-controller increment (`fix/shared-loop-controller`, LOOP-03)
+feeds one typed observation per completed ACT in both modes with spin recording
+disabled because ACT already recorded it. It never upgrades a non-complete
+assessment to success; a clean stop retains only existing COMPLETE, which still
+passes backslide and verification. Degraded stops fail with evaluator diagnostics,
+metrics and metadata preserved. Search convergence is a stop signal, not synthesis.
+Controller nudge dispatch, recovery disposition and iteration/StateGraph parity
+remain open obligations. Shared cooperative run deadlines are qualified in the
+follow-up below; external-effect cancellation remains a separate acceptance gate.
+
+
+### Cooperative deadline follow-up (LOOP-03)
+
+The shared stop policy landed in [#1339](https://github.com/anvai-labs/victor/pull/1339).
+The `fix/shared-loop-deadline` increment reuses `LoopGuards` for a single elapsed
+budget across buffered and token-streamed awaits. Its callable boundary checks
+admission before creating an awaitable, restores the prior guard context, and
+converts only its own timeout. No timer/context remains active across an outward
+yield; consumer pause consumes elapsed budget but cannot cancel consumer work.
+
+Expiry fails with partial evidence retained, including verification and cache
+shortcut paths. No additional model/tool attempt follows expiry. External
+cancellation propagates and iterator cleanup is awaited. `total_timeout=None`
+remains disabled; durations must be finite/nonnegative. StateGraph and iteration
+streaming reject a configured deadline before execution until qualified.
+
+This is a cooperative deadline, not proof of cancellation of threads, native work,
+remote inference or committed effects. Cleanup can extend return latency; synchronous callbacks admitted before expiry
+are not rolled back. Unknown effects require reconciliation, never blind replay. The perception backstop is
+still checked between iterations. Nudge/recovery dispatch, attempt accounting,
+adaptive iteration limits and full lifecycle/C5 acceptance remain open.
+
+
+### Typed ACT disposition follow-up (LOOP-03)
+
+`TurnResult.disposition` is the canonical ACT control signal. The internal emit and
+streaming tool results classify it at the source; stop/retry compatibility properties
+are derived, not independently mutable. `StreamingActAdapter` rejects a missing or
+malformed turn contract. Ordinary turns default to `CONTINUE` and retain existing
+content, evaluation and verifier retry behavior.
+
+| Disposition | Shared loop behavior |
+|---|---|
+| `CONTINUE` | Existing evaluator/controller/verification policy |
+| `RECOVERY_RETRY` | Never completion; existing failure/escalation takes precedence |
+| `COMPLETION_CANDIDATE` | Existing evaluator/effect/audit/backslide/verifier gates; rejection stops without another ACT |
+| `RECOVERY_EXHAUSTED`, `BUDGET_EXHAUSTED`, `FORCED_STOP` | Retain partial receipts, skip model evaluation, stop unsuccessfully |
+
+Recovered final text is carried with its disposition instead of evaluating the
+original empty response. Recovery status chunks are not answer evidence. Escalation
+ends buffered and token-streamed execution; a continuation prompt grants no authority.
+The internal `ToolExecutionResult(should_return=...)` constructor and writable emit
+hint fields are replaced with `disposition`; no public client wire fields change.
+
+Normal and recovered final text share `ChatGovernance.govern_response`. Recovery
+publication is outside provider retry handling: denial, total redaction or persistence
+failure cannot cause another provider attempt. Policy precedes assistant history,
+delivery and evaluation; the adapter does not repeat it. Other forced summaries and
+tool-bearing emissions, remote effect rollback, durable replay safety, whole-run
+attempt accounting and live C5 still require qualification.
+The canonical tracker and G98 own those remaining acceptance gates.
+
+
+### Intent-aware continuation follow-up (LOOP-03)
+
+Buffered and token-streamed loops capture the first perception's canonical intent
+as run-local guidance context, including unknown intent. Later perceptions do not
+expand it; a new run starts with its own context. `TurnObservation.intent` is the
+single source for write-specific guidance; the independent `intent_is_write`
+constructor field is removed from this internal contract.
+
+The shared controller returns its `TurnDecision` alongside the gated evaluation.
+DECIDE delivers that selection once, after terminal gates, without re-running spin
+or budget policy. Effect-gate feedback supersedes the generic selection and asks
+for evidence within the original request or explicit additional permission. Stop,
+FAIL, COMPLETE and ESCALATE suppress all continuation prompts. Every delivered
+prompt retains internal history metadata; none becomes a new user-task anchor.
+
+Read/display/unknown guidance never requests edits or shell work. This corrects
+unsafe prompting; it does not enforce tool permissions, prove completion, or solve
+uncertain-effect replay. StateGraph/iteration lifecycle parity and whole-run attempt
+accounting remain separately tracked. No public client wire schema changes.
+
+
+### Buffered candidate publication follow-up (LOOP-03)
+
+`TurnExecutor` uses the same `ChatGovernance` as token streaming. Each raw candidate
+owner governs once; the outer loop wrapper no longer rechecks already governed text.
+
+| Producer | Policy boundary |
+| --- | --- |
+| Ordinary buffered model turn | After usage accounting; before assistant history, tools or evaluation |
+| Deterministic read summary | After existing read effects; before returned summary/evaluation |
+| Completion recovery/fallback | After all observed attempt usage; outside completer retries, before history |
+| Team aggregate | After member effects; before root evaluation/publication |
+
+Redaction copies content without discarding provider usage, metadata or tool envelopes.
+Absent policy retains bytes and response identity. Denial and total redaction raise
+nonrecoverable `AgentError`; the buffered loop propagates it instead of producing an
+empty failure result eligible for synthesis. The shared boundary validates all canonical
+`GateResult` field types. Malformed/failing response checks become terminal errors with
+sanitized messages and preserved causes; cancellation propagates unchanged. Existing
+history, tool receipts and consumed usage are never erased to simulate rollback.
+
+StateGraph message governance remains unqualified because nested exception handlers
+can absorb terminal failures. Public admission, selected graph-loop execution and direct
+graph executors explicitly reject that combination before work. Do not silently change
+executor or disable policy. Raw `execute_single_turn`, custom legacy ACT sources,
+reasoning and tool argument/result filtering are outside this assistant-text contract.
+Streaming team output/forced summaries/tool-bearing content and whole-run provider-attempt/deadline
+ownership still need qualification; these source tests do not establish live C5.
+
+
+### Streaming candidate ownership follow-up (LOOP-03)
+
+The live streaming ACT checks all nonempty provider narrative before publication,
+history, evaluation or tool dispatch, including narrative attached to tool calls.
+Tool-only envelopes retain their separate tool authorization. The private emitter
+accepts already-governed provider text from that sole caller; it does not maintain
+a second governed flag or recheck forced output. Distinct natural/recovery/terminal
+summary candidates and exhausted-recovery fallback text use the shared governance
+capability at their producer boundary. Cancellation and terminal policy errors
+cannot turn into a tool dispatch or another generation. The existing cooperative
+stream-cancellation check is shared by the executor and recovery helper; recovered
+and summary producers check after policy awaits, before assistant history writes.
+
+The prepared-team streaming trio was unreachable legacy code and is removed.
+Its direct synthetic probe did not establish a live-path team leak. Team/topology
+integration in the streaming loop remains open and must reuse the canonical team
+dispatcher. Likewise the live adapter does not currently enable the forced-summary
+argument; primitive summary tests are not adapter-route acceptance. G98 and the
+canonical tracker retain those gaps, whole-run attempt/deadline ownership and C5.
+
+
+### Buffered terminal recovery admission follow-up (LOOP-03)
+
+Presentation recovery does not reopen a terminal run. The service wrapper consults
+existing structured outcomes before synthesis or completion fallback: a loop guard,
+a canonical terminal ACT disposition, or evaluator escalation prevents another
+provider call. Ordinary failed-verification evidence summaries remain permitted and
+retain the failed verdict. No stop reason is inferred from assistant prose.
+
+The current ACT result lives in final state before its evaluation is recorded as an
+iteration. Terminal interruption preserves that response, usage, tool envelope and
+receipts, with the guard diagnostic taking precedence over older evaluation text.
+Other exception details retain the existing evaluation-reason/generic disclosure boundary.
+A stop before any ACT returns empty content with failure metadata; it cannot generate
+fallback text or replay policy checks. Ordinary recoverable errors retain the existing
+recorded-iteration response selection and zero-iteration fallback. Cancellation and terminal policy exceptions still
+propagate. This boundary repair does not provide whole-run provider attempt/deadline
+ownership, remote cancellation, or lifecycle parity for experimental executors.
+
+
+### Executor configuration ownership follow-up (LOOP-03)
+
+`Settings.agentic_loop` owns immutable `AgenticLoopSettings`. The optional
+`SessionConfig.agentic_loop` override is applied to the existing fresh session settings;
+absence preserves deployment configuration. The enum has one definition in the lightweight
+config module, re-exported from the existing framework resolver to retain import identity.
+
+| Configured executor | Resolution / capability |
+| --- | --- |
+| `auto` (default) | Resolve the existing `USE_STATEGRAPH_AGENTIC_LOOP` flag once per admitted run |
+| `standard` | Explicit standard buffered/token-streamed loop; ignore the legacy selector flag |
+| `stategraph` | Explicit experimental graph executor; reject unsupported capabilities |
+
+Resolution returns only `standard` or `stategraph`. The service checks admission before
+REQUEST governance/history/setup, then passes that concrete choice in `AgenticLoopConfig`
+to dispatch. Flag or session-setting changes during an await cannot switch this admitted
+run. Direct loop callers may set `AgenticLoopConfig.executor`; an AUTO instance resolves
+afresh at each entry without mutating its configuration. Existing deadline, verification
+and message-governance graph restrictions remain. Token streaming explicitly rejects
+StateGraph before work instead of silently using the standard executor.
+
+Invalid explicit values and selector failures are errors, never implicit AUTO fallback.
+The default keeps the established legacy-flag behavior; no additional flag is introduced.
+Use `VICTOR_AGENTIC_LOOP='{"executor":"standard"}'` or the existing settings YAML loader
+for deployment configuration. The nested double-underscore environment spelling is not
+advertised. Programmatic session override:
+
+```python
+from victor.config.agentic_loop_settings import AgenticLoopSettings
+from victor.framework.session_config import SessionConfig
+
+session = SessionConfig(agentic_loop=AgenticLoopSettings(executor="standard"))
+```
+
+This config-only increment does not expose new deadline or attempt knobs, extend the
+experimental executor's lifecycle guarantees, or establish live provider/C5 acceptance.
+
+## Self-audit recovery invariants (UX-01)
+
+Required plan dependencies remain required after failure. Preserve the graph and
+mark transitive dependents blocked; independent branches may continue. Description
+keywords and step types cannot waive an input contract, and evidence validation
+must not relabel a blocked step as an executed failure.
+
+Member binding registers its canonical session before publishing runtime identity.
+A failed durable session insert must not leave a phantom cached session that makes
+a later bind appear successful. Existing session and audit stores retain ownership.
+
+Context lifecycle compaction delegates through the internal typed `CompactionHistory`
+port to the existing conversation controller, then refreshes its accounting snapshot
+from the history actually sent to the provider. Standalone context-service callers
+retain their existing snapshot behavior. Simple and scored strategies use one
+retention helper for genuine user intent, system instructions, latest assistant,
+pending tool calls and selected complete tool batches. Internal user-role nudges
+do not become the task query. No new compaction engine or retry dispatcher is added.

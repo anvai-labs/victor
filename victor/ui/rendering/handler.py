@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 from victor.agent.response_sanitizer import create_streaming_filter
+from victor.core.errors import AgentError
 from victor.ui.rendering.event_dispatcher import EventDispatcher
 from victor.ui.rendering.protocol import StreamRenderer
 from victor.ui.rendering.utils import (
@@ -21,6 +22,14 @@ from victor.ui.rendering.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class RenderedStreamError(AgentError):
+    """Terminal run failure already delivered to the renderer.
+
+    Callers choose exit or return-to-prompt behavior without rendering the error
+    twice or retrying the failed turn. Buffered renderers still need flushing.
+    """
 
 
 def _resolve_stream_factory(agent: Any) -> Any:
@@ -79,6 +88,9 @@ async def stream_response(
 
     Returns:
         The accumulated response content
+
+    Raises:
+        RenderedStreamError: The run failed; partial output has been finalized.
     """
     renderer.start()
 
@@ -137,13 +149,14 @@ async def stream_response(
             # Delegate all event routing to the EventDispatcher
             dispatcher.dispatch(event)
 
-            # Check if we should abort due to excessive thinking
-            if content_filter.should_abort():
-                renderer.on_status(f"\u26a0\ufe0f {content_filter.abort_reason}")
-                break
-
             # Break on error events (dispatcher sets error_surfaced)
             if dispatcher.error_surfaced:
+                break
+
+            if content_filter.should_abort():
+                dispatcher.surface_error(
+                    content_filter.abort_reason or "Excessive thinking aborted the response."
+                )
                 break
 
         # Flush any remaining buffered content
@@ -173,6 +186,8 @@ async def stream_response(
 
         # FAIL-SAFE: Verify content was displayed
         final_content = renderer.finalize()
+        if dispatcher.error is not None:
+            raise RenderedStreamError(dispatcher.error, recoverable=False)
         # Empty content is valid in some flows (e.g. empty stream or metadata-only events),
         # so return the renderer output directly and only log for visibility. A surfaced
         # error already explains the empty result, so don't misreport it as a bug.

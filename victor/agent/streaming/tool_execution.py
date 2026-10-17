@@ -77,6 +77,7 @@ from victor.agent.services.protocols.streaming_runtime import (
     ToolExecutionRecoveryRuntimeProtocol,
 )
 from victor.agent.streaming.context import StreamingChatContext
+from victor.agent.services.turn_execution_runtime import TurnDisposition
 from victor.providers.base import StreamChunk
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 from victor.tools.decorators import resolve_tool_name
@@ -116,10 +117,15 @@ class ToolExecutionResult:
     """
 
     chunks: List[StreamChunk] = field(default_factory=list)
-    should_return: bool = False
+    disposition: TurnDisposition = TurnDisposition.CONTINUE
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
     tool_calls_executed: int = 0
     last_tool_name: Optional[str] = None
+
+    @property
+    def should_return(self) -> bool:
+        """Compatibility view of the source-classified disposition."""
+        return self.disposition.stops_run
 
     def add_chunk(self, chunk: StreamChunk) -> None:
         """Add a chunk to yield."""
@@ -403,7 +409,7 @@ class ToolExecutionHandler:
                     )
                 )
             result.add_chunks(exhausted_result.chunks)
-            result.should_return = True
+            result.disposition = TurnDisposition.BUDGET_EXHAUSTED
             for chunk in exhausted_result.chunks:
                 yield chunk
             return
@@ -416,7 +422,7 @@ class ToolExecutionHandler:
         force_result = await self._check_force_completion(stream_ctx)
         if force_result:
             result.add_chunks(force_result.chunks)
-            result.should_return = force_result.should_return
+            result.disposition = force_result.disposition
             for chunk in force_result.chunks:
                 yield chunk
             if result.should_return:
@@ -529,7 +535,7 @@ class ToolExecutionHandler:
         self, stream_ctx: StreamingChatContext
     ) -> ToolExecutionResult:
         """Handle budget exhausted condition."""
-        result = ToolExecutionResult(should_return=True)
+        result = ToolExecutionResult(disposition=TurnDisposition.BUDGET_EXHAUSTED)
         async for chunk in self._handle_budget_exhausted(stream_ctx):
             result.add_chunk(chunk)
         return result
@@ -540,7 +546,7 @@ class ToolExecutionHandler:
         """Check if force completion should be triggered."""
         force_chunk = self._handle_force_completion_with_handler(stream_ctx)
         if force_chunk:
-            result = ToolExecutionResult(should_return=True)
+            result = ToolExecutionResult(disposition=TurnDisposition.FORCED_STOP)
             result.add_chunk(force_chunk)
             async for final_chunk in self._handle_force_final_response(stream_ctx):
                 result.add_chunk(final_chunk)

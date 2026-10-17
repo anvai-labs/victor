@@ -31,12 +31,14 @@ from victor.agent.services.chat_stream_executor import (
 )
 from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
+    ChatGovernance,
     ChatConversation,
     ChatStreamLifecycle,
     ChatToolCalls,
 )
 from victor.agent.streaming.tool_execution import ToolExecutionResult
 from victor.providers.base import StreamChunk
+from victor.agent.services.turn_execution_runtime import TurnDisposition
 
 
 class _PassThroughToolRuntime:
@@ -66,6 +68,7 @@ def _executor(*, detector=None, lifecycle=None) -> StreamingChatExecutor:
     services = SimpleNamespace(
         tool_calls=ChatToolCalls(runtime=_PassThroughToolRuntime()),
         completion=ChatCompletion(detector=detector),
+        governance=ChatGovernance(),
         conversation=ChatConversation(),
         stream_lifecycle=ChatStreamLifecycle(lifecycle or _StreamLifecycle()),
     )
@@ -126,6 +129,11 @@ async def test_execute_turn_streaming_no_tools_builds_text_turn_result():
 
 async def test_execute_turn_streaming_runs_tools_and_maps_results():
     ex = _executor()
+
+    async def unexpected_message_policy(content):
+        raise AssertionError("Tool-only envelopes use tool authorization, not narrative policy")
+
+    ex.services.governance = SimpleNamespace(govern_response=unexpected_message_policy)
     tool_calls = [{"name": "read_file", "arguments": {"path": "a.py"}}]
 
     async def fake_provider(orch, runtime_owner, stream_ctx, goals):
@@ -169,7 +177,7 @@ async def test_execute_turn_streaming_skips_tools_when_emit_returns():
         return (None, "done", tool_calls, False)
 
     async def fake_emit(orch, runtime_owner, stream_ctx, *, decision, tool_calls, **_):
-        decision.should_return = True  # emit decided to end the stream this turn
+        decision.disposition = TurnDisposition.RECOVERY_EXHAUSTED
         decision.tool_calls = tool_calls
         return
         yield  # unreachable; marks this as an async generator
@@ -185,7 +193,7 @@ async def test_execute_turn_streaming_skips_tools_when_emit_returns():
     result = StreamingActResult()
     await _drain(ex, _orch(), SimpleNamespace(is_qa_task=False), result)
 
-    assert result.emit_should_return is True
+    assert result.turn_result.disposition is TurnDisposition.RECOVERY_EXHAUSTED
     assert result.tool_exec_result is None
     # The model requested tools, but emit short-circuited before execution.
     assert result.turn_result.has_tool_calls is True
@@ -211,13 +219,20 @@ async def test_execute_turn_streaming_surfaces_garbage_flag():
     assert result.garbage_detected is True
 
 
-async def test_cancellation_after_provider_prevents_emit_and_tool_dispatch():
+@pytest.mark.parametrize("cancel_at", ["provider", "response-policy"])
+async def test_cancellation_before_publication_prevents_emit_and_tool_dispatch(cancel_at):
     lifecycle = _StreamLifecycle()
     ex = _executor(lifecycle=lifecycle)
 
     async def fake_provider(orch, runtime_owner, stream_ctx, goals):
+        lifecycle.cancelled = cancel_at == "provider"
+        return (None, "Proposed write", [{"name": "write_file", "arguments": {}}], False)
+
+    async def govern_response(content):
         lifecycle.cancelled = True
-        return (None, "", [{"name": "write_file", "arguments": {}}], False)
+        return content
+
+    ex.services.governance = SimpleNamespace(govern_response=govern_response)
 
     async def must_not_run(*_args, **_kwargs):
         raise AssertionError("post-provider work must not run after cancellation")
@@ -348,3 +363,55 @@ def test_detect_high_confidence_completion_non_high_and_no_detector_return_false
         ex._detect_high_confidence_completion(SimpleNamespace(), full_content="x", tool_calls=None)
         is False
     )
+
+
+@pytest.mark.parametrize("disposition", ["budget_exhausted", "forced_stop"])
+def test_mapper_preserves_terminal_tool_disposition(disposition):
+    from victor.agent.services.turn_execution_runtime import TurnDisposition
+
+    tool_result = ToolExecutionResult(disposition=TurnDisposition(disposition))
+    turn = StreamingChatExecutor._build_streaming_turn_result(
+        SimpleNamespace(),
+        full_content="partial",
+        tool_calls=[{"name": "read"}],
+        tool_exec_result=tool_result,
+    )
+    assert turn.disposition == tool_result.disposition
+    assert tool_result.should_return is True
+
+
+@pytest.mark.parametrize(
+    "disposition", [TurnDisposition.RECOVERY_EXHAUSTED, TurnDisposition.COMPLETION_CANDIDATE]
+)
+async def test_act_preserves_recovery_content_and_does_not_reclassify_it(disposition):
+    ex = _executor()
+
+    async def provider(*args):
+        return None, "", None, False
+
+    async def emit(*args, decision, **kwargs):
+        decision.disposition = disposition
+        decision.recovery_content = "recovered payload"
+        yield StreamChunk(content="recovered payload", is_final=True)
+
+    ex._stream_provider_turn = provider
+    ex._emit_assistant_turn = emit
+    ex._detect_high_confidence_completion = lambda *a, **k: pytest.fail(
+        "terminal recovery must not be reclassified"
+    )
+    result = StreamingActResult()
+    chunks = await _drain(ex, _orch(), SimpleNamespace(), result)
+    assert result.turn_result.disposition is disposition
+    assert result.turn_result.content == result.full_content == chunks[0].content
+    assert result.forced_completion is False
+
+
+def test_mapper_rejects_tools_after_a_terminal_emit():
+    with pytest.raises(ValueError, match="cannot follow"):
+        StreamingChatExecutor._build_streaming_turn_result(
+            SimpleNamespace(),
+            full_content="partial",
+            tool_calls=[{"name": "read"}],
+            tool_exec_result=ToolExecutionResult(),
+            disposition=TurnDisposition.RECOVERY_EXHAUSTED,
+        )

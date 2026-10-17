@@ -137,6 +137,9 @@ class EmbeddingService:
         self.device = device
         self._model: Any = None  # SentenceTransformer, lazy loaded
         self._model_lock = threading.Lock()
+        # Publication and shutdown share a short critical section. Shutdown must
+        # never wait for the model-loading lock (imports/downloads may be slow).
+        self._state_lock = threading.Lock()
         # Serialize model.encode: sentence-transformers' tokenizer + forward are not
         # guaranteed thread-safe, and embed_text/embed_batch run embed_*_sync via
         # asyncio.to_thread -> concurrent unsynchronized encode on the shared model.
@@ -213,7 +216,8 @@ class EmbeddingService:
         zero vectors instead of computing new embeddings. This prevents
         embedding operations from running after shutdown is initiated.
         """
-        self._shutdown = True
+        with self._state_lock:
+            self._shutdown = True
         logger.debug("[EmbeddingService] Shutdown signaled, new operations will be skipped")
 
     def _ensure_model_loaded(self) -> None:
@@ -224,11 +228,14 @@ class EmbeddingService:
         failure leaves ``_model`` unset so callers degrade to zero-vector
         embeddings rather than crashing. Embeddings are an optimization — an
         unavailable model backend must not bring down an agent turn.
+
+        Publish only a fully prepared model with a positive integer dimension.
+        Shutdown can discard an in-flight load; it does not terminate that worker.
         """
-        if self._model is not None:
+        if self._shutdown or self._model is not None:
             return
         with self._model_lock:
-            if self._model is not None:
+            if self._shutdown or self._model is not None:
                 return
 
             import warnings
@@ -264,6 +271,8 @@ class EmbeddingService:
             last_err: Optional[Exception] = None
             max_attempts = 4
             for attempt in range(max_attempts):
+                if self._shutdown:
+                    return
                 try:
                     load_start = time.perf_counter()
                     logger.info(
@@ -273,18 +282,40 @@ class EmbeddingService:
                     # Suppress stderr to hide the BERT LOAD REPORT (C++ library).
                     stderr_capture = StringIO()
                     with redirect_stderr(stderr_capture):
-                        self._model = SentenceTransformer(
+                        model = SentenceTransformer(
                             self.model_name,
                             device=self.device,
                         )
+                    dimension = model.get_sentence_embedding_dimension()
+                    if (
+                        isinstance(dimension, bool)
+                        or not isinstance(dimension, int)
+                        or dimension <= 0
+                    ):
+                        logger.warning(
+                            "[EmbeddingService] Invalid embedding dimension %r for model %s; "
+                            "model was not activated",
+                            dimension,
+                            self.model_name,
+                        )
+                        return
+                    # Prepare fallible metadata before exposing the model. A
+                    # failed attempt must not look ready to a concurrent caller.
+                    device = model.device
+                    if self._shutdown:
+                        return
                     self.clear_cache()
-                    self._dimension = self._model.get_sentence_embedding_dimension()
-                    self._initialized = True
+                    with self._state_lock:
+                        if self._shutdown:
+                            return
+                        self._dimension = dimension
+                        self._initialized = True
+                        self._model = model  # Publish last: this is the loaded fast-path marker.
                     load_time = time.perf_counter() - load_start
                     logger.info(
                         f"[EmbeddingService] Model loaded successfully: "
                         f"model={self.model_name}, dimension={self._dimension}, "
-                        f"device={self._model.device}, load_time={load_time:.2f}s"
+                        f"device={device}, load_time={load_time:.2f}s"
                     )
                     return
                 except Exception as e:

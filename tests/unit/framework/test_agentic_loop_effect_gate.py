@@ -177,3 +177,21 @@ def test_gate_reset_clears_session_state():
     gate.reset()
     assert gate.ledger.candidate_effects() == []
     assert gate._downgrades == 0
+
+
+async def test_terminal_act_records_effects_without_model_evaluation():
+    from unittest.mock import AsyncMock, MagicMock
+    from victor.agent.services.turn_execution_runtime import TurnDisposition
+
+    turn = _turn(tool_results=[{"name": "write", "success": True, "output": "partial receipt"}])
+    turn.disposition = TurnDisposition.RECOVERY_EXHAUSTED
+    gate = MagicMock()
+    gate.apply = AsyncMock(side_effect=lambda evaluation, *args: evaluation)
+    loop = _loop(gate=gate)
+    loop._evaluate_core = AsyncMock(side_effect=AssertionError("must not evaluate stopped ACT"))
+    state = {}
+    result = await loop._evaluate(None, turn, state)
+    gate.record.assert_called_once_with(turn, state)
+    gate.apply.assert_awaited_once()
+    assert result.decision is EvaluationDecision.FAIL
+    assert "recovery_exhausted" in result.reason

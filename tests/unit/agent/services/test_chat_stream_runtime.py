@@ -10,6 +10,8 @@ from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
+from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.session_state_manager import SessionStateManager
 from victor.agent.streaming.context import StreamingChatContext
@@ -39,6 +41,11 @@ def _make_orchestrator_stub():
         "completion_tokens": 0,
         "total_tokens": 0,
     }
+    orch.provider.name = "unknown"
+    service = AgentMetricsService(
+        orch._metrics_collector, SessionCostTracker(), orch._cumulative_token_usage
+    )
+    orch._metrics_coordinator.stream = service.stream
     orch._conversation_controller = MagicMock()
     # The chat runtime now consumes classification through the explicit
     # task-guidance capability; keep this fixture's configurable classifier.
@@ -162,9 +169,9 @@ async def test_service_streaming_runtime_supports_protocol_adapter_host(monkeypa
     chunks = [item async for item in runtime.stream_chat("hello", mode="test")]
 
     assert chunks == [chunk]
-    assert orch._cumulative_token_usage["prompt_tokens"] == 2
-    assert orch._cumulative_token_usage["completion_tokens"] == 3
-    assert orch._cumulative_token_usage["total_tokens"] == 5
+    assert orch._cumulative_token_usage["prompt_tokens"] == 0
+    assert orch._cumulative_token_usage["completion_tokens"] == 0
+    assert orch._cumulative_token_usage["total_tokens"] == 0
     assert orch._current_stream_context is None
 
 
@@ -255,10 +262,10 @@ async def test_service_streaming_runtime_serializes_overlapping_turn_state():
     assert second_chunks == [StreamChunk(content="second", is_final=True)]
     assert execution_order == ["first:start", "first:end", "second:start", "second:end"]
     assert finalized_usage == [usage_by_message["first"], usage_by_message["second"]]
-    assert orch._cumulative_token_usage["prompt_tokens"] == 9
-    assert orch._cumulative_token_usage["completion_tokens"] == 14
-    assert orch._cumulative_token_usage["billable_completion_tokens"] == 14
-    assert orch._cumulative_token_usage["total_tokens"] == 23
+    assert orch._cumulative_token_usage["prompt_tokens"] == 0
+    assert orch._cumulative_token_usage["completion_tokens"] == 0
+    assert "billable_completion_tokens" not in orch._cumulative_token_usage
+    assert orch._cumulative_token_usage["total_tokens"] == 0
     assert orch._current_stream_context is None
 
 
@@ -450,8 +457,10 @@ async def test_service_streaming_runtime_create_stream_context_applies_topology_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
 async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     monkeypatch,
+    failed,
 ):
     class FakeToolService:
         def __init__(self, budget: int, used: int = 0):
@@ -533,15 +542,20 @@ async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     )
     orch._current_stream_context = ctx
 
+    terminal = StreamChunk(
+        content="service", is_final=True, metadata={"agentic_loop_success": not failed}
+    )
+
     class DummyExecutor:
         async def run_unified(self, user_message: str, **kwargs):
-            yield StreamChunk(content="service", is_final=True)
+            yield terminal
+            yield StreamChunk()  # Later ancillary chunks cannot restore success.
 
     runtime._streaming_executor = DummyExecutor()
 
     chunks = [item async for item in runtime.stream_chat("hello")]
 
-    assert chunks == [StreamChunk(content="service", is_final=True)]
+    assert chunks == [terminal, StreamChunk()]
     assert orch.tool_budget == 9
     assert orch.task_coordinator.tool_budget == 9
     assert orch._tool_service.budget == 9
@@ -550,7 +564,7 @@ async def test_service_streaming_runtime_stream_chat_restores_runtime_overrides(
     assert "_runtime_tool_context_overrides" not in orch.__dict__
     orch._runtime_intelligence.record_topology_outcome.assert_called_once()
     feedback_payload = orch._runtime_intelligence.record_topology_outcome.call_args.args[0]
-    assert feedback_payload["status"] == "completed"
+    assert feedback_payload["status"] == ("error" if failed else "completed")
     assert feedback_payload["completion_score"] == pytest.approx(0.81)
     assert ctx.topology_events[-1]["outcome"]["runtime"] == "streaming"
     assert ctx.runtime_override_snapshot is None
@@ -775,7 +789,7 @@ async def test_service_streaming_runtime_preserves_empty_provider_response_for_r
         if False:
             yield None
 
-    orch.provider = SimpleNamespace(stream=_empty_stream)
+    orch.provider = SimpleNamespace(name="unknown", stream=_empty_stream)
 
     runtime = ServiceStreamingRuntime(orch)
     ctx = StreamingChatContext(user_message="address the findings")
@@ -819,7 +833,7 @@ async def test_service_streaming_runtime_does_not_charge_event_loop_stall_to_pro
     async def _stream(**_kwargs):
         yield StreamChunk(content="done")
 
-    orch.provider = SimpleNamespace(stream=_stream)
+    orch.provider = SimpleNamespace(name="unknown", stream=_stream)
 
     original_wait_for = helpers_module.asyncio.wait_for
     calls = {"count": 0}
@@ -978,8 +992,8 @@ async def test_finalization_uses_explicit_capabilities_without_facade(outcome):
             await anext(stream)
     await stream.aclose()  # Closing an exhausted stream must not account twice.
 
-    assert totals_at_finalize == [5]
-    assert owner._cumulative_token_usage["total_tokens"] == 5
+    assert totals_at_finalize == [0]
+    assert owner._cumulative_token_usage["total_tokens"] == 0
     assert owner._last_stream_task_context["plan_steps"] == [str(i) for i in range(8)]
     assert owner._current_stream_context is None
     assert not view.stream_turn_lock.locked()
@@ -1015,7 +1029,7 @@ async def test_service_streaming_runtime_warns_when_usage_fold_context_is_missin
     with caplog.at_level(logging.WARNING, logger="victor.agent.services.chat_stream_runtime"):
         _ = [c async for c in runtime.stream_chat("hello")]
 
-    assert any("usage fold skipped" in r.message for r in caplog.records)
+    assert any("stream summary unavailable" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio

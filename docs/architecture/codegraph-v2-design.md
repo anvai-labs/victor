@@ -533,3 +533,33 @@ nearest lexical defining scope. It does not claim execution or dynamic binding
 proof. Symbol IDs and public relation shapes are unchanged. Existing graph stores
 are derived data: perform a full rebuild with the corrected package, since an
 unchanged source file's prior semantic result can otherwise remain cached.
+
+
+### Victor dogfood refresh: lifecycle and metric qualification (2026-10-14)
+
+CG-P1/P2 follow-up at Victor `43756b90f342d3c645155235e81bd4130e86b72c`,
+CodeGraph 0.10.2. `victor index graph index --path <root>` completed in 1,777s:
+3,251 processed / 1,580 unchanged files, zero partial parses this pass, 1,542,585
+persisted nodes and 3,685,514 edges; 10,901 repository relationships omitted for
+unmaterialized endpoints. Existing diagnostics remain, so zero new partial parses
+is not whole-repository correctness. The initial sandbox grammar-cache failure
+left the index unchanged; rerunning with cache access succeeded.
+
+| Finding | Evidence and next qualification |
+| --- | --- |
+| **Blocking: semantic CLI success before rebuild completion** | Subsequent `victor index` printed loaded/success in 1.7s, then graph nodes/file manifests became empty. Manifest-mismatch handling in `victor_coding.tools.code_search_tool._get_or_build_index` publishes a new manifest before a detached full rebuild. `CodebaseIndex.index_codebase` deletes the graph before replacement; CLI exit cancels pending work. Reproduce in temporary stores, await owned rebuilds under the index lock, publish manifests only after success, and preserve the last usable generation on failure/cancel. No silent stale-success acceptance. |
+| **Stale metric rows** | Refresh leaves 22,772 metric rows: 4,831 current existing files and 17,941 missing paths. File manifests themselves had 4,831 entries and zero missing files. Reconcile metrics atomically with the indexed snapshot while preserving intentionally retained trend history. |
+| **Cohesion label is not measured LCOM4** | `ModuleAnalyzer._compute_cohesion` returns `1 / (node_count - 1)`; symbol counts include its graph projection. Do not use the label or hotspot composite to justify splitting modules. Define/count semantic declarations separately and qualify real cohesion before prescribing restructuring. |
+| **Structural review candidates, not automatic refactors** | Current source-backed coupling suggests examining `chat_stream_helpers` (9 incoming/15 outgoing), `sandhi_transport` (15/12), `orchestrator` (27/59), and runtime assembly (5/11). Review ownership, duplicated transitions and actual call sites; measure representative latency/memory/reliability before any performance claim or language change. |
+
+The semantic CLI outcome is **failed acceptance**, despite its success banner.
+A separately started canonical graph recovery subsequently completed in 1,407s,
+reporting 1,543,242 persisted nodes / 3,696,594 edges and zero partial parses this
+pass. This restores derived graph availability; it does not repair the semantic
+CLI lifecycle or establish semantic freshness/whole-repository correctness. Do not
+run another semantic rebuild against the same live store until lifecycle ownership
+is fixed. The canonical [DATA-01–06 remediation plan](victor-agent-service-plan.md#data-correctness-remediation-plan-g102-2026-10-14)
+owns prerequisite transaction, filtering and publication work. Keep
+private graphs local. Evidence: `var/codegraph-victor-20261012/dogfood-graph-*`
+and `dogfood-semantic-index.log`. The one-second sampling trace is diagnostic,
+not a complete indexing profile. No source is removed based on graph scores.

@@ -124,7 +124,17 @@ class DoctorChecks:
             return False
 
     def check_dependencies(self) -> None:
-        """Check core dependencies."""
+        """Check core dependencies, including version drift after a source update."""
+        from victor.config.dependencies import check_dependencies
+
+        for issue in check_dependencies():
+            self.add_check(
+                name="Dependency compatibility",
+                severity=Severity.WARNING,
+                message=issue.message,
+                suggestion=issue.suggestion,
+            )
+
         required = [
             ("pydantic", "Core dependency for configuration"),
             ("typer", "CLI framework"),

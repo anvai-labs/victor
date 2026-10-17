@@ -85,6 +85,27 @@ def test_tool_service_parse_and_validate_tool_calls_matches_runtime_contract():
     assert remaining == "trimmed content"
 
 
+@pytest.mark.parametrize("native", [False, True])
+def test_native_tool_service_preserves_answer_and_only_dispatches_structured_calls(native):
+    from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+    service = _make_tool_service()
+    service.set_enabled_tools({"read"})
+    adapter = OpenAIToolCallingAdapter(model="gpt-6-sol")
+    content = "Review get_account(name='missing') and read(path='example.py')."
+    calls = [{"id": "call_1", "name": "read", "arguments": {"path": "actual.py"}}]
+
+    parsed, remaining = service.parse_and_validate_tool_calls(
+        calls if native else None, content, adapter
+    )
+
+    assert parsed == (calls if native else None)
+    assert remaining == content
+    diagnostics = service.get_last_tool_call_parse_diagnostics()
+    assert diagnostics["fallback_used"] is False
+    assert diagnostics["final_tool_call_count"] == int(native)
+
+
 def test_tool_service_records_fallback_parse_diagnostics(caplog):
     service = _make_tool_service()
     parser = MagicMock()

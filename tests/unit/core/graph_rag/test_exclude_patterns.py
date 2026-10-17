@@ -401,3 +401,27 @@ def test_root_anchored_gitignore_preserves_nested_source_directories(tmp_path):
 )
 def test_rooted_wildcards_match_path_segments(tmp_path, pattern, path, excluded):
     assert is_path_excluded(tmp_path / path, tmp_path, [pattern]) is excluded
+
+
+@pytest.mark.parametrize(
+    "pattern,directory,prune",
+    [
+        ("/pkg/*", "pkg/nested", False),
+        ("/pkg/**", "pkg", True),
+        ("/pkg/**", "other/pkg", False),
+        ("**/pkg/**", "other/pkg", True),
+        ("**/pkg/**", "pkg", True),
+        ("**/pkg/**", "pkg-other", False),
+        ("**/.venv*/**", ".venv-test", True),
+        ("/*/generated/**", "web/generated", True),
+        ("/*/generated/**", "web/src/generated", False),
+        ("*.py", "source.py", False),
+    ],
+)
+def test_subtree_pruning_requires_all_descendants_excluded(tmp_path, pattern, directory, prune):
+    from victor.core.graph_rag.exclude_patterns import is_subtree_excluded
+
+    assert is_subtree_excluded(tmp_path / directory, tmp_path, [pattern]) is prune
+    if prune:
+        for suffix in ("a.py", "nested/b.py", "nested/deep/c.py"):
+            assert is_path_excluded(tmp_path / directory / suffix, tmp_path, [pattern])

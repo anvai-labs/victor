@@ -9,6 +9,9 @@ from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
 from victor.agent.services.prompt_builder_runtime import PromptBuilderRuntime
+from victor.agent.services.metrics_service import AgentMetricsService
+from victor.agent.session_cost_tracker import SessionCostTracker
+from victor.providers.base import CompletionResponse
 
 
 def test_sync_prompt_builder_runtime_state_updates_builder_and_invalidates_cache():
@@ -132,9 +135,13 @@ def test_prompt_builder_runtime_prefix_fingerprint_changes_with_prompt():
 
 @pytest.mark.asyncio
 async def test_prompt_builder_runtime_warms_up_kv_cache_with_minimal_request():
-    provider = SimpleNamespace(chat=AsyncMock(return_value=SimpleNamespace(content="")))
+    provider = SimpleNamespace(
+        name="unknown",
+        chat=AsyncMock(return_value=CompletionResponse(content="", role="assistant")),
+    )
     host = SimpleNamespace(
         _kv_opt_cached=True,
+        _metrics_coordinator=AgentMetricsService(MagicMock(), SessionCostTracker(), {}),
         provider=provider,
         model="test-model",
         _system_prompt="You are an assistant.",
@@ -173,7 +180,8 @@ def test_sync_prompt_builder_runtime_state_clears_stale_values_on_errors():
     builder.invalidate_cache.assert_called_once_with()
 
 
-def test_build_system_prompt_fallback_prefers_runtime_emit_hook():
+@pytest.mark.parametrize("project_addition", [None, "project addition"])
+def test_build_system_prompt_fallback_prefers_runtime_emit_hook(project_addition):
     prompt_used_hook = MagicMock()
     prompt_orchestrator = MagicMock()
     prompt_orchestrator.build_system_prompt.return_value = "runtime prompt"
@@ -192,12 +200,18 @@ def test_build_system_prompt_fallback_prefers_runtime_emit_hook():
         provider_name="anthropic",
         model="claude",
         _get_model_context_window=lambda: 65536,
+        project_context=SimpleNamespace(
+            content=project_addition,
+            get_system_prompt_addition=MagicMock(return_value=project_addition),
+        ),
     )
     runtime = PromptBuilderRuntime(OrchestratorProtocolAdapter(host))
 
-    result = runtime.build_system_prompt_fallback()
+    result = runtime.build_system_prompt()
 
-    assert result == "runtime prompt"
+    expected = "runtime prompt" + ("\n\n" + project_addition if project_addition else "")
+    assert result == expected
+    assert host.project_context.get_system_prompt_addition.call_count == bool(project_addition)
     prompt_orchestrator.build_system_prompt.assert_called_once_with(
         builder_type="legacy",
         provider="anthropic",
@@ -240,7 +254,7 @@ def test_update_system_prompt_for_query_updates_runtime_and_conversation():
     classification = object()
     host = SimpleNamespace(
         prompt_builder=builder,
-        build_system_prompt=MagicMock(return_value="base prompt"),
+        build_system_prompt=MagicMock(return_value="base prompt\n\nproject addition"),
         project_context=project_context,
         conversation=conversation,
         _prompt_pipeline=None,
@@ -256,6 +270,7 @@ def test_update_system_prompt_for_query_updates_runtime_and_conversation():
     builder.invalidate_cache.assert_called_once_with()
     host.build_system_prompt.assert_called_once_with()
     assert host._system_prompt == "base prompt\n\nproject addition"
+    project_context.get_system_prompt_addition.assert_not_called()
     assert host._system_prompt_frozen is True
     assert conversation.system_prompt == host._system_prompt
     assert conversation._messages[0].role == "system"
@@ -411,7 +426,9 @@ def test_ensure_system_prompt_current_refreshes_when_project_context_changes(tmp
         provider_name="anthropic",
         model="claude",
         project_context=project_context,
-        build_system_prompt=MagicMock(return_value="rebuilt prompt"),
+        build_system_prompt=MagicMock(
+            side_effect=lambda: "rebuilt prompt\n\n" + project_context.get_system_prompt_addition()
+        ),
         conversation=None,
         _prompt_pipeline=pipeline,
         _system_prompt_frozen=True,

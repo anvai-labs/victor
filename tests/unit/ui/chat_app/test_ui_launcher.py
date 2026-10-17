@@ -70,3 +70,48 @@ def test_missing_chainlit_exits_with_hint(monkeypatch):
         raise AssertionError("expected typer.Exit")
     except typer.Exit as exc:
         assert exc.exit_code == 1
+
+
+def test_packaged_presentation_routes_are_narrow_and_keep_customizations(tmp_path):
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from victor.ui.chat_app.presentation import configure_presentation
+
+    app = FastAPI()
+
+    @app.get("/{path:path}")
+    def spa(path: str):
+        return {"spa": path}
+
+    ui = SimpleNamespace(
+        name="Assistant",
+        description="",
+        custom_css=None,
+        logo_file_url=None,
+        default_avatar_file_url=None,
+        layout="default",
+    )
+    configure_presentation(app, ui, root_path="/chat")
+    configure_presentation(app, ui, root_path="/chat")
+    assert ui.name == "Victor" and ui.layout == "wide"
+    assert ui.custom_css == "/chat/victor-assets/workspace.css"
+    assert sum(getattr(route, "name", "") == "victor-assets" for route in app.routes) == 1
+    with TestClient(app) as client:
+        css = client.get("/victor-assets/workspace.css")
+        assert css.status_code == 200 and "text/css" in css.headers["content-type"]
+        assert "--primary:" in css.text
+        assert client.get("/victor-assets/victor.svg").status_code == 200
+        assert client.get("/victor-assets/missing.css").status_code == 404
+        assert client.get("/victor-assets/%2e%2e/app.py").status_code == 404
+        assert client.get("/elsewhere").json() == {"spa": "elsewhere"}
+    ui.name, ui.custom_css, ui.layout = "Company", "/company.css", "wide"
+    ui.logo_file_url = ui.default_avatar_file_url = "/company.svg"
+    configure_presentation(app, ui)
+    assert (ui.name, ui.custom_css, ui.logo_file_url, ui.default_avatar_file_url) == (
+        "Company",
+        "/company.css",
+        "/company.svg",
+        "/company.svg",
+    )

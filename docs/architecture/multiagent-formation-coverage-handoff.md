@@ -799,6 +799,15 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   through the metrics owner, preserve per-call reasoning conventions, and reconcile
   mixed buffered/streaming task boundaries without adding duplicated token totals.
   Zero tracker values for buffered tasks are not evidence of zero cost or requests.
+  **2026-10-14 scoped implementation merged ([#1353](https://github.com/anvai-labs/victor/pull/1353)), clean review and 40 passing CI checks:** UX-09 in
+  [the canonical tracker](victor-agent-service-plan.md) adds dispatch/settlement
+  accounting for normal buffered/streamed calls, recovery, synthesis, planning,
+  context-limit summaries and KV warm-up. Aggregate stream finalization no longer
+  counts a request or folds tokens twice; unknown usage is explicit. Mixed-call,
+  cancellation, early-close, reset and malformed-telemetry tests pass, and a direct
+  Codex OAuth UI run reports five calls matching five observed dispatches. Optional
+  judges, LLM compaction, resilience helpers and legacy continuation remain outside
+  qualification; do not treat this scoped result as full C5 or raw-wire reconciliation.
 - **G35 — ✅ verification retry exhaustion cannot accept COMPLETE ([PR #1122](https://github.com/anvai-labs/victor/pull/1122)).**
   The shared buffered/streaming verification gate previously skipped zero-budget
   checks and the last repair attempt, and could leave failed verification marked
@@ -1981,6 +1990,241 @@ without mutating caller specs. Compatibility manager methods and `max_workers` r
   [G96 typing sequence](victor-agent-service-plan.md#repository-wide-typing-qualification-g96)
   owns ordered remediation and acceptance; this gap stays open until the final
   unsuppressed matrix passes.
+  Definition-layer increments #1319, #1327, #1328 and #1329 are merged; the tracker
+  records subsequent qualification. Registration-test review also found that
+  `tests/unit/conftest.py::reset_feature_flags` checks a manager `_instance`
+  although the singleton owner is module `_global_manager`. The registration
+  suite initially isolated both owners locally. The TYPE-06 follow-up repairs
+  shared setup/failure teardown with the canonical reset API and removes duplicate
+  registration/formatter flag resets. Qualification and merge status live in the
+  tracker; the fixture repair is merged in #1330. Coordination assembly is the
+  TYPE-03 slice merged in #1332, retaining canonical service protocols and lazy dispatch.
+  This does not close adapter dynamic forwarding, optional host capabilities or
+  the broader G96 typing program.
+
+- **G97 — active task and tool evidence can be evicted during long execution (open).**
+  Actual subscription self-audits through Sandhi lost their original task before
+  provider serialization: a metadata-only replay crossed from 98 messages with the
+  request to 100 messages with no user message. `ChatPersistenceMixin` pre-trimmed
+  history independently of `MessageHistory`, whose count trimming also retained
+  only the system prompt. The repair makes history the sole count-retention owner
+  and protects genuine task intent, atomic tool exchanges and newest publication.
+  Oversized current exchanges require an observable retention floor, not silent
+  loss of executed results. Independent review reproduced and repaired final-answer
+  eviction at the floor. The [canonical tracker](victor-agent-service-plan.md#current-checkpoint)
+  records source, test, review and live acceptance status for
+  [PR #1336](https://github.com/anvai-labs/victor/pull/1336).
+  The merged #1336 repair also shares genuine-user detection with recent-turn assembly and
+  tags task guidance/verifier feedback. Follow-ups remain: context-limit final-summary
+  slices can lose task/tool pairing; CLI terminal errors
+  can return exit zero; buffered tool rendering may lose call IDs and pair by name.
+  Audit each existing owner with TDD. The present fix does not establish durable
+  transcript recovery, overlapping unfinished tool batches, member continuation or C5.
+
+- **G98 — agent-loop termination and continuation lack complete execution-mode parity (open).**
+  Initial source audit found buffered-only loop guards/controller evaluation/adaptive checks,
+  multiple completion authorities and generic write-oriented budget nudges without
+  original task intent. A model continuation is not renewed authorization or proof
+  of progress. Qualify one typed transition/terminal contract and run-wide attempt
+  accounting before expanding autonomous self-improvement. Optional planners,
+  judges and online learning require measured benefit, not automatic inclusion.
+  The [agentic-loop audit](victor-agent-service-plan.md#agentic-loop-fitness-audit-g97g98-2026-10-13)
+  inventories responsibilities and LOOP-01–06 gates. G97 owns the immediate
+  task-provenance, context-retention and CLI/result-publication failures. ✅ #1336
+  resets completion scores across runs and records post-backslide decisions even
+  without a verifier (41 CI checks passed; merge `cd018968e`). ✅ [#1337](https://github.com/anvai-labs/victor/pull/1337)
+  qualifies normal no-tool streaming RESPONSE governance and explicit terminal
+  status through framework/client events and audit finalizers, with no regeneration
+  after denial or complete redaction. The canonical tracker records exact runtime
+  review, local and CI evidence. ✅ [#1338](https://github.com/anvai-labs/victor/pull/1338)
+  carries failed terminal events and thinking aborts through CLI exit 1. One-shot failure, partial buffered/JSON output and interactive streaming
+  continuation are covered; non-streaming/planning and approval presentation remain
+  separate. ✅ [#1339](https://github.com/anvai-labs/victor/pull/1339) shares
+  controller stop dispatch and repairs a newly confirmed false-success path:
+  buffered search convergence could overwrite an explicit evaluator/effect failure.
+  Convergence never executes synthesis or proves completion; preserve evaluator
+  evidence and require the existing verifier. ✅ [#1340](https://github.com/anvai-labs/victor/pull/1340) bounds owned awaits and
+  terminal/cache success in both modes against one cooperative elapsed budget.
+  Context and timeout scopes never span streaming yields; expiry is failure, not
+  safe-to-retry evidence. Awaited cleanup can exceed the budget; remote effects
+  and thread work are not proven stopped. ✅ [#1341](https://github.com/anvai-labs/victor/pull/1341) addresses source-classified recovery/tool stops, preserves recovered
+  text and prevents a permissive evaluator or verifier retry from dispatching another
+  ACT after a terminal stop. It also makes evaluator escalation terminal in both live
+  modes. Review also confirmed that `chat_stream_helpers` recovered final content
+  bypassed RESPONSE governance before persistence. The same increment moves normal
+  and recovered publication to one governance capability, outside retry handling,
+  and qualifies denial/redaction/history without another provider call. Other
+  forced-summary/tool-bearing emissions still need publication qualification. Source
+  audit also found buffered post-loop synthesis outside ACT; include it in whole-run
+  attempt/deadline ownership rather than claiming the ACT stop covers every provider call.
+  ✅ [#1342](https://github.com/anvai-labs/victor/pull/1342) captures initial task
+  intent once per run and dispatches the controller-selected nudge without a second
+  policy evaluation. Unknown/read/display guidance cannot request mutations; effect
+  feedback takes precedence and terminal decisions suppress prompts. Internal
+  provenance remains distinct from permission; tool authorization is unchanged.
+  ✅ [#1343](https://github.com/anvai-labs/victor/pull/1343) records a newly
+  reproduced gap: buffered ordinary/recovery text entered assistant history before
+  the response gate; swallowed terminal or malformed policy failures could synthesize
+  again. Candidate producers now share governance before history/publication/evaluation,
+  preserving usage and prior effects. Tool-bearing narration is gated before dispatch;
+  tool-only envelopes retain tool authorization. Canonical result field validation
+  rejects truthy non-booleans and non-text content; cancellation remains cancellation.
+  Configured message policy with StateGraph fails explicitly before work, including
+  direct graph executors. No StateGraph parity, raw-model primitive, reasoning or
+  tool-result filtering guarantee is claimed.
+  ✅ [#1344](https://github.com/anvai-labs/victor/pull/1344) gates live tool-bearing
+  narratives before publication/dispatch and exhausted-recovery fallback text.
+  Existing public-loop tests qualify denial, malformed/error results, redaction
+  and unchanged no-policy delivery. Shared cancellation checks also prevent recovered
+  and summary history writes after policy awaits; source tests qualify natural/recovered and
+  terminal-summary candidates. The prior direct `_execute_prepared_team`
+  reproducer exercised an orphan helper: reachability audit found no production
+  or test caller for the prepared-team trio, now removed instead of reviving a
+  second dispatcher. **Still open:** streaming topology/team integration with the
+  canonical loop; streaming adapter routing for forced completion (the adapter
+  never passes `forced_task_completion=True`). Forced-summary primitive tests
+  do not establish that routing. No member-effect rollback or live C5 is claimed.
+  ✅ [#1345](https://github.com/anvai-labs/victor/pull/1345) addresses a reproduced
+  wrapper bypass: post-loop synthesis could regenerate after guard, terminal ACT
+  or escalation stops, and discard an ACT response completed before evaluation
+  timed out. A shared private admission predicate blocks generation at that boundary,
+  preserves current response/usage/receipts and the precise terminal error, and retains
+  ordinary failed-verification presentation recovery. No prose stop parsing or second
+  timer/counter is introduced. Local qualification and landing remain tracked in the
+  canonical agent-service plan. The `fix/loop-config-ownership` follow-up wires the
+  existing executor choice through Settings/SessionConfig and freezes the resolved
+  choice before admission. Invalid choices and unsupported token-streaming graph
+  execution fail explicitly. It adds no deadline/attempt knob; qualification and
+  landing are tracked in the canonical plan.
+  Run-wide attempt accounting, adaptive extension and full experimental
+  StateGraph/iteration parity remain open; phase-method reuse is not execution-mode parity.
+
+- **G99 — self-audit dependency/session/history integrity and web-chat usability (open).**
+  The 2026-10-13 incident executed a required dependent after inventory failure,
+  repeatedly compacted a detached history snapshot and failed 21 session-linked
+  compaction audit inserts. UX-01 in the canonical agent-service tracker owns the
+  regression repair merged in [#1347](https://github.com/anvai-labs/victor/pull/1347)
+  and its remaining live qualification. Required edges must remain intact; session
+  persistence must precede identity/cache publication; compaction must update live
+  provider history while preserving genuine task intent and tool-call/result groups.
+  UX-02 records actual headed `victor ui`/Chainlit evidence and remaining profile,
+  stop/accessibility, approval and recovery checks. The exact browser audit also
+  exposes console-only plan progress; downstream stream cleanup and failed terminal
+  rendering remain separate open contracts. `victor serve` is an API surface,
+  not a web-chat mode. Bounded successful reads do not close the original transport
+  failure, full audit, workflow-editor or mixed-team C5 gates.
+  UX-08 additionally tracks missing explicitly named account rejection before
+  provider creation. Its scoped Settings/from-settings repair leaves credential
+  backend `None` fallback, the legacy `ProviderResolver` account/ad-hoc path and
+  explicit direct-versus-gateway selection open; keep these distinct from transport
+  and model failures when qualifying UI/profile behavior.
+
+  UX-10 adds cross-visit continuity evidence: persisted-picker counts, synchronous
+  history bridge, metadata-filtered replay and selected-session continuation binding.
+  Its real SQLite/adapter tests replace misleading mocks; disabled persistence and
+  custom stores must retain their semantics. The graph refresh also exposed the
+  semantic-index detached-rebuild/cancellation gap recorded under CG-P2 in
+  [the codegraph design](codegraph-v2-design.md#victor-dogfood-refresh-lifecycle-and-metric-qualification-2026-10-14).
+  These scoped repairs do not close G99 or full editor/C5 acceptance.
+
+- **G100 — prompt assembly and efficiency lack end-to-end cache qualification (open).**
+  UX-09's 2026-10-14 measured checkpoint found repository instructions appended
+  after the per-session nonce outside `UnifiedPromptPipeline`, truncating the
+  reusable system prefix. A scoped source repair consolidates complete assembly
+  in the existing service/pipeline and extends the existing integration tests;
+  merged in #1355 with 39 successful CI checks. Duplicate evolved tool-effectiveness
+  guidance (573 local
+  proxy tokens), stochastic completion variants, incorrect read-only/negation
+  classification and shell-triggered database guidance remain. A direct Codex
+  continuation observed 12,416 cached of 12,638 input tokens, but small uncontrolled
+  trials do not prove a latency/cost improvement or released C5 acceptance. The
+  canonical tracker owns counts, experiments, decisions and next gates. Preserve
+  all authoritative instructions and distinct session identities; do not equate
+  better prefix layout with guaranteed backend reuse. Project-instruction deletion
+  invalidation and persistent explicit-override lifetime also need separate tests.
+  Follow-up measurements found that `VICTOR_FROZEN_PROMPTS` did not cover learned
+  turn sections, few-shots or experiment prompt hints. The scoped control repair
+  gates these before cache access, retains static/error guidance and rejects
+  contradictory candidate bindings; merged in #1356 with 40 successful CI checks. It does
+  not freeze learned routing/planning or change an already-created session.
+  Sixteen successful direct model calls confirmed correct bounded answers and
+  reconciled usage, but freezing slightly increased first-request input and cache
+  results varied: keep it opt-in. Startup profiling additionally found repeated
+  feedback loading and YAML parsing; unprofiled cold client initialization took
+  1.842 seconds. A separate synthetic transport-interception diagnostic measured
+  6.565 additional seconds before the first request and peak RSS growth from
+  271 to 934 MB; all dispatches were intercepted, not actual-member evidence.
+  Profile dependency/retrieval activation and preserve service scope before
+  consolidating initialization or claiming a memory/latency improvement.
+  Synthetic document probes found that a disabled block can suppress a later
+  enabled duplicate in `PromptDeduplicationProcessor`. The next scoped repair
+  preserves disabled configuration without letting it suppress visible content;
+  two red regressions and 106 passing affected checks qualify the source change.
+  Default case-folding and
+  insertion-order deduplication also need explicit policy before reuse across
+  authoritative prompt placements. Extend the existing document/builder tests;
+  do not optimize away active guidance or distinct case-sensitive identifiers.
+  Six no-provider subprocess probes found only a 0.355-second median first-request
+  reduction when omitting conversation-store setup, with overlapping ranges and
+  ML imports retained in both arms. Do not ship that diagnostic omission or claim
+  retrieval/lifecycle acceptance; preserve the existing path and measure other
+  embedding consumers next. UX-09 owns the full data and decision.
+  A subsequent traced diagnostic located a 4.747-second synchronous embedding load
+  inside the skill matcher's nominal background task, reached by cached-dimension
+  validation. Scheduling an async task alone does not prevent event-loop blocking.
+  Qualify bounded initialization/offloading with loop-lag, cancellation, readiness,
+  cache validation and actual skill/task outcomes; do not bypass validation or
+  disable skills to improve startup numbers. Learned-example omission also leaves
+  most startup cost intact and is not a production change.
+  The visible-guidance correction is merged in #1357. The next A/B/B/A diagnostic
+  rejected an isolated collection dimension-load offload: median preparation
+  6.451 → 6.523 seconds and maximum loop gap 7.810 → 7.845 seconds, with zero
+  provider requests. That experiment was removed; UX-09 records the full evidence.
+  Retain only the independent collection-state repair: async initialization stages
+  publication, serializes writers on the owning loop and rejects overlapping sync
+  initialization. Cancellation/embedding failure preserves the prior complete
+  collection and valid cache. This does not qualify startup performance, stop a
+  running model worker, or resolve C5. Next investigate shared readiness across
+  synchronous first-turn embedding consumers rather than moving one caller alone.
+  Collection-state protection merged in #1358. The next prerequisite keeps a
+  newly loaded model private until dimension validation and metadata preparation
+  succeed, and rejects late publication after shutdown. Existing lazy-loading
+  tests own failure/recovery and controlled concurrent-load regressions.
+  **Remaining ownership gap:** per-client lifecycle cleanup shuts down the global
+  embedding service and closes registry providers shared by other clients. Define
+  application ownership/final-borrower cleanup before asynchronous readiness.
+  A private awaited-readiness prototype reduced median maximum heartbeat gaps
+  7.485 → 1.680 seconds but did not reduce total startup-to-dispatch time
+  (8.023 → 8.110 seconds); zero provider requests, no production scheduling change.
+  UX-09 records evidence and remaining cancellation, failure and task-quality gates.
+  Cached-model qualification also exposed implicit Hugging Face cache lookup under
+  an isolated test home. Explicit cache paths plus offline flags restored all three
+  semantic checks; the affected suite passed 409 tests (two opt-in slow skips).
+  Qualify explicit model preparation/cache-only runtime policy separately; existing
+  fallback vectors and a default dimension must not be mistaken for readiness.
+
+- **G101 — edit history, operation parity and shared ownership (open).** Headed
+  Chainlit self-editing reproduced millisecond-ID collisions and missing per-operation
+  before-state within a sequential edit call. UX-09's [#1360](https://github.com/anvai-labs/victor/pull/1360) candidate
+  addresses IDs, stable reload order, successful-save publication, same-file undo/redo,
+  preview finalization, aborted queues and truthful history warnings. This is scoped
+  local evidence until the PR/CI milestone is recorded. Remaining qualification:
+  cross-client/process ownership of overlapping canonical paths and shared mutable
+  editor/tracker instances; restart reconstruction/invalidation of redo; reconciliation
+  when filesystem replay succeeds but database persistence fails; partially conflicted
+  replay bookkeeping and file modes; rename destination sandbox enforcement and chained
+  operation state; `replace_lines` prevalidation versus actual queue dispatch; and
+  whether session-scoped clearing is required instead of the current global clear.
+  Audit the legacy `ToolService.execute_tools_parallel` surface before adoption: it
+  does not share the canonical pipeline's read-only eligibility policy. Within one
+  canonical `ToolPipeline` batch, write/shell/unknown calls already run sequentially;
+  same-file safety does not require a second dispatcher or a dedicated OS thread.
+  The live candidate also exposed stale pipeline read results after batched edits;
+  canonical operation paths now invalidate that cache, with a logged conservative
+  clear for successful writes whose paths cannot be resolved. Native-list UI
+  read/edit/read and reopened durable undo/redo passed. Search/root cache freshness,
+  unknown shell effects, external writes and structured mutation receipts remain
+  open; do not interpret this scoped repair as universal cache coherence.
 
 Validation-test audit: neither live harness had direct tests before this follow-up.
 The new mixed-harness suite covers rejected/malformed/missing reviews, inclusive
@@ -2045,6 +2289,65 @@ completed-cache diagnostics or full lifecycle behavior. The earlier five-call
 stream pass and original failed evidence were preserved and not repeated.
 
 
+
+- **G102 — persistence, search eligibility and index publication integrity (open).**
+  Assessment at develop `43756b90f342d3c645155235e81bd4130e86b72c` reproduced
+  four defects using disposable local stores: successive LanceDB 0.30.2 filters
+  replaced earlier conditions, a quoted document ID broadened deletion, failed
+  migrations advanced schema version, and cancelled graph writes committed with a
+  later unrelated operation. Earlier semantic CLI evidence also showed readiness
+  publication before a destructive detached rebuild completed. These are not
+  evidence of production exploitation or external-effect loss. Current metric
+  rows retain missing files and the LCOM4 label is a size heuristic. Before wider
+  unattended/hosted acceptance, repair and qualify these boundaries using the
+  [canonical DATA-01–10 plan](victor-agent-service-plan.md#data-correctness-remediation-plan-g102-2026-10-14).
+  That tracker owns status, ordered PRs, existing test owners, alternatives and
+  rollback. G100 retains token/cache/reasoning reporting ownership; VAS-05 owns
+  hosted authorization; G61/G62/G70/C5 remain open under their existing gates.
+  DATA-01 predicate/deletion repair is ✅ merged in [#1362](https://github.com/anvai-labs/victor/pull/1362)
+  after review and green CI; engine qualification is LanceDB 0.30.2. DATA-02
+  cancellation/admission repair is ✅ merged in [#1363](https://github.com/anvai-labs/victor/pull/1363).
+  Its investigation additionally found
+  lifecycle calls bypassing admission, a first-edge schema probe racing close,
+  and file deletion reacquiring its own batch lock. See the canonical tracker
+  for evidence, exclusions and next gates. DATA-03 scoped, atomic migration
+  admission and version publication is ✅ merged in
+  [#1364](https://github.com/anvai-labs/victor/pull/1364), including migrate-before-index
+  initialization and v9 data-preservation/rejection guards. DATA-04a is ✅ merged
+  in [#1365](https://github.com/anvai-labs/victor/pull/1365) after review and green CI: owned rebuild completion, readiness invalidation,
+  strict CLI validation and propagated storage/publication errors. Its review
+  additionally found ignored incremental error results, silently disabled requested
+  embeddings and automatic deletion of nested project state; regression tests now
+  cover these repairs. Parser completeness and atomic generation replacement remain
+  DATA-04b; cross-representation reconciliation remains DATA-05. DATA-08a is ✅ merged
+  in [#1366](https://github.com/anvai-labs/victor/pull/1366) after review and green CI:
+  its disposable WAL backup reproducer retained zero rows from a
+  source containing one committed row, and graph bulk deletion lowered configured
+  durability. Investigation also found nested deletion implicitly committing its
+  outer transaction. Existing-owner regressions now cover online backup publication,
+  retained policy/session state, rollback/FTS and cancellation. Migration ownership,
+  the separate `DatabaseManager.backup()` API and operational recovery remain
+  unqualified; see the canonical tracker for validation and exact merge status. No production migration, release
+  or live acceptance is claimed. DATA-04b review found differing parser/discovery
+  inventories, root-override identity mismatch and unsafe directory pruning in the
+  unmerged preflight candidate. The shared explicit-inventory prerequisite is ✅
+  merged in [#1367](https://github.com/anvai-labs/victor/pull/1367) and released as
+  CodeGraph 0.10.3 after review, green CI and published-wheel verification. A bounded
+  follow-up probe found eight completed parse results despite queue capacity one,
+  and eight pending tasks after consumer failure; streaming ownership/settlement
+  repair is ✅ merged in [#1368](https://github.com/anvai-labs/victor/pull/1368)
+  after exact-commit review and all 39 applicable CI checks passed. It bounds
+  producers and settles native work on failure/cancellation, with existing-owner
+  regression coverage. Review also
+  identified retained prior result payloads; a failing regression now covers their
+  release. This is not atomic publication or a hard parser cancellation deadline.
+  The consumer preflight candidate now uses exact selected inputs, one owned root
+  and all-descendant-only pruning before force cleanup. Its review also found
+  broken installed-parser imports being treated as optional absence; regression
+  cases now require propagation. Existing downstream metrics/maintenance can target
+  an override-root database different from the supplied graph store; this alignment
+  remains unqualified. The canonical tracker owns validation, atomic publication
+  and remaining gates; DATA-04b remains open.
 
 ## 4. Suggested follow-up session plan
 

@@ -23,6 +23,7 @@ from victor.agent.services.chat_runtime_services import (
 from victor.agent.services.chat_stream_executor import StreamingChatExecutor
 from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
 from victor.agent.services.streaming_act_adapter import StreamingActAdapter
+from victor.framework.policies import GateResult
 from victor.agent.services.task_guidance_runtime import TaskGuidanceRuntime
 from victor.agent.services.tool_selection_runtime import ToolSelectionRuntime
 from victor.agent.session_state_accessor import SessionStateAccessor
@@ -254,7 +255,25 @@ def test_conversation_capability_delegates_system_prompt():
     runtime.ensure_system_prompt.assert_called_once_with()
 
 
-@pytest.mark.parametrize("invalid_result", [None, object()], ids=["none", "malformed"])
+@pytest.mark.parametrize(
+    "invalid_result",
+    [
+        None,
+        object(),
+        GateResult(allowed="false", content="secret"),
+        GateResult(allowed=True, content=None),
+        GateResult(allowed=False, content="", reason=None),
+        GateResult(allowed=False, content="", blocked_by=None),
+    ],
+    ids=[
+        "none",
+        "malformed",
+        "truthy-allowed",
+        "invalid-content",
+        "invalid-reason",
+        "invalid-policy",
+    ],
+)
 @pytest.mark.parametrize("method_name", ["check_request", "check_response"])
 async def test_governance_rejects_invalid_result_from_configured_gate(method_name, invalid_result):
     gate = SimpleNamespace(
@@ -264,6 +283,30 @@ async def test_governance_rejects_invalid_result_from_configured_gate(method_nam
 
     with pytest.raises(TypeError, match=f"invalid {method_name.removeprefix('check_')} result"):
         await getattr(ChatGovernance(gate=gate), method_name)("sensitive content")
+
+
+@pytest.mark.parametrize("failure", ["malformed", "exception", "cancelled"])
+async def test_response_policy_failure_is_terminal_and_cancellation_propagates(failure):
+    import asyncio
+    from victor.core.errors import AgentError
+
+    cause = asyncio.CancelledError() if failure == "cancelled" else RuntimeError("backend secret")
+    gate = SimpleNamespace(
+        gate_response=AsyncMock(
+            return_value=None, side_effect=cause if failure != "malformed" else None
+        )
+    )
+    with pytest.raises(asyncio.CancelledError if failure == "cancelled" else AgentError) as error:
+        await ChatGovernance(gate=gate).govern_response("candidate")
+    if failure == "cancelled":
+        assert error.value is cause
+    else:
+        assert error.value.recoverable is False
+        assert error.value.message == "Response policy evaluation failed."
+        assert isinstance(
+            error.value.__cause__, TypeError if failure == "malformed" else RuntimeError
+        )
+    gate.gate_response.assert_awaited_once_with("candidate")
 
 
 def test_tool_call_capability_fails_closed_without_runtime():
@@ -281,7 +324,7 @@ def test_stream_metrics_capability_requires_explicit_runtime():
     with pytest.raises(TypeError, match="require a runtime"):
         metrics.finalize({})
     with pytest.raises(TypeError, match="require a runtime"):
-        metrics.accumulate_usage({})
+        metrics.stream(None, messages=[], model="m")
 
 
 def test_task_state_capability_requires_explicit_runtime():

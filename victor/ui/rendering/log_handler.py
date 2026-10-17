@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from copy import copy
 from typing import IO, Optional
 
 from rich.text import Text
@@ -58,12 +59,20 @@ __all__ = [
 class LiveAwareLogHandler(logging.Handler):
     """Console log handler that cooperates with an active Rich Live display."""
 
-    def __init__(self, stream: Optional[IO[str]] = None) -> None:
+    def __init__(self, stream: Optional[IO[str]] = None, *, show_tracebacks: bool = True) -> None:
         super().__init__()
         self._stream = stream
+        self._show_tracebacks = show_tracebacks
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if not self._show_tracebacks:
+                # Handlers share a record; preserve full diagnostics for the file
+                # handler regardless of handler order or cached exception text.
+                record = copy(record)
+                record.exc_info = None
+                record.exc_text = None
+                record.stack_info = None
             console = get_live_console()
             if console is not None:
                 # Already surfaced as a renderer error card — don't duplicate.
