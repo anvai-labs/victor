@@ -1,8 +1,8 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-16
-baseline_develop: 697b7eef7122ba78a678f2ac77fb88f3bff04caf
+updated: 2026-10-17
+baseline_develop: 620528406c8c4482dbe8269f16f2fcffb84aba89
 next_task: VAS-17 release qualification
 ---
 
@@ -3305,6 +3305,18 @@ baseline `620528406`. Promotion #1372 tests this new head in full-suite run
 `gh pr checks 1372 --repo anvai-labs/victor`; all promotion checks and required
 GitHub approval remain gates before merge and publication. Preserve original CI logs under
 `var/codegraph-victor-20261012/victor1372-final-*.log`. No release is published.
+
+2026-10-17 05:06 UTC recheck: full promotion run `39004174208` started at
+04:52 UTC; 103 checks passed, all 24 unit shards are running, no failures are
+reported, and required GitHub approval remains pending. Upstream develop is
+unchanged at `620528406`. Release preflight confirms `sdk-v0.10.0`,
+`verticals-v0.13.0` and `v0.13.0` remain unused. Historical timing evidence:
+the preceding promotion matrix took about 68 minutes; root release `v0.12.0`
+run `37182750705` took 17 minutes, and SDK run `35187470532` took 2m10s.
+Vertical release run `29573942541` required a second attempt and took over three
+hours end-to-end; do not hide retry/queue delays in an optimistic publication
+ETA. Fresh-install and Homebrew qualification remain separate gates. This is
+read-only release preparation; no tag or publishing workflow was triggered.
 
 Promotion repair MERGED (2026-10-16): owner Victor co-design, branch
 `fix/promotion-runtime-contract-tests`, release baseline `8811c9477` plus the
