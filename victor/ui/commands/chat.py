@@ -11,7 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Optional, Any
+from typing import Callable, Optional, Any
 from pathlib import Path
 
 from rich import box
@@ -2327,8 +2327,14 @@ async def run_interactive(
             if mode:
                 session_runner.apply_agent_mode(mode)
 
-        def _finish_tui_session_setup() -> Any:
-            """Finish initialization after the TUI is already on screen."""
+        def _finish_tui_session_setup() -> Callable[[], Any]:
+            """Finish initialization after the TUI is already on screen.
+
+            Returns the async callable itself — the TUI contract is an async
+            callable (it invokes ``bootstrap()`` in-app); returning an invoked
+            coroutine here breaks initialization with ``'coroutine' object is
+            not callable``.
+            """
 
             async def _run() -> Any:
                 agent = await session_runner.initialize_client(
@@ -2340,7 +2346,7 @@ async def run_interactive(
                 _apply_turn_limits(agent)
                 return agent
 
-            return _run()
+            return _run
 
         # Interactive TUI (ADR-020/021) is the default on capable terminals; the REPL is
         # the fallback for dumb terminals / pipes / CI. ``surface="auto"`` (the default)
@@ -2466,6 +2472,11 @@ async def run_interactive(
             metrics = agent.get_session_metrics()
             _ = metrics.get("tool_calls", 0) if metrics else 0
 
+    except typer.Exit:
+        # Intentional CLI exits (e.g. TUI bootstrap told us to stop, or an
+        # InitializationError was already formatted above) must propagate —
+        # formatting them as ``Error during operation: 1`` buries the reason.
+        raise
     except Exception as e:
         # Use contextual error formatting for better UX
         error_message = format_exception_for_user(e)
