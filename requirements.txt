@@ -16,7 +16,7 @@ annotated-doc==0.0.5
     # via typer
 annotated-types==0.8.0
     # via pydantic
-anthropic==1.11.0
+anthropic==1.13.0
     # via victor-ai (pyproject.toml)
 anyio==4.15.1
     # via
@@ -91,9 +91,9 @@ multidict==6.9.1
     # via
     #   aiohttp
     #   yarl
-openai==3.24.0
+openai==3.28.0
     # via victor-ai (pyproject.toml)
-orjson==3.12.0
+orjson==3.13.0
     # via victor-ai (pyproject.toml)
 packaging==26.3
     # via victor-ai (pyproject.toml)
@@ -105,13 +105,13 @@ propcache==0.5.4
     #   yarl
 psutil==7.2.2
     # via victor-ai (pyproject.toml)
-pydantic==2.13.5
+pydantic==2.14.0
     # via
     #   anthropic
     #   openai
     #   pydantic-settings
     #   victor-ai (pyproject.toml)
-pydantic-core==2.46.5
+pydantic-core==2.50.0
     # via pydantic
 pydantic-settings==2.15.0
     # via victor-ai (pyproject.toml)
@@ -162,7 +162,7 @@ truststore==0.10.4
     # via
     #   httpcore2
     #   httpx2
-typer==0.27.2
+typer==0.27.3
     # via victor-ai (pyproject.toml)
 typing-extensions==4.16.0
     # via

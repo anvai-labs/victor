@@ -18,7 +18,7 @@ setup(
             "pytest>=8.0",
             "pytest-asyncio>=0.23",
             "pytest-cov>=4.1",
-            "black==26.10.0",
+            "black==26.10.1",
             "ruff>=0.5",
             "mypy==2.4.0",
         ],

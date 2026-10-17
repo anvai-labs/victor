@@ -40,7 +40,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-embeddings = ["sentence-transformers>=3,<6"]
+embeddings = ["sentence-transformers>=3,<7"]
 treesitter = [
     "tree-sitter>=0.26.0",
     "tree-sitter-language-pack>=1.21.3",

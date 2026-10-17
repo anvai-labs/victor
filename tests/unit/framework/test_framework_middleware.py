@@ -65,7 +65,7 @@ class TestLoggingMiddleware:
     @pytest.mark.asyncio
     async def test_before_tool_call_logs_message(self, middleware, caplog):
         """LoggingMiddleware should log before tool call."""
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="victor.framework.middleware"):
             result = await middleware.before_tool_call("test_tool", {"arg1": "value1"})
 
         assert result.proceed is True
@@ -89,7 +89,7 @@ class TestLoggingMiddleware:
         """LoggingMiddleware should log after failed tool call."""
         await middleware.before_tool_call("test_tool", {})
 
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="victor.framework.middleware"):
             await middleware.after_tool_call("test_tool", {}, "error", success=False)
 
         assert "Tool failed: test_tool" in caplog.text
@@ -119,7 +119,7 @@ class TestLoggingMiddleware:
     @pytest.mark.asyncio
     async def test_sanitizes_sensitive_arguments(self, middleware, caplog):
         """LoggingMiddleware should sanitize sensitive arguments."""
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="victor.framework.middleware"):
             await middleware.before_tool_call(
                 "api_call", {"password": "secret123", "api_key": "key123"}
             )

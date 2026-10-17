@@ -198,14 +198,14 @@ jobs:
         run: test -s ".coverage.${{ matrix.shard }}"
 
       - name: Archive shard test metrics
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-py${{ matrix.python-version }}-shard${{ matrix.shard }}
           path: test-results-py${{ matrix.python-version }}-shard${{ matrix.shard }}.json
           retention-days: 14
 
       - name: Archive shard coverage data
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.python-version == '3.12'
         with:
           name: coverage-data-shard${{ matrix.shard }}
@@ -232,14 +232,14 @@ jobs:
           python-version: "3.12"
 
       - name: Download all Python 3.12 coverage shards
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-data-shard*
           path: coverage-parts
           merge-multiple: true
 
       - name: Download all Python 3.12 test metrics
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: test-results-py3.12-shard*
           path: test-results
@@ -307,7 +307,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Archive complete test and coverage metrics
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: full-suite-metrics
           path: |
