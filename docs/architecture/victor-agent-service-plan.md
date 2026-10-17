@@ -3273,7 +3273,7 @@ completed milestone. Per-subtask percentages are unknown until acceptance gates 
 
 ### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
 
-Promotion cache-isolation correction LOCAL_GREEN (2026-10-17): owner Victor co-design,
+Promotion cache-isolation correction MERGED (2026-10-17): owner Victor co-design,
 branch `fix/semantic-cache-test-isolation`, baseline `origin/develop` at
 `ee77239f36560122cf9f9004b47db78d3c41e049`. Full promotion run `38975809301`
 finished with 22/24 passing unit shards. Both Python versions fail the same
@@ -3294,8 +3294,16 @@ installations untouched. Independent review is CLEAN after fixing its source
 identity finding: alternate installed-source/cwd scenario passes and a deliberate
 source mismatch is rejected; four ordered regression cases pass independently.
 Full collection passes 35,360 tests; Black, Ruff, docs drift and repository hygiene
-pass. Test membership is unchanged. Next: open one corrective PR, then require
-its CI and a new full promotion run before publication. Preserve original CI logs under
+pass. Test membership is unchanged. Corrective [PR #1374](https://github.com/anvai-labs/victor/pull/1374)
+was squash-merged at `620528406c8c4482dbe8269f16f2fcffb84aba89` after all 39
+applicable feature checks passed, including Vertical Py3.12 (9m57s), with clean
+review bound to `679639fb72addeca74e1d1ebb2a9aab07f56f3b7`. No bypass was used.
+Root develop is fast-forwarded; untracked local configuration is preserved.
+Publication checkpoint owner Victor co-design now uses `docs/release-013-cache-followup`,
+baseline `620528406`. Promotion #1372 tests this new head in full-suite run
+`39004174208` and related workflows. Next executable check:
+`gh pr checks 1372 --repo anvai-labs/victor`; all promotion checks and required
+GitHub approval remain gates before merge and publication. Preserve original CI logs under
 `var/codegraph-victor-20261012/victor1372-final-*.log`. No release is published.
 
 Promotion repair MERGED (2026-10-16): owner Victor co-design, branch
