@@ -1685,6 +1685,35 @@ edit. A mock test is not live provider or C5 evidence.
   binary, SHA-256 `5c804c4a6a9431a1be58e046b6541d974dc4f59befd2f564258a96db23a1ec56`.
   The unit changed only the executable; private state, credentials and TLS persist.
   Readiness alone does not establish provider credential availability.
+- Victor 0.13.0 maintenance release shipped (2026-10-17). Train: TUI bootstrap
+  repair [#1379](https://github.com/anvai-labs/victor/pull/1379) merged as
+  `a577b0611` (39/39 develop checks); maintenance bumps #1375 smallvec
+  `d56b793de`, #1376 javascript `38ddbd627`, #1377 actions `ca34e24ca`,
+  #1378 python `6ed6085d7` — #1376–#1378 each after branch update plus full
+  ci-fast re-run, #1375 merged behind-only against a disjoint diff with green
+  head checks. The first promotion battery red on Test shard 6 (Py3.12 and
+  Py3.13) via order-dependent caplog capture; root cause fixed in
+  [#1381](https://github.com/anvai-labs/victor/pull/1381) merged as `f9da03e8c`
+  (three LoggingMiddleware assertions aligned to the targeted-logger pattern;
+  injected-poison negative 3 failed, patched positive 66 passed). Promotion
+  [#1380](https://github.com/anvai-labs/victor/pull/1380) merged as merge commit
+  `d5066fe3b4d137e5bdc6632030436926531a1dcb` after the full battery re-ran green
+  (128 SUCCESS, 0 failures; merge-commit admin merge with all checks green,
+  review formality waived by the driving operator instruction). Annotated tag
+  `v0.13.0` on that commit; Release run `39067370315` succeeded. PyPI verified
+  independently: victor-ai 0.13.0 and victor-native 0.13.0 (synchronized native
+  versioning held); GitHub release "Victor v0.13.0" published with 16 assets
+  (the 0.5.2 vsix is the extension's own identity per #1371). Back-sync
+  [#1382](https://github.com/anvai-labs/victor/pull/1382) merged as `f41e440d4`
+  after a Semgrep single-file timeout was re-run per the transient-infrastructure
+  rule (125 SUCCESS). Homebrew tap: formula-update dispatch produced duplicate
+  PRs (#111 stuck action_required, closed) and
+  [#112](https://github.com/anvai-labs/homebrew-tap/pull/112) (brew audit +
+  install, CI Success, formula validation green) merged; the tap serves the
+  0.13.0 sdist with SHA-256 `28a543c76618c7923e2e568fd90e4436fe5cec72249bbc0db2484a140ef01efd`
+  and local `brew` victor verifies 0.13.0. Same-day context: the aiserver1 LAN
+  gateway was reconciled to official Sandhi 0.14.0 with the zai:coding credstore
+  reference repaired, restoring glm-5.x routes.
 - Existing DS3 replacement brokers passed token exchange/introspection for distinct
   member/accounting identities. Five isolated authorization checks passed with an
   empty store: anonymous admin denial, member admin denial, accounting version and
