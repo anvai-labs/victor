@@ -113,6 +113,9 @@ class TestForceModeRebuild:
     async def test_force_mode_calls_delete_by_repo(self, tmp_path: Path) -> None:
         """Verify delete_by_repo() is called when incremental=False."""
         store = _RecordingGraphStore()
+        store.nodes["old:node"] = MagicMock(node_id="old:node", name="OldNode")
+        store.edges[("old:src", "old:dst", "OLD_TYPE")] = MagicMock()
+        store.file_mtimes["old.py"] = 123.0
         config = GraphIndexConfig(
             root_path=tmp_path,
             enable_ccg=False,  # Disable CCG for simpler test
@@ -133,36 +136,7 @@ class TestForceModeRebuild:
         delete_calls = [c for c in store.calls if c[0] == "delete_by_repo"]
         assert len(delete_calls) == 1, f"Expected 1 delete_by_repo call, got {len(delete_calls)}"
         assert delete_calls[0][2]["clear_embeddings"] is True
-
-    async def test_force_mode_clears_all_existing_data(self, tmp_path: Path) -> None:
-        """Verify all old nodes/edges are removed before rebuild."""
-        store = _RecordingGraphStore()
-
-        # Pre-populate with existing data
-        existing_node = MagicMock(node_id="old:node", name="OldNode")
-        store.nodes["old:node"] = existing_node
-        store.edges[("old:src", "old:dst", "OLD_TYPE")] = MagicMock()
-
-        config = GraphIndexConfig(
-            root_path=tmp_path,
-            enable_ccg=False,
-            enable_embeddings=False,
-            incremental=False,
-            chunk_size=10,
-        )
-
-        pipeline = GraphIndexingPipeline(store, config)
-
-        # Run indexing
-        stats = await pipeline.index_repository()
-
-        # Verify old data was cleared (delete_by_repo clears the dicts)
-        assert "old:node" not in store.nodes, "Old nodes should be deleted"
-        assert (
-            "old:src",
-            "old:dst",
-            "OLD_TYPE",
-        ) not in store.edges, "Old edges should be deleted"
+        assert store.nodes == {} and store.edges == {} and store.file_mtimes == {}
 
     async def test_incremental_mode_does_not_call_delete_by_repo(self, tmp_path: Path) -> None:
         """Verify delete_by_repo() is NOT called in incremental mode."""
@@ -260,13 +234,17 @@ class TestPostRebuildMaintenance:
         "root_is_file",
         "discovery",
         "stat",
+        "first_stat_missing",
         "traversal",
         "parser",
         "missing",
         "syntax",
     ],
 )
-async def test_force_preflight_failure_preserves_graph_and_sessions(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize("incremental", [False, True], ids=["force", "incremental"])
+async def test_preflight_failure_preserves_graph_and_sessions(
+    tmp_path, monkeypatch, failure, incremental
+):
     from victor.core.database import reset_project_database
     from victor.core.schema import Schema
     from victor.core.graph_rag import codegraph_repository
@@ -283,10 +261,25 @@ async def test_force_preflight_failure_preserves_graph_and_sessions(tmp_path, mo
         root = source
     elif failure == "syntax":
         source.write_text("def broken(\n")
+    touched = tmp_path / "touched.py"
+    touched.write_text("def unchanged(): return 1\n")
+    touched_mtime = touched.stat().st_mtime - 100
     store = SqliteGraphStore(tmp_path)
     try:
         await store.upsert_nodes([GraphNode(node_id="old", type="file", name="old", file="old.py")])
+        await store.upsert_nodes(
+            [
+                GraphNode(node_id="selected", type="file", name="previous", file="selected.py"),
+                GraphNode(node_id="touched", type="file", name="unchanged", file="touched.py"),
+            ]
+        )
         await store.update_file_mtime("old.py", 123.0)
+        await store.update_file_mtime("selected.py", 123.0)
+        await store.update_file_mtime(
+            "touched.py",
+            touched_mtime,
+            content_hash=GraphIndexingPipeline._compute_file_hash(touched),
+        )
         with sqlite3.connect(store.db_path) as conn:
             conn.execute(Schema.CONV_SESSION)
             conn.execute(
@@ -296,7 +289,7 @@ async def test_force_preflight_failure_preserves_graph_and_sessions(tmp_path, mo
             store,
             GraphIndexConfig(
                 root_path=root,
-                incremental=False,
+                incremental=incremental,
                 enable_ccg=False,
                 enable_embeddings=False,
                 enable_module_metrics=False,
@@ -310,7 +303,7 @@ async def test_force_preflight_failure_preserves_graph_and_sessions(tmp_path, mo
             monkeypatch.setattr(
                 pipeline, "_discover_files", AsyncMock(side_effect=OSError("discovery failed"))
             )
-        elif failure == "stat":
+        elif failure in {"stat", "first_stat_missing"}:
             original_stat = Path.stat
             selected_stats = 0
 
@@ -318,7 +311,9 @@ async def test_force_preflight_failure_preserves_graph_and_sessions(tmp_path, mo
                 nonlocal selected_stats
                 if path == source:
                     selected_stats += 1
-                if path == source and selected_stats >= 2:
+                if path == source and failure == "first_stat_missing" and selected_stats == 1:
+                    raise FileNotFoundError(2, "enumerated source stat failed", str(path))
+                if path == source and failure == "stat" and selected_stats >= 2:
                     raise PermissionError("selected source stat denied")
                 return original_stat(path, *args, **kwargs)
 
@@ -355,9 +350,17 @@ async def test_force_preflight_failure_preserves_graph_and_sessions(tmp_path, mo
             await pipeline.index_repository()
         cleanup.assert_not_called()
         with sqlite3.connect(store.db_path) as conn:
-            assert conn.execute("SELECT node_id FROM graph_node").fetchall() == [("old",)]
-            assert conn.execute("SELECT file, mtime FROM graph_file_mtime").fetchall() == [
-                ("old.py", 123.0)
+            assert conn.execute("SELECT node_id FROM graph_node ORDER BY node_id").fetchall() == [
+                ("old",),
+                ("selected",),
+                ("touched",),
+            ]
+            assert conn.execute(
+                "SELECT file, mtime FROM graph_file_mtime ORDER BY file"
+            ).fetchall() == [
+                ("old.py", 123.0),
+                ("selected.py", 123.0),
+                ("touched.py", touched_mtime),
             ]
             assert conn.execute("SELECT session_id FROM sessions").fetchall() == [("chat",)]
     finally:
@@ -365,7 +368,10 @@ async def test_force_preflight_failure_preserves_graph_and_sessions(tmp_path, mo
         reset_project_database(tmp_path)
 
 
-async def test_cancelled_preparation_settles_before_next_root_owner(tmp_path, monkeypatch):
+@pytest.mark.parametrize("incremental", [False, True], ids=["force", "incremental"])
+async def test_cancelled_preparation_settles_before_next_root_owner(
+    tmp_path, monkeypatch, incremental
+):
     from threading import Event
     from victor.core.graph_rag import codegraph_repository
 
@@ -374,12 +380,13 @@ async def test_cancelled_preparation_settles_before_next_root_owner(tmp_path, mo
         root.mkdir()
         (root / "selected.py").write_text("def fresh(): return 1\n")
     store = _RecordingGraphStore()
-    store.nodes["old"] = MagicMock()
+    store.nodes["old"] = MagicMock(node_id="old", file="old.py")
+    store.get_stale_files = AsyncMock(return_value={"selected.py"})
     pipeline = GraphIndexingPipeline(
         store,
         GraphIndexConfig(
             root_path=first_root,
-            incremental=False,
+            incremental=incremental,
             enable_ccg=False,
             enable_embeddings=False,
             enable_module_metrics=False,
@@ -415,7 +422,7 @@ async def test_cancelled_preparation_settles_before_next_root_owner(tmp_path, mo
         assert roots == [first_root]
         assert pipeline._active_root == first_root
         assert "old" in store.nodes
-        assert not any(name == "delete_by_repo" for name, _, _ in store.calls)
+        assert not any(name in {"delete_by_repo", "delete_by_file"} for name, _, _ in store.calls)
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(asyncio.shield(first), 2)
@@ -425,7 +432,12 @@ async def test_cancelled_preparation_settles_before_next_root_owner(tmp_path, mo
         assert pipeline._active_root is None
         assert pipeline.config.root_path == first_root
         assert set(pipeline._codegraph_repository.files) == {"selected.py"}
-        assert sum(name == "delete_by_repo" for name, _, _ in store.calls) == 1
+        assert sum(name == "delete_by_repo" for name, _, _ in store.calls) == int(not incremental)
+        if incremental:
+            assert [args[0] for name, args, _ in store.calls if name == "delete_by_file"] == [
+                "old.py",
+                "selected.py",
+            ]
     finally:
         release.set()
         tasks = [first] + ([second] if second else [])
@@ -505,3 +517,37 @@ async def test_force_discovery_does_not_enter_explicitly_excluded_subtree(tmp_pa
         GraphIndexConfig(root_path=tmp_path, incremental=False, exclude_patterns=["/ignored/**"]),
     )
     assert await pipeline._discover_files(tmp_path) == [keep]
+
+
+async def test_incremental_deletion_only_qualifies_empty_inventory(tmp_path, monkeypatch):
+    """A successful empty discovery may remove the old graph, without a parse batch."""
+    from victor.core.database import reset_project_database
+    from victor.storage.graph.protocol import GraphNode
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    store = SqliteGraphStore(tmp_path)
+    pipeline = GraphIndexingPipeline(
+        store,
+        GraphIndexConfig(
+            root_path=tmp_path,
+            incremental=True,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_module_metrics=False,
+            enable_subgraph_cache=False,
+        ),
+    )
+    monkeypatch.setattr(pipeline, "_get_analysis_provider", lambda: None)
+    monkeypatch.setattr(store, "_delete_embeddings_for_file", AsyncMock())
+    try:
+        await store.upsert_nodes([GraphNode("old", "file", "old", "deleted.py")])
+        await store.update_file_mtime("deleted.py", 123.0)
+        stats = await pipeline.index_repository()
+        assert stats.files_deleted == 1 and stats.files_processed == 0
+        assert pipeline._snapshot_qualification.status == "complete"
+        assert pipeline._snapshot_qualification.selected_count == 0
+        assert await store.get_all_nodes() == []
+        assert await store.get_indexed_files() == []
+    finally:
+        await store.close()
+        reset_project_database(tmp_path)

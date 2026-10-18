@@ -69,17 +69,17 @@ async def test_touched_but_unchanged_file_is_not_reindexed(repo):
     a = repo / "a.py"
     os.utime(a, (a.stat().st_atime + 100, a.stat().st_mtime + 100))
 
-    stats = await pipeline._prepare_incremental_work(files, repo)
+    plan = await pipeline._prepare_incremental_work(files, repo)
 
     assert pipeline._files_to_process == set()
-    assert stats.files_unchanged == 2
+    assert plan.stats.files_unchanged == 2
 
-    # The stored mtime was refreshed, so the NEXT run's fast path skips it
-    # without even reading the file.
+    # Planning must not publish even an unchanged file's new mtime before
+    # the rest of the selected input has been qualified.
     stale = await store.get_stale_files(
         {pipeline._graph_file_key(f, repo): f.stat().st_mtime for f in files}
     )
-    assert stale == []
+    assert stale == ["a.py"]
 
 
 @pytest.mark.asyncio
@@ -93,11 +93,11 @@ async def test_changed_content_is_reindexed_and_hash_buffered(repo):
     a.write_text("def a():\n    return 42\n")
     os.utime(a, (a.stat().st_atime + 100, a.stat().st_mtime + 100))
 
-    stats = await pipeline._prepare_incremental_work(files, repo)
+    plan = await pipeline._prepare_incremental_work(files, repo)
 
     key = pipeline._graph_file_key(a, repo)
     assert pipeline._files_to_process == {key}
-    assert stats.files_unchanged == 1
+    assert plan.stats.files_unchanged == 1
     # The freshly computed hash is buffered for persistence after processing.
     assert pipeline._pending_file_hashes[key] == GraphIndexingPipeline._compute_file_hash(a)
 
@@ -167,6 +167,7 @@ async def test_end_to_end_touch_does_not_reparse(repo):
     stats2 = await pipeline2.index_repository()
     assert stats2.files_processed == 0
     assert stats2.files_unchanged == 2
+    assert await store.get_stale_files({"a.py": a.stat().st_mtime}) == []
 
     # And a real content change still reindexes exactly that file.
     a.write_text("def a():\n    return 99\n")
