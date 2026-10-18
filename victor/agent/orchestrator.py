@@ -2111,60 +2111,22 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         # Canonical per-turn prompt optimizations live on the prompt pipeline.
         # KV-capable providers additionally benefit from stable system-prompt
         # caching, but Tier C providers still need the same dynamic guidance.
+        # KV prefix stability: the turn prefix is frozen per user turn (anchor
+        # identity) by the turn-prefix runtime; mid-loop failure signals are
+        # appended as hidden messages rather than re-rendering sent bytes.
         prefix = ""
         pipeline = getattr(self, "_prompt_pipeline", None)
         if messages and pipeline:
-            # Use UnifiedPromptPipeline for per-turn prefix composition
-            from victor.agent.prompt_pipeline import TurnContext, coerce_prompt_overlays
+            from victor.agent.turn_prefix_runtime import compose_turn_prefix_for_call
 
-            # Build turn context for the pipeline
-            injector = getattr(self, "_optimization_injector", None)
-            turn_ctx = TurnContext(
-                provider_name=self.provider_name or "",
-                model=getattr(self, "_model", "") or "",
-                task_type=getattr(self, "_current_task_type", "default"),
-                active_skill_prompt=(
-                    self.get_skill_user_prefix() if hasattr(self, "get_skill_user_prefix") else None
-                ),
-                last_turn_failed=(
-                    injector._last_failure_category is not None if injector else False
-                ),
-                last_failure_category=(injector._last_failure_category if injector else None),
-                last_failure_error=(injector._last_failure_error if injector else None),
-                task_guidance_text=getattr(self, "_dynamic_task_guidance", None),
-            )
-            runtime_context_overrides = getattr(self, "_runtime_tool_context_overrides", None)
-            if isinstance(runtime_context_overrides, dict):
-                turn_ctx.prompt_overlays = coerce_prompt_overlays(
-                    runtime_context_overrides.get("prompt_overlays")
-                )
-
-            reminder_mgr = getattr(self, "reminder_manager", None)
-            if reminder_mgr:
-                turn_ctx.reminder_text = reminder_mgr.get_consolidated_reminder()
-
-            # Get last user message text for KNN few-shot matching
-            last_user_msg = ""
-            for m in reversed(messages):
-                if m.role == "user":
-                    last_user_msg = m.content[:200]
-                    break
-
-            prompt_runtime = self._get_prompt_builder_runtime()
-            turn_ctx.dynamic_tool_guidance = prompt_runtime.build_dynamic_tool_guidance(
-                current_query or last_user_msg,
+            prefix = compose_turn_prefix_for_call(
+                self,
+                messages,
+                current_query=current_query,
                 goals=goals,
-                planned_tools=planned_tools,
                 selected_tools=selected_tools,
+                planned_tools=planned_tools,
             )
-
-            prefix = pipeline.compose_turn_prefix(last_user_msg, turn_ctx)
-            self._record_prompt_optimization_metadata(turn_ctx)
-
-            # Clear failure state after injecting hint
-            if injector and turn_ctx.last_turn_failed:
-                injector._last_failure_category = None
-                injector._last_failure_error = None
 
         final_messages = apply_turn_prefix(messages, prefix)
 

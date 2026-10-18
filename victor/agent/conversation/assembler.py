@@ -56,6 +56,10 @@ class TurnBoundaryContextAssembler:
         self._config = config or CONTEXT_ASSEMBLER_CONFIG
         self._session_ledger = session_ledger
         self._score_fn = score_fn
+        # KV prefix stability: per-user-turn frozen ledger render (see
+        # _assemble_impl step 2). Keyed by anchor message identity.
+        self._frozen_ledger_render: Optional[str] = None
+        self._frozen_ledger_anchor: Optional[int] = None
         self._conversation_controller = conversation_controller
         self._temperature_classifier = temperature_classifier
         # FEP-0023 P2: when present, dedups the assembled *view* (never source
@@ -264,6 +268,31 @@ class TurnBoundaryContextAssembler:
                     logger.debug("Tool-result dedup view stage skipped: %s", exc)
         return result
 
+    def reset_turn_freezes(self) -> None:
+        """Drop per-turn frozen state (ledger render; selection freezes join later).
+
+        Freezes also self-invalidate on anchor change; this is the explicit
+        reset for sanctioned boundaries that do not replace the anchor message
+        (e.g. compaction).
+        """
+        self._frozen_ledger_render = None
+        self._frozen_ledger_anchor = None
+
+    @staticmethod
+    def _turn_anchor(messages: List[Message]) -> Optional[int]:
+        """Identity of the last genuine user message (intra-turn stability key).
+
+        Hidden runtime messages (``interactive_history=False``) are not genuine
+        user turns, so appended guidance never moves the anchor. Returns ``None``
+        before the first genuine user message.
+        """
+        from victor.agent.conversation.history_metadata import is_user_turn
+
+        for message in reversed(messages):
+            if is_user_turn(message.role, message.metadata):
+                return id(message)
+        return None
+
     def _assemble_impl(
         self,
         messages: List[Message],
@@ -292,11 +321,29 @@ class TurnBoundaryContextAssembler:
             chars_used += len(messages[0].content)
             start_idx = 1
 
-        # 2. Inject ledger as early assistant message
+        # 2. Inject ledger as early assistant message.
+        #
+        # KV prefix stability: the rendered ledger is FROZEN per user turn
+        # (keyed by the anchor message identity). The ledger keeps
+        # live-updating between provider calls — re-rendering it here would
+        # mutate already-sent bytes at message index 1 and defeat provider
+        # prefix caching for everything after the system prompt (measured:
+        # cache hits frozen at the tools+system head while input grew 9x).
+        # Cross-turn freshness is preserved: a new anchor re-renders.
         if self._session_ledger is not None:
             render_fn = getattr(self._session_ledger, "render", None)
             if render_fn:
-                ledger_text = render_fn(max_chars=ledger_budget)
+                anchor = self._turn_anchor(messages)
+                if (
+                    anchor is not None
+                    and anchor == self._frozen_ledger_anchor
+                    and self._frozen_ledger_render is not None
+                ):
+                    ledger_text = self._frozen_ledger_render
+                else:
+                    ledger_text = render_fn(max_chars=ledger_budget)
+                    self._frozen_ledger_render = ledger_text
+                    self._frozen_ledger_anchor = anchor
                 if ledger_text:
                     from victor.agent.conversation.types import (
                         MESSAGE_SOURCE_METADATA_KEY,
