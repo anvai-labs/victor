@@ -75,6 +75,7 @@ if TYPE_CHECKING:
     from victor.agent.services.chunk_runtime import ChunkGenerator
     from victor.agent.services.tool_planning_runtime import ToolPlanner
     from victor.agent.services.task_runtime import TaskCoordinator
+    from victor.agent.kv_prefix_observability import PrefixCallTracker
     from victor.agent.protocols import ToolAccessContext
     from victor.evaluation.protocol import TokenUsage
 
@@ -2097,7 +2098,8 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             )
         messages = normalized
 
-        # Log KV prefix fingerprint for observability
+        # Log KV prefix fingerprint for observability (system-prompt head only;
+        # the full-payload append-only classification is recorded below).
         if self._kv_optimization_enabled:
             logger.debug(
                 "[kv-cache] prefix=%s frozen=%s tools_cached=%s",
@@ -2164,7 +2166,32 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 injector._last_failure_category = None
                 injector._last_failure_error = None
 
-        return apply_turn_prefix(messages, prefix)
+        final_messages = apply_turn_prefix(messages, prefix)
+
+        # Full-payload prefix-stability classification: within a user turn the
+        # serialized payload must extend the previous call's bytes so provider
+        # prefix caching holds; sanctioned boundaries are announced via the
+        # tracker and logged once. Observability must never break the call.
+        if self._kv_optimization_enabled:
+            try:
+                self._get_prefix_tracker().record(
+                    final_messages,
+                    tools=getattr(self, "_last_sorted_tool_names", None),
+                )
+            except Exception:  # noqa: BLE001 - diagnostics only
+                logger.debug("[kv-cache] prefix tracker skipped (record failed)", exc_info=True)
+
+        return final_messages
+
+    def _get_prefix_tracker(self) -> "PrefixCallTracker":
+        """Lazily owned per-orchestrator KV prefix call tracker."""
+        tracker = getattr(self, "_prefix_call_tracker", None)
+        if tracker is None:
+            from victor.agent.kv_prefix_observability import PrefixCallTracker
+
+            tracker = PrefixCallTracker()
+            self._prefix_call_tracker = tracker
+        return tracker
 
     def _check_context_overflow(self, max_context_chars: int = 200000) -> bool:
         """Check if context is at risk of overflow.
