@@ -140,13 +140,19 @@ class ToolResultDeduplicator:
         return stubbed
 
     def _dedup_by_content_hash(self, messages: List[Message]) -> int:
-        """Stub older messages with identical content (regardless of path).
+        """Stub NEWER duplicate arrivals; older already-sent bytes stay intact.
 
-        Uses a hash of first 2000 + last 500 chars as a fingerprint.
-        When duplicates found, the OLDER message is replaced with a stub,
-        keeping the most recent version in the conversation.
+        Uses a hash of first 2000 + last 500 chars as a fingerprint. The first
+        occurrence stays full; every later duplicate becomes a compact stub.
+
+        KV prefix stability: stubbing the OLDER message rewrote bytes the
+        provider may already be prefix-caching on every re-assembly. Keeping
+        the first occurrence full and stubbing each newer duplicate is
+        byte-stable across assembles — the stub is a pure function of the
+        duplicate's own content — with identical token savings. Stubs preserve
+        the original message's metadata (compaction scoring keys on it).
         """
-        seen: Dict[int, int] = {}  # content fingerprint → index of newest occurrence
+        seen: Dict[int, None] = {}  # content fingerprint → membership (first stays full)
         stubbed = 0
         min_chars = self._config.min_content_chars_to_dedup
 
@@ -159,21 +165,18 @@ class ToolResultDeduplicator:
 
             fingerprint = hash(msg.content[:2000] + msg.content[-500:])
             if fingerprint in seen:
-                prev_idx = seen[fingerprint]
-                # Only stub if the previous message is still full content
-                prev = messages[prev_idx]
-                if not prev.content.startswith("["):
-                    lines = prev.content.count("\n") + 1
-                    messages[prev_idx] = Message(
-                        role=prev.role,
-                        content=f"[Duplicate tool output — {lines} lines, see later message]",
-                    )
-                    stubbed += 1
-                    logger.debug(
-                        "Content-hash dedup: stubbed message %d (dup of %d)",
-                        prev_idx,
-                        i,
-                    )
-            seen[fingerprint] = i
+                lines = msg.content.count("\n") + 1
+                messages[i] = msg.model_copy(
+                    update={
+                        "content": (f"[Duplicate tool output — {lines} lines, see earlier message]")
+                    }
+                )
+                stubbed += 1
+                logger.debug(
+                    "Content-hash dedup: stubbed newer duplicate at message %d",
+                    i,
+                )
+                continue
+            seen[fingerprint] = None
 
         return stubbed

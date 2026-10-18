@@ -24,10 +24,14 @@ class TestMessageHistory:
 
     def test_init_defaults(self):
         """Test MessageHistory initialization with defaults."""
+        from victor.config.conversation_settings import DEFAULT_MAX_CONVERSATION_HISTORY
+
         manager = MessageHistory()
         assert manager.messages == []
         assert manager.system_prompt == ""
-        assert manager._max_history == 100000
+        # Single source of truth (KV prefix stability: the count trim is a rare
+        # safety net; char-budget assembly and boundary compaction bound context).
+        assert manager._max_history == DEFAULT_MAX_CONVERSATION_HISTORY
 
     def test_init_with_system_prompt(self):
         """Test MessageHistory with system prompt."""
