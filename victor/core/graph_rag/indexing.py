@@ -51,6 +51,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from stat import S_ISREG
 from typing import (
     Any,
     Awaitable,
@@ -283,6 +284,15 @@ class GraphIndexStats:
             "error_count": self.error_count,
             "errors": self.errors[:10],  # Limit errors in output
         }
+
+
+@dataclass(frozen=True)
+class _IncrementalIndexPlan:
+    """Read-only planning result; apply mutations only after input qualification."""
+
+    stats: GraphIndexStats = field(default_factory=GraphIndexStats)
+    files_to_delete: Tuple[str, ...] = ()
+    mtime_updates: Tuple[Tuple[str, float, str], ...] = ()
 
 
 @dataclass
@@ -559,7 +569,8 @@ class GraphIndexingPipeline:
         discovered_files = files
 
         _status(f"Planning: {len(files)} files found — checking mtimes…")
-        planning_stats = await self._prepare_incremental_work(files, root)
+        plan = await self._prepare_incremental_work(files, root)
+        planning_stats = plan.stats
         self._merge_stats(stats, planning_stats)
 
         if self.config.incremental:
@@ -576,11 +587,12 @@ class GraphIndexingPipeline:
                 planning_stats.files_deleted,
             )
 
-        # Parse one consistent repository snapshot only when at least one file
-        # will be indexed.  The snapshot still includes unchanged discovered
+        # Qualify one repository snapshot before replacing or removing graph data.
+        # The snapshot still includes unchanged discovered
         # files: a changed caller may import an unchanged target, and an
         # unchanged caller may acquire a newly-added target.
-        if files or not self.config.incremental:
+        requires_snapshot = bool(files or plan.files_to_delete or not self.config.incremental)
+        if requires_snapshot:
             from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
 
             selected = tuple(self._canonical_file_str(path) for path in discovered_files)
@@ -596,7 +608,7 @@ class GraphIndexingPipeline:
                 raise
             self._bind_codegraph_repository(repository)
 
-        if not self.config.incremental:
+        if requires_snapshot:
             from victor.core.graph_rag.codegraph_repository import (
                 qualify_repository_snapshot,
                 snapshot_parser_versions,
@@ -618,7 +630,7 @@ class GraphIndexingPipeline:
             self._snapshot_qualification = qualification
             if qualification.status == "failed":
                 raise ValueError(
-                    "Force rebuild preflight failed; previous graph retained: "
+                    "Index preflight failed; previous graph retained: "
                     f"{len(qualification.missing_files)} missing selected files, "
                     f"{len(qualification.failed_files)} failed parses or manifest mismatches"
                 )
@@ -630,14 +642,16 @@ class GraphIndexingPipeline:
                 len(qualification.partial_files),
             )
             if qualification.status == "legacy-unqualified" and discovered_files:
-                logger.warning(
-                    "Force rebuild uses legacy extraction; canonical input is unqualified"
-                )
+                logger.warning("Indexing uses legacy extraction; canonical input is unqualified")
+
+        if not self.config.incremental:
             logger.info("Force rebuild: clearing all existing graph data after preflight")
             _status("Clearing existing graph data…")
             await self.graph_store.delete_by_repo(
                 clear_embeddings=not self.config.enable_embeddings
             )
+        else:
+            await self._apply_incremental_plan(plan)
 
         # Process files in batches — parse in parallel, write serially.
         # Emit progress_callback(0, total, "") immediately so the UI can set
@@ -1253,10 +1267,8 @@ class GraphIndexingPipeline:
         include_patterns = self.config.include_patterns
 
         def discovery_error(error: OSError) -> None:
-            # Incremental discovery retains its legacy best-effort behavior.
-            # A force rebuild must not mistake unreadable input for deletion.
-            if not self.config.incremental:
-                raise error
+            # Neither indexing mode may mistake unreadable input for deletion.
+            raise error
 
         for directory, dirs, filenames in os.walk(root_path, onerror=discovery_error):
             directory_path = Path(directory)
@@ -1278,13 +1290,12 @@ class GraphIndexingPipeline:
                 language = self._detect_language(file_path)
                 if not self._is_indexable_language(language):
                     continue
-                try:
-                    if not file_path.is_file():
-                        continue
-                    if file_path.stat().st_size > self.config.max_file_size_bytes:
-                        continue
-                except OSError as exc:
-                    discovery_error(exc)
+                # Path.is_file() suppresses ENOENT; that would turn an input
+                # failure into an apparent deletion. One explicit stat fails closed.
+                file_stat = file_path.stat()
+                if not S_ISREG(file_stat.st_mode):
+                    continue
+                if file_stat.st_size > self.config.max_file_size_bytes:
                     continue
                 files.append((language, file_path))
 
@@ -1329,17 +1340,17 @@ class GraphIndexingPipeline:
         stale_files: Set[str],
         current_files: Dict[str, Path],
         file_mtimes: Dict[str, float],
-    ) -> Set[str]:
+    ) -> Tuple[Set[str], Tuple[Tuple[str, float, str], ...]]:
         """Drop mtime-stale files whose content hash is unchanged (manifest contract).
 
         touch, branch flip-flops, and checkouts bump mtimes without changing
-        content; reparsing those is pure waste. Files verified unchanged get
-        their stored mtime refreshed (so the fast path skips them next run) and
-        are removed from the stale set. Hashes for genuinely changed files are
+        content; reparsing those is pure waste. Files verified unchanged are
+        removed from the stale set; their mtime refreshes are returned as data,
+        not persisted during planning. Hashes for genuinely changed files are
         buffered in ``_pending_file_hashes`` for persistence after processing.
         """
         if not stale_files:
-            return stale_files
+            return stale_files, ()
 
         get_hashes = getattr(self.graph_store, "get_file_hashes", None)
         stored_hashes: Dict[str, str] = {}
@@ -1350,6 +1361,7 @@ class GraphIndexingPipeline:
                 logger.debug("get_file_hashes unavailable, mtime-only staleness: %s", exc)
 
         verified_unchanged: Set[str] = set()
+        mtime_updates: List[Tuple[str, float, str]] = []
         for file_key in sorted(stale_files):
             file_path = current_files.get(file_key)
             if file_path is None:
@@ -1360,14 +1372,14 @@ class GraphIndexingPipeline:
             self._pending_file_hashes[file_key] = digest
             if stored_hashes.get(file_key) == digest:
                 verified_unchanged.add(file_key)
-                await self._update_store_mtime(file_key, file_mtimes.get(file_key, 0.0), digest)
+                mtime_updates.append((file_key, file_mtimes[file_key], digest))
 
         if verified_unchanged:
             logger.info(
                 "Content-hash verification: %d mtime-changed files are content-identical, skipped",
                 len(verified_unchanged),
             )
-        return stale_files - verified_unchanged
+        return stale_files - verified_unchanged, tuple(mtime_updates)
 
     async def _update_store_mtime(
         self, file: str, mtime: float, content_hash: Optional[str]
@@ -1395,49 +1407,43 @@ class GraphIndexingPipeline:
         self,
         files: List[Path],
         root_path: Optional[Path] = None,
-    ) -> GraphIndexStats:
-        """Prepare an incremental indexing plan based on file mtimes and deletions.
+    ) -> _IncrementalIndexPlan:
+        """Plan changed/deleted files without mutating the published graph.
 
-        Two-layer staleness: the mtime fast path (no reads for unchanged
-        mtimes), then content-hash verification of mtime-changed files via the
-        victor-codegraph manifest contract, so mtime-only churn never reparses.
+        A selected file that cannot be statted is a failed inventory, not proof
+        of deletion. Only files absent from successful discovery can be deleted.
+        Content-identical files retain the mtime fast path after qualification.
         """
         root = (root_path or self.config.root_path).resolve()
         self._files_to_process = {self._graph_file_key(file_path, root) for file_path in files}
         self._pending_file_hashes = {}
         if not self.config.incremental:
-            return GraphIndexStats()
+            return _IncrementalIndexPlan()
 
-        stats = GraphIndexStats()
         current_files = {self._graph_file_key(file_path, root): file_path for file_path in files}
-        file_mtimes: Dict[str, float] = {}
-        for path_str, file_path in list(current_files.items()):
-            try:
-                file_mtimes[path_str] = file_path.stat().st_mtime
-            except FileNotFoundError:
-                current_files.pop(path_str, None)
-                await self._handle_vanished_file(file_path)
-            except OSError:
-                current_files.pop(path_str, None)
-                await self._handle_vanished_file(file_path)
-
+        file_mtimes = {key: path.stat().st_mtime for key, path in current_files.items()}
         stale_files = set(await self.graph_store.get_stale_files(file_mtimes))
-        stale_files = await self._verify_stale_by_content(stale_files, current_files, file_mtimes)
+        stale_files, mtime_updates = await self._verify_stale_by_content(
+            stale_files, current_files, file_mtimes
+        )
         indexed_files = await self._get_indexed_files()
-        deleted_files = sorted(indexed_files - set(current_files))
+        deleted_files = indexed_files - set(current_files)
+        self._files_to_process = stale_files
+        return _IncrementalIndexPlan(
+            stats=GraphIndexStats(
+                files_deleted=len(deleted_files),
+                files_unchanged=max(0, len(current_files) - len(stale_files)),
+            ),
+            files_to_delete=tuple(sorted(deleted_files | stale_files)),
+            mtime_updates=mtime_updates,
+        )
 
-        for file_path in deleted_files:
+    async def _apply_incremental_plan(self, plan: _IncrementalIndexPlan) -> None:
+        """Apply a qualified plan; whole-generation publication remains separate."""
+        for file_path in plan.files_to_delete:
             await self.graph_store.delete_by_file(file_path)
-            stats.files_deleted += 1
-
-        files_to_process: Set[str] = set()
-        for file_path in sorted(stale_files):
-            await self.graph_store.delete_by_file(file_path)
-            files_to_process.add(file_path)
-
-        stats.files_unchanged = max(0, len(current_files) - len(files_to_process))
-        self._files_to_process = files_to_process
-        return stats
+        for file_path, mtime, digest in plan.mtime_updates:
+            await self._update_store_mtime(file_path, mtime, digest)
 
     def _graph_file_key(self, file_path: Path, root_path: Path) -> str:
         """Return the storage key used for project-local graph file paths."""
