@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Enforce the KV prefix-stability invariant: within a user turn the
+  provider-bound payload is now append-only (byte-extension between
+  consecutive calls), so provider prefix caching holds. The session-ledger
+  render and the composed turn prefix freeze per user turn; mid-loop failure
+  hints append as hidden messages instead of re-rendering sent bytes; the
+  tool-result dedup view stubs the newer duplicate instead of rewriting the
+  older already-sent message; older-message selection is sticky per turn;
+  and background/inline compaction defer to turn boundaries (overflow
+  overrides). Observability: `[kv-cache] call=N … extended=… boundary=…`
+  per call, `VICTOR_KV_PREFIX_DEBUG=1` for per-message hash chains; the
+  invariant is enforced by a hard-assert guard test
+  (docs/architecture/kv-prefix-stability.md).
+- `max_conversation_history` default 100 → 2000 (single source of truth in
+  `victor/config/conversation_settings.py`; was three conflicting defaults).
+  A firing history-count trim now logs a sanctioned-boundary line.
+
 ## [0.13.0] - release candidate
 
 ### Fixed
