@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-18
-baseline_develop: d85fe9544
+baseline_develop: 5dd0424d0
 next_task: DATA-04b atomic graph generation publication
 ---
 
@@ -2749,7 +2749,7 @@ only against new evidence, retaining unknowns and readiness blockers.
 | DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
 | DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
 | DATA-04a / CG-P2 | ✅ merged [#1365](https://github.com/anvai-labs/victor/pull/1365); High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
-| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight ✅ [#1369](https://github.com/anvai-labs/victor/pull/1369); atomic publication pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
+| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight ✅ [#1369](https://github.com/anvai-labs/victor/pull/1369), incremental qualification ✅ [#1388](https://github.com/anvai-labs/victor/pull/1388); atomic publication pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
 | DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
@@ -3317,6 +3317,85 @@ requires no migration. Next substantive task: stage qualified replacement data a
 test publication/rollback with concurrent session writers; retain the existing
 post-preflight failure reproducer. DATA remains **5/12 complete (41.7%)** until
 DATA-04b's full gates pass.
+
+### DATA-04b staged publication ownership (2026-10-18, active)
+
+Owner: Victor co-design; branch `feat/graph-staged-publication`, baseline
+`5dd0424d0` after #1389. Incremental preflight #1388 is merged as
+`41e18a22cd4ad49cb8f8490a75fd2531c37c6d34`: 40 successful checks including
+Vertical Py3.12, one conditional skip and one neutral result. Local develop is
+reconciled; the other session owns the prefix-stability work in #1390.
+
+Selected increment: private, store-owned SQLite graph staging and publication,
+with **no indexing-pipeline activation or public framework API**. Staging retains
+the canonical repository root while using a separate derived-only database;
+authoritative sessions/messages are never copied or swapped. Publication uses the
+existing cancellation-safe `write_batch` owner and bounded 256-row copies. Nodes,
+edges, mtimes, FTS and a receipt commit together. Graph-content/receipt fingerprints
+reject a competing writer; session writes alone do not invalidate a build.
+
+- RED: five existing-owner cases failed on the missing staging capability.
+  Extended the cleanup/concurrency owners rather than adding a second test suite;
+  the existing cancellation matrix now includes replacement. CI selection maps
+  the extracted helper to those same owners.
+- Local correctness: 64 owner tests pass, including actual session/message
+  preservation, old/new reader snapshots, identical-content competing receipts,
+  wrong roots/schema, dangling references, native SQL/FTS failure, process death
+  before commit, and cancellation through commit acknowledgement. An interrupted
+  acknowledgement may hide a successful commit: reconcile the receipt instead of
+  replaying the logical publication. A receipt describes a past publication, not
+  perpetual readiness after legacy graph changes.
+- Independent adversarial review found and closed two blockers: publication from
+  a child task could outlive its staging context, and persisted query-cache rows
+  were omitted from unsupported-state admission. Only the context owner may now
+  publish; rejected child access does not consume its attempt. Nonempty query
+  cache, current metrics, requirements/subgraphs, CPG fragments and embeddings
+  are rejected until explicit reconciliation exists. Final committed-candidate
+  binding and CI are still pending. The reviewer independently ran the 62-case
+  owner suite and then all four final staged/ordinary close-cancellation cases.
+- Local qualification: broader graph/storage suites **732 passed, one optional
+  SDK skip**; final CI-selected suite **170 passed**, **147/153 changed production
+  lines covered (96.1%)**; final collection **35,360 tests**. Configured mypy passes
+  **2,120 source files**; full Black (3,935 files), Ruff, docs drift and repository
+  hygiene pass. The broader run preceded two additional staged-close parameters;
+  final owner/selected suites cover those additions. No skip is counted as a pass.
+- Resource evidence: synthetic local warm-cache 1k/10k/100k nodes plus equal
+  edges, 192-character docstrings, SQLite 3.45.3/Python 3.12.6 on M1 Max. One
+  measured run per size: publication **0.079/1.748/17.164 seconds**; competing
+  session writes with a deliberately extended 60-second timeout waited
+  **0.067/1.615/15.058 seconds**. Writes after staging and before publication took
+  less than 1 ms. A held reader retained the old snapshot; the 100k case retained
+  **64.3 MB WAL**, with approximately **190 MB total disposable database files**
+  after publication and approximately **70 MB process peak RSS**. Before stage
+  sealing/checkpoint, the temporary footprint was approximately 253 MB. These
+  are synthetic observations, not a production capacity claim or SLO.
+- Worker profiling at 10k: about 1.39 of 1.85 seconds was SQLite `executemany`,
+  including indexes/triggers; fingerprints used about 0.35 seconds. A language
+  rewrite is not justified. The initial observer connection's synchronous pragma
+  described that observer, not the publisher; the contention probe records the
+  publisher's actual pragmas separately. Existing NORMAL durability is unchanged.
+  The normal project busy timeout is only **5 seconds**, so production activation
+  is blocked on acceptable publication lock duration as well as disk headroom.
+  A second 100k run confirms the consequence: the normal-timeout writer fails
+  with `SQLITE_BUSY` after **5.20 seconds** while publication takes **17.72 seconds**;
+  the diagnostic 60-second writer commits after **15.56 seconds**. Publisher
+  settings are WAL, synchronous=NORMAL, busy_timeout=5000. Do not raise global
+  timeouts to hide that constraint.
+
+Evidence stays in the primary checkout under
+`var/codegraph-victor-20261012/data04b-publication-*`. Abrupt process death can leave
+an unreferenced private stage directory; recovery/cleanup must identify ownership
+before removal. No automatic sweep or shared-database restoration is introduced.
+Per-transaction reader consistency does not promise a multi-query request snapshot.
+
+Next gates: bind clean review to the tested commit, then CI and squash merge. Subsequent DATA-04b work must integrate qualified parser/source
+inventories, resolve the root/maintenance alignment and reject partial builds,
+qualify writer/reader admission and measured lock/headroom limits, and reconcile
+cache/vector consumers before activation. Whole-build transactions hold session
+writers during parsing; generation-qualified rows require a broader reader/schema
+migration. This dormant primitive permits measuring the bounded copy alternative
+without enabling either redesign. Normal indexing still has post-preflight
+write-failure loss. **DATA remains 5/12 complete (41.7%); DATA-04b is incomplete.**
 
 ### VAS-17 dependency and release checkpoint (2026-10-18, published)
 

@@ -68,6 +68,10 @@ RELATED_TESTS = {
             "tests/unit/core/test_sql_identifier_security.py",
         ),
     ),
+    "victor/storage/graph/sqlite_publication.py": (
+        "tests/unit/storage/graph/test_sqlite_store_cleanup.py",
+        "tests/unit/storage/test_sqlite_graph_store_concurrency.py",
+    ),
     "victor/storage/graph/sqlite_store.py": (
         "tests/unit/storage/graph/test_sqlite_store_cleanup.py",
         "tests/unit/storage/test_sqlite_graph_store.py",

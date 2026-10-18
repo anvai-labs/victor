@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -34,6 +34,7 @@ from victor.storage.graph.protocol import (
 
 if TYPE_CHECKING:
     from victor.core.database import ProjectDatabaseManager
+    from victor.storage.graph.sqlite_publication import GraphReplacement
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,9 @@ END;
 class SqliteGraphStore(GraphStoreProtocol):
     """Embedded SQLite graph store using consolidated project.db."""
 
-    def __init__(self, project_path: Optional[Path] = None) -> None:
+    def __init__(
+        self, project_path: Optional[Path] = None, *, _staging_path: Path | None = None
+    ) -> None:
         """Initialize graph store.
 
         Args:
@@ -145,11 +148,14 @@ class SqliteGraphStore(GraphStoreProtocol):
         from victor.core.database import get_project_database
 
         self._db = get_project_database(project_path)
-        self.db_path = self._db.db_path
+        self.db_path = _staging_path if _staging_path is not None else self._db.db_path
+        self._is_staging = _staging_path is not None
+        self._sealed = False
         self._project_root = Path(self._db.project_root).resolve()
         self._conn: sqlite3.Connection | None = None
         self._ensure_schema()
-        self._record_project_metadata()
+        if not self._is_staging:
+            self._record_project_metadata()
         self._lock = asyncio.Lock()
         self._write_batch_conn: sqlite3.Connection | None = None
         self._write_batch_owner: asyncio.Task[Any] | None = None
@@ -256,6 +262,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         lazily reopen, preserving the existing lifecycle contract.
         """
         self._reject_batch_lifecycle("close")
+        if self._is_staging:
+            self._sealed = True
         async with self._lock:
             try:
                 if self._conn is not None:
@@ -273,9 +281,17 @@ class SqliteGraphStore(GraphStoreProtocol):
     def _connect(self) -> sqlite3.Connection:
         """Get this store's dedicated database connection (lazily reopened
         after close(), preserving the previous ops-after-close behavior)."""
+        if self._sealed:
+            raise RuntimeError("Staged graph is sealed; it cannot be reopened")
         if self._conn is None:
             self._conn = self._open_dedicated_connection()
         return self._conn
+
+    def _stage_replacement(self) -> AbstractAsyncContextManager[GraphReplacement]:
+        """Private SQLite publication foundation; not used by the index pipeline yet."""
+        from victor.storage.graph.sqlite_publication import stage_replacement
+
+        return stage_replacement(self)
 
     def _get_active_write_batch_connection(self) -> sqlite3.Connection | None:
         """Return the active write-batch connection for the current task, if any."""
@@ -740,6 +756,8 @@ class SqliteGraphStore(GraphStoreProtocol):
             file: File path being deleted
             node_ids: List of node IDs being deleted (for potential per-node cleanup)
         """
+        if self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
 
@@ -1033,6 +1051,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         and cancellation settlement. Connection durability settings are retained.
         Vector cleanup is separate and is not part of this SQLite transaction.
         """
+        if clear_embeddings and self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         async with self.write_batch():
             conn = self._get_active_write_batch_connection()
             assert conn is not None
@@ -1047,6 +1067,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         This ensures orphaned embeddings are removed during force rebuilds.
         Failures are logged but don't prevent the graph rebuild from completing.
         """
+        if self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
 
@@ -1377,6 +1399,8 @@ class SqliteGraphStore(GraphStoreProtocol):
 
     async def delete_by_file(self, file: str) -> None:
         """Delete all nodes, edges, and embeddings for a specific file (for incremental reindex)."""
+        if self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         # Get nodes before deletion for embedding cleanup
         nodes = await self.get_nodes_by_file(file)
         node_ids = [n.node_id for n in nodes]

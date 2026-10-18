@@ -220,22 +220,35 @@ async def test_close_shuts_down_worker_without_hanging(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("phase", ["begin", "mutation", "commit", "rollback"])
-@pytest.mark.parametrize("operation", ["upsert", "delete"])
-async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, operation, caplog):
+@pytest.mark.parametrize("operation", ["upsert", "delete", "replace"])
+async def test_batch_cancellation_settles_before_next_owner(
+    tmp_path, phase, operation, caplog, monkeypatch
+):
     """Cancellation never hands an active transaction to an unrelated writer."""
     import asyncio
     import sqlite3
     import threading
 
     store = SqliteGraphStore(tmp_path)
-    if operation == "delete":
+    if operation in {"delete", "replace"}:
         await store.upsert_nodes([_node(0)])
+    replacement = None
+    armed = operation != "replace"
+    if operation == "replace":
+        from victor.storage.graph import sqlite_publication
+
+        if phase == "rollback":
+
+            def fail_receipt(conn, receipt):
+                raise RuntimeError("request rollback")
+
+            monkeypatch.setattr(sqlite_publication, "_write_receipt", fail_receipt)
     started = asyncio.Event()
     release = threading.Event()
     loop = asyncio.get_running_loop()
 
     def gate(operation):
-        if operation == phase:
+        if armed and operation == phase:
             loop.call_soon_threadsafe(started.set)
             assert release.wait(5), "worker was not released"
 
@@ -268,6 +281,14 @@ async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, ope
     store._conn = conn
 
     async def batch():
+        nonlocal replacement, armed
+        if operation == "replace":
+            async with store._stage_replacement() as stage:
+                replacement = stage
+                await stage.store.upsert_nodes([_node(1)])
+                armed = True
+                await stage.publish()
+            return
         async with store.write_batch():
             async with store.write_batch():
                 if operation == "delete":
@@ -302,11 +323,24 @@ async def test_batch_cancellation_settles_before_next_owner(tmp_path, phase, ope
         with sqlite3.connect(store.db_path) as observer:
             ids = {row[0] for row in observer.execute("SELECT node_id FROM graph_node")}
         expected = {"file:f99.py"}
-        if operation == "delete" and phase != "commit":
+        if operation in {"delete", "replace"} and phase != "commit":
             expected.add("file:f0.py")
-        elif operation == "upsert" and phase == "commit":
+        elif operation in {"upsert", "replace"} and phase == "commit":
             expected.add("file:f1.py")
         assert ids == expected
+        if replacement is not None:
+            import json
+
+            with sqlite3.connect(store.db_path) as observer:
+                receipt = observer.execute(
+                    "SELECT value FROM _project_metadata WHERE key='graph_last_publication_v1'"
+                ).fetchone()
+            if phase == "commit":
+                assert json.loads(receipt[0])["publication_id"] == replacement.publication_id
+            else:
+                assert receipt is None
+            with pytest.raises(RuntimeError, match="already"):
+                await replacement.publish()
     finally:
         release.set()
         await asyncio.gather(task, *([later] if later else []), return_exceptions=True)
@@ -493,14 +527,18 @@ async def test_delete_file_can_join_own_batch_without_reacquiring_lock(tmp_path,
 
 
 @pytest.mark.parametrize("cancel_close", [False, True])
-async def test_worker_close_settles_before_edge_probe(tmp_path, monkeypatch, cancel_close):
+@pytest.mark.parametrize("staged", [False, True])
+async def test_worker_close_settles_before_edge_probe(tmp_path, monkeypatch, cancel_close, staged):
     import asyncio
     import sqlite3
     import threading
 
     from victor.storage.graph.protocol import GraphEdge
 
-    store = SqliteGraphStore(tmp_path)
+    owner = SqliteGraphStore(tmp_path)
+    context = owner._stage_replacement() if staged else None
+    replacement = await context.__aenter__() if context else None
+    store = replacement.store if replacement else owner
     started = asyncio.Event()
     release = threading.Event()
     loop = asyncio.get_running_loop()
@@ -528,7 +566,7 @@ async def test_worker_close_settles_before_edge_probe(tmp_path, monkeypatch, can
         return await original(fn)
 
     monkeypatch.setattr(store, "_run_db", observe_dispatch)
-    closing = asyncio.create_task(store.close())
+    closing = asyncio.create_task(context.__aexit__(None, None, None) if context else store.close())
     try:
         await asyncio.wait_for(started.wait(), 2)
         if cancel_close:
@@ -548,11 +586,18 @@ async def test_worker_close_settles_before_edge_probe(tmp_path, monkeypatch, can
         if cancel_close:
             assert isinstance(results[0], asyncio.CancelledError)
         else:
-            assert results[0] is None
-        assert results[1] is None
-        assert (await store.stats())["edges"] == 1
+            assert results[0] is (False if staged else None)
+        if staged:
+            assert isinstance(results[1], RuntimeError)
+            assert "sealed" in str(results[1])
+            assert not store.db_path.exists()
+            assert await owner.get_all_nodes() == []
+        else:
+            assert results[1] is None
+            assert (await store.stats())["edges"] == 1
     finally:
         release.set()
         await asyncio.gather(closing, *([edge_task] if edge_task else []), return_exceptions=True)
         await store.close()
+        await owner.close()
         reset_project_database(tmp_path)
