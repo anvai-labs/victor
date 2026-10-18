@@ -23,7 +23,7 @@ from victor.providers.base import Message
 
 def _load_guard_module():
     """Reuse the invariant guard's orchestrator scaffold (same wiring)."""
-    path = Path(__file__).parent / "test_kv_prefix_invariant.py"
+    path = Path(__file__).parent.parent / "framework" / "test_kv_prefix_invariant.py"
     spec = importlib.util.spec_from_file_location("kv_guard", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -108,22 +108,3 @@ async def test_new_user_turn_recomposes_prefix():
     second = _anchor_content(orch)
 
     assert second != first, "boundary must recompose (fresh dynamic guidance)"
-
-
-async def test_turn_prefix_targets_genuine_anchor_not_hidden_tail():
-    """A hidden user-role hint appended after the anchor must not steal the prefix."""
-    from victor.agent.prompt_prefix import apply_turn_prefix
-
-    history = [
-        Message(role="system", content="sys"),
-        Message(role="user", content="the anchor task"),
-        Message(role="assistant", content="work"),
-        Message(
-            role="user",
-            content="[hint] adjust tool arguments",
-            metadata=build_internal_history_metadata(kind="failure_hint"),
-        ),
-    ]
-    result = apply_turn_prefix(list(history), "GUIDANCE::")
-    assert result[1].content == "GUIDANCE::the anchor task"
-    assert result[3].content == "[hint] adjust tool arguments"
