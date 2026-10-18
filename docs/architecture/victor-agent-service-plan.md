@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-18
-baseline_develop: 8957d11c4
+baseline_develop: d85fe9544
 next_task: DATA-04b atomic graph generation publication
 ---
 
@@ -3272,12 +3272,16 @@ The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
 (58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
 completed milestone. Per-subtask percentages are unknown until acceptance gates close.
 
-### DATA-04b incremental preflight ownership (2026-10-18, active)
+### DATA-04b incremental preflight checkpoint (2026-10-18)
 
 Owner: Victor co-design; branch `fix/index-preflight-deletion-order`, baseline
 `8957d11c493cb7ad4f54ab11d0710e0f7e08dfdf`. Upstream release and #1387 are
 complete; no open PR claims this graph scope. The prior UI worktree is retained
 for its live service; implementation uses an independent linked worktree.
+Delivery: [#1388](https://github.com/anvai-labs/victor/pull/1388). Develop advanced
+through the independent prefix-observability #1386 during CI; merged `d85fe9544`
+into the published feature branch without rewriting history. Graph source/test
+changes do not overlap. Combined-tree qualification is recorded below.
 Incremental planning now returns pending deletions and mtime refreshes without
 changing the graph. The shared snapshot qualification precedes these mutations,
 including deletion-only inventories. Discovery/stat errors fail closed in both
@@ -3297,8 +3301,13 @@ modes; content-identical touch-only runs retain their no-reparse fast path.
   full collection passes **35,307 tests**. Configured strict mypy passes 2,117
   source files; Black, Ruff, repository hygiene and docs drift pass. CI-selected
   tests pass **107 cases** with **93.9% changed-line coverage** (80% gate).
-  Commit-bound review and one PR to develop are the next gates.
-  This is not merged or released evidence yet.
+  After merging develop, combined graph/store/integration and upstream prefix
+  suites pass **599 tests, one skipped, two expected failures**; collection passes
+  **35,325 tests**, mypy **2,118 files**, and formatting/hygiene/docs checks pass.
+  Skips/expected failures are not passes. Independent review is clean against the
+  combined baseline; source/test hashes match the original reviewed candidate
+  `dc40b9c9b`. PR #1388 records exact final-commit review, CI and landing evidence.
+  Victor 0.13.0 predates this change; release/live acceptance remain separate.
 - Evidence is preserved under `var/codegraph-victor-20261012/data04b-*` and
   `victor-data04b-preflight-review.json` in the primary checkout.
 
