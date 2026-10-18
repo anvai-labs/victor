@@ -87,13 +87,24 @@ def _seed_history(orch: AgentOrchestrator, turns: int = 4) -> None:
 
 
 def _drive_intra_loop(orch: AgentOrchestrator, iterations: int) -> List[bytes]:
-    """One user turn; each iteration = one provider call + one loop step."""
+    """One user turn; each iteration = one provider call + one loop step.
+
+    Exercises every intra-turn mutator class: ledger updates (frozen by the
+    turn-freeze PR), a duplicate tool output in the user-role wrapped shape the
+    dedup view actually stubs, and growing recent-tail pressure on the
+    older-message selection budget.
+    """
     payloads: List[bytes] = []
+    duplicate_payload = "<TOOL_OUTPUT> read src/big.py\n" + (
+        "export function stable() { return 1; }\n" * 60
+    )
     for i in range(iterations):
         assembled = orch.get_assembled_messages(current_query="agentic task")
         payloads.append(serialize_payload(assembled))
         # Simulate the agentic loop between provider calls — mirrors
         # AgenticLoop._populate_session_ledger (agentic_loop.py:1624,1628).
+        # Large tool outputs grow the recent tail and shrink the older-message
+        # budget between calls (selection pressure).
         orch.conversation.add_message(
             "assistant",
             f"plan {i}",
@@ -107,7 +118,7 @@ def _drive_intra_loop(orch: AgentOrchestrator, iterations: int) -> List[bytes]:
         )
         orch.conversation.add_message(
             "tool",
-            f"TOOL_OUTPUT read src/file{i}.py … {i} lines: def f{i}(): pass",
+            f"TOOL_OUTPUT read src/file{i}.py … " + ("detail line of output\n" * 40),
             tool_call_id=f"call_{i}",
         )
         orch._session_ledger.record_file_read(
@@ -118,23 +129,10 @@ def _drive_intra_loop(orch: AgentOrchestrator, iterations: int) -> List[bytes]:
             orch._session_ledger.record_pending_action("deploy", 0)
             orch._session_ledger.resolve_pending_action("deploy")
         if i == 3:
-            # Duplicate tool output arrival (dedup view pressure).
-            orch.conversation.add_message(
-                "assistant",
-                "re-read",
-                tool_calls=[
-                    {
-                        "id": f"call_dup_{i}",
-                        "type": "function",
-                        "function": {"name": "read", "arguments": "{}"},
-                    }
-                ],
-            )
-            orch.conversation.add_message(
-                "tool",
-                f"TOOL_OUTPUT read src/file{i}.py … {i} lines: def f{i}(): pass",
-                tool_call_id=f"call_dup_{i}",
-            )
+            # Duplicate output arrival in the user-role wrapped shape the
+            # dedup view stubs (tool_result_deduplicator._dedup_by_content_hash
+            # only matches role="user" content).
+            orch.conversation.add_message("user", duplicate_payload)
     return payloads
 
 
@@ -148,8 +146,9 @@ def _assert_append_only(payloads: List[bytes]) -> None:
 
 @pytest.mark.xfail(
     strict=True,
-    reason="intra-turn payload mutators (ledger re-render, dedup stubbing of sent "
-    "messages, assembler re-selection) — fixed by the KV prefix stabilization train",
+    reason="remaining intra-turn mutators (dedup view stubs already-sent messages, "
+    "assembler older-message re-selection under budget pressure) — fixed by the "
+    "KV prefix stabilization train's later PRs",
 )
 async def test_intra_turn_payload_is_append_only():
     orch = _make_orchestrator()
@@ -166,11 +165,11 @@ async def test_intra_turn_payload_is_append_only():
 async def test_user_turn_boundary_is_the_only_sanctioned_divergence():
     orch = _make_orchestrator()
     _seed_history(orch)
-    first_turn = _drive_intra_loop(orch, 4)
+    first_turn = _drive_intra_loop(orch, 6)
     _assert_append_only(first_turn)
 
     orch.conversation.add_user_message("next task: verify the changes")
-    second_turn = _drive_intra_loop(orch, 4)
+    second_turn = _drive_intra_loop(orch, 6)
     # A boundary divergence (ledger re-render + new selection) is sanctioned
     # exactly once; each turn is itself append-only.
     _assert_append_only(second_turn)
