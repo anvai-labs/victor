@@ -205,3 +205,67 @@ class TestMaxHistoryUnification:
         with caplog.at_level(logging.INFO, logger="victor.agent.message_history"):
             history.add_message("assistant", "a4")  # len 5 > cap 4 → trim
         assert any("[history-trim] sanctioned boundary" in r.message for r in caplog.records)
+
+
+# ── changed-line coverage: factory default + assembler branches ────────
+
+
+def test_service_provider_message_history_uses_unified_default():
+    from victor.agent.service_provider import OrchestratorServiceProvider
+
+    provider = object.__new__(OrchestratorServiceProvider)
+    provider._settings = Settings()
+    history = provider._create_message_history()
+    assert history._max_history == DEFAULT_MAX_CONVERSATION_HISTORY
+
+
+def test_assembler_hard_cap_escape_drops_oldest_selected():
+    assembler = _scored_assembler()
+    history = _long_history()
+    first = assembler.assemble(history, 100000)
+    assert any(m.content == "turn 0 task" for m in first)
+    # Re-assemble under a cap smaller than the assembled view: the escape
+    # drops oldest-selected messages (logged) rather than overflowing.
+    second = assembler.assemble(history, 200)
+    total = sum(len(m.content) for m in second)
+    assert total <= 200 or not assembler._frozen_selection[1]
+
+
+def test_assembler_non_tuple_score_fn_path():
+    def weird_fn(messages, current_query=None):
+        return ["not", "tuples"]
+
+    assembler = TurnBoundaryContextAssembler(score_fn=weird_fn)
+    history = _long_history()
+    view = assembler.assemble(history, 100000)
+    assert isinstance(view, list) and len(view) > 0
+
+
+def test_assembler_no_score_fn_uses_fitter():
+    assembler = TurnBoundaryContextAssembler()  # no score_fn
+    history = _long_history()
+    view = assembler.assemble(history, 100000)
+    assert any(m.content == "turn 0 task" for m in view)
+
+
+def test_assembler_semantic_augmentation_frozen_intra_turn():
+    class FakeController:
+        def retrieve_relevant_history(self, query, limit=3):
+            return ["relevant fact one", "relevant fact two"]
+
+    assembler = TurnBoundaryContextAssembler(
+        score_fn=lambda messages, current_query=None: [(m, 1.0) for m in messages],
+        conversation_controller=FakeController(),
+    )
+    history = _long_history()
+    first = assembler.assemble(history, 100000, current_query="find facts")
+    assert any("[Historical context:" in m.content for m in first)
+    # Intra-loop: same anchor reuses the frozen semantic render
+    second = assembler.assemble(history, 100000, current_query="find facts")
+    assert [m.content for m in first] == [m.content for m in second]
+
+
+def test_assembler_system_only_history_returns_early():
+    assembler = _scored_assembler()
+    view = assembler.assemble([_msg("system", "only")], 100000)
+    assert [m.content for m in view] == ["only"]
