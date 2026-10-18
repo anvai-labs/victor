@@ -2172,9 +2172,16 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         # serialized payload must extend the previous call's bytes so provider
         # prefix caching holds; sanctioned boundaries are announced via the
         # tracker and logged once. Observability must never break the call.
+        # (Inline lazy wiring: the facade ratchet forbids new probe methods.)
         if self._kv_optimization_enabled:
             try:
-                self._get_prefix_tracker().record(
+                tracker = getattr(self, "_prefix_call_tracker", None)
+                if tracker is None:
+                    from victor.agent.kv_prefix_observability import PrefixCallTracker
+
+                    tracker = PrefixCallTracker()
+                    self._prefix_call_tracker = tracker
+                tracker.record(
                     final_messages,
                     tools=getattr(self, "_last_sorted_tool_names", None),
                 )
@@ -2182,16 +2189,6 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
                 logger.debug("[kv-cache] prefix tracker skipped (record failed)", exc_info=True)
 
         return final_messages
-
-    def _get_prefix_tracker(self) -> "PrefixCallTracker":
-        """Lazily owned per-orchestrator KV prefix call tracker."""
-        tracker = getattr(self, "_prefix_call_tracker", None)
-        if tracker is None:
-            from victor.agent.kv_prefix_observability import PrefixCallTracker
-
-            tracker = PrefixCallTracker()
-            self._prefix_call_tracker = tracker
-        return tracker
 
     def _check_context_overflow(self, max_context_chars: int = 200000) -> bool:
         """Check if context is at risk of overflow.
