@@ -28,6 +28,7 @@ import logging
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
+from victor.config.conversation_settings import DEFAULT_MAX_CONVERSATION_HISTORY
 from victor.providers.base import Message
 
 logger = logging.getLogger(__name__)
@@ -127,13 +128,14 @@ class MessageHistory:
     def __init__(
         self,
         system_prompt: str = "",
-        max_history_messages: int = 100000,
+        max_history_messages: int = DEFAULT_MAX_CONVERSATION_HISTORY,
     ):
         """Initialize conversation manager.
 
         Args:
             system_prompt: Initial system prompt for the conversation
-            max_history_messages: Maximum messages to retain (default 100k for historical analysis)
+            max_history_messages: Maximum messages to retain
+                (default DEFAULT_MAX_CONVERSATION_HISTORY)
         """
         self._system_prompt = system_prompt
         self._system_added = False
@@ -381,7 +383,19 @@ class MessageHistory:
                 self._max_history,
                 len(protected),
             )
+        dropped = len(self._messages) - len(kept)
         self._messages[:] = [message for i, message in enumerate(self._messages) if i in kept]
+        if dropped:
+            # KV prefix stability: a mid-loop trim mutates already-sent provider
+            # bytes — a sanctioned boundary, but only if it is rare and visible.
+            logger.info(
+                "[history-trim] sanctioned boundary: dropped %d message(s), retained %d/%d "
+                "(max_history=%d)",
+                dropped,
+                len(kept),
+                len(kept) + dropped,
+                self._max_history,
+            )
 
     def get_last_user_message(self) -> Optional[str]:
         """Get the content of the last user message."""
@@ -420,7 +434,7 @@ class MessageHistory:
         """Deserialize conversation state from dictionary."""
         manager = cls(
             system_prompt=data.get("system_prompt", ""),
-            max_history_messages=data.get("max_history", 100),
+            max_history_messages=data.get("max_history", DEFAULT_MAX_CONVERSATION_HISTORY),
         )
         manager._system_added = data.get("system_added", False)
         for msg_data in data.get("messages", []):

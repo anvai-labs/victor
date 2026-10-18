@@ -414,20 +414,62 @@ class ContextManager:
         return getattr(self._context_compactor, "_async_running", False)
 
     async def start_background_compaction(self, interval_seconds: float = 30.0) -> None:
-        """Start background compaction task.
+        """Start background compaction, gated to user-turn boundaries.
+
+        KV prefix stability: compaction rewrites already-sent provider bytes,
+        so this monitor (replacing the compactor's ungated internal loop)
+        defers while a user turn is in progress — activity after the last
+        genuine user message. The overflow trigger overrides: context
+        overflow beats cache stability.
 
         Args:
             interval_seconds: How often to check for compaction (default 30s).
         """
         if self._context_compactor is None:
             return
-        await self._context_compactor.start_background_compaction(interval_seconds)
+        # Stop any internal monitor first so exactly one loop runs.
+        await self._context_compactor.stop_background_compaction()
+        import asyncio
+
+        self._kv_monitor_task = asyncio.create_task(
+            _kv_aware_compaction_monitor(self._context_compactor, interval_seconds)
+        )
 
     async def stop_background_compaction(self) -> None:
         """Stop background compaction task."""
         if self._context_compactor is None:
             return
+        task = getattr(self, "_kv_monitor_task", None)
+        if task is not None:
+            task.cancel()
+            self._kv_monitor_task = None
         await self._context_compactor.stop_background_compaction()
+
+
+async def _kv_aware_compaction_monitor(compactor: Any, interval_seconds: float) -> None:
+    """Gated background compaction loop (see ContextManager.start_background_compaction)."""
+    import asyncio
+
+    from victor.agent.context_compactor import CompactionTrigger
+    from victor.agent.conversation.history_metadata import mid_user_turn
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            should, trigger = await compactor.should_compact_async()
+            if not should or trigger == CompactionTrigger.NONE:
+                continue
+            history = getattr(getattr(compactor, "controller", None), "_history", None)
+            messages = getattr(history, "_messages", None) or []
+            if mid_user_turn(messages) and trigger != CompactionTrigger.OVERFLOW:
+                logger.debug("Background compaction deferred: mid user turn")
+                continue
+            logger.debug("Background compaction triggered: %s", trigger.value)
+            await compactor.check_and_compact_async()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - monitor must survive errors
+            logger.warning("Background compaction error: %s", e)
 
 
 def create_context_manager(

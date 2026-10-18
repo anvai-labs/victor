@@ -65,3 +65,20 @@ def is_user_turn(role: str, metadata: Mapping[str, Any] | None) -> bool:
         and metadata.get(INTERACTIVE_HISTORY_KEY) is not False
         and not metadata.get(INTERNAL_PROMPT_KIND_KEY)
     )
+
+
+def mid_user_turn(messages) -> bool:
+    """True when non-anchor activity exists after the last genuine user turn.
+
+    KV prefix stability: compaction and other history rewrites are sanctioned
+    only at user-turn boundaries; intra-loop rewrites mutate already-sent
+    provider bytes. Hidden runtime messages (failure hints, verification
+    feedback) do not count as anchors, so appending them does not end a turn.
+    """
+    from typing import Sequence
+
+    sequence: Sequence = messages
+    for message in reversed(sequence):
+        if is_user_turn(message.role, message.metadata):
+            return message is not sequence[-1]
+    return False

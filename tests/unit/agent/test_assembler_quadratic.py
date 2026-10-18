@@ -111,13 +111,21 @@ class TestScoreCache:
         assert len(calls) == n_calls, "unchanged prefix+query must hit the cache"
         assert [id(m) for m in first] == [id(m) for m in second], "cache must not change selection"
 
-    def test_query_change_misses(self):
+    def test_query_change_intra_turn_uses_frozen_selection(self):
+        """KV prefix stability: within a user turn the selection is frozen, so
+        a query change (same anchor, production: retries with the same user
+        message) must NOT recompute — recomputation could drop previously
+        included messages and mutate already-sent bytes. A new anchor
+        recomputes."""
         calls = []
         assembler = TurnBoundaryContextAssembler(
             session_ledger=SessionLedger(), score_fn=_score_spy(calls)
         )
         msgs = _conversation(10)
         assembler.assemble(msgs, max_context_chars=100000, current_query="alpha")
+        assembler.assemble(msgs, max_context_chars=100000, current_query="beta")
+        assert len(calls) == 1
+        msgs.append(_msg("user", "next turn"))
         assembler.assemble(msgs, max_context_chars=100000, current_query="beta")
         assert len(calls) == 2
 
@@ -177,9 +185,11 @@ class TestAdversarialCacheSafety:
         assert "rewritten answer" in contents, "replacement must be rescored in"
         assert len(calls) == 2
 
-    def test_in_place_length_change_invalidates(self):
-        """Length-changing in-place edit must miss the cache (content
-        fingerprint)."""
+    def test_in_place_length_change_stays_frozen_intra_turn(self):
+        """KV prefix stability: an in-place edit of an already-sent message is
+        the failure mode this train eliminates upstream (the invariant guard
+        asserts byte-stability). The selection freeze does not chase such
+        mutations intra-turn; a new anchor recomputes."""
         calls = []
         assembler = TurnBoundaryContextAssembler(
             session_ledger=SessionLedger(), score_fn=_score_spy(calls)
@@ -187,6 +197,9 @@ class TestAdversarialCacheSafety:
         msgs = _conversation(10)
         assembler.assemble(msgs, max_context_chars=100000, current_query="q")
         msgs[4].content = "a much longer rewritten answer " * 3
+        assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+        assert len(calls) == 1
+        msgs.append(_msg("user", "next turn"))
         assembler.assemble(msgs, max_context_chars=100000, current_query="q")
         assert len(calls) == 2
 
@@ -240,6 +253,12 @@ class TestAdversarialCacheSafety:
         msgs = _conversation(10)
         assembler.assemble(msgs, max_context_chars=100000, current_query="q")
         assembler.assemble(msgs, max_context_chars=100000, current_query="q")
-        # Classifier ran per call (fresh multipliers), score_fn ran once (cache).
-        assert classifier.calls == 2
+        # KV prefix stability: the selection (scores + temperature multipliers)
+        # is frozen per user turn, so intra-loop calls re-run neither the
+        # classifier nor the score_fn; a new anchor recomputes both.
+        assert classifier.calls == 1
         assert len(calls) == 1
+        msgs.append(_msg("user", "next turn"))
+        assembler.assemble(msgs, max_context_chars=100000, current_query="q")
+        assert classifier.calls == 2
+        assert len(calls) == 2

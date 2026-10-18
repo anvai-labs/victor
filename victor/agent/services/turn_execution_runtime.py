@@ -1764,6 +1764,29 @@ class TurnExecutor:
             user_message: Current query
             task_classification: Task complexity classification
         """
+        # KV prefix stability: compaction rewrites already-sent provider
+        # bytes; intra-user-turn calls defer to the turn boundary unless the
+        # context is at overflow risk (overflow beats cache stability).
+        from victor.agent.conversation.history_metadata import mid_user_turn
+
+        if mid_user_turn(self._chat_context._messages):
+            from victor.agent.context_compactor import CompactionTrigger
+
+            compactor = getattr(self._chat_context, "_context_compactor", None)
+            overflow = False
+            if compactor is not None:
+                try:
+                    complexity_value = getattr(
+                        getattr(task_classification, "complexity", None), "value", None
+                    )
+                    should, trigger = compactor.should_compact(task_complexity=complexity_value)
+                    overflow = should and trigger == CompactionTrigger.OVERFLOW
+                except Exception:  # noqa: BLE001 - probe is best-effort
+                    overflow = False
+            if not overflow:
+                return
+            logger.info("[kv-cache] mid-turn compaction override: context overflow risk")
+
         if await self._check_lifecycle_context_compaction(user_message):
             return
 

@@ -383,8 +383,11 @@ class RuntimeBuildersMixin:
             MessageHistory instance configured with settings
         """
         from victor.agent.message_history import MessageHistory
+        from victor.config.conversation_settings import DEFAULT_MAX_CONVERSATION_HISTORY
 
-        max_history = getattr(self.settings, "max_conversation_history", 100000)
+        max_history = getattr(
+            self.settings, "max_conversation_history", DEFAULT_MAX_CONVERSATION_HISTORY
+        )
         history = MessageHistory(
             system_prompt=system_prompt,
             max_history_messages=max_history,

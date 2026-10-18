@@ -8,9 +8,8 @@ tool-set change, system refresh, model switch, resume).
 Production evidence (2026-10-18, zai glm-5.3): cache hits frozen at 6528
 tokens while input grew 2685→56762 — the mutators below reproduce that.
 
-This guard lands ``xfail(strict=True)`` with the observability PR and is
-flipped to a hard assert when the stabilization train completes: an accidental
-early fix xpasses and fails the suite, forcing the flip.
+Landed as ``xfail(strict=True)`` with the observability PR and flipped to a
+hard assert by the stabilization train's final code PR.
 """
 
 from __future__ import annotations
@@ -131,8 +130,18 @@ def _drive_intra_loop(orch: AgentOrchestrator, iterations: int) -> List[bytes]:
         if i == 3:
             # Duplicate output arrival in the user-role wrapped shape the
             # dedup view stubs (tool_result_deduplicator._dedup_by_content_hash
-            # only matches role="user" content).
-            orch.conversation.add_message("user", duplicate_payload)
+            # only matches role="user" content). Hidden runtime provenance
+            # keeps it off the turn anchor — a genuine user message would be
+            # a sanctioned boundary, not a mutator.
+            from victor.agent.conversation.history_metadata import (
+                build_internal_history_metadata,
+            )
+
+            orch.conversation.add_message(
+                "user",
+                duplicate_payload,
+                metadata=build_internal_history_metadata(kind="tool_result_duplicate"),
+            )
     return payloads
 
 
@@ -144,12 +153,6 @@ def _assert_append_only(payloads: List[bytes]) -> None:
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="remaining intra-turn mutators (dedup view stubs already-sent messages, "
-    "assembler older-message re-selection under budget pressure) — fixed by the "
-    "KV prefix stabilization train's later PRs",
-)
 async def test_intra_turn_payload_is_append_only():
     orch = _make_orchestrator()
     _seed_history(orch)
@@ -158,10 +161,6 @@ async def test_intra_turn_payload_is_append_only():
     _assert_append_only(payloads)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="intra-turn payload mutators — fixed by the KV prefix stabilization train",
-)
 async def test_user_turn_boundary_is_the_only_sanctioned_divergence():
     orch = _make_orchestrator()
     _seed_history(orch)
