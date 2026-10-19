@@ -2,8 +2,8 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-18
-baseline_develop: 5dd0424d0
-next_task: DATA-04b atomic graph generation publication
+baseline_develop: e46740bff
+next_task: DATA-04b qualify publication contention before pipeline integration
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **KV-VERIFY-01 — LOCAL_PASS (runtime repair), PARTIAL (live matrix)** (2026-10-18), owner: provider verification session;
+- **KV-VERIFY-01 — MERGED (runtime repair), PARTIAL (live matrix), [#1394](https://github.com/anvai-labs/victor/pull/1394)** (2026-10-18), owner: provider verification session;
   branch `fix/kv-compaction-message-contract`, baseline `71e31ad0d`. Actual
   DeepSeek buffered-agent verification exposed an `AttributeError`: the inline
   compaction guard requests `_messages` from the real orchestrator adapter,
@@ -95,8 +95,15 @@ edit. A mock test is not live provider or C5 evidence.
   final-call cache ratio). Its strict JSON deliverable passes. Both runs use
   distinct session IDs; no streaming, multiagent or C5 acceptance is claimed.
   Validation: independent review passes 129 focused cases; Black/Ruff, MyPy,
-  hygiene, docs drift and strict MkDocs pass; 35,393 tests collect. Next: final
-  commit-bound review, CI, then merge. Local comparison evidence is
+  hygiene, docs drift, strict MkDocs and built-site links pass; 35,393 tests collect.
+  Reviewed candidate `2693d7b637cbebeeda6f1de969e019c32298bab4` merged as
+  `e46740bff17182b59576d126c622a99ea514375e` with identical trees; final CI
+  has 39 success, two conditional skips and one advisory neutral result.
+  This is merged source, not a released artifact. InferFlux handoff is verified
+  on aiserver1 at `/home/vsingh/code/inferflux/docs/planning/VICTOR_PREFIX_CACHE_TIMEOUT_HANDOFF_2026-10-18.md`;
+  its docs contract passes. Next: InferFlux owns origin liveness/correlation and
+  returns acceptance evidence before further local-model/C5 runs. Victor retains
+  the strict-output and failed-result-status follow-ups. Local comparison evidence is
   `var/provider-prefix-20261018/provider-comparison.json`.
   Original failed evidence: `var/provider-prefix-20261018/` (local, sanitized).
   Graph publication qualification remains independently pending.
@@ -2783,7 +2790,7 @@ only against new evidence, retaining unknowns and readiness blockers.
 | DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
 | DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
 | DATA-04a / CG-P2 | ✅ merged [#1365](https://github.com/anvai-labs/victor/pull/1365); High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
-| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight ✅ [#1369](https://github.com/anvai-labs/victor/pull/1369), incremental qualification ✅ [#1388](https://github.com/anvai-labs/victor/pull/1388); atomic publication pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
+| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight ✅ [#1369](https://github.com/anvai-labs/victor/pull/1369), incremental qualification ✅ [#1388](https://github.com/anvai-labs/victor/pull/1388); private SQLite publication foundation ✅ [#1391](https://github.com/anvai-labs/victor/pull/1391); pipeline activation pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
 | DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
@@ -3352,13 +3359,16 @@ test publication/rollback with concurrent session writers; retain the existing
 post-preflight failure reproducer. DATA remains **5/12 complete (41.7%)** until
 DATA-04b's full gates pass.
 
-### DATA-04b staged publication ownership (2026-10-18, active)
+### DATA-04b staged publication ownership (2026-10-18, merged #1391)
 
 Owner: Victor co-design; branch `feat/graph-staged-publication`, baseline
 `5dd0424d0` after #1389. Incremental preflight #1388 is merged as
 `41e18a22cd4ad49cb8f8490a75fd2531c37c6d34`: 40 successful checks including
-Vertical Py3.12, one conditional skip and one neutral result. Local develop is
-reconciled; the other session owns the prefix-stability work in #1390.
+Vertical Py3.12, one conditional skip and one neutral result. Local develop now
+includes this milestone and the independently merged
+prefix-stability #1390 (`a415d74cf`). Completed implementation worktree removed;
+checkpoint owner is Victor co-design on `docs/graph-publication-checkpoint`,
+based on `a415d74cf`. Next action is the bounded FTS experiment qualification below.
 
 Selected increment: private, store-owned SQLite graph staging and publication,
 with **no indexing-pipeline activation or public framework API**. Staging retains
@@ -3384,8 +3394,13 @@ reject a competing writer; session writes alone do not invalidate a build.
   were omitted from unsupported-state admission. Only the context owner may now
   publish; rejected child access does not consume its attempt. Nonempty query
   cache, current metrics, requirements/subgraphs, CPG fragments and embeddings
-  are rejected until explicit reconciliation exists. Final committed-candidate
-  binding and CI are still pending. The reviewer independently ran the 62-case
+  are rejected until explicit reconciliation exists. Scoped clean review is bound
+  to `7c8ea733f9e5bf61156ed84459e6b440407cc019`; [#1391](https://github.com/anvai-labs/victor/pull/1391)
+  squash-merged into develop as `f1eba17ecfb1cece712a5ac22b993b90108842dd`.
+  All 39 successful checks passed, including Vertical Py3.12; two conditional
+  jobs skipped and Trivy was neutral. No CI or review bypass was used. The landed
+  tree matches the reviewed candidate. This is merged source, not a release or
+  pipeline activation. The reviewer independently ran the 62-case
   owner suite and then all four final staged/ordinary close-cancellation cases.
 - Local qualification: broader graph/storage suites **732 passed, one optional
   SDK skip**; final CI-selected suite **170 passed**, **147/153 changed production
@@ -3422,7 +3437,38 @@ an unreferenced private stage directory; recovery/cleanup must identify ownershi
 before removal. No automatic sweep or shared-database restoration is introduced.
 Per-transaction reader consistency does not promise a multi-query request snapshot.
 
-Next gates: bind clean review to the tested commit, then CI and squash merge. Subsequent DATA-04b work must integrate qualified parser/source
+Next gates: qualify the bounded publication performance candidate before pipeline
+integration. A disposable, uncommitted bulk-FTS experiment (same synthetic shape, 10k/100k) reduced publication to
+0.46/4.51 seconds, with normal-timeout writers committing after 0.25/2.42 seconds.
+This replaces per-node FTS insert triggers with one transactional FTS rebuild in
+the experimental probe only; reviewed production code is unchanged. Before
+adoption, qualify canonical-trigger ownership, SQL/FTS failure rollback, parity,
+cancellation and representative size/skew/headroom. Do not treat one experiment
+as an accepted workload limit or change global busy timeouts. The competing
+writer started at copying, after validation/deletion, so its wait is not the full
+write-lock duration. Repeat matched measurements from `BEGIN IMMEDIATE`, with
+mtime rows, non-self-loop edges and varied document terms. Bulk FTS eligibility
+must verify canonical table/trigger definitions before mutation; an extra trigger
+may inspect FTS mid-copy. Preserve extra indexes, choose any alternate mode before
+mutation with explicit reporting, and never replay after a failed bulk attempt.
+
+Executable continuation: fetch origin; create a fresh linked
+`fix/graph-publication-fts` worktree from current develop; extend the existing
+cleanup/concurrency owners with canonical/custom trigger admission, rollback at
+suspension/rebuild/restoration, FTS read snapshots and post-publication write
+maintenance. Run the existing owners with:
+
+```bash
+.venv-codesign/bin/python -m pytest \
+  tests/unit/storage/graph/test_sqlite_store_cleanup.py \
+  tests/unit/storage/test_sqlite_graph_store_concurrency.py -q
+```
+
+Adapt the preserved synthetic probe to the stronger measurements above before
+choosing the implementation. Keep defaults and the indexing pipeline unchanged in that
+performance increment. Release/activation follows its own qualification.
+
+Subsequent DATA-04b work must integrate qualified parser/source
 inventories, resolve the root/maintenance alignment and reject partial builds,
 qualify writer/reader admission and measured lock/headroom limits, and reconcile
 cache/vector consumers before activation. Whole-build transactions hold session
