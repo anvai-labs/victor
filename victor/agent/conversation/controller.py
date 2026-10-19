@@ -34,6 +34,7 @@ from victor.config.orchestrator_constants import (
     TASK_COMPACTION_CONFIGS,
 )
 from victor.core.completion_markers import strip_active_completion_markers
+from victor.config.conversation_settings import DEFAULT_MAX_SESSION_PREFILL_TOKENS
 from victor.providers.base import Message
 
 if TYPE_CHECKING:
@@ -142,6 +143,10 @@ class ConversationConfig:
     tool_result_retention_weight: float = COMPACTION_CONFIG.tool_result_retention_weight
     recent_message_weight: float = COMPACTION_CONFIG.recent_message_weight
     semantic_relevance_threshold: float = SEMANTIC_THRESHOLDS.compaction_relevance
+    # Budget-aware compaction: cumulative session prefill volume that forces
+    # compaction at a turn boundary regardless of window utilization.
+    # None disables the spend trigger.
+    max_session_prefill_tokens: Optional[int] = DEFAULT_MAX_SESSION_PREFILL_TOKENS
 
     def __post_init__(self):
         """Ensure compaction_strategy is a CompactionStrategy enum.
@@ -177,6 +182,8 @@ class ConversationController:
         hierarchical_manager: Optional["HierarchicalCompactionManager"] = None,
     ):
         self.config = config or ConversationConfig()
+        # Cumulative session prefill volume (real provider prompt_tokens).
+        self._session_prompt_tokens: int = 0
         self._history = message_history or MessageHistory()
         self._state_machine = state_machine or ConversationStateMachine()
         self._embedding_service = embedding_service
@@ -385,6 +392,7 @@ class ConversationController:
         """
         if prompt_tokens <= 0:
             return
+        self._session_prompt_tokens += prompt_tokens
         self._last_actual_prompt_tokens = prompt_tokens
         if total_chars > 0:
             observed = total_chars / prompt_tokens
@@ -558,8 +566,21 @@ class ConversationController:
         """
         import time
 
-        # Check threshold first (cheap check)
-        if current_utilization < self.config.compaction_threshold:
+        # Budget-aware trigger: cumulative session prefill volume crossing the
+        # configured limit forces compaction even under window utilization —
+        # un-compacted history resend amplification is what burns token
+        # budgets. Prefix caching keeps this quiet for cache-stable sessions.
+        spend_limit = self.config.max_session_prefill_tokens
+        over_spend = spend_limit is not None and self._session_prompt_tokens >= int(spend_limit)
+        if over_spend:
+            logger.info(
+                "[budget-compaction] session prefill volume %d >= limit %d — "
+                "compacting at this boundary (window utilization %.2f)",
+                self._session_prompt_tokens,
+                int(spend_limit),
+                current_utilization,
+            )
+        elif current_utilization < self.config.compaction_threshold:
             return False
 
         # Check minimum interval (prevents aggressive compaction)

@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Budget-aware compaction: cumulative session prefill volume (real provider
+  `prompt_tokens` accumulated per response) crossing
+  `max_session_prefill_tokens` (default 400,000; `None` disables) forces
+  compaction at the next user-turn boundary regardless of context-window
+  utilization. Un-compacted history resend amplification is what burns token
+  budgets (measured 2026-10-18: 813k tokens across 24 calls of one turn);
+  prefix caching keeps the trigger quiet for cache-stable sessions.
+
 ### Changed
 
 - Enforce the KV prefix-stability invariant: within a user turn the

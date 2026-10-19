@@ -13,6 +13,15 @@ from pydantic import BaseModel
 #: (KV prefix stability), so when it does fire it logs a sanctioned boundary.
 DEFAULT_MAX_CONVERSATION_HISTORY = 2000
 
+#: Budget-aware compaction: cumulative session prefill volume (real
+#: prompt_tokens accumulated from provider responses) that forces compaction
+#: at the next user-turn boundary even under window utilization. Un-compacted
+#: history resend amplification is what burns token budgets (measured 2026-10:
+#: 813k tokens in 24 calls of one turn). KV prefix caching keeps this trigger
+#: quiet for cache-stable sessions — only genuinely resent prefill counts.
+#: ``None`` disables the spend trigger.
+DEFAULT_MAX_SESSION_PREFILL_TOKENS = 400_000
+
 
 class ConversationSettings(BaseModel):
     """Conversation persistence and history limits."""
