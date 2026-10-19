@@ -213,6 +213,9 @@ class RuntimeBuildersMixin:
             CompactionStrategy,
         )
         from victor.agent.orchestrator_utils import calculate_max_context_chars
+        from victor.config.conversation_settings import (
+            DEFAULT_MAX_SESSION_PREFILL_TOKENS,
+        )
 
         model_context_chars = calculate_max_context_chars(self.settings, provider, model)
 
@@ -242,6 +245,11 @@ class RuntimeBuildersMixin:
                 recent_message_weight=getattr(self.settings, "context_recency_weight", 2.0),
                 semantic_relevance_threshold=getattr(
                     self.settings, "context_semantic_threshold", 0.3
+                ),
+                max_session_prefill_tokens=getattr(
+                    self.settings,
+                    "max_session_prefill_tokens",
+                    DEFAULT_MAX_SESSION_PREFILL_TOKENS,
                 ),
             ),
             message_history=conversation,
@@ -383,7 +391,10 @@ class RuntimeBuildersMixin:
             MessageHistory instance configured with settings
         """
         from victor.agent.message_history import MessageHistory
-        from victor.config.conversation_settings import DEFAULT_MAX_CONVERSATION_HISTORY
+        from victor.config.conversation_settings import (
+            DEFAULT_MAX_CONVERSATION_HISTORY,
+            DEFAULT_MAX_SESSION_PREFILL_TOKENS,
+        )
 
         max_history = getattr(
             self.settings, "max_conversation_history", DEFAULT_MAX_CONVERSATION_HISTORY
