@@ -111,6 +111,11 @@ demo_workspace/
 # Database consolidation moved conversation.db → project.db (project-specific) and victor.db (global)
 .victor/
 
+# User-local runtime config dropped by released binaries run in this CWD
+# (e.g. policy_store.conf from a released gateway). Nothing in the tree
+# produces or consumes it; victor's tracked config lives in victor/config/.
+/config/
+
 # Embedded-ProximaDB test runtime output. Committed fixtures under this dir
 # (embedded-config.toml, metadata/system-catalog.wal, seeded *.bcwal) stay tracked;
 # only untracked runtime artifacts (random UUID data dirs, WAL segments, metadata
