@@ -2,7 +2,7 @@
 plan_id: VAS-2026-10
 status: active
 updated: 2026-10-18
-baseline_develop: a415d74cf
+baseline_develop: e46740bff
 next_task: DATA-04b qualify publication contention before pipeline integration
 ---
 
@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **KV-VERIFY-01 — LOCAL_PASS (runtime repair), PARTIAL (live matrix)** (2026-10-18), owner: provider verification session;
+- **KV-VERIFY-01 — MERGED (runtime repair), PARTIAL (live matrix), [#1394](https://github.com/anvai-labs/victor/pull/1394)** (2026-10-18), owner: provider verification session;
   branch `fix/kv-compaction-message-contract`, baseline `71e31ad0d`. Actual
   DeepSeek buffered-agent verification exposed an `AttributeError`: the inline
   compaction guard requests `_messages` from the real orchestrator adapter,
@@ -95,8 +95,15 @@ edit. A mock test is not live provider or C5 evidence.
   final-call cache ratio). Its strict JSON deliverable passes. Both runs use
   distinct session IDs; no streaming, multiagent or C5 acceptance is claimed.
   Validation: independent review passes 129 focused cases; Black/Ruff, MyPy,
-  hygiene, docs drift and strict MkDocs pass; 35,393 tests collect. Next: final
-  commit-bound review, CI, then merge. Local comparison evidence is
+  hygiene, docs drift, strict MkDocs and built-site links pass; 35,393 tests collect.
+  Reviewed candidate `2693d7b637cbebeeda6f1de969e019c32298bab4` merged as
+  `e46740bff17182b59576d126c622a99ea514375e` with identical trees; final CI
+  has 39 success, two conditional skips and one advisory neutral result.
+  This is merged source, not a released artifact. InferFlux handoff is verified
+  on aiserver1 at `/home/vsingh/code/inferflux/docs/planning/VICTOR_PREFIX_CACHE_TIMEOUT_HANDOFF_2026-10-18.md`;
+  its docs contract passes. Next: InferFlux owns origin liveness/correlation and
+  returns acceptance evidence before further local-model/C5 runs. Victor retains
+  the strict-output and failed-result-status follow-ups. Local comparison evidence is
   `var/provider-prefix-20261018/provider-comparison.json`.
   Original failed evidence: `var/provider-prefix-20261018/` (local, sanitized).
   Graph publication qualification remains independently pending.
