@@ -267,6 +267,7 @@ def test_selector_changes_select_its_own_regressions():
                 "tests/unit/storage/graph/test_sqlite_store_edge_file_tracking.py",
                 "tests/unit/storage/graph/test_sqlite_store_edge_integrity.py",
                 "tests/unit/storage/graph/test_sqlite_store_embedding_cleanup.py",
+                "tests/unit/storage/graph/test_sqlite_store_parent_integrity.py",
             },
         ),
         (

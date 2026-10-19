@@ -546,10 +546,6 @@ class SqliteGraphStore(GraphStoreProtocol):
             rows,
         )
 
-    # Column position of parent_id in the node row layout built by upsert_nodes
-    # and written by _upsert_nodes_rows' INSERT column list.
-    _NODE_ROW_PARENT = 9
-
     @staticmethod
     def _select_known_node_ids(conn: sqlite3.Connection, ids: Set[str]) -> Set[str]:
         """Return the subset of ``ids`` already present in the node table.
@@ -601,7 +597,7 @@ class SqliteGraphStore(GraphStoreProtocol):
             parent = row[self._NODE_ROW_PARENT]
             if parent in missing:
                 cleared.append(f"{row[0]}->{parent}")
-                row = row[: self._NODE_ROW_PARENT] + (None,) + row[self._NODE_ROW_PARENT + 1 :]
+                row = self._with_parent(row, None)
             staged.append(row)
         logger.warning(
             "sqlite graph store: cleared %d parent link(s) referencing %d "
@@ -660,8 +656,10 @@ class SqliteGraphStore(GraphStoreProtocol):
             # Every remaining row waits on another remaining row: a parent
             # cycle. Walk parent pointers to one node on the cycle, clear its
             # link, and let the drain above emit it and its descendants with
-            # their own links intact.
-            walker = next(iter(staged.keys() - emitted))
+            # their own links intact. Scanning staged in insertion order (not
+            # set iteration) keeps the break deterministic: identical input
+            # persists identical parent_id values across runs.
+            walker = next(node_id for node_id in staged if node_id not in emitted)
             seen: Dict[str, int] = {}
             path: List[str] = []
             while walker not in seen:
@@ -669,17 +667,14 @@ class SqliteGraphStore(GraphStoreProtocol):
                 path.append(walker)
                 walker = staged[walker][self._NODE_ROW_PARENT]
             breaker = path[seen[walker]]
-            row = staged[breaker]
             logger.warning(
                 "sqlite graph store: cleared parent link %s->%s to break a parent "
                 "cycle (colliding node ids?); %d row(s) were waiting on the cycle",
                 breaker,
-                row[self._NODE_ROW_PARENT],
+                staged[breaker][self._NODE_ROW_PARENT],
                 len(staged) - len(emitted),
             )
-            staged[breaker] = (
-                row[: self._NODE_ROW_PARENT] + (None,) + row[self._NODE_ROW_PARENT + 1 :]
-            )
+            staged[breaker] = self._with_parent(staged[breaker], None)
             ready.append(breaker)
 
     def _drop_dangling_edge_rows(
@@ -1141,6 +1136,19 @@ class SqliteGraphStore(GraphStoreProtocol):
         return node
 
     _NODE_COLS = "node_id, type, name, file, line, end_line, lang, signature, docstring, parent_id, embedding_ref, metadata, ast_kind, scope_id, statement_type, requirement_id, visibility"
+
+    # Column position of parent_id in the node row layout built by upsert_nodes
+    # and written by _upsert_nodes_rows' INSERT column list. Derived from the
+    # shared column list (the same authority _row_to_node reads positionally)
+    # so a column edit moves the index instead of silently desyncing the
+    # parent-link guards from the row shape.
+    _NODE_ROW_PARENT = _NODE_COLS.split(", ").index("parent_id")
+
+    @staticmethod
+    def _with_parent(row: tuple[Any, ...], parent: str | None) -> tuple[Any, ...]:
+        """Rebuild a node row with parent_id replaced (layout-aware splice)."""
+        i = SqliteGraphStore._NODE_ROW_PARENT
+        return row[:i] + (parent,) + row[i + 1 :]
 
     async def find_nodes(
         self,

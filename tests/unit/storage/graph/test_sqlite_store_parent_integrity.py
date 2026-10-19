@@ -103,11 +103,12 @@ async def test_parent_cycle_is_broken_minimally_and_logged(tmp_path, caplog):
     b = await store.get_node_by_id("b")
     desc = await store.get_node_by_id("desc")
     assert a is not None and b is not None and desc is not None
-    # Exactly one link of the cycle is cleared (which one depends on set
-    # iteration order); every other link — including the descendant's — survives.
-    assert (a.parent_id is None) != (b.parent_id is None)
-    kept = b.parent_id if a.parent_id is None else a.parent_id
-    assert kept in {"a", "b"}
+    # Exactly one link of the cycle is cleared, deterministically: the break
+    # starts at the first remaining row in insertion order ("a"), so identical
+    # input persists identical parent_id values across runs. Every other
+    # link — including the descendant's — survives.
+    assert a.parent_id is None
+    assert b.parent_id == "a"
     assert desc.parent_id == "a"
     assert any("cycle" in rec.message for rec in caplog.records), "break is reported"
 

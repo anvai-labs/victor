@@ -271,7 +271,10 @@ class TestReminderHasExactlyOneConsumer:
     def test_the_consumer_is_the_turn_prefix(self):
         (path, _line), *_ = self._production_consumers()
 
-        assert path.endswith("orchestrator.py"), (
+        # Since #1389 the turn prefix is composed in turn_prefix_runtime.py
+        # (imported by get_assembled_messages via compose_turn_prefix_for_call);
+        # the consumer must stay on that path so guidance travels enveloped.
+        assert path.endswith("turn_prefix_runtime.py"), (
             f"the single consumer moved to {path}; it must stay on the "
             "get_assembled_messages turn-prefix path so guidance travels enveloped"
         )
