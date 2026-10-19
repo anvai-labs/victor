@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix `FOREIGN KEY constraint failed` on graph node upserts whose emission
+  order wrote a child before its parent within one batch: real-world Rust
+  files emit impl members before their impl block (proximaDB
+  `src/audit/mod.rs` failed to index in isolation), and the indexing
+  pipeline's per-file retry cannot recover an ordering defect that lives
+  inside the single file batch. `SqliteGraphStore` now clears parent links
+  that resolve to neither a batch row nor a persisted node (logged, the node
+  counterpart of the dangling-edge guard) and writes node batches
+  parents-first, breaking the unorderable parent-cycle case (colliding node
+  ids) minimally with one cleared, logged link.
+
 ### Added
 
 - Budget-aware compaction: cumulative session prefill volume (real provider
