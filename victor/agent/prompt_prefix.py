@@ -50,8 +50,13 @@ def apply_turn_prefix(messages: List["Message"], prefix: str) -> List["Message"]
     if not prefix:
         return messages
 
+    from victor.agent.conversation.history_metadata import is_user_turn
+
     for i in range(len(messages) - 1, -1, -1):
-        if messages[i].role == "user":
+        # Target the last GENUINE user turn: hidden runtime messages (failure
+        # hints, verification feedback) carry the user wire role without being
+        # a new task, and must not steal the turn prefix from the anchor.
+        if is_user_turn(messages[i].role, messages[i].metadata):
             messages[i] = messages[i].model_copy(update={"content": prefix + messages[i].content})
             break
 

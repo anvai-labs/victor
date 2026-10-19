@@ -5,8 +5,9 @@ import asyncio
 import json
 import logging
 import sqlite3
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -34,6 +35,7 @@ from victor.storage.graph.protocol import (
 
 if TYPE_CHECKING:
     from victor.core.database import ProjectDatabaseManager
+    from victor.storage.graph.sqlite_publication import GraphReplacement
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +138,9 @@ END;
 class SqliteGraphStore(GraphStoreProtocol):
     """Embedded SQLite graph store using consolidated project.db."""
 
-    def __init__(self, project_path: Optional[Path] = None) -> None:
+    def __init__(
+        self, project_path: Optional[Path] = None, *, _staging_path: Path | None = None
+    ) -> None:
         """Initialize graph store.
 
         Args:
@@ -145,11 +149,14 @@ class SqliteGraphStore(GraphStoreProtocol):
         from victor.core.database import get_project_database
 
         self._db = get_project_database(project_path)
-        self.db_path = self._db.db_path
+        self.db_path = _staging_path if _staging_path is not None else self._db.db_path
+        self._is_staging = _staging_path is not None
+        self._sealed = False
         self._project_root = Path(self._db.project_root).resolve()
         self._conn: sqlite3.Connection | None = None
         self._ensure_schema()
-        self._record_project_metadata()
+        if not self._is_staging:
+            self._record_project_metadata()
         self._lock = asyncio.Lock()
         self._write_batch_conn: sqlite3.Connection | None = None
         self._write_batch_owner: asyncio.Task[Any] | None = None
@@ -256,6 +263,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         lazily reopen, preserving the existing lifecycle contract.
         """
         self._reject_batch_lifecycle("close")
+        if self._is_staging:
+            self._sealed = True
         async with self._lock:
             try:
                 if self._conn is not None:
@@ -273,9 +282,17 @@ class SqliteGraphStore(GraphStoreProtocol):
     def _connect(self) -> sqlite3.Connection:
         """Get this store's dedicated database connection (lazily reopened
         after close(), preserving the previous ops-after-close behavior)."""
+        if self._sealed:
+            raise RuntimeError("Staged graph is sealed; it cannot be reopened")
         if self._conn is None:
             self._conn = self._open_dedicated_connection()
         return self._conn
+
+    def _stage_replacement(self) -> AbstractAsyncContextManager[GraphReplacement]:
+        """Private SQLite publication foundation; not used by the index pipeline yet."""
+        from victor.storage.graph.sqlite_publication import stage_replacement
+
+        return stage_replacement(self)
 
     def _get_active_write_batch_connection(self) -> sqlite3.Connection | None:
         """Return the active write-batch connection for the current task, if any."""
@@ -492,7 +509,16 @@ class SqliteGraphStore(GraphStoreProtocol):
         conn: sqlite3.Connection,
         rows: List[tuple[Any, ...]],
     ) -> None:
-        """Write node rows using the provided connection."""
+        """Write node rows using the provided connection.
+
+        ``parent_id`` carries a plain (NOT deferrable) foreign key checked
+        statement-by-statement, so the batch is made safe for one executemany
+        first: parent links that can never resolve are cleared and logged
+        (``_clear_dangling_parent_links``, the node counterpart of the edge
+        guard), and the rows are ordered parents-before-children
+        (``_order_rows_parents_first``).
+        """
+        rows = self._order_rows_parents_first(self._clear_dangling_parent_links(conn, rows))
         conn.executemany(
             f"""
             INSERT INTO {_NODE_TABLE}(node_id, type, name, file, line, end_line, lang,
@@ -520,6 +546,137 @@ class SqliteGraphStore(GraphStoreProtocol):
             rows,
         )
 
+    @staticmethod
+    def _select_known_node_ids(conn: sqlite3.Connection, ids: Set[str]) -> Set[str]:
+        """Return the subset of ``ids`` already present in the node table.
+
+        One chunked SELECT over the batch's distinct ids keeps the check
+        O(batch), not O(graph), and stays under SQLite's default
+        host-parameter limit.
+        """
+        known: Set[str] = set()
+        id_list = list(ids)
+        chunk = 900
+        for i in range(0, len(id_list), chunk):
+            part = id_list[i : i + chunk]
+            marks = ",".join("?" * len(part))
+            cur = conn.execute(
+                f"SELECT node_id FROM {_NODE_TABLE} WHERE node_id IN ({marks})",
+                part,
+            )
+            known.update(row[0] for row in cur.fetchall())
+        return known
+
+    def _clear_dangling_parent_links(
+        self,
+        conn: sqlite3.Connection,
+        rows: List[tuple[Any, ...]],
+    ) -> List[tuple[Any, ...]]:
+        """Clear parent links whose ids are in neither the batch nor the table.
+
+        Node counterpart of ``_drop_dangling_edge_rows``: a ``parent_id`` that
+        can never satisfy the ``nodes(parent_id)`` foreign key would fail the
+        whole executemany, taking every other symbol in the batch down with
+        it. The unresolvable link is cleared instead — the symbol itself still
+        lands — and the loss is logged, never silent.
+        """
+        in_batch = {row[0] for row in rows}
+        external = {
+            row[self._NODE_ROW_PARENT]
+            for row in rows
+            if row[self._NODE_ROW_PARENT] is not None and row[self._NODE_ROW_PARENT] not in in_batch
+        }
+        if not external:
+            return rows
+        missing = external - self._select_known_node_ids(conn, external)
+        if not missing:
+            return rows
+        staged: List[tuple[Any, ...]] = []
+        cleared: List[str] = []
+        for row in rows:
+            parent = row[self._NODE_ROW_PARENT]
+            if parent in missing:
+                cleared.append(f"{row[0]}->{parent}")
+                row = self._with_parent(row, None)
+            staged.append(row)
+        logger.warning(
+            "sqlite graph store: cleared %d parent link(s) referencing %d "
+            "nonexistent node id(s); sample: %s",
+            len(cleared),
+            len(missing),
+            cleared[:5],
+        )
+        return staged
+
+    def _order_rows_parents_first(self, rows: List[tuple[Any, ...]]) -> List[tuple[Any, ...]]:
+        """Emit node rows parents-before-children, one row per node id.
+
+        The parent foreign key is checked per statement, so a child row written
+        before its parent row fails the batch even though the parent arrives in
+        the same executemany — graph emitters do not promise parents-first
+        order (real-world Rust files emit impl members before their impl
+        block), and the pipeline's per-file retry cannot fix an ordering
+        problem that lives inside the single file batch. Ordering here makes
+        the store independent of emitter ordering without schema changes or a
+        second write pass.
+
+        Duplicate node ids keep the last row, matching the final state of
+        executemany's sequential upserts. A parent cycle — only possible when
+        distinct symbols collide on one node id — has no valid order, so the
+        minimal break clears ONE link per cycle (logged) and keeps every
+        symbol and every other link intact.
+        """
+        # Dict: one row per node id, last occurrence winning, first-occurrence
+        # order preserved for deterministic emission.
+        staged: Dict[str, tuple[Any, ...]] = {row[0]: row for row in rows}
+        children: Dict[str, List[str]] = {}
+        ready: deque[str] = deque()
+        for node_id, row in staged.items():
+            parent = row[self._NODE_ROW_PARENT]
+            if parent is not None and parent in staged:
+                children.setdefault(parent, []).append(node_id)
+            else:
+                ready.append(node_id)
+
+        ordered: List[tuple[Any, ...]] = []
+        emitted: Set[str] = set()
+        while True:
+            while ready:
+                node_id = ready.popleft()
+                if node_id in emitted:
+                    # A cycle break can re-enqueue an already-emitted node
+                    # (the breaker is also some cycle member's child); emit
+                    # every row exactly once.
+                    continue
+                ordered.append(staged[node_id])
+                emitted.add(node_id)
+                ready.extend(children.get(node_id, ()))
+            if len(emitted) == len(staged):
+                return ordered
+            # Every remaining row waits on another remaining row: a parent
+            # cycle. Walk parent pointers to one node on the cycle, clear its
+            # link, and let the drain above emit it and its descendants with
+            # their own links intact. Scanning staged in insertion order (not
+            # set iteration) keeps the break deterministic: identical input
+            # persists identical parent_id values across runs.
+            walker = next(node_id for node_id in staged if node_id not in emitted)
+            seen: Dict[str, int] = {}
+            path: List[str] = []
+            while walker not in seen:
+                seen[walker] = len(path)
+                path.append(walker)
+                walker = staged[walker][self._NODE_ROW_PARENT]
+            breaker = path[seen[walker]]
+            logger.warning(
+                "sqlite graph store: cleared parent link %s->%s to break a parent "
+                "cycle (colliding node ids?); %d row(s) were waiting on the cycle",
+                breaker,
+                staged[breaker][self._NODE_ROW_PARENT],
+                len(staged) - len(emitted),
+            )
+            staged[breaker] = self._with_parent(staged[breaker], None)
+            ready.append(breaker)
+
     def _drop_dangling_edge_rows(
         self,
         conn: sqlite3.Connection,
@@ -534,17 +691,7 @@ class SqliteGraphStore(GraphStoreProtocol):
         if not rows:
             return rows
         ids = {r[0] for r in rows} | {r[1] for r in rows}
-        known: set[str] = set()
-        id_list = list(ids)
-        chunk = 900  # stay under SQLite's default host-parameter limit
-        for i in range(0, len(id_list), chunk):
-            part = id_list[i : i + chunk]
-            marks = ",".join("?" * len(part))
-            cur = conn.execute(
-                f"SELECT node_id FROM {_NODE_TABLE} WHERE node_id IN ({marks})",
-                part,
-            )
-            known.update(row[0] for row in cur.fetchall())
+        known = self._select_known_node_ids(conn, ids)
         missing = ids - known
         if not missing:
             return rows
@@ -740,6 +887,8 @@ class SqliteGraphStore(GraphStoreProtocol):
             file: File path being deleted
             node_ids: List of node IDs being deleted (for potential per-node cleanup)
         """
+        if self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
 
@@ -988,6 +1137,19 @@ class SqliteGraphStore(GraphStoreProtocol):
 
     _NODE_COLS = "node_id, type, name, file, line, end_line, lang, signature, docstring, parent_id, embedding_ref, metadata, ast_kind, scope_id, statement_type, requirement_id, visibility"
 
+    # Column position of parent_id in the node row layout built by upsert_nodes
+    # and written by _upsert_nodes_rows' INSERT column list. Derived from the
+    # shared column list (the same authority _row_to_node reads positionally)
+    # so a column edit moves the index instead of silently desyncing the
+    # parent-link guards from the row shape.
+    _NODE_ROW_PARENT = _NODE_COLS.split(", ").index("parent_id")
+
+    @staticmethod
+    def _with_parent(row: tuple[Any, ...], parent: str | None) -> tuple[Any, ...]:
+        """Rebuild a node row with parent_id replaced (layout-aware splice)."""
+        i = SqliteGraphStore._NODE_ROW_PARENT
+        return row[:i] + (parent,) + row[i + 1 :]
+
     async def find_nodes(
         self,
         *,
@@ -1033,6 +1195,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         and cancellation settlement. Connection durability settings are retained.
         Vector cleanup is separate and is not part of this SQLite transaction.
         """
+        if clear_embeddings and self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         async with self.write_batch():
             conn = self._get_active_write_batch_connection()
             assert conn is not None
@@ -1047,6 +1211,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         This ensures orphaned embeddings are removed during force rebuilds.
         Failures are logged but don't prevent the graph rebuild from completing.
         """
+        if self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         try:
             from victor.storage.vector_stores.registry import EmbeddingRegistry
 
@@ -1377,6 +1543,8 @@ class SqliteGraphStore(GraphStoreProtocol):
 
     async def delete_by_file(self, file: str) -> None:
         """Delete all nodes, edges, and embeddings for a specific file (for incremental reindex)."""
+        if self._is_staging:
+            raise RuntimeError("Staged graphs cannot mutate external embeddings")
         # Get nodes before deletion for embedding cleanup
         nodes = await self.get_nodes_by_file(file)
         node_ids = [n.node_id for n in nodes]

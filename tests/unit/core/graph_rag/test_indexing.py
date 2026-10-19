@@ -399,7 +399,7 @@ async def test_graph_indexing_pipeline_refreshes_module_metrics_after_changed_gr
 
 
 @pytest.mark.asyncio
-async def test_graph_indexing_pipeline_ignores_files_that_vanish_before_incremental_planning(
+async def test_graph_indexing_pipeline_rejects_missing_selected_input_before_mutation(
     tmp_path: Path,
 ):
     graph_store = _RecordingGraphStore()
@@ -413,12 +413,9 @@ async def test_graph_indexing_pipeline_ignores_files_that_vanish_before_incremen
 
     missing_file = tmp_path / ".coverage.Vijays-MacBook-Pro.local.69421.XNBbPQdx.c"
 
-    stats = await pipeline._prepare_incremental_work([missing_file])
-
-    assert stats.files_deleted == 0
-    assert stats.files_unchanged == 0
-    assert pipeline._files_to_process == set()
-    assert graph_store.calls == [("delete", False, None)]
+    with pytest.raises(FileNotFoundError):
+        await pipeline._prepare_incremental_work([missing_file])
+    assert graph_store.calls == []
 
 
 @pytest.mark.asyncio

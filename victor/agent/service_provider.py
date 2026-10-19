@@ -506,10 +506,15 @@ class OrchestratorServiceProvider:
     def _create_message_history(self) -> "MessageHistoryProtocol":
         """Create MessageHistory instance."""
         from victor.agent.message_history import MessageHistory
+        from victor.config.conversation_settings import DEFAULT_MAX_CONVERSATION_HISTORY
 
         return MessageHistory(
             system_prompt="",  # Will be set by orchestrator
-            max_history_messages=getattr(self._settings, "max_conversation_history", 100000),
+            max_history_messages=getattr(
+                self._settings,
+                "max_conversation_history",
+                DEFAULT_MAX_CONVERSATION_HISTORY,
+            ),
         )
 
     # =========================================================================

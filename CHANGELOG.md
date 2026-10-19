@@ -5,6 +5,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-19
+
+### Fixed
+
+- Fix `FOREIGN KEY constraint failed` on graph node upserts whose emission
+  order wrote a child before its parent within one batch: real-world Rust
+  files emit impl members before their impl block (proximaDB
+  `src/audit/mod.rs` failed to index in isolation), and the indexing
+  pipeline's per-file retry cannot recover an ordering defect that lives
+  inside the single file batch. `SqliteGraphStore` now clears parent links
+  that resolve to neither a batch row nor a persisted node (logged, the node
+  counterpart of the dangling-edge guard) and writes node batches
+  parents-first, breaking the unorderable parent-cycle case (colliding node
+  ids) minimally with one cleared, logged link.
+
+### Added
+
+- Budget-aware compaction: cumulative session prefill volume (real provider
+  `prompt_tokens` accumulated per response) crossing
+  `max_session_prefill_tokens` (default 400,000; `None` disables) forces
+  compaction at the next user-turn boundary regardless of context-window
+  utilization. Un-compacted history resend amplification is what burns token
+  budgets (measured 2026-10-18: 813k tokens across 24 calls of one turn);
+  prefix caching keeps the trigger quiet for cache-stable sessions.
+
+### Changed
+
+- Enforce the KV prefix-stability invariant: within a user turn the
+  provider-bound payload is now append-only (byte-extension between
+  consecutive calls), so provider prefix caching holds. The session-ledger
+  render and the composed turn prefix freeze per user turn; mid-loop failure
+  hints append as hidden messages instead of re-rendering sent bytes; the
+  tool-result dedup view stubs the newer duplicate instead of rewriting the
+  older already-sent message; older-message selection is sticky per turn;
+  and background/inline compaction defer to turn boundaries (overflow
+  overrides). Observability: `[kv-cache] call=N … extended=… boundary=…`
+  per call, `VICTOR_KV_PREFIX_DEBUG=1` for per-message hash chains; the
+  invariant is enforced by a hard-assert guard test
+  (docs/architecture/kv-prefix-stability.md).
+- `max_conversation_history` default 100 → 2000 (single source of truth in
+  `victor/config/conversation_settings.py`; was three conflicting defaults).
+  A firing history-count trim now logs a sanctioned-boundary line.
+
 ## [0.13.0] - release candidate
 
 ### Fixed

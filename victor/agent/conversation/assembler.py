@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from victor.config.orchestrator_constants import (
     ContextAssemblerConfig,
@@ -56,6 +56,11 @@ class TurnBoundaryContextAssembler:
         self._config = config or CONTEXT_ASSEMBLER_CONFIG
         self._session_ledger = session_ledger
         self._score_fn = score_fn
+        # KV prefix stability: per-user-turn frozen ledger render and older-
+        # message selection (see _assemble_impl). Keyed by anchor identity.
+        self._frozen_ledger_render: Optional[str] = None
+        self._frozen_ledger_anchor: Optional[int] = None
+        self._frozen_selection: Optional[Tuple[Optional[int], List[int], List[Message]]] = None
         self._conversation_controller = conversation_controller
         self._temperature_classifier = temperature_classifier
         # FEP-0023 P2: when present, dedups the assembled *view* (never source
@@ -264,6 +269,32 @@ class TurnBoundaryContextAssembler:
                     logger.debug("Tool-result dedup view stage skipped: %s", exc)
         return result
 
+    def reset_turn_freezes(self) -> None:
+        """Drop per-turn frozen state (ledger render; selection freezes join later).
+
+        Freezes also self-invalidate on anchor change; this is the explicit
+        reset for sanctioned boundaries that do not replace the anchor message
+        (e.g. compaction).
+        """
+        self._frozen_ledger_render = None
+        self._frozen_ledger_anchor = None
+        self._frozen_selection = None
+
+    @staticmethod
+    def _turn_anchor(messages: List[Message]) -> Optional[int]:
+        """Identity of the last genuine user message (intra-turn stability key).
+
+        Hidden runtime messages (``interactive_history=False``) are not genuine
+        user turns, so appended guidance never moves the anchor. Returns ``None``
+        before the first genuine user message.
+        """
+        from victor.agent.conversation.history_metadata import is_user_turn
+
+        for message in reversed(messages):
+            if is_user_turn(message.role, message.metadata):
+                return id(message)
+        return None
+
     def _assemble_impl(
         self,
         messages: List[Message],
@@ -292,11 +323,29 @@ class TurnBoundaryContextAssembler:
             chars_used += len(messages[0].content)
             start_idx = 1
 
-        # 2. Inject ledger as early assistant message
+        # 2. Inject ledger as early assistant message.
+        #
+        # KV prefix stability: the rendered ledger is FROZEN per user turn
+        # (keyed by the anchor message identity). The ledger keeps
+        # live-updating between provider calls — re-rendering it here would
+        # mutate already-sent bytes at message index 1 and defeat provider
+        # prefix caching for everything after the system prompt (measured:
+        # cache hits frozen at the tools+system head while input grew 9x).
+        # Cross-turn freshness is preserved: a new anchor re-renders.
         if self._session_ledger is not None:
             render_fn = getattr(self._session_ledger, "render", None)
             if render_fn:
-                ledger_text = render_fn(max_chars=ledger_budget)
+                anchor = self._turn_anchor(messages)
+                if (
+                    anchor is not None
+                    and anchor == self._frozen_ledger_anchor
+                    and self._frozen_ledger_render is not None
+                ):
+                    ledger_text = self._frozen_ledger_render
+                else:
+                    ledger_text = render_fn(max_chars=ledger_budget)
+                    self._frozen_ledger_render = ledger_text
+                    self._frozen_ledger_anchor = anchor
                 if ledger_text:
                     from victor.agent.conversation.types import (
                         MESSAGE_SOURCE_METADATA_KEY,
@@ -341,9 +390,101 @@ class TurnBoundaryContextAssembler:
         older_messages = remaining[:recent_start]
         recent_messages = remaining[recent_start:]
 
+        # KV prefix stability: the selected older set and the semantic
+        # augmentation strings are FROZEN per user turn (anchor-keyed).
+        # Intra-loop growth of the recent tail shrinks older_budget and would
+        # otherwise re-select, dropping previously-included older messages
+        # from early positions — mutating already-sent bytes. A new anchor
+        # (or a membership miss after compaction) recomputes; overshoot is
+        # bounded by the hard-cap escape below.
+        anchor = self._turn_anchor(messages)
+        older_by_id = {id(m): m for m in older_messages}
+        frozen = self._frozen_selection
+        if (
+            frozen is not None
+            and frozen[0] == anchor
+            and all(mid in older_by_id for mid in frozen[1])
+        ):
+            for mid in frozen[1]:
+                result.append(older_by_id[mid])
+            for semantic_msg in frozen[2]:
+                result.append(semantic_msg)
+            selected_frozen_ids = list(frozen[1])
+        else:
+            selected_frozen_ids = self._select_and_freeze_older(
+                result,
+                messages,
+                older_messages,
+                turn_boundaries,
+                full_turn_count,
+                history_budget,
+                chars_used,
+                recent_messages,
+                current_query,
+                anchor,
+                older_by_id,
+                max_context_chars,
+            )
+
+        # 6. Append recent turns (always kept)
+        for msg in recent_messages:
+            result.append(msg)
+
+        # Hard-cap escape (safety valve): sticky selection may legitimately
+        # overshoot the shrinking intra-loop budget; provider context overflow
+        # beats cache stability. Drop oldest-selected messages first and log
+        # the unsanctioned boundary.
+        total_chars = sum(len(m.content) for m in result)
+        if total_chars > max_context_chars and selected_frozen_ids:
+            dropped = 0
+            for mid in list(selected_frozen_ids):
+                if total_chars <= max_context_chars:
+                    break
+                for idx, msg in enumerate(result):
+                    if id(msg) == mid:
+                        total_chars -= len(msg.content)
+                        result.pop(idx)
+                        if self._frozen_selection is not None:
+                            self._frozen_selection[1].remove(mid)
+                        dropped += 1
+                        break
+            if dropped:
+                logger.info(
+                    "[kv-cache] hard-cap escape: dropped %d oldest-selected message(s) "
+                    "(assembled %d > max %d chars)",
+                    dropped,
+                    total_chars,
+                    max_context_chars,
+                )
+
+        return result
+
+    def _select_and_freeze_older(
+        self,
+        result: List[Message],
+        messages: List[Message],
+        older_messages: List[Message],
+        turn_boundaries: List[int],
+        full_turn_count: int,
+        history_budget: int,
+        chars_used: int,
+        recent_messages: List[Message],
+        current_query: Optional[str],
+        anchor: Optional[int],
+        older_by_id: Dict[int, Message],
+        max_context_chars: int,
+    ) -> List[int]:
+        """Score/select older messages + semantic augmentation, then freeze.
+
+        Returns the ordered selected-message identities for the freeze. Runs
+        once per user turn; intra-loop calls reuse the frozen set (see
+        _assemble_impl).
+        """
         # Calculate budget for older messages
         recent_chars = sum(len(m.content) for m in recent_messages)
         older_budget = max(0, history_budget - chars_used - recent_chars)
+        selected_frozen_ids: List[int] = []
+        semantic_messages: List[Message] = []
 
         # 4. Score and select older messages
         older_chars = 0
@@ -417,12 +558,14 @@ class TurnBoundaryContextAssembler:
                 selected_older.sort(key=lambda x: x[2])
                 for msg, _, _ in selected_older:
                     result.append(msg)
+                    selected_frozen_ids.append(id(msg))
             else:
                 # score_fn returned non-tuple, include what fits
                 older_chars = 0
                 for msg in older_messages:
                     if older_chars + len(msg.content) <= older_budget:
                         result.append(msg)
+                        selected_frozen_ids.append(id(msg))
                         older_chars += len(msg.content)
         elif older_messages and older_budget > 0:
             # No score_fn: use Rust-accelerated fit_context() for smart selection
@@ -437,6 +580,7 @@ class TurnBoundaryContextAssembler:
                 fit_result = fit_context(msg_dicts, budget=token_budget, strategy="smart")
                 for idx in fit_result.kept_indices:
                     result.append(older_messages[idx])
+                    selected_frozen_ids.append(id(older_messages[idx]))
                     older_chars += len(older_messages[idx].content)
             except Exception:
                 # Fallback: include what fits from the end (most recent older msgs)
@@ -444,9 +588,12 @@ class TurnBoundaryContextAssembler:
                 for msg in reversed(older_messages):
                     if older_chars + len(msg.content) <= older_budget:
                         result.insert(len(result), msg)
+                        selected_frozen_ids.append(id(msg))
                         older_chars += len(msg.content)
 
-        # 5. Semantic augmentation: retrieve relevant compacted context
+        # 5. Semantic augmentation: retrieve relevant compacted context.
+        # Rendered messages are frozen with the selection so intra-loop calls
+        # cannot insert/change this early-ish region.
         if self._conversation_controller and current_query:
             retrieve_fn = getattr(self._conversation_controller, "retrieve_relevant_history", None)
             if retrieve_fn:
@@ -457,18 +604,15 @@ class TurnBoundaryContextAssembler:
                         semantic_chars = 0
                         for ctx_str in relevant:
                             if semantic_chars + len(ctx_str) <= remaining_budget:
-                                result.append(
-                                    Message(
-                                        role="assistant",
-                                        content=f"[Historical context: {ctx_str}]",
-                                    )
+                                semantic_msg = Message(
+                                    role="assistant",
+                                    content=f"[Historical context: {ctx_str}]",
                                 )
+                                result.append(semantic_msg)
+                                semantic_messages.append(semantic_msg)
                                 semantic_chars += len(ctx_str)
                 except Exception as e:
                     logger.debug(f"Semantic retrieval failed gracefully: {e}")
 
-        # 6. Append recent turns (always kept)
-        for msg in recent_messages:
-            result.append(msg)
-
-        return result
+        self._frozen_selection = (anchor, selected_frozen_ids, semantic_messages)
+        return selected_frozen_ids

@@ -1,9 +1,9 @@
 ---
 plan_id: VAS-2026-10
 status: active
-updated: 2026-10-16
-baseline_develop: 697b7eef7122ba78a678f2ac77fb88f3bff04caf
-next_task: VAS-17 release qualification
+updated: 2026-10-18
+baseline_develop: e46740bff
+next_task: DATA-04b qualify publication contention before pipeline integration
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -66,6 +66,47 @@ failed/timeout/interrupted run never becomes passed through a later documentatio
 edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
+
+- **KV-VERIFY-01 — MERGED (runtime repair), PARTIAL (live matrix), [#1394](https://github.com/anvai-labs/victor/pull/1394)** (2026-10-18), owner: provider verification session;
+  branch `fix/kv-compaction-message-contract`, baseline `71e31ad0d`. Actual
+  DeepSeek buffered-agent verification exposed an `AttributeError`: the inline
+  compaction guard requests `_messages` from the real orchestrator adapter,
+  whose contract exposes `messages`. Existing tests used MessageHistory as the
+  adapter and missed this. RED: four existing adapter-backed cases fail, six monitor cases pass.
+  GREEN: shared contract access repaired, 154 focused tests pass; MyPy passes
+  2,009 source files. No duplicate test suite added. DeepSeek live verification
+  uses an actual buffered Victor agent with a bounded synthetic read-only
+  fixture, through in-process Sandhi 0.14.0 and a local wire-observation relay.
+  Six calls extend both typed and wire prefixes with unchanged tools; all six
+  raw/normalized usage joins conserve prompt, output and reasoning counts.
+  Fresh input 16,926 + cached input 68,224 = 85,150; aggregate cache ratio
+  80.1%, final-call ratio 98.7%. Arithmetic is correct, but strict JSON output
+  fails because an appended `VICTOR_SUMMARY` violates the requested format.
+  This is cache verification, not full agent/C5 acceptance. InferFlux
+  `qwen3-coder-30b` through the existing gateway failed with provider 504;
+  both attempted calls failed, so cache reuse is unverified despite ready
+  origin/gateway probes. No timeout increase, credential transfer or shared-cache
+  reset was used. Public origin metrics require authorization (401).
+  Follow-ups: preserve the strict-output failure; investigate the unsuccessful
+  InferFlux result whose `result_status` is nevertheless `ok`, and diagnose
+  origin execution before retrying acceptance. DeepSeek V4 Pro also completes
+  six actual calls with stable typed/wire prefixes and six conserving usage
+  joins; 19,409 fresh + 67,840 cached = 87,249 input (77.8% aggregate, 89.7%
+  final-call cache ratio). Its strict JSON deliverable passes. Both runs use
+  distinct session IDs; no streaming, multiagent or C5 acceptance is claimed.
+  Validation: independent review passes 129 focused cases; Black/Ruff, MyPy,
+  hygiene, docs drift, strict MkDocs and built-site links pass; 35,393 tests collect.
+  Reviewed candidate `2693d7b637cbebeeda6f1de969e019c32298bab4` merged as
+  `e46740bff17182b59576d126c622a99ea514375e` with identical trees; final CI
+  has 39 success, two conditional skips and one advisory neutral result.
+  This is merged source, not a released artifact. InferFlux handoff is verified
+  on aiserver1 at `/home/vsingh/code/inferflux/docs/planning/VICTOR_PREFIX_CACHE_TIMEOUT_HANDOFF_2026-10-18.md`;
+  its docs contract passes. Next: InferFlux owns origin liveness/correlation and
+  returns acceptance evidence before further local-model/C5 runs. Victor retains
+  the strict-output and failed-result-status follow-ups. Local comparison evidence is
+  `var/provider-prefix-20261018/provider-comparison.json`.
+  Original failed evidence: `var/provider-prefix-20261018/` (local, sanitized).
+  Graph publication qualification remains independently pending.
 
 - **UX-01 self-audit failure recovery — MERGED, [#1347](https://github.com/anvai-labs/victor/pull/1347)** — owner: Victor co-design session;
   branch `fix/self-audit-ux-recovery`, baseline `0839c34d3c17c43c1828b48555d8e25fca85b8e0`.
@@ -1685,6 +1726,35 @@ edit. A mock test is not live provider or C5 evidence.
   binary, SHA-256 `5c804c4a6a9431a1be58e046b6541d974dc4f59befd2f564258a96db23a1ec56`.
   The unit changed only the executable; private state, credentials and TLS persist.
   Readiness alone does not establish provider credential availability.
+- Victor 0.13.0 minor release shipped (2026-10-17), including maintenance fixes. Train: TUI bootstrap
+  repair [#1379](https://github.com/anvai-labs/victor/pull/1379) merged as
+  `a577b0611` (39/39 develop checks); maintenance bumps #1375 smallvec
+  `d56b793de`, #1376 javascript `38ddbd627`, #1377 actions `ca34e24ca`,
+  #1378 python `6ed6085d7` — #1376–#1378 each after branch update plus full
+  ci-fast re-run, #1375 merged behind-only against a disjoint diff with green
+  head checks. The first promotion battery red on Test shard 6 (Py3.12 and
+  Py3.13) via order-dependent caplog capture; root cause fixed in
+  [#1381](https://github.com/anvai-labs/victor/pull/1381) merged as `f9da03e8c`
+  (three LoggingMiddleware assertions aligned to the targeted-logger pattern;
+  injected-poison negative 3 failed, patched positive 66 passed). Promotion
+  [#1380](https://github.com/anvai-labs/victor/pull/1380) merged as merge commit
+  `d5066fe3b4d137e5bdc6632030436926531a1dcb` after the full battery re-ran green
+  (128 SUCCESS, 0 failures; merge-commit admin merge with all checks green,
+  review formality waived by the driving operator instruction). Annotated tag
+  `v0.13.0` on that commit; Release run `39067370315` succeeded. PyPI verified
+  independently: victor-ai 0.13.0 and victor-native 0.13.0 (synchronized native
+  versioning held); GitHub release "Victor v0.13.0" published with 16 assets
+  (the 0.5.2 vsix is the extension's own identity per #1371). Back-sync
+  [#1382](https://github.com/anvai-labs/victor/pull/1382) merged as `f41e440d4`
+  after a Semgrep single-file timeout was re-run per the transient-infrastructure
+  rule (125 SUCCESS). Homebrew tap: formula-update dispatch produced duplicate
+  PRs (#111 stuck action_required, closed) and
+  [#112](https://github.com/anvai-labs/homebrew-tap/pull/112) (brew audit +
+  install, CI Success, formula validation green) merged; the tap serves the
+  0.13.0 sdist with SHA-256 `28a543c76618c7923e2e568fd90e4436fe5cec72249bbc0db2484a140ef01efd`
+  and local `brew` victor verifies 0.13.0. Same-day context: the aiserver1 LAN
+  gateway was reconciled to official Sandhi 0.14.0 with the zai:coding credstore
+  reference repaired, restoring glm-5.x routes.
 - Existing DS3 replacement brokers passed token exchange/introspection for distinct
   member/accounting identities. Five isolated authorization checks passed with an
   empty store: anonymous admin denial, member admin denial, accounting version and
@@ -2720,7 +2790,7 @@ only against new evidence, retaining unknowns and readiness blockers.
 | DATA-02 / CG-P2 | ✅ merged [#1363](https://github.com/anvai-labs/victor/pull/1363); High / Medium; graph transaction owner | Cancellation-safe rollback and ownership settlement before connection reuse. Test cancellation before/during mutation and commit, nested batches, competing owners and worker completion after cancellation. Never claim cancellation proves rollback when commit may already have completed; expose/reconcile that outcome. No cancelled uncommitted row may be committed by a later operation. |
 | DATA-03 / VAS-11, storage foundation | ✅ merged [#1364](https://github.com/anvai-labs/victor/pull/1364); High / Medium; database manager | Fail closed on migration failure; version publication follows validated success. Replace broad error-string suppression with explicit idempotent preconditions. Respect executescript transaction behavior; test old/fresh/partially migrated stores and every statement failure. Failed migration must not claim the target version. |
 | DATA-04a / CG-P2 | ✅ merged [#1365](https://github.com/anvai-labs/victor/pull/1365); High / Medium; coding index lifecycle | After DATA-02: reproduce CLI shutdown and manifest mismatch in temporary stores; await CLI rebuild under owned lock, publish manifest only after success, label stale/not-ready state truthfully. Server background jobs require owned lifetime and observable completion. This increment alone does not establish atomic generation replacement. |
-| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight/publication pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
+| DATA-04b / CG-P2 | IN PROGRESS, inventory prerequisite ✅ [#1367](https://github.com/anvai-labs/victor/pull/1367) / CodeGraph 0.10.3; stream ownership ✅ [#1368](https://github.com/anvai-labs/victor/pull/1368); preflight ✅ [#1369](https://github.com/anvai-labs/victor/pull/1369), incremental qualification ✅ [#1388](https://github.com/anvai-labs/victor/pull/1388); private SQLite publication foundation ✅ [#1391](https://github.com/anvai-labs/victor/pull/1391); pipeline activation pending; High / Complex; canonical graph pipeline | After DATA-01/02/04a: define source/parser/encoder generation identity, stage replacement and atomically publish only a qualified generation; preserve previous usable generation on interruption. One graph writer; reconcile legacy semantic writer rather than adding another dispatcher. Account for disk headroom and reader lifetime before cleanup. |
 | DATA-05 / CG-P2 | TODO; High / Complex; shared graph/vector adapter | After DATA-04b: atomic per-engine upsert, idempotent derived reconciliation and deletion propagation across graph/vector/FTS/metrics/caches. Test failure between each commit. A common ID is not a distributed transaction; stale/orphan data must not masquerade as current ready results. |
 | DATA-06 / CG-P2 | TODO; Medium / Medium; analysis owner | After DATA-04b: current metrics bind to published generation and remove obsolete paths while preserving intentional history. Rename the size heuristic or qualify actual LCOM4; do not use unqualified scores to prescribe refactoring. Distinguish semantic declarations from graph projection nodes. |
 | DATA-07 / VAS-05c/05f | TODO; Critical for hosted multi-user service / Complex; API/security owner | Reuse existing ownership/auth policy work: principal/workspace/run authorization on HTTP/SSE/WS, search and caches; exact delegation and revocation. Requires VAS-05 identity decisions. No new parallel authorization framework. Local trusted-user mode is not hosted acceptance. |
@@ -3081,7 +3151,8 @@ rerun a live rebuild, or advertise cross-store atomicity as part of this design.
 
 Owner: Victor co-design; linked worktree branch `fix/codegraph-selected-inputs`,
 baseline `7d22d28da`; merged as [#1367](https://github.com/anvai-labs/victor/pull/1367)
-/ `4bfdaf630ebb8dbfed0d0155564599e5920e3bf3`. The consumer preflight candidate is **not approved or merged**.
+/ `4bfdaf630ebb8dbfed0d0155564599e5920e3bf3`. The initial consumer preflight candidate failed review; the corrected follow-up
+subsequently merged in [#1369](https://github.com/anvai-labs/victor/pull/1369).
 Independent review found three blockers despite 30 focused passes: root overrides
 used two path bases; Graph-RAG selected files omitted by the shared parser's hidden/
 build exclusions; and directory pruning changed rooted `/pkg/*` file semantics,
@@ -3242,9 +3313,214 @@ The milestone denominator is unchanged: **5/12 complete (41.7%), 7/12 remaining
 (58.3%)**. DATA-04b remains incomplete; splitting its prerequisite is not another
 completed milestone. Per-subtask percentages are unknown until acceptance gates close.
 
-### VAS-17 dependency and release checkpoint (2026-10-15, local candidate)
+### DATA-04b incremental preflight checkpoint (2026-10-18)
 
-Promotion cache-isolation correction LOCAL_GREEN (2026-10-17): owner Victor co-design,
+Owner: Victor co-design; branch `fix/index-preflight-deletion-order`, baseline
+`8957d11c493cb7ad4f54ab11d0710e0f7e08dfdf`. Upstream release and #1387 are
+complete; no open PR claims this graph scope. The prior UI worktree is retained
+for its live service; implementation uses an independent linked worktree.
+Delivery: [#1388](https://github.com/anvai-labs/victor/pull/1388). Develop advanced
+through the independent prefix-observability #1386 during CI; merged `d85fe9544`
+into the published feature branch without rewriting history. Graph source/test
+changes do not overlap. Combined-tree qualification is recorded below.
+Incremental planning now returns pending deletions and mtime refreshes without
+changing the graph. The shared snapshot qualification precedes these mutations,
+including deletion-only inventories. Discovery/stat errors fail closed in both
+modes; content-identical touch-only runs retain their no-reparse fast path.
+
+- RED: six existing-owner preservation cases failed before mutation deferral;
+  the content-identical mtime case independently failed before refresh deferral.
+  Adversarial review reproduced first-stat ENOENT being suppressed by
+  `Path.is_file()`, followed by deletion of an existing graph row. Both mode
+  regressions failed before replacing it with one explicit stat/regular-file check.
+- Local review is scoped clean: an independent real-SQLite probe now rejects that
+  failure in both modes and preserves graph/mtime state; 21 selected preservation,
+  cancellation and deletion cases pass. Consolidated overlapping empty-force
+  cleanup tests while retaining their node, edge and mtime assertions. Extended
+  existing owners rather than adding a parallel test suite.
+- Local GREEN: graph/store/integration suites pass **583 tests, one skipped**;
+  full collection passes **35,307 tests**. Configured strict mypy passes 2,117
+  source files; Black, Ruff, repository hygiene and docs drift pass. CI-selected
+  tests pass **107 cases** with **93.9% changed-line coverage** (80% gate).
+  After merging develop, combined graph/store/integration and upstream prefix
+  suites pass **599 tests, one skipped, two expected failures**; collection passes
+  **35,325 tests**, mypy **2,118 files**, and formatting/hygiene/docs checks pass.
+  Skips/expected failures are not passes. Independent review is clean against the
+  combined baseline; source/test hashes match the original reviewed candidate
+  `dc40b9c9b`. PR #1388 records exact final-commit review, CI and landing evidence.
+  Victor 0.13.0 predates this change; release/live acceptance remain separate.
+- Evidence is preserved under `var/codegraph-victor-20261012/data04b-*` and
+  `victor-data04b-preflight-review.json` in the primary checkout.
+
+This prerequisite does not solve write-stage failure, whole-generation publication,
+filesystem changes after qualification, or graph/vector atomicity. Code rollback
+requires no migration. Next substantive task: stage qualified replacement data and
+test publication/rollback with concurrent session writers; retain the existing
+post-preflight failure reproducer. DATA remains **5/12 complete (41.7%)** until
+DATA-04b's full gates pass.
+
+### DATA-04b staged publication ownership (2026-10-18, merged #1391)
+
+Owner: Victor co-design; branch `feat/graph-staged-publication`, baseline
+`5dd0424d0` after #1389. Incremental preflight #1388 is merged as
+`41e18a22cd4ad49cb8f8490a75fd2531c37c6d34`: 40 successful checks including
+Vertical Py3.12, one conditional skip and one neutral result. Local develop now
+includes this milestone and the independently merged
+prefix-stability #1390 (`a415d74cf`). Completed implementation worktree removed;
+checkpoint owner is Victor co-design on `docs/graph-publication-checkpoint`,
+based on `a415d74cf`. Next action is the bounded FTS experiment qualification below.
+
+Selected increment: private, store-owned SQLite graph staging and publication,
+with **no indexing-pipeline activation or public framework API**. Staging retains
+the canonical repository root while using a separate derived-only database;
+authoritative sessions/messages are never copied or swapped. Publication uses the
+existing cancellation-safe `write_batch` owner and bounded 256-row copies. Nodes,
+edges, mtimes, FTS and a receipt commit together. Graph-content/receipt fingerprints
+reject a competing writer; session writes alone do not invalidate a build.
+
+- RED: five existing-owner cases failed on the missing staging capability.
+  Extended the cleanup/concurrency owners rather than adding a second test suite;
+  the existing cancellation matrix now includes replacement. CI selection maps
+  the extracted helper to those same owners.
+- Local correctness: 64 owner tests pass, including actual session/message
+  preservation, old/new reader snapshots, identical-content competing receipts,
+  wrong roots/schema, dangling references, native SQL/FTS failure, process death
+  before commit, and cancellation through commit acknowledgement. An interrupted
+  acknowledgement may hide a successful commit: reconcile the receipt instead of
+  replaying the logical publication. A receipt describes a past publication, not
+  perpetual readiness after legacy graph changes.
+- Independent adversarial review found and closed two blockers: publication from
+  a child task could outlive its staging context, and persisted query-cache rows
+  were omitted from unsupported-state admission. Only the context owner may now
+  publish; rejected child access does not consume its attempt. Nonempty query
+  cache, current metrics, requirements/subgraphs, CPG fragments and embeddings
+  are rejected until explicit reconciliation exists. Scoped clean review is bound
+  to `7c8ea733f9e5bf61156ed84459e6b440407cc019`; [#1391](https://github.com/anvai-labs/victor/pull/1391)
+  squash-merged into develop as `f1eba17ecfb1cece712a5ac22b993b90108842dd`.
+  All 39 successful checks passed, including Vertical Py3.12; two conditional
+  jobs skipped and Trivy was neutral. No CI or review bypass was used. The landed
+  tree matches the reviewed candidate. This is merged source, not a release or
+  pipeline activation. The reviewer independently ran the 62-case
+  owner suite and then all four final staged/ordinary close-cancellation cases.
+- Local qualification: broader graph/storage suites **732 passed, one optional
+  SDK skip**; final CI-selected suite **170 passed**, **147/153 changed production
+  lines covered (96.1%)**; final collection **35,360 tests**. Configured mypy passes
+  **2,120 source files**; full Black (3,935 files), Ruff, docs drift and repository
+  hygiene pass. The broader run preceded two additional staged-close parameters;
+  final owner/selected suites cover those additions. No skip is counted as a pass.
+- Resource evidence: synthetic local warm-cache 1k/10k/100k nodes plus equal
+  edges, 192-character docstrings, SQLite 3.45.3/Python 3.12.6 on M1 Max. One
+  measured run per size: publication **0.079/1.748/17.164 seconds**; competing
+  session writes with a deliberately extended 60-second timeout waited
+  **0.067/1.615/15.058 seconds**. Writes after staging and before publication took
+  less than 1 ms. A held reader retained the old snapshot; the 100k case retained
+  **64.3 MB WAL**, with approximately **190 MB total disposable database files**
+  after publication and approximately **70 MB process peak RSS**. Before stage
+  sealing/checkpoint, the temporary footprint was approximately 253 MB. These
+  are synthetic observations, not a production capacity claim or SLO.
+- Worker profiling at 10k: about 1.39 of 1.85 seconds was SQLite `executemany`,
+  including indexes/triggers; fingerprints used about 0.35 seconds. A language
+  rewrite is not justified. The initial observer connection's synchronous pragma
+  described that observer, not the publisher; the contention probe records the
+  publisher's actual pragmas separately. Existing NORMAL durability is unchanged.
+  The normal project busy timeout is only **5 seconds**, so production activation
+  is blocked on acceptable publication lock duration as well as disk headroom.
+  A second 100k run confirms the consequence: the normal-timeout writer fails
+  with `SQLITE_BUSY` after **5.20 seconds** while publication takes **17.72 seconds**;
+  the diagnostic 60-second writer commits after **15.56 seconds**. Publisher
+  settings are WAL, synchronous=NORMAL, busy_timeout=5000. Do not raise global
+  timeouts to hide that constraint.
+
+Evidence stays in the primary checkout under
+`var/codegraph-victor-20261012/data04b-publication-*`. Abrupt process death can leave
+an unreferenced private stage directory; recovery/cleanup must identify ownership
+before removal. No automatic sweep or shared-database restoration is introduced.
+Per-transaction reader consistency does not promise a multi-query request snapshot.
+
+Next gates: qualify the bounded publication performance candidate before pipeline
+integration. A disposable, uncommitted bulk-FTS experiment (same synthetic shape, 10k/100k) reduced publication to
+0.46/4.51 seconds, with normal-timeout writers committing after 0.25/2.42 seconds.
+This replaces per-node FTS insert triggers with one transactional FTS rebuild in
+the experimental probe only; reviewed production code is unchanged. Before
+adoption, qualify canonical-trigger ownership, SQL/FTS failure rollback, parity,
+cancellation and representative size/skew/headroom. Do not treat one experiment
+as an accepted workload limit or change global busy timeouts. The competing
+writer started at copying, after validation/deletion, so its wait is not the full
+write-lock duration. Repeat matched measurements from `BEGIN IMMEDIATE`, with
+mtime rows, non-self-loop edges and varied document terms. Bulk FTS eligibility
+must verify canonical table/trigger definitions before mutation; an extra trigger
+may inspect FTS mid-copy. Preserve extra indexes, choose any alternate mode before
+mutation with explicit reporting, and never replay after a failed bulk attempt.
+
+Executable continuation: fetch origin; create a fresh linked
+`fix/graph-publication-fts` worktree from current develop; extend the existing
+cleanup/concurrency owners with canonical/custom trigger admission, rollback at
+suspension/rebuild/restoration, FTS read snapshots and post-publication write
+maintenance. Run the existing owners with:
+
+```bash
+.venv-codesign/bin/python -m pytest \
+  tests/unit/storage/graph/test_sqlite_store_cleanup.py \
+  tests/unit/storage/test_sqlite_graph_store_concurrency.py -q
+```
+
+Adapt the preserved synthetic probe to the stronger measurements above before
+choosing the implementation. Keep defaults and the indexing pipeline unchanged in that
+performance increment. Release/activation follows its own qualification.
+
+Subsequent DATA-04b work must integrate qualified parser/source
+inventories, resolve the root/maintenance alignment and reject partial builds,
+qualify writer/reader admission and measured lock/headroom limits, and reconcile
+cache/vector consumers before activation. Whole-build transactions hold session
+writers during parsing; generation-qualified rows require a broader reader/schema
+migration. This dormant primitive permits measuring the bounded copy alternative
+without enabling either redesign. Normal indexing still has post-preflight
+write-failure loss. **DATA remains 5/12 complete (41.7%); DATA-04b is incomplete.**
+
+### VAS-17 dependency and release checkpoint (2026-10-18, published)
+
+**The coordinated 0.13.0 minor-release checkpoint is complete.** This closes
+package publication/installation, not VAS-17's remaining lifecycle or C5 gates.
+Owner: Victor co-design, `docs/release-013-cache-followup`, rebased onto develop
+`f27ff64bc` after the parallel maintenance session's #1383 handback. Root develop
+is fast-forwarded; local configuration is preserved. No tag was replaced.
+
+- Promotion [#1372](https://github.com/anvai-labs/victor/pull/1372) merged as
+  `6ace5a836` after 129 successful checks, four expected skips and one neutral
+  result; all 24 Python shards passed (run `39004174208`, 68m32s). The tested
+  tree and merge tree match. Clean independent review plus the user's standing
+  admin authorization cleared the GitHub review gate; no CI gate was bypassed.
+- Contracts `sdk-v0.10.0` and five verticals `verticals-v0.13.0` published from
+  `6ace5a836`, successful runs `39011581284` and `39012173268`. The later
+  root release includes only development-formatter changes in these packages;
+  their published runtime sources are unchanged.
+- The parallel maintenance session completed promotion #1380 and published
+  root/native `v0.13.0` from `d5066fe3b` (successful run `39067370315`), then
+  back-synced main through #1382. Its maintenance evidence above is retained.
+  This is the first 0.13.0 publication, not a patch or a replacement artifact.
+- Homebrew [#112](https://github.com/anvai-labs/homebrew-tap/pull/112) merged as
+  `1d0a998`, regenerating all 64 resources including Sandhi 0.14.0 and contracts
+  0.10.0. Real formula installation/tests passed. Our unused clean packaging
+  worktree was removed; do not repeat that regeneration.
+- Fresh isolated PyPI installation on Python 3.12 combines root graph/native/
+  Proxima extras, all five 0.13.0 verticals and both ProximaDB 0.4.1 packages.
+  `pip check`, exact versions/imports, all five plugin entry-point loads,
+  CodeGraph parsing, CLI version/help, native Proxima graph traversal, typed
+  properties and vector/graph identity round trips pass. Root and Mac native
+  wheels plus VSIX 0.5.2 match the GitHub release checksum manifest. This is
+  package smoke evidence, not live model or Victor native-Proxima adapter acceptance.
+
+Evidence: `var/codegraph-victor-20261012/victor013-published-*` and
+`victor013-green-promotion-evidence.json`; private files remain local.
+The earlier corrective evidence below explains failures without reopening them.
+Next foundational implementation is DATA-04b: qualify atomic graph generation
+publication and reader lifetime after the already-merged preflight. The DATA
+milestone count stays 5/12 (41.7%); do not count this dependency release as DATA
+completion. Broader lifecycle, durable continuation/reconciliation and C5 remain
+separate. Tap #104's future release automation is still draft; its old release
+hold is superseded, but its automation has not been accepted or merged.
+
+Promotion cache-isolation correction MERGED (2026-10-17): owner Victor co-design,
 branch `fix/semantic-cache-test-isolation`, baseline `origin/develop` at
 `ee77239f36560122cf9f9004b47db78d3c41e049`. Full promotion run `38975809301`
 finished with 22/24 passing unit shards. Both Python versions fail the same
@@ -3265,9 +3541,13 @@ installations untouched. Independent review is CLEAN after fixing its source
 identity finding: alternate installed-source/cwd scenario passes and a deliberate
 source mismatch is rejected; four ordered regression cases pass independently.
 Full collection passes 35,360 tests; Black, Ruff, docs drift and repository hygiene
-pass. Test membership is unchanged. Next: open one corrective PR, then require
-its CI and a new full promotion run before publication. Preserve original CI logs under
-`var/codegraph-victor-20261012/victor1372-final-*.log`. No release is published.
+pass. Test membership is unchanged. Corrective [PR #1374](https://github.com/anvai-labs/victor/pull/1374)
+was squash-merged at `620528406c8c4482dbe8269f16f2fcffb84aba89` after all 39
+applicable feature checks passed, including Vertical Py3.12 (9m57s), with clean
+review bound to `679639fb72addeca74e1d1ebb2a9aab07f56f3b7`. No bypass was used.
+Original failed CI logs remain under
+`var/codegraph-victor-20261012/victor1372-final-*.log`. Full promotion and
+publication subsequently passed as recorded above.
 
 Promotion repair MERGED (2026-10-16): owner Victor co-design, branch
 `fix/promotion-runtime-contract-tests`, release baseline `8811c9477` plus the
@@ -3293,40 +3573,14 @@ passed. The subsequent promotion run failed only as recorded above. Cumulative
 adversarial review of main `a18b26e2` through that source head found no blocker
 in its inspected scope: 1,063 tests passed / four skipped, and the parent passed
 57 streaming/buffered parity cases using cached-model offline settings. Those
-local results do not supersede the failed full matrix or required main approval.
+local results did not supersede the then-failed full matrix; the final matrix
+and promotion subsequently passed as recorded above.
 
-2026-10-16 promotion boundary: extension [PR #1371](https://github.com/anvai-labs/victor/pull/1371)
-**MERGED** at `8811c9477` after clean independent review of
-`0daf0849be3dc563b6e1ae3838d16c55dd2f6f0c` and successful feature CI,
-including Vertical Py3.12 (8m55s). Promotion
-[PR #1372](https://github.com/anvai-labs/victor/pull/1372) is **OPEN** from
-develop `ee77239f3` to main `a18b26e2`; the promotion runs failed as recorded
-above, and required main approval remains pending. This is Victor **0.13.0, a minor release**; no package
-publication is claimed. Owner Victor co-design tracks this boundary on
-`docs/release-013-progress`, baseline `8811c9477`. Next: inspect
-`gh pr checks 1372`, resolve any failures, then merge by merge commit only after
-all gates and required approval pass. Publish contracts 0.10.0 before the
-separately gated vertical/root/native releases, verify published combined-extra
-installs, then update Homebrew. The detailed qualification below records earlier
-candidate evidence; the extension is now merged, not merely locally qualified.
-
-Promotion preflight on 2026-10-16: root develop fast-forwarded to `8811c9477`;
-untracked local configuration was preserved. Main protection requires one
-approving review and currently reports `REVIEW_REQUIRED`; local independent
-review does not satisfy that GitHub gate. Build, CLI smoke, provider/workflow/tool
-integration, native integration and blocking dependency/security scans passed.
-Run `38964887957` completed with 16 passing and eight failing Python shards;
-coverage and test summaries correctly fail closed. No full-suite pass is claimed.
-No release tags were created. The existing `v0.13.0` and `sdk-v0.10.0` tag names
-were checked and are unused.
-
-Homebrew upstream was fetched at `7733942` without changing its unrelated active
-branch. Its Victor formula still contains Sandhi 0.11.0 and contracts 0.9.0.
-After publication, regenerate the complete wheel resource closure with the tap's
-existing `tools/gen-victor-resources.py`, verify downloaded checksums and perform
-real formula installation tests; updating only the root sdist URL is insufficient.
-Do not treat the already published Sandhi formula as an upgrade of Victor's
-embedded dependency resources.
+Historical preparation: #1371 merged extension 0.5.2 at `8811c9477` after clean
+independent review, feature CI and Vertical Py3.12 (8m55s). Initial promotion
+run `38964887957` passed 16 shards and failed eight; #1373 and #1374 resolved
+the failures as recorded above. The earlier tap's Sandhi 0.11/contracts 0.9
+resource mismatch was resolved by complete regeneration in tap #112.
 
 Owner: Victor co-design; branch `chore/extension-release-052`, baseline
 `5be89837af41b8d22a2c8221e3d0ef3d18be8ae9`. Release-preparation
@@ -3351,15 +3605,13 @@ webview JS/CSS present (SHA-256
 The sandbox-denied webview download and unrelated system Python 3.15 XML import
 error are preserved; packaging passes with registry access and artifact checks
 use the supported Python 3.12 environment. No dependency graph or runtime code
-changed. Independent review is clean; 35,361 tests collect. Next: finish #1372's
-full sharded test/integration battery and required main approval before merge;
-package publication is later. The previous successful promotion test run
+changed. Independent review is clean; 35,361 tests collected. Promotion and
+publication subsequently passed as recorded above. The previous successful promotion test run
 `38320270669` took about 86 minutes overall, with the slowest shard taking about
 81 minutes. Use this measured history for a conditional CI estimate, not the
 roughly nine-minute feature-PR vertical gate.
-Close the current release batch before
-resuming DATA-04b generation publication; the DATA milestone denominator stays
-5/12 complete. No formation or C5 acceptance is inferred from package publication.
+The release batch is closed; resume DATA-04b generation publication. The DATA
+milestone denominator stays 5/12 complete. No formation or C5 acceptance is inferred from package publication.
 
 | Component / gate | Verified state | Next action |
 |---|---|---|
@@ -3369,12 +3621,12 @@ resuming DATA-04b generation publication; the DATA milestone denominator stays
 | InferFlux | Released 0.5.0 remains the runtime baseline; subsequent upstream changes are documentation | No new runtime release justified by those docs changes |
 | Homebrew Sandhi | [tap #103](https://github.com/anvai-labs/homebrew-tap/pull/103) merged after independent review and real formula/cask install CI | Running services are not upgraded by merging a formula |
 | Victor CodeGraph | Latest PyPI release rechecked 2026-10-16: 0.10.3; exact consumer pin retained | No additional CodeGraph release needed for this metadata increment |
-| ProximaDB SDK/native | MERGED in #1370 — owner Victor co-design, `chore/release-013`, baseline `697b7eef7`; PyPI 0.4.1 artifacts verified on 2026-10-16, fetched develop unchanged. Both SDK extras now declare `>=0.4.1,<0.5` | Independent review and release CI; preserve the distinction between the SDK-managed server and the separately installed native wheel |
-| VS Code extension | MERGED in #1371 — independent 0.5.2 version, Node 24.21.0; 113 unit and 1,011 extension-host tests pass; VSIX identity/assets verified; feature CI passed | Included in promotion #1372; release artifact publication remains pending. Marketplace publication is not part of the existing release workflow |
-| Contracts SDK | 0.10.0 candidate wheel builds; Python floor rises from published 0.9.2's 3.10 to 3.12; typed exports/markers and runtime bridge repairs included | Publish independent `sdk-v0.10.0` after reviewed promotion, before root package publication |
-| Victor AI/native | 0.13.0 candidate identities synchronized; root plus three snapshots pin Sandhi 0.14.0 and contracts 0.10.0 | Finish review/CI, promote to main, publish artifacts and verify installs |
-| First-party verticals | ACTIVE — suite-aligned 0.13.0 source candidates; published victor-coding 0.7.2 still requires ProximaDB `<0.3` | All five wheels build/install and plugin entry points load in the isolated environment; broader vertical suites pass as qualified below. Independently gate `verticals-v0.13.0` after contracts publication. Root release alone does not publish verticals; mixed-extra installation must be verified before closing this milestone |
-| Homebrew Victor | Existing 0.12.0 package and documented 0.11.0 private-CA override preserved | Update only after coordinated Victor release; never downgrade to historical 0.10.1 |
+| ProximaDB SDK/native | Published 0.4.1; root and coding extras resolve together; fresh SDK/native imports, typed properties and vector/graph round trips pass | Preserve SDK-managed-server versus native-wheel distinction; server deployment provenance remains separate |
+| VS Code extension | Published VSIX 0.5.2 in Victor 0.13.0; release checksum verified; earlier 113 unit and 1,011 extension-host tests passed | Marketplace publication is outside the existing release workflow |
+| Contracts SDK | Published 0.10.0, Python >=3.12; SDK release CI and fresh-wheel import/metadata checks pass | No republishing needed |
+| Victor AI/native | Published 0.13.0 from `d5066fe3b`; release CI, wheel checksums, fresh combined installation, imports and CLI pass | Resume DATA-04b; live/provider acceptance remains separate |
+| First-party verticals | All five published 0.13.0 from `6ace5a836`; combined published extras resolve with ProximaDB 0.4.1 and all five plugins load | Earlier 2,145-test qualification remains scoped; no C5 inference |
+| Homebrew Victor | Published 0.13.0 and full resource closure merged in tap #112; Sandhi 0.14.0/contracts 0.10.0, real install/tests passed | Supersedes the historical private-CA override; review future automation in held tap #104 separately |
 
 Local qualification uses the official Sandhi 0.14.0 wheel in an isolated temporary
 environment; recorded import paths distinguish it from the shared development
