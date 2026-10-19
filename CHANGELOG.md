@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-19
+
 ### Fixed
 
 - Fix `FOREIGN KEY constraint failed` on graph node upserts whose emission
