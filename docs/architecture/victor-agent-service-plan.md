@@ -67,6 +67,40 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **KV-VERIFY-01 — LOCAL_PASS (runtime repair), PARTIAL (live matrix)** (2026-10-18), owner: provider verification session;
+  branch `fix/kv-compaction-message-contract`, baseline `71e31ad0d`. Actual
+  DeepSeek buffered-agent verification exposed an `AttributeError`: the inline
+  compaction guard requests `_messages` from the real orchestrator adapter,
+  whose contract exposes `messages`. Existing tests used MessageHistory as the
+  adapter and missed this. RED: four existing adapter-backed cases fail, six monitor cases pass.
+  GREEN: shared contract access repaired, 154 focused tests pass; MyPy passes
+  2,009 source files. No duplicate test suite added. DeepSeek live verification
+  uses an actual buffered Victor agent with a bounded synthetic read-only
+  fixture, through in-process Sandhi 0.14.0 and a local wire-observation relay.
+  Six calls extend both typed and wire prefixes with unchanged tools; all six
+  raw/normalized usage joins conserve prompt, output and reasoning counts.
+  Fresh input 16,926 + cached input 68,224 = 85,150; aggregate cache ratio
+  80.1%, final-call ratio 98.7%. Arithmetic is correct, but strict JSON output
+  fails because an appended `VICTOR_SUMMARY` violates the requested format.
+  This is cache verification, not full agent/C5 acceptance. InferFlux
+  `qwen3-coder-30b` through the existing gateway failed with provider 504;
+  both attempted calls failed, so cache reuse is unverified despite ready
+  origin/gateway probes. No timeout increase, credential transfer or shared-cache
+  reset was used. Public origin metrics require authorization (401).
+  Follow-ups: preserve the strict-output failure; investigate the unsuccessful
+  InferFlux result whose `result_status` is nevertheless `ok`, and diagnose
+  origin execution before retrying acceptance. DeepSeek V4 Pro also completes
+  six actual calls with stable typed/wire prefixes and six conserving usage
+  joins; 19,409 fresh + 67,840 cached = 87,249 input (77.8% aggregate, 89.7%
+  final-call cache ratio). Its strict JSON deliverable passes. Both runs use
+  distinct session IDs; no streaming, multiagent or C5 acceptance is claimed.
+  Validation: independent review passes 129 focused cases; Black/Ruff, MyPy,
+  hygiene, docs drift and strict MkDocs pass; 35,393 tests collect. Next: final
+  commit-bound review, CI, then merge. Local comparison evidence is
+  `var/provider-prefix-20261018/provider-comparison.json`.
+  Original failed evidence: `var/provider-prefix-20261018/` (local, sanitized).
+  Graph publication qualification remains independently pending.
+
 - **UX-01 self-audit failure recovery — MERGED, [#1347](https://github.com/anvai-labs/victor/pull/1347)** — owner: Victor co-design session;
   branch `fix/self-audit-ux-recovery`, baseline `0839c34d3c17c43c1828b48555d8e25fca85b8e0`.
   The user's 2026-10-13 21:36–21:40 `homelab-openai-subscription` run failed its

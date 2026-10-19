@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from dataclasses import dataclass
 
 from victor.agent.context_compactor import CompactionTrigger
 from victor.agent.context_manager import _kv_aware_compaction_monitor
-from victor.agent.message_history import MessageHistory
+from victor.agent.services.orchestrator_protocol_adapter import OrchestratorProtocolAdapter
 from victor.providers.base import Message
 
 
@@ -32,6 +32,14 @@ class FakeCompactor:
 
     async def check_and_compact_async(self):
         self.compact_calls += 1
+
+
+@dataclass(slots=True)
+class CompactionHost:
+    """Minimal host for the real adapter; deliberately no private `_messages`."""
+
+    messages: list[Message]
+    _context_compactor: FakeCompactor
 
 
 class FakeController:
@@ -98,10 +106,9 @@ async def test_executor_inline_check_defers_mid_turn(monkeypatch):
     from victor.agent.services.turn_execution_runtime import TurnExecutor
 
     runtime = object.__new__(TurnExecutor)
-    history = MessageHistory()
-    history._messages = list(_mid_turn_messages())
-    history._context_compactor = FakeCompactor(CompactionTrigger.THRESHOLD)
-    runtime._chat_context = history
+    runtime._chat_context = OrchestratorProtocolAdapter(
+        CompactionHost(_mid_turn_messages(), FakeCompactor(CompactionTrigger.THRESHOLD))
+    )
 
     lifecycle_called = []
 
@@ -124,10 +131,9 @@ async def test_executor_inline_check_runs_at_boundary(monkeypatch):
     from victor.agent.services.turn_execution_runtime import TurnExecutor
 
     runtime = object.__new__(TurnExecutor)
-    history = MessageHistory()
-    history._messages = list(_boundary_messages())
-    history._context_compactor = FakeCompactor(CompactionTrigger.THRESHOLD)
-    runtime._chat_context = history
+    runtime._chat_context = OrchestratorProtocolAdapter(
+        CompactionHost(_boundary_messages(), FakeCompactor(CompactionTrigger.THRESHOLD))
+    )
 
     lifecycle_called = []
 
@@ -187,10 +193,9 @@ async def test_executor_overflow_probe_exception_defaults_to_defer():
             raise RuntimeError("probe failure")
 
     runtime = object.__new__(TurnExecutor)
-    history = MessageHistory()
-    history._messages = list(_mid_turn_messages())
-    history._context_compactor = ExplodingProbe(CompactionTrigger.THRESHOLD)
-    runtime._chat_context = history
+    runtime._chat_context = OrchestratorProtocolAdapter(
+        CompactionHost(_mid_turn_messages(), ExplodingProbe(CompactionTrigger.THRESHOLD))
+    )
     runtime._check_lifecycle_context_compaction = lambda _msg: _always_false()
     runtime._resolve_context_service = lambda: None
 
@@ -209,10 +214,9 @@ async def test_executor_mid_turn_overflow_overrides_and_compacts():
     from victor.agent.services.turn_execution_runtime import TurnExecutor
 
     runtime = object.__new__(TurnExecutor)
-    history = MessageHistory()
-    history._messages = list(_mid_turn_messages())
-    history._context_compactor = FakeCompactor(CompactionTrigger.OVERFLOW)
-    runtime._chat_context = history
+    runtime._chat_context = OrchestratorProtocolAdapter(
+        CompactionHost(_mid_turn_messages(), FakeCompactor(CompactionTrigger.OVERFLOW))
+    )
     lifecycle = []
 
     async def _fake_lifecycle(_msg):

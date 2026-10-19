@@ -1769,7 +1769,7 @@ class TurnExecutor:
         # context is at overflow risk (overflow beats cache stability).
         from victor.agent.conversation.history_metadata import mid_user_turn
 
-        if mid_user_turn(self._chat_context._messages):
+        if mid_user_turn(self._chat_context.messages):
             from victor.agent.context_compactor import CompactionTrigger
 
             compactor = getattr(self._chat_context, "_context_compactor", None)
