@@ -13,7 +13,7 @@ Victor’s optional extra now declares `proximadb>=0.4.1,<0.5`; install it with
 `proximadb_embedded` is a separate in-process engine; installing its wheel does
 not replace this adapter or supply that executable. Both Python distributions
 publish 0.4.1 artifacts. Qualification and remaining release gates live in the
-[canonical tracker](victor-agent-service-plan.md#vas-17-dependency-and-release-checkpoint-2026-10-15-local-candidate).
+[canonical tracker](victor-agent-service-plan.md#vas-17-dependency-and-release-checkpoint-2026-10-18-published).
 The August live-run notes below preserve their original evidence
 and are not a claim that every later backend version was retested.
 

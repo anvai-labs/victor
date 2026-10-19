@@ -12,17 +12,22 @@ frozen at exactly the tools+system head (6,528 tokens) while input grew
 request's prefill paid full price, and the same un-compacted history burned
 81% of a 1M-token daily gateway budget in five minutes.
 
-Chat-completions-style HTTP APIs are stateless: full prefill per call is the
-contract. The efficient version of that contract is an **append-only payload
-within a user turn** — the provider serves everything it already saw from
-cache and charges full price only for the new tail.
+Chat-completions-style HTTP APIs are stateless: the complete conversation
+payload is supplied on each call. An efficient request shape is an **append-only payload
+within a user turn**. This preserves eligibility for provider prefix reuse;
+actual hits depend on backend cache availability, granularity and routing.
+OpenAI-compatible request syntax does not guarantee caching or a particular price.
 
 ## The invariant
 
-Between consecutive provider calls of the same user turn, the serialized
-payload (tools array + system + all messages) must satisfy
-`payload[N+1].startswith(payload[N])`. Divergence is sanctioned only at
-boundaries, where a single cache miss is expected:
+Between consecutive provider calls of the same user turn, the canonical
+message serialization must satisfy `payload[N+1].startswith(payload[N])`,
+with a stable tool set. This is an application-level diagnostic, not a
+byte-for-byte fingerprint of the entire HTTP body: the tracker excludes images
+and metadata, and its tool fingerprint is order-insensitive. Live transport
+qualification must also inspect provider-specific messages and tool schemas.
+Divergence is sanctioned at the following boundaries; the backend determines
+how much of the earlier prefix remains reusable:
 
 | Boundary | Cause |
 |---|---|
@@ -86,7 +91,20 @@ boundaries, where a single cache miss is expected:
 - **Invariant guard** (hard assert): `tests/unit/framework/test_kv_prefix_invariant.py`
   drives a multi-iteration tool loop with ledger updates, pending-action
   resolution, hidden-duplicate arrivals and selection pressure.
-- **Live smoke**: run a multi-turn session (e.g. the zai coding profile) and
-  check the gateway/ledger cache ratio — `cache_read_tokens / tokens_in`
-  should be non-decreasing within each turn and ≥ ~0.6 by turn end
-  (baseline before the fix: ~0.11).
+- **Live smoke**: run an actual agent with multiple tool iterations, verify its
+  deliverable, and compare consecutive model-call prefixes within the same turn.
+  Record sanctioned boundaries separately from unexpected divergence. Verify
+  raw provider usage against the normalized Sandhi fields. For fresh-only
+  `tokens_in`, the input cache ratio is
+  `cache_read_tokens / (tokens_in + cache_read_tokens)`; for a provider total
+  prompt count that already includes hits, divide cached tokens by that total.
+  Keep missing cache fields unknown rather than silently replacing them with zero.
+- **Backend outcomes**: record individual-call and aggregate ratios separately.
+  A monotonic ratio or a 0.6 target can describe a particular workload, but is
+  not a portable pass condition across OpenAI-compatible providers. Explicit
+  zero reported hits do not establish absence of executed reuse. Pricing and
+  weighted budget savings require their own evidence.
+- **Reported ZAI result** (six-call handback, 2026-10-18): 22,290 fresh and
+  84,160 cached input tokens, or **79.1% aggregate** input cache hits; the final
+  call was **99.4%** cached. This alone does not establish a 9× daily-budget
+  improvement or the result of replaying an earlier 813k-token workload.
