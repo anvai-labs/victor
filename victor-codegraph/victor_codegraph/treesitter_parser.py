@@ -29,6 +29,7 @@ from .model import (
     deterministic_symbol_id,
 )
 from .resolution import resolve_relations
+from .scope_binding import REFERENCE_LANGUAGES
 from .treesitter_tables import (
     CALL_NODES,
     CALLEE_FIELDS,
@@ -423,6 +424,20 @@ def _go_receiver_type(node, src: bytes) -> str | None:
     return None
 
 
+def _go_receiver_name(node, src: bytes) -> str | None:
+    """The receiver variable of a Go method_declaration (``func (s *Svc) Run()`` -> s)."""
+
+    receiver = node.child_by_field_name("receiver")
+    if receiver is None:
+        return None
+    for pd in _children(receiver):
+        if pd.type == "parameter_declaration":
+            for child in _children(pd):
+                if child.type == "identifier":
+                    return _text(child, src)
+    return None
+
+
 def _walk_collect(node, src, file_path, language, frames, symbols, relations, impl_traits):
     for child in _children(node):
         t = child.type
@@ -533,6 +548,9 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
             sym = _mk(child, src, file_path, language, name, stype, _scope_names(frames))
             if receiver:
                 sym.metadata["receiver"] = receiver
+                receiver_var = _go_receiver_name(child, src)
+                if receiver_var:
+                    sym.metadata["go_receiver_var"] = receiver_var
             symbols.append(sym)
             _collect_calls(child, sym, src, file_path, relations)
             # Recurse into the body so nested named functions/classes are collected.
@@ -785,8 +803,15 @@ def _build_contains(symbols: list[CodeSymbol]) -> list[CodeRelation]:
     return contains
 
 
-def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
-    """Parse non-Python source via tree-sitter. Raises GrammarUnavailable on fallback."""
+def parse_treesitter(
+    content: str, file_path: str, language: str, *, emit_references: bool = False
+) -> ParsedCode:
+    """Parse non-Python source via tree-sitter. Raises GrammarUnavailable on fallback.
+
+    With ``emit_references=True``, tier-2.5 scope binding also records REFERENCES
+    relations for identifier uses owned by each symbol (``scope_binding``); the
+    default preserves the pre-tier-2.5 output.
+    """
 
     grammar = TREE_SITTER_GRAMMAR.get(language)
     if grammar is None:
@@ -859,6 +884,31 @@ def parse_treesitter(content: str, file_path: str, language: str) -> ParsedCode:
             )
 
     relations.extend(_build_contains(symbols))
+
+    if emit_references and language in REFERENCE_LANGUAGES:
+        from .scope_binding import (
+            cap_unresolved_references,
+            collect_all_treesitter_references,
+        )
+
+        collect_all_treesitter_references(root, src, file_path, language, symbols, relations)
+        has_error = bool(getattr(root, "has_error", False))
+        return ParsedCode(
+            file_path=file_path,
+            language=language,
+            symbols=symbols,
+            relations=cap_unresolved_references(resolve_relations(symbols, relations)),
+            imports=imports,
+            content_hash=content_hash(content),
+            status=ParseStatus.PARTIAL if has_error else ParseStatus.SUCCESS,
+            capability_tier=CapabilityTier.SYMBOLS,
+            diagnostics=(
+                [ParseDiagnostic(code="syntax_error", message="tree-sitter produced an error node")]
+                if has_error
+                else []
+            ),
+            source_code=content,
+        )
 
     has_error = bool(getattr(root, "has_error", False))
     return ParsedCode(
