@@ -851,43 +851,36 @@ class GoogleToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
         warnings = []
         remaining = content
 
-        # Parse <ctrl42>call: patterns first (most specific)
-        for match in self.CTRL42_CALL_PATTERN.finditer(content):
-            tool_name = match.group(1).strip()
-            json_str = match.group(2).strip()
-            if tool_name and self.is_valid_tool_name(tool_name):
-                try:
-                    args = json_loads(json_str) if json_str else {}
-                    canonical_tool_name = get_canonical_name(tool_name)
-                    tool_calls.append(
-                        ToolCall(
-                            name=canonical_tool_name,
-                            arguments=self.normalize_arguments(args, canonical_tool_name),
+        # Parse <ctrl42>call: patterns first (most specific), then the
+        # simpler call: patterns — one loop body, two (pattern, label,
+        # include-snippet) triples; the pairs were token-duplicates that
+        # drifted only in log label and warning detail (jscpd + supervised).
+        for pattern, label, include_snippet in (
+            (self.CTRL42_CALL_PATTERN, "ctrl42", True),
+            (self.SIMPLE_CALL_PATTERN, "simple", False),
+        ):
+            for match in pattern.finditer(content):
+                tool_name = match.group(1).strip()
+                json_str = match.group(2).strip()
+                if tool_name and self.is_valid_tool_name(tool_name):
+                    try:
+                        args = json_loads(json_str) if json_str else {}
+                        canonical_tool_name = get_canonical_name(tool_name)
+                        tool_calls.append(
+                            ToolCall(
+                                name=canonical_tool_name,
+                                arguments=self.normalize_arguments(args, canonical_tool_name),
+                            )
                         )
-                    )
-                    remaining = remaining.replace(match.group(0), "")
-                    logger.debug(f"Parsed ctrl42 call: {tool_name}({args})")
-                except JSONDecodeError:
-                    warnings.append(f"Failed to parse JSON for {tool_name}: {json_str[:50]}")
-
-        # Parse simpler call: patterns
-        for match in self.SIMPLE_CALL_PATTERN.finditer(content):
-            tool_name = match.group(1).strip()
-            json_str = match.group(2).strip()
-            if tool_name and self.is_valid_tool_name(tool_name):
-                try:
-                    args = json_loads(json_str) if json_str else {}
-                    canonical_tool_name = get_canonical_name(tool_name)
-                    tool_calls.append(
-                        ToolCall(
-                            name=canonical_tool_name,
-                            arguments=self.normalize_arguments(args, canonical_tool_name),
-                        )
-                    )
-                    remaining = remaining.replace(match.group(0), "")
-                    logger.debug(f"Parsed simple call: {tool_name}({args})")
-                except JSONDecodeError:
-                    warnings.append(f"Failed to parse JSON for {tool_name}")
+                        remaining = remaining.replace(match.group(0), "")
+                        logger.debug(f"Parsed {label} call: {tool_name}({args})")
+                    except JSONDecodeError:
+                        if include_snippet:
+                            warnings.append(
+                                f"Failed to parse JSON for {tool_name}: {json_str[:50]}"
+                            )
+                        else:
+                            warnings.append(f"Failed to parse JSON for {tool_name}")
 
         # Strip hallucinated tool output (Gemini likes to make up results)
         content_cleaned = self.TOOL_OUTPUT_HALLUCINATION.sub("", content)
