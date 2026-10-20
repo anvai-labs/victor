@@ -200,6 +200,27 @@ def _module_node_id(file_path: str) -> str:
 
 
 # Import at runtime for use in non-type-checked contexts
+def _binding_metadata(relation: Any) -> Dict[str, Any]:
+    """ADR-032 provenance payload for a resolved binding relation.
+
+    One vocabulary with victor-codegraph (``scope_resolver`` /
+    ``repository_resolver`` …); the ``use`` payload is the tier-3.5
+    enrichment schema. Always a dict — graph stores JSON-encode it.
+    """
+
+    metadata: Dict[str, Any] = {}
+    provenance = getattr(relation, "provenance", None)
+    confidence = getattr(relation, "confidence", None)
+    use = getattr(relation, "context", None)
+    if provenance is not None:
+        metadata["provenance"] = provenance
+    if confidence is not None:
+        metadata["confidence"] = confidence
+    if use is not None:
+        metadata["use"] = use
+    return metadata
+
+
 def _get_graph_types() -> tuple[type, type]:
     """Lazy import of graph types."""
     from victor.storage.graph.protocol import GraphEdge, GraphNode
@@ -243,6 +264,7 @@ class GraphIndexStats:
     cross_file_calls_resolved: int = 0
     cross_file_relationships_resolved: int = 0
     imports_resolved: int = 0
+    scope_references_resolved: int = 0
     repository_relations_dropped_unmaterialized: int = 0
     # Files that tried the enhanced TreeSitterAnalysisProtocol provider but
     # had to fall back to the hardcoded extraction path (because the provider
@@ -276,6 +298,7 @@ class GraphIndexStats:
             "cross_file_calls_resolved": self.cross_file_calls_resolved,
             "cross_file_relationships_resolved": self.cross_file_relationships_resolved,
             "imports_resolved": self.imports_resolved,
+            "scope_references_resolved": self.scope_references_resolved,
             "repository_relations_dropped_unmaterialized": (
                 self.repository_relations_dropped_unmaterialized
             ),
@@ -425,6 +448,10 @@ class GraphIndexingPipeline:
         self._codegraph_file_metadata: Dict[str, Dict[str, Any]] = {}
         self._codegraph_owned_symbol_ids: Set[str] = set()
         self._codegraph_owned_files: Set[str] = set()
+        # ADR-032 tier 2.5: resolved in-file REFERENCES counter (per run) and
+        # the one-shot victor-codegraph capability probe result (None=unknown).
+        self._scope_references_resolved: int = 0
+        self._scope_binding_supported_cache: bool | None = None
         # Canonical identity bridge for analysis providers that delegate their
         # parsing to victor-codegraph but omit ``symbol_id`` from the returned
         # dictionaries. Only unambiguous location/type tuples are retained.
@@ -529,6 +556,7 @@ class GraphIndexingPipeline:
         self._codegraph_owned_files.clear()
         self._codegraph_symbol_ids_by_location.clear()
         self._codegraph_file_metadata.clear()
+        self._scope_references_resolved = 0
 
         # Resolve the analysis provider — and let it finish language-plugin
         # discovery — BEFORE the parallel parse burst. Resolution is lazy and
@@ -596,10 +624,21 @@ class GraphIndexingPipeline:
             from victor.core.graph_rag.codegraph_repository import prepare_repository_snapshot
 
             selected = tuple(self._canonical_file_str(path) for path in discovered_files)
+            # Tier-2.5 scope binding is opt-in AND capability-probed: an
+            # installed victor-codegraph older than 0.11.0 raises TypeError on
+            # the keyword, which the broad except in _build_calls_edges would
+            # otherwise swallow into a silent legacy fallback. The kwarg is
+            # passed ONLY when enabled so every other caller (and test double)
+            # keeps the exact pre-tier-2.5 call shape.
+            snapshot_kwargs = (
+                {"emit_references": True}
+                if self.config.enable_scope_binding and self._scope_binding_supported()
+                else {}
+            )
             # Workers return data only. Cancellation cannot let a late worker
             # overwrite fields belonging to a subsequent run of this pipeline.
             preparation = asyncio.create_task(
-                asyncio.to_thread(prepare_repository_snapshot, root, selected)
+                asyncio.to_thread(prepare_repository_snapshot, root, selected, **snapshot_kwargs)
             )
             try:
                 repository = await asyncio.shield(preparation)
@@ -620,6 +659,7 @@ class GraphIndexingPipeline:
                 settings={
                     "enable_ccg": self.config.enable_ccg,
                     "enable_embeddings": self.config.enable_embeddings,
+                    "enable_scope_binding": self.config.enable_scope_binding,
                     "embedding_profile": embedding_profile,
                     "max_file_size_bytes": self.config.max_file_size_bytes,
                     "include_patterns": sorted(self.config.include_patterns),
@@ -702,9 +742,12 @@ class GraphIndexingPipeline:
             cg_calls = repository_relations.calls
             cg_relationships = repository_relations.relationships
             cg_imports = repository_relations.imports
+            cg_references = repository_relations.references
             stats.repository_relations_dropped_unmaterialized += (
                 repository_relations.dropped_unmaterialized
             )
+            stats.scope_references_resolved += self._scope_references_resolved + cg_references
+            stats.edges_created += cg_references
 
             resolved = await self._resolve_cross_file_calls(root)
             stats.cross_file_calls_resolved = cg_calls + resolved
@@ -763,6 +806,36 @@ class GraphIndexingPipeline:
         except Exception as exc:
             logger.debug("Post-rebuild database maintenance skipped: %s", exc)
 
+    def _scope_binding_supported(self) -> bool:
+        """One-shot probe: does the installed victor-codegraph take the flag?
+
+        ``parse_repo(emit_references=...)`` needs victor-codegraph >= 0.11.0.
+        On an older install the keyword raises TypeError, which the broad
+        ``except Exception`` around the per-file edge delegation would swallow
+        into a SILENT legacy fallback — so the capability is probed once per
+        pipeline and an explicit downgrade is logged instead.
+        """
+
+        if self._scope_binding_supported_cache is None:
+            supported = False
+            try:
+                import inspect
+
+                import victor_codegraph as _vcg
+
+                params = inspect.signature(_vcg.parse_repo).parameters
+                supported = "emit_references" in params
+            except Exception as exc:
+                logger.debug("scope-binding capability probe failed: %s", exc)
+            self._scope_binding_supported_cache = supported
+            if not supported:
+                logger.info(
+                    "enable_scope_binding is on but the installed victor-codegraph "
+                    "does not support emit_references (needs >= 0.11.0); "
+                    "indexing continues without REFERENCES binding edges"
+                )
+        return self._scope_binding_supported_cache
+
     def _bind_codegraph_repository(self, repository: ParsedRepository | None) -> None:
         """Bind successfully awaited preparation on the owning event-loop task."""
         self._codegraph_repository = repository
@@ -817,8 +890,21 @@ class GraphIndexingPipeline:
         )
         _, GraphEdge = _get_graph_types()
         edges = [
-            GraphEdge(src=src, dst=dst, type=EdgeType(edge_type))
-            for src, dst, edge_type in projection.edges
+            GraphEdge(
+                src=edge.src,
+                dst=edge.dst,
+                type=EdgeType(edge.type),
+                metadata={
+                    key: value
+                    for key, value in (
+                        ("provenance", edge.provenance),
+                        ("confidence", edge.confidence),
+                        ("use", edge.use),
+                    )
+                    if value is not None
+                },
+            )
+            for edge in projection.edges
         ]
 
         if edges:
@@ -2699,6 +2785,11 @@ class GraphIndexingPipeline:
                     source_code,
                     language=language,
                     file_path=canonical_file,
+                    **(
+                        {"emit_references": True}
+                        if self.config.enable_scope_binding and self._scope_binding_supported()
+                        else {}
+                    ),
                 )
             node_ids = {node.node_id for node in nodes}
             if {symbol.id for symbol in parsed.symbols} <= node_ids:
@@ -2716,6 +2807,7 @@ class GraphIndexingPipeline:
                                     src=relation.from_symbol_id,
                                     dst=relation.to_symbol_id,
                                     type=EdgeType.CALLS,
+                                    metadata=_binding_metadata(relation),
                                 )
                             )
                         elif relation.target_ref is not None:
@@ -2727,6 +2819,21 @@ class GraphIndexingPipeline:
                                     bool(relation.target_ref.qualifier),
                                 )
                             )
+                    elif relation.relation_type.name == "REFERENCES":
+                        # ADR-032 tier 2.5: in-file scope-resolved binding
+                        # edges. Unresolved REFERENCES never enter the legacy
+                        # pending buffers — the repository projection pass
+                        # owns cross-file binding for them.
+                        if relation.target_ref is None and relation.to_symbol_id in node_ids:
+                            self._scope_references_resolved += 1
+                            edges.append(
+                                GraphEdge(
+                                    src=relation.from_symbol_id,
+                                    dst=relation.to_symbol_id,
+                                    type=EdgeType.REFERENCES,
+                                    metadata=_binding_metadata(relation),
+                                )
+                            )
                     elif relation.relation_type.name in structural:
                         edge_type = structural[relation.relation_type.name]
                         if relation.target_ref is None and relation.to_symbol_id in node_ids:
@@ -2735,6 +2842,7 @@ class GraphIndexingPipeline:
                                     src=relation.from_symbol_id,
                                     dst=relation.to_symbol_id,
                                     type=edge_type,
+                                    metadata=_binding_metadata(relation),
                                 )
                             )
                         elif relation.target_ref is not None:
@@ -3373,6 +3481,7 @@ class GraphIndexingPipeline:
         target.cross_file_calls_resolved += source.cross_file_calls_resolved
         target.cross_file_relationships_resolved += source.cross_file_relationships_resolved
         target.imports_resolved += source.imports_resolved
+        target.scope_references_resolved += source.scope_references_resolved
         target.repository_relations_dropped_unmaterialized += (
             source.repository_relations_dropped_unmaterialized
         )

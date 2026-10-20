@@ -33,6 +33,9 @@ class GraphSettings(BaseModel):
     ccg_languages: List[str] = Field(
         default_factory=lambda: ["python", "javascript", "typescript", "go", "rust"]
     )
+    # ADR-032 tier 2.5: resolved REFERENCES binding edges during indexing
+    # (requires victor-codegraph >= 0.11.0; degrades to off when absent).
+    enable_scope_binding: bool = False
     enable_graph_rag: bool = True
     rag_seed_count: int = 5
     rag_max_hops: int = 2

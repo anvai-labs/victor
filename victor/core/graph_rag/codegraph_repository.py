@@ -113,24 +113,49 @@ def qualify_repository_snapshot(
 
 
 @dataclass(frozen=True)
+class ProjectedRelationEdge:
+    """One resolved relation ready to persist, with its binding provenance.
+
+    ``provenance``/``confidence`` ride along from victor-codegraph's resolver
+    (``scope_resolver`` | ``repository_resolver`` | ...) instead of being
+    discarded at the bare-3-tuple boundary — the ADR-032 provenance model. The
+    ``use`` payload (use-kind for REFERENCES) is the tier-3.5 enrichment
+    schema: SCIP harvesting can later upgrade precision without re-harvesting.
+    """
+
+    src: str
+    dst: str
+    type: str
+    provenance: str | None = None
+    confidence: float | None = None
+    use: str | None = None
+
+
+@dataclass(frozen=True)
 class RepositoryRelationProjection:
     """Resolved relation rows and per-category counts for Graph-RAG."""
 
-    edges: tuple[tuple[str, str, str], ...] = ()
+    edges: tuple[ProjectedRelationEdge, ...] = ()
     calls: int = 0
     relationships: int = 0
     imports: int = 0
+    references: int = 0
     dropped_unmaterialized: int = 0
 
 
 def prepare_repository_snapshot(
     root_path: Path,
     allowed_files: Iterable[str],
+    *,
+    emit_references: bool = False,
 ) -> ParsedRepository | None:
     """Parse the caller's exact inventory using the canonical shared resolver.
 
     Only an absent optional package permits legacy extraction. Parser failures
     propagate; empty input stays explicitly empty, never default discovery.
+    ``emit_references`` (ADR-032 tier 2.5) is passed through when the installed
+    victor-codegraph supports it; an older package raises TypeError, which the
+    caller's capability probe prevents from ever reaching here.
     """
     try:
         import victor_codegraph as codegraph
@@ -139,6 +164,8 @@ def prepare_repository_snapshot(
             raise
         logger.warning("victor-codegraph repository snapshot unavailable: %s", exc)
         return None
+    if emit_references:
+        return codegraph.parse_repo(root_path, selected_paths=allowed_files, emit_references=True)
     return codegraph.parse_repo(root_path, selected_paths=allowed_files)
 
 
@@ -160,11 +187,15 @@ def project_resolved_relations(
         "EXTENDS": "INHERITS",
         "IMPLEMENTS": "IMPLEMENTS",
         "IMPORTS": "IMPORTS",
+        "REFERENCES": "REFERENCES",
     }
-    edges: list[tuple[str, str, str]] = []
-    calls = relationships = imports = dropped_unmaterialized = 0
+    edges: list[ProjectedRelationEdge] = []
+    calls = relationships = imports = references = dropped_unmaterialized = 0
     seen: set[tuple[str, str, str]] = set()
     for relation in repository.relations:
+        # scope_resolver relations are consumed by _build_calls_edges' in-file
+        # path; only repository-resolved relations project here (unchanged
+        # contract — REFERENCES reach this pass as repository_resolver).
         if relation.target_ref is not None or relation.provenance not in {
             "repository_resolver",
             "repository_import_resolver",
@@ -173,20 +204,31 @@ def project_resolved_relations(
         edge_type = edge_types.get(relation.relation_type.name)
         if edge_type is None:
             continue
-        edge = (relation.from_symbol_id, relation.to_symbol_id, edge_type)
+        key = (relation.from_symbol_id, relation.to_symbol_id, edge_type)
         if materialized_symbol_ids is not None and (
-            edge[0] not in materialized_symbol_ids or edge[1] not in materialized_symbol_ids
+            key[0] not in materialized_symbol_ids or key[1] not in materialized_symbol_ids
         ):
             dropped_unmaterialized += 1
             continue
-        if edge in seen or edge[0] == edge[1]:
+        if key in seen or key[0] == key[1]:
             continue
-        seen.add(edge)
-        edges.append(edge)
+        seen.add(key)
+        edges.append(
+            ProjectedRelationEdge(
+                src=key[0],
+                dst=key[1],
+                type=edge_type,
+                provenance=getattr(relation, "provenance", None),
+                confidence=getattr(relation, "confidence", None),
+                use=getattr(relation, "context", None),
+            )
+        )
         if edge_type == "CALLS":
             calls += 1
         elif edge_type == "IMPORTS":
             imports += 1
+        elif edge_type == "REFERENCES":
+            references += 1
         else:
             relationships += 1
     return RepositoryRelationProjection(
@@ -194,6 +236,7 @@ def project_resolved_relations(
         calls,
         relationships,
         imports,
+        references,
         dropped_unmaterialized,
     )
 
@@ -232,6 +275,11 @@ def project_file_symbols(parsed: Any) -> list[Any]:
                     asdict(r)
                     for r in parsed.relations
                     if r.from_symbol_id == s.id and r.target_ref is not None
+                    # Tier-2.5 retained REFERENCES stay relation-level evidence
+                    # (capped per owner in victor-codegraph); mirroring them
+                    # into every node's metadata would multiply the payload by
+                    # the symbol count.
+                    and r.relation_type.name != "REFERENCES"
                 ],
             },
         )
