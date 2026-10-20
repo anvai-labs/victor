@@ -58,6 +58,24 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # jscpd extraction: the accumulators live in three files now; their
+    # behavior is pinned by the shared-module mirror suite plus the
+    # proxima/victor suites that exercise both public classes end-to-end.
+    **dict.fromkeys(
+        (
+            "victor/storage/vector_stores/_graph_accumulator.py",
+            "victor/storage/vector_stores/change_impact.py",
+            "victor/storage/vector_stores/issue_localization.py",
+        ),
+        (
+            "tests/unit/storage/vector_stores/test_graph_accumulator.py",
+            "tests/unit/providers/test_proximadb_multi.py",
+        ),
+    ),
+    "victor/providers/azure_openai_provider.py": (
+        "tests/unit/providers/test_openai_compat_coverage.py",
+        "tests/unit/providers/test_openai_compat.py",
+    ),
     **dict.fromkeys(
         (
             "victor/core/graph_rag/indexing.py",
