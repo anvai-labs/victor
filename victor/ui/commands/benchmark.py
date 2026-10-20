@@ -825,6 +825,85 @@ def list_benchmarks() -> None:
 
 
 @benchmark_app.command("setup")
+
+# Shared CLI option declarations for the three benchmark commands
+# (jscpd exact-duplicate extraction). typer.Option instances are MUTATED at
+# command registration, so each factory returns a fresh instance per call
+# site — never share one instance across parameters.
+def _model_option() -> Any:
+    return typer.Option(None, "--model", "-m", help="Model to use (default: from profile)")
+
+
+def _dataset_path_option() -> Any:
+    return typer.Option(
+        None,
+        "--dataset-path",
+        help="Local JSON/JSONL dataset manifest for external benchmark adapters",
+    )
+
+
+def _timeout_option() -> Any:
+    return typer.Option(420, "--timeout", "-t", help="Timeout per task in seconds")
+
+
+def _max_turns_option() -> Any:
+    return typer.Option(10, "--max-turns", help="Maximum conversation turns per task")
+
+
+def _parallel_option() -> Any:
+    return typer.Option(1, "--parallel", help="Number of parallel tasks")
+
+
+def _use_docker_option() -> Any:
+    return typer.Option(
+        False,
+        "--docker",
+        help="Run tests in Docker containers (requires per-repo images)",
+    )
+
+
+def _resume_option() -> Any:
+    return typer.Option(
+        False,
+        "--resume",
+        "-r",
+        help="Resume from checkpoint if previous run was interrupted",
+    )
+
+
+def _provider_option() -> Any:
+    return typer.Option(None, "--provider", help="Override provider (e.g., deepseek, openai, xai)")
+
+
+def _log_level_option() -> Any:
+    return typer.Option(None, "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR)")
+
+
+def _debug_modules_option() -> Any:
+    return typer.Option(
+        None,
+        "--debug-modules",
+        help="Comma-separated modules for DEBUG logging (e.g. code_search,agent_adapter)",
+    )
+
+
+def _no_edge_model_option() -> Any:
+    return typer.Option(
+        False,
+        "--no-edge-model",
+        help="Disable edge model micro-decisions during benchmark",
+    )
+
+
+def _account_option() -> Any:
+    return typer.Option(
+        None,
+        "--account",
+        "-a",
+        help="Use a configured account (e.g., openai-oauth). Overrides --profile/--provider.",
+    )
+
+
 def setup_benchmark(
     benchmark: str = typer.Argument(..., help="Benchmark to setup: swe-bench, swe-bench-lite"),
     max_tasks: Optional[int] = typer.Option(
@@ -842,9 +921,7 @@ def setup_benchmark(
             ".victor/graph_backend (victor#907 slice 2)."
         ),
     ),
-    log_level: Optional[str] = typer.Option(
-        None, "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR)"
-    ),
+    log_level: Optional[str] = _log_level_option(),
 ) -> None:
     """Setup benchmark repos (clone + index). Run before 'run' for faster execution.
 
@@ -927,35 +1004,18 @@ def run_benchmark(
             "post-run prompt evolution. Task context and recovery hints still vary."
         ),
     ),
-    model: Optional[str] = typer.Option(
-        None, "--model", "-m", help="Model to use (default: from profile)"
-    ),
+    model: Optional[str] = _model_option(),
     profile: str = typer.Option("default", "--profile", "-p", help="Victor profile to use"),
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Output file for results (JSON)"
     ),
-    dataset_path: Optional[Path] = typer.Option(
-        None,
-        "--dataset-path",
-        help="Local JSON/JSONL dataset manifest for external benchmark adapters",
-    ),
-    timeout: int = typer.Option(420, "--timeout", "-t", help="Timeout per task in seconds"),
-    max_turns: int = typer.Option(10, "--max-turns", help="Maximum conversation turns per task"),
-    parallel: int = typer.Option(1, "--parallel", help="Number of parallel tasks"),
-    use_docker: bool = typer.Option(
-        False,
-        "--docker",
-        help="Run tests in Docker containers (requires per-repo images)",
-    ),
-    resume: bool = typer.Option(
-        False,
-        "--resume",
-        "-r",
-        help="Resume from checkpoint if previous run was interrupted",
-    ),
-    provider: Optional[str] = typer.Option(
-        None, "--provider", help="Override provider (e.g., deepseek, openai, xai)"
-    ),
+    dataset_path: Optional[Path] = _dataset_path_option(),
+    timeout: int = _timeout_option(),
+    max_turns: int = _max_turns_option(),
+    parallel: int = _parallel_option(),
+    use_docker: bool = _use_docker_option(),
+    resume: bool = _resume_option(),
+    provider: Optional[str] = _provider_option(),
     prompt_candidate_hash: Optional[str] = typer.Option(
         None,
         "--prompt-candidate-hash",
@@ -972,19 +1032,9 @@ def run_benchmark(
             "saved artifacts."
         ),
     ),
-    log_level: Optional[str] = typer.Option(
-        None, "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR)"
-    ),
-    debug_modules: Optional[str] = typer.Option(
-        None,
-        "--debug-modules",
-        help="Comma-separated modules for DEBUG logging (e.g. code_search,agent_adapter)",
-    ),
-    no_edge_model: bool = typer.Option(
-        False,
-        "--no-edge-model",
-        help="Disable edge model micro-decisions during benchmark",
-    ),
+    log_level: Optional[str] = _log_level_option(),
+    debug_modules: Optional[str] = _debug_modules_option(),
+    no_edge_model: bool = _no_edge_model_option(),
     account: Optional[str] = typer.Option(
         None,
         "--account",
@@ -1333,33 +1383,18 @@ def run_real_benchmark(
     provider: Optional[str] = typer.Option(
         None, "--provider", help="Provider metadata to record for the run"
     ),
-    dataset_path: Optional[Path] = typer.Option(
-        None,
-        "--dataset-path",
-        help="Local JSON/JSONL dataset manifest for external benchmark adapters",
-    ),
-    timeout: int = typer.Option(420, "--timeout", "-t", help="Timeout per task in seconds"),
-    max_turns: int = typer.Option(10, "--max-turns", help="Maximum conversation turns per task"),
-    parallel: int = typer.Option(1, "--parallel", help="Number of parallel tasks"),
-    use_docker: bool = typer.Option(
-        False,
-        "--docker",
-        help="Run tests in Docker containers (requires per-repo images)",
-    ),
-    resume: bool = typer.Option(
-        False,
-        "--resume",
-        "-r",
-        help="Resume from checkpoint if previous run was interrupted",
-    ),
+    dataset_path: Optional[Path] = _dataset_path_option(),
+    timeout: int = _timeout_option(),
+    max_turns: int = _max_turns_option(),
+    parallel: int = _parallel_option(),
+    use_docker: bool = _use_docker_option(),
+    resume: bool = _resume_option(),
     bundle_output: Optional[Path] = typer.Option(
         None,
         "--bundle-output",
         help="Optional stable real-run publication bundle output directory",
     ),
-    log_level: Optional[str] = typer.Option(
-        None, "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR)"
-    ),
+    log_level: Optional[str] = _log_level_option(),
 ) -> None:
     """Run a benchmark through the canonical service-first ChatService runner.
 
@@ -1460,48 +1495,21 @@ def run_prompt_suite(
         "--shuffle",
         help="Shuffle task order for diverse repo sampling",
     ),
-    model: Optional[str] = typer.Option(
-        None, "--model", "-m", help="Model to use (default: from profile)"
-    ),
+    model: Optional[str] = _model_option(),
     profile: str = typer.Option("default", "--profile", "-p", help="Victor profile to use"),
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Output file for suite summary (JSON)"
     ),
-    dataset_path: Optional[Path] = typer.Option(
-        None,
-        "--dataset-path",
-        help="Local JSON/JSONL dataset manifest for external benchmark adapters",
-    ),
-    timeout: int = typer.Option(420, "--timeout", "-t", help="Timeout per task in seconds"),
-    max_turns: int = typer.Option(10, "--max-turns", help="Maximum conversation turns per task"),
-    parallel: int = typer.Option(1, "--parallel", help="Number of parallel tasks"),
-    use_docker: bool = typer.Option(
-        False,
-        "--docker",
-        help="Run tests in Docker containers (requires per-repo images)",
-    ),
-    resume: bool = typer.Option(
-        False,
-        "--resume",
-        "-r",
-        help="Resume from checkpoint if previous run was interrupted",
-    ),
-    provider: Optional[str] = typer.Option(
-        None, "--provider", help="Override provider (e.g., deepseek, openai, xai)"
-    ),
-    log_level: Optional[str] = typer.Option(
-        None, "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR)"
-    ),
-    debug_modules: Optional[str] = typer.Option(
-        None,
-        "--debug-modules",
-        help="Comma-separated modules for DEBUG logging (e.g. code_search,agent_adapter)",
-    ),
-    no_edge_model: bool = typer.Option(
-        False,
-        "--no-edge-model",
-        help="Disable edge model micro-decisions during benchmark",
-    ),
+    dataset_path: Optional[Path] = _dataset_path_option(),
+    timeout: int = _timeout_option(),
+    max_turns: int = _max_turns_option(),
+    parallel: int = _parallel_option(),
+    use_docker: bool = _use_docker_option(),
+    resume: bool = _resume_option(),
+    provider: Optional[str] = _provider_option(),
+    log_level: Optional[str] = _log_level_option(),
+    debug_modules: Optional[str] = _debug_modules_option(),
+    no_edge_model: bool = _no_edge_model_option(),
     account: Optional[str] = typer.Option(
         None,
         "--account",
