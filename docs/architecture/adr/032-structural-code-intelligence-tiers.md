@@ -242,10 +242,14 @@ flag OFF vs ON):**
 emitting grammars exercised on real code — go strongest (4,032/8,802,
 45.8%), python 31.2%, typescript 28.2%, and the entire promoted long tail
 resolving at 7-33% (swift 26%, kotlin 32%, scala 24%, csharp 46%,
-lua 8%). No `rust` rows appeared despite proximaDB being Rust-first — the
-default discovery's rust inventory for that tree needs investigation before
-the Rust numbers are trusted; the Rust signal above stands on the victor
-monorepo's files.
+lua 8%). No `rust` rows appeared in that first sweep — resolved on re-run as a
+measurement artifact (the sweep process's source tree was removed mid-run,
+degrading lazy grammar loads to silent fallback), not a codegraph defect. A
+dedicated rust-only re-sweep from a stable tree (2,788 files: 2,772 success
+/ 16 partial, 507s) produced **220,056 REFERENCES at 12.6% resolved
+(24,993 scope_resolver + 2,755 repository_resolver) against the CALLS
+baseline's 5.7%** — the largest relative resolution gain of any language
+measured (2.2x). The graduation dossier now has no open questions.
 
 ## Validation
 
