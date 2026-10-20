@@ -12,8 +12,8 @@ from types import SimpleNamespace
 from victor.config.search_settings import GraphSettings
 
 
-def test_scope_binding_defaults_off():
-    assert GraphSettings().enable_scope_binding is False
+def test_scope_binding_graduated_default_on():
+    assert GraphSettings().enable_scope_binding is True
 
 
 def test_graph_rag_config_reads_scope_binding_from_settings(tmp_path):
@@ -29,4 +29,12 @@ def test_graph_rag_config_reads_scope_binding_from_settings(tmp_path):
         root_path=tmp_path,
         settings=SimpleNamespace(enable_ccg=True, enable_graph_rag=True),
     )
-    assert default.index.enable_scope_binding is False  # getattr cascade default
+    assert default.index.enable_scope_binding is True  # graduated default
+
+    opt_out = GraphRagConfig.from_settings(
+        root_path=tmp_path,
+        settings=SimpleNamespace(
+            enable_ccg=True, enable_graph_rag=True, enable_scope_binding=False
+        ),
+    )
+    assert opt_out.index.enable_scope_binding is False  # explicit opt-out honored

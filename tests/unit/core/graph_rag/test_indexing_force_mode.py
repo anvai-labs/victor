@@ -341,9 +341,9 @@ async def test_preflight_failure_preserves_graph_and_sessions(
         elif failure == "missing":
             original = codegraph_repository.prepare_repository_snapshot
 
-            def missing(root, files):
+            def missing(root, files, **kwargs):
                 source.unlink()
-                return original(root, files)
+                return original(root, files, **kwargs)
 
             monkeypatch.setattr(codegraph_repository, "prepare_repository_snapshot", missing)
         with pytest.raises((ValueError, OSError, RuntimeError)):
@@ -399,12 +399,12 @@ async def test_cancelled_preparation_settles_before_next_root_owner(
     original = codegraph_repository.prepare_repository_snapshot
     loop = asyncio.get_running_loop()
 
-    def prepare(root, files):
+    def prepare(root, files, **kwargs):
         roots.append(root)
         if root == first_root:
             loop.call_soon_threadsafe(entered.set)
             assert release.wait(5)
-        return original(root, files)
+        return original(root, files, **kwargs)
 
     monkeypatch.setattr(codegraph_repository, "prepare_repository_snapshot", prepare)
     monkeypatch.setattr(pipeline, "_get_analysis_provider", lambda: None)

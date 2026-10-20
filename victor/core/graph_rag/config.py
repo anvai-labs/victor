@@ -95,9 +95,11 @@ class GraphIndexConfig:
     enable_module_metrics: bool = True
     # ADR-032 tier 2.5: victor-codegraph emits REFERENCES relations (def/use
     # occurrences resolved through the scope/repository resolver) when asked.
-    # Opt-in: resolved binding edges land only when the flag is on, and an
+    # GRADUATED to default-ON 2026-10-20 (ADR-032 rev 1.2 dossier: 26.9% vs
+    # 21.3% resolution on the victor corpus, 12.6% vs 5.7% on proximaDB rust,
+    # pipeline overhead below measurement noise). Set False to opt out; an
     # installed victor-codegraph older than 0.11.0 degrades to off (probed).
-    enable_scope_binding: bool = False
+    enable_scope_binding: bool = True
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     write_batch_size: int = 20  # Files per mini-batch flush in the streaming pipeline
     queue_maxsize: int = 100  # Bounded queue depth between producers and consumer
@@ -247,7 +249,7 @@ class GraphRagConfig:
         # Extract graph settings if available
         enable_ccg = getattr(settings, "enable_ccg", True)
         enable_graph_rag = getattr(settings, "enable_graph_rag", True)
-        enable_scope_binding = getattr(settings, "enable_scope_binding", False)
+        enable_scope_binding = getattr(settings, "enable_scope_binding", True)
 
         index_config = GraphIndexConfig(
             root_path=root_path,

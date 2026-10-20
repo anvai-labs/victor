@@ -203,7 +203,13 @@ separate decision with its own evidence bar; none is authorized by this ADR.
 ## Flag graduation dossier (rev 1.2, 2026-10-20)
 
 Evidence gathered for the `enable_scope_binding` default-ON decision. The
-decision itself remains the maintainer's; this section is the dossier.
+decision remained the maintainer's until rev 1.3.
+
+**GRADUATED 2026-10-20 (rev 1.3): default-ON approved by the maintainer.**
+`enable_scope_binding` now defaults to True across all six construction
+sites; explicit False opts out; the capability probe keeps older
+victor-codegraph installs safe (graceful degradation to off); an ON-to-OFF
+flip requires a force rebuild to clear stale REFERENCES edges.
 
 **Parse-level (victor monorepo, 4,847 files — 4,684 py / 97 ts / 34 rs / 26 sh,
 55s `parse_repo(emit_references=True)`):**
@@ -287,3 +293,4 @@ measured (2.2x). The graduation dossier now has no open questions.
 | 1.0 | 2026-10-19 | Initial proposal: tier 2.5 scope-graph binding + tier 3 SCIP/LSP harvesting, provenance model, evidence base from the dataserver3 arxiv corpus. |
 | 1.1 | 2026-10-20 | Phase 1 (tier 2.5) implemented: adopt-vs-build settled (RUSTSEC-2026-0303), pure-Python correction, verified nine-language honest-capability set, provenance vocabulary pinned to resolver strings, v1 limits; beyond-tier-3 outlook added (3.5 / 4a / 4b / 5). Status Proposed → Accepted. |
 | 1.2 | 2026-10-20 | Language matrix completed (0.12.0: seventeen languages incl. kotlin/ruby extractor unlocks); flag-graduation dossier added — parse-level 26.9% resolution vs the 21.3% CALLS baseline, 1.14 refs/symbol; pipeline-level +27% edge volume with 100% provenance and overhead below measurement noise; proximaDB large-repo sweep noted as the open gap. Graduation decision remains the maintainer's. |
+| 1.3 | 2026-10-20 | Flag graduated: `enable_scope_binding` default-ON (maintainer approval; six construction sites, opt-out preserved, force-rebuild caveat documented); CHANGELOG entry added. |
