@@ -112,6 +112,7 @@ async def _index_async(
         root_path=root_path,
         enable_ccg=enable_ccg,
         enable_embeddings=enable_embeddings,
+        enable_scope_binding=getattr(load_settings(), "enable_scope_binding", False),
     )
 
     # Build index

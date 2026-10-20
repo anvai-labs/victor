@@ -43,7 +43,9 @@ def test_project_relations_requires_both_endpoints_to_be_materialized() -> None:
         materialized_symbol_ids={"persisted-a", "persisted-b"},
     )
 
-    assert projection.edges == (("persisted-a", "persisted-b", "CALLS"),)
+    assert [(e.src, e.dst, e.type) for e in projection.edges] == [
+        ("persisted-a", "persisted-b", "CALLS")
+    ]
     assert projection.calls == 1
     assert projection.dropped_unmaterialized == 1
 
@@ -136,7 +138,7 @@ async def test_index_snapshot_preserves_symbols_edges_and_opaque_lookup(tmp_path
         assert stats.repository_relations_dropped_unmaterialized == 0
         projected = project_resolved_relations(shared)
         stored_edges = {(e.src, e.dst, e.type) for e in await store.get_all_edges()}
-        assert projected.edges and set(projected.edges) <= stored_edges
+        assert projected.edges and {(e.src, e.dst, e.type) for e in projected.edges} <= stored_edges
         target = next(s for s in shared.symbols if s.simple_name == "target")
         assert await _resolve_target(target.id, store) == target.id
         caller = next(s for s in shared.symbols if s.simple_name == "caller")

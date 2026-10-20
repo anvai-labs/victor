@@ -93,6 +93,11 @@ class GraphIndexConfig:
     respect_gitignore: bool = True
     detect_languages: bool = True
     enable_module_metrics: bool = True
+    # ADR-032 tier 2.5: victor-codegraph emits REFERENCES relations (def/use
+    # occurrences resolved through the scope/repository resolver) when asked.
+    # Opt-in: resolved binding edges land only when the flag is on, and an
+    # installed victor-codegraph older than 0.11.0 degrades to off (probed).
+    enable_scope_binding: bool = False
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     write_batch_size: int = 20  # Files per mini-batch flush in the streaming pipeline
     queue_maxsize: int = 100  # Bounded queue depth between producers and consumer
@@ -242,11 +247,13 @@ class GraphRagConfig:
         # Extract graph settings if available
         enable_ccg = getattr(settings, "enable_ccg", True)
         enable_graph_rag = getattr(settings, "enable_graph_rag", True)
+        enable_scope_binding = getattr(settings, "enable_scope_binding", False)
 
         index_config = GraphIndexConfig(
             root_path=root_path,
             enable_ccg=enable_ccg,
             enable_embeddings=enable_graph_rag,
+            enable_scope_binding=enable_scope_binding,
         )
 
         return cls(index=index_config)

@@ -1297,9 +1297,16 @@ def init(
                         # that set the marker got its queries routed to a store
                         # init had never populated.
                         graph_store = create_graph_store("auto", project_path=project_root)
+                        try:
+                            from victor.config.settings import load_settings
+
+                            scope_binding = getattr(load_settings(), "enable_scope_binding", False)
+                        except Exception:
+                            scope_binding = False
                         config = GraphIndexConfig(
                             root_path=project_root,
                             enable_ccg=True,
+                            enable_scope_binding=scope_binding,
                             # Off by default because generating vectors roughly
                             # triples init time, but no longer hardcoded: without
                             # this, `GraphIndexConfig.enable_embeddings` (which
