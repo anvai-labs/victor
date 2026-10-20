@@ -28,6 +28,20 @@ Use this module for:
 
 from typing import Any, Optional
 
+# Six wrappers below were token-identical to victor.framework.rl's
+# (modulo docstrings and Dict/dict annotation spelling — jscpd exact-
+# duplicate extraction): re-export the one implementation. The
+# process_prompt_candidate_evaluation_suite pair stays LOCAL — it
+# returns workflow.to_dict() where the framework returns the workflow
+# object (real behavioral drift, not consolidated).
+from victor.framework.rl import (  # noqa: F401
+    analyze_prompt_rollout_experiment,
+    analyze_prompt_rollout_experiment_async,
+    apply_prompt_rollout_recommendation,
+    apply_prompt_rollout_recommendation_async,
+    create_prompt_rollout_experiment,
+    create_prompt_rollout_experiment_async,
+)
 from victor.framework.rl.coordinator import (
     AsyncWriterQueue,
     RLCoordinator,
@@ -35,112 +49,6 @@ from victor.framework.rl.coordinator import (
     get_rl_coordinator_async,
     reset_rl_coordinator,
 )
-
-
-def create_prompt_rollout_experiment(
-    *,
-    section_name: str,
-    provider: str,
-    treatment_hash: str,
-    control_hash: Optional[str] = None,
-    traffic_split: float = 0.1,
-    min_samples_per_variant: int = 50,
-) -> Optional[str]:
-    """Create a prompt rollout experiment via the global RL coordinator."""
-    coordinator = get_rl_coordinator()
-    return coordinator.create_prompt_rollout_experiment(
-        section_name=section_name,
-        provider=provider,
-        treatment_hash=treatment_hash,
-        control_hash=control_hash,
-        traffic_split=traffic_split,
-        min_samples_per_variant=min_samples_per_variant,
-    )
-
-
-async def create_prompt_rollout_experiment_async(
-    *,
-    section_name: str,
-    provider: str,
-    treatment_hash: str,
-    control_hash: Optional[str] = None,
-    traffic_split: float = 0.1,
-    min_samples_per_variant: int = 50,
-) -> Optional[str]:
-    """Create a prompt rollout experiment asynchronously via the global RL coordinator."""
-    coordinator = await get_rl_coordinator_async()
-    return await coordinator.create_prompt_rollout_experiment_async(
-        section_name=section_name,
-        provider=provider,
-        treatment_hash=treatment_hash,
-        control_hash=control_hash,
-        traffic_split=traffic_split,
-        min_samples_per_variant=min_samples_per_variant,
-    )
-
-
-def analyze_prompt_rollout_experiment(
-    *,
-    section_name: str,
-    provider: str,
-    treatment_hash: str,
-) -> Optional[dict[str, Any]]:
-    """Analyze a prompt rollout experiment via the global RL coordinator."""
-    coordinator = get_rl_coordinator()
-    return coordinator.analyze_prompt_rollout_experiment(
-        section_name=section_name,
-        provider=provider,
-        treatment_hash=treatment_hash,
-    )
-
-
-async def analyze_prompt_rollout_experiment_async(
-    *,
-    section_name: str,
-    provider: str,
-    treatment_hash: str,
-) -> Optional[dict[str, Any]]:
-    """Analyze a prompt rollout experiment asynchronously via the global RL coordinator."""
-    coordinator = await get_rl_coordinator_async()
-    return await coordinator.analyze_prompt_rollout_experiment_async(
-        section_name=section_name,
-        provider=provider,
-        treatment_hash=treatment_hash,
-    )
-
-
-def apply_prompt_rollout_recommendation(
-    *,
-    section_name: str,
-    provider: str,
-    treatment_hash: str,
-    dry_run: bool = False,
-) -> Optional[dict[str, Any]]:
-    """Apply the recommended prompt rollout decision via the global RL coordinator."""
-    coordinator = get_rl_coordinator()
-    return coordinator.apply_prompt_rollout_recommendation(
-        section_name=section_name,
-        provider=provider,
-        treatment_hash=treatment_hash,
-        dry_run=dry_run,
-    )
-
-
-async def apply_prompt_rollout_recommendation_async(
-    *,
-    section_name: str,
-    provider: str,
-    treatment_hash: str,
-    dry_run: bool = False,
-) -> Optional[dict[str, Any]]:
-    """Apply the recommended prompt rollout decision asynchronously via the global RL coordinator."""
-    coordinator = await get_rl_coordinator_async()
-    return await coordinator.apply_prompt_rollout_recommendation_async(
-        section_name=section_name,
-        provider=provider,
-        treatment_hash=treatment_hash,
-        dry_run=dry_run,
-    )
 
 
 def process_prompt_candidate_evaluation_suite(

@@ -58,6 +58,13 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # jscpd round 4: the six re-exported RL wrappers resolve their coordinator
+    # from victor.framework.rl's namespace now; the parity suite pins the
+    # service surface -> global coordinator contract (with the seams at the
+    # defining module), and the two LOCAL to_dict wrappers keep their seams.
+    "victor/agent/services/rl_runtime.py": (
+        "tests/unit/agent/services/test_service_runtime_parity.py",
+    ),
     # jscpd extraction: the accumulators live in three files now; their
     # behavior is pinned by the shared-module mirror suite plus the
     # proxima/victor suites that exercise both public classes end-to-end.
