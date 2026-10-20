@@ -30,6 +30,89 @@ from victor.agent.ml_metadata import (
     ModelSize,
 )
 
+# The core-table DDL is shared verbatim by ensure_critical_tables and
+# apply_normalized_schema (jscpd exact-duplicate extraction: 76 identical
+# lines). Both paths must create the same tables idempotently.
+_CRITICAL_TABLES_DDL = """
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                created_at TIMESTAMP NOT NULL,
+                last_activity TIMESTAMP NOT NULL,
+                project_path TEXT,
+                model TEXT,
+                profile TEXT,
+                max_tokens INTEGER DEFAULT 100000,
+                reserved_tokens INTEGER DEFAULT 4096,
+                metadata TEXT,
+                provider_id INTEGER REFERENCES providers(id),
+                model_family_id INTEGER REFERENCES model_families(id),
+                model_size_id INTEGER REFERENCES model_sizes(id),
+                context_size_id INTEGER REFERENCES context_sizes(id),
+                model_params_b REAL,
+                context_tokens INTEGER,
+                tool_capable INTEGER DEFAULT 0,
+                is_moe INTEGER DEFAULT 0,
+                is_reasoning INTEGER DEFAULT 0,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                cached_tokens INTEGER DEFAULT 0,
+                reasoning_tokens INTEGER DEFAULT 0,
+                cost_usd_micros INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TIMESTAMP NOT NULL,
+                token_count INTEGER NOT NULL,
+                priority INTEGER NOT NULL,
+                tool_name TEXT,
+                tool_call_id TEXT,
+                metadata TEXT,
+                agent_id TEXT,
+                parent_session_id TEXT,
+                team_id TEXT,
+                member_id TEXT,
+                plan_id TEXT,
+                plan_step_id TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS context_summaries (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                messages_summarized TEXT,
+                created_at TIMESTAMP NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS compaction_events (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                agent_id TEXT,
+                parent_session_id TEXT,
+                team_id TEXT,
+                member_id TEXT,
+                plan_id TEXT,
+                plan_step_id TEXT,
+                strategy TEXT NOT NULL,
+                messages_removed INTEGER DEFAULT 0,
+                tokens_freed INTEGER DEFAULT 0,
+                summary TEXT,
+                created_at TIMESTAMP NOT NULL,
+                metadata TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+"""
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,83 +236,7 @@ class ConversationStoreSchema:
 
     def ensure_critical_tables(self, conn: sqlite3.Connection) -> None:
         """Idempotently create core data tables that must always exist."""
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,
-                created_at TIMESTAMP NOT NULL,
-                last_activity TIMESTAMP NOT NULL,
-                project_path TEXT,
-                model TEXT,
-                profile TEXT,
-                max_tokens INTEGER DEFAULT 100000,
-                reserved_tokens INTEGER DEFAULT 4096,
-                metadata TEXT,
-                provider_id INTEGER REFERENCES providers(id),
-                model_family_id INTEGER REFERENCES model_families(id),
-                model_size_id INTEGER REFERENCES model_sizes(id),
-                context_size_id INTEGER REFERENCES context_sizes(id),
-                model_params_b REAL,
-                context_tokens INTEGER,
-                tool_capable INTEGER DEFAULT 0,
-                is_moe INTEGER DEFAULT 0,
-                is_reasoning INTEGER DEFAULT 0,
-                prompt_tokens INTEGER DEFAULT 0,
-                completion_tokens INTEGER DEFAULT 0,
-                cached_tokens INTEGER DEFAULT 0,
-                reasoning_tokens INTEGER DEFAULT 0,
-                cost_usd_micros INTEGER DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp TIMESTAMP NOT NULL,
-                token_count INTEGER NOT NULL,
-                priority INTEGER NOT NULL,
-                tool_name TEXT,
-                tool_call_id TEXT,
-                metadata TEXT,
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS context_summaries (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                token_count INTEGER NOT NULL,
-                messages_summarized TEXT,
-                created_at TIMESTAMP NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS compaction_events (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                strategy TEXT NOT NULL,
-                messages_removed INTEGER DEFAULT 0,
-                tokens_freed INTEGER DEFAULT 0,
-                summary TEXT,
-                created_at TIMESTAMP NOT NULL,
-                metadata TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
+        conn.executescript(_CRITICAL_TABLES_DDL + """
 
             -- Full-text search index for message content (FTS5)
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -297,84 +304,9 @@ class ConversationStoreSchema:
                 name TEXT UNIQUE NOT NULL,
                 description TEXT
             );
-
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,
-                created_at TIMESTAMP NOT NULL,
-                last_activity TIMESTAMP NOT NULL,
-                project_path TEXT,
-                model TEXT,
-                profile TEXT,
-                max_tokens INTEGER DEFAULT 100000,
-                reserved_tokens INTEGER DEFAULT 4096,
-                metadata TEXT,
-                provider_id INTEGER REFERENCES providers(id),
-                model_family_id INTEGER REFERENCES model_families(id),
-                model_size_id INTEGER REFERENCES model_sizes(id),
-                context_size_id INTEGER REFERENCES context_sizes(id),
-                model_params_b REAL,
-                context_tokens INTEGER,
-                tool_capable INTEGER DEFAULT 0,
-                is_moe INTEGER DEFAULT 0,
-                is_reasoning INTEGER DEFAULT 0,
-                prompt_tokens INTEGER DEFAULT 0,
-                completion_tokens INTEGER DEFAULT 0,
-                cached_tokens INTEGER DEFAULT 0,
-                reasoning_tokens INTEGER DEFAULT 0,
-                cost_usd_micros INTEGER DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp TIMESTAMP NOT NULL,
-                token_count INTEGER NOT NULL,
-                priority INTEGER NOT NULL,
-                tool_name TEXT,
-                tool_call_id TEXT,
-                metadata TEXT,
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS context_summaries (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                token_count INTEGER NOT NULL,
-                messages_summarized TEXT,
-                created_at TIMESTAMP NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS compaction_events (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                strategy TEXT NOT NULL,
-                messages_removed INTEGER DEFAULT 0,
-                tokens_freed INTEGER DEFAULT 0,
-                summary TEXT,
-                created_at TIMESTAMP NOT NULL,
-                metadata TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-
+""")
+        conn.executescript(_CRITICAL_TABLES_DDL)
+        conn.executescript("""
             CREATE INDEX IF NOT EXISTS idx_messages_session_time
             ON messages(session_id, timestamp);
 
