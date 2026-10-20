@@ -196,6 +196,16 @@ def harvest_precise_edges(
     index = _read_index(index_path)
     if index is None:
         return PreciseHarvest(skipped_reason="no-reader")
+    return join_occurrences(index, key_for_identity, known_symbol_keys, fqn_overrides)
+
+
+def join_occurrences(
+    index: Any,
+    key_for_identity: Any,
+    known_symbol_keys: set[str],
+    fqn_overrides: Optional[dict[str, dict[str, str]]] = None,
+) -> PreciseHarvest:
+    """The join core, over an already-parsed index (testable without a reader)."""
 
     # Pass 1: definition sites → identity keys.
     definition_keys: dict[str, str] = {}
