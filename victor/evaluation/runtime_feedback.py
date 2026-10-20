@@ -24,6 +24,47 @@ VALIDATED_RUNTIME_FEEDBACK_SOURCES = {
     "validated_session_truth_feedback",
     "validated_evaluation_truth_feedback",
 }
+# jscpd+LLM-supervised extraction: two aggregators (session-level and
+# directory-level) emit the SAME 27 topology metrics via the SAME
+# key -> weighted_metadata_average(key) pattern. One ordered key list
+# feeds both; token-diff saw drifted dict literals, but the structure
+# is uniform.
+_TOPOLOGY_METRIC_KEYS = (
+    "topology_feedback_coverage",
+    "avg_topology_reward",
+    "avg_topology_confidence",
+    "degradation_feedback_coverage",
+    "degradation_event_count",
+    "degraded_task_count",
+    "recovered_task_count",
+    "degradation_recovery_rate",
+    "avg_degradation_adaptation_cost",
+    "avg_degradation_time_to_recover_seconds",
+    "avg_degradation_cost_variance",
+    "avg_degradation_recovery_time_variance",
+    "avg_degradation_intervention_count",
+    "avg_degradation_confidence",
+    "avg_degradation_drift_score",
+    "content_degradation_task_count",
+    "confidence_degradation_task_count",
+    "provider_degradation_task_count",
+    "persistent_degradation_task_count",
+    "drift_task_count",
+    "degradation_drift_rate",
+    "degradation_intervention_task_count",
+    "degradation_intervention_rate",
+    "high_adaptation_cost_task_count",
+    "degradation_high_cost_rate",
+    "degradation_confidence_rate",
+    "degradation_stability_score",
+)
+
+
+def _topology_metric_aggregations(weighted_metadata_average):
+    """The shared key -> weighted-average aggregations (dict form)."""
+    return {key: weighted_metadata_average(key) for key in _TOPOLOGY_METRIC_KEYS}
+
+
 AGGREGATED_RUNTIME_FEEDBACK_SOURCE = "validated_evaluation_truth_aggregate"
 SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE = "session_topology_runtime_feedback"
 AGGREGATED_SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE = "session_topology_runtime_feedback_aggregate"
@@ -2233,9 +2274,7 @@ def _aggregate_feedback_payloads(
                 / max(sum(weights), 1e-9),
                 4,
             ),
-            "topology_feedback_coverage": weighted_metadata_average("topology_feedback_coverage"),
-            "avg_topology_reward": weighted_metadata_average("avg_topology_reward"),
-            "avg_topology_confidence": weighted_metadata_average("avg_topology_confidence"),
+            **_topology_metric_aggregations(weighted_metadata_average),
             "degradation_feedback_coverage": weighted_metadata_average(
                 "degradation_feedback_coverage"
             ),
@@ -2520,14 +2559,7 @@ def _aggregate_topology_feedback_metadata(
     return {
         "source": AGGREGATED_SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE,
         "topology_feedback_sources": list(dict.fromkeys(sources)),
-        "topology_feedback_coverage": weighted_metadata_average("topology_feedback_coverage"),
-        "avg_topology_reward": weighted_metadata_average("avg_topology_reward"),
-        "avg_topology_confidence": weighted_metadata_average("avg_topology_confidence"),
-        "degradation_feedback_coverage": weighted_metadata_average("degradation_feedback_coverage"),
-        "degradation_event_count": weighted_metadata_average("degradation_event_count"),
-        "degraded_task_count": weighted_metadata_average("degraded_task_count"),
-        "recovered_task_count": weighted_metadata_average("recovered_task_count"),
-        "degradation_recovery_rate": weighted_metadata_average("degradation_recovery_rate"),
+        **_topology_metric_aggregations(weighted_metadata_average),
         "avg_degradation_adaptation_cost": weighted_metadata_average(
             "avg_degradation_adaptation_cost"
         ),

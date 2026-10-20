@@ -744,35 +744,8 @@ class ConversationStore:
         tool_name: Optional[str],
         source: Optional["MessageSource"] = None,
     ) -> MessagePriority:
-        """Determine message priority based on role, tool context, and source origin."""
-        # Source-based overrides take precedence over role-based logic.
-        if source is not None:
-            priority = _SOURCE_PRIORITY_MAP.get(source)
-            if priority is not None:
-                return priority
-            # AGENT_RESPONSE, LEDGER_RENDER, SYSTEM_INJECTED, UNKNOWN → fall through
-
-        canonical_tool_name = canonicalize_core_tool_name(tool_name) if tool_name else None
-
-        if role == MessageRole.SYSTEM:
-            return MessagePriority.CRITICAL
-
-        if role == MessageRole.USER:
-            return MessagePriority.HIGH
-
-        if role == MessageRole.ASSISTANT:
-            return MessagePriority.HIGH
-
-        if role == MessageRole.TOOL:
-            # File contents and search results are valuable context
-            if canonical_tool_name in ("read", "code_search", "ls"):
-                return MessagePriority.HIGH
-            return MessagePriority.MEDIUM
-
-        if role == MessageRole.TOOL_CALL:
-            return MessagePriority.MEDIUM
-
-        return MessagePriority.MEDIUM
+        """Delegates to the messages component (the one implementation)."""
+        return self._messages._determine_priority(role, tool_name, source=source)
 
     def _estimate_tokens(self, content: str) -> int:
         return self._traces.estimate_tokens(content)
@@ -1065,86 +1038,6 @@ class ConversationStore:
             # If that fails, sanitize the metadata
             logger.debug(f"Sanitizing metadata for JSON serialization: {list(metadata.keys())}")
             return {k: _sanitize_value(v) for k, v in metadata.items()}
-
-    def _persist_message(self, session_id: str, message: ConversationMessage):
-        """Persist message to database.
-
-        IMPORTANT: Uses self._write_lock_sync to serialize all write
-        operations and prevent "database is locked" errors from concurrent access.
-
-        Tool output messages (tool_call, tool_result, and user-role
-        TOOL_OUTPUT blocks) are truncated to _TOOL_OUTPUT_STORE_LIMIT
-        chars when stored, since full content is only needed during the
-        active session where it lives in memory.
-        """
-        content = message.content
-        # Truncate large tool outputs for storage
-        if len(content) > self._TOOL_OUTPUT_STORE_LIMIT and (
-            message.role in (MessageRole.TOOL_CALL, MessageRole.TOOL)
-            or (message.role == MessageRole.USER and content.startswith("<TOOL_OUTPUT"))
-        ):
-            content = (
-                content[: self._TOOL_OUTPUT_STORE_LIMIT]
-                + f"\n\n[... truncated from {len(message.content)} chars "
-                f"for storage]"
-            )
-
-        # Merge tool_calls into metadata for persistence so assistant
-        # messages that requested tool calls can be fully reconstructed.
-        meta = dict(message.metadata) if message.metadata else {}
-        if message.tool_calls:
-            meta["tool_calls"] = message.tool_calls
-
-        # Sanitize metadata for JSON serialization (handles Ellipsis, Path objects, etc.)
-        meta = self._sanitize_metadata_for_json(meta)
-        agent_id = meta.get("agent_id")
-        parent_session_id = meta.get("parent_session_id")
-        team_id = meta.get("team_id")
-        member_id = meta.get("member_id")
-        plan_id = meta.get("plan_id")
-        plan_step_id = meta.get("plan_step_id")
-
-        def _write(conn: sqlite3.Connection) -> None:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO messages
-                (id, session_id, role, content, timestamp, token_count,
-                 priority, tool_name, tool_call_id, metadata,
-                 agent_id, parent_session_id, team_id, member_id, plan_id, plan_step_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    message.id,
-                    session_id,
-                    message.role.value,
-                    content,
-                    message.timestamp.isoformat(),
-                    message.token_count,
-                    message.priority.value,
-                    message.tool_name,
-                    message.tool_call_id,
-                    json_dumps(meta),
-                    agent_id,
-                    parent_session_id,
-                    team_id,
-                    member_id,
-                    plan_id,
-                    plan_step_id,
-                ),
-            )
-
-        self._with_locked_write_retry(_write, operation="persist_message")
-
-    def _update_session_activity(self, session_id: str):
-        """Update session last activity timestamp with write serialization."""
-
-        def _write(conn: sqlite3.Connection) -> None:
-            conn.execute(
-                "UPDATE sessions SET last_activity = ? WHERE session_id = ?",
-                (datetime.now().isoformat(), session_id),
-            )
-
-        self._with_locked_write_retry(_write, operation="update_session_activity")
 
     @staticmethod
     def _is_sqlite_locked_error(exc: sqlite3.OperationalError) -> bool:
