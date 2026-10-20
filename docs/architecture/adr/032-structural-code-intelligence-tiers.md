@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status**: Proposed
-- **Date**: 2026-10-19
+- **Status**: Accepted (Phase 1 / tier 2.5 implemented; tiers 3+ planned)
+- **Date**: 2026-10-19 (rev 1.1: 2026-10-20)
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 014 (shared codegraph chunker package), 015 (Victor Core adopts
   victor-codegraph), 026 (durable code memory GA — one `oid`, correlated graph+vector)
@@ -77,13 +77,44 @@ produces:
   parentage for lexical nesting, replacing positional heuristics where resolution
   succeeds; heuristics remain the fallback where a language's rules are not yet
   written or resolution is ambiguous.
-- Rust-side (existing workspace, PyO3, `_NATIVE_AVAILABLE` fallback), Python
-  reference implementation first per the native-acceleration policy: rules for
-  Python and Rust first (highest in-repo value), then TypeScript.
-- **Build-vs-adopt**: evaluate GitHub's `tree-sitter-stack-graphs` crate before
-  hand-rolling rules. Adopt if its per-language rule sets meet our incremental and
-  embedding-free constraints; hand-roll only the subset otherwise. Decision point
-  recorded at implementation time.
+- ~~Rust-side (existing workspace, PyO3, `_NATIVE_AVAILABLE` fallback)~~ — **rev 1.1
+  correction:** victor-codegraph is pure Python (the monorepo's Rust workspace is
+  victor-core's, not the codegraph package's). Tier 2.5 shipped as pure Python;
+  native acceleration remains a future measured decision under the repo's
+  native-acceleration strategy.
+- **Build-vs-adopt — SETTLED (rev 1.1):** `github/stack-graphs` is archived
+  (RUSTSEC-2026-0303, Sep 2026 — "no published successor"; companion
+  RUSTSEC-2026-0302 unsoundness advisory on its C API exports). Adopting an
+  unmaintained, soundness-flagged crate is disqualified for a production
+  framework. Tier 2.5 is the hand-rolled subset this ADR's fallback branch
+  anticipated.
+
+**Rev 1.1 — tier 2.5 as implemented (#1404, victor-codegraph 0.11.0; #1406 core
+integration):**
+
+- A language-agnostic two-pass collector (`scope_binding.py`) plus a stdlib-`ast`
+  adapter (`python_references.py`, the reference implementation): occurrence
+  extraction with innermost-owner attribution, span-keyed exclusions for call
+  callees and member positions, field-directed shadow collection, per-language
+  noise roots, deterministic first-use dedup per (owner, name), unresolved cap
+  64/owner. `CodeRelationType.REFERENCES` (previously dead) is the carrier;
+  resolution rides the existing two-stage resolver (`scope_resolver` →
+  `repository_resolver` via exact import bindings), ambiguity retained at 0.5.
+- **Language membership is honest capability, not grammar availability** — every
+  grammar is probed against a three-fact contract (one resolved in-file edge, one
+  retained-unresolved edge, shadowed locals producing no edge). Verified and
+  enabled: python, javascript, typescript, tsx, rust, go, java, c, bash. Pending
+  grammar-table verification: cpp, csharp, php, swift, scala, lua (they leak
+  locals or self-bind members under the generic tables). kotlin/ruby mint no
+  function symbols in the extractor today; sql is vacuous. An emptiness ratchet
+  test pins every exclusion: adding a language is a deliberate verified act.
+- Opt-in end to end: `emit_references=False` default on `parse`/`parse_repo`
+  (package output byte-identical until asked); victor-core gates on
+  `GraphIndexConfig.enable_scope_binding` (default OFF, settings-cascaded,
+  capability-probed against codegraph ≥ 0.11.0 with an explicit downgrade log).
+- Known v1 limits: module-level uses skipped (no owner in the id-map rewrite);
+  declaration-subtree over-shadowing errs toward suppressed edges; ON→OFF flag
+  flips leave stale REFERENCES edges until a force rebuild.
 
 ### Tier 3 — precise-index harvesting (SCIP/LSP), optional and lazy
 
@@ -101,11 +132,19 @@ Compiler-accurate cross-references when — and only when — the toolchain exis
 
 ### Provenance model
 
-Every binding-bearing edge carries a precision level — `heuristic` |
-`scope-resolved` | `compiler` — so retrieval can prefer precise edges, the agent
-layer knows what is provable vs inferred, and reconciliation is deterministic
-(compiler > scope-resolved > heuristic). This extends the existing edge metadata
-convention; no schema break.
+Every binding-bearing edge carries a precision level so retrieval can prefer
+precise edges, the agent layer knows what is provable vs inferred, and
+reconciliation is deterministic (compiler > scope-resolved > heuristic). This
+extends the existing edge metadata convention; no schema break.
+
+**Rev 1.1 vocabulary decision:** one concept, one vocabulary — the values are
+victor-codegraph's resolver strings verbatim (`scope_resolver`,
+`repository_resolver`, later SCIP harvesting's `compiler`), carried in
+`GraphEdge.metadata` as `{"provenance": …, "confidence": …, "use": …}` via
+`ProjectedRelationEdge` — not a dasherized variant. `REFERENCED_BY` is computed
+downstream, never emitted (the `CALLED_BY` precedent). Heuristic passes never
+write REFERENCES (the edge type is greenfield), which makes the
+last-writer-wins `(src, dst, type)` semantics of every store backend safe.
 
 ### Retrieval and memory integration
 
@@ -115,6 +154,34 @@ convention; no schema break.
 - The durable structural memory thesis is STRATA/StateHarness-shaped: the graph is
   the evolving project state outside model parameters; the LLM stays stateless and
   terminal.
+
+## Beyond tier 3 — outlook (rev 1.1, not yet committed work)
+
+The ladder above tier 3, in the order the value compounds. Each tier is a
+separate decision with its own evidence bar; none is authorized by this ADR.
+
+- **Tier 3.5 — type-directed queries.** Keep type/receiver payloads in harvested
+  relations (the `use`/qualifier/arity schema already rides tier-2.5 edges) so
+  SCIP enrichment answers trait/dispatch and caller-of-type-signature questions
+  without re-harvesting. Nearly free if tier 3 keeps its payloads.
+- **Tier 4a — precise-CCG fusion.** The CCG's CFG/CDG/DDG edges sharpen from
+  heuristic to compiler-informed once tier 3 supplies real call/receiver types,
+  plus a small traversal query language (SQLite recursive CTEs already express
+  reachability). Victor's compounding payoff: the CCG already exists.
+- **Tier 4b — interprocedural summaries.** Datalog-style fixpoint over the graph
+  for reachability/taint/impact sets — upgrades the shipped impact tool from
+  name-index adjacency to computed blast radius. Must be incremental
+  (edit → seconds) or it dies in practice; IncSFS (arXiv:2608.24391) is the
+  incremental discipline to follow.
+- **Tier 5 — dynamic grounding.** Project test/coverage telemetry onto the static
+  graph as edge weights (the Dissecting Software Graphs pattern,
+  arXiv:2608.12859): retrieval prefers executed paths, dead code becomes
+  visible, and the graph is verified against reality. Highest evidence-per-hour
+  for an *agentic* system — the agents already execute code — and consistent
+  with the execution-program conclusion that only in-container verification
+  yields ground truth.
+- **Stays out:** CodeQL/Kythe-class semantic databases, symbolic execution,
+  always-on LSP (the Alternatives below).
 
 ## Alternatives Considered
 
@@ -126,19 +193,22 @@ convention; no schema break.
   framework that must index arbitrary projects with no build info.
 - **LLM-extracted structure.** Rejected as a substrate (cost, nondeterminism,
   unverifiable) — this ADR's premise. LLM remains the consumer, not the indexer.
-- **Scope-graph binding only in Python (no Rust/native path).** Rejected as the
-  end state: per-file binding over repo-scale corpora is a measured-hot-path
-  candidate for the existing Rust workspace; Python stays as the typed reference
-  implementation per the native-acceleration strategy.
+- **Adopting `tree-sitter-stack-graphs`.** Settled against by evidence at rev 1.1:
+  archived upstream (RUSTSEC-2026-0303, no successor) with a companion
+  unsoundness advisory (RUSTSEC-2026-0302).
 
 ## Validation
 
 - **Differential parity tests**: heuristic vs scope-resolved edges over the repo
-  corpus (Python + Rust first); every disagreement is a case study, not noise.
+  corpus; every disagreement is a case study, not noise.
 - **Golden-file binding tests** per language: resolution results pinned on
-  representative constructs (impl/trait, closures, shadowing, re-exports).
+  representative constructs (impl/trait, closures, shadowing, re-exports) —
+  landed in rev 1.1 as the three-fact contract (resolved / retained / shadowed)
+  per verified language, plus the pending-language emptiness ratchet.
 - **Provenance reconciliation tests**: precise-override and fallback-preservation
-  behaviors pinned positively and negatively.
+  behaviors pinned positively and negatively — rev 1.1 pins the monotonicity
+  contract (every REFERENCES edge carries provenance; heuristic passes never
+  write the type).
 - **Retrieval quality**: existing Graph-RAG retrieval parity harness plus
   end-to-end agent benchmarks; success is measured recall/precision of retrieved
   context and token spend per resolved task, not index size.
@@ -148,17 +218,17 @@ convention; no schema break.
 
 ## Consequences
 
-- Per-language scope rules are the main new maintenance surface; the rule set
-  starts at two languages and grows on demand.
+- Per-language scope rules are the main new maintenance surface; the verified set
+  (rev 1.1: nine languages) grows one deliberate verification at a time.
 - Tier 3 availability is environment-dependent by design; documentation must state
   what is gained when a toolchain is present, and the default experience must never
   imply compiler precision without one.
-- def/ref edges grow storage; references are stored compactly (or harvested
-  on-demand per query target) rather than fully materialized when the
-  node/edge budget matters.
+- def/ref edges grow storage; references are deduped per (owner, name), capped per
+  owner when unresolved, and excluded from per-node metadata mirroring.
 
 ## Revision History
 
 | Rev | Date | Change |
 |-----|------|--------|
 | 1.0 | 2026-10-19 | Initial proposal: tier 2.5 scope-graph binding + tier 3 SCIP/LSP harvesting, provenance model, evidence base from the dataserver3 arxiv corpus. |
+| 1.1 | 2026-10-20 | Phase 1 (tier 2.5) implemented: adopt-vs-build settled (RUSTSEC-2026-0303), pure-Python correction, verified nine-language honest-capability set, provenance vocabulary pinned to resolver strings, v1 limits; beyond-tier-3 outlook added (3.5 / 4a / 4b / 5). Status Proposed → Accepted. |
