@@ -101,8 +101,13 @@ def parse(
     *,
     repo_root: str | os.PathLike[str] | None = None,
     config: ChunkConfig | None = None,
+    emit_references: bool = False,
 ) -> ParsedCode:
-    """Parse source into symbols + relations, falling back gracefully."""
+    """Parse source into symbols + relations, falling back gracefully.
+
+    ``emit_references=True`` additionally records tier-2.5 REFERENCES relations
+    (ADR-032 scope binding); the default output is unchanged.
+    """
 
     config = config or ChunkConfig()
     file_path = normalize_file_path(file_path, repo_root)
@@ -110,7 +115,9 @@ def parse(
 
     if language == "python":
         try:
-            parsed = _finalize_identity(parse_python(content, file_path), content)
+            parsed = _finalize_identity(
+                parse_python(content, file_path, emit_references=emit_references), content
+            )
             parsed.capability_tier = CapabilityTier.FULL
             if not config.extract_relations:
                 parsed.relations = []
@@ -147,7 +154,10 @@ def parse(
 
     if language is not None and language != "python":
         try:
-            parsed = _finalize_identity(parse_treesitter(content, file_path, language), content)
+            parsed = _finalize_identity(
+                parse_treesitter(content, file_path, language, emit_references=emit_references),
+                content,
+            )
             if not config.extract_relations:
                 parsed.relations = []
             return parsed

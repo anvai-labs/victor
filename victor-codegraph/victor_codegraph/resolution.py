@@ -22,11 +22,15 @@ from __future__ import annotations
 from .model import CodeRelation, CodeRelationType, CodeSymbol, CodeSymbolType, SymbolReference
 
 # Relation types whose ``to_symbol_id`` starts life as a textual name.
+# REFERENCES joins the set for tier-2.5 scope binding (ADR-032): occurrence
+# extraction emits textual names and this resolver binds them, exactly like a
+# pre-resolution CALLS target.
 _NAME_TARGETED = frozenset(
     {
         CodeRelationType.CALLS,
         CodeRelationType.EXTENDS,
         CodeRelationType.IMPLEMENTS,
+        CodeRelationType.REFERENCES,
     }
 )
 
@@ -132,7 +136,10 @@ def resolve_relations(
                 candidates = [c for c in candidates if len(c.scope_chain) == nearest]
         elif source is not None and candidates:
             qualifier = (ref.qualifier or "").split(".")[-1]
-            if qualifier in {"self", "cls", "this", "super"}:
+            receiver_var = source.metadata.get("go_receiver_var")
+            if qualifier in {"self", "cls", "this", "super"} or (
+                receiver_var is not None and qualifier == receiver_var
+            ):
                 same_scope = [c for c in candidates if c.scope_chain == source.scope_chain]
                 if same_scope:
                     candidates = same_scope

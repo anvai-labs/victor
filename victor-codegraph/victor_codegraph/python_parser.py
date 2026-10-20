@@ -156,9 +156,10 @@ def _lexical_bindings(nodes: Sequence[ast.AST]) -> tuple[set[str], set[str]]:
 
 
 class _Visitor:
-    def __init__(self, file_path: str, source: str) -> None:
+    def __init__(self, file_path: str, source: str, *, emit_references: bool = False) -> None:
         self.file_path = file_path
         self.source = source
+        self.emit_references = emit_references
         self.symbols: list[CodeSymbol] = []
         self.relations: list[CodeRelation] = []
         self.imports: list[str] = []
@@ -317,6 +318,18 @@ class _Visitor:
                 )
         self._enclosing_bindings.append(bound | writes)
         self._definition_scopes.append(definition_scopes)
+        if self.emit_references:
+            from .python_references import collect_python_references
+
+            # Callee positions belong to the CALLS collector; the func node of
+            # each owned call is excluded so REFERENCES never duplicates a call.
+            collect_python_references(
+                node,
+                sym,
+                self.file_path,
+                self.relations,
+                excluded={id(call.func) for call in _calls_owned_by(node)},
+            )
         for child in node.body:
             nested: CodeSymbol | None = None
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -341,9 +354,27 @@ class _Visitor:
         if bases:
             mods.append(f"extends({','.join(bases)})")
         cls = self._make_symbol(node, node.name, CodeSymbolType.CLASS, scope, modifiers=mods)
+        class_writes, _ = _lexical_bindings(node.body)
+        enclosing = set().union(*self._enclosing_bindings)
         cls.metadata["python_definition_scopes"] = self._definition_scopes[-1]
-        cls.metadata["python_rebound_names"] = sorted(set().union(*self._enclosing_bindings))
+        cls.metadata["python_rebound_names"] = sorted(enclosing)
+        # Tier-2.5 scope binding reads these on every owner; without the stamp a
+        # class-owned use would falsely in-file resolve (the resolver consults
+        # exactly these keys on the Python branch).
+        cls.metadata["python_bound_names"] = sorted(enclosing | class_writes)
+        cls.metadata["python_import_names"] = sorted(self._import_names)
         self.symbols.append(cls)
+        if self.emit_references:
+            from .python_references import collect_python_references
+
+            # Simple-name bases belong to the EXTENDS collector.
+            collect_python_references(
+                node,
+                cls,
+                self.file_path,
+                self.relations,
+                excluded={id(b) for b in node.bases if isinstance(b, ast.Name)},
+            )
         for base in bases:
             self.relations.append(
                 CodeRelation(
@@ -399,20 +430,31 @@ class _Visitor:
                 self.visit_class(node, [])
 
 
-def parse_python(content: str, file_path: str) -> ParsedCode:
-    """Parse Python source into symbols + relations using the stdlib ``ast``."""
+def parse_python(content: str, file_path: str, *, emit_references: bool = False) -> ParsedCode:
+    """Parse Python source into symbols + relations using the stdlib ``ast``.
+
+    With ``emit_references=True``, tier-2.5 scope binding also records
+    REFERENCES relations for identifier uses owned by each symbol (see
+    ``scope_binding`` / ``python_references``); the default preserves the
+    pre-tier-2.5 output byte-for-byte.
+    """
 
     tree = ast.parse(content)
-    v = _Visitor(file_path, content)
+    v = _Visitor(file_path, content, emit_references=emit_references)
     v.run(tree)
-    # Resolve CALLS/EXTENDS targets to real in-file symbol ids when possible
-    # (shared with the tree-sitter path — see ``resolution`` for the semantics:
-    # unresolved external targets are RETAINED at confidence 0.5, self-edges drop).
+    # Resolve CALLS/EXTENDS/REFERENCES targets to real in-file symbol ids when
+    # possible (shared with the tree-sitter path — see ``resolution`` for the
+    # semantics: unresolved external targets are RETAINED at confidence 0.5).
+    relations = resolve_relations(v.symbols, v.relations)
+    if emit_references:
+        from .scope_binding import cap_unresolved_references
+
+        relations = cap_unresolved_references(relations)
     return ParsedCode(
         file_path=file_path,
         language="python",
         symbols=v.symbols,
-        relations=resolve_relations(v.symbols, v.relations),
+        relations=relations,
         imports=v.imports,
         content_hash=content_hash(content),
     )
