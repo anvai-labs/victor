@@ -59,6 +59,15 @@ DEPRECATION_NOTICE_FILES = (
 )
 RELATED_TESTS = {
     **dict.fromkeys(
+        (
+            "victor/core/graph_rag/indexing.py",
+            "victor/core/graph_rag/codegraph_repository.py",
+            "victor/core/graph_rag/retrieval.py",
+            "victor/config/search_settings.py",
+        ),
+        ("tests/unit/core/graph_rag/test_scope_binding_integration.py",),
+    ),
+    **dict.fromkeys(
         ("victor/core/database.py", "victor/core/schema.py", "victor/core/migrations.py"),
         (
             "tests/unit/core/test_schema_version_migration.py",
