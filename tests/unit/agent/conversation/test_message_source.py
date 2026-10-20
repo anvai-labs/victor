@@ -143,6 +143,9 @@ def test_determine_priority_user_typed_is_critical():
     from victor.agent.conversation.store import ConversationStore
 
     store = ConversationStore.__new__(ConversationStore)
+    from victor.agent.conversation.store_messages import ConversationStoreMessages
+
+    store._messages = ConversationStoreMessages(store)
     priority = store._determine_priority("user", None, source=MessageSource.USER_TYPED)
     assert priority is MessagePriority.CRITICAL
 
@@ -151,6 +154,9 @@ def test_determine_priority_nudge_is_ephemeral():
     from victor.agent.conversation.store import ConversationStore
 
     store = ConversationStore.__new__(ConversationStore)
+    from victor.agent.conversation.store_messages import ConversationStoreMessages
+
+    store._messages = ConversationStoreMessages(store)
     priority = store._determine_priority("user", None, source=MessageSource.AGENT_NUDGE)
     assert priority is MessagePriority.EPHEMERAL
 
@@ -159,6 +165,9 @@ def test_determine_priority_continuation_is_ephemeral():
     from victor.agent.conversation.store import ConversationStore
 
     store = ConversationStore.__new__(ConversationStore)
+    from victor.agent.conversation.store_messages import ConversationStoreMessages
+
+    store._messages = ConversationStoreMessages(store)
     priority = store._determine_priority("user", None, source=MessageSource.AGENT_CONTINUATION)
     assert priority is MessagePriority.EPHEMERAL
 
@@ -167,6 +176,9 @@ def test_determine_priority_guidance_is_low():
     from victor.agent.conversation.store import ConversationStore
 
     store = ConversationStore.__new__(ConversationStore)
+    from victor.agent.conversation.store_messages import ConversationStoreMessages
+
+    store._messages = ConversationStoreMessages(store)
     priority = store._determine_priority("user", None, source=MessageSource.AGENT_GUIDANCE)
     assert priority is MessagePriority.LOW
 
@@ -175,6 +187,9 @@ def test_determine_priority_unknown_falls_through_to_role_logic():
     from victor.agent.conversation.store import ConversationStore
 
     store = ConversationStore.__new__(ConversationStore)
+    from victor.agent.conversation.store_messages import ConversationStoreMessages
+
+    store._messages = ConversationStoreMessages(store)
     # UNKNOWN source → existing role-based logic (role="user" → HIGH)
     priority = store._determine_priority("user", None, source=MessageSource.UNKNOWN)
     assert priority in (
