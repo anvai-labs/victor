@@ -109,16 +109,156 @@ build_target
 """
 
 # Languages not yet in REFERENCE_LANGUAGES, with the pending reason recorded in
+# Verified long-tail fixtures: each pins the three-fact contract per grammar —
+# (file, source, owner name, [(target name, confidence), ...], shadowed names).
+VERIFIED_LONG_TAIL = {
+    "cpp": (
+        "model.cpp",
+        (
+            "class Engine {\n"
+            "public:\n"
+            "    int run();\n"
+            "};\n"
+            "int Engine::run() {\n"
+            "    Engine engine;\n"
+            "    Helper tool;\n"
+            "    return 1;\n"
+            "}\n"
+        ),
+        "run",
+        [("Engine", 1.0), ("Helper", 0.5)],
+        {"engine", "tool"},
+    ),
+    "csharp": (
+        "Handler.cs",
+        (
+            "public class Handler {\n"
+            "    public int Process(Payload p) {\n"
+            "        var helper = new Helper();\n"
+            "        Handler own = null;\n"
+            "        return helper.Count(p) + (own == null ? 0 : 1);\n"
+            "    }\n"
+            "}\n"
+        ),
+        "Process",
+        [("Payload", 0.5), ("Handler", 1.0)],
+        {"helper", "own", "p"},
+    ),
+    "php": (
+        "Registry.php",
+        (
+            "<?php\n"
+            "class Registry {\n"
+            "    public function add(Registry $r, Helper $h) {\n"
+            "        $copy = $r;\n"
+            "        return $copy;\n"
+            "    }\n"
+            "}\n"
+        ),
+        "add",
+        [("Helper", 0.5), ("Registry", 1.0)],
+        {"copy", "r", "h"},
+    ),
+    "swift": (
+        "Store.swift",
+        (
+            "struct Store {\n"
+            "    var items: [String] = []\n"
+            "    func count(selector: String) -> Int {\n"
+            "        return selector.count\n"
+            "    }\n"
+            "    func use() -> Int {\n"
+            "        return count(items)\n"
+            "    }\n"
+            "}\n"
+        ),
+        "use",
+        [("count", 1.0), ("items", 0.5)],
+        {"selector"},
+    ),
+    "scala": (
+        "Pipe.scala",
+        (
+            "object Pipe {\n"
+            "  def apply(input: Int): Int = {\n"
+            "    val local = input\n"
+            "    val a = apply\n"
+            "    val p = Pipe\n"
+            "    local + 1\n"
+            "  }\n"
+            "}\n"
+        ),
+        "apply",
+        [("apply", 1.0), ("Pipe", 0.5)],
+        {"local", "input", "a", "p"},
+    ),
+    "kotlin": (
+        "Repo.kt",
+        (
+            "class Repo {\n"
+            "    fun load(query: String): Int {\n"
+            "        val local = query\n"
+            "        return local.length\n"
+            "    }\n"
+            "    fun use(): Int {\n"
+            "        val h = helper()\n"
+            "        val t = Unknown\n"
+            "        return h + (t == null ? 0 : 1)\n"
+            "    }\n"
+            "    fun helper(): Int = 1\n"
+            "}\n"
+        ),
+        "use",
+        [("helper", 1.0), ("Unknown", 0.5)],
+        {"h", "t", "query", "local"},
+    ),
+    "ruby": (
+        "worker.rb",
+        (
+            "class Worker\n"
+            "  def run(task)\n"
+            "    copy = task\n"
+            "    copy.process\n"
+            "  end\n"
+            "  def use\n"
+            "    h = helper\n"
+            "    x = Unknown\n"
+            "    h + x\n"
+            "  end\n"
+            "  def helper\n"
+            "    1\n"
+            "  end\n"
+            "end\n"
+        ),
+        "use",
+        [("helper", 1.0), ("Unknown", 0.5)],
+        {"h", "x", "task", "copy"},
+    ),
+    "lua": (
+        "init.lua",
+        (
+            "function helper()\n"
+            "  return 1\n"
+            "end\n"
+            "function use()\n"
+            "  local h = helper\n"
+            "  return h()\n"
+            "end\n"
+            "local M = {}\n"
+            "function M.setup(opts)\n"
+            "  local copy = opts\n"
+            "  M.options = copy\n"
+            "end\n"
+        ),
+        "use",
+        [("helper", 1.0)],
+        {"h", "opts", "copy"},
+    ),
+}
+
+# Languages not in REFERENCE_LANGUAGES, with the pending reason recorded in
 # scope_binding's table comment.
 PENDING = {
-    "cpp": ("model.cpp", "int run() { return 1; }\n"),
-    "csharp": ("Handler.cs", "public class Handler { public int Process() { return 1; } }\n"),
-    "php": ("Registry.php", "<?php\nfunction add($i) { return $i; }\n"),
-    "swift": ("Store.swift", "struct Store { func count() -> Int { return 1 } }\n"),
-    "scala": ("Pipe.scala", "object Pipe { def apply(i: Int) = i + 1 }\n"),
-    "lua": ("init.lua", "local M = {}\nfunction M.setup(opts) end\nreturn M\n"),
-    "kotlin": ("Repo.kt", "class Repo { fun load(q: String) = q.length }\n"),
-    "ruby": ("worker.rb", "class Worker\n  def run(task)\n    task\n  end\nend\n"),
     "sql": ("q.sql", "SELECT a FROM t WHERE a > 1;\n"),
 }
 
@@ -227,6 +367,24 @@ def test_bash_verified():
     assert refs[0].confidence == 0.5
 
 
+@pytest.mark.parametrize("language", sorted(VERIFIED_LONG_TAIL), ids=sorted(VERIFIED_LONG_TAIL))
+def test_long_tail_three_facts(language):
+    """Fact 1: one resolved in-file edge (1.0); Fact 2: one retained-unresolved
+    edge (0.5) except where the fixture has no unknown use (lua); Fact 3:
+    parameters and locals never leak as references."""
+    file, source, owner_name, expected, shadowed_names = VERIFIED_LONG_TAIL[language]
+    parsed = _parse(source, language, file)
+    owner = next(s for s in parsed.symbols if s.simple_name == owner_name)
+    refs = [r for r in _refs(parsed) if r.from_symbol_id == owner.id]
+    assert [
+        (name, confidence)
+        for name, confidence in zip(_names(parsed, refs), (r.confidence for r in refs))
+    ] == expected
+    assert all((r.target_ref is None) == (r.confidence == 1.0) for r in refs)
+    all_names = set(_names(parsed, _refs(parsed)))
+    assert not (shadowed_names & all_names), "shadowed names must not leak"
+
+
 @pytest.mark.parametrize("language", sorted(PENDING), ids=sorted(PENDING))
 def test_pending_languages_emit_nothing(language):
     file, source = PENDING[language]
@@ -243,6 +401,7 @@ def test_default_off_no_references_any_language():
         ("java", JAVA),
         ("c", C),
         ("bash", BASH),
+        *((language, fixture[1]) for language, fixture in sorted(VERIFIED_LONG_TAIL.items())),
     ):
         parsed = parse(source, language=language, file_path="x")
         assert _refs(parsed) == [], language

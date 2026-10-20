@@ -50,7 +50,8 @@ _FUNC_NODES = {
     "function_definition",
     "function_item",  # rust
     "method_definition",  # js/ts
-    "method_declaration",  # java/go
+    "method_declaration",  # java/go/php/c#
+    "method",  # ruby
     "function",
     "arrow_function",
 }
@@ -168,6 +169,7 @@ def _name_of(node, src: bytes) -> str | None:
             "type_identifier",
             "field_identifier",
             "property_identifier",
+            "simple_identifier",  # kotlin/swift: names are simple_identifier children
         ):
             return _text(child, src)
     return None

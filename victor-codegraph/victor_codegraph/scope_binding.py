@@ -54,12 +54,9 @@ from .model import CodeRelation, CodeRelationType, SourceLocation, SymbolReferen
 # binding member names to same-named symbols) is excluded until its tables are
 # verified — an absent REFERENCES edge is recoverable, a wrong one is not.
 #
-# Verified: python, javascript, typescript, tsx, rust, go, java, c, bash.
-# Pending grammar-table verification (mismatched declaration/parameter/member
-# node kinds or extractor gaps): cpp, csharp, php, swift, scala, lua, kotlin
-# (extractor mints no function symbols), ruby (``method`` nodes are not in
-# ``_FUNC_NODES``). Vacuous: sql (tree-sitter-sql yields no symbols).
-# Adding a language = verify the three facts, then list it here.
+# Verified: python, javascript, typescript, tsx, rust, go, java, c, cpp, csharp,
+# php, swift, scala, kotlin, ruby, lua, bash. Vacuous: sql (tree-sitter-sql
+# yields no symbols). Adding a language = verify the three facts, then list it.
 REFERENCE_LANGUAGES = frozenset(
     {
         "python",
@@ -70,6 +67,14 @@ REFERENCE_LANGUAGES = frozenset(
         "go",
         "java",
         "c",
+        "cpp",
+        "csharp",
+        "php",
+        "swift",
+        "scala",
+        "kotlin",
+        "ruby",
+        "lua",
         "bash",
     }
 )
@@ -614,7 +619,8 @@ NOISE_ROOTS: dict[str, frozenset[str]] = {
 }
 
 # Identifier leaf node types that constitute a simple-name USE when not in a
-# declaring or member position. Mirrors treesitter_tables.IDENTIFIER_NODES.
+# declaring or member position. Mirrors treesitter_tables.IDENTIFIER_NODES;
+# ``name`` is php (variables/types are ``name`` nodes under ``variable_name``).
 _USE_LEAF_NODES = frozenset(
     {
         "identifier",
@@ -624,18 +630,22 @@ _USE_LEAF_NODES = frozenset(
         "constant",
         "simple_identifier",
         "word",
+        "name",
     }
 )
 
 # Node types whose subtree DECLARES (shadows) names. Suffix-typed on purpose —
 # grammar spellings (``variable_declarator`` js/ts/java/c#,
 # ``short_variable_declaration`` go, ``let_declaration`` rust, ``declaration``
-# c/cpp, ``formal_parameter`` java) all end in these suffixes. The whole
-# subtree's identifier leaves are collected: initializer expressions inside a
-# declaration shadow their own names too, which only suppresses edges.
+# c/cpp, ``formal_parameter`` java, ``val_definition`` scala,
+# ``assignment_expression`` php) all end in these suffixes. Owner boundaries
+# (functions/classes, including ``function_definition``/``class_definition``)
+# are checked BEFORE the suffix match, so adding ``definition`` is safe.
 _DECLARATION_SUFFIXES = (
     "declarator",
     "declaration",
+    "definition",
+    "assignment",
     "parameter",
     "parameter_list",
     "formal_parameters",
@@ -643,8 +653,42 @@ _DECLARATION_SUFFIXES = (
     "param_list",
 )
 
+# Node types walked through (not stopped at) when scanning a declaration's
+# children for the declared binding: types, modifiers and binding patterns
+# precede the name in every grammar we map (``implicit_type`` c#,
+# ``placeholder_type_specifier`` c++, ``value_binding_pattern`` swift,
+# ``visibility_modifier`` php).
+_DECLARATION_PREFIX_NODES = frozenset(
+    {
+        "implicit_type",
+        "predefined_type",
+        "placeholder_type_specifier",
+        "primitive_type",
+        "value_binding_pattern",
+        "binding_pattern_kind",  # kotlin: ``val``/``var`` binding introducer
+        "visibility_modifier",
+        "modifier",
+        "modifiers",
+        "variable_name",
+        "variable_list",
+    }
+)
+
+# Declaration-shaped nodes whose type does not end in a suffix (lua/php nest
+# bindings under ``assignment_statement``/``assignment_expression`` — the LHS
+# of an assignment is the binding).
+_DECLARATION_EXTRA_NODES = frozenset(
+    {"assignment_statement", "assignment_expression", "augmented_assignment"}
+)
+
 # Fields that mark member-access positions (``a.b``'s ``b``) — excluded from uses.
 _MEMBER_FIELDS = ("property", "field", "method", "attribute")
+
+# Tokens whose presence as a leaf's immediately-preceding sibling mark that
+# leaf as a member/qualified position (``a.b``, ``a->b``, ``A::b``, ``a?.b``)
+# regardless of how the grammar names the field — swift's navigation_suffix
+# and php's member names are covered by this, not by _MEMBER_FIELDS.
+_MEMBER_ACCESS_TOKENS = frozenset({".", "->", "::", "?."})
 
 # Maximum retained-unresolved references per owning symbol.
 UNRESOLVED_CAP_PER_OWNER = 64
@@ -817,37 +861,96 @@ def collect_treesitter_references(
 
     noise = _noise_roots(language)
 
-    # The owner's own declared name is a defining position, not a use.
+    def follows_member_token(n) -> bool:
+        """True when a ``.``/``->``/``::``/``?.`` immediately precedes ``n``.
+
+        Grammar-agnostic member-position test: covers swift's
+        ``navigation_suffix`` and php's member names, whose member field is
+        not in _MEMBER_FIELDS (``name`` is a declaring field elsewhere and
+        cannot be blanket-excluded).
+        """
+        previous = getattr(n, "prev_sibling", None)
+        if previous is None and hasattr(n, "prev_named_sibling"):
+            previous = n.prev_named_sibling
+        return previous is not None and previous.type in _MEMBER_ACCESS_TOKENS
+
+    def _brackets_member_token(n) -> bool:
+        """True when a member token sits immediately before OR after ``n``."""
+
+        if follows_member_token(n):
+            return True
+        following = getattr(n, "next_sibling", None)
+        return following is not None and following.type in _MEMBER_ACCESS_TOKENS
+
+    # The owner's own declared name is a defining position, not a use. Fields
+    # first; grammars without a name field (kotlin's function_declaration
+    # carries a bare ``simple_identifier`` child) fall back to the first
+    # identifier-ish child. A qualified own name (lua ``function M.setup``,
+    # cpp ``Engine::run``) excludes only the member-chain TAIL — the declared
+    # name — because the qualifying base is a use (``M.options = v`` reads M).
     excluded: set[tuple[int, int, str]] = set()
+    own = None
     for field in ("name", "declarator", "pattern"):
         own = node.child_by_field_name(field)
         if own is not None:
-            excluded.update(_node_key(leaf) for leaf in _identifier_leaves(own))
             break
+    if own is None:
+        for child in _children(node):
+            if child.type in ("identifier", "simple_identifier", "type_identifier", "word", "name"):
+                own = child
+                break
+    if own is not None:
+        own_leaves = list(_identifier_leaves(own))
+        member_tail = [leaf for leaf in own_leaves if follows_member_token(leaf)]
+        if member_tail:
+            excluded.update(_node_key(leaf) for leaf in member_tail)
+        elif own_leaves:
+            excluded.add(_node_key(own_leaves[-1]))
 
     # Pass 1 — mark excluded node identities and collect shadow names.
     shadowed: set[str] = set()
 
     def collect_subtree_names(n) -> None:
         for leaf in _identifier_leaves(n):
+            # A leaf inside a member chain (``M.options``, lua exposes the
+            # whole LHS as the ``name`` field) is a target expression, not a
+            # binding: skip leaves bracketed by member tokens either side.
+            if _brackets_member_token(leaf):
+                continue
             shadowed.add(leaf.text.decode("utf-8", "replace"))
 
-    def shadow_declaration(n) -> None:
+    def shadow_declaration(n, _depth: int = 0) -> None:
         """Shadow declared names without eating initializer USES.
 
         Prefer a grammar's name-bearing field (``name``/``declarator``/
         ``pattern``/``left``); parameter containers shadow their parameter
-        names. Otherwise walk direct children IN ORDER: recurse into nested
-        declarator/declaration children, shadow the FIRST identifier leaf (the
-        declared binding in every grammar we map), and STOP at the first other
-        child — that position is the initializer/value, whose identifiers are
-        uses. The error direction stays "suppressed edge", never false binding.
+        names. Otherwise walk direct children IN ORDER: skip type/modifier/
+        binding-pattern prefixes and recurse into nested declarator,
+        declaration and assignment children (the LHS of an assignment is the
+        binding — php/lua nest ``local X = v`` under assignment nodes), shadow
+        identifier leaves as they come, and STOP at the first other child —
+        that position is the initializer/value, whose identifiers are uses.
+        The error direction stays "suppressed edge", never false binding.
         """
-        for field in ("name", "declarator", "pattern", "left"):
+        if _depth > 8:
+            return
+        for field in ("name", "declarator", "pattern"):
             named = n.child_by_field_name(field)
             if named is not None:
                 collect_subtree_names(named)
                 return
+        left = n.child_by_field_name("left")
+        if left is not None:
+            # ``left`` is an assignment TARGET: ``M.options = v`` assigns to a
+            # member — the base ``M`` is a use. Shadow only BARE identifier
+            # targets (directly, or directly under a list container).
+            if left.type in _USE_LEAF_NODES:
+                shadowed.add(left.text.decode("utf-8", "replace"))
+                return
+            for child in _children(left):
+                if child.type in _USE_LEAF_NODES:
+                    shadowed.add(child.text.decode("utf-8", "replace"))
+            return
         if n.type.endswith(("parameters", "parameter_list", "formal_parameters")):
             for child in _children(n):
                 named = child.child_by_field_name("name")
@@ -855,16 +958,46 @@ def collect_treesitter_references(
                     collect_subtree_names(named)
                 elif child.type in _USE_LEAF_NODES:
                     shadowed.add(child.text.decode("utf-8", "replace"))
+                else:
+                    # Parameter children without a name field (php's
+                    # ``simple_parameter`` -> ``variable_name`` -> ``name``,
+                    # java/c/c# bare parameter nodes): shadow the binding
+                    # names but KEEP ``type_identifier`` leaves — types lead
+                    # in java/c/c#, trail in swift/scala/kotlin, and are
+                    # uses either way.
+                    for leaf in _identifier_leaves(child):
+                        if leaf.type != "type_identifier":
+                            shadowed.add(leaf.text.decode("utf-8", "replace"))
             return
-        for child in _children(n):
-            if not getattr(child, "is_named", True):
-                continue  # keywords (`let`, `fn`, `var`) precede the binding
-            if child.type.endswith(_DECLARATION_SUFFIXES):
-                shadow_declaration(child)
+        named_children = [child for child in _children(n) if getattr(child, "is_named", True)]
+        # When a declarator-shaped child exists (c# ``variable_declaration``
+        # wraps ``variable_declarator``; kotlin's property wraps
+        # ``variable_declaration``), the binding lives THERE — leading leaves
+        # are types and trailing leaves are initializers, both uses.
+        declarators = [
+            child
+            for child in named_children
+            if child.type.endswith(_DECLARATION_SUFFIXES) or child.type in _DECLARATION_EXTRA_NODES
+        ]
+        if declarators:
+            for child in declarators:
+                shadow_declaration(child, _depth + 1)
+            return
+        for child in named_children:
+            if child.type in _DECLARATION_PREFIX_NODES:
+                # ``variable_list`` is an assignment TARGET: shadow only its
+                # BARE identifier children — ``M.options = v`` assigns to a
+                # member, and the base ``M`` is a use, not a binding.
+                if child.type == "variable_list":
+                    for bare in _children(child):
+                        if bare.type in _USE_LEAF_NODES:
+                            shadowed.add(bare.text.decode("utf-8", "replace"))
+                else:
+                    shadow_declaration(child, _depth + 1)
                 continue
             if child.type in _USE_LEAF_NODES:
                 shadowed.add(child.text.decode("utf-8", "replace"))
-            return
+            return  # value/initializer position: uses start here
 
     stack = list(_children(node))
     while stack:
@@ -890,9 +1023,11 @@ def collect_treesitter_references(
                 name_node = rightmost_name_node(callee)
                 if name_node is not None:
                     excluded.add(_node_key(name_node))
-        if t.endswith(_DECLARATION_SUFFIXES):
+        if t.endswith(_DECLARATION_SUFFIXES) or t in _DECLARATION_EXTRA_NODES:
             shadow_declaration(n)
-            continue
+            # NO continue: pass 1 must keep descending so callee/member
+            # positions INSIDE declarations still get marked — skipping here
+            # let ``var x = new Helper()`` emit the constructor callee.
         for field in _MEMBER_FIELDS:
             member = n.child_by_field_name(field)
             if member is not None and member.type in _USE_LEAF_NODES:
@@ -908,7 +1043,7 @@ def collect_treesitter_references(
             continue
         t = n.type
         if t in _USE_LEAF_NODES:
-            if _node_key(n) not in excluded:
+            if _node_key(n) not in excluded and not follows_member_token(n):
                 name = n.text.decode("utf-8", "replace")
                 if (
                     name
