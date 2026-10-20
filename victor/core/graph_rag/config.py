@@ -100,6 +100,12 @@ class GraphIndexConfig:
     # pipeline overhead below measurement noise). Set False to opt out; an
     # installed victor-codegraph older than 0.11.0 degrades to off (probed).
     enable_scope_binding: bool = True
+    # ADR-032 tier 3: opt-in compiler-accurate edges from an offline SCIP
+    # dump (scip-python first). Absent toolchain degrades with one log line;
+    # harvested edges carry provenance="compiler" and run LAST so the
+    # last-writer-wins (src,dst,type) upsert makes them dominate.
+    enable_precise_index: bool = False
+    precise_index_tool: str = "auto"
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     write_batch_size: int = 20  # Files per mini-batch flush in the streaming pipeline
     queue_maxsize: int = 100  # Bounded queue depth between producers and consumer
@@ -250,12 +256,14 @@ class GraphRagConfig:
         enable_ccg = getattr(settings, "enable_ccg", True)
         enable_graph_rag = getattr(settings, "enable_graph_rag", True)
         enable_scope_binding = getattr(settings, "enable_scope_binding", True)
+        enable_precise_index = getattr(settings, "enable_precise_index", False)
 
         index_config = GraphIndexConfig(
             root_path=root_path,
             enable_ccg=enable_ccg,
             enable_embeddings=enable_graph_rag,
             enable_scope_binding=enable_scope_binding,
+            enable_precise_index=enable_precise_index,
         )
 
         return cls(index=index_config)

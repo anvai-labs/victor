@@ -63,9 +63,13 @@ RELATED_TESTS = {
             "victor/core/graph_rag/indexing.py",
             "victor/core/graph_rag/codegraph_repository.py",
             "victor/core/graph_rag/retrieval.py",
+            "victor/core/graph_rag/precise_index.py",
             "victor/config/search_settings.py",
         ),
-        ("tests/unit/core/graph_rag/test_scope_binding_integration.py",),
+        (
+            "tests/unit/core/graph_rag/test_scope_binding_integration.py",
+            "tests/unit/core/graph_rag/test_precise_index.py",
+        ),
     ),
     **dict.fromkeys(
         ("victor/core/database.py", "victor/core/schema.py", "victor/core/migrations.py"),

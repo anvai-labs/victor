@@ -33,7 +33,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from victor.config.settings import get_project_paths, load_settings
+from victor.config.settings import get_project_paths, graph_flag, load_settings
 from victor.core.async_utils import run_sync
 from victor.storage.graph import create_graph_store
 
@@ -112,7 +112,8 @@ async def _index_async(
         root_path=root_path,
         enable_ccg=enable_ccg,
         enable_embeddings=enable_embeddings,
-        enable_scope_binding=getattr(load_settings(), "enable_scope_binding", True),
+        enable_scope_binding=graph_flag(load_settings(), "enable_scope_binding", True),
+        enable_precise_index=graph_flag(load_settings(), "enable_precise_index", False),
     )
 
     # Build index
