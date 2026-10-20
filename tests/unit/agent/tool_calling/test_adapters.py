@@ -633,6 +633,78 @@ class TestOllamaAdapterThinkingMode:
         assert adapter._has_thinking_mode() is False
 
 
+class TestGeminiCtrl42AndSimpleCallParsing:
+    """Direct coverage for the unified ctrl42/simple dual loop (jscpd +
+    supervised extraction): both patterns parse through one body, with the
+    label and warning-snippet knobs preserved per pattern."""
+
+    @staticmethod
+    def _adapter(valid):
+        adapter = GoogleToolCallingAdapter(model="gemini-2.5-pro", config=None)
+        adapter._valid_tool_names = valid
+        return adapter
+
+    def test_ctrl42_tagged_call_parses(self):
+        adapter = self._adapter({"shell"})
+        result = adapter.parse_tool_calls(
+            '<ctrl42>call: `shell` ```json {"cmd": "ls"}```</ctrl42>', None
+        )
+        # PRE-EXISTING QUIRK (pinned, not introduced): a ctrl42-tagged call
+        # matches BOTH patterns — SIMPLE_CALL_PATTERN scans for `call:`
+        # anywhere — so the tool call parses twice. Both loops iterated the
+        # raw content before the unification; the unified body preserves it.
+        assert [t.name for t in result.tool_calls] == ["shell", "shell"]
+        assert result.tool_calls[0].arguments == {"cmd": "ls"}
+
+    def test_simple_call_parses(self):
+        adapter = self._adapter({"shell"})
+        result = adapter.parse_tool_calls('call: `shell` ```json {"cmd": "pwd"}```', None)
+        assert [t.name for t in result.tool_calls] == ["shell"]
+        assert result.tool_calls[0].arguments == {"cmd": "pwd"}
+
+    def test_ctrl42_bad_json_warning_carries_snippet(self):
+        # One good + one bad call: warnings survive only alongside parsed
+        # calls (the empty-calls return path drops them — pre-existing quirk
+        # pinned below).
+        adapter = self._adapter({"shell", "read"})
+        result = adapter.parse_tool_calls(
+            'call: `read` ```json {"path": "f"}``` '
+            'and <ctrl42>call: `shell` ```json {"a": b}```</ctrl42>',
+            None,
+        )
+        assert any(
+            w.startswith("Failed to parse JSON for shell: {") for w in result.warnings
+        ), "ctrl42 warning carries the json snippet"
+
+    def test_simple_bad_json_warning_has_no_snippet(self):
+        adapter = self._adapter({"shell", "read"})
+        result = adapter.parse_tool_calls(
+            'call: `read` ```json {"path": "f"}``` ' 'and call: `shell` ```json {"a": b}```',
+            None,
+        )
+        assert any(
+            w == "Failed to parse JSON for shell" for w in result.warnings
+        ), "simple-pattern warning keeps its snippet-free form"
+
+    def test_warnings_dropped_when_no_calls_parse(self):
+        # PRE-EXISTING QUIRK (pinned): the empty-calls return path drops
+        # warnings entirely — the unified loop preserves this exactly.
+        adapter = self._adapter({"shell"})
+        result = adapter.parse_tool_calls('call: `shell` ```json {"a": b}```', None)
+        assert result.tool_calls == []
+        assert result.warnings == []
+
+    def test_both_patterns_parse_in_one_response(self):
+        adapter = self._adapter({"shell", "read"})
+        result = adapter.parse_tool_calls(
+            '<ctrl42>call: `shell` ```json {"cmd": "ls"}```</ctrl42>'
+            ' and call: `read` ```json {"path": "f"}```',
+            None,
+        )
+        # shell double-parses (ctrl42 quirk above); read parses once.
+        assert sorted(t.name for t in result.tool_calls) == ["read", "shell", "shell"]
+
+
 class TestGoogleAdapterFallbackCanonicalization:
     """Tests for canonical tool names emitted by Gemini fallback parsing."""
 
