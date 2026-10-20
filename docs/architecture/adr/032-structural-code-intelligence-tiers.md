@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Status**: Accepted (Phase 1 / tier 2.5 implemented; tiers 3+ planned)
-- **Date**: 2026-10-19 (rev 1.1: 2026-10-20)
+- **Date**: 2026-10-19 (rev 1.1: 2026-10-20; rev 1.2: 2026-10-20)
 - **Decision Makers**: Vijaykumar Singh
 - **Related ADRs**: 014 (shared codegraph chunker package), 015 (Victor Core adopts
   victor-codegraph), 026 (durable code memory GA — one `oid`, correlated graph+vector)
@@ -103,10 +103,13 @@ integration):**
 - **Language membership is honest capability, not grammar availability** — every
   grammar is probed against a three-fact contract (one resolved in-file edge, one
   retained-unresolved edge, shadowed locals producing no edge). Verified and
-  enabled: python, javascript, typescript, tsx, rust, go, java, c, bash. Pending
-  grammar-table verification: cpp, csharp, php, swift, scala, lua (they leak
-  locals or self-bind members under the generic tables). kotlin/ruby mint no
-  function symbols in the extractor today; sql is vacuous. An emptiness ratchet
+  enabled at 1.1: python, javascript, typescript, tsx, rust, go, java, c, bash.
+  **Rev 1.2 (victor-codegraph 0.12.0, #1408): the eight pending grammars
+  joined — cpp, csharp, php, swift, scala, kotlin, ruby, lua — for seventeen
+  reference-emitting languages; sql remains the sole, asserted, vacuous
+  exclusion.** kotlin/ruby extraction unlocked en route (ruby `method` nodes
+  and kotlin/swift `simple_identifier` names now mint function symbols —
+  a default-path change, hence the minor version). An emptiness ratchet
   test pins every exclusion: adding a language is a deliberate verified act.
 - Opt-in end to end: `emit_references=False` default on `parse`/`parse_repo`
   (package output byte-identical until asked); victor-core gates on
@@ -197,6 +200,53 @@ separate decision with its own evidence bar; none is authorized by this ADR.
   archived upstream (RUSTSEC-2026-0303, no successor) with a companion
   unsoundness advisory (RUSTSEC-2026-0302).
 
+## Flag graduation dossier (rev 1.2, 2026-10-20)
+
+Evidence gathered for the `enable_scope_binding` default-ON decision. The
+decision itself remains the maintainer's; this section is the dossier.
+
+**Parse-level (victor monorepo, 4,847 files — 4,684 py / 97 ts / 34 rs / 26 sh,
+55s `parse_repo(emit_references=True)`):**
+
+- 104,841 REFERENCES emitted; 28,216 resolved (12,277 `scope_resolver` +
+  15,939 `repository_resolver`), 73.1% retained for cross-file/external
+  targets — an expected shape for import-heavy Python.
+- Resolution rate **26.9%**, versus the heuristic CALLS baseline's **21.3%**
+  on the same corpus: the binding tier resolves better than the existing
+  call heuristic it would augment.
+- Volume control confirmed: **1.14 refs/symbol** average (dedup + cap
+  working as designed).
+- Per-language resolution: python 27.4%, typescript 17.6%, rust 14.5%,
+  bash 22.6%.
+
+**Pipeline-level (103-file real-code fixture — victor graph_rag Python +
+vscode-victor TypeScript — full `GraphIndexingPipeline` into SQLite,
+flag OFF vs ON):**
+
+- Identical node sets (1,453 both runs), **+675 REFERENCES edges**
+  (562 `scope_resolver` + 113 `repository_resolver`) on a 2,496-edge
+  baseline (+27% edge volume), zero errors, and 100% of persisted
+  REFERENCES carrying provenance — the monotonicity contract holds in a
+  real pipeline run, not just tests.
+- Retrieval integration: multi-hop traversal from a REFERENCES-connected
+  seed expands through CALLS + REFERENCES + CONTAINS mixed neighborhoods —
+  the precision-first ordering has real edges to order.
+- Wall-clock: dominated by per-process first-pipeline initialization
+  (~12-13s regardless of flag); the binding run as second-in-process
+  completes in 2.9s doing strictly more work than a baseline
+  second-in-process run — **binding overhead is below measurement noise**
+  at this scale.
+
+**Second corpus (proximaDB, polyglot — completed in a 50-minute window):**
+~35.9k REFERENCES at ~34.3% resolved, with every one of the fourteen
+emitting grammars exercised on real code — go strongest (4,032/8,802,
+45.8%), python 31.2%, typescript 28.2%, and the entire promoted long tail
+resolving at 7-33% (swift 26%, kotlin 32%, scala 24%, csharp 46%,
+lua 8%). No `rust` rows appeared despite proximaDB being Rust-first — the
+default discovery's rust inventory for that tree needs investigation before
+the Rust numbers are trusted; the Rust signal above stands on the victor
+monorepo's files.
+
 ## Validation
 
 - **Differential parity tests**: heuristic vs scope-resolved edges over the repo
@@ -232,3 +282,4 @@ separate decision with its own evidence bar; none is authorized by this ADR.
 |-----|------|--------|
 | 1.0 | 2026-10-19 | Initial proposal: tier 2.5 scope-graph binding + tier 3 SCIP/LSP harvesting, provenance model, evidence base from the dataserver3 arxiv corpus. |
 | 1.1 | 2026-10-20 | Phase 1 (tier 2.5) implemented: adopt-vs-build settled (RUSTSEC-2026-0303), pure-Python correction, verified nine-language honest-capability set, provenance vocabulary pinned to resolver strings, v1 limits; beyond-tier-3 outlook added (3.5 / 4a / 4b / 5). Status Proposed → Accepted. |
+| 1.2 | 2026-10-20 | Language matrix completed (0.12.0: seventeen languages incl. kotlin/ruby extractor unlocks); flag-graduation dossier added — parse-level 26.9% resolution vs the 21.3% CALLS baseline, 1.14 refs/symbol; pipeline-level +27% edge volume with 100% provenance and overhead below measurement noise; proximaDB large-repo sweep noted as the open gap. Graduation decision remains the maintainer's. |
