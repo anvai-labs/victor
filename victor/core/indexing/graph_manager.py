@@ -566,7 +566,7 @@ class GraphManager:
                     enable_subgraph_cache=False,
                     incremental=True,  # Use incremental updates (default, but explicit for clarity)
                     # ADR-032 tier 2.5 rides the refresh config like enable_ccg
-                    enable_scope_binding=refresh_config.get("enable_scope_binding", False),
+                    enable_scope_binding=refresh_config.get("enable_scope_binding", True),
                 )
 
                 phase2_time = datetime.now().timestamp() - phase2_start

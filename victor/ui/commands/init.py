@@ -1300,7 +1300,7 @@ def init(
                         try:
                             from victor.config.settings import load_settings
 
-                            scope_binding = getattr(load_settings(), "enable_scope_binding", False)
+                            scope_binding = getattr(load_settings(), "enable_scope_binding", True)
                         except Exception:
                             scope_binding = False
                         config = GraphIndexConfig(

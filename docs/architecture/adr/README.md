@@ -53,7 +53,7 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-029](029-provider-support-tiers.md) | Provider support tiers (Tier 1 / Community; docs + constant only, no deletions) | Accepted | Shipped (`TIER_1_PROVIDERS` in `victor/providers/registry.py`, `SUPPORT.md` policy; zero behavioral change) | 2026-08-02 |
 | [ADR-030](030-single-graph-execution-engine.md) | Single graph execution engine | Accepted | Implemented: parity gate (#1041), compiled adapter/callers (#1042), canonical streaming and BFS deletion (#1043) | 2026-09-07 |
 | [ADR-031](031-vertical-template-bases-promotion.md) | Vertical template bases — extract shared bases into `victor_contracts.verticals.bases` | Accepted | Not started (12 template families × 4 md5-distinct copies; hook-shaped extraction, small verticals only; reconcile with contrib bases family-by-family) | 2026-09-07 |
-| [ADR-032](032-structural-code-intelligence-tiers.md) | Structural code intelligence — scope-graph name binding (tier 2.5) + SCIP/LSP precise-index harvesting (tier 3) with provenance levels | Accepted | Tier 2.5 shipped + matrix complete (#1404/#1406/#1408: seventeen verified languages, 0.12.0); graduation dossier recorded at rev 1.2 — default-ON decision pending maintainer; tier 3 planned | 2026-10-20 |
+| [ADR-032](032-structural-code-intelligence-tiers.md) | Structural code intelligence — scope-graph name binding (tier 2.5) + SCIP/LSP precise-index harvesting (tier 3) with provenance levels | Accepted | Tier 2.5 shipped + matrix complete (#1404/#1406/#1408: seventeen verified languages, 0.12.0); GRADUATED to default-ON 2026-10-20 (rev 1.2 dossier, maintainer-approved; opt-out preserved); tier 3 planned | 2026-10-20 |
 
 ## External ADR series (cross-repo)
 

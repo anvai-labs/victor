@@ -186,7 +186,7 @@ async def test_pipeline_emits_reference_edges_with_provenance(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_pipeline_default_off_writes_no_references(tmp_path, monkeypatch):
+async def test_pipeline_explicit_opt_out_writes_no_references(tmp_path, monkeypatch):
     pytest.importorskip("victor_codegraph")
     from victor.core.graph_rag.config import GraphIndexConfig
     from victor.core.graph_rag.indexing import GraphIndexingPipeline
@@ -205,6 +205,7 @@ async def test_pipeline_default_off_writes_no_references(tmp_path, monkeypatch):
             root_path=tmp_path,
             enable_ccg=False,
             enable_embeddings=False,
+            enable_scope_binding=False,
             incremental=False,
         )
         await GraphIndexingPipeline(store, config).index_repository(tmp_path)
