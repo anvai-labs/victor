@@ -487,17 +487,16 @@ class OllamaToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
                 f"Overriding YAML native_tool_calls={caps.native_tool_calls} "
                 f"with dynamic detection result={has_native} for {self.model}"
             )
-            caps = ToolCallingCapabilities(
+            caps = replace(
+                caps,
                 native_tool_calls=has_native,
                 streaming_tool_calls=caps.streaming_tool_calls if has_native else False,
                 parallel_tool_calls=caps.parallel_tool_calls if has_native else False,
                 tool_choice_param=caps.tool_choice_param if has_native else False,
                 json_fallback_parsing=True,  # Always enable fallback parsing
                 xml_fallback_parsing=True,
-                thinking_mode=caps.thinking_mode,
                 requires_strict_prompting=not has_native,  # Strict prompting when no native support
                 tool_call_format=format_hint,
-                argument_format=caps.argument_format,
                 recommended_max_tools=caps.recommended_max_tools if has_native else 10,
                 recommended_tool_budget=(caps.recommended_tool_budget if has_native else 5),
             )
@@ -505,20 +504,7 @@ class OllamaToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
         # Apply model-specific overrides that YAML can't detect
         if self._has_thinking_mode() and not caps.thinking_mode:
             # Qwen3 thinking mode detected but not in YAML
-            caps = ToolCallingCapabilities(
-                native_tool_calls=caps.native_tool_calls,
-                streaming_tool_calls=caps.streaming_tool_calls,
-                parallel_tool_calls=caps.parallel_tool_calls,
-                tool_choice_param=caps.tool_choice_param,
-                json_fallback_parsing=caps.json_fallback_parsing,
-                xml_fallback_parsing=caps.xml_fallback_parsing,
-                thinking_mode=True,
-                requires_strict_prompting=caps.requires_strict_prompting,
-                tool_call_format=format_hint,
-                argument_format=caps.argument_format,
-                recommended_max_tools=caps.recommended_max_tools,
-                recommended_tool_budget=caps.recommended_tool_budget,
-            )
+            caps = replace(caps, thinking_mode=True, tool_call_format=format_hint)
 
         return caps
 
@@ -1049,20 +1035,7 @@ class LMStudioToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
 
         # Apply runtime model detection for thinking mode
         if self._has_thinking_mode() and not caps.thinking_mode:
-            caps = ToolCallingCapabilities(
-                native_tool_calls=caps.native_tool_calls,
-                streaming_tool_calls=caps.streaming_tool_calls,
-                parallel_tool_calls=caps.parallel_tool_calls,
-                tool_choice_param=caps.tool_choice_param,
-                json_fallback_parsing=True,
-                xml_fallback_parsing=False,
-                thinking_mode=True,
-                requires_strict_prompting=caps.requires_strict_prompting,
-                tool_call_format=format_hint,
-                argument_format=caps.argument_format,
-                recommended_max_tools=caps.recommended_max_tools,
-                recommended_tool_budget=caps.recommended_tool_budget,
-            )
+            caps = replace(caps, thinking_mode=True, tool_call_format=format_hint)
 
         return caps
 
@@ -1292,20 +1265,7 @@ class OpenAICompatToolCallingAdapter(BaseToolCallingAdapter):
 
             # Apply runtime model detection for thinking mode
             if "qwen3" in self.model_lower and not caps.thinking_mode:
-                caps = ToolCallingCapabilities(
-                    native_tool_calls=caps.native_tool_calls,
-                    streaming_tool_calls=caps.streaming_tool_calls,
-                    parallel_tool_calls=caps.parallel_tool_calls,
-                    tool_choice_param=caps.tool_choice_param,
-                    json_fallback_parsing=caps.json_fallback_parsing,
-                    xml_fallback_parsing=caps.xml_fallback_parsing,
-                    thinking_mode=True,
-                    requires_strict_prompting=caps.requires_strict_prompting,
-                    tool_call_format=format_hint,
-                    argument_format=caps.argument_format,
-                    recommended_max_tools=caps.recommended_max_tools,
-                    recommended_tool_budget=caps.recommended_tool_budget,
-                )
+                caps = replace(caps, thinking_mode=True, tool_call_format=format_hint)
             return caps
 
     def convert_tools(self, tools: List[ToolDefinition]) -> List[Dict[str, Any]]:

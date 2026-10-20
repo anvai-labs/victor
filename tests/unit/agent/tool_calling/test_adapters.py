@@ -803,3 +803,60 @@ class TestAdapterConsistency:
         assert isinstance(anthropic_result, ToolCallParseResult)
         assert isinstance(openai_result, ToolCallParseResult)
         assert isinstance(ollama_result, ToolCallParseResult)
+
+
+class TestCapabilityFieldPreservation:
+    """The thinking-mode override must PRESERVE YAML-configured capability
+    fields it does not touch (regression: the manual 12-field rebuild silently
+    reset thinking_disable_prefix, exploration_multiplier,
+    continuation_patience, and timeout_multiplier to defaults — discovered by
+    the supervised dedup review)."""
+
+    def test_ollama_thinking_override_preserves_configured_fields(self, monkeypatch):
+        from dataclasses import replace
+        from types import SimpleNamespace
+
+        import victor.agent.tool_calling.adapters as adapters_mod
+        from victor.agent.tool_calling.adapters import OllamaToolCallingAdapter
+        from victor.agent.tool_calling.base import ToolCallingCapabilities
+
+        configured = ToolCallingCapabilities(
+            thinking_disable_prefix="/no_think",
+            exploration_multiplier=2.5,
+            continuation_patience=3,
+            timeout_multiplier=1.8,
+        )
+        monkeypatch.setattr(
+            adapters_mod._CapabilityLoaderHolder,
+            "_instance",
+            SimpleNamespace(get_capabilities=lambda *a, **k: configured),
+        )
+
+        adapter = OllamaToolCallingAdapter(model="qwen3-coder", config=None)
+        adapter._has_thinking_mode = lambda: True
+        caps = adapter.get_capabilities()
+
+        assert caps.thinking_mode is True
+        # The four fields the old manual rebuild silently reset:
+        assert caps.thinking_disable_prefix == "/no_think"
+        assert caps.exploration_multiplier == 2.5
+        assert caps.continuation_patience == 3
+        assert caps.timeout_multiplier == 1.8
+
+    def test_replace_semantics_keep_untouched_fields(self):
+        from dataclasses import replace
+
+        from victor.agent.tool_calling.base import ToolCallingCapabilities
+
+        base = ToolCallingCapabilities(
+            thinking_disable_prefix="/no_think",
+            exploration_multiplier=2.5,
+            continuation_patience=3,
+            timeout_multiplier=1.8,
+        )
+        patched = replace(base, thinking_mode=True)
+        assert patched.thinking_disable_prefix == "/no_think"
+        assert patched.exploration_multiplier == 2.5
+        assert patched.continuation_patience == 3
+        assert patched.timeout_multiplier == 1.8
+        assert patched.thinking_mode is True
