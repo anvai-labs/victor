@@ -90,166 +90,20 @@ logger = logging.getLogger(__name__)
 _TOOL_EMBEDDING_PROCESS_CACHE: dict[tuple[str, int], dict] = {}
 
 
-# Fallback critical tools for cases where registry is unavailable.
-# Critical tools are detected via priority=Priority.CRITICAL in @tool decorator.
-_FALLBACK_CRITICAL_TOOLS: Set[str] = {
-    "read",  # read_file → read
-    "write",  # write_file → write
-    "ls",  # list_directory → ls
-    "shell",  # execute_bash → shell
-    "edit",  # edit_files → edit
-    "search",  # code_search → search (always needed for code exploration)
-}
+# Shared with victor.tools.selection_common (jscpd exact-duplicate extraction):
+# these five definitions were token-identical modulo the FALLBACK_ prefix.
+# get_web_tools / detect_categories_from_message / get_tools_for_categories
+# are deliberate forks (fallback-set vs empty-set, merged vs registry-only
+# detection, broad vs narrow except) and stay local.
+from victor.tools.selection_common import (  # noqa: F401
+    FALLBACK_CATEGORY_KEYWORDS as _FALLBACK_CATEGORY_KEYWORDS,
+    FALLBACK_CRITICAL_TOOLS as _FALLBACK_CRITICAL_TOOLS,
+    get_all_categories,
+    get_category_to_tools_map,
+    get_critical_tools,
+    get_tools_by_category,
+)
 
-
-def get_critical_tools(registry: Optional["ToolRegistry"] = None) -> Set[str]:
-    """Dynamically discover critical tools from registry using priority-based detection.
-
-    Critical tools are those with priority=Priority.CRITICAL in their @tool decorator.
-    These tools are always available for selection regardless of task type.
-    Falls back to hardcoded list if registry is unavailable.
-
-    Args:
-        registry: Optional tool registry to query
-
-    Returns:
-        Set of canonical tool names that are critical priority tools
-    """
-    if registry is None:
-        return _FALLBACK_CRITICAL_TOOLS.copy()
-
-    critical_tools: Set[str] = set()
-    for tool in registry.list_tools(only_enabled=True):
-        # Use is_critical property which checks priority=Priority.CRITICAL
-        if hasattr(tool, "is_critical") and tool.is_critical:
-            critical_tools.add(tool.name)
-
-    # Fallback if no critical tools found (shouldn't happen with proper setup)
-    if not critical_tools:
-        logger.warning(
-            "No tools with priority=Priority.CRITICAL found in registry. "
-            "Using fallback critical tools. Check tool decorator definitions."
-        )
-        return _FALLBACK_CRITICAL_TOOLS.copy()
-
-    return critical_tools
-
-
-def get_tools_by_category(
-    registry: Optional["ToolRegistry"] = None, category: str = ""
-) -> Set[str]:
-    """Dynamically discover tools in a specific category from registry.
-
-    Tools declare their category via @tool(category="...") decorator.
-
-    Args:
-        registry: Tool registry to query
-        category: Category name to filter by (e.g., "git", "web", "testing")
-
-    Returns:
-        Set of tool names in the specified category
-    """
-    if registry is None or not category:
-        return set()
-
-    tools: Set[str] = set()
-    for tool in registry.list_tools(only_enabled=True):
-        if hasattr(tool, "category") and tool.category == category:
-            tools.add(tool.name)
-
-    return tools
-
-
-def get_all_categories(registry: Optional["ToolRegistry"] = None) -> Set[str]:
-    """Get all unique categories from tools in registry.
-
-    Args:
-        registry: Tool registry to query
-
-    Returns:
-        Set of unique category names
-    """
-    if registry is None:
-        return set()
-
-    categories: Set[str] = set()
-    for tool in registry.list_tools(only_enabled=True):
-        if hasattr(tool, "category") and tool.category:
-            categories.add(tool.category)
-
-    return categories
-
-
-def get_category_to_tools_map(
-    registry: Optional["ToolRegistry"] = None,
-) -> Dict[str, Set[str]]:
-    """Build a mapping from categories to tool names.
-
-    Dynamically discovers categories from tool metadata. Tools must declare
-    their category via @tool(category="...") decorator.
-
-    Args:
-        registry: Tool registry to query (required for proper operation)
-
-    Returns:
-        Dict mapping category name to set of tool names.
-        Empty dict if registry is None.
-
-    Raises:
-        ValueError: If registry is provided but no tools have categories
-    """
-    if registry is None:
-        logger.warning(
-            "get_category_to_tools_map called without registry. "
-            "Pass a ToolRegistry for proper category discovery."
-        )
-        return {}
-
-    category_map: Dict[str, Set[str]] = {}
-    for tool in registry.list_tools(only_enabled=True):
-        if hasattr(tool, "category") and tool.category:
-            category = tool.category
-            if category not in category_map:
-                category_map[category] = set()
-            category_map[category].add(tool.name)
-
-    if not category_map:
-        logger.warning(
-            "No tools with categories found in registry. Add category metadata to @tool decorators."
-        )
-
-    return category_map
-
-
-# Fallback category keywords for goal inference.
-# NOTE: This is a FALLBACK when registry.detect_categories_from_text() is unavailable.
-# The registry-based approach dynamically builds categories from @tool(keywords=[...])
-# decorators and is preferred. This static list is only used when registry is None.
-_FALLBACK_CATEGORY_KEYWORDS: Dict[str, Set[str]] = {
-    "security": {
-        "security",
-        "vulnerability",
-        "scan",
-        "audit",
-        "cve",
-        "exploit",
-        "owasp",
-    },
-    "metrics": {
-        "metrics",
-        "complexity",
-        "coverage",
-        "analyze",
-        "statistics",
-        "cyclomatic",
-    },
-    "testing": {"test", "unittest", "pytest", "spec", "coverage", "mock"},
-    "git": {"git", "commit", "branch", "merge", "push", "pull", "rebase"},
-    "docker": {"docker", "container", "dockerfile", "compose", "image"},
-    "web": {"web", "http", "api", "fetch", "url", "search"},
-}
-
-# Alias for backward compatibility
 CATEGORY_KEYWORDS = _FALLBACK_CATEGORY_KEYWORDS
 
 

@@ -27,7 +27,7 @@ import logging
 import re
 import uuid
 from contextvars import ContextVar
-from typing import Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Tuple, Callable
 
 import httpx
 
@@ -278,6 +278,99 @@ def parse_openai_tool_calls(
         )
 
     return tool_calls if tool_calls else None
+
+
+def normalize_provider_tool_calls(
+    tool_calls: Optional[List[Dict[str, Any]]],
+) -> Optional[List[Dict[str, Any]]]:
+    """Normalize OpenAI-format tool calls to Victor format (provider pair).
+
+    Extracted from AzureOpenAIProvider/HuggingFaceProvider._normalize_tool_calls
+    (jscpd exact-duplicate extraction). Unlike :func:`parse_openai_tool_calls`
+    this drops non-``function`` entries and decodes argument JSON to ``{}``
+    on failure — the providers' historical contract.
+    """
+    if not tool_calls:
+        return None
+    normalized = []
+    for call in tool_calls:
+        if "function" in call:
+            func = call["function"]
+            args = func.get("arguments", "{}")
+            if isinstance(args, str):
+                try:
+                    args = json_loads(args)
+                except JSONDecodeError:
+                    args = {}
+            normalized.append(
+                {
+                    "id": call.get("id", ""),
+                    "name": func.get("name", ""),
+                    "arguments": args,
+                }
+            )
+    return normalized if normalized else None
+
+
+def parse_provider_stream_chunk(
+    chunk_data: Dict[str, Any],
+    accumulated_tool_calls: List[Dict[str, Any]],
+    chunk_factory: Callable[[Dict[str, Any]], Any],
+) -> Any:
+    """Parse one OpenAI SSE chunk for a provider stream (provider pair).
+
+    Extracted from AzureOpenAIProvider/HuggingFaceProvider._parse_stream_chunk
+    (jscpd exact-duplicate extraction). ``chunk_factory`` receives the
+    StreamChunk-shaped kwargs dict so providers keep their own chunk types.
+    """
+    choices = chunk_data.get("choices", [])
+    if not choices:
+        return chunk_factory({"content": "", "is_final": False})
+
+    choice = choices[0]
+    delta = choice.get("delta", {})
+    content = delta.get("content", "") or ""
+    finish_reason = choice.get("finish_reason")
+
+    for tc_delta in delta.get("tool_calls", []):
+        idx = tc_delta.get("index", 0)
+        while len(accumulated_tool_calls) <= idx:
+            accumulated_tool_calls.append({"id": "", "name": "", "arguments": ""})
+        if "id" in tc_delta:
+            accumulated_tool_calls[idx]["id"] = tc_delta["id"]
+        if "function" in tc_delta:
+            func = tc_delta["function"]
+            if "name" in func:
+                accumulated_tool_calls[idx]["name"] = func["name"]
+            if "arguments" in func:
+                accumulated_tool_calls[idx]["arguments"] += func["arguments"]
+
+    final_tool_calls = None
+    if finish_reason in ("tool_calls", "stop") and accumulated_tool_calls:
+        final_tool_calls = []
+        for tc in accumulated_tool_calls:
+            if tc.get("name"):
+                args = tc.get("arguments", "{}")
+                try:
+                    args = json_loads(args) if isinstance(args, str) else args
+                except JSONDecodeError:
+                    args = {}
+                final_tool_calls.append(
+                    {
+                        "id": tc.get("id", ""),
+                        "name": tc["name"],
+                        "arguments": args,
+                    }
+                )
+
+    return chunk_factory(
+        {
+            "content": content,
+            "tool_calls": final_tool_calls,
+            "stop_reason": finish_reason,
+            "is_final": finish_reason is not None,
+        }
+    )
 
 
 def parse_openai_stream_chunk(chunk_data: Dict[str, Any]) -> Dict[str, Any]:
