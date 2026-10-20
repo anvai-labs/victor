@@ -65,6 +65,12 @@ RELATED_TESTS = {
     "victor/agent/services/rl_runtime.py": (
         "tests/unit/agent/services/test_service_runtime_parity.py",
     ),
+    # The MiddlewareProtocol re-export consolidation: the whole verticals
+    # protocol suite exercises the canonical class; the re-export identity is
+    # pinned in the same suite.
+    "victor/core/verticals/protocols/focused/tool_extensions.py": (
+        "tests/unit/core/verticals/test_protocols_sdk_compat.py",
+    ),
     # jscpd extraction: the accumulators live in three files now; their
     # behavior is pinned by the shared-module mirror suite plus the
     # proxima/victor suites that exercise both public classes end-to-end.
