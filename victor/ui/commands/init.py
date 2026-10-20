@@ -1298,15 +1298,19 @@ def init(
                         # init had never populated.
                         graph_store = create_graph_store("auto", project_path=project_root)
                         try:
-                            from victor.config.settings import load_settings
+                            from victor.config.settings import graph_flag, load_settings
 
-                            scope_binding = getattr(load_settings(), "enable_scope_binding", True)
+                            settings = load_settings()
+                            scope_binding = graph_flag(settings, "enable_scope_binding", True)
+                            precise_index = graph_flag(settings, "enable_precise_index", False)
                         except Exception:
-                            scope_binding = False
+                            scope_binding = True
+                            precise_index = False
                         config = GraphIndexConfig(
                             root_path=project_root,
                             enable_ccg=True,
                             enable_scope_binding=scope_binding,
+                            enable_precise_index=precise_index,
                             # Off by default because generating vectors roughly
                             # triples init time, but no longer hardcoded: without
                             # this, `GraphIndexConfig.enable_embeddings` (which

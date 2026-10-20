@@ -265,6 +265,9 @@ class GraphIndexStats:
     cross_file_relationships_resolved: int = 0
     imports_resolved: int = 0
     scope_references_resolved: int = 0
+    precise_references_resolved: int = 0
+    precise_index_unjoined: int = 0
+    precise_index_skipped: str = ""
     repository_relations_dropped_unmaterialized: int = 0
     # Files that tried the enhanced TreeSitterAnalysisProtocol provider but
     # had to fall back to the hardcoded extraction path (because the provider
@@ -299,6 +302,8 @@ class GraphIndexStats:
             "cross_file_relationships_resolved": self.cross_file_relationships_resolved,
             "imports_resolved": self.imports_resolved,
             "scope_references_resolved": self.scope_references_resolved,
+            "precise_references_resolved": self.precise_references_resolved,
+            "precise_index_unjoined": self.precise_index_unjoined,
             "repository_relations_dropped_unmaterialized": (
                 self.repository_relations_dropped_unmaterialized
             ),
@@ -660,6 +665,7 @@ class GraphIndexingPipeline:
                     "enable_ccg": self.config.enable_ccg,
                     "enable_embeddings": self.config.enable_embeddings,
                     "enable_scope_binding": self.config.enable_scope_binding,
+                    "enable_precise_index": getattr(self.config, "enable_precise_index", False),
                     "embedding_profile": embedding_profile,
                     "max_file_size_bytes": self.config.max_file_size_bytes,
                     "include_patterns": sorted(self.config.include_patterns),
@@ -767,6 +773,30 @@ class GraphIndexingPipeline:
             stats.imports_resolved = cg_imports + imports_resolved
             stats.edges_created += cg_imports + imports_resolved
 
+            # ADR-032 tier 3: compiler-accurate edges from an offline SCIP
+            # dump, harvested LAST — the (src,dst,type) upsert is
+            # last-writer-wins, so provenance="compiler" dominates any
+            # scope/heuristic metadata on shared keys.
+            if getattr(self.config, "enable_precise_index", False):
+                from victor.core.graph_rag.precise_index import PreciseHarvest
+
+                _, GraphEdge = _get_graph_types()
+                from victor.storage.graph.edge_types import EdgeType
+
+                precise = await self._harvest_precise_index(root)
+                if isinstance(precise, PreciseHarvest) and precise.edges:
+                    edges = [
+                        GraphEdge(src=src, dst=dst, type=EdgeType(edge_type), metadata=metadata)
+                        for src, dst, edge_type, metadata in precise.edges
+                    ]
+                    async with self._graph_store_write_batch():
+                        await self.graph_store.upsert_edges(edges)
+                stats.precise_references_resolved = getattr(precise, "resolved", 0)
+                stats.precise_index_unjoined = getattr(precise, "unjoined", 0)
+                if getattr(precise, "skipped_reason", None):
+                    stats.precise_index_skipped = precise.skipped_reason
+                stats.edges_created += len(getattr(precise, "edges", []))
+
         if getattr(self.config, "enable_module_metrics", True) and graph_changed:
             stats.module_metrics_computed = self._refresh_module_metrics(root)
 
@@ -805,6 +835,59 @@ class GraphIndexingPipeline:
             await asyncio.to_thread(db.maintain)
         except Exception as exc:
             logger.debug("Post-rebuild database maintenance skipped: %s", exc)
+
+    async def _harvest_precise_index(self, root: Path):
+        """ADR-032 tier 3: offline SCIP dump → compiler-provenance edges.
+
+        Runs LAST in the resolution sequence so the last-writer-wins edge
+        upsert makes ``provenance="compiler"`` dominate shared
+        CALLS/INHERITS/IMPLEMENTS keys. Any failure is logged and skipped —
+        the tier-2.5 graph stays complete without the toolchain.
+        """
+
+        from victor.core.graph_rag.precise_index import (
+            PreciseHarvest,
+            harvest_precise_edges,
+            harvest_scip_index,
+        )
+
+        def key_for_identity(identity: dict) -> str:
+            from victor_codegraph.model import CodeSymbolType, stable_symbol_key
+
+            return stable_symbol_key(
+                "python",
+                CodeSymbolType[identity["symbol_type_name"]],
+                identity["fqn"],
+                identity.get("signature"),
+                identity.get("file_path", ""),
+            )
+
+        try:
+            import tempfile
+
+            known = {node.node_id for node in await self._persisted_symbols()}
+            with tempfile.TemporaryDirectory(prefix="scip-harvest-") as tmp:
+                dump_path = Path(tmp) / "index.scip"
+                dumped = await asyncio.to_thread(
+                    harvest_scip_index,
+                    root,
+                    dump_path,
+                    getattr(self.config, "precise_index_tool", "auto"),
+                )
+                if dumped is None:
+                    return PreciseHarvest(skipped_reason="toolchain-unavailable")
+                harvest = await asyncio.to_thread(
+                    harvest_precise_edges, dumped, root, key_for_identity, known
+                )
+            logger.info(
+                "precise-index harvest: %d compiler edges (%d unjoined occurrences)",
+                len(harvest.edges),
+                harvest.unjoined,
+            )
+            return harvest
+        except Exception as exc:
+            logger.warning("precise-index harvest failed; skipped: %s", exc)
+            return PreciseHarvest(skipped_reason=f"error:{type(exc).__name__}")
 
     def _scope_binding_supported(self) -> bool:
         """One-shot probe: does the installed victor-codegraph take the flag?
@@ -3482,6 +3565,8 @@ class GraphIndexingPipeline:
         target.cross_file_relationships_resolved += source.cross_file_relationships_resolved
         target.imports_resolved += source.imports_resolved
         target.scope_references_resolved += source.scope_references_resolved
+        target.precise_references_resolved += source.precise_references_resolved
+        target.precise_index_unjoined += source.precise_index_unjoined
         target.repository_relations_dropped_unmaterialized += (
             source.repository_relations_dropped_unmaterialized
         )
