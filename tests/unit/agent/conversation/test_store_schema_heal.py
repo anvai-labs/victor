@@ -55,3 +55,56 @@ def test_migrate_sessions_table_heals_all_missing_core_columns(tmp_path):
     )
     conn.commit()
     conn.close()
+
+
+def _core_tables(conn) -> set:
+    return {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+
+
+def test_critical_ddl_constant_creates_core_tables():
+    """jscpd extraction: _CRITICAL_TABLES_DDL is the one shared definition —
+    executing it directly creates exactly the four core tables, idempotently."""
+    import sqlite3
+
+    from victor.agent.conversation.store_schema import _CRITICAL_TABLES_DDL
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(_CRITICAL_TABLES_DDL)
+    assert _core_tables(conn) == {"sessions", "messages", "context_summaries", "compaction_events"}
+    # Idempotent: a second run is a no-op on the same tables.
+    conn.executescript(_CRITICAL_TABLES_DDL)
+    assert _core_tables(conn) == {"sessions", "messages", "context_summaries", "compaction_events"}
+
+
+def test_ensure_critical_tables_and_normalized_schema_both_apply_the_ddl(tmp_path):
+    """Both call sites interpolate the shared constant; each leaves the four
+    core tables behind (the normalized path additionally creates lookups)."""
+    import sqlite3
+
+    from types import SimpleNamespace
+
+    schema = ConversationStoreSchema.__new__(ConversationStoreSchema)
+    schema.store = SimpleNamespace(
+        _model_family_ids={},
+        _model_size_ids={},
+        _context_size_ids={},
+        _provider_ids={},
+        cleanup_stale_sessions=lambda **kwargs: None,
+        db_path=str(tmp_path / "normalized.db"),
+    )
+
+    critical = sqlite3.connect(":memory:")
+    schema.ensure_critical_tables(critical)
+    assert {"sessions", "messages", "context_summaries", "compaction_events"} <= _core_tables(
+        critical
+    )
+
+    normalized = sqlite3.connect(":memory:")
+    schema.apply_normalized_schema(normalized)
+    tables = _core_tables(normalized)
+    assert {"sessions", "messages", "context_summaries", "compaction_events"} <= tables
+    # The normalized path creates the lookup tables the DDL does not own.
+    assert {"providers", "model_families"} <= tables
