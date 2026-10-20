@@ -91,3 +91,60 @@ def test_candidate_defaults():
     assert candidate.graph_context == {"callers": [], "callees": [], "related_files": []}
     assert candidate.seed_score == 0.0 and candidate.support_count == 0
     assert candidate.sources == set() and candidate.reasons == []
+
+
+def test_add_seed_edge_cases():
+    accumulator = ChangeImpactAccumulator("auth login")
+    # No file_path at all -> ignored
+    accumulator.add_seed({"score": 0.9, "content": "x"})
+    assert accumulator.finalize(top_k=5) == []
+    # file_path only in metadata
+    accumulator.add_seed({"metadata": {"file_path": "src/m.py"}, "score": 0.5})
+    rows = accumulator.finalize(top_k=5)
+    assert len(rows) == 1 and rows[0]["file_path"] == "src/m.py"
+    # Higher score replaces symbol/content; sources default to semantic
+    accumulator.add_seed(
+        {
+            "file_path": "src/m.py",
+            "score": 0.7,
+            "symbol_name": "login",
+            "content": "def login()",
+            "line_number": 3,
+            "metadata": {"name": "login"},
+            "sources": ["vector"],
+        }
+    )
+    rows = accumulator.finalize(top_k=5)
+    assert rows[0]["symbol_name"] == "login" and "vector" in rows[0]["sources"]
+
+
+def test_attach_graph_context_requires_existing_candidate():
+    accumulator = ChangeImpactAccumulator("auth login")
+    accumulator.attach_graph_context("src/ghost.py", callers=[{"file_path": "a.py"}], callees=[])
+    assert accumulator.finalize(top_k=5) == []
+    accumulator.add_seed({"file_path": "src/auth.py", "score": 0.6})
+    accumulator.attach_graph_context(
+        "src/auth.py",
+        callers=[{"id": "1", "file_path": "a.py", "name": "caller"}],
+        callees=[{"id": "2", "file_path": "b.py", "name": "callee"}],
+    )
+    rows = accumulator.finalize(top_k=5)
+    ctx = rows[0]["graph_context"]
+    assert ctx["related_files"] == ["a.py", "b.py"]
+    assert "graph_context" in rows[0]["metadata"]["impact"]["reasons"]
+
+
+def test_add_graph_neighbors_skips_unfiled_and_content_fallback():
+    accumulator = IssueLocalizationAccumulator("auth login")
+    accumulator.add_seed({"file_path": "src/auth.py", "score": 0.9})
+    # Neighbor without file_path is skipped
+    accumulator.add_graph_neighbors(
+        seed_file_path="src/auth.py",
+        seed_symbol=None,
+        seed_score=0.9,
+        relation="callees",
+        neighbors=[{"name": "no_file"}, {"file_path": "src/x.py", "name": "helper"}],
+    )
+    rows = {r["file_path"]: r for r in accumulator.finalize(top_k=10)}
+    assert "src/x.py" in rows and rows["src/x.py"]["content"].startswith("helper (")
+    assert rows["src/x.py"]["metadata"].get("related_symbol") == "helper"
