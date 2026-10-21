@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- ADR-032 tier-3 symbol parsing now matches the REAL npm scip-python
+  grammar (0.6.x package-qualified descriptors, backticked dotted module
+  paths, `#` class members — verified against a live 0.6.6 dump; the
+  previously assumed `python <file>\`<path>` backtick form is not what
+  the tool emits, so real dumps joined nothing). References to symbols
+  defined nowhere in the index (stdlib, site-packages) and
+  non-symbol descriptors (parameters, locals, attribute fields, module
+  inits) are no longer counted as join failures. First real-contact
+  numbers on a victor graph_rag slice: 26 compiler REFERENCES edges, 90%
+  join rate (was 0%).
+
 ## [0.14.1] - 2026-10-21
 
 ### Added
