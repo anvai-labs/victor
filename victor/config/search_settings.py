@@ -33,6 +33,13 @@ class GraphSettings(BaseModel):
     ccg_languages: List[str] = Field(
         default_factory=lambda: ["python", "javascript", "typescript", "go", "rust"]
     )
+    # ADR-032 tier 2.5: resolved REFERENCES binding edges during indexing.
+    # Graduated to default-ON 2026-10-20 (ADR-032 rev 1.2 dossier); degrades
+    # gracefully to off when victor-codegraph < 0.11.0 is installed.
+    enable_scope_binding: bool = True
+    # ADR-032 tier 3: compiler-accurate edges from offline SCIP dumps
+    # (scip-python); opt-in, degrades gracefully when absent.
+    enable_precise_index: bool = False
     enable_graph_rag: bool = True
     rag_seed_count: int = 5
     rag_max_hops: int = 2

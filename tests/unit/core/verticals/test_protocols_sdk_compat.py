@@ -52,3 +52,15 @@ def test_load_sdk_vertical_extensions_returns_none_when_sdk_layout_is_unavailabl
     resolved = protocols_module._load_sdk_vertical_extensions()
 
     assert resolved is None
+
+
+def test_middleware_protocol_reexport_is_identity():
+    """jscpd consolidation: focused.tool_extensions re-exports the canonical
+    MiddlewareProtocol instead of re-declaring it — the two names must be the
+    SAME class object, now and forever."""
+    from victor.core.verticals.protocols.focused.tool_extensions import (
+        MiddlewareProtocol as Reexported,
+    )
+    from victor.core.verticals.protocols.middleware import MiddlewareProtocol
+
+    assert Reexported is MiddlewareProtocol

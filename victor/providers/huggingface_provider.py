@@ -39,6 +39,10 @@ References:
 """
 
 from victor.core.json_utils import json_dumps, json_loads
+from victor.providers.openai_compat import (
+    normalize_provider_tool_calls,
+    parse_provider_stream_chunk,
+)
 from json import JSONDecodeError
 import os
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -456,75 +460,13 @@ class HuggingFaceProvider(BaseProvider):
         )
 
     def _normalize_tool_calls(self, tool_calls) -> Optional[List[Dict[str, Any]]]:
-        """Normalize tool calls to Victor format."""
-        if not tool_calls:
-            return None
-        normalized = []
-        for call in tool_calls:
-            if "function" in call:
-                func = call["function"]
-                args = func.get("arguments", "{}")
-                if isinstance(args, str):
-                    try:
-                        args = json_loads(args)
-                    except JSONDecodeError:
-                        args = {}
-                normalized.append(
-                    {
-                        "id": call.get("id", ""),
-                        "name": func.get("name", ""),
-                        "arguments": args,
-                    }
-                )
-        return normalized if normalized else None
+        """Normalize tool calls to Victor format (shared implementation)."""
+        return normalize_provider_tool_calls(tool_calls)
 
     def _parse_stream_chunk(self, chunk_data, accumulated_tool_calls) -> StreamChunk:
-        """Parse HF stream chunk (OpenAI format)."""
-        choices = chunk_data.get("choices", [])
-        if not choices:
-            return StreamChunk(content="", is_final=False)
-
-        choice = choices[0]
-        delta = choice.get("delta", {})
-        content = delta.get("content", "") or ""
-        finish_reason = choice.get("finish_reason")
-
-        for tc_delta in delta.get("tool_calls", []):
-            idx = tc_delta.get("index", 0)
-            while len(accumulated_tool_calls) <= idx:
-                accumulated_tool_calls.append({"id": "", "name": "", "arguments": ""})
-            if "id" in tc_delta:
-                accumulated_tool_calls[idx]["id"] = tc_delta["id"]
-            if "function" in tc_delta:
-                func = tc_delta["function"]
-                if "name" in func:
-                    accumulated_tool_calls[idx]["name"] = func["name"]
-                if "arguments" in func:
-                    accumulated_tool_calls[idx]["arguments"] += func["arguments"]
-
-        final_tool_calls = None
-        if finish_reason in ("tool_calls", "stop") and accumulated_tool_calls:
-            final_tool_calls = []
-            for tc in accumulated_tool_calls:
-                if tc.get("name"):
-                    args = tc.get("arguments", "{}")
-                    try:
-                        args = json_loads(args) if isinstance(args, str) else args
-                    except JSONDecodeError:
-                        args = {}
-                    final_tool_calls.append(
-                        {
-                            "id": tc.get("id", ""),
-                            "name": tc["name"],
-                            "arguments": args,
-                        }
-                    )
-
-        return StreamChunk(
-            content=content,
-            tool_calls=final_tool_calls,
-            stop_reason=finish_reason,
-            is_final=finish_reason is not None,
+        """Parse Hugging Face stream chunk (shared implementation)."""
+        return parse_provider_stream_chunk(
+            chunk_data, accumulated_tool_calls, lambda kwargs: StreamChunk(**kwargs)
         )
 
     async def close(self) -> None:

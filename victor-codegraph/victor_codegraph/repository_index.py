@@ -101,6 +101,7 @@ def _resolve_across_files(
             CodeRelationType.CALLS,
             CodeRelationType.EXTENDS,
             CodeRelationType.IMPLEMENTS,
+            CodeRelationType.REFERENCES,
         }:
             out.append(relation)
             continue
@@ -327,6 +328,7 @@ def parse_repo(
     languages: list[str] | None = None,
     revision: str | None = None,
     selected_paths: Iterable[str | os.PathLike[str]] | None = None,
+    emit_references: bool = False,
 ) -> ParsedRepository:
     """Read each selected source once and resolve the repository graph.
 
@@ -336,6 +338,9 @@ def parse_repo(
     root or absolute within root. Resolve/deduplicate aliases and validate the
     entire inventory before source reads; non-regular files and paths escaping root
     are rejected. ``languages`` still filters the resulting inventory.
+
+    ``emit_references=True`` turns on tier-2.5 scope binding (REFERENCES
+    relations; ADR-032) for every parsed file; the default output is unchanged.
 
     Missing files and source-content read failures remain absent from ``files``
     and ``manifest``, as in default discovery. Path/type validation errors propagate
@@ -359,7 +364,7 @@ def parse_repo(
         if content is None:
             continue
         relative = path.resolve().relative_to(root_path).as_posix()
-        parsed = parse(content, file_path=relative)
+        parsed = parse(content, file_path=relative, emit_references=emit_references)
         files[relative] = parsed
         manifest[relative] = parsed.content_hash
 

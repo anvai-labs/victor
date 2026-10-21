@@ -58,6 +58,50 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # jscpd round 4: the six re-exported RL wrappers resolve their coordinator
+    # from victor.framework.rl's namespace now; the parity suite pins the
+    # service surface -> global coordinator contract (with the seams at the
+    # defining module), and the two LOCAL to_dict wrappers keep their seams.
+    "victor/agent/services/rl_runtime.py": (
+        "tests/unit/agent/services/test_service_runtime_parity.py",
+    ),
+    # The MiddlewareProtocol re-export consolidation: the whole verticals
+    # protocol suite exercises the canonical class; the re-export identity is
+    # pinned in the same suite.
+    "victor/core/verticals/protocols/focused/tool_extensions.py": (
+        "tests/unit/core/verticals/test_protocols_sdk_compat.py",
+    ),
+    # jscpd extraction: the accumulators live in three files now; their
+    # behavior is pinned by the shared-module mirror suite plus the
+    # proxima/victor suites that exercise both public classes end-to-end.
+    **dict.fromkeys(
+        (
+            "victor/storage/vector_stores/_graph_accumulator.py",
+            "victor/storage/vector_stores/change_impact.py",
+            "victor/storage/vector_stores/issue_localization.py",
+        ),
+        (
+            "tests/unit/storage/vector_stores/test_graph_accumulator.py",
+            "tests/unit/providers/test_proximadb_multi.py",
+        ),
+    ),
+    "victor/providers/azure_openai_provider.py": (
+        "tests/unit/providers/test_openai_compat_coverage.py",
+        "tests/unit/providers/test_openai_compat.py",
+    ),
+    **dict.fromkeys(
+        (
+            "victor/core/graph_rag/indexing.py",
+            "victor/core/graph_rag/codegraph_repository.py",
+            "victor/core/graph_rag/retrieval.py",
+            "victor/core/graph_rag/precise_index.py",
+            "victor/config/search_settings.py",
+        ),
+        (
+            "tests/unit/core/graph_rag/test_scope_binding_integration.py",
+            "tests/unit/core/graph_rag/test_precise_index.py",
+        ),
+    ),
     **dict.fromkeys(
         ("victor/core/database.py", "victor/core/schema.py", "victor/core/migrations.py"),
         (

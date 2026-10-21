@@ -649,3 +649,112 @@ class TestToolConversion:
         """None input returns None."""
         result = parse_openai_tool_calls(None)
         assert result is None
+
+
+# ── jscpd extraction: shared provider pair functions ────────────────────────
+
+
+def test_provider_delegations_in_azure_provider():
+    """The Azure provider's two methods are one-line delegations (jscpd
+    extraction); pin that they route to the shared implementations."""
+    from unittest.mock import patch
+
+    from victor.providers.azure_openai_provider import AzureOpenAIProvider
+
+    provider = object.__new__(AzureOpenAIProvider)
+    calls = []
+    with (
+        patch("victor.providers.azure_openai_provider.normalize_provider_tool_calls") as norm,
+        patch(
+            "victor.providers.azure_openai_compat_parse"
+            if False
+            else "victor.providers.azure_openai_provider.parse_provider_stream_chunk"
+        ) as parse,
+    ):
+        norm.side_effect = lambda tool_calls: calls.append(("normalize", tool_calls)) or ["x"]
+        parse.side_effect = lambda *a, **k: calls.append(("parse", a)) or "chunk"
+        assert provider._normalize_tool_calls([{"function": {"name": "f"}}]) == ["x"]
+        assert provider._parse_stream_chunk({"choices": []}, []) == "chunk"
+    assert [c[0] for c in calls] == ["normalize", "parse"]
+
+
+def test_normalize_provider_tool_calls_branches():
+    from victor.providers.openai_compat import normalize_provider_tool_calls
+
+    # Empty / falsy -> None
+    assert normalize_provider_tool_calls(None) is None
+    assert normalize_provider_tool_calls([]) is None
+    # Non-function entries dropped -> None when nothing survives
+    assert normalize_provider_tool_calls([{"id": "1"}]) is None
+    # String arguments parsed; bad JSON -> {}
+    out = normalize_provider_tool_calls(
+        [
+            {"id": "a", "function": {"name": "f", "arguments": '{"k": 1}'}},
+            {"id": "b", "function": {"name": "g", "arguments": "{not json"}},
+        ]
+    )
+    assert out == [
+        {"id": "a", "name": "f", "arguments": {"k": 1}},
+        {"id": "b", "name": "g", "arguments": {}},
+    ]
+    # Non-string arguments pass through untouched
+    out = normalize_provider_tool_calls(
+        [{"id": "c", "function": {"name": "h", "arguments": {"direct": True}}}]
+    )
+    assert out[0]["arguments"] == {"direct": True}
+
+
+def test_parse_provider_stream_chunk_branches():
+    from victor.providers.openai_compat import parse_provider_stream_chunk
+
+    factory = lambda kwargs: kwargs  # noqa: E731
+
+    # No choices -> empty non-final chunk
+    assert parse_provider_stream_chunk({}, [], factory) == {"content": "", "is_final": False}
+
+    # Content-only chunk, no finish
+    chunk = parse_provider_stream_chunk(
+        {"choices": [{"delta": {"content": "hi"}, "finish_reason": None}]}, [], factory
+    )
+    assert chunk == {"content": "hi", "tool_calls": None, "stop_reason": None, "is_final": False}
+
+    # Tool-call delta accumulation across indexed fragments
+    accumulated: list = []
+    for fragment in (
+        {"index": 0, "id": "call_1", "function": {"name": "sea", "arguments": ""}},
+        {"index": 0, "function": {"arguments": '{"q":'}},
+        {"index": 0, "function": {"arguments": "1}"}},
+    ):
+        parse_provider_stream_chunk(
+            {"choices": [{"delta": {"tool_calls": [fragment]}, "finish_reason": None}]},
+            accumulated,
+            factory,
+        )
+    assert accumulated == [{"id": "call_1", "name": "sea", "arguments": '{"q":1}'}]
+
+    # Final chunk: finish_reason=tool_calls parses accumulated arguments
+    final = parse_provider_stream_chunk(
+        {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}, accumulated, factory
+    )
+    assert final["is_final"] is True
+    assert final["tool_calls"] == [{"id": "call_1", "name": "sea", "arguments": {"q": 1}}]
+
+    # Final chunk with malformed accumulated JSON -> {}
+    accumulated[0]["arguments"] = "{broken"
+    final = parse_provider_stream_chunk(
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]}, accumulated, factory
+    )
+    assert final["tool_calls"][0]["arguments"] == {}
+
+    # finish with a nameless accumulated entry -> filtered out
+    accumulated.append({"id": "", "name": "", "arguments": ""})
+    final = parse_provider_stream_chunk(
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]}, accumulated, factory
+    )
+    assert len(final["tool_calls"]) == 1
+
+    # finish with nothing accumulated -> tool_calls None
+    final = parse_provider_stream_chunk(
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]}, [], factory
+    )
+    assert final["tool_calls"] is None

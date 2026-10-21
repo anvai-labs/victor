@@ -2929,3 +2929,16 @@ def _resolve_graph_writer_mode(settings: Any) -> str:
             stacklevel=2,
         )
     return "off"
+
+
+def graph_flag(settings: Any, name: str, default: bool) -> bool:
+    """Read a search.graph flag off a Settings object (env/file config).
+
+    Fixes the flat-getattr defect: UI construction sites previously read
+    ``getattr(settings, name, default)`` against the flat surface, where the
+    flag only exists on the nested group — silently ignoring configuration.
+    """
+
+    search = getattr(settings, "search", None)
+    graph = getattr(search, "graph", None)
+    return bool(getattr(graph, name, default))

@@ -36,7 +36,7 @@ beautifulsoup4==4.15.0
     # via victor-ai (pyproject.toml)
 cachetools==7.2.0
     # via victor-ai (pyproject.toml)
-certifi==2026.7.22
+certifi==2026.10.19
     # via
     #   httpcore
     #   httpx

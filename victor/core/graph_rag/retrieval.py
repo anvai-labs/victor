@@ -88,6 +88,26 @@ def _neighbor_endpoint(edge: GraphEdge, node_id: str, direction: str) -> Optiona
     return edge.src
 
 
+def _precision_first(edges: List[GraphEdge]) -> List[GraphEdge]:
+    """Stable-sort a neighbour batch so binding-provenance edges lead.
+
+    ADR-032 provenance model: edges carrying resolver provenance (scope-
+    resolved bindings, later SCIP-harvested compiler edges) are more
+    trustworthy than heuristic name-index edges. Retrieval explores them
+    first, which matters exactly when the candidate safety budget bites —
+    under the ceiling, the provenance-backed subgraph survives. Flag-
+    independent: without provenance metadata the order is unchanged.
+    """
+
+    return sorted(
+        edges,
+        key=lambda edge: (
+            0 if (edge.metadata or {}).get("provenance") else 1,
+            0 if edge.type == "REFERENCES" else 1,
+        ),
+    )
+
+
 class CandidateBudgetExceededError(RuntimeError):
     """Traversal cannot rank a complete neighbourhood within its safety budget."""
 
@@ -527,7 +547,7 @@ class MultiHopRetriever:
                             max_depth=1,
                         )
 
-                    for edge in neighbors:
+                    for edge in _precision_first(neighbors):
                         neighbor_id = _neighbor_endpoint(edge, node_id, direction)
                         if neighbor_id is None:
                             continue

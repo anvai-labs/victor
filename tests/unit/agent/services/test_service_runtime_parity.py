@@ -269,7 +269,7 @@ def test_service_rl_runtime_prompt_rollout_helper_uses_global_coordinator():
     coordinator = MagicMock()
     coordinator.create_prompt_rollout_experiment.return_value = "prompt_exp_service"
 
-    with patch("victor.agent.services.rl_runtime.get_rl_coordinator", return_value=coordinator):
+    with patch("victor.framework.rl.get_rl_coordinator", return_value=coordinator):
         experiment_id = create_prompt_rollout_experiment(
             section_name="GROUNDING_RULES",
             provider="anthropic",
@@ -299,7 +299,7 @@ async def test_service_rl_runtime_prompt_rollout_async_helper_uses_global_coordi
     )
 
     with patch(
-        "victor.agent.services.rl_runtime.get_rl_coordinator_async",
+        "victor.framework.rl.get_rl_coordinator_async",
         new=AsyncMock(return_value=coordinator),
     ):
         experiment_id = await create_prompt_rollout_experiment_async(
@@ -327,7 +327,7 @@ def test_service_rl_runtime_rollout_analysis_helper_uses_global_coordinator():
     coordinator = MagicMock()
     coordinator.analyze_prompt_rollout_experiment.return_value = {"auto_action": "rollout"}
 
-    with patch("victor.agent.services.rl_runtime.get_rl_coordinator", return_value=coordinator):
+    with patch("victor.framework.rl.get_rl_coordinator", return_value=coordinator):
         report = analyze_prompt_rollout_experiment(
             section_name="GROUNDING_RULES",
             provider="anthropic",
@@ -385,7 +385,7 @@ async def test_service_rl_runtime_rollout_apply_async_helper_uses_global_coordin
     )
 
     with patch(
-        "victor.agent.services.rl_runtime.get_rl_coordinator_async",
+        "victor.framework.rl.get_rl_coordinator_async",
         new=AsyncMock(return_value=coordinator),
     ):
         decision = await apply_prompt_rollout_recommendation_async(
