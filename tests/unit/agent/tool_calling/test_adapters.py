@@ -649,11 +649,9 @@ class TestGeminiCtrl42AndSimpleCallParsing:
         result = adapter.parse_tool_calls(
             '<ctrl42>call: `shell` ```json {"cmd": "ls"}```</ctrl42>', None
         )
-        # PRE-EXISTING QUIRK (pinned, not introduced): a ctrl42-tagged call
-        # matches BOTH patterns — SIMPLE_CALL_PATTERN scans for `call:`
-        # anywhere — so the tool call parses twice. Both loops iterated the
-        # raw content before the unification; the unified body preserves it.
-        assert [t.name for t in result.tool_calls] == ["shell", "shell"]
+        # FIXED (was a pinned quirk): the simple pass now skips spans the
+        # ctrl42 pass already consumed — the call parses once.
+        assert [t.name for t in result.tool_calls] == ["shell"]
         assert result.tool_calls[0].arguments == {"cmd": "ls"}
 
     def test_simple_call_parses(self):
@@ -686,13 +684,13 @@ class TestGeminiCtrl42AndSimpleCallParsing:
             w == "Failed to parse JSON for shell" for w in result.warnings
         ), "simple-pattern warning keeps its snippet-free form"
 
-    def test_warnings_dropped_when_no_calls_parse(self):
-        # PRE-EXISTING QUIRK (pinned): the empty-calls return path drops
-        # warnings entirely — the unified loop preserves this exactly.
+    def test_warnings_survive_when_no_calls_parse(self):
+        # FIXED (was a pinned quirk): the empty-calls return path dropped
+        # warnings entirely; they now reach the caller.
         adapter = self._adapter({"shell"})
         result = adapter.parse_tool_calls('call: `shell` ```json {"a": b}```', None)
         assert result.tool_calls == []
-        assert result.warnings == []
+        assert result.warnings == ["Failed to parse JSON for shell"]
 
     def test_both_patterns_parse_in_one_response(self):
         adapter = self._adapter({"shell", "read"})
@@ -701,8 +699,8 @@ class TestGeminiCtrl42AndSimpleCallParsing:
             ' and call: `read` ```json {"path": "f"}```',
             None,
         )
-        # shell double-parses (ctrl42 quirk above); read parses once.
-        assert sorted(t.name for t in result.tool_calls) == ["read", "shell", "shell"]
+        # ctrl42-consumed shell parses once; read parses once.
+        assert sorted(t.name for t in result.tool_calls) == ["read", "shell"]
 
 
 class TestGoogleAdapterFallbackCanonicalization:

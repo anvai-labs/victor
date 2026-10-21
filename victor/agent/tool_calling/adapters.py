@@ -810,18 +810,23 @@ class GoogleToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
                     warnings=warnings,
                 )
 
-        # Fallback: Parse text-based tool calls from Gemini output
+        # Fallback: Parse text-based tool calls from Gemini output.
+        # Warnings accumulate across fallback attempts and reach the caller
+        # even when nothing parses (was silently dropped).
+        fallback_warnings: List[str] = list(warnings)
         if content:
             result = self._parse_gemini_text_tools(content)
+            fallback_warnings.extend(result.warnings or [])
             if result.tool_calls:
-                return result
+                return replace(result, warnings=fallback_warnings)
 
             # Try standard JSON fallback (using mixin)
             result = self.parse_from_content(content, self.is_valid_tool_name)
+            fallback_warnings.extend(result.warnings or [])
             if result.tool_calls:
-                return result
+                return replace(result, warnings=fallback_warnings)
 
-        return ToolCallParseResult(remaining_content=content)
+        return ToolCallParseResult(remaining_content=content, warnings=fallback_warnings)
 
     def _parse_gemini_text_tools(self, content: str) -> ToolCallParseResult:
         """Parse Gemini's text-based tool call format.
@@ -841,11 +846,16 @@ class GoogleToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
         # simpler call: patterns — one loop body, two (pattern, label,
         # include-snippet) triples; the pairs were token-duplicates that
         # drifted only in log label and warning detail (jscpd + supervised).
-        for pattern, label, include_snippet in (
-            (self.CTRL42_CALL_PATTERN, "ctrl42", True),
-            (self.SIMPLE_CALL_PATTERN, "simple", False),
+        consumed_spans: list[tuple[int, int]] = []
+        for pattern, label, include_snippet, skip_consumed in (
+            (self.CTRL42_CALL_PATTERN, "ctrl42", True, False),
+            (self.SIMPLE_CALL_PATTERN, "simple", False, True),
         ):
             for match in pattern.finditer(content):
+                if skip_consumed and any(
+                    start <= match.start() < end for start, end in consumed_spans
+                ):
+                    continue  # already parsed by the more-specific ctrl42 pass
                 tool_name = match.group(1).strip()
                 json_str = match.group(2).strip()
                 if tool_name and self.is_valid_tool_name(tool_name):
@@ -859,6 +869,8 @@ class GoogleToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
                             )
                         )
                         remaining = remaining.replace(match.group(0), "")
+                        if label == "ctrl42":
+                            consumed_spans.append((match.start(), match.end()))
                         logger.debug(f"Parsed {label} call: {tool_name}({args})")
                     except JSONDecodeError:
                         if include_snippet:
@@ -953,7 +965,7 @@ class GoogleToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
                 warnings=warnings,
             )
 
-        return ToolCallParseResult(remaining_content=content)
+        return ToolCallParseResult(remaining_content=content, warnings=warnings)
 
     def get_system_prompt_hints(self) -> str:
         """Get system prompt hints for Google Gemini."""
