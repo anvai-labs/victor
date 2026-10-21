@@ -257,6 +257,166 @@ dedicated rust-only re-sweep from a stable tree (2,788 files: 2,772 success
 baseline's 5.7%** — the largest relative resolution gain of any language
 measured (2.2x). The graduation dossier now has no open questions.
 
+## Tier 3 implementation + real-contact dossier (rev 1.4, 2026-10-21)
+
+Tier 3 shipped in 0.14.0 (#1412) validated against synthetic shapes only.
+First real contact with the actual toolchain (2026-10-21; #1432 + #1436,
+released 0.14.1) re-verified every integration assumption against a live
+scip-python 0.6.6 and fixed four independent breaks — the shipped harvester
+could not have produced a single edge on real data:
+
+1. **Reader**: the toolchain is npm-only (`npm install -g
+   @sourcegraph/scip-python`); no pip package provides the schema (PyPI's
+   `scip` is unrelated cytometry tooling). The protobuf bindings are now
+   vendored (`victor/core/graph_rag/_scip/`, scip-code/scip proto,
+   Apache-2.0). An absent protobuf runtime degrades to `no-reader`
+   (ImportError is reader absence, not failure).
+2. **Symbol grammar**: 0.6.x emits package-qualified descriptors —
+   `scip-python python <pkg> <ver> \`dotted.module\`/Class#method().` with
+   backticked dotted module paths, `#` class members, `()` callables —
+   not the `python <file>\`<path>` backtick form the first parser
+   assumed. Measured on a real dump: the old parser joined 0 of 900
+   occurrences.
+3. **Range encodings**: the typed ranges are now flat oneof members
+   (`single_line_range{line,start_character}` /
+   `multi_line_range{start_line,start_character}`); the old nested-Position
+   reader would have crashed on them. All three encodings read correctly,
+   with proto3 presence via `HasField` (unset message fields return default
+   instances, not None).
+4. **Join semantics**: the join is metadata-based (unique (file, name)
+   match with scope agreement via parent_id container walks — GraphNode
+   persists no `scope_chain` field — and the scip-kind filter, which is
+   dormant with 0.6.x because it emits `UnspecifiedKind` on every symbol
+   information). Non-symbol descriptors (module inits, parameters, locals,
+   attribute fields, module-level assignments) and out-of-corpus references
+   (builtins/stdlib/site-packages: defined nowhere in the index) are
+   uncounted — never join-failure noise. The document bucket is the file
+   binding (symbols carry no file); the path-drift fallback is
+   segment-aligned so `tests/m.py` can never bind `m.py` nodes.
+
+**Toolchain operational facts**: scip-python fatals on a directory without
+package metadata (run against a project root with `pyproject.toml`); a dump
+is a full pyright pass (the configurable `precise_index_timeout_seconds`
+defaults to 1200s; timeouts are labeled distinctly from toolchain
+absence); kind agreement rides `document.symbols` when a producer
+populates it.
+
+**Parse-level (real dumps, fixed grammar):**
+
+- Slice (victor `graph_rag`, 3 files / 30 symbol nodes; 96.6 KB dump,
+  ~13 s): **26 compiler REFERENCES edges, 90% join rate (26/29)** — 0%
+  before the grammar fix.
+- **Full monorepo** (6,707 python files — the dump is single-language by
+  design; the repo's TypeScript/Rust await their own providers, which is
+  the rev 1.5 contract's point): 336 MB SCIP dump in ~8m20s under a 16 GB
+  Node heap (the default ~4 GB heap aborts — V8 OOM core dump — around
+  2,200 files); protobuf parse 1.0 s; 2,873,127 occurrences (590,312
+  definition-role, 121,420 joinable-symbol definitions); join 61.3 s
+  against the 97,078 persisted symbol nodes:
+  **143,558 compiler REFERENCES edges at a 76.9% join rate**
+  (143,558/186,729 evidence pairs; 43,171 unjoined — definition-side
+  failures are ~4.1k, dominated by same-name ambiguity that survives
+  scope-chain disambiguation, plus 136 documents outside the codegraph
+  symbol set; the remainder is ownerless references, counted honestly).
+
+**Pipeline-level (full `GraphIndexingPipeline` over the monorepo, flag
+OFF baseline, harvest decomposition):** flag-OFF run 260.8 s producing
+97,078 symbol nodes / 187,469 edges — 28,226 tier-2.5 REFERENCES
+(12,284 `scope_resolver` + 15,942 `repository_resolver`) against a
+58,352 CALLS heuristic baseline. Flag-ON = flag-OFF + dump (~500 s,
+dominated by the pyright pass) + parse/join (~62 s): **+143,558
+REFERENCES pairs of `compiler` provenance — 5.1× the tier-2.5 REFERENCES
+volume, +77% total edge volume** (upsert semantics: pairs shared with
+tier-2.5 rows are overwritten with compiler provenance, so the count is
+pre-reconciliation volume, not net-new rows).
+
+**Owner attribution (v1, documented limit):** positional — the greatest
+definition offset at or before the reference. Correct for the common
+top-level/method body case; approximate for references inside nested
+functions defined later in an enclosing scope. Tier 3.5's payload work
+(SCIP `enclosing_range`) is the precise path.
+
+**Graduation: NOT taken.** Unlike tier 2.5 (pure in-process, zero
+toolchain dependency, overhead below noise), tier 3 shells out to an
+external npm toolchain and pays a minutes-scale full-repo pyright pass.
+The recommendation is to **stay opt-in** (`enable_precise_index`, default
+OFF): projects with the toolchain and the patience get compiler-proven
+REFERENCES; everyone else keeps the default tier-2.5 experience with one
+explicit skip line. The maintainer may revisit if incremental SCIP dumps
+or a faster python indexer change the cost shape.
+
+## Tier 3 provider contract (rev 1.5, 2026-10-21 — design, pre-implementation)
+
+Tier 3's toolchain reality is irreducibly polyglot: every precise indexer is
+built on its language's reference toolchain and drags that runtime along
+(scip-python → Node/Pyright, scip-go → Go/gopls binary, scip-java → JVM,
+`cargo scip` → rust-analyzer, scip-csharp → .NET/Roslyn; a future in-process
+Jedi or `ty`-based provider would carry none). The harvester therefore
+standardizes a **provider contract** so runtimes are a provider detail, not
+an architecture. Three lessons from first real contact shape it:
+
+1. **Symbol grammars are PRODUCER properties, not language properties**
+   (scip-python 0.6.x's package-qualified descriptors ≠ the documented
+   backtick form). Grammar parsing belongs to the provider that reads the
+   dump, never to the join.
+2. **Foreign runtimes fail in their own ways** (V8 heap OOM at ~2,200 files
+   under Node's default cap; JVM heap; missing-package-metadata fatals).
+   Resource and environment policy is provider-declared, victor-bounded.
+3. **Payloads must ride from day one** — tier 3.5 is only "nearly free" if
+   the normalized schema carries `syntax_kind` / enclosing ranges / use
+   qualifiers from the first provider, or every later tier re-dumps.
+
+### The contract
+
+```python
+class PreciseIndexProvider(Protocol):
+    name: str                       # "scip-python"
+    languages: frozenset[str]       # {"python"} — the registry key
+    execution: ExecutionClass       # SUBPROCESS | IN_PROCESS
+
+    def detect(self, env) -> Availability:
+        # Present/absent + version + declared env policy. Never installs,
+        # never raises, never touches the network.
+
+    def dump(self, root, artifact, budget) -> DumpOutcome:
+        # Produce the artifact (SCIP bytes on disk today) offline and
+        # bounded. The provider owns transport (subprocess argv/env/cwd,
+        # or in-process); victor owns the clock and the crash fence.
+
+    def read(self, artifact) -> ParsedIndex | None:
+        # Artifact -> NORMALIZED occurrences: (file, offset, roles, name,
+        # scope, kind, payloads...). Producer grammar parsed HERE.
+```
+
+**Invariants (what does not vary by provider):**
+
+- **The artifact-on-disk is the seam.** Whatever the runtime, the join sees
+  only the normalized in-memory index. Dumps are cacheable and auditable
+  (SCIP `tool_info` records emitter+version); no language server, IPC
+  channel, or FFI handle is ever alive in the query path. An LSP-session
+  harvester is just another SUBPROCESS transport and stays offline.
+- **Registry keyed by language, one flag.** `enable_precise_index` stays a
+  single opt-in; a polyglot repo runs one dump per language with providers
+  present, and detection reports per-language coverage honestly.
+- **Uniform degradation taxonomy** — `toolchain-absent` |
+  `dump-failed:{crash|timeout|metadata|exit}` | `reader-absent` | `ok` —
+  every skip names its reason; unjoined/uncounted accounting rules
+  (out-of-corpus, non-symbol descriptors) are join-level and shared.
+- **Timeouts are caller-enforced.** In-process providers accept best-effort
+  cancellation (or get wrapped in a worker process); subprocess providers
+  get killed. No provider can hang the harvest.
+- **Provenance stays `compiler`/1.0** — the tier's vocabulary, not the
+  provider's. Reconciliation semantics are unchanged.
+- **Normalization, not schema union.** A future LSIF adapter, Jedi
+  in-process provider, or `ty` emitter implements `read` against the same
+  normalized schema; the join and the store never learn which producer ran.
+
+**Status: design recorded BEFORE multi-provider implementation** (one
+provider exists today, scip-python, as module-shaped code in
+`precise_index.py`). The refactor into the Protocol + registry is a
+follow-up implementation PR against this contract; new providers land as
+new implementations, not join rewrites.
+
 ## Validation
 
 - **Differential parity tests**: heuristic vs scope-resolved edges over the repo
@@ -294,3 +454,5 @@ measured (2.2x). The graduation dossier now has no open questions.
 | 1.1 | 2026-10-20 | Phase 1 (tier 2.5) implemented: adopt-vs-build settled (RUSTSEC-2026-0303), pure-Python correction, verified nine-language honest-capability set, provenance vocabulary pinned to resolver strings, v1 limits; beyond-tier-3 outlook added (3.5 / 4a / 4b / 5). Status Proposed → Accepted. |
 | 1.2 | 2026-10-20 | Language matrix completed (0.12.0: seventeen languages incl. kotlin/ruby extractor unlocks); flag-graduation dossier added — parse-level 26.9% resolution vs the 21.3% CALLS baseline, 1.14 refs/symbol; pipeline-level +27% edge volume with 100% provenance and overhead below measurement noise; proximaDB large-repo sweep noted as the open gap. Graduation decision remains the maintainer's. |
 | 1.3 | 2026-10-20 | Flag graduated: `enable_scope_binding` default-ON (maintainer approval; six construction sites, opt-out preserved, force-rebuild caveat documented); CHANGELOG entry added. |
+| 1.5 | 2026-10-21 | Provider contract recorded pre-implementation: artifact-on-disk seam, producer-owned symbol grammars, SUBPROCESS/IN_PROCESS execution classes with caller-enforced budgets, uniform degradation taxonomy, tier-3.5 payloads in the normalized schema from day one; polyglot runtimes (Node/Go/JVM/cargo/.NET/in-process) become provider details. |
+| 1.4 | 2026-10-21 | Tier 3 real-contact dossier: four integration breaks found and fixed against a live scip-python 0.6.6 (#1432/#1436, released 0.14.1) — vendored bindings, real package-qualified symbol grammar, flat range encodings, metadata join with honest accounting; slice-level 90% join rate; full-monorepo numbers recorded; graduation declined with rationale (external toolchain + minutes-scale dump). |

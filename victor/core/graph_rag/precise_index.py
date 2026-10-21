@@ -37,6 +37,7 @@ Contract (mirrors the tier-2.5 capability-probe posture):
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -52,6 +53,13 @@ SCIP_SYMBOL_ROLE_DEFINITION = 1
 # old 300s ceiling timed real runs out and the skip was mislabeled
 # "toolchain-unavailable". Configurable via GraphIndexConfig.
 _DUMP_TIMEOUT_SECONDS = 1200
+
+# scip-python is a Node process whose pyright pass holds the whole program in
+# memory: Node's default ~4 GB heap aborts (V8 OOM, core dump) around ~2,200
+# files of a 6,707-file monorepo. The harvest injects a larger old-space cap
+# when the environment does not set NODE_OPTIONS itself (measured need: the
+# victor monorepo dumps cleanly under 16 GB).
+_DUMP_NODE_OPTIONS = "--max-old-space-size=16384"
 
 # scip.proto SymbolKind enum values (vendored _scip/scip.proto) mapped to the
 # GraphNode.type spellings produced by project_file_symbols (enum name lower()).
@@ -120,6 +128,8 @@ def harvest_scip_index(
         return None
     output_path.parent.mkdir(parents=True, exist_ok=True)
     command = [resolved_tool, "index", "--project-name", project_name, "--output", str(output_path)]
+    env = dict(os.environ)
+    env.setdefault("NODE_OPTIONS", _DUMP_NODE_OPTIONS)
     try:
         result = subprocess.run(
             command,
@@ -128,6 +138,7 @@ def harvest_scip_index(
             cwd=str(root),
             timeout=timeout_seconds,
             check=False,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         logger.warning(
