@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
+from types import SimpleNamespace
 
 from victor.evaluation.env_setup import (
     SetupStrategy,
@@ -470,3 +471,96 @@ class TestQuickSetup:
             with tempfile.TemporaryDirectory() as tmpdir:
                 result = await quick_setup(Path(tmpdir))
                 assert result is False
+
+
+class TestInstallCommandTails:
+    """Round-7 extraction coverage: the shared _run_install_command tail
+    with per-language labels, including the previously untested java
+    subprocess path and go/rust timeout labels."""
+
+    @pytest.mark.asyncio
+    async def test_setup_java_build_success(self, tmp_path, monkeypatch):
+        setup = EnvironmentSetup()
+        (tmp_path / "pom.xml").write_text("<project/>")
+
+        class FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                return b"BUILD SUCCESS", b""
+
+        async def fake_shell(cmd, **kwargs):
+            assert "mvn" in cmd
+            return FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/mvn" if name == "mvn" else None)
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda *a, **k: SimpleNamespace(stdout="", stderr="openjdk 21"),
+        )
+        result = await setup.setup_environment(tmp_path, EnvironmentConfig())
+        assert result.success is True
+        assert "BUILD SUCCESS" in result.install_output
+        assert result.error_message == ""
+
+    @pytest.mark.asyncio
+    async def test_setup_java_build_failure_label(self, tmp_path, monkeypatch):
+        setup = EnvironmentSetup()
+        (tmp_path / "pom.xml").write_text("<project/>")
+
+        class FakeProc:
+            returncode = 1
+
+            async def communicate(self):
+                return b"", b"BUILD FAILURE"
+
+        async def fake_shell(cmd, **kwargs):
+            return FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/mvn" if name == "mvn" else None)
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda *a, **k: SimpleNamespace(stdout="", stderr="openjdk 21"),
+        )
+        result = await setup.setup_environment(tmp_path, EnvironmentConfig())
+        assert result.success is False
+        assert result.error_message == "Build failed with code 1"
+        assert "BUILD FAILURE" in result.install_output
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("language", "marker", "expected_label"),
+        [
+            (Language.GO, "go.mod", "Go setup timed out"),
+            (Language.RUST, "Cargo.toml", "Rust build timed out"),
+        ],
+    )
+    async def test_go_rust_timeout_labels(
+        self, tmp_path, monkeypatch, language, marker, expected_label
+    ):
+        setup = EnvironmentSetup()
+        (tmp_path / marker).write_text("x")
+
+        class FakeProc:
+            async def communicate(self):
+                await asyncio.sleep(60)
+                return b"", b""
+
+        async def fake_shell(cmd, **kwargs):
+            return FakeProc()
+
+        async def explode(*args, **kwargs):
+            raise asyncio.TimeoutError()
+
+        # Make wait_for raise immediately.
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
+        monkeypatch.setattr(asyncio, "wait_for", explode)
+        monkeypatch.setattr(
+            "shutil.which", lambda name: f"/usr/bin/{name}" if name in ("go", "cargo") else None
+        )
+        result = await setup.setup_environment(tmp_path, EnvironmentConfig(timeout_seconds=1))
+        assert result.success is False
+        assert result.error_message == f"{expected_label} after 1s"
+        assert result.install_output == ""

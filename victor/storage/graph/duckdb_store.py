@@ -7,6 +7,7 @@ from pathlib import Path
 from victor.core.json_utils import json_dumps, json_loads
 from typing import Any, Dict, Iterable, List, Optional
 
+from victor.storage.graph._frontier import select_frontier_edges
 from victor.storage.graph.protocol import (
     GraphEdge,
     GraphNode,
@@ -201,38 +202,15 @@ class DuckDBGraphStore(GraphStoreProtocol):
         node_column: str,
         neighbor_column: str,
     ) -> List[tuple[GraphEdge, str]]:
-        if not frontier:
-            return []
-
-        frontier_params = list(frontier)
-        frontier_placeholders = ",".join("?" for _ in frontier_params)
-        params: list[Any] = frontier_params
-        type_clause = ""
-
-        if edge_types:
-            type_placeholders = ",".join("?" for _ in edge_types)
-            type_clause = f" AND type IN ({type_placeholders})"
-            params.extend(edge_types)
-
-        query = f"""
-            SELECT src, dst, type, weight, metadata, {neighbor_column}
-            FROM edges
-            WHERE {node_column} IN ({frontier_placeholders}){type_clause}
-        """
-        cur = conn.execute(query, params)
-        return [
-            (
-                GraphEdge(
-                    src=row[0],
-                    dst=row[1],
-                    type=row[2],
-                    weight=row[3],
-                    metadata=json_loads(row[4]) if row[4] else {},
-                ),
-                row[5],
-            )
-            for row in cur.fetchall()
-        ]
+        return select_frontier_edges(
+            conn,
+            table="edges",
+            frontier=frontier,
+            edge_types=edge_types,
+            node_column=node_column,
+            neighbor_column=neighbor_column,
+            decode_metadata=json_loads,
+        )
 
     async def find_nodes(
         self,
