@@ -1431,25 +1431,28 @@ victor chat --sessionid abc123            # Resume session
 
         setup_safety_confirmation()
 
+        # Shared runtime override collection — both dispatch branches
+        # expand it (jscpd: the branches carried identical copies).
+        runtime_override_kwargs = _collect_runtime_override_kwargs(
+            compaction_threshold=compaction_threshold,
+            adaptive_threshold=adaptive_threshold,
+            compaction_min_threshold=compaction_min_threshold,
+            compaction_max_threshold=compaction_max_threshold,
+            enable_smart_routing=enable_smart_routing,
+            routing_profile=routing_profile,
+            fallback_chain=fallback_chain,
+            tool_preview=tool_preview,
+            enable_pruning=enable_pruning,
+            enable_bayesian=enable_bayesian,
+            force_bayesian=force_bayesian,
+            simple_threshold=simple_threshold,
+            complex_threshold=complex_threshold,
+            enable_voi=enable_voi,
+            enable_correlation=enable_correlation,
+            min_agents_for_bayesian=min_agents_for_bayesian,
+        )
+
         if actual_message:
-            runtime_override_kwargs = _collect_runtime_override_kwargs(
-                compaction_threshold=compaction_threshold,
-                adaptive_threshold=adaptive_threshold,
-                compaction_min_threshold=compaction_min_threshold,
-                compaction_max_threshold=compaction_max_threshold,
-                enable_smart_routing=enable_smart_routing,
-                routing_profile=routing_profile,
-                fallback_chain=fallback_chain,
-                tool_preview=tool_preview,
-                enable_pruning=enable_pruning,
-                enable_bayesian=enable_bayesian,
-                force_bayesian=force_bayesian,
-                simple_threshold=simple_threshold,
-                complex_threshold=complex_threshold,
-                enable_voi=enable_voi,
-                enable_correlation=enable_correlation,
-                min_agents_for_bayesian=min_agents_for_bayesian,
-            )
             run_sync(
                 run_oneshot(
                     actual_message,
