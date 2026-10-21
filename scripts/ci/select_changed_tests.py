@@ -58,6 +58,21 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    # Round-7 extractions: the shared install tail (per-language labels pinned
+    # by the env_setup suite incl. java/timeout coverage) and the shared
+    # frontier SELECT (both delegates exercised by the cross-store suite).
+    **dict.fromkeys(
+        (
+            "victor/evaluation/env_setup.py",
+            "victor/storage/graph/_frontier.py",
+            "victor/storage/graph/duckdb_store.py",
+            "victor/storage/graph/sqlite_store.py",
+        ),
+        (
+            "tests/unit/core/test_env_setup.py",
+            "tests/unit/storage/graph/test_frontier_shared.py",
+        ),
+    ),
     # jscpd round 4: the six re-exported RL wrappers resolve their coordinator
     # from victor.framework.rl's namespace now; the parity suite pins the
     # service surface -> global coordinator contract (with the seams at the
@@ -96,6 +111,10 @@ RELATED_TESTS = {
             "victor/core/graph_rag/retrieval.py",
             "victor/core/graph_rag/precise_index.py",
             "victor/config/search_settings.py",
+            # Vendored protobuf bindings (generated): exercised through the
+            # precise-index suite's real-schema parse test.
+            "victor/core/graph_rag/_scip/__init__.py",
+            "victor/core/graph_rag/_scip/scip_pb2.py",
         ),
         (
             "tests/unit/core/graph_rag/test_scope_binding_integration.py",

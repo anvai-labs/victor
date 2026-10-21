@@ -151,6 +151,48 @@ class EnvironmentSetup:
                 setup_duration_seconds=asyncio.get_event_loop().time() - start_time,
             )
 
+    async def _run_install_command(
+        self,
+        command: str,
+        project_dir: Path,
+        config: EnvironmentConfig,
+        *,
+        failure_label: str,
+        timeout_label: str,
+    ) -> tuple[bool, str, str]:
+        """Run one install/build command; return (success, output, error).
+
+        Shared tail of the five per-language setup methods (jscpd +
+        supervised dedup, round 7 — the copies were token-identical modulo
+        the two message labels). Exception paths return ("", False) values
+        identical to SetupResult's never-assigned defaults.
+        """
+        try:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                cwd=str(project_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=config.timeout_seconds,
+            )
+
+            install_output = stdout.decode("utf-8", errors="replace")
+            if stderr:
+                install_output += "\n" + stderr.decode("utf-8", errors="replace")
+
+            if process.returncode == 0:
+                return True, install_output, ""
+            return False, install_output, f"{failure_label} with code {process.returncode}"
+
+        except asyncio.TimeoutError:
+            return False, "", f"{timeout_label} after {config.timeout_seconds}s"
+        except Exception as e:
+            return False, "", str(e)
+
     async def _setup_python(
         self,
         project_dir: Path,
@@ -217,35 +259,19 @@ class EnvironmentSetup:
             result.install_output = "No installation required"
             return result
 
-        # Run installation
         combined_cmd = " && ".join(install_cmds)
         result.strategy = SetupStrategy.SYSTEM
 
-        try:
-            process = await asyncio.create_subprocess_shell(
+        # Run install/build (shared tail; labels are per-language)
+        result.success, result.install_output, result.error_message = (
+            await self._run_install_command(
                 combined_cmd,
-                cwd=str(project_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                project_dir,
+                config,
+                failure_label="Installation failed",
+                timeout_label="Installation timed out",
             )
-
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=config.timeout_seconds,
-            )
-
-            result.install_output = stdout.decode("utf-8", errors="replace")
-            if stderr:
-                result.install_output += "\n" + stderr.decode("utf-8", errors="replace")
-
-            result.success = process.returncode == 0
-            if not result.success:
-                result.error_message = f"Installation failed with code {process.returncode}"
-
-        except asyncio.TimeoutError:
-            result.error_message = f"Installation timed out after {config.timeout_seconds}s"
-        except Exception as e:
-            result.error_message = str(e)
+        )
 
         return result
 
@@ -295,32 +321,16 @@ class EnvironmentSetup:
             install_cmd = "npm install"
             result.strategy = SetupStrategy.NPM
 
-        # Run installation
-        try:
-            process = await asyncio.create_subprocess_shell(
+        # Run install/build (shared tail; labels are per-language)
+        result.success, result.install_output, result.error_message = (
+            await self._run_install_command(
                 install_cmd,
-                cwd=str(project_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                project_dir,
+                config,
+                failure_label="Installation failed",
+                timeout_label="Installation timed out",
             )
-
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=config.timeout_seconds,
-            )
-
-            result.install_output = stdout.decode("utf-8", errors="replace")
-            if stderr:
-                result.install_output += "\n" + stderr.decode("utf-8", errors="replace")
-
-            result.success = process.returncode == 0
-            if not result.success:
-                result.error_message = f"Installation failed with code {process.returncode}"
-
-        except asyncio.TimeoutError:
-            result.error_message = f"Installation timed out after {config.timeout_seconds}s"
-        except Exception as e:
-            result.error_message = str(e)
+        )
 
         return result
 
@@ -352,32 +362,16 @@ class EnvironmentSetup:
         except Exception:
             pass
 
-        # Download dependencies
-        try:
-            process = await asyncio.create_subprocess_shell(
+        # Run install/build (shared tail; labels are per-language)
+        result.success, result.install_output, result.error_message = (
+            await self._run_install_command(
                 "go mod download && go build ./...",
-                cwd=str(project_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                project_dir,
+                config,
+                failure_label="Go build failed",
+                timeout_label="Go setup timed out",
             )
-
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=config.timeout_seconds,
-            )
-
-            result.install_output = stdout.decode("utf-8", errors="replace")
-            if stderr:
-                result.install_output += "\n" + stderr.decode("utf-8", errors="replace")
-
-            result.success = process.returncode == 0
-            if not result.success:
-                result.error_message = f"Go build failed with code {process.returncode}"
-
-        except asyncio.TimeoutError:
-            result.error_message = f"Go setup timed out after {config.timeout_seconds}s"
-        except Exception as e:
-            result.error_message = str(e)
+        )
 
         return result
 
@@ -409,32 +403,16 @@ class EnvironmentSetup:
         except Exception:
             pass
 
-        # Build project
-        try:
-            process = await asyncio.create_subprocess_shell(
+        # Run install/build (shared tail; labels are per-language)
+        result.success, result.install_output, result.error_message = (
+            await self._run_install_command(
                 "cargo build",
-                cwd=str(project_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                project_dir,
+                config,
+                failure_label="Cargo build failed",
+                timeout_label="Rust build timed out",
             )
-
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=config.timeout_seconds,
-            )
-
-            result.install_output = stdout.decode("utf-8", errors="replace")
-            if stderr:
-                result.install_output += "\n" + stderr.decode("utf-8", errors="replace")
-
-            result.success = process.returncode == 0
-            if not result.success:
-                result.error_message = f"Cargo build failed with code {process.returncode}"
-
-        except asyncio.TimeoutError:
-            result.error_message = f"Rust build timed out after {config.timeout_seconds}s"
-        except Exception as e:
-            result.error_message = str(e)
+        )
 
         return result
 
@@ -487,32 +465,16 @@ class EnvironmentSetup:
             gradle_cmd = str(wrapper) if wrapper.exists() else "gradle"
             build_cmd = f"{gradle_cmd} compileJava compileTestJava -x test"
 
-        # Run build
-        try:
-            process = await asyncio.create_subprocess_shell(
+        # Run install/build (shared tail; labels are per-language)
+        result.success, result.install_output, result.error_message = (
+            await self._run_install_command(
                 build_cmd,
-                cwd=str(project_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                project_dir,
+                config,
+                failure_label="Build failed",
+                timeout_label="Java build timed out",
             )
-
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=config.timeout_seconds,
-            )
-
-            result.install_output = stdout.decode("utf-8", errors="replace")
-            if stderr:
-                result.install_output += "\n" + stderr.decode("utf-8", errors="replace")
-
-            result.success = process.returncode == 0
-            if not result.success:
-                result.error_message = f"Build failed with code {process.returncode}"
-
-        except asyncio.TimeoutError:
-            result.error_message = f"Java build timed out after {config.timeout_seconds}s"
-        except Exception as e:
-            result.error_message = str(e)
+        )
 
         return result
 

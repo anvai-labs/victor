@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.14.0"
+version = "0.14.1"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -562,7 +562,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.14.0",
+    "victor-native>=0.14.1",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
@@ -795,6 +795,8 @@ extend-exclude = [
     "htmlcov",
     "venv",
     "game_app.py",
+    # Generated protobuf bindings vendored for the SCIP harvester.
+    "victor/core/graph_rag/_scip",
 ]
 
 [tool.ruff.lint]
@@ -950,12 +952,18 @@ ignore_errors = false
 line-length = 100
 target-version = ['py312']
 include = '\.pyi?$'
+extend-exclude = "victor/core/graph_rag/_scip"
 
 [tool.coverage.run]
 source = ["victor"]
 omit = [
     "*/tests/*",
     "*/__init__.py",
+    # Generated protobuf bindings vendored for the SCIP harvester: exercised
+    # where protobuf is installed (round-trip tests), never line-measured —
+    # generated code in the diff would sink the changed-line coverage gate
+    # in environments where the binding tests skip.
+    "victor/core/graph_rag/_scip/*",
     # CLI modules require interactive terminal testing
     "victor/ui/cli.py",
     "victor/ui/commands.py",

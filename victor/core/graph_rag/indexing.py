@@ -851,21 +851,16 @@ class GraphIndexingPipeline:
             harvest_scip_index,
         )
 
-        def key_for_identity(identity: dict) -> str:
-            from victor_codegraph.model import CodeSymbolType, stable_symbol_key
-
-            return stable_symbol_key(
-                "python",
-                CodeSymbolType[identity["symbol_type_name"]],
-                identity["fqn"],
-                identity.get("signature"),
-                identity.get("file_path", ""),
-            )
-
         try:
             import tempfile
 
-            known = {node.node_id for node in await self._persisted_symbols()}
+            # Join by node metadata, not by re-derived key hashes: the
+            # persisted stable keys embed the codegraph fqn shape and the
+            # extracted signature, neither of which the SCIP symbol string
+            # carries. Grouping by canonical file keeps the join O(batch).
+            nodes_by_file: dict[str, list[Any]] = {}
+            for node in await self._persisted_symbols():
+                nodes_by_file.setdefault(node.file, []).append(node)
             with tempfile.TemporaryDirectory(prefix="scip-harvest-") as tmp:
                 dump_path = Path(tmp) / "index.scip"
                 dumped = await asyncio.to_thread(
@@ -873,12 +868,11 @@ class GraphIndexingPipeline:
                     root,
                     dump_path,
                     getattr(self.config, "precise_index_tool", "auto"),
+                    timeout_seconds=getattr(self.config, "precise_index_timeout_seconds", 1200),
                 )
                 if dumped is None:
-                    return PreciseHarvest(skipped_reason="toolchain-unavailable")
-                harvest = await asyncio.to_thread(
-                    harvest_precise_edges, dumped, root, key_for_identity, known
-                )
+                    return PreciseHarvest(skipped_reason="toolchain-or-dump-failed")
+                harvest = await asyncio.to_thread(harvest_precise_edges, dumped, nodes_by_file)
             logger.info(
                 "precise-index harvest: %d compiler edges (%d unjoined occurrences)",
                 len(harvest.edges),

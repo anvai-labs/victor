@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-21
+
+### Added
+
+- CI duplication ratchet: a jscpd exact-clone scan over the code formats of
+  `victor/`, `verticals/`, and `vscode-victor/src/` (shared scan config in
+  `.jscpd.json`) now gates every develop PR — the duplicated-line count may
+  not rise past `scripts/ci/duplication_baseline.json` (15,911 lines /
+  541 clones at introduction). Deliberate dedup lowers the baseline in the
+  same PR via `scripts/ci/duplication_ratchet.py --update-baseline`.
+
+### Fixed
+
+- ADR-032 tier-3 precise-index harvesting produced **zero edges on real
+  data** and skipped with a misleading reason. The SCIP protobuf reader now
+  uses vendored generated bindings (the toolchain is npm-only; the previously
+  probed pip packages do not provide the schema), the occurrence join is
+  metadata-based against persisted nodes (unique (file, name) match with
+  scip-kind agreement and parent-derived scope chains — the old hash join
+  mismatched the persisted key shape on every symbol), occurrence offsets
+  read all three scip.proto range encodings, the dump timeout is
+  configurable (default 1200s, up from 300s) with timeouts no longer
+  mislabeled `toolchain-unavailable`, and ownerless references count as
+  unjoined instead of being dropped silently.
+
 ## [0.14.0] - 2026-10-21
 
 ### Added
