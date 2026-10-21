@@ -314,6 +314,8 @@ async def test_harvest_precise_edges_end_to_end_through_vendored_reader(tmp_path
 
 
 def test_harvest_precise_edges_unreadable_dump_reports_no_reader(tmp_path):
+    """No-reader covers BOTH absence modes: unreadable bytes, and a protobuf
+    runtime that is not installed (the minimal CI env has none)."""
     from victor.core.graph_rag import precise_index
 
     bogus = tmp_path / "not-a-scip.proto"

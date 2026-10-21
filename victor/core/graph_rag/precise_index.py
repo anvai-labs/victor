@@ -144,9 +144,18 @@ def harvest_scip_index(
 
 
 def _read_index(path: Path) -> Optional[Any]:
-    """Parse the SCIP protobuf via the vendored generated bindings."""
+    """Parse the SCIP protobuf via the vendored generated bindings.
 
-    from victor.core.graph_rag._scip import scip_pb2
+    An ImportError means the protobuf runtime is absent — the minimal
+    install does not pull it — which is reader ABSENCE, not a failure:
+    degrade to no-reader per the tier-3 contract.
+    """
+
+    try:
+        from victor.core.graph_rag._scip import scip_pb2
+    except ImportError:
+        logger.info("precise-index reader unavailable: protobuf runtime not installed")
+        return None
 
     index = scip_pb2.Index()
     try:
