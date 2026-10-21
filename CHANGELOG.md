@@ -5,7 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- ADR-032 tier 3 is now polyglot (contract rev 1.5 implemented): precise
+  SCIP harvesting runs one provider per language present — scip-python
+  (python), scip-typescript (TypeScript/JavaScript), rust-analyzer's
+  native `scip` CLI (Rust) — each owning its toolchain detection, dump
+  transport, and PRODUCER symbol grammar. Per-language outcomes ride the
+  harvest (`per_language`: ok/edges, toolchain-absent, dump-failed,
+  no-reader); a language without its toolchain skips honestly and never
+  blocks the others. First polyglot corpus numbers (this monorepo):
+  TypeScript 1,701 compiler REFERENCES edges at 67.4% join rate; Rust 952
+  at 89.2%; python per the rev 1.4 dossier (143,558 at 76.9%).
+
 ### Fixed
+
+- The SCIP kind map used values from a different proto revision than the
+  vendored schema (3/4/5 vs the real Class=7/Method=26/Function=17/...):
+  kind-populating producers (scip-typescript, rust-analyzer) would have
+  filtered on garbage. Now pinned by test against the vendored enum.
 
 - ADR-032 tier-3 dumps no longer OOM-crash on large corpora: scip-python
   is a Node process whose pyright pass holds the program in memory, and
