@@ -605,8 +605,11 @@ async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkey
 async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
     """The provider loop's full taxonomy through the real pipeline: an ok
     provider with edges, a dump-failed provider, and an absent one — merged
-    edges plus honest per-language accounting."""
+    edges plus honest per-language accounting. Needs the vendored bindings
+    (the fake dump writes a real artifact); skips where protobuf is absent,
+    exactly like the other binding-dependent tests."""
     pytest.importorskip("victor_codegraph")
+    pytest.importorskip("google.protobuf")
     from victor.core.graph_rag import precise_providers
     from victor.core.graph_rag.config import GraphIndexConfig
     from victor.core.graph_rag.indexing import GraphIndexingPipeline
