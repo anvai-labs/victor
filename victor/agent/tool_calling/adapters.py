@@ -267,11 +267,6 @@ class OpenAIToolCallingAdapter(BaseToolCallingAdapter):
                     warnings=result.warnings,
                 )
 
-        # Return with any native parsing warnings (empty when no raw calls
-        # or nothing parsed — the base result always carries a list).
-        if raw_tool_calls:
-            native = self.parse_native_tool_calls(raw_tool_calls, self.is_valid_tool_name)
-            return ToolCallParseResult(remaining_content=content, warnings=native.warnings)
         return ToolCallParseResult(remaining_content=content)
 
 
