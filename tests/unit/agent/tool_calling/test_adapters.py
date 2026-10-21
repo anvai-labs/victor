@@ -22,7 +22,10 @@ from unittest.mock import MagicMock, patch
 
 from victor.agent.tool_calling.adapters import (
     AnthropicToolCallingAdapter,
+    AzureOpenAIToolCallingAdapter,
+    DeepSeekToolCallingAdapter,
     GoogleToolCallingAdapter,
+    OpenAICompatToolCallingAdapter,
     OpenAIToolCallingAdapter,
     OllamaToolCallingAdapter,
     _CapabilityLoaderHolder,
@@ -914,3 +917,66 @@ class TestCapabilityFieldPreservation:
         assert caps.exploration_multiplier == 2.5
         assert caps.continuation_patience == 3
         assert caps.timeout_multiplier == 1.8
+
+
+class TestNativeParseAdoptionContract:
+    """The four adopting adapters (OpenAI, OpenAICompat, DeepSeek, Azure)
+    route native parsing through the shared base helper (jscpd 4-copy
+    consolidation). One contract, driven through each adapter's public
+    method: valid calls parse, invalid names are KEPT for the spec's error
+    response, bad JSON degrades to empty args with a warning."""
+
+    @staticmethod
+    def _raw():
+        return [
+            {"id": "call_1", "name": "read", "arguments": {"path": "f.py"}},
+            {"id": "call_2", "name": "example_bad", "arguments": {}},
+            {"id": "call_3", "name": "shell", "arguments": "{broken json"},
+        ]
+
+    def _assert_contract(self, adapter, parse_method="native"):
+        result = adapter.parse_tool_calls(content="", raw_tool_calls=self._raw())
+        names = [t.name for t in result.tool_calls]
+        # Invalid name KEPT (spec error response), bad-JSON call kept with {}.
+        assert names == ["read", "example_bad", "shell"]
+        assert result.tool_calls[0].arguments == {"path": "f.py"}
+        assert result.tool_calls[2].arguments == {}
+        assert result.parse_method == parse_method
+        assert any("example_bad" in w and "Skipped" in w for w in result.warnings)
+        assert any("shell" in w and "Failed to parse JSON arguments" in w for w in result.warnings)
+        assert isinstance(result.warnings, list)
+
+    def test_openai_adopts_base_helper(self):
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_openai_compat_adopts_base_helper(self):
+        adapter = OpenAICompatToolCallingAdapter(model="qwen", config=None, provider_variant="vllm")
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_deepseek_adopts_base_helper(self):
+        adapter = DeepSeekToolCallingAdapter(model="deepseek-chat", config=None)
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_azure_adopts_base_helper_and_always_list(self):
+        adapter = AzureOpenAIToolCallingAdapter(model="gpt-4", config=None)
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_azure_clean_parse_returns_list_not_none(self):
+        # The convention fix: no warnings -> empty LIST, never None.
+        adapter = AzureOpenAIToolCallingAdapter(model="gpt-4", config=None)
+        adapter._valid_tool_names = {"read"}
+        result = adapter.parse_tool_calls(
+            content="", raw_tool_calls=[{"id": "c", "name": "read", "arguments": {}}]
+        )
+        assert result.warnings == []
+
+    def test_openai_no_raw_calls_returns_empty(self):
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(content="answer text", raw_tool_calls=None)
+        assert result.tool_calls == []
+        assert result.remaining_content == "answer text"
