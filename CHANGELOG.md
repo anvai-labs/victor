@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- ADR-032 tier-3 dumps no longer OOM-crash on large corpora: scip-python
+  is a Node process whose pyright pass holds the program in memory, and
+  Node's default ~4 GB heap aborts around ~2,200 files (observed on the
+  victor monorepo). The harvest subprocess now injects
+  `NODE_OPTIONS=--max-old-space-size=16384` when the environment does not
+  set `NODE_OPTIONS` itself.
+
 - ADR-032 tier-3 symbol parsing now matches the REAL npm scip-python
   grammar (0.6.x package-qualified descriptors, backticked dotted module
   paths, `#` class members — verified against a live 0.6.6 dump; the

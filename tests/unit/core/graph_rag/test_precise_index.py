@@ -491,6 +491,35 @@ def test_harvest_scip_index_oserror_degrades_to_none(tmp_path, monkeypatch):
     assert precise_index.harvest_scip_index(tmp_path, tmp_path / "o.scip") is None
 
 
+def test_dump_subprocess_gets_node_heap_hint(tmp_path, monkeypatch):
+    """scip-python's pyright pass OOM-crashes on Node's default ~4 GB heap at
+    monorepo scale; the harvest injects a larger cap unless the operator set
+    NODE_OPTIONS themselves."""
+    import subprocess as subprocess_mod
+
+    from victor.core.graph_rag import precise_index
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/scip-python")
+    captured = {}
+
+    class FakeResult:
+        returncode = 1
+        stdout = ""
+        stderr = "boom"
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess_mod, "run", fake_run)
+    monkeypatch.delenv("NODE_OPTIONS", raising=False)
+    precise_index.harvest_scip_index(tmp_path, tmp_path / "o.scip")  # fails; env captured
+    assert captured["env"]["NODE_OPTIONS"] == "--max-old-space-size=16384"
+    monkeypatch.setenv("NODE_OPTIONS", "--max-old-space-size=512")
+    precise_index.harvest_scip_index(tmp_path, tmp_path / "o.scip")
+    assert captured["env"]["NODE_OPTIONS"] == "--max-old-space-size=512"
+
+
 def test_vendored_bindings_parse_real_schema():
     pytest.importorskip("google.protobuf")
     from victor.core.graph_rag._scip import scip_pb2
