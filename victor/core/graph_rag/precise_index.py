@@ -1,9 +1,14 @@
 """ADR-032 tier 3: opt-in precise-index harvesting from offline SCIP dumps.
 
-Compiler-accurate REFERENCES edges from a SCIP index (``scip-python`` —
-Sourcegraph's npm-distributed Pyright fork), harvested OFFLINE: one subprocess
-dump, protobuf read, identity join, edge upsert. Never a live language server
-in the query path.
+Compiler-accurate REFERENCES edges from SCIP indexes, harvested OFFLINE:
+one subprocess dump per language provider, protobuf read, metadata join,
+edge upsert. Never a live language server in the query path.
+
+Providers (contract: ADR-032 rev 1.5; ``precise_providers.py``): scip-python
+(npm/Pyright) for python, scip-typescript (npm/tsserver) for TypeScript and
+JavaScript, rust-analyzer's native ``scip`` CLI for Rust. Runtimes are a
+provider detail; the join below is producer-agnostic and consumes the
+providers' normalized symbol parts.
 
 Contract (mirrors the tier-2.5 capability-probe posture):
 
@@ -61,16 +66,19 @@ _DUMP_TIMEOUT_SECONDS = 1200
 # victor monorepo dumps cleanly under 16 GB).
 _DUMP_NODE_OPTIONS = "--max-old-space-size=16384"
 
-# scip.proto SymbolKind enum values (vendored _scip/scip.proto) mapped to the
-# GraphNode.type spellings produced by project_file_symbols (enum name lower()).
-_KIND_FUNCTION = 3
-_KIND_METHOD = 4
-_KIND_CLASS = 5
-
+# scip.proto SymbolInformation.Kind values from the VENDORED schema, mapped
+# to the GraphNode.type spellings produced by project_file_symbols (enum
+# name lower()). Pinned by test against the vendored enum — these values are
+# live for producers that populate kinds (scip-typescript, rust-analyzer;
+# scip-python 0.6.x emits UnspecifiedKind and never filters).
 _KIND_TO_TYPE = {
-    _KIND_FUNCTION: "function",
-    _KIND_METHOD: "method",
-    _KIND_CLASS: "class",
+    7: "class",  # SymbolInformation.Kind.Class
+    26: "method",  # ...Method
+    17: "function",  # ...Function
+    9: "constructor",  # ...Constructor
+    49: "struct",  # ...Struct
+    21: "interface",  # ...Interface
+    11: "enum",  # ...Enum
 }
 
 # Enclosing-symbol types whose names constitute a codegraph scope chain;
@@ -87,12 +95,19 @@ def _norm_rel(path: str) -> str:
 
 @dataclass(frozen=True)
 class PreciseHarvest:
-    """Result of one SCIP harvest pass."""
+    """Result of one SCIP harvest pass (possibly merged across languages).
+
+    ``per_language`` reports each provider's outcome under the uniform
+    degradation taxonomy (``ok:<n> edges`` | ``toolchain-absent`` |
+    ``dump-failed`` | ``no-reader``) — polyglot repos get per-language
+    honesty, never an aggregate that hides a skipped provider.
+    """
 
     edges: list[tuple[str, str, str, dict[str, Any]]] = field(default_factory=list)
     resolved: int = 0
     unjoined: int = 0
     skipped_reason: Optional[str] = None
+    per_language: dict[str, str] = field(default_factory=dict)
 
 
 def detect_precise_tool(tool: str = "auto") -> Optional[str]:
@@ -116,48 +131,22 @@ def harvest_scip_index(
     project_name: str = "victor-harvest",
     timeout_seconds: int = _DUMP_TIMEOUT_SECONDS,
 ) -> Optional[Path]:
-    """Run one offline SCIP dump; return the index path or None on failure.
+    """Run one offline scip-python dump; return the index path or None.
 
-    ``TimeoutExpired`` is distinguished in the log: a timed-out pyright dump
-    is a size problem, not a missing toolchain.
+    Compat seam over ``ScipPythonProvider.dump`` (contract rev 1.5): the
+    transport, env policy, and failure taxonomy live with the provider —
+    one implementation, not a parallel copy here.
     """
 
-    resolved_tool = detect_precise_tool(tool)
-    if resolved_tool is None:
+    from victor.core.graph_rag.precise_providers import ScipPythonProvider
+
+    del project_name  # provider-owned; the historical call sites used the default
+    provider = ScipPythonProvider()
+    resolved = provider.detect(tool)
+    if resolved is None:
         logger.info("precise-index harvesting unavailable: no scip-python toolchain")
         return None
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    command = [resolved_tool, "index", "--project-name", project_name, "--output", str(output_path)]
-    env = dict(os.environ)
-    env.setdefault("NODE_OPTIONS", _DUMP_NODE_OPTIONS)
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            cwd=str(root),
-            timeout=timeout_seconds,
-            check=False,
-            env=env,
-        )
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "precise-index dump timed out after %ds (raise precise_index_timeout_seconds "
-            "for large corpora)",
-            timeout_seconds,
-        )
-        return None
-    except OSError as exc:
-        logger.warning("precise-index dump failed (%s): %s", type(exc).__name__, exc)
-        return None
-    if result.returncode != 0 or not output_path.exists():
-        logger.warning(
-            "precise-index dump exited %d: %s",
-            result.returncode,
-            (result.stderr or "").strip()[:400],
-        )
-        return None
-    return output_path
+    return provider.dump(resolved, root, output_path, timeout_seconds=timeout_seconds)
 
 
 def _read_index(path: Path) -> Optional[Any]:
@@ -183,64 +172,17 @@ def _read_index(path: Path) -> Optional[Any]:
     return index
 
 
-# The npm scip-python (0.6.x) symbol scheme: the descriptor path is the last
-# whitespace token; the leading tokens carry package identity we do not need
-# for the join (the document scope already binds symbols to files).
-_SCIP_PYTHON_PREFIX = "scip-python python "
-
-
 def python_symbol_to_parts(symbol: str) -> Optional[dict[str, str]]:
-    """Split a REAL npm scip-python symbol into a dotted name/scope path.
+    """scip-python symbol -> normalized parts (delegates to the provider).
 
-    scip-python 0.6.x emits package-qualified descriptors (verified against a
-    real 0.6.6 dump):
-
-    - ``scip-python python fixture 0.1.0 lib/helper().`` — function
-    - ``... lib/Worker#run().`` — method (``#`` introduces class members)
-    - ``... lib/Outer#Inner#m().`` — nested classes stack ``#`` segments
-    - ``... victor/core/mod.py-style module pieces arrive ``/``-separated
-
-    The module path is the leading ``/``-run up to the symbol: for a
-    top-level symbol the LAST ``/``-component is the name; ``#`` segments
-    stack enclosing classes with the name last, and a bare trailing ``#``
-    marks the class form whose name is the final ``/``-component.
-    Module inits (trailing ``:``), parameters (trailing ``(...)``), function
-    locals (``local <n>``) and non-python schemes carry no joinable symbol
-    node — None. The symbol string carries no file: the document scope owns
-    file binding, so ``file`` is always empty here.
+    Kept as this module's public seam: the join and the tests import it
+    here; the grammar itself lives with its producer in
+    ``precise_providers.ScipPythonProvider``.
     """
 
-    if not symbol.startswith(_SCIP_PYTHON_PREFIX):
-        return None
-    path = symbol.rsplit(" ", 1)[-1]
-    if "/" not in path and "#" not in path:
-        return None  # locals and malformed tails have no descriptor path
-    if path.endswith(":") or path.endswith(")"):
-        return None  # module init / parameter descriptors
-    segments = path.rstrip(".").split("#")
-    head = [c for c in segments[0].split("/") if c]
-    if not head or (len(segments) == 1 and len(head) < 2):
-        return None  # a bare name with no module cannot be attributed
-    if len(segments) == 1:
-        # Top-level symbol: the module path is everything before the name.
-        # Without ``()`` it is a module-level assignment, not a symbol node.
-        if not head[-1].endswith("()"):
-            return None
-        scope, name = [], head[-1].removesuffix("()")
-    elif len(segments) == 2 and not segments[1]:
-        # Class form ``lib/Worker#``: the head's last component is the name.
-        scope, name = [], head[-1]
-    else:
-        # ``#``-member: without ``()`` it is an attribute/field — the
-        # codegraph materializes classes, functions and methods, never
-        # attribute nodes, so those are non-joinable descriptors.
-        if not segments[-1].endswith("()"):
-            return None
-        scope = [head[-1], *(c for seg in segments[1:-1] for c in seg.split("/") if c)]
-        name = segments[-1].removesuffix("()")
-    if not name:
-        return None
-    return {"file": "", "path": ".".join([*scope, name])}
+    from victor.core.graph_rag.precise_providers import ScipPythonProvider
+
+    return ScipPythonProvider().symbol_parts(symbol)
 
 
 def _node_simple_name(path: str) -> str:
@@ -307,6 +249,7 @@ def harvest_precise_edges(
     nodes_by_file: dict[str, list[Any]],
     *,
     timeout_seconds: int = _DUMP_TIMEOUT_SECONDS,
+    symbol_parts: Any = None,
 ) -> PreciseHarvest:
     """Join SCIP occurrences against the materialized graph nodes.
 
@@ -314,19 +257,33 @@ def harvest_precise_edges(
     GraphNode objects (node_id/name/type/file, plus parent_id or an explicit
     scope_chain). Definitions join by (file, name) with kind/scope agreement,
     accepting only a unique match; signatures live in the persisted keys and
-    are never re-derived from the scip data.
+    are never re-derived from the scip data. ``symbol_parts`` is the dump's
+    producer grammar (default scip-python).
     """
 
     del timeout_seconds  # dump-side knob; kept for call-site compatibility
     index = _read_index(index_path)
     if index is None:
         return PreciseHarvest(skipped_reason="no-reader")
-    return join_occurrences(index, nodes_by_file)
+    return join_occurrences(index, nodes_by_file, symbol_parts=symbol_parts)
 
 
-def join_occurrences(index: Any, nodes_by_file: dict[str, list[Any]]) -> PreciseHarvest:
-    """The join core, over an already-parsed index (testable without a reader)."""
+def join_occurrences(
+    index: Any,
+    nodes_by_file: dict[str, list[Any]],
+    *,
+    symbol_parts: Any = None,
+) -> PreciseHarvest:
+    """The join core, over an already-parsed index (testable without a reader).
 
+    ``symbol_parts`` is the PRODUCER grammar (contract rev 1.5) — a
+    ``symbol -> parts | None`` callable owned by the provider whose dump
+    this index came from. Default: the scip-python grammar (the join's
+    historical behavior).
+    """
+
+    if symbol_parts is None:
+        symbol_parts = python_symbol_to_parts
     nodes_by_id = {n.node_id: n for nodes in nodes_by_file.values() for n in nodes}
 
     def chain_for(node: Any) -> list[str]:
@@ -343,7 +300,7 @@ def join_occurrences(index: Any, nodes_by_file: dict[str, list[Any]]) -> Precise
         for occurrence in document.occurrences:
             if not (occurrence.symbol_roles & SCIP_SYMBOL_ROLE_DEFINITION):
                 continue
-            parts = python_symbol_to_parts(occurrence.symbol)
+            parts = symbol_parts(occurrence.symbol)
             if parts is None:
                 # Non-joinable descriptor (module init, parameter, local):
                 # absence by construction, not a join failure — uncounted.

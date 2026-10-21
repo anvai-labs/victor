@@ -240,7 +240,7 @@ def test_kind_disagreement_stays_unjoined():
                 _occ(_sym("m/helper()."), 1, DEF),
                 _occ(_sym("m/helper()."), 3, 0),
             ],
-            symbols=[_syminfo(_sym("m/helper()."), 5)],  # CLASS
+            symbols=[_syminfo(_sym("m/helper()."), 7)],  # Kind.Class
         )
     )
     harvest = join_occurrences(index, {"src/m.py": nodes[:1]})
@@ -262,8 +262,8 @@ def test_kind_agreement_selects_among_same_name_nodes():
                 _occ(_sym("m/Worker#"), 12, 0),  # ref inside helper
             ],
             symbols=[
-                _syminfo(_sym("m/Worker#"), 5),
-                _syminfo(_sym("m/helper()."), 3),
+                _syminfo(_sym("m/Worker#"), 7),  # Kind.Class
+                _syminfo(_sym("m/helper()."), 17),  # Kind.Function
             ],
         )
     )
@@ -338,7 +338,7 @@ def test_unique_join_unmapped_kind_keeps_population_typed_empty_unjoins():
     # Unmapped scip kind (0.6.x always emits 0): no filtering, join proceeds.
     assert _unique_join(parts, nodes, 0, no_chain) == "fn-id"
     # Mapped kind with zero matching-type nodes: unjoined, not guessed.
-    assert _unique_join(parts, nodes, 5, no_chain) is None  # CLASS vs function node
+    assert _unique_join(parts, nodes, 7, no_chain) is None  # Kind.Class vs function node
 
 
 def test_occurrence_offset_handles_all_range_encodings():
@@ -539,6 +539,30 @@ def test_vendored_bindings_parse_real_schema():
     assert parsed.documents[0].occurrences[0].symbol == _sym("m/pkg.helper().")
 
 
+def test_kind_map_matches_vendored_enum():
+    """The numeric kind map is pinned to the vendored scip.proto enum; a
+    schema regeneration that renumbers kinds must fail here, not silently
+    mis-filter producers that populate kinds (TS, rust-analyzer)."""
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import _KIND_TO_TYPE
+
+    kinds = scip_pb2.SymbolInformation.Kind.DESCRIPTOR.values_by_name
+    expected = {
+        kinds[f"{name}Kind" if f"{name}Kind" in kinds else name].number: typ
+        for name, typ in [
+            ("Class", "class"),
+            ("Method", "method"),
+            ("Function", "function"),
+            ("Constructor", "constructor"),
+            ("Struct", "struct"),
+            ("Interface", "interface"),
+            ("Enum", "enum"),
+        ]
+    }
+    assert _KIND_TO_TYPE == expected
+
+
 @pytest.mark.asyncio
 async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkeypatch):
     pytest.importorskip("victor_codegraph")
@@ -549,7 +573,13 @@ async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkey
 
     (tmp_path / "m.py").write_text("def f():\n    return 1\n")
     monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
-    monkeypatch.setattr(precise_index, "harvest_scip_index", lambda *a, **k: None)
+    # Provider world: the toolchain is ABSENT at the provider seam, after
+    # real nodes exist (an empty store is its own honest outcome).
+    from victor.core.graph_rag import precise_providers
+
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider, "detect", lambda self, hint="auto": None
+    )
 
     store = SqliteGraphStore(tmp_path)
     await store.initialize()
@@ -562,7 +592,84 @@ async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkey
             incremental=False,
         )
         pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()
         harvest = await pipeline._harvest_precise_index(tmp_path)
         assert harvest.skipped_reason == "toolchain-or-dump-failed"
+        assert harvest.per_language == {"scip-python": "toolchain-absent"}
+        assert harvest.edges == []
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
+    """The provider loop's full taxonomy through the real pipeline: an ok
+    provider with edges, a dump-failed provider, and an absent one — merged
+    edges plus honest per-language accounting."""
+    pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag import precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n\n\ndef g():\n    return f()\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+
+    def fake_detect(self, hint="auto"):
+        return f"/usr/bin/{self.name}"
+
+    def make_dump(outcome):
+        def fake_dump(self, tool, root, output_path, *, timeout_seconds):
+            if outcome == "fail":
+                return None
+            # ok: emit a REAL two-symbol python index for this project.
+            from victor.core.graph_rag._scip import scip_pb2
+
+            index = scip_pb2.Index()
+            doc = index.documents.add()
+            doc.relative_path = "m.py"
+            for symbol, line, roles in (
+                ("scip-python python m 0.1.0 m/f().", 0, 1),
+                ("scip-python python m 0.1.0 m/g().", 4, 1),
+                ("scip-python python m 0.1.0 m/f().", 5, 0),
+            ):
+                occ = doc.occurrences.add()
+                occ.symbol = symbol
+                occ.symbol_roles = roles
+                occ.range.extend([line, 0])
+            output_path.write_bytes(index.SerializeToString())
+            return output_path
+
+        return fake_dump
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "detect", fake_detect)
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", make_dump("ok"))
+    # The other two providers: one fails its dump, one is absent.
+    monkeypatch.setattr(precise_providers.ScipTypescriptProvider, "detect", fake_detect)
+    monkeypatch.setattr(precise_providers.ScipTypescriptProvider, "dump", make_dump("fail"))
+    monkeypatch.setattr(
+        precise_providers.RustAnalyzerProvider, "detect", lambda self, hint="auto": None
+    )
+
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()
+        harvest = await pipeline._harvest_precise_index(tmp_path)
+        # Only python nodes exist, so only scip-python runs; the loop still
+        # exercises one ok outcome with a real edge.
+        assert harvest.per_language == {"scip-python": "ok:1 edges"}
+        assert harvest.skipped_reason is None
+        assert len(harvest.edges) == 1
+        assert harvest.edges[0][2] == "REFERENCES"
+        assert harvest.edges[0][3]["provenance"] == "compiler"
     finally:
         await store.close()
