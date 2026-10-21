@@ -111,6 +111,10 @@ RELATED_TESTS = {
             "victor/core/graph_rag/retrieval.py",
             "victor/core/graph_rag/precise_index.py",
             "victor/config/search_settings.py",
+            # Vendored protobuf bindings (generated): exercised through the
+            # precise-index suite's real-schema parse test.
+            "victor/core/graph_rag/_scip/__init__.py",
+            "victor/core/graph_rag/_scip/scip_pb2.py",
         ),
         (
             "tests/unit/core/graph_rag/test_scope_binding_integration.py",

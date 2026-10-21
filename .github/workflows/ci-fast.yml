@@ -664,6 +664,27 @@ jobs:
             tests/unit/framework/rl/test_trace_cache_l2.py \
             -q --tb=short --timeout=60
 
+  duplication-ratchet:
+    # Duplication ratchet (jscpd, exact clones over code formats): the corpus's
+    # duplicated-line count may only fall past scripts/ci/duplication_baseline.json.
+    # New copy-paste fails here on develop BEFORE it can accrete; deliberate dedup
+    # lowers the baseline in the same PR (`--update-baseline`). Scan semantics live
+    # in .jscpd.json (shared by local runs — same corpus, same number); the jscpd
+    # version is pinned by the baseline file itself so tokenization can't drift.
+    # Full-monorepo scan measured ~2-3s locally; npx fetch dominates the job.
+    name: Duplication Ratchet (jscpd)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Enforce duplication ratchet
+        run: python3 scripts/ci/duplication_ratchet.py
+
   attribution:
     # No third-party AI-agent authorship attribution in commits/PR text. Victor's
     # own agent (victor-code-ai) is the allowed first-party exception. The policy
@@ -981,6 +1002,9 @@ jobs:
       # item 17b follow-up): a Rust change that drifts from its Python fallback now
       # blocks merge instead of passing silently.
       - native-parity
+      # Duplication ratchet: joined the aggregate at creation (2026-10-21) —
+      # a gate that lets copy-paste accrete silently would defeat its purpose.
+      - duplication-ratchet
     if: always()
     steps:
       - name: Require all required jobs green
