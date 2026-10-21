@@ -428,7 +428,8 @@ class TestOpenAIAdapterParseToolCalls:
         assert len(result.tool_calls) == 1
         assert result.tool_calls[0].arguments == {}
         assert len(result.warnings) > 0
-        assert "Failed to parse arguments" in result.warnings[0]
+        # Shared base contract: "{name}: Failed to parse JSON arguments"
+        assert result.warnings[0] == "search: Failed to parse JSON arguments"
 
     @pytest.mark.parametrize(
         "content",

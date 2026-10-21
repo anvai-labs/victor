@@ -221,95 +221,6 @@ class FallbackParsingMixin:
                 return self.parse_from_content(content)
     """
 
-    def parse_json_arguments(self, args: Any) -> Tuple[Dict[str, Any], Optional[str]]:
-        """Parse arguments that may be string or dict.
-
-        Args:
-            args: Arguments (string JSON or dict)
-
-        Returns:
-            Tuple of (parsed_dict, warning_message or None)
-        """
-        if isinstance(args, dict):
-            return args, None
-
-        if isinstance(args, str):
-            try:
-                parsed = json_loads(args)
-                if isinstance(parsed, dict):
-                    return parsed, None
-                return {}, f"Parsed JSON is not a dict: {type(parsed).__name__}"
-            except JSONDecodeError:
-                return {}, "Failed to parse JSON arguments"
-
-        return {}, f"Unexpected argument type: {type(args).__name__}"
-
-    def parse_native_tool_calls(
-        self,
-        raw_tool_calls: List[Dict[str, Any]],
-        validate_name_fn: Optional[Callable[[str], bool]] = None,
-    ) -> ToolCallParseResult:
-        """Parse native tool calls from provider response.
-
-        Handles multiple formats:
-        - OpenAI: {function: {name, arguments}}
-        - Anthropic: {name, arguments, id}
-        - Ollama: {name, arguments} or {function: {...}}
-
-        Args:
-            raw_tool_calls: List of raw tool call dicts from provider
-            validate_name_fn: Optional function to validate tool names
-
-        Returns:
-            ToolCallParseResult with parsed tool calls
-        """
-        if not raw_tool_calls:
-            return ToolCallParseResult()
-
-        tool_calls: List[ToolCall] = []
-        warnings: List[str] = []
-
-        for tc in raw_tool_calls:
-            # Handle OpenAI/Ollama format: {function: {name, arguments}}
-            if "function" in tc:
-                func = tc.get("function", {})
-                name = func.get("name", "")
-                args = func.get("arguments", {})
-                tc_id = tc.get("id")
-            else:
-                # Direct format: {name, arguments}
-                name = tc.get("name", "")
-                args = tc.get("arguments", {})
-                tc_id = tc.get("id")
-
-            # Validate tool name if validator provided.
-            # Invalid names are still included so the pipeline can generate
-            # a proper error tool response with tool_call_id — OpenAI spec
-            # requires every tool_calls[].id to have a matching role=tool.
-            if validate_name_fn and not validate_name_fn(name):
-                warnings.append(f"Skipped invalid tool name: {name}")
-                # Include with empty args — pipeline will produce error response
-                tool_calls.append(ToolCall(name=name, arguments={}, id=tc_id))
-                continue
-            elif not name:
-                warnings.append("Skipped tool call with empty name")
-                continue
-
-            # Parse string arguments
-            parsed_args, warning = self.parse_json_arguments(args)
-            if warning:
-                warnings.append(f"{name}: {warning}")
-
-            tool_calls.append(ToolCall(name=name, arguments=parsed_args, id=tc_id))
-
-        return ToolCallParseResult(
-            tool_calls=tool_calls,
-            remaining_content="",
-            parse_method="native",
-            confidence=1.0,
-            warnings=warnings,
-        )
-
     def parse_json_from_content(
         self,
         content: str,
@@ -934,3 +845,92 @@ class BaseToolCallingAdapter(ABC):
         content = re.sub(r"\n{4,}", "\n\n\n", content)
 
         return content.strip()
+
+    def parse_native_tool_calls(
+        self,
+        raw_tool_calls: List[Dict[str, Any]],
+        validate_name_fn: Optional[Callable[[str], bool]] = None,
+    ) -> ToolCallParseResult:
+        """Parse native tool calls from provider response.
+
+        Handles multiple formats:
+        - OpenAI: {function: {name, arguments}}
+        - Anthropic: {name, arguments, id}
+        - Ollama: {name, arguments} or {function: {...}}
+
+        Args:
+            raw_tool_calls: List of raw tool call dicts from provider
+            validate_name_fn: Optional function to validate tool names
+
+        Returns:
+            ToolCallParseResult with parsed tool calls
+        """
+        if not raw_tool_calls:
+            return ToolCallParseResult()
+
+        tool_calls: List[ToolCall] = []
+        warnings: List[str] = []
+
+        for tc in raw_tool_calls:
+            # Handle OpenAI/Ollama format: {function: {name, arguments}}
+            if "function" in tc:
+                func = tc.get("function", {})
+                name = func.get("name", "")
+                args = func.get("arguments", {})
+                tc_id = tc.get("id")
+            else:
+                # Direct format: {name, arguments}
+                name = tc.get("name", "")
+                args = tc.get("arguments", {})
+                tc_id = tc.get("id")
+
+            # Validate tool name if validator provided.
+            # Invalid names are still included so the pipeline can generate
+            # a proper error tool response with tool_call_id — OpenAI spec
+            # requires every tool_calls[].id to have a matching role=tool.
+            if validate_name_fn and not validate_name_fn(name):
+                warnings.append(f"Skipped invalid tool name: {name}")
+                # Include with empty args — pipeline will produce error response
+                tool_calls.append(ToolCall(name=name, arguments={}, id=tc_id))
+                continue
+            elif not name:
+                warnings.append("Skipped tool call with empty name")
+                continue
+
+            # Parse string arguments
+            parsed_args, warning = self.parse_json_arguments(args)
+            if warning:
+                warnings.append(f"{name}: {warning}")
+
+            tool_calls.append(ToolCall(name=name, arguments=parsed_args, id=tc_id))
+
+        return ToolCallParseResult(
+            tool_calls=tool_calls,
+            remaining_content="",
+            parse_method="native",
+            confidence=1.0,
+            warnings=warnings,
+        )
+
+    def parse_json_arguments(self, args: Any) -> Tuple[Dict[str, Any], Optional[str]]:
+        """Parse arguments that may be string or dict.
+
+        Args:
+            args: Arguments (string JSON or dict)
+
+        Returns:
+            Tuple of (parsed_dict, warning_message or None)
+        """
+        if isinstance(args, dict):
+            return args, None
+
+        if isinstance(args, str):
+            try:
+                parsed = json_loads(args)
+                if isinstance(parsed, dict):
+                    return parsed, None
+                return {}, f"Parsed JSON is not a dict: {type(parsed).__name__}"
+            except JSONDecodeError:
+                return {}, "Failed to parse JSON arguments"
+
+        return {}, f"Unexpected argument type: {type(args).__name__}"
