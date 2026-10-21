@@ -1,4 +1,259 @@
 {
   "version": 1,
-  "exceptions": []
+  "exceptions": [
+    {
+      "package": "dash",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-102473",
+        "CVE-2026-102474"
+      ],
+      "versions": [
+        "0.5.12-6ubuntu5"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "git",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2024-52005"
+      ],
+      "versions": [
+        "1:2.43.0-1ubuntu7.4"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "git-man",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2024-52005"
+      ],
+      "versions": [
+        "1:2.43.0-1ubuntu7.4"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libc-bin",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-18374",
+        "CVE-2026-89092"
+      ],
+      "versions": [
+        "2.39-0ubuntu8.9"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libc6",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-18374",
+        "CVE-2026-89092"
+      ],
+      "versions": [
+        "2.39-0ubuntu8.9"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libexpat1",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2025-66382"
+      ],
+      "versions": [
+        "2.6.1-2ubuntu0.6"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libgnutls30t64",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-67693",
+        "CVE-2026-88647",
+        "CVE-2026-95184",
+        "CVE-2026-95209",
+        "CVE-2026-95210"
+      ],
+      "versions": [
+        "3.8.3-1.1ubuntu3.6"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libpcre2-8-0",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-103111",
+        "CVE-2026-86145",
+        "CVE-2026-89156",
+        "CVE-2026-89157",
+        "CVE-2026-89158",
+        "CVE-2026-89160",
+        "CVE-2026-89161"
+      ],
+      "versions": [
+        "10.42-4ubuntu2.1"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libsasl2-2",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-107161"
+      ],
+      "versions": [
+        "2.1.28+dfsg1-5ubuntu3.1"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libsasl2-modules-db",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-107161"
+      ],
+      "versions": [
+        "2.1.28+dfsg1-5ubuntu3.1"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libsystemd0",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-40228"
+      ],
+      "versions": [
+        "255.4-1ubuntu8.18"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "libudev1",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-40228"
+      ],
+      "versions": [
+        "255.4-1ubuntu8.18"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "login",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2024-56433"
+      ],
+      "versions": [
+        "1:4.13+dfsg1-4ubuntu3.2"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "passwd",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2024-56433"
+      ],
+      "versions": [
+        "1:4.13+dfsg1-4ubuntu3.2"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "tar",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-18477",
+        "CVE-2026-18508"
+      ],
+      "versions": [
+        "1.35+dfsg-3ubuntu0.4"
+      ],
+      "scopes": [
+        "container"
+      ]
+    },
+    {
+      "package": "zlib1g",
+      "owner": "release",
+      "reason": "Ubuntu 24.04 base-image OS package with no fixed version published (container image scan, release run 39557289246); expires to force base-image refresh review.",
+      "expires": "2027-01-19",
+      "advisories": [
+        "CVE-2026-85091"
+      ],
+      "versions": [
+        "1:1.3.dfsg-3.1ubuntu2.2"
+      ],
+      "scopes": [
+        "container"
+      ]
+    }
+  ]
 }
