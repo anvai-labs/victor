@@ -795,6 +795,8 @@ extend-exclude = [
     "htmlcov",
     "venv",
     "game_app.py",
+    # Generated protobuf bindings vendored for the SCIP harvester.
+    "victor/core/graph_rag/_scip",
 ]
 
 [tool.ruff.lint]
@@ -950,6 +952,7 @@ ignore_errors = false
 line-length = 100
 target-version = ['py312']
 include = '\.pyi?$'
+extend-exclude = "victor/core/graph_rag/_scip"
 
 [tool.coverage.run]
 source = ["victor"]
