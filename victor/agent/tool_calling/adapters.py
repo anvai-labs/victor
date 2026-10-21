@@ -253,45 +253,21 @@ class OpenAIToolCallingAdapter(BaseToolCallingAdapter):
         Arguments in the provider's tool_calls field may be JSON strings or
         already-decoded objects. Missing calls leave the answer byte-identical.
         """
-        native_warnings: List[str] = []
-
-        # Try native tool calls first
+        # Native tool calls via the shared base helper (jscpd 4-copy
+        # consolidation); the base keeps invalid-name calls unconditionally —
+        # the OpenAI-spec contract this copy's comments already describe.
         if raw_tool_calls:
-            tool_calls = []
-
-            for tc in raw_tool_calls:
-                name = tc.get("name", "")
-                tc_id = tc.get("id")
-                if not self.is_valid_tool_name(name):
-                    native_warnings.append(f"Skipped invalid tool name: {name}")
-                    # Keep with id so pipeline generates error response
-                    # (OpenAI spec: every tool_calls[].id needs a role=tool)
-                    if tc_id:
-                        tool_calls.append(ToolCall(name=name, arguments={}, id=tc_id))
-                    continue
-
-                # Parse arguments (may be string or dict)
-                args = tc.get("arguments", {})
-                if isinstance(args, str):
-                    try:
-                        args = json_loads(args)
-                    except JSONDecodeError:
-                        native_warnings.append(f"Failed to parse arguments for {name}")
-                        args = {}
-
-                tool_calls.append(ToolCall(name=name, arguments=args, id=tc_id))
-
-            if tool_calls:
+            result = self.parse_native_tool_calls(raw_tool_calls, self.is_valid_tool_name)
+            if result.tool_calls:
                 return ToolCallParseResult(
-                    tool_calls=tool_calls,
+                    tool_calls=result.tool_calls,
                     remaining_content=content,
                     parse_method="native",
                     confidence=1.0,
-                    warnings=native_warnings,
+                    warnings=result.warnings,
                 )
 
-        # Return with any native parsing warnings
-        return ToolCallParseResult(remaining_content=content, warnings=native_warnings)
+        return ToolCallParseResult(remaining_content=content)
 
 
 class OllamaToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
@@ -1300,38 +1276,19 @@ class OpenAICompatToolCallingAdapter(BaseToolCallingAdapter):
         raw_tool_calls: Optional[List[Dict[str, Any]]] = None,
     ) -> ToolCallParseResult:
         """Parse tool calls from OpenAI-compatible response."""
-        warnings = []
-
-        # Try native tool calls
+        # Native tool calls via the shared base helper (jscpd 4-copy
+        # consolidation). Deltas vs the old hand-rolled loop, deliberately
+        # adopted: invalid-name calls are kept unconditionally (not gated on
+        # tc_id) so the pipeline can emit the OpenAI-spec error response.
         if raw_tool_calls:
-            tool_calls = []
-            for tc in raw_tool_calls:
-                name = tc.get("name", "")
-                tc_id = tc.get("id")
-                if not self.is_valid_tool_name(name):
-                    warnings.append(f"Skipped invalid tool name: {name}")
-                    # Keep with id so pipeline generates error response
-                    if tc_id:
-                        tool_calls.append(ToolCall(name=name, arguments={}, id=tc_id))
-                    continue
-
-                args = tc.get("arguments", {})
-                if isinstance(args, str):
-                    try:
-                        args = json_loads(args)
-                    except JSONDecodeError:
-                        warnings.append(f"Failed to parse arguments for {name}")
-                        args = {}
-
-                tool_calls.append(ToolCall(name=name, arguments=args, id=tc_id))
-
-            if tool_calls:
+            result = self.parse_native_tool_calls(raw_tool_calls, self.is_valid_tool_name)
+            if result.tool_calls:
                 return ToolCallParseResult(
-                    tool_calls=tool_calls,
+                    tool_calls=result.tool_calls,
                     remaining_content=content,
                     parse_method="native",
                     confidence=1.0,
-                    warnings=warnings,
+                    warnings=result.warnings,
                 )
 
         # Fallback: Parse JSON from content
@@ -1563,46 +1520,18 @@ class DeepSeekToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
         if self._is_reasoner_model():
             return ToolCallParseResult(remaining_content=content)
 
-        # Try native tool calls first
+        # Native tool calls via the shared base helper (jscpd 4-copy
+        # consolidation); invalid-name calls kept unconditionally per the
+        # OpenAI-spec error-response contract.
         if raw_tool_calls:
-            tool_calls = []
-
-            for tc in raw_tool_calls:
-                tc_id = tc.get("id")
-                # Handle OpenAI format with nested function
-                if "function" in tc:
-                    func = tc["function"]
-                    name = func.get("name", "")
-                    args = func.get("arguments", "{}")
-                else:
-                    # Direct format
-                    name = tc.get("name", "")
-                    args = tc.get("arguments", {})
-
-                if not self.is_valid_tool_name(name):
-                    warnings.append(f"Skipped invalid tool name: {name}")
-                    # Keep with id so pipeline generates error response
-                    if tc_id:
-                        tool_calls.append(ToolCall(name=name, arguments={}, id=tc_id))
-                    continue
-
-                # Parse arguments (may be string or dict)
-                if isinstance(args, str):
-                    try:
-                        args = json_loads(args)
-                    except JSONDecodeError:
-                        warnings.append(f"Failed to parse arguments for {name}")
-                        args = {}
-
-                tool_calls.append(ToolCall(name=name, arguments=args, id=tc_id))
-
-            if tool_calls:
+            result = self.parse_native_tool_calls(raw_tool_calls, self.is_valid_tool_name)
+            if result.tool_calls:
                 return ToolCallParseResult(
-                    tool_calls=tool_calls,
+                    tool_calls=result.tool_calls,
                     remaining_content=content,
                     parse_method="native",
                     confidence=1.0,
-                    warnings=warnings,
+                    warnings=warnings + result.warnings,
                 )
 
         # Fallback: Try parsing from content (using mixin)
@@ -1904,46 +1833,20 @@ class AzureOpenAIToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter
 
         warnings: List[str] = []
 
-        # Try native tool calls first
+        # Native tool calls via the shared base helper (jscpd 4-copy
+        # consolidation). Warnings convention fix: this adapter previously
+        # normalized empty warning lists to None — a latent AttributeError
+        # for the 19 callers that .append/.extend on parse-result warnings
+        # (the field is List[str], not Optional). Always a list now.
         if raw_tool_calls:
-            tool_calls = []
-
-            for tc in raw_tool_calls:
-                tc_id = tc.get("id")
-                # Handle OpenAI format with nested function
-                if "function" in tc:
-                    func = tc["function"]
-                    name = func.get("name", "")
-                    args = func.get("arguments", "{}")
-                else:
-                    # Direct format (already normalized)
-                    name = tc.get("name", "")
-                    args = tc.get("arguments", {})
-
-                if not self.is_valid_tool_name(name):
-                    warnings.append(f"Skipped invalid tool name: {name}")
-                    # Keep with id so pipeline generates error response
-                    if tc_id:
-                        tool_calls.append(ToolCall(name=name, arguments={}, id=tc_id))
-                    continue
-
-                # Parse arguments (may be string or dict)
-                if isinstance(args, str):
-                    try:
-                        args = json_loads(args)
-                    except JSONDecodeError:
-                        warnings.append(f"Failed to parse arguments for {name}")
-                        args = {}
-
-                tool_calls.append(ToolCall(name=name, arguments=args, id=tc_id))
-
-            if tool_calls:
+            result = self.parse_native_tool_calls(raw_tool_calls, self.is_valid_tool_name)
+            if result.tool_calls:
                 return ToolCallParseResult(
-                    tool_calls=tool_calls,
+                    tool_calls=result.tool_calls,
                     remaining_content=content,
                     parse_method="native",
                     confidence=1.0,
-                    warnings=warnings if warnings else None,
+                    warnings=warnings + result.warnings,
                 )
 
         # Fallback: Try parsing from content (using mixin)
@@ -1956,12 +1859,10 @@ class AzureOpenAIToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter
                     remaining_content=result.remaining_content,
                     parse_method=result.parse_method,
                     confidence=result.confidence,
-                    warnings=all_warnings if all_warnings else None,
+                    warnings=all_warnings,
                 )
 
-        return ToolCallParseResult(
-            remaining_content=content, warnings=warnings if warnings else None
-        )
+        return ToolCallParseResult(remaining_content=content, warnings=warnings)
 
     def get_system_prompt_hints(self) -> str:
         """Get system prompt hints for Azure OpenAI models."""

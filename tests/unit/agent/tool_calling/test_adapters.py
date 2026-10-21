@@ -22,7 +22,10 @@ from unittest.mock import MagicMock, patch
 
 from victor.agent.tool_calling.adapters import (
     AnthropicToolCallingAdapter,
+    AzureOpenAIToolCallingAdapter,
+    DeepSeekToolCallingAdapter,
     GoogleToolCallingAdapter,
+    OpenAICompatToolCallingAdapter,
     OpenAIToolCallingAdapter,
     OllamaToolCallingAdapter,
     _CapabilityLoaderHolder,
@@ -428,7 +431,8 @@ class TestOpenAIAdapterParseToolCalls:
         assert len(result.tool_calls) == 1
         assert result.tool_calls[0].arguments == {}
         assert len(result.warnings) > 0
-        assert "Failed to parse arguments" in result.warnings[0]
+        # Shared base contract: "{name}: Failed to parse JSON arguments"
+        assert result.warnings[0] == "search: Failed to parse JSON arguments"
 
     @pytest.mark.parametrize(
         "content",
@@ -913,3 +917,190 @@ class TestCapabilityFieldPreservation:
         assert caps.exploration_multiplier == 2.5
         assert caps.continuation_patience == 3
         assert caps.timeout_multiplier == 1.8
+
+
+class TestNativeParseAdoptionContract:
+    """The four adopting adapters (OpenAI, OpenAICompat, DeepSeek, Azure)
+    route native parsing through the shared base helper (jscpd 4-copy
+    consolidation). One contract, driven through each adapter's public
+    method: valid calls parse, invalid names are KEPT for the spec's error
+    response, bad JSON degrades to empty args with a warning."""
+
+    @staticmethod
+    def _raw():
+        return [
+            {"id": "call_1", "name": "read", "arguments": {"path": "f.py"}},
+            {"id": "call_2", "name": "example_bad", "arguments": {}},
+            {"id": "call_3", "name": "shell", "arguments": "{broken json"},
+        ]
+
+    def _assert_contract(self, adapter, parse_method="native"):
+        result = adapter.parse_tool_calls(content="", raw_tool_calls=self._raw())
+        names = [t.name for t in result.tool_calls]
+        # Invalid name KEPT (spec error response), bad-JSON call kept with {}.
+        assert names == ["read", "example_bad", "shell"]
+        assert result.tool_calls[0].arguments == {"path": "f.py"}
+        assert result.tool_calls[2].arguments == {}
+        assert result.parse_method == parse_method
+        assert any("example_bad" in w and "Skipped" in w for w in result.warnings)
+        assert any("shell" in w and "Failed to parse JSON arguments" in w for w in result.warnings)
+        assert isinstance(result.warnings, list)
+
+    def test_openai_adopts_base_helper(self):
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_openai_compat_adopts_base_helper(self):
+        adapter = OpenAICompatToolCallingAdapter(model="qwen", config=None, provider_variant="vllm")
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_deepseek_adopts_base_helper(self):
+        adapter = DeepSeekToolCallingAdapter(model="deepseek-chat", config=None)
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_azure_adopts_base_helper_and_always_list(self):
+        adapter = AzureOpenAIToolCallingAdapter(model="gpt-4", config=None)
+        adapter._valid_tool_names = {"read", "shell"}
+        self._assert_contract(adapter)
+
+    def test_azure_clean_parse_returns_list_not_none(self):
+        # The convention fix: no warnings -> empty LIST, never None.
+        adapter = AzureOpenAIToolCallingAdapter(model="gpt-4", config=None)
+        adapter._valid_tool_names = {"read"}
+        result = adapter.parse_tool_calls(
+            content="", raw_tool_calls=[{"id": "c", "name": "read", "arguments": {}}]
+        )
+        assert result.warnings == []
+
+    def test_openai_no_raw_calls_returns_empty(self):
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(content="answer text", raw_tool_calls=None)
+        assert result.tool_calls == []
+        assert result.remaining_content == "answer text"
+
+
+class TestAdoptionEdgeCoverage:
+    """Edge paths of the shared-helper adoption and the moved base methods
+    (diff-coverage: these lines execute only through specific inputs)."""
+
+    def test_openai_empty_name_kept_with_invalid_warning(self):
+        # Base contract discovered by probe: the validator rejects '' FIRST
+        # (invalid-name keep branch), so an empty-named call is KEPT for the
+        # spec error response with an 'Skipped invalid tool name' warning —
+        # the empty-name drop branch only fires without a validator.
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(
+            content="", raw_tool_calls=[{"id": "c", "name": "", "arguments": {}}]
+        )
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0].id == "c"
+        assert any("Skipped invalid tool name" in w for w in result.warnings)
+
+    def test_openai_no_raw_calls_terminal_path(self):
+        # raw_tool_calls=None: the terminal passthrough returns empty with
+        # the original content.
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(content="plain answer", raw_tool_calls=None)
+        assert result.tool_calls == []
+        assert result.remaining_content == "plain answer"
+
+    def test_azure_o1_model_returns_early_without_tools(self):
+        from victor.agent.tool_calling.adapters import AzureOpenAIToolCallingAdapter
+
+        adapter = AzureOpenAIToolCallingAdapter(model="o1-preview", config=None)
+        result = adapter.parse_tool_calls(
+            content="hello", raw_tool_calls=[{"id": "c", "name": "read", "arguments": {}}]
+        )
+        assert result.tool_calls == []
+        assert result.remaining_content == "hello"
+
+    def test_is_valid_tool_name_rejects_hallucination_patterns(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        for bad in [
+            "example_foo",
+            "function_bar",
+            "tool_name",
+            "my_thing",
+            "9tool",
+            "has space",
+            "<tag>",
+            "trail/",
+        ]:
+            assert adapter.is_valid_tool_name(bad) is False, bad
+        assert adapter.is_valid_tool_name("read") is True
+        assert adapter.is_valid_tool_name("") is False
+        assert adapter.is_valid_tool_name(None) is False  # type: ignore[arg-type]
+
+    def test_sanitize_content_strips_patterns_and_whitespace(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        dirty = "answer\n\n\n\n\nmore   text"
+        cleaned = adapter.sanitize_content(dirty)
+        assert "\n\n\n\n" not in cleaned
+        assert cleaned == cleaned.strip()
+
+
+class TestBaseHelperFullBranchCoverage:
+    """The moved base methods' remaining branches (diff-coverage): the
+    helper's empty-input early return, the nested-function vs direct-format
+    parse, the empty-name drop (no-validator path), parse_json_arguments'
+    non-dict / bad-JSON / unexpected-type branches, and sanitize_content."""
+
+    def test_helper_empty_input_returns_empty_result(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_native_tool_calls([], adapter.is_valid_tool_name)
+        assert result.tool_calls == []
+        assert result.warnings == []
+
+    def test_helper_direct_and_nested_formats_without_validator(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        # No validator: nested-function AND direct formats both parse; an
+        # empty-name entry takes the drop branch (unreachable with a
+        # validator, which is why this test passes validator=None).
+        result = adapter.parse_native_tool_calls(
+            [
+                {"id": "n", "function": {"name": "read", "arguments": {"p": 1}}},
+                {"id": "d", "name": "shell", "arguments": {}},
+                {"id": "e", "name": "", "arguments": {}},
+            ],
+            validate_name_fn=None,
+        )
+        assert [t.name for t in result.tool_calls] == ["read", "shell"]
+        assert any("empty name" in w for w in result.warnings)
+
+    def test_parse_json_arguments_branches(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        # dict passthrough
+        assert adapter.parse_json_arguments({"a": 1}) == ({"a": 1}, None)
+        # valid JSON string
+        assert adapter.parse_json_arguments('{"b": 2}') == ({"b": 2}, None)
+        # valid JSON but not a dict
+        args, warn = adapter.parse_json_arguments("[1, 2]")
+        assert args == {} and "not a dict" in warn
+        # invalid JSON string
+        args, warn = adapter.parse_json_arguments("{broken")
+        assert args == {} and warn == "Failed to parse JSON arguments"
+        # unexpected type
+        args, warn = adapter.parse_json_arguments(42)
+        assert args == {} and "Unexpected argument type" in warn
+
+    def test_azure_clean_terminal_return(self):
+        # Azure's terminal return (line ~1865): no raw calls, no content.
+        from victor.agent.tool_calling.adapters import AzureOpenAIToolCallingAdapter
+
+        adapter = AzureOpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(content="", raw_tool_calls=None)
+        assert result.tool_calls == []
+        assert result.warnings == []
