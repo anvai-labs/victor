@@ -959,6 +959,11 @@ source = ["victor"]
 omit = [
     "*/tests/*",
     "*/__init__.py",
+    # Generated protobuf bindings vendored for the SCIP harvester: exercised
+    # where protobuf is installed (round-trip tests), never line-measured —
+    # generated code in the diff would sink the changed-line coverage gate
+    # in environments where the binding tests skip.
+    "victor/core/graph_rag/_scip/*",
     # CLI modules require interactive terminal testing
     "victor/ui/cli.py",
     "victor/ui/commands.py",
