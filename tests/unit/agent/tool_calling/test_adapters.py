@@ -1044,3 +1044,63 @@ class TestAdoptionEdgeCoverage:
         cleaned = adapter.sanitize_content(dirty)
         assert "\n\n\n\n" not in cleaned
         assert cleaned == cleaned.strip()
+
+
+class TestBaseHelperFullBranchCoverage:
+    """The moved base methods' remaining branches (diff-coverage): the
+    helper's empty-input early return, the nested-function vs direct-format
+    parse, the empty-name drop (no-validator path), parse_json_arguments'
+    non-dict / bad-JSON / unexpected-type branches, and sanitize_content."""
+
+    def test_helper_empty_input_returns_empty_result(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_native_tool_calls([], adapter.is_valid_tool_name)
+        assert result.tool_calls == []
+        assert result.warnings == []
+
+    def test_helper_direct_and_nested_formats_without_validator(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        # No validator: nested-function AND direct formats both parse; an
+        # empty-name entry takes the drop branch (unreachable with a
+        # validator, which is why this test passes validator=None).
+        result = adapter.parse_native_tool_calls(
+            [
+                {"id": "n", "function": {"name": "read", "arguments": {"p": 1}}},
+                {"id": "d", "name": "shell", "arguments": {}},
+                {"id": "e", "name": "", "arguments": {}},
+            ],
+            validate_name_fn=None,
+        )
+        assert [t.name for t in result.tool_calls] == ["read", "shell"]
+        assert any("empty name" in w for w in result.warnings)
+
+    def test_parse_json_arguments_branches(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        # dict passthrough
+        assert adapter.parse_json_arguments({"a": 1}) == ({"a": 1}, None)
+        # valid JSON string
+        assert adapter.parse_json_arguments('{"b": 2}') == ({"b": 2}, None)
+        # valid JSON but not a dict
+        args, warn = adapter.parse_json_arguments("[1, 2]")
+        assert args == {} and "not a dict" in warn
+        # invalid JSON string
+        args, warn = adapter.parse_json_arguments("{broken")
+        assert args == {} and warn == "Failed to parse JSON arguments"
+        # unexpected type
+        args, warn = adapter.parse_json_arguments(42)
+        assert args == {} and "Unexpected argument type" in warn
+
+    def test_azure_clean_terminal_return(self):
+        # Azure's terminal return (line ~1865): no raw calls, no content.
+        from victor.agent.tool_calling.adapters import AzureOpenAIToolCallingAdapter
+
+        adapter = AzureOpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(content="", raw_tool_calls=None)
+        assert result.tool_calls == []
+        assert result.warnings == []
