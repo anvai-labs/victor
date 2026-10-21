@@ -1642,7 +1642,7 @@ dependencies = [
 
 [[package]]
 name = "victor_native"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "ahash",
  "aho-corasick",
