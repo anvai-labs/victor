@@ -860,3 +860,58 @@ class TestCapabilityFieldPreservation:
         assert patched.continuation_patience == 3
         assert patched.timeout_multiplier == 1.8
         assert patched.thinking_mode is True
+
+    def test_lmstudio_thinking_override_preserves_configured_fields(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import victor.agent.tool_calling.adapters as adapters_mod
+        from victor.agent.tool_calling.adapters import LMStudioToolCallingAdapter
+        from victor.agent.tool_calling.base import ToolCallingCapabilities
+
+        configured = ToolCallingCapabilities(
+            thinking_disable_prefix="/no_think",
+            exploration_multiplier=2.5,
+            continuation_patience=3,
+            timeout_multiplier=1.8,
+        )
+        monkeypatch.setattr(
+            adapters_mod._CapabilityLoaderHolder,
+            "_instance",
+            SimpleNamespace(get_capabilities=lambda *a, **k: configured),
+        )
+        adapter = LMStudioToolCallingAdapter(model="qwen3-coder", config=None)
+        adapter._has_thinking_mode = lambda: True
+        caps = adapter.get_capabilities()
+        assert caps.thinking_mode is True
+        assert caps.thinking_disable_prefix == "/no_think"
+        assert caps.exploration_multiplier == 2.5
+        assert caps.continuation_patience == 3
+        assert caps.timeout_multiplier == 1.8
+
+    def test_openai_compat_lmstudio_branch_preserves_configured_fields(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import victor.agent.tool_calling.adapters as adapters_mod
+        from victor.agent.tool_calling.adapters import OpenAICompatToolCallingAdapter
+        from victor.agent.tool_calling.base import ToolCallingCapabilities
+
+        configured = ToolCallingCapabilities(
+            thinking_disable_prefix="/no_think",
+            exploration_multiplier=2.5,
+            continuation_patience=3,
+            timeout_multiplier=1.8,
+        )
+        monkeypatch.setattr(
+            adapters_mod._CapabilityLoaderHolder,
+            "_instance",
+            SimpleNamespace(get_capabilities=lambda *a, **k: configured),
+        )
+        adapter = OpenAICompatToolCallingAdapter(
+            model="qwen3-coder", config=None, provider_variant="lmstudio"
+        )
+        caps = adapter.get_capabilities()
+        assert caps.thinking_mode is True
+        assert caps.thinking_disable_prefix == "/no_think"
+        assert caps.exploration_multiplier == 2.5
+        assert caps.continuation_patience == 3
+        assert caps.timeout_multiplier == 1.8
