@@ -980,3 +980,67 @@ class TestNativeParseAdoptionContract:
         result = adapter.parse_tool_calls(content="answer text", raw_tool_calls=None)
         assert result.tool_calls == []
         assert result.remaining_content == "answer text"
+
+
+class TestAdoptionEdgeCoverage:
+    """Edge paths of the shared-helper adoption and the moved base methods
+    (diff-coverage: these lines execute only through specific inputs)."""
+
+    def test_openai_empty_name_kept_with_invalid_warning(self):
+        # Base contract discovered by probe: the validator rejects '' FIRST
+        # (invalid-name keep branch), so an empty-named call is KEPT for the
+        # spec error response with an 'Skipped invalid tool name' warning —
+        # the empty-name drop branch only fires without a validator.
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(
+            content="", raw_tool_calls=[{"id": "c", "name": "", "arguments": {}}]
+        )
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0].id == "c"
+        assert any("Skipped invalid tool name" in w for w in result.warnings)
+
+    def test_openai_no_raw_calls_terminal_path(self):
+        # raw_tool_calls=None: the terminal passthrough returns empty with
+        # the original content.
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        result = adapter.parse_tool_calls(content="plain answer", raw_tool_calls=None)
+        assert result.tool_calls == []
+        assert result.remaining_content == "plain answer"
+
+    def test_azure_o1_model_returns_early_without_tools(self):
+        from victor.agent.tool_calling.adapters import AzureOpenAIToolCallingAdapter
+
+        adapter = AzureOpenAIToolCallingAdapter(model="o1-preview", config=None)
+        result = adapter.parse_tool_calls(
+            content="hello", raw_tool_calls=[{"id": "c", "name": "read", "arguments": {}}]
+        )
+        assert result.tool_calls == []
+        assert result.remaining_content == "hello"
+
+    def test_is_valid_tool_name_rejects_hallucination_patterns(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        for bad in [
+            "example_foo",
+            "function_bar",
+            "tool_name",
+            "my_thing",
+            "9tool",
+            "has space",
+            "<tag>",
+            "trail/",
+        ]:
+            assert adapter.is_valid_tool_name(bad) is False, bad
+        assert adapter.is_valid_tool_name("read") is True
+        assert adapter.is_valid_tool_name("") is False
+        assert adapter.is_valid_tool_name(None) is False  # type: ignore[arg-type]
+
+    def test_sanitize_content_strips_patterns_and_whitespace(self):
+        from victor.agent.tool_calling.adapters import OpenAIToolCallingAdapter
+
+        adapter = OpenAIToolCallingAdapter(model="gpt-4", config=None)
+        dirty = "answer\n\n\n\n\nmore   text"
+        cleaned = adapter.sanitize_content(dirty)
+        assert "\n\n\n\n" not in cleaned
+        assert cleaned == cleaned.strip()
