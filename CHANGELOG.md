@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-21
+
+### Added
+
+- ADR-032 tier 3: opt-in compiler-accurate REFERENCES edges harvested
+  from an offline SCIP dump (`enable_precise_index`, default off;
+  scip-python detected via path, PATH binary, or module). Harvested
+  edges carry `provenance="compiler"` and run last so they dominate
+  shared CALLS/INHERITS/IMPLEMENTS keys; absent toolchains degrade with
+  one log line. Settings-file graph flags now actually reach every
+  construction site (new `graph_flag` read-through; the flat-getattr
+  reads previously ignored them).
+
+### Changed
+
+- Graduate ADR-032 tier-2.5 scope binding to default-ON
+  (`enable_scope_binding` defaults True everywhere; explicit False opts
+  out; victor-codegraph < 0.11.0 degrades via the capability probe).
+  Indexing now persists resolved REFERENCES binding edges with resolver
+  provenance by default. Evidence: 26.9% vs 21.3% resolution on the
+  victor corpus, 12.6% vs 5.7% on proximaDB Rust (2.2x); force rebuild
+  required to clear stale edges after an ON-to-OFF flip.
+
+### Fixed
+
+- Tool-calling capability overrides no longer silently reset four
+  YAML-configured fields (`thinking_disable_prefix`,
+  `exploration_multiplier`, `continuation_patience`,
+  `timeout_multiplier`) to defaults when thinking mode or dynamic native
+  support is detected — all five override sites now use
+  `dataclasses.replace`.
+- Gemini text-format parser: a `<ctrl42>`-tagged call no longer parses
+  twice (the simple-call pass now skips spans the ctrl42 pass
+  consumed), and parse warnings now reach the caller instead of being
+  dropped on both empty-result paths — malformed tool-call JSON was
+  previously invisible.
+- Azure tool-calling adapter no longer normalizes empty warning lists
+  to `None` (a latent AttributeError for the callers that append to
+  parse-result warnings); warnings are always lists.
+
+### Refactoring
+
+- Deduplication program (jscpd-driven, 13 PRs, ~950 duplicated/dead
+  lines removed): shared graph-seed accumulator for the vector-store
+  impact/localization pair, one conversation core-table DDL,
+  canonical MiddlewareProtocol and RL-runtime re-exports, shared
+  benchmark CLI option factories, one gemini ctrl42/simple parse loop,
+  and the four hand-rolled native tool-call parse loops unified onto
+  `BaseToolCallingAdapter.parse_native_tool_calls` (invalid-name calls
+  now kept unconditionally per the OpenAI error-response spec; warning
+  text unified to `"{name}: Failed to parse JSON arguments"`).
+
 ## [0.13.1] - 2026-10-19
 
 ### Fixed
