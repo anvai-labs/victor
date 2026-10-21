@@ -25,7 +25,13 @@ Contract (mirrors the tier-2.5 capability-probe posture):
   heuristic writer by construction.
 - Reference→definition pairs where BOTH endpoints are joinable become
   REFERENCES edges; owner attribution is positional (the greatest definition
-  offset at or before the reference).
+  offset at or before the reference). References to symbols defined nowhere
+  in the index (stdlib, site-packages) are out-of-corpus and uncounted.
+- scip-python 0.6.x emits UnspecifiedKind on every symbol information, so
+  the kind agreement filter is dormant with the real tool (unmapped kind →
+  no filtering, never discarding evidence) and the join rides on
+  name + scope agreement; kinds still harden the join for producers that
+  populate them.
 """
 
 from __future__ import annotations
@@ -166,28 +172,64 @@ def _read_index(path: Path) -> Optional[Any]:
     return index
 
 
-def python_symbol_to_parts(symbol: str) -> Optional[dict[str, str]]:
-    """Split a SCIP python symbol string into file marker + dotted path.
+# The npm scip-python (0.6.x) symbol scheme: the descriptor path is the last
+# whitespace token; the leading tokens carry package identity we do not need
+# for the join (the document scope already binds symbols to files).
+_SCIP_PYTHON_PREFIX = "scip-python python "
 
-    SCIP python symbols look like ``python src/pkg/mod.py`pkg.mod.func().``
-    — the backtick separates the language+file marker from the symbol path,
-    with trailing disambiguators (``()`` parameters, ``.`` accessor). Returns
-    ``{"file": ..., "path": ...}`` or None when the symbol is not a
-    definition-shaped python symbol we can map.
+
+def python_symbol_to_parts(symbol: str) -> Optional[dict[str, str]]:
+    """Split a REAL npm scip-python symbol into a dotted name/scope path.
+
+    scip-python 0.6.x emits package-qualified descriptors (verified against a
+    real 0.6.6 dump):
+
+    - ``scip-python python fixture 0.1.0 lib/helper().`` — function
+    - ``... lib/Worker#run().`` — method (``#`` introduces class members)
+    - ``... lib/Outer#Inner#m().`` — nested classes stack ``#`` segments
+    - ``... victor/core/mod.py-style module pieces arrive ``/``-separated
+
+    The module path is the leading ``/``-run up to the symbol: for a
+    top-level symbol the LAST ``/``-component is the name; ``#`` segments
+    stack enclosing classes with the name last, and a bare trailing ``#``
+    marks the class form whose name is the final ``/``-component.
+    Module inits (trailing ``:``), parameters (trailing ``(...)``), function
+    locals (``local <n>``) and non-python schemes carry no joinable symbol
+    node — None. The symbol string carries no file: the document scope owns
+    file binding, so ``file`` is always empty here.
     """
 
-    if not symbol.startswith("python "):
+    if not symbol.startswith(_SCIP_PYTHON_PREFIX):
         return None
-    _, _, tail = symbol.partition(" ")
-    file_marker, sep, path = tail.partition("`")
-    if not sep or not path:
+    path = symbol.rsplit(" ", 1)[-1]
+    if "/" not in path and "#" not in path:
+        return None  # locals and malformed tails have no descriptor path
+    if path.endswith(":") or path.endswith(")"):
+        return None  # module init / parameter descriptors
+    segments = path.rstrip(".").split("#")
+    head = [c for c in segments[0].split("/") if c]
+    if not head or (len(segments) == 1 and len(head) < 2):
+        return None  # a bare name with no module cannot be attributed
+    if len(segments) == 1:
+        # Top-level symbol: the module path is everything before the name.
+        # Without ``()`` it is a module-level assignment, not a symbol node.
+        if not head[-1].endswith("()"):
+            return None
+        scope, name = [], head[-1].removesuffix("()")
+    elif len(segments) == 2 and not segments[1]:
+        # Class form ``lib/Worker#``: the head's last component is the name.
+        scope, name = [], head[-1]
+    else:
+        # ``#``-member: without ``()`` it is an attribute/field — the
+        # codegraph materializes classes, functions and methods, never
+        # attribute nodes, so those are non-joinable descriptors.
+        if not segments[-1].endswith("()"):
+            return None
+        scope = [head[-1], *(c for seg in segments[1:-1] for c in seg.split("/") if c)]
+        name = segments[-1].removesuffix("()")
+    if not name:
         return None
-    # Strip SCIP disambiguator suffixes: ``()`` (empty params) / ``(a, b)``
-    # parameter lists / the trailing ``.`` accessor.
-    path = path.split("(", 1)[0].rstrip(".")
-    if not path:
-        return None
-    return {"file": file_marker.strip(), "path": path}
+    return {"file": "", "path": ".".join([*scope, name])}
 
 
 def _node_simple_name(path: str) -> str:
@@ -281,6 +323,7 @@ def join_occurrences(index: Any, nodes_by_file: dict[str, list[Any]]) -> Precise
 
     # Pass 1: definition-role occurrences → node ids, unique-match only.
     definition_keys: dict[str, str] = {}
+    definition_symbols: set[str] = set()
     unjoined = 0
     for document in index.documents:
         relative_path = _norm_rel(getattr(document, "relative_path", ""))
@@ -290,6 +333,11 @@ def join_occurrences(index: Any, nodes_by_file: dict[str, list[Any]]) -> Precise
             if not (occurrence.symbol_roles & SCIP_SYMBOL_ROLE_DEFINITION):
                 continue
             parts = python_symbol_to_parts(occurrence.symbol)
+            if parts is None:
+                # Non-joinable descriptor (module init, parameter, local):
+                # absence by construction, not a join failure — uncounted.
+                continue
+            definition_symbols.add(occurrence.symbol)
             node_id = (
                 _unique_join(parts, nodes, kinds.get(occurrence.symbol), chain_for)
                 if parts is not None
@@ -301,12 +349,19 @@ def join_occurrences(index: Any, nodes_by_file: dict[str, list[Any]]) -> Precise
             definition_keys[occurrence.symbol] = node_id
 
     # Pass 2: references → edges (both endpoints must be joinable).
+    # A reference to a symbol with NO definition anywhere in the index is
+    # out-of-corpus evidence (builtins, stdlib, site-packages): not joinable
+    # by design, so it is neither resolved nor unjoined — counting stdlib
+    # mentions as join failures would drown the metric in noise.
+    defined_anywhere = set(definition_symbols)
     edges: list[tuple[str, str, str, dict[str, Any]]] = []
     seen: set[tuple[str, str]] = set()
     resolved = 0
     for document in index.documents:
         for occurrence in document.occurrences:
             if occurrence.symbol_roles & SCIP_SYMBOL_ROLE_DEFINITION:
+                continue
+            if occurrence.symbol not in defined_anywhere:
                 continue
             target_key = definition_keys.get(occurrence.symbol)
             if target_key is None:
@@ -375,13 +430,20 @@ def _unique_join(
 def _suffix_match(nodes_by_file: dict[str, list[Any]], relative_path: str) -> list[Any]:
     """Fallback document→nodes lookup for path-spelling drift (leading dirs).
 
-    Exact normalized match first; only when that misses, a document whose
-    path ENDS WITH the indexed key (or vice versa) may bind, mirroring the
-    endswith semantics the file marker already uses.
+    Exact normalized match first; only when that misses, a key that is a
+    PATH-SEGMENT-aligned suffix of the document path (or vice versa) may
+    bind — ``./src/m.py`` ↔ ``src/m.py`` — while ``tests/lib.py`` never
+    binds ``lib.py``. Segment alignment matters: the symbols carry no file
+    marker, so this fallback is the only file binding on a drift miss and
+    a raw endswith would cross files.
     """
 
     for key, nodes in nodes_by_file.items():
-        if key and (relative_path.endswith(key) or key.endswith(relative_path)):
+        if key and (
+            relative_path.endswith("/" + key)
+            or key.endswith("/" + relative_path)
+            or key == relative_path
+        ):
             return nodes
     return []
 
