@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from victor_coding.codebase.embeddings.models import BaseEmbeddingModel
+    from victor_coding.codebase.embeddings import BaseEmbeddingModel
 
 
 class EmbeddingConfig(BaseModel):
@@ -37,7 +37,7 @@ class EmbeddingConfig(BaseModel):
     # Vector Store Configuration
     vector_store: str = Field(
         default="lancedb",
-        description="Vector store provider (lancedb, chromadb) - LanceDB recommended for performance",
+        description="Vector store provider (lancedb, proximadb) - LanceDB recommended for performance",
     )
     persist_directory: Optional[str] = Field(
         default=None,
@@ -242,6 +242,11 @@ class BaseEmbeddingProvider(ABC):
 
     def __repr__(self) -> str:
         """String representation."""
+        # Fields must exist on EmbeddingConfig — the previous spelling
+        # (provider=/model=) referenced nonexistent fields and would have
+        # raised AttributeError the first time repr was ever called.
         return (
-            f"{self.__class__.__name__}(provider={self.config.provider}, model={self.config.model})"
+            f"{self.__class__.__name__}("
+            f"vector_store={self.config.vector_store}, "
+            f"model={self.config.embedding_model_name})"
         )

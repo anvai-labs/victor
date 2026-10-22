@@ -7,16 +7,18 @@ This module combines:
 1. Generic vector storage infrastructure from victor-core (victor.storage.vector_stores)
 2. Code-specific AST-aware chunking (local to victor-coding)
 
-For new code, prefer importing directly from victor.storage.vector_stores for
-the generic embedding infrastructure:
-    from victor.storage.vector_stores import EmbeddingConfig, EmbeddingRegistry
+For new code, import the generic embedding infrastructure through the
+contracts runtime seam:
+    from victor_contracts.embeddings_runtime import EmbeddingConfig, EmbeddingRegistry
 
 The code-specific ASTAwareChunker remains in this module:
     from victor_coding.codebase.embeddings.chunker import ASTAwareChunker
 """
 
-# Re-export from victor-core for backward compatibility
-from victor.storage.vector_stores import (
+# Re-export through the contracts runtime seam for backward compatibility
+# (one implementation: victor.storage.vector_stores; verticals never import
+# victor.* directly — the boundary this module used to skirt).
+from victor_contracts.embeddings_runtime import (
     # Base classes
     BaseEmbeddingProvider,
     BaseEmbeddingModel,
