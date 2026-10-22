@@ -688,13 +688,12 @@ class VictorClient:
             return []
 
     def get_available_providers(self) -> List[str]:
-        """List available provider names."""
-        try:
-            from victor.providers import list_available_providers
-
-            return list_available_providers()
-        except Exception:
-            return ["anthropic", "openai", "ollama", "google"]
+        """List available provider names (static surface of bundled adapters)."""
+        # The historical dynamic lookup imported `list_available_providers`
+        # from victor.providers — a symbol defined nowhere in the codebase,
+        # so this path ALWAYS fell to the static list. Dead import removed
+        # (self-analysis round 1); the fallback is the real behavior.
+        return ["anthropic", "openai", "ollama", "google"]
 
     # ─────────────────────────────────────────────────────────────────────────
     # Conversation Management
