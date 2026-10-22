@@ -28,7 +28,7 @@ from victor.core.aot_manifest import AOTManifestManager
 from victor.core.container import ServiceContainer, get_container
 from victor.core.plugins.protocol import VictorPlugin
 from victor.core.registry import SingletonRegistry
-from victor.framework.entry_point_registry import get_entry_point_values
+from victor.core.entry_point_registry import get_entry_point_values
 
 if TYPE_CHECKING:
     from victor.core.plugins.context import HostPluginContext

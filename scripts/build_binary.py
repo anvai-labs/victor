@@ -92,6 +92,7 @@ def get_hidden_imports() -> list[str]:
         "victor.agent.tool_calling.adapters",
         "victor.agent.model_switcher",
         "victor.agent.change_tracker",
+        "victor.core.change_tracker",
         "victor.agent.conversation_embedding_store",
         "victor.providers",
         "victor.providers.anthropic_provider",

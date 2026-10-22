@@ -1101,7 +1101,7 @@ class ToolRegistry(BaseRegistry[str, _ToolType]):
             count = registry.discover_plugins()
             print(f"Registered {count} tool plugins")
         """
-        from victor.framework.entry_point_registry import get_entry_point_objects
+        from victor.core.entry_point_registry import get_entry_point_objects
 
         count = 0
 

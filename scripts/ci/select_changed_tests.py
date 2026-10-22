@@ -58,6 +58,58 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/integrations/api/change_tracker_ops.py": (
+        "tests/unit/architecture/test_layering_facades.py",
+        "tests/unit/agent/test_change_tracker.py",
+    ),
+    "victor/tools/plugin_registry.py": (
+        "tests/unit/architecture/test_layering_facades.py",
+        "tests/unit/agent/test_plugin_loader.py",
+        "tests/unit/agent/test_plugin_manager.py",
+    ),
+    **dict.fromkeys(
+        (
+            "victor/core/entry_point_registry.py",
+            "victor/framework/entry_point_registry.py",
+        ),
+        (
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/framework/test_entry_point_registry.py",
+            "tests/unit/framework/test_entry_point_caching.py",
+        ),
+    ),
+    **dict.fromkeys(
+        (
+            "victor/core/module_loader.py",
+            "victor/framework/module_loader.py",
+        ),
+        (
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/framework/test_module_loader.py",
+            "tests/unit/core/test_vertical_registry_reset.py",
+        ),
+    ),
+    **dict.fromkeys(
+        (
+            "victor/core/trace_context.py",
+            "victor/runtime/trace_context.py",
+        ),
+        (
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/runtime/test_trace_context.py",
+        ),
+    ),
+    **dict.fromkeys(
+        (
+            "victor/core/change_tracker.py",
+            "victor/agent/change_tracker.py",
+        ),
+        (
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/agent/test_change_tracker.py",
+            "tests/unit/tools/test_file_editor_tool.py",
+        ),
+    ),
     **dict.fromkeys(
         (
             "victor/agent/request_scope_heuristics.py",

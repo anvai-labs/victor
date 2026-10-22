@@ -350,7 +350,7 @@ async def patch(
             "success": False,
             "error": "patch_content required for 'apply' operation",
         }
-    from victor.agent.change_tracker import ChangeType, get_change_tracker
+    from victor.core.change_tracker import ChangeType, get_change_tracker
 
     # Parse the patch
     try:

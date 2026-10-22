@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 def undo_last_change() -> Dict[str, Any]:
     """Undo the last tracked change and return a response payload."""
-    from victor.agent.change_tracker import get_change_tracker
+    from victor.core.change_tracker import get_change_tracker
 
     tracker = get_change_tracker()
     success, message, files = tracker.undo()
@@ -16,7 +16,7 @@ def undo_last_change() -> Dict[str, Any]:
 
 def redo_last_change() -> Dict[str, Any]:
     """Redo the last undone change and return a response payload."""
-    from victor.agent.change_tracker import get_change_tracker
+    from victor.core.change_tracker import get_change_tracker
 
     tracker = get_change_tracker()
     success, message, files = tracker.redo()
@@ -25,7 +25,7 @@ def redo_last_change() -> Dict[str, Any]:
 
 def change_history(limit: int) -> Dict[str, Any]:
     """Return change history limited to the requested number of entries."""
-    from victor.agent.change_tracker import get_change_tracker
+    from victor.core.change_tracker import get_change_tracker
 
     tracker = get_change_tracker()
     history = tracker.get_history(limit=limit)

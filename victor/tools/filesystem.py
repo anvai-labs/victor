@@ -2303,7 +2303,7 @@ async def write(
         except PermissionError as pe:
             return {"success": False, "path": path, "error": str(pe)}
 
-        from victor.agent.change_tracker import ChangeType, get_change_tracker
+        from victor.core.change_tracker import ChangeType, get_change_tracker
 
         tracker = get_change_tracker()
         change_type = ChangeType.MODIFY if existed_before else ChangeType.CREATE

@@ -1001,7 +1001,7 @@ class VerticalRegistry:
             return discovered
 
         # Direct entry point scan
-        from victor.framework.entry_point_registry import get_entry_point_registry
+        from victor.core.entry_point_registry import get_entry_point_registry
 
         registry = get_entry_point_registry()
         group_obj = registry.get_group(cls.ENTRY_POINT_GROUP)
@@ -1190,7 +1190,7 @@ class VerticalRegistry:
             pass
 
         try:
-            from victor.framework.module_loader import get_entry_point_cache
+            from victor.core.module_loader import get_entry_point_cache
 
             get_entry_point_cache().invalidate(cls.ENTRY_POINT_GROUP)
             get_entry_point_cache().invalidate("victor.plugins")

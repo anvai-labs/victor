@@ -738,7 +738,7 @@ def bootstrap_capabilities() -> None:
     #    framework/SDK groups to bridge older packages during migration.
     #    Uses UnifiedEntryPointRegistry for single-pass lazy scanning.
     try:
-        from victor.framework.entry_point_registry import (
+        from victor.core.entry_point_registry import (
             CAPABILITY_ENTRY_POINT_GROUPS,
             get_entry_point_registry,
         )

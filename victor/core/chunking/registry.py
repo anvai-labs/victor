@@ -86,7 +86,7 @@ class ChunkingRegistry:
         import logging
 
         try:
-            from victor.framework.entry_point_registry import get_entry_point_registry
+            from victor.core.entry_point_registry import get_entry_point_registry
 
             registry = get_entry_point_registry()
             group_obj = registry.get_group("victor.chunking_strategies")
