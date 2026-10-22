@@ -130,7 +130,7 @@ def _get_rl_hooks():
     global _rl_hooks
     if _rl_hooks is None:
         try:
-            from victor.framework.rl.hooks import get_rl_hooks
+            from victor.core.rl.hooks import get_rl_hooks
 
             _rl_hooks = get_rl_hooks()
         except ImportError:
@@ -2256,7 +2256,7 @@ class SemanticToolSelector:
             return
 
         try:
-            from victor.framework.rl.hooks import RLEvent, RLEventType
+            from victor.core.rl.hooks import RLEvent, RLEventType
 
             # Calculate selection quality metrics
             avg_score = (

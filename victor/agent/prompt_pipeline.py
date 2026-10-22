@@ -1172,7 +1172,7 @@ class UnifiedPromptPipeline:
     def _emit_prompt_used_event(self, prompt: str) -> None:
         """Emit PROMPT_USED event for RL prompt template learner."""
         try:
-            from victor.framework.rl.hooks import get_rl_hooks, RLEvent, RLEventType
+            from victor.core.rl.hooks import get_rl_hooks, RLEvent, RLEventType
 
             hooks = get_rl_hooks()
             if hooks is None:

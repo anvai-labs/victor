@@ -722,12 +722,12 @@ class TestGroundingEventEmission:
         with patch.dict(
             "sys.modules",
             {
-                "victor.framework.rl.hooks": MagicMock(),
+                "victor.core.rl.hooks": MagicMock(),
             },
         ):
             import sys
 
-            mock_hooks_module = sys.modules["victor.framework.rl.hooks"]
+            mock_hooks_module = sys.modules["victor.core.rl.hooks"]
             mock_hooks = MagicMock()
             mock_hooks_module.get_rl_hooks.return_value = mock_hooks
             mock_hooks_module.RLEvent = MagicMock()
@@ -746,12 +746,12 @@ class TestGroundingEventEmission:
         with patch.dict(
             "sys.modules",
             {
-                "victor.framework.rl.hooks": MagicMock(),
+                "victor.core.rl.hooks": MagicMock(),
             },
         ):
             import sys
 
-            mock_hooks_module = sys.modules["victor.framework.rl.hooks"]
+            mock_hooks_module = sys.modules["victor.core.rl.hooks"]
             mock_hooks_module.get_rl_hooks.return_value = None
             mock_hooks_module.RLEvent = MagicMock()
             mock_hooks_module.RLEventType = MagicMock()
@@ -768,12 +768,12 @@ class TestGroundingEventEmission:
         with patch.dict(
             "sys.modules",
             {
-                "victor.framework.rl.hooks": MagicMock(),
+                "victor.core.rl.hooks": MagicMock(),
             },
         ):
             import sys
 
-            mock_hooks_module = sys.modules["victor.framework.rl.hooks"]
+            mock_hooks_module = sys.modules["victor.core.rl.hooks"]
             mock_hooks_module.get_rl_hooks.side_effect = Exception("Hook error")
 
             # Should not raise, just log

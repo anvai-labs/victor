@@ -51,6 +51,7 @@ MOVES = [
     ("victor.framework.task_types", "victor.core.task_types"),
     ("victor.framework.loop.guards", "victor.agent.loop_guards"),
     ("victor.framework.perception_integration", "victor.agent.perception_integration"),
+    ("victor.framework.rl.hooks", "victor.core.rl.hooks"),
 ]
 
 # Lower-layer modules retargeted to the new homes (module-level imports).
@@ -86,6 +87,9 @@ RETARGETED = [
     "victor.agent.query_classifier",
     "victor.agent.continuation_strategy",
     "victor.agent.services.runtime_intelligence",
+    "victor.storage.cache.tiered_cache",
+    "victor.teams.mixins.rl",
+    "victor.agent.mode_controller",
 ]
 
 
@@ -248,3 +252,45 @@ def test_loop_guards_contextvar_reaches_the_perception_hook():
     finally:
         old._CURRENT_GUARDS.reset(token)
     assert calls == [1]
+
+
+def test_rl_hook_registry_singleton_is_shared_with_the_coordinator_wiring():
+    """RLCoordinator wires itself in through the old framework path; emitters
+    (caches, selectors, runtime) now import the core path. One registry."""
+    import victor.framework.rl.hooks as old
+    from victor.core.rl import hooks as new
+
+    new.reset_rl_hooks()
+    try:
+        coordinator = mock.Mock(is_closed=False)
+        registry = old.get_rl_hooks(coordinator=coordinator)
+        assert new.get_rl_hooks() is registry
+        assert registry._coordinator is coordinator
+        assert old.RLEventType is new.RLEventType and old.RLEvent is new.RLEvent
+    finally:
+        new.reset_rl_hooks()
+
+
+def test_no_sys_modules_seam_is_keyed_on_a_facade_path():
+    """``patch.dict(sys.modules, {old_path: fake})`` cannot reach moved code.
+
+    The alias facade makes old-path ``mock.patch`` targets work, but a fake
+    injected under the OLD key in sys.modules is never imported by code that
+    now imports the new path, so the test silently stops exercising anything.
+    Key such seams on the new module path.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    old_paths = {old for old, _ in MOVES}
+    offenders = []
+    for path in (root / "tests").rglob("*.py"):
+        if path.name == Path(__file__).name:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if "sys.modules" not in text:
+            continue
+        for old in old_paths:
+            if f'"{old}"' in text or f"'{old}'" in text:
+                offenders.append(f"{path.relative_to(root)}: {old}")
+    assert offenders == [], offenders

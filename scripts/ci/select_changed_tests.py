@@ -58,6 +58,33 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/agent/mode_controller.py": (
+        "tests/unit/rl/test_mode_transition_learner.py",
+        "tests/unit/tools/test_tool_access_controller.py",
+        "tests/unit/architecture/test_layering_facades.py",
+    ),
+    "victor/agent/orchestrator_integration.py": (
+        "tests/unit/agent/test_orchestrator_intelligent_hooks.py",
+        "tests/unit/architecture/test_layering_facades.py",
+    ),
+    **dict.fromkeys(
+        (
+            "victor/core/rl/__init__.py",
+            "victor/core/rl/hooks.py",
+            "victor/framework/rl/hooks.py",
+        ),
+        (
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/storage/cache/test_tiered_cache.py",
+            "tests/unit/teams/test_rl_mixin.py",
+            "tests/unit/agent/test_tool_executor_rl_emit.py",
+            "tests/unit/agent/test_runtime_intelligence_pipeline.py",
+            "tests/unit/agent/services/test_e3tir_integration.py",
+            "tests/unit/agent/services/test_prompt_optimization_reward.py",
+            "tests/unit/core/test_wiring_integration.py",
+            "tests/unit/framework/rl/test_prompt_optimizer.py",
+        ),
+    ),
     **dict.fromkeys(
         (
             "victor/core/task/protocols.py",

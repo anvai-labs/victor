@@ -71,7 +71,7 @@ def emit_prompt_candidate_outcome(
         return
     success = reward_success_from_score(completion_score)
     try:
-        from victor.framework.rl.hooks import RLEvent, RLEventType, get_rl_hooks
+        from victor.core.rl.hooks import RLEvent, RLEventType, get_rl_hooks
 
         hooks = get_rl_hooks()
     except Exception:
