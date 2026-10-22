@@ -89,6 +89,7 @@ rag_stats = "victor_rag.tools.management:RAGStatsTool"
 [tool.setuptools]
 packages = [
     "victor_rag",
+    "victor_rag.capabilities",
     "victor_rag.tools",
     "victor_rag.ui",
     "victor_rag.workflows",
