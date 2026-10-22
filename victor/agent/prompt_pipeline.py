@@ -58,7 +58,7 @@ from victor.agent.control_plane import (
     mint_channel_nonce,
     wrap_guidance,
 )
-from victor.framework.request_scope_heuristics import (
+from victor.agent.request_scope_heuristics import (
     contains_keyword_marker,
     has_ambiguous_target_reference,
 )

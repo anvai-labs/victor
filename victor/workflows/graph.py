@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, TYPE_CHECKING
 
-from victor.framework.graph_algorithms import detect_cycle, find_reachable
+from victor.core.graph_algorithms import detect_cycle, find_reachable
 from victor.workflows.protocols import (
     ProtocolNodeStatus,
     RetryPolicy,
