@@ -319,7 +319,7 @@ class StreamingChatExecutor:
             return ""
 
         if user_message:
-            from victor.framework.task.direct_response import (
+            from victor.core.task.direct_response import (
                 normalize_direct_response_output,
             )
 

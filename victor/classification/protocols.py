@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 # Re-export core protocols from framework
-from victor.framework.task.protocols import (
+from victor.core.task.protocols import (
     TaskClassification,
     TaskClassifierProtocol,
     TaskBudgetProviderProtocol,

@@ -923,7 +923,7 @@ class TaskCompletionDetector:
         """
         try:
             from victor.framework.task.complexity import ComplexityBudget
-            from victor.framework.task.protocols import TaskComplexity
+            from victor.core.task.protocols import TaskComplexity
 
             complexity_enum = TaskComplexity(complexity.lower())
             budget = ComplexityBudget.for_complexity(complexity_enum)

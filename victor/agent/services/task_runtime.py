@@ -192,7 +192,7 @@ class TaskCoordinator:
             TaskComplexity,
             DEFAULT_BUDGETS,
         )
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )
 
@@ -417,7 +417,7 @@ class TaskCoordinator:
             has_explicit_readonly_shell_request,
             split_continuation_request,
         )
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )
 

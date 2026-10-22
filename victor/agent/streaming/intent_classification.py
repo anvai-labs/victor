@@ -413,7 +413,7 @@ class IntentClassificationHandler:
                 from victor.agent.action_authorizer import (
                     has_explicit_readonly_shell_request,
                 )
-                from victor.framework.task.direct_response import (
+                from victor.core.task.direct_response import (
                     classify_direct_response_prompt,
                 )
 
@@ -493,7 +493,7 @@ class IntentClassificationHandler:
         ``ContinuationDirective`` for downstream compatibility.
         """
         from victor.agent.loop_evaluation.protocol import LoopContext
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )
 

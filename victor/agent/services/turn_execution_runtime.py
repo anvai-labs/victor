@@ -1309,7 +1309,7 @@ class TurnExecutor:
             if pipeline and not getattr(pipeline, "parallel_exploration", True):
                 return False
 
-            from victor.framework.task.protocols import TaskComplexity
+            from victor.core.task.protocols import TaskComplexity
 
             complexity = getattr(task_classification, "complexity", None)
             if not force and complexity not in {
@@ -1966,7 +1966,7 @@ class TurnExecutor:
         how certain the heuristic is. Low confidence (<0.7) suggests the
         edge LLM should be consulted for refinement.
         """
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
             has_codebase_context,
         )

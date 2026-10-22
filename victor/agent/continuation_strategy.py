@@ -1020,7 +1020,7 @@ class ContinuationStrategy:
             # exact-response, direct-answer), the model is simply responding — not asking.
             upstream_intent = getattr(intent_result, "intent", None)
             if upstream_intent is not None:
-                from victor.framework.perception_integration import ActionIntent
+                from victor.agent.perception_integration import ActionIntent
 
                 if upstream_intent == ActionIntent.DISPLAY_ONLY:
                     logger.info(
