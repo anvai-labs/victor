@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-22
+
+### Added
+
+- ADR-032 tier 3 is polyglot with dump caching (full detail in the 0.14.1
+  unreleased block below, now released here): scip-python /
+  scip-typescript / rust-analyzer providers with producer-owned grammars
+  (python 143,558 compiler REFERENCES edges @ 76.9%, TypeScript 1,701 @
+  67.4%, Rust 952 @ 89.2% on this monorepo); artifacts cached under
+  `.victor/precise/` (unchanged corpus 642s → 54s; the python artifact is
+  ~336 MB on monorepo corpora — no eviction, `rm -rf` busts); honest
+  per-language accounting; provider-measured dump timeouts.
+
 ### Changed
 
 - ADR-032 tier 3.5 (retrieval-first): graph expansion now ranks edges by
