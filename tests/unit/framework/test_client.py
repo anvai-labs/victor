@@ -393,3 +393,13 @@ async def test_client_preserves_terminal_loop_verdict(success):
     assert events[0].metadata["agentic_loop_iterations"] == 2
     if not success:
         assert events[0].metadata["error"] == error
+
+
+def test_get_available_providers_returns_static_surface():
+    """The static list IS the behavior (self-analysis round 1): the historic
+    dynamic lookup imported `list_available_providers` — a symbol defined
+    nowhere in the codebase — so the try-path always excepted here."""
+    from victor.framework.client import VictorClient
+
+    client = VictorClient.__new__(VictorClient)
+    assert client.get_available_providers() == ["anthropic", "openai", "ollama", "google"]
