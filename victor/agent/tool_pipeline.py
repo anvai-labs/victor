@@ -77,7 +77,7 @@ from victor.tools.core_tool_aliases import (
     normalize_model_tool_name,
 )
 from victor.agent.safety import get_write_tool_names
-from victor.framework.approval_pause import ApprovalPause, mark_batch_publication_incomplete
+from victor.agent.approval_pause import ApprovalPause, mark_batch_publication_incomplete
 
 # Import native compute_signature for 10-20x faster signature generation
 try:
@@ -2905,13 +2905,13 @@ class ToolPipeline:
     async def _execute_single_call(
         self, tool_call: Dict[str, Any], context: Dict[str, Any]
     ) -> ToolCallResult:
-        from victor.framework.approval_binding import (
+        from victor.agent.approval_binding import (
             ApprovalCall,
             current_approval_call,
             current_approval_grant,
             proposal,
         )
-        from victor.framework.approval_pause import current_durable_pause_enabled
+        from victor.agent.approval_pause import current_durable_pause_enabled
 
         if not current_durable_pause_enabled.get() and current_approval_grant.get() is None:
             return await self._execute_single_call_inner(tool_call, context)
@@ -3035,7 +3035,7 @@ class ToolPipeline:
         normalization_applied = None if strategy == NormalizationStrategy.DIRECT else strategy.value
         steering_user_message: Optional[str] = None
 
-        from victor.framework.approval_binding import current_approval_grant
+        from victor.agent.approval_binding import current_approval_grant
 
         bound_resume = current_approval_grant.get() is not None
 
@@ -3298,7 +3298,7 @@ class ToolPipeline:
             except AttributeError as e:
                 logger.debug(f"Deduplication tracker not properly initialized: {e}")
 
-        from victor.framework.approval_binding import current_approval_call, tool_contract, digest
+        from victor.agent.approval_binding import current_approval_call, tool_contract, digest
 
         approval_call = current_approval_call.get()
         if approval_call is not None:

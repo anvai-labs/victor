@@ -61,7 +61,7 @@ from victor.coordination.formations.base import (
     TeamContext,
 )
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
-from victor.framework.approval_binding import require_complete_batch_evidence
+from victor.agent.approval_binding import require_complete_batch_evidence
 from victor.framework.member_event_sink import MemberEvent, MemberEventSink, current_member_sink
 from victor.coordination.formations import create_formation_registry
 from victor.teams.mixins.observability import ObservabilityMixin

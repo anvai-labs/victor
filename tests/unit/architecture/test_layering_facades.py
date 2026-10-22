@@ -33,6 +33,19 @@ MOVES = [
         "victor.framework.prompt_dictionary_compressor",
         "victor.agent.prompting.dictionary_compressor",
     ),
+    ("victor.framework.action_recovery", "victor.core.action_recovery"),
+    ("victor.framework.approval_binding", "victor.agent.approval_binding"),
+    ("victor.framework.approval_pause", "victor.agent.approval_pause"),
+    ("victor.framework.execution_checkpoint", "victor.agent.execution_checkpoint"),
+    ("victor.framework.hitl", "victor.agent.hitl"),
+    ("victor.framework.policies", "victor.agent.policies"),
+    ("victor.framework.policies.base", "victor.agent.policies.base"),
+    ("victor.framework.policies.builtins", "victor.agent.policies.builtins"),
+    ("victor.framework.policies.engine", "victor.agent.policies.engine"),
+    ("victor.framework.policies.gate", "victor.agent.policies.gate"),
+    ("victor.framework.policies.handlers", "victor.agent.policies.handlers"),
+    ("victor.framework.policies.middleware", "victor.agent.policies.middleware"),
+    ("victor.framework.policies.types", "victor.agent.policies.types"),
 ]
 
 # Lower-layer modules retargeted to the new homes (module-level imports).
@@ -57,6 +70,12 @@ RETARGETED = [
     "victor.agent.prompt_orchestrator",
     "victor.agent.system_prompt_policy",
     "victor.agent.services.prompt_runtime",
+    "victor.agent.action_observation",
+    "victor.agent.durable_resume",
+    "victor.agent.tool_pipeline",
+    "victor.agent.middleware_chain",
+    "victor.agent.services.planning_runtime",
+    "victor.teams.unified_coordinator",
 ]
 
 
@@ -149,3 +168,46 @@ def test_framework_public_prompt_api_is_the_moved_class():
     from victor.agent.prompting.builder import PromptBuilder
 
     assert framework.PromptBuilder is PromptBuilder
+
+
+def test_old_policies_submodule_path_never_loads_a_second_copy():
+    """A cold import of an old package-submodule path must hit the alias.
+
+    Aliasing only the package would make Python search the moved package's
+    __path__ and execute engine.py again under the old name: two PolicyEngine
+    classes, two module states. Run in a fresh interpreter so it is truly cold.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "import victor.framework.policies.engine as old\n"
+        "import victor.agent.policies.engine as new\n"
+        "assert old is new\n"
+        "files = {m.__file__ for k, m in list(sys.modules.items()) if k.endswith('policies.engine')}\n"
+        "assert len(files) == 1, files\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr[-2000:]
+
+
+def test_approval_contextvars_are_one_object_through_the_facade():
+    import victor.agent.approval_binding as new
+    import victor.framework.approval_binding as old
+
+    assert old.current_approval_call is new.current_approval_call
+    assert old.current_approval_grant is new.current_approval_grant
+    token = new.current_approval_call.set("call-1")
+    try:
+        assert old.current_approval_call.get() == "call-1"
+    finally:
+        new.current_approval_call.reset(token)
+
+
+def test_approval_pause_caught_by_old_name():
+    """Framework code catches ApprovalPause by class; both names are one class."""
+    from victor.agent.approval_pause import ApprovalPause as New
+    from victor.framework.approval_pause import ApprovalPause as Old
+
+    assert Old is New
