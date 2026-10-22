@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 # Contextual errors for better error messages
 try:
-    from victor.framework.contextual_errors import (
+    from victor.core.contextual_errors import (
         ContextualError,
         ResourceError,
         ToolExecutionError,

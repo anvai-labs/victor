@@ -1842,7 +1842,7 @@ async def shell(
 
         # When a live progress sink is active, stream stdout/stderr chunks to
         # it as they arrive so the UI shows output as it is produced.
-        from victor.framework.tool_progress import emit_tool_progress, has_progress_sink
+        from victor.core.tool_progress import emit_tool_progress, has_progress_sink
 
         _streaming_progress = has_progress_sink()
 

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     # victor.agent.__init__ -> orchestrator -> back to this module when the
     # CLI cold-start import order shifts (bites when optional deps are absent
     # and reshuffles the chain).
-    from victor.agent.tool_sequence_tracker import ToolSequenceTracker
+    from victor.tools.selection.sequence_tracker import ToolSequenceTracker
 
 # Disable tokenizers parallelism BEFORE importing sentence_transformers
 # This prevents "bad value(s) in fds_to_keep" errors in async contexts
@@ -240,7 +240,7 @@ class SemanticToolSelector:
         self._sequence_tracker: Optional[ToolSequenceTracker] = None
         if sequence_tracking:
             # Function-level: see the TYPE_CHECKING note above (import cycle).
-            from victor.agent.tool_sequence_tracker import create_sequence_tracker
+            from victor.tools.selection.sequence_tracker import create_sequence_tracker
 
             self._sequence_tracker = create_sequence_tracker()
 

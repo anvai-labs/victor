@@ -2313,7 +2313,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
     async def _run_runtime_preload(self) -> None:
         """Run feature-flagged runtime preload tasks via PreloadManager."""
-        from victor.framework.preload import (
+        from victor.agent.preload import (
             PreloadManager,
             PreloadPriority,
             preload_configuration,

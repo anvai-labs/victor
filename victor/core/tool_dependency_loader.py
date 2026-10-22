@@ -421,7 +421,7 @@ class ToolDependencyLoader:
             return name
 
         try:
-            from victor.framework.tool_naming import get_canonical_name
+            from victor.core.tool_naming import get_canonical_name
 
             return get_canonical_name(name)
         except ImportError:

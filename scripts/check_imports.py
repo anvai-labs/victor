@@ -104,7 +104,6 @@ class ImportValidator:
         # They should be moved to agent/ or use dependency injection
         "victor/tools/semantic_selector.py": {
             "allowed_imports": [
-                "victor.agent.tool_sequence_tracker",
                 "victor.agent.debug_logger",
                 "victor.agent.unified_classifier",
             ],

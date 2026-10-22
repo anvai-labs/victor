@@ -32,7 +32,7 @@ from victor.workflows.definition import (
     WorkflowDefinition,
     get_registered_workflows,
 )
-from victor.framework.tool_naming import canonicalize_tool_list, validate_tool_names
+from victor.core.tool_naming import canonicalize_tool_list, validate_tool_names
 
 logger = logging.getLogger(__name__)
 
