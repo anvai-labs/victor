@@ -26,6 +26,13 @@ MOVES = [
     ("victor.framework.module_loader", "victor.core.module_loader"),
     ("victor.runtime.trace_context", "victor.core.trace_context"),
     ("victor.agent.change_tracker", "victor.core.change_tracker"),
+    ("victor.framework.prompt_document", "victor.agent.prompting.document"),
+    ("victor.framework.prompt_sections", "victor.agent.prompting.sections"),
+    ("victor.framework.prompt_builder", "victor.agent.prompting.builder"),
+    (
+        "victor.framework.prompt_dictionary_compressor",
+        "victor.agent.prompting.dictionary_compressor",
+    ),
 ]
 
 # Lower-layer modules retargeted to the new homes (module-level imports).
@@ -46,6 +53,10 @@ RETARGETED = [
     "victor.tools.plugin_registry",
     "victor.tools.patch_tool",
     "victor.integrations.api.change_tracker_ops",
+    "victor.agent.prompt_normalizer",
+    "victor.agent.prompt_orchestrator",
+    "victor.agent.system_prompt_policy",
+    "victor.agent.services.prompt_runtime",
 ]
 
 
@@ -130,3 +141,11 @@ def test_client_change_ops_read_the_tracker_patched_through_the_old_path():
         }
         assert ops.change_history(5) == {"history": [{"id": "g1"}]}
     tracker.get_history.assert_called_once_with(limit=5)
+
+
+def test_framework_public_prompt_api_is_the_moved_class():
+    """victor.framework's lazy public export still serves PromptBuilder."""
+    import victor.framework as framework
+    from victor.agent.prompting.builder import PromptBuilder
+
+    assert framework.PromptBuilder is PromptBuilder

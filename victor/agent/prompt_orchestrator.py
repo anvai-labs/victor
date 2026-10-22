@@ -223,7 +223,7 @@ class PromptOrchestrator:
         Returns:
             System prompt string
         """
-        from victor.framework.prompt_builder import PromptBuilder
+        from victor.agent.prompting.builder import PromptBuilder
 
         builder = PromptBuilder()
 
