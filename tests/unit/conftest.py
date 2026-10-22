@@ -491,9 +491,9 @@ def reset_change_tracker():
     yield
     import sys
 
-    if "victor.agent.change_tracker" in sys.modules:
+    if "victor.core.change_tracker" in sys.modules:
         try:
-            from victor.agent.change_tracker import reset_change_tracker
+            from victor.core.change_tracker import reset_change_tracker
 
             reset_change_tracker()
         except (ImportError, AttributeError):

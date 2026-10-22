@@ -202,7 +202,7 @@ class HostPluginContext(PluginContext):
         # Cached to avoid redundant scanning when multiple verticals register
         if vertical_name:
             try:
-                from victor.framework.entry_point_registry import (
+                from victor.core.entry_point_registry import (
                     CAPABILITY_ENTRY_POINT_GROUPS,
                     get_entry_point_registry,
                 )

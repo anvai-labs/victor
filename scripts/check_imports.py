@@ -109,18 +109,6 @@ class ImportValidator:
             ],
             "reason": "TECH DEBT: Should use DI or move to agent/",
         },
-        "victor/tools/filesystem.py": {
-            "allowed_imports": ["victor.agent.change_tracker"],
-            "reason": "TECH DEBT: Should use DI or move change_tracker to core/",
-        },
-        "victor/tools/file_editor_tool.py": {
-            "allowed_imports": ["victor.agent.change_tracker"],
-            "reason": "TECH DEBT: Should use DI or move change_tracker to core/",
-        },
-        "victor/tools/patch_tool.py": {
-            "allowed_imports": ["victor.agent.change_tracker"],
-            "reason": "TECH DEBT: Should use DI or move change_tracker to core/",
-        },
     }
 
     def __init__(self, project_root: Path, strict: bool = False):

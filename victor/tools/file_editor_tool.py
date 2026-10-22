@@ -877,7 +877,7 @@ async def edit(
             "operations_applied": 0,
         }
 
-    from victor.agent.change_tracker import ChangeType, get_change_tracker
+    from victor.core.change_tracker import ChangeType, get_change_tracker
     from victor.config.settings import get_project_paths
 
     # Initialize editor
