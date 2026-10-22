@@ -126,6 +126,27 @@ RELATED_TESTS = {
         ),
     ),
     **dict.fromkeys(
+        (
+            "victor/agent/protocols/streaming_protocols.py",
+            "victor/agent/protocols/provider_protocols.py",
+            "victor/agent/protocols/tool_protocols.py",
+            "victor/agent/protocols/__init__.py",
+            "victor/agent/coordinators/__init__.py",
+            "victor/agent/services/protocols/__init__.py",
+            "victor/agent/services/protocols/recovery_service.py",
+            "victor/agent/services/protocols/session_service.py",
+            "victor/agent/services/protocols/provider_service.py",
+            "victor/agent/services/protocols/context_service.py",
+            "victor/agent/provider_tool_guidance.py",
+        ),
+        (
+            "tests/unit/agent/services/test_protocols.py",
+            "tests/unit/agent/test_orchestrator_di.py",
+            "tests/unit/agent/test_chat_protocols.py",
+            "tests/unit/agent/test_runtime_protocol_legacy_import_guard.py",
+        ),
+    ),
+    **dict.fromkeys(
         ("victor/core/database.py", "victor/core/schema.py", "victor/core/migrations.py"),
         (
             "tests/unit/core/test_schema_version_migration.py",

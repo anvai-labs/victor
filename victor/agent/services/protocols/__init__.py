@@ -78,7 +78,6 @@ from victor.agent.services.protocols.runtime_support import (
     ToolPlanningRuntimeProtocol,
 )
 from victor.agent.services.protocols.session_service import SessionServiceProtocol
-from victor.agent.services.protocols.session_ledger import SessionLedgerProtocol
 from victor.agent.services.protocols.streaming_runtime import (
     StreamingChunkRuntimeProtocol,
     StreamingConversationStateProtocol,
@@ -113,7 +112,6 @@ __all__ = [
     "ReminderManagerProtocol",
     "RecoveryServiceProtocol",
     "ResponseSanitizerProtocol",
-    "SessionLedgerProtocol",
     "SessionServiceProtocol",
     "StreamingChunkRuntimeProtocol",
     "StreamingConfidenceMonitorProtocol",

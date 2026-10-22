@@ -34,7 +34,6 @@ _MODULE_MEMBERS = {
         "ToolSelectorFeatures",
         "ToolRegistryProtocol",
         "ToolSelectorProtocol",
-        "ToolPipelineProtocol",
         "ToolExecutorProtocol",
         "ToolCacheProtocol",
         "ToolRegistrarProtocol",
@@ -62,8 +61,6 @@ _MODULE_MEMBERS = {
         "IEmbeddingManager",
     ],
     "streaming_protocols": [
-        "StreamingToolChunk",
-        "StreamingToolAdapterProtocol",
         "StreamingControllerProtocol",
         "StreamingCoordinatorProtocol",
         "StreamingRecoveryCoordinatorProtocol",
@@ -73,7 +70,6 @@ _MODULE_MEMBERS = {
         "StreamingConfidenceMonitorProtocol",
     ],
     "provider_protocols": [
-        "ProviderManagerProtocol",
         "ProviderRegistryProtocol",
         "IProviderHealthMonitor",
         "IProviderSwitcher",
