@@ -106,25 +106,15 @@ async def cleanup_event_bus_tasks():
     Prevents pytest hangs from fire-and-forget coroutines created by
     ObservabilityBus.emit_metric(). This fixture runs automatically
     after every test to ensure proper cleanup.
+
+    One scheduler pass lets ready callbacks run before the loop closes; the
+    function-scoped ``asyncio.Runner`` then cancels and drains whatever is
+    still pending. Do NOT add a per-test ``gc.collect()`` here: a full
+    collection over the suite's heap cost ~1.2s per test on CI runners
+    (~95% of all unit-shard wall time) and never cancelled a task.
     """
     yield
-
-    # Cleanup after test
-    try:
-        from victor.core.events.backends import ObservabilityBus
-
-        # Try to get the global bus instance if it exists
-        # Note: ObservabilityBus is typically accessed via get_observability_bus()
-        # We'll attempt to clean up any background tasks
-        import gc
-
-        # Force garbage collection to trigger any pending cleanups
-        gc.collect()
-
-        # Small delay to allow event loop to process remaining tasks
-        await asyncio.sleep(0.01)
-    except ImportError:
-        pass  # ObservabilityBus not available in this test context
+    await asyncio.sleep(0)
 
 
 def pytest_collection_modifyitems(config, items):
