@@ -26,6 +26,7 @@
 //! - For 384-dim embeddings: 1.5KB → 384 bytes per vector
 
 use pyo3::prelude::*;
+use pyo3::PyRef;
 use rayon::prelude::*;
 use wide::f32x8;
 
@@ -123,6 +124,16 @@ pub struct QuantizedEmbedding {
     pub scale: f32,
     #[pyo3(get)]
     pub zero_point: i8,
+}
+
+// pyo3 0.30 removed the blanket by-value FromPyObject for pyclass types.
+impl<'a> pyo3::FromPyObject<'a, '_> for QuantizedEmbedding {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, '_, pyo3::PyAny>) -> Result<Self, Self::Error> {
+        let borrowed: PyRef<'_, Self> = ob.extract()?;
+        Ok(Self::clone(&borrowed))
+    }
 }
 
 #[pymethods]

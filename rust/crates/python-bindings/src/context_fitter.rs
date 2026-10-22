@@ -21,6 +21,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::PyRef;
 
 // ---------------------------------------------------------------------------
 // Token estimation heuristic
@@ -59,6 +60,17 @@ pub struct MessageSlot {
     /// Recency score (0.0 = oldest, 1.0 = newest)
     #[pyo3(get)]
     pub recency: f32,
+}
+
+// pyo3 0.30 removed the blanket by-value FromPyObject for pyclass types:
+// accept instances by extracting a PyRef and cloning out of it.
+impl<'a> pyo3::FromPyObject<'a, '_> for MessageSlot {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, '_, pyo3::PyAny>) -> Result<Self, Self::Error> {
+        let borrowed: PyRef<'_, Self> = ob.extract()?;
+        Ok(Self::clone(&borrowed))
+    }
 }
 
 #[pymethods]
