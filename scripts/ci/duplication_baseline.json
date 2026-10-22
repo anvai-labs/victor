@@ -1,7 +1,7 @@
 {
   "jscpd": "5.4.2",
   "updated": "2026-10-22",
-  "total_lines": 983352,
-  "duplicated_lines": 13671,
-  "clones": 531
+  "total_lines": 981194,
+  "duplicated_lines": 11407,
+  "clones": 522
 }
