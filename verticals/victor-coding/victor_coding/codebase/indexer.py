@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 from pydantic import BaseModel, Field
 from tree_sitter import Query
 
-from victor_coding.codebase.graph.protocol import GraphEdge, GraphNode
+from victor_coding.codebase.graph import GraphEdge, GraphNode
 from victor_coding.codebase.tree_sitter_extractor import TreeSitterExtractor
 from victor_coding.codebase.unified_extractor import (
     UnifiedSymbolExtractor,
@@ -59,7 +59,7 @@ from victor_contracts.utils.ast_helpers import (
 
 if TYPE_CHECKING:
     from victor_coding.codebase.embeddings.base import BaseEmbeddingProvider
-    from victor_coding.codebase.graph.protocol import GraphStoreProtocol
+    from victor_contracts.verticals.protocols.storage import GraphStoreProtocol
 
 
 logger = logging.getLogger(__name__)
