@@ -498,7 +498,7 @@ You have access to 45+ tools. Use them efficiently to accomplish tasks."""
             def _load_editor():
                 import importlib
 
-                mod = importlib.import_module("victor_coding.editing.editor")
+                mod = importlib.import_module("victor_coding.editing")
                 return mod.FileEditor()
 
             registrations.append((EditorProtocol, create_lazy_capability_proxy(_load_editor)))
