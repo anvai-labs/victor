@@ -9,7 +9,7 @@
  */
 
 import * as vscode from 'vscode';
-import { getProviders } from './extension';
+import { getProviders } from './providerAccessor';
 
 interface VictorSettings {
     provider: string;
