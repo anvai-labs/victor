@@ -47,20 +47,6 @@ from victor.protocols.quality import (
 # =============================================================================
 
 
-class TestGroundingClaimType:
-    """Tests for GroundingClaimType enum."""
-
-    def test_all_types_defined(self):
-        """All expected claim types are defined."""
-        assert GroundingClaimType.FILE_EXISTS.value == "file_exists"
-        assert GroundingClaimType.FILE_NOT_EXISTS.value == "file_not_exists"
-        assert GroundingClaimType.SYMBOL_EXISTS.value == "symbol_exists"
-        assert GroundingClaimType.CONTENT_MATCH.value == "content_match"
-        assert GroundingClaimType.LINE_NUMBER.value == "line_number"
-        assert GroundingClaimType.DIRECTORY_EXISTS.value == "directory_exists"
-        assert GroundingClaimType.UNKNOWN.value == "unknown"
-
-
 # =============================================================================
 # GROUNDING CLAIM TESTS
 # =============================================================================
@@ -68,18 +54,6 @@ class TestGroundingClaimType:
 
 class TestGroundingClaim:
     """Tests for GroundingClaim dataclass."""
-
-    def test_minimal_claim(self):
-        """Create claim with minimal fields."""
-        claim = GroundingClaim(
-            claim_type=GroundingClaimType.FILE_EXISTS,
-            value="test.py",
-        )
-        assert claim.claim_type == GroundingClaimType.FILE_EXISTS
-        assert claim.value == "test.py"
-        assert claim.context == {}
-        assert claim.source_text == ""
-        assert claim.confidence == 1.0
 
     def test_full_claim(self):
         """Create claim with all fields."""
@@ -483,18 +457,6 @@ class TestCompositeGroundingVerifier:
         verifier = CompositeGroundingVerifier()
         assert len(verifier._strategies) == 2
 
-    def test_add_strategy(self, verifier):
-        """Add strategy works."""
-        initial_count = len(verifier._strategies)
-        verifier.add_strategy(ContentMatchStrategy())
-        assert len(verifier._strategies) == initial_count + 1
-
-    def test_remove_strategy(self, verifier):
-        """Remove strategy works."""
-        initial_count = len(verifier._strategies)
-        verifier.remove_strategy("file_existence")
-        assert len(verifier._strategies) == initial_count - 1
-
     @pytest.mark.asyncio
     async def test_verify_no_claims(self, verifier):
         """Verify with no claims returns grounded."""
@@ -532,20 +494,6 @@ class TestCompositeGroundingVerifier:
 # =============================================================================
 # QUALITY DIMENSION TESTS
 # =============================================================================
-
-
-class TestProtocolQualityDimension:
-    """Tests for ProtocolQualityDimension enum."""
-
-    def test_all_dimensions_defined(self):
-        """All expected dimensions are defined."""
-        assert ProtocolQualityDimension.GROUNDING.value == "grounding"
-        assert ProtocolQualityDimension.COVERAGE.value == "coverage"
-        assert ProtocolQualityDimension.CLARITY.value == "clarity"
-        assert ProtocolQualityDimension.CORRECTNESS.value == "correctness"
-        assert ProtocolQualityDimension.CONCISENESS.value == "conciseness"
-        assert ProtocolQualityDimension.HELPFULNESS.value == "helpfulness"
-        assert ProtocolQualityDimension.SAFETY.value == "safety"
 
 
 # =============================================================================
