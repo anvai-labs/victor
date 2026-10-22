@@ -5,7 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- ADR-032 tier-3 dump artifacts now cache on disk (`.victor/precise/`):
+  one artifact per provider keyed by tool identity + that language's file
+  content hashes — an unchanged corpus reuses the (potentially
+  minutes-scale) dump across harvests, and editing one language's files
+  re-dumps only that language. Atomic, process-unique writes (a raced
+  fixed tmp name once persisted a truncated artifact that parsed as a
+  valid EMPTY index — now structurally impossible); a zero-byte artifact
+  is never cached; a schema bump or `rm -rf .victor/precise` busts
+  everything. Note: the python artifact is ~336 MB on a monorepo-scale
+  corpus (no eviction yet — the tier is opt-in). Measured on this
+  monorepo: an unchanged-corpus harvest drops 642s → 54s (~12x) with
+  identical edge counts across runs.
+
 ### Changed
+
+- Dump timeouts are provider-measured defaults (python/pyright 1200s,
+  typescript 600s, rust-analyzer 120s) instead of one flat 1200s;
+  `precise_index_timeout_seconds = 0` (new default) selects them, a
+  positive value overrides uniformly.
 
 - ADR-032 tier-3 harvest accounting is decomposed and honest: documents
   whose file has no codegraph node bucket are out-of-corpus-by-codegraph

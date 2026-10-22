@@ -733,3 +733,69 @@ async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
         assert harvest.edges[0][3]["provenance"] == "compiler"
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_harvest_reuses_cached_dump_on_second_run(tmp_path, monkeypatch):
+    """Dump once, reuse forever while the language's file set is unchanged:
+    the second harvest makes no dump call and its outcome says so."""
+    pytest.importorskip("victor_codegraph")
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag import precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n\n\ndef g():\n    return f()\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider,
+        "detect",
+        lambda self, hint="auto": "/usr/bin/scip-python",
+    )
+
+    calls = []
+
+    def fake_dump(self, tool, root, output_path, *, timeout_seconds):
+        calls.append(output_path)
+        from victor.core.graph_rag._scip import scip_pb2
+
+        index = scip_pb2.Index()
+        doc = index.documents.add()
+        doc.relative_path = "m.py"
+        for symbol, line, roles in (
+            ("scip-python python m 0.1.0 m/f().", 0, 1),
+            ("scip-python python m 0.1.0 m/g().", 4, 1),
+            ("scip-python python m 0.1.0 m/f().", 5, 0),
+        ):
+            occ = doc.occurrences.add()
+            occ.symbol = symbol
+            occ.symbol_roles = roles
+            occ.range.extend([line, 0])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(index.SerializeToString())
+        return output_path
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", fake_dump)
+
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()  # harvests once internally: the one dump
+        assert len(calls) == 1
+        # A second harvest (any later run, unchanged corpus) reuses the
+        # artifact: no further dump call, outcome says cached, edges equal.
+        second = await pipeline._harvest_precise_index(tmp_path)
+        assert len(calls) == 1
+        assert second.per_language["scip-python"].endswith("[cached dump]")
+        assert len(second.edges) == 1
+    finally:
+        await store.close()
