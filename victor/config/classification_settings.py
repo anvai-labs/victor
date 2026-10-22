@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from victor.agent.services.classification_backend import ClassificationBackend
+from victor.config.classification_backend import ClassificationBackend
 
 
 class ClassificationSettings(BaseModel):

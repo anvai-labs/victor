@@ -458,7 +458,7 @@ def get_sandbox_path() -> Optional[Path]:
         Path to sandbox directory if in restricted mode, None if unrestricted.
     """
     try:
-        from victor.agent.mode_controller import get_mode_controller
+        from victor.core.mode_controller import get_mode_controller
 
         controller = get_mode_controller()
         config = controller.config
@@ -494,7 +494,7 @@ def enforce_sandbox_path(file_path: Path) -> None:
     if policy is not None:
         if not policy.allows(file_path):
             try:
-                from victor.agent.mode_controller import get_mode_controller
+                from victor.core.mode_controller import get_mode_controller
 
                 mode = get_mode_controller().current_mode.value.upper()
             except Exception:
@@ -518,7 +518,7 @@ def enforce_sandbox_path(file_path: Path) -> None:
         file_path.resolve().relative_to(sandbox.resolve())
     except ValueError:
         try:
-            from victor.agent.mode_controller import get_mode_controller
+            from victor.core.mode_controller import get_mode_controller
 
             mode = get_mode_controller().current_mode.value.upper()
         except Exception:

@@ -21,7 +21,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
-from victor.agent.services.decision_backend import DecisionBackend
+from victor.config.decision_backend import DecisionBackend
 
 
 def _env_bool(name: str, default: bool) -> bool:
