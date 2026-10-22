@@ -24,6 +24,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::PyRef;
 use victor_protocol::{Message, Role, StreamChunk, ToolCall, Usage};
 
 // =============================================================================
@@ -38,6 +39,16 @@ pub enum PyRole {
     User,
     Assistant,
     Tool,
+}
+
+// pyo3 0.30 removed the blanket by-value FromPyObject for pyclass types.
+impl<'a> pyo3::FromPyObject<'a, '_> for PyRole {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, '_, pyo3::PyAny>) -> Result<Self, Self::Error> {
+        let borrowed: PyRef<'_, Self> = ob.extract()?;
+        Ok(*borrowed)
+    }
 }
 
 impl From<Role> for PyRole {
@@ -214,6 +225,16 @@ pub struct PyMessage {
     inner: Message,
 }
 
+// pyo3 0.30 removed the blanket by-value FromPyObject for pyclass types.
+impl<'a> pyo3::FromPyObject<'a, '_> for PyMessage {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, '_, pyo3::PyAny>) -> Result<Self, Self::Error> {
+        let borrowed: PyRef<'_, Self> = ob.extract()?;
+        Ok(Self::clone(&borrowed))
+    }
+}
+
 impl From<Message> for PyMessage {
     fn from(m: Message) -> Self {
         Self { inner: m }
@@ -304,6 +325,16 @@ impl PyMessage {
 #[derive(Clone)]
 pub struct PyStreamChunk {
     inner: StreamChunk,
+}
+
+// pyo3 0.30 removed the blanket by-value FromPyObject for pyclass types.
+impl<'a> pyo3::FromPyObject<'a, '_> for PyStreamChunk {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, '_, pyo3::PyAny>) -> Result<Self, Self::Error> {
+        let borrowed: PyRef<'_, Self> = ob.extract()?;
+        Ok(Self::clone(&borrowed))
+    }
 }
 
 impl From<StreamChunk> for PyStreamChunk {
