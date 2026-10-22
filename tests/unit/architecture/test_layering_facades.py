@@ -46,6 +46,11 @@ MOVES = [
     ("victor.framework.policies.handlers", "victor.agent.policies.handlers"),
     ("victor.framework.policies.middleware", "victor.agent.policies.middleware"),
     ("victor.framework.policies.types", "victor.agent.policies.types"),
+    ("victor.framework.task.protocols", "victor.core.task.protocols"),
+    ("victor.framework.task.direct_response", "victor.core.task.direct_response"),
+    ("victor.framework.task_types", "victor.core.task_types"),
+    ("victor.framework.loop.guards", "victor.agent.loop_guards"),
+    ("victor.framework.perception_integration", "victor.agent.perception_integration"),
 ]
 
 # Lower-layer modules retargeted to the new homes (module-level imports).
@@ -76,6 +81,11 @@ RETARGETED = [
     "victor.agent.middleware_chain",
     "victor.agent.services.planning_runtime",
     "victor.teams.unified_coordinator",
+    "victor.storage.embeddings.task_classifier",
+    "victor.classification.pattern_registry",
+    "victor.agent.query_classifier",
+    "victor.agent.continuation_strategy",
+    "victor.agent.services.runtime_intelligence",
 ]
 
 
@@ -211,3 +221,30 @@ def test_approval_pause_caught_by_old_name():
     from victor.framework.approval_pause import ApprovalPause as Old
 
     assert Old is New
+
+
+def test_framework_task_package_reexports_the_moved_vocabulary():
+    """victor.framework.task re-exports protocols/direct_response via facades."""
+    import victor.framework.task as task
+    from victor.core.task.direct_response import classify_direct_response_prompt
+    from victor.core.task.protocols import TaskComplexity
+
+    assert task.TaskComplexity is TaskComplexity
+    assert task.classify_direct_response_prompt is classify_direct_response_prompt
+
+
+def test_loop_guards_contextvar_reaches_the_perception_hook():
+    """The framework loop installs guards through the old path; the moved
+    perception seam (runtime) must count against those same guards."""
+    import victor.framework.loop.guards as old
+    from victor.agent import loop_guards as new
+
+    assert old._CURRENT_GUARDS is new._CURRENT_GUARDS
+    calls = []
+    fake = mock.Mock(note_perception=lambda: calls.append(1))
+    token = old._CURRENT_GUARDS.set(fake)
+    try:
+        new.note_perception()
+    finally:
+        old._CURRENT_GUARDS.reset(token)
+    assert calls == [1]

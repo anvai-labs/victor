@@ -38,7 +38,7 @@ from victor.core.errors import (
     ProviderRateLimitError,
     ProviderTimeoutError,
 )
-from victor.framework.task.direct_response import classify_direct_response_prompt
+from victor.core.task.direct_response import classify_direct_response_prompt
 from victor.agent.request_scope_heuristics import (
     is_ambiguous_write_followup_request,
 )

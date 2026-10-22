@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
 
-from victor.framework.task.protocols import TaskClassification, TaskComplexity
+from victor.core.task.protocols import TaskClassification, TaskComplexity
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ class QueryClassifier:
 
     def _classify_query_type(self, message: str) -> QueryType:
         """Determine the semantic type via regex patterns."""
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )
 

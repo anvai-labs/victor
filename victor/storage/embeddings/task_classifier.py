@@ -1678,7 +1678,7 @@ class TaskTypeClassifier:
         Returns:
             TaskTypeResult with classified task type
         """
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )
 

@@ -100,14 +100,14 @@ class TrackerTaskType(Enum):
         Collapses this adapter enum onto the single registry taxonomy; this enum's
         values are already canonical names.
         """
-        from victor.framework.task_types import canonicalize_task_type
+        from victor.core.task_types import canonicalize_task_type
 
         return canonicalize_task_type(self.value)
 
     @classmethod
     def from_canonical(cls, name: str) -> "Optional[TrackerTaskType]":
         """Best-effort reverse map: a canonical name -> the member that yields it."""
-        from victor.framework.task_types import canonicalize_task_type
+        from victor.core.task_types import canonicalize_task_type
 
         target = canonicalize_task_type(name)
         for member in cls:

@@ -58,6 +58,37 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    **dict.fromkeys(
+        (
+            "victor/core/task/protocols.py",
+            "victor/framework/task/protocols.py",
+            "victor/core/task/direct_response.py",
+            "victor/framework/task/direct_response.py",
+            "victor/core/task_types.py",
+            "victor/framework/task_types.py",
+            "victor/agent/loop_guards.py",
+            "victor/framework/loop/guards.py",
+            "victor/agent/perception_integration.py",
+            "victor/framework/perception_integration.py",
+            "victor/core/task/__init__.py",
+        ),
+        (
+            "tests/unit/agent/services/test_runtime_intelligence_service.py",
+            "tests/unit/agent/test_continuation_strategy.py",
+            "tests/unit/agent/test_query_classifier.py",
+            "tests/unit/agent/test_task_intent_classifier.py",
+            "tests/unit/agent/test_task_type_reaches_consumers.py",
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/framework/task/test_direct_response.py",
+            "tests/unit/framework/test_agentic_loop_spin_guard.py",
+            "tests/unit/framework/test_client_close_guard.py",
+            "tests/unit/framework/test_loop_guards.py",
+            "tests/unit/framework/test_perception_integration.py",
+            "tests/unit/framework/test_task_type_adapters.py",
+            "tests/unit/framework/test_task_types.py",
+            "tests/unit/storage/embeddings/test_task_classifier_extension.py",
+        ),
+    ),
     "victor/agent/member_approval_context.py": (
         "tests/unit/agent/subagents/test_member_approval.py",
         "tests/unit/agent/subagents/test_member_pause_trigger.py",
