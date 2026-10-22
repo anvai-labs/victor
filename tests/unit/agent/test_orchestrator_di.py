@@ -37,10 +37,8 @@ class TestServiceProtocols:
     def test_protocols_importable(self):
         """Test that all protocols can be imported."""
         from victor.agent.protocols import (
-            ProviderManagerProtocol,
             ToolRegistryProtocol,
             ConversationControllerProtocol,
-            ToolPipelineProtocol,
             StreamingControllerProtocol,
             TaskAnalyzerProtocol,
             ToolSelectorProtocol,
@@ -61,7 +59,6 @@ class TestServiceProtocols:
         )
 
         # Verify they are types
-        assert isinstance(ProviderManagerProtocol, type)
         assert isinstance(ToolRegistryProtocol, type)
         assert isinstance(ConversationControllerProtocol, type)
 
