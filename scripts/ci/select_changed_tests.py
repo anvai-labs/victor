@@ -58,6 +58,29 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    **dict.fromkeys(
+        (
+            "victor/agent/prompting/__init__.py",
+            "victor/agent/prompting/document.py",
+            "victor/agent/prompting/sections.py",
+            "victor/agent/prompting/builder.py",
+            "victor/agent/prompting/dictionary_compressor.py",
+            "victor/framework/prompt_document.py",
+            "victor/framework/prompt_sections.py",
+            "victor/framework/prompt_builder.py",
+            "victor/framework/prompt_dictionary_compressor.py",
+        ),
+        (
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/framework/test_prompt_dictionary_compressor.py",
+            "tests/unit/framework/test_prompt_document.py",
+            "tests/unit/agent/prompting/test_workspace_context.py",
+            "tests/unit/agent/services/test_prompt_compat_migration.py",
+            "tests/unit/agent/test_prompt_coordinator.py",
+            "tests/unit/agent/test_system_prompt_policy.py",
+            "tests/unit/framework/test_framework_prompt_builder.py",
+        ),
+    ),
     "victor/integrations/api/change_tracker_ops.py": (
         "tests/unit/architecture/test_layering_facades.py",
         "tests/unit/agent/test_change_tracker.py",

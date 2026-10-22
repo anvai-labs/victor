@@ -45,7 +45,7 @@ from victor.core.constants import DEFAULT_VERTICAL
 from victor.core.verticals.protocols.prompt_provider import (
     collect_prompt_section_contributions,
 )
-from victor.framework.prompt_document import PromptBlock, PromptDocument
+from victor.agent.prompting.document import PromptBlock, PromptDocument
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 
 if TYPE_CHECKING:

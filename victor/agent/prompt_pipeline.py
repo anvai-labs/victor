@@ -729,8 +729,8 @@ class UnifiedPromptPipeline:
         Returns:
             Prefix string to prepend to user message, or empty string.
         """
-        from victor.framework.prompt_dictionary_compressor import compress_prompt_blocks
-        from victor.framework.prompt_document import PromptBlock, PromptDocument
+        from victor.agent.prompting.dictionary_compressor import compress_prompt_blocks
+        from victor.agent.prompting.document import PromptBlock, PromptDocument
 
         document = PromptDocument()
         self._last_prompt_completeness_assessment = None

@@ -32,7 +32,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, List, Optional, Set
 
-from victor.framework.prompt_document import (
+from victor.agent.prompting.document import (
     PromptBlock,
     PromptDeduplicationProcessor,
     PromptDocument,

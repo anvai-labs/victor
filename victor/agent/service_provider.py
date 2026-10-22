@@ -1382,7 +1382,7 @@ class OrchestratorServiceProvider:
             PromptRuntimeConfig,
         )
         from victor.agent.system_prompt_policy import create_policy_from_settings
-        from victor.framework.prompt_builder import PromptBuilder
+        from victor.agent.prompting.builder import PromptBuilder
 
         config = PromptRuntimeConfig(
             default_grounding_mode=getattr(self._settings, "grounding_mode", "minimal"),
