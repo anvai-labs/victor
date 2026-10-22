@@ -99,6 +99,7 @@ provider counts against the source tree and maintains the declared tool-module i
 | Framework delegates to Runtime | `Agent.create()` goes through `AgentFactory` | Agent entry point |
 | Runtime delegates to Services | `ChatService` owns the turn frame and typed stream-control capabilities; broader state migration continues under FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
 | Services own infrastructure | Effectful behavior via `ExecutionContext.services` | Service accessor |
+| Lower layers never import higher-layer implementations | An upward import of a concrete class/function is a leak; importing a higher layer's Protocol/ABC/Enum/dataclass is dependency inversion and allowed; teams/workflows→StateGraph and the bootstrap composition roots are sanctioned. Existing leaks are a shrink-only baseline | `test_layering_ratchet.py` (`scripts/ci/layering_ratchet.py`) |
 | Vertical definitions use Contracts | Definition files import `victor_contracts`; runtime extension allowances are separately audited | `test_contracts_import_boundaries.py`, `check_extracted_vertical_boundaries.py` |
 
 ### Data Flow
@@ -120,7 +121,7 @@ The table below identifies the owning modules.
 |-------|--------|-------------|----------------|
 | **Client** | `victor/ui/` | `cli.py` | CLI, TUI, commands |
 | **Client** | `victor/integrations/api/` | `server.py` | FastAPI REST server |
-| **Client** | `victor/integrations/mcp/` | — | MCP protocol bridge |
+| **Client** | `victor/integrations/mcp/server.py` | `victor-mcp-server` | Victor exposed as an MCP server |
 | **Framework** | `victor/framework/` | `agent.py` | Public API surface |
 | **Runtime** | `victor/agent/` | `orchestrator.py` | Orchestration facade |
 | **Runtime** | `victor/agent/services/` | `chat_service.py` | Service-owned behavior |
@@ -129,6 +130,7 @@ The table below identifies the owning modules.
 | **Infrastructure** | `victor/state/` | `__init__.py` | 4-scope state management |
 | **Infrastructure** | `victor/config/` | `settings.py` | Settings and profiles |
 | **Infrastructure** | `victor/core/` | `database.py` | Event sourcing, CQRS, DI |
+| **Infrastructure** | `victor/integrations/mcp/` (client, registry, transports) | `client.py` | MCP protocol client consumed by the runtime and tools |
 
 ---
 

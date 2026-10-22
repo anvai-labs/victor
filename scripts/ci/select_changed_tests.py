@@ -58,6 +58,7 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/ci/layering_ratchet.py": ("tests/unit/architecture/test_layering_ratchet.py",),
     # Round-7 extractions: the shared install tail (per-language labels pinned
     # by the env_setup suite incl. java/timeout coverage) and the shared
     # frontier SELECT (both delegates exercised by the cross-store suite).
