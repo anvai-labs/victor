@@ -101,13 +101,38 @@ class PreciseHarvest:
     degradation taxonomy (``ok:<n> edges`` | ``toolchain-absent`` |
     ``dump-failed`` | ``no-reader``) — polyglot repos get per-language
     honesty, never an aggregate that hides a skipped provider.
+
+    Accounting decomposition (A0-measured on the monorepo corpus): the
+    historical ``unjoined`` total conflated three different signals —
+    definitions that failed the join predicate, references whose target
+    never joined, and OWNERLESS references (no enclosing joined definition
+    in their document — import/module-level evidence, an expected shape,
+    not a join failure). Documents whose file has no codegraph node bucket
+    are out-of-corpus-by-codegraph and counted separately, never as
+    failures: their definitions also never enter the definition-symbol pool,
+    so references to them elsewhere are out-of-corpus too rather than
+    "defined but unjoinable" noise.
     """
 
     edges: list[tuple[str, str, str, dict[str, Any]]] = field(default_factory=list)
     resolved: int = 0
     unjoined: int = 0
+    definitions_unjoined: int = 0
+    references_unjoined: int = 0
+    references_ownerless: int = 0
+    out_of_corpus_documents: int = 0
+    out_of_corpus_occurrences: int = 0
     skipped_reason: Optional[str] = None
     per_language: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def accounting(self) -> str:
+        """One-line decomposition for logs and per-language outcomes."""
+        return (
+            f"{self.definitions_unjoined} defs, {self.references_unjoined} target-refs, "
+            f"{self.references_ownerless} ownerless-refs unjoined; "
+            f"{self.out_of_corpus_documents} docs out-of-corpus"
+        )
 
 
 def detect_precise_tool(tool: str = "auto") -> Optional[str]:
@@ -289,13 +314,32 @@ def join_occurrences(
     def chain_for(node: Any) -> list[str]:
         return _scope_chain(node, nodes_by_id)
 
+    # Document → node bucket, resolved ONCE and shared by both passes. A
+    # document whose file has no bucket is out-of-corpus-by-codegraph: no
+    # nodes were materialized for that file, so nothing in it can join —
+    # its occurrences are counted separately and NEVER as join failures,
+    # and its definitions stay out of the pool so references to its symbols
+    # elsewhere are out-of-corpus rather than defined-but-unjoinable noise.
+    doc_buckets: list[tuple[Any, list[Any]]] = []
+    out_of_corpus_documents = 0
+    out_of_corpus_occurrences = 0
+    for document in index.documents:
+        relative_path = _norm_rel(getattr(document, "relative_path", ""))
+        nodes = nodes_by_file.get(relative_path)
+        if nodes is None:
+            nodes = _suffix_match(nodes_by_file, relative_path)
+        doc_buckets.append((document, nodes))
+        if not nodes:
+            out_of_corpus_documents += 1
+            out_of_corpus_occurrences += len(document.occurrences)
+
     # Pass 1: definition-role occurrences → node ids, unique-match only.
     definition_keys: dict[str, str] = {}
     definition_symbols: set[str] = set()
-    unjoined = 0
-    for document in index.documents:
-        relative_path = _norm_rel(getattr(document, "relative_path", ""))
-        nodes = nodes_by_file.get(relative_path) or _suffix_match(nodes_by_file, relative_path)
+    definitions_unjoined = 0
+    for document, nodes in doc_buckets:
+        if not nodes:
+            continue
         kinds = _kind_by_symbol(document)
         for occurrence in document.occurrences:
             if not (occurrence.symbol_roles & SCIP_SYMBOL_ROLE_DEFINITION):
@@ -306,40 +350,41 @@ def join_occurrences(
                 # absence by construction, not a join failure — uncounted.
                 continue
             definition_symbols.add(occurrence.symbol)
-            node_id = (
-                _unique_join(parts, nodes, kinds.get(occurrence.symbol), chain_for)
-                if parts is not None
-                else None
-            )
+            node_id = _unique_join(parts, nodes, kinds.get(occurrence.symbol), chain_for)
             if node_id is None:
-                unjoined += 1
+                definitions_unjoined += 1
                 continue
             definition_keys[occurrence.symbol] = node_id
 
     # Pass 2: references → edges (both endpoints must be joinable).
     # A reference to a symbol with NO definition anywhere in the index is
-    # out-of-corpus evidence (builtins, stdlib, site-packages): not joinable
-    # by design, so it is neither resolved nor unjoined — counting stdlib
-    # mentions as join failures would drown the metric in noise.
-    defined_anywhere = set(definition_symbols)
+    # out-of-corpus evidence (builtins, stdlib, site-packages — or a symbol
+    # whose document is out-of-corpus-by-codegraph): not joinable by design,
+    # so it is neither resolved nor unjoined.
     edges: list[tuple[str, str, str, dict[str, Any]]] = []
     seen: set[tuple[str, str]] = set()
     resolved = 0
-    for document in index.documents:
+    references_unjoined = 0
+    references_ownerless = 0
+    for document, nodes in doc_buckets:
+        if not nodes:
+            continue
         for occurrence in document.occurrences:
             if occurrence.symbol_roles & SCIP_SYMBOL_ROLE_DEFINITION:
                 continue
-            if occurrence.symbol not in defined_anywhere:
+            if occurrence.symbol not in definition_symbols:
                 continue
             target_key = definition_keys.get(occurrence.symbol)
             if target_key is None:
-                unjoined += 1
+                references_unjoined += 1
                 continue
             owner = _enclosing_definition_key(document, occurrence, definition_keys)
             if owner is None:
-                # Reference before any joinable definition in its document:
-                # unjoined evidence, never silently dropped.
-                unjoined += 1
+                # Ownerless reference: no enclosing JOINED definition in its
+                # document — import/module-level evidence, an expected
+                # shape. Counted separately so the failure metric stays
+                # meaningful, never silently dropped.
+                references_ownerless += 1
                 continue
             if owner == target_key or (owner, target_key) in seen:
                 continue
@@ -353,7 +398,16 @@ def join_occurrences(
                     {"provenance": "compiler", "confidence": 1.0, "use": "load"},
                 )
             )
-    return PreciseHarvest(edges=edges, resolved=resolved, unjoined=unjoined)
+    return PreciseHarvest(
+        edges=edges,
+        resolved=resolved,
+        unjoined=definitions_unjoined + references_unjoined + references_ownerless,
+        definitions_unjoined=definitions_unjoined,
+        references_unjoined=references_unjoined,
+        references_ownerless=references_ownerless,
+        out_of_corpus_documents=out_of_corpus_documents,
+        out_of_corpus_occurrences=out_of_corpus_occurrences,
+    )
 
 
 def _unique_join(

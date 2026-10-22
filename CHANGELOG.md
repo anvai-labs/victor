@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- ADR-032 tier-3 harvest accounting is decomposed and honest: documents
+  whose file has no codegraph node bucket are out-of-corpus-by-codegraph
+  (counted separately, never as join failures, and their definitions no
+  longer pollute the reference-evidence pool), and the unjoined metric
+  splits into definitions-unjoined / target-unjoined references /
+  ownerless (import/module-level) references. Per-language harvest
+  outcomes and `GraphIndexStats` carry the decomposition. Corpus gate:
+  python/TypeScript/Rust compiler-edge counts byte-identical (143,558 /
+  1,701 / 952) — accounting only, no join-predicate change.
+
 ### Added
 
 - ADR-032 tier 3 is now polyglot (contract rev 1.5 implemented): precise

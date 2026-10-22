@@ -267,6 +267,7 @@ class GraphIndexStats:
     scope_references_resolved: int = 0
     precise_references_resolved: int = 0
     precise_index_unjoined: int = 0
+    precise_index_unjoined_docs: int = 0
     precise_index_skipped: str = ""
     repository_relations_dropped_unmaterialized: int = 0
     # Files that tried the enhanced TreeSitterAnalysisProtocol provider but
@@ -304,6 +305,7 @@ class GraphIndexStats:
             "scope_references_resolved": self.scope_references_resolved,
             "precise_references_resolved": self.precise_references_resolved,
             "precise_index_unjoined": self.precise_index_unjoined,
+            "precise_index_unjoined_docs": self.precise_index_unjoined_docs,
             "repository_relations_dropped_unmaterialized": (
                 self.repository_relations_dropped_unmaterialized
             ),
@@ -793,6 +795,7 @@ class GraphIndexingPipeline:
                         await self.graph_store.upsert_edges(edges)
                 stats.precise_references_resolved = getattr(precise, "resolved", 0)
                 stats.precise_index_unjoined = getattr(precise, "unjoined", 0)
+                stats.precise_index_unjoined_docs = getattr(precise, "out_of_corpus_documents", 0)
                 if getattr(precise, "skipped_reason", None):
                     stats.precise_index_skipped = precise.skipped_reason
                 stats.edges_created += len(getattr(precise, "edges", []))
@@ -872,6 +875,11 @@ class GraphIndexingPipeline:
             merged_edges: list[tuple[str, str, str, dict[str, Any]]] = []
             merged_resolved = 0
             merged_unjoined = 0
+            merged_defs_unjoined = 0
+            merged_refs_unjoined = 0
+            merged_refs_ownerless = 0
+            merged_oodocs = 0
+            merged_ooocc = 0
             outcomes: dict[str, str] = {}
             providers = providers_for_files(list(nodes_by_file))
             with tempfile.TemporaryDirectory(prefix="scip-harvest-") as tmp:
@@ -905,10 +913,17 @@ class GraphIndexingPipeline:
                     if harvest.skipped_reason:
                         outcomes[provider.name] = harvest.skipped_reason
                         continue
-                    outcomes[provider.name] = f"ok:{len(harvest.edges)} edges"
+                    outcomes[provider.name] = (
+                        f"ok:{len(harvest.edges)} edges ({harvest.accounting})"
+                    )
                     merged_edges.extend(harvest.edges)
                     merged_resolved += harvest.resolved
                     merged_unjoined += harvest.unjoined
+                    merged_defs_unjoined += harvest.definitions_unjoined
+                    merged_refs_unjoined += harvest.references_unjoined
+                    merged_refs_ownerless += harvest.references_ownerless
+                    merged_oodocs += harvest.out_of_corpus_documents
+                    merged_ooocc += harvest.out_of_corpus_occurrences
             if not providers:
                 return PreciseHarvest(
                     skipped_reason="no-indexable-languages", per_language=outcomes
@@ -927,6 +942,11 @@ class GraphIndexingPipeline:
                 edges=merged_edges,
                 resolved=merged_resolved,
                 unjoined=merged_unjoined,
+                definitions_unjoined=merged_defs_unjoined,
+                references_unjoined=merged_refs_unjoined,
+                references_ownerless=merged_refs_ownerless,
+                out_of_corpus_documents=merged_oodocs,
+                out_of_corpus_occurrences=merged_ooocc,
                 per_language=outcomes,
             )
         except Exception as exc:
