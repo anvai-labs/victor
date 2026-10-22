@@ -153,7 +153,7 @@ def _get_e3tir_shared_store() -> Any:
         # the live feed begins, so it doesn't start blank (and drift) each process.
         _warm_start_experience_store(_e3tir_shared_store)
     if not _e3tir_hook_subscribed:
-        from victor.framework.rl.hooks import RLEventType, get_rl_hooks
+        from victor.core.rl.hooks import RLEventType, get_rl_hooks
 
         store = _e3tir_shared_store
 

@@ -72,7 +72,7 @@ def _get_rl_hooks():
     global _rl_hooks
     if _rl_hooks is None:
         try:
-            from victor.framework.rl.hooks import get_rl_hooks
+            from victor.core.rl.hooks import get_rl_hooks
 
             _rl_hooks = get_rl_hooks()
         except ImportError:
@@ -1121,7 +1121,7 @@ class ToolExecutor:
             if rl_hooks is None:
                 return
 
-            from victor.framework.rl.hooks import RLEvent, RLEventType
+            from victor.core.rl.hooks import RLEvent, RLEventType
 
             # Truthful RL signal (P7): unified tools report failures as
             # '### ❌' markdown strings with invocation-level success=True —

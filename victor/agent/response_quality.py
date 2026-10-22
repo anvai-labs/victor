@@ -169,7 +169,7 @@ class ResponseQualityScorer:
             response: Response that was scored
         """
         try:
-            from victor.framework.rl.hooks import get_rl_hooks, RLEvent, RLEventType
+            from victor.core.rl.hooks import get_rl_hooks, RLEvent, RLEventType
 
             hooks = get_rl_hooks()
             if hooks is None:
