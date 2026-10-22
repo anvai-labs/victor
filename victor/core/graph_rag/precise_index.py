@@ -1,9 +1,14 @@
 """ADR-032 tier 3: opt-in precise-index harvesting from offline SCIP dumps.
 
-Compiler-accurate REFERENCES edges from a SCIP index (``scip-python`` —
-Sourcegraph's npm-distributed Pyright fork), harvested OFFLINE: one subprocess
-dump, protobuf read, identity join, edge upsert. Never a live language server
-in the query path.
+Compiler-accurate REFERENCES edges from SCIP indexes, harvested OFFLINE:
+one subprocess dump per language provider, protobuf read, metadata join,
+edge upsert. Never a live language server in the query path.
+
+Providers (contract: ADR-032 rev 1.5; ``precise_providers.py``): scip-python
+(npm/Pyright) for python, scip-typescript (npm/tsserver) for TypeScript and
+JavaScript, rust-analyzer's native ``scip`` CLI for Rust. Runtimes are a
+provider detail; the join below is producer-agnostic and consumes the
+providers' normalized symbol parts.
 
 Contract (mirrors the tier-2.5 capability-probe posture):
 
@@ -25,12 +30,19 @@ Contract (mirrors the tier-2.5 capability-probe posture):
   heuristic writer by construction.
 - Reference→definition pairs where BOTH endpoints are joinable become
   REFERENCES edges; owner attribution is positional (the greatest definition
-  offset at or before the reference).
+  offset at or before the reference). References to symbols defined nowhere
+  in the index (stdlib, site-packages) are out-of-corpus and uncounted.
+- scip-python 0.6.x emits UnspecifiedKind on every symbol information, so
+  the kind agreement filter is dormant with the real tool (unmapped kind →
+  no filtering, never discarding evidence) and the join rides on
+  name + scope agreement; kinds still harden the join for producers that
+  populate them.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -47,16 +59,26 @@ SCIP_SYMBOL_ROLE_DEFINITION = 1
 # "toolchain-unavailable". Configurable via GraphIndexConfig.
 _DUMP_TIMEOUT_SECONDS = 1200
 
-# scip.proto SymbolKind enum values (vendored _scip/scip.proto) mapped to the
-# GraphNode.type spellings produced by project_file_symbols (enum name lower()).
-_KIND_FUNCTION = 3
-_KIND_METHOD = 4
-_KIND_CLASS = 5
+# scip-python is a Node process whose pyright pass holds the whole program in
+# memory: Node's default ~4 GB heap aborts (V8 OOM, core dump) around ~2,200
+# files of a 6,707-file monorepo. The harvest injects a larger old-space cap
+# when the environment does not set NODE_OPTIONS itself (measured need: the
+# victor monorepo dumps cleanly under 16 GB).
+_DUMP_NODE_OPTIONS = "--max-old-space-size=16384"
 
+# scip.proto SymbolInformation.Kind values from the VENDORED schema, mapped
+# to the GraphNode.type spellings produced by project_file_symbols (enum
+# name lower()). Pinned by test against the vendored enum — these values are
+# live for producers that populate kinds (scip-typescript, rust-analyzer;
+# scip-python 0.6.x emits UnspecifiedKind and never filters).
 _KIND_TO_TYPE = {
-    _KIND_FUNCTION: "function",
-    _KIND_METHOD: "method",
-    _KIND_CLASS: "class",
+    7: "class",  # SymbolInformation.Kind.Class
+    26: "method",  # ...Method
+    17: "function",  # ...Function
+    9: "constructor",  # ...Constructor
+    49: "struct",  # ...Struct
+    21: "interface",  # ...Interface
+    11: "enum",  # ...Enum
 }
 
 # Enclosing-symbol types whose names constitute a codegraph scope chain;
@@ -73,12 +95,44 @@ def _norm_rel(path: str) -> str:
 
 @dataclass(frozen=True)
 class PreciseHarvest:
-    """Result of one SCIP harvest pass."""
+    """Result of one SCIP harvest pass (possibly merged across languages).
+
+    ``per_language`` reports each provider's outcome under the uniform
+    degradation taxonomy (``ok:<n> edges`` | ``toolchain-absent`` |
+    ``dump-failed`` | ``no-reader``) — polyglot repos get per-language
+    honesty, never an aggregate that hides a skipped provider.
+
+    Accounting decomposition (A0-measured on the monorepo corpus): the
+    historical ``unjoined`` total conflated three different signals —
+    definitions that failed the join predicate, references whose target
+    never joined, and OWNERLESS references (no enclosing joined definition
+    in their document — import/module-level evidence, an expected shape,
+    not a join failure). Documents whose file has no codegraph node bucket
+    are out-of-corpus-by-codegraph and counted separately, never as
+    failures: their definitions also never enter the definition-symbol pool,
+    so references to them elsewhere are out-of-corpus too rather than
+    "defined but unjoinable" noise.
+    """
 
     edges: list[tuple[str, str, str, dict[str, Any]]] = field(default_factory=list)
     resolved: int = 0
     unjoined: int = 0
+    definitions_unjoined: int = 0
+    references_unjoined: int = 0
+    references_ownerless: int = 0
+    out_of_corpus_documents: int = 0
+    out_of_corpus_occurrences: int = 0
     skipped_reason: Optional[str] = None
+    per_language: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def accounting(self) -> str:
+        """One-line decomposition for logs and per-language outcomes."""
+        return (
+            f"{self.definitions_unjoined} defs, {self.references_unjoined} target-refs, "
+            f"{self.references_ownerless} ownerless-refs unjoined; "
+            f"{self.out_of_corpus_documents} docs out-of-corpus"
+        )
 
 
 def detect_precise_tool(tool: str = "auto") -> Optional[str]:
@@ -102,45 +156,22 @@ def harvest_scip_index(
     project_name: str = "victor-harvest",
     timeout_seconds: int = _DUMP_TIMEOUT_SECONDS,
 ) -> Optional[Path]:
-    """Run one offline SCIP dump; return the index path or None on failure.
+    """Run one offline scip-python dump; return the index path or None.
 
-    ``TimeoutExpired`` is distinguished in the log: a timed-out pyright dump
-    is a size problem, not a missing toolchain.
+    Compat seam over ``ScipPythonProvider.dump`` (contract rev 1.5): the
+    transport, env policy, and failure taxonomy live with the provider —
+    one implementation, not a parallel copy here.
     """
 
-    resolved_tool = detect_precise_tool(tool)
-    if resolved_tool is None:
+    from victor.core.graph_rag.precise_providers import ScipPythonProvider
+
+    del project_name  # provider-owned; the historical call sites used the default
+    provider = ScipPythonProvider()
+    resolved = provider.detect(tool)
+    if resolved is None:
         logger.info("precise-index harvesting unavailable: no scip-python toolchain")
         return None
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    command = [resolved_tool, "index", "--project-name", project_name, "--output", str(output_path)]
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            cwd=str(root),
-            timeout=timeout_seconds,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "precise-index dump timed out after %ds (raise precise_index_timeout_seconds "
-            "for large corpora)",
-            timeout_seconds,
-        )
-        return None
-    except OSError as exc:
-        logger.warning("precise-index dump failed (%s): %s", type(exc).__name__, exc)
-        return None
-    if result.returncode != 0 or not output_path.exists():
-        logger.warning(
-            "precise-index dump exited %d: %s",
-            result.returncode,
-            (result.stderr or "").strip()[:400],
-        )
-        return None
-    return output_path
+    return provider.dump(resolved, root, output_path, timeout_seconds=timeout_seconds)
 
 
 def _read_index(path: Path) -> Optional[Any]:
@@ -167,27 +198,16 @@ def _read_index(path: Path) -> Optional[Any]:
 
 
 def python_symbol_to_parts(symbol: str) -> Optional[dict[str, str]]:
-    """Split a SCIP python symbol string into file marker + dotted path.
+    """scip-python symbol -> normalized parts (delegates to the provider).
 
-    SCIP python symbols look like ``python src/pkg/mod.py`pkg.mod.func().``
-    — the backtick separates the language+file marker from the symbol path,
-    with trailing disambiguators (``()`` parameters, ``.`` accessor). Returns
-    ``{"file": ..., "path": ...}`` or None when the symbol is not a
-    definition-shaped python symbol we can map.
+    Kept as this module's public seam: the join and the tests import it
+    here; the grammar itself lives with its producer in
+    ``precise_providers.ScipPythonProvider``.
     """
 
-    if not symbol.startswith("python "):
-        return None
-    _, _, tail = symbol.partition(" ")
-    file_marker, sep, path = tail.partition("`")
-    if not sep or not path:
-        return None
-    # Strip SCIP disambiguator suffixes: ``()`` (empty params) / ``(a, b)``
-    # parameter lists / the trailing ``.`` accessor.
-    path = path.split("(", 1)[0].rstrip(".")
-    if not path:
-        return None
-    return {"file": file_marker.strip(), "path": path}
+    from victor.core.graph_rag.precise_providers import ScipPythonProvider
+
+    return ScipPythonProvider().symbol_parts(symbol)
 
 
 def _node_simple_name(path: str) -> str:
@@ -254,6 +274,7 @@ def harvest_precise_edges(
     nodes_by_file: dict[str, list[Any]],
     *,
     timeout_seconds: int = _DUMP_TIMEOUT_SECONDS,
+    symbol_parts: Any = None,
 ) -> PreciseHarvest:
     """Join SCIP occurrences against the materialized graph nodes.
 
@@ -261,62 +282,109 @@ def harvest_precise_edges(
     GraphNode objects (node_id/name/type/file, plus parent_id or an explicit
     scope_chain). Definitions join by (file, name) with kind/scope agreement,
     accepting only a unique match; signatures live in the persisted keys and
-    are never re-derived from the scip data.
+    are never re-derived from the scip data. ``symbol_parts`` is the dump's
+    producer grammar (default scip-python).
     """
 
     del timeout_seconds  # dump-side knob; kept for call-site compatibility
     index = _read_index(index_path)
     if index is None:
         return PreciseHarvest(skipped_reason="no-reader")
-    return join_occurrences(index, nodes_by_file)
+    return join_occurrences(index, nodes_by_file, symbol_parts=symbol_parts)
 
 
-def join_occurrences(index: Any, nodes_by_file: dict[str, list[Any]]) -> PreciseHarvest:
-    """The join core, over an already-parsed index (testable without a reader)."""
+def join_occurrences(
+    index: Any,
+    nodes_by_file: dict[str, list[Any]],
+    *,
+    symbol_parts: Any = None,
+) -> PreciseHarvest:
+    """The join core, over an already-parsed index (testable without a reader).
 
+    ``symbol_parts`` is the PRODUCER grammar (contract rev 1.5) — a
+    ``symbol -> parts | None`` callable owned by the provider whose dump
+    this index came from. Default: the scip-python grammar (the join's
+    historical behavior).
+    """
+
+    if symbol_parts is None:
+        symbol_parts = python_symbol_to_parts
     nodes_by_id = {n.node_id: n for nodes in nodes_by_file.values() for n in nodes}
 
     def chain_for(node: Any) -> list[str]:
         return _scope_chain(node, nodes_by_id)
 
-    # Pass 1: definition-role occurrences → node ids, unique-match only.
-    definition_keys: dict[str, str] = {}
-    unjoined = 0
+    # Document → node bucket, resolved ONCE and shared by both passes. A
+    # document whose file has no bucket is out-of-corpus-by-codegraph: no
+    # nodes were materialized for that file, so nothing in it can join —
+    # its occurrences are counted separately and NEVER as join failures,
+    # and its definitions stay out of the pool so references to its symbols
+    # elsewhere are out-of-corpus rather than defined-but-unjoinable noise.
+    doc_buckets: list[tuple[Any, list[Any]]] = []
+    out_of_corpus_documents = 0
+    out_of_corpus_occurrences = 0
     for document in index.documents:
         relative_path = _norm_rel(getattr(document, "relative_path", ""))
-        nodes = nodes_by_file.get(relative_path) or _suffix_match(nodes_by_file, relative_path)
+        nodes = nodes_by_file.get(relative_path)
+        if nodes is None:
+            nodes = _suffix_match(nodes_by_file, relative_path)
+        doc_buckets.append((document, nodes))
+        if not nodes:
+            out_of_corpus_documents += 1
+            out_of_corpus_occurrences += len(document.occurrences)
+
+    # Pass 1: definition-role occurrences → node ids, unique-match only.
+    definition_keys: dict[str, str] = {}
+    definition_symbols: set[str] = set()
+    definitions_unjoined = 0
+    for document, nodes in doc_buckets:
+        if not nodes:
+            continue
         kinds = _kind_by_symbol(document)
         for occurrence in document.occurrences:
             if not (occurrence.symbol_roles & SCIP_SYMBOL_ROLE_DEFINITION):
                 continue
-            parts = python_symbol_to_parts(occurrence.symbol)
-            node_id = (
-                _unique_join(parts, nodes, kinds.get(occurrence.symbol), chain_for)
-                if parts is not None
-                else None
-            )
+            parts = symbol_parts(occurrence.symbol)
+            if parts is None:
+                # Non-joinable descriptor (module init, parameter, local):
+                # absence by construction, not a join failure — uncounted.
+                continue
+            definition_symbols.add(occurrence.symbol)
+            node_id = _unique_join(parts, nodes, kinds.get(occurrence.symbol), chain_for)
             if node_id is None:
-                unjoined += 1
+                definitions_unjoined += 1
                 continue
             definition_keys[occurrence.symbol] = node_id
 
     # Pass 2: references → edges (both endpoints must be joinable).
+    # A reference to a symbol with NO definition anywhere in the index is
+    # out-of-corpus evidence (builtins, stdlib, site-packages — or a symbol
+    # whose document is out-of-corpus-by-codegraph): not joinable by design,
+    # so it is neither resolved nor unjoined.
     edges: list[tuple[str, str, str, dict[str, Any]]] = []
     seen: set[tuple[str, str]] = set()
     resolved = 0
-    for document in index.documents:
+    references_unjoined = 0
+    references_ownerless = 0
+    for document, nodes in doc_buckets:
+        if not nodes:
+            continue
         for occurrence in document.occurrences:
             if occurrence.symbol_roles & SCIP_SYMBOL_ROLE_DEFINITION:
                 continue
+            if occurrence.symbol not in definition_symbols:
+                continue
             target_key = definition_keys.get(occurrence.symbol)
             if target_key is None:
-                unjoined += 1
+                references_unjoined += 1
                 continue
             owner = _enclosing_definition_key(document, occurrence, definition_keys)
             if owner is None:
-                # Reference before any joinable definition in its document:
-                # unjoined evidence, never silently dropped.
-                unjoined += 1
+                # Ownerless reference: no enclosing JOINED definition in its
+                # document — import/module-level evidence, an expected
+                # shape. Counted separately so the failure metric stays
+                # meaningful, never silently dropped.
+                references_ownerless += 1
                 continue
             if owner == target_key or (owner, target_key) in seen:
                 continue
@@ -330,7 +398,16 @@ def join_occurrences(index: Any, nodes_by_file: dict[str, list[Any]]) -> Precise
                     {"provenance": "compiler", "confidence": 1.0, "use": "load"},
                 )
             )
-    return PreciseHarvest(edges=edges, resolved=resolved, unjoined=unjoined)
+    return PreciseHarvest(
+        edges=edges,
+        resolved=resolved,
+        unjoined=definitions_unjoined + references_unjoined + references_ownerless,
+        definitions_unjoined=definitions_unjoined,
+        references_unjoined=references_unjoined,
+        references_ownerless=references_ownerless,
+        out_of_corpus_documents=out_of_corpus_documents,
+        out_of_corpus_occurrences=out_of_corpus_occurrences,
+    )
 
 
 def _unique_join(
@@ -375,13 +452,20 @@ def _unique_join(
 def _suffix_match(nodes_by_file: dict[str, list[Any]], relative_path: str) -> list[Any]:
     """Fallback document→nodes lookup for path-spelling drift (leading dirs).
 
-    Exact normalized match first; only when that misses, a document whose
-    path ENDS WITH the indexed key (or vice versa) may bind, mirroring the
-    endswith semantics the file marker already uses.
+    Exact normalized match first; only when that misses, a key that is a
+    PATH-SEGMENT-aligned suffix of the document path (or vice versa) may
+    bind — ``./src/m.py`` ↔ ``src/m.py`` — while ``tests/lib.py`` never
+    binds ``lib.py``. Segment alignment matters: the symbols carry no file
+    marker, so this fallback is the only file binding on a drift miss and
+    a raw endswith would cross files.
     """
 
     for key, nodes in nodes_by_file.items():
-        if key and (relative_path.endswith(key) or key.endswith(relative_path)):
+        if key and (
+            relative_path.endswith("/" + key)
+            or key.endswith("/" + relative_path)
+            or key == relative_path
+        ):
             return nodes
     return []
 

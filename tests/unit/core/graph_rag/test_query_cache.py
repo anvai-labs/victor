@@ -590,3 +590,52 @@ class TestCacheIntegration:
         assert cached.scores == {"n1": 1.0, "n2": 0.7}
         assert cached.execution_time_ms == 150.5
         assert cached.metadata == {"cache_hit": False}
+
+
+class TestEdgeMetadataFidelity:
+    """Tier 3.5: cache hits must preserve edge provenance — a stripped hit
+    silently degrades precision-ordered expansion vs a miss."""
+
+    def _cache(self):
+        from victor.core.graph_rag.query_cache import GraphQueryCache
+
+        return GraphQueryCache()
+
+    def test_metadata_round_trips_through_cache(self):
+        from victor.core.graph_rag.retrieval import RetrievalResult
+        from victor.storage.graph.protocol import GraphEdge, GraphNode
+
+        cache = self._cache()
+        edge = GraphEdge(
+            src="a",
+            dst="b",
+            type="REFERENCES",
+            metadata={"provenance": "compiler", "confidence": 1.0, "use": "load"},
+        )
+        result = RetrievalResult(
+            nodes=[GraphNode(node_id="a", type="function", name="f", file="f.py")],
+            edges=[edge],
+            subgraphs=[],
+            query="q",
+        )
+        from types import SimpleNamespace
+
+        config = SimpleNamespace(seed_count=5, max_hops=2, top_k=10, edge_types=None)
+        assert cache.put("q", config, result, "/repo") is True
+        hit = cache.get("q", config, "/repo")
+        assert hit is not None
+        assert hit.edges[0].metadata == {"provenance": "compiler", "confidence": 1.0, "use": "load"}
+
+    def test_legacy_entries_without_metadata_reconstruct_empty(self):
+        """Pre-tier-3.5 cache entries carry no per-edge metadata: they must
+        reconstruct with {} (ranks with unknown provenance), not crash."""
+        cache = self._cache()
+        legacy = {
+            "nodes": [{"node_id": "a", "type": "function", "name": "f", "file": "f.py"}],
+            "edges": [{"src": "a", "dst": "b", "type": "CALLS"}],
+            "query": "q",
+            "cached_at": 1.0,
+        }
+        # Direct deserialize: the shape legacy L1/L2 entries produced.
+        deserialized = cache._deserialize_result(legacy)
+        assert deserialized.edges[0].metadata == {}

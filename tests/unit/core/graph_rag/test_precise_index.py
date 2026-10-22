@@ -1,15 +1,16 @@
 """ADR-032 tier 3 — precise-index harvesting: unit + pipeline contracts.
 
 All SCIP-dependent paths stay importorskip/tool-skip gated (no CI install
-changes); the join core is tested against SimpleNamespace documents shaped
-like the REAL scip-python output (``python <file>`<dotted path>`` symbols,
-definition-role bit, per-document occurrences), and the vendored protobuf
-bindings are exercised directly when present.
+changes). Symbol fixtures use the REAL npm scip-python 0.6.x grammar
+(``scip-python python <pkg> <version> <module>/<Class>#<member>().`` —
+captured from an actual 0.6.6 dump), and the vendored protobuf bindings are
+exercised directly when present, including a full end-to-end join over that
+captured dump's shapes.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -22,6 +23,14 @@ from victor.core.graph_rag.precise_index import (
     join_occurrences,
     python_symbol_to_parts,
 )
+
+# Real 0.6.6 symbol spellings (from a verified dump of the /tmp fixture):
+# package "fixture 0.1.0", module "lib"/"main", class members via '#'.
+PKG = "scip-python python fixture 0.1.0 "
+
+
+def _sym(name: str) -> str:
+    return PKG + name
 
 
 def _occ(symbol: str, line: int, roles: int):
@@ -60,22 +69,44 @@ def _nodes():
     ]
 
 
-def _sym(symbol: str, kind: int):
+def _syminfo(symbol: str, kind: int):
     return SimpleNamespace(symbol=symbol, kind=kind)
 
 
 DEF = 1  # scip.proto SymbolRole definition bit
 
 
-def test_symbol_parts_backtick_grammar():
-    assert python_symbol_to_parts("python src/m.py`pkg.mod.func().") == {
-        "file": "src/m.py",
-        "path": "pkg.mod.func",
+def test_symbol_parts_real_grammar():
+    assert python_symbol_to_parts(_sym("m/helper().")) == {"file": "", "path": "helper"}
+    assert python_symbol_to_parts(_sym("m/Worker#run().")) == {
+        "file": "",
+        "path": "Worker.run",
     }
-    # Parameter lists and the trailing accessor both strip.
-    assert python_symbol_to_parts("python src/m.py`mod.f(a, b)").get("path") == "mod.f"
-    assert python_symbol_to_parts("rust crate::x") is None
-    assert python_symbol_to_parts("python src/m.py helper") is None
+    assert python_symbol_to_parts(_sym("m/Outer#Inner#m().")) == {
+        "file": "",
+        "path": "Outer.Inner.m",
+    }
+    # Nested package module pieces are one module run, not scope.
+    assert python_symbol_to_parts(_sym("victor/core/graph_rag/mod/thing().")) == {
+        "file": "",
+        "path": "thing",
+    }
+    # Class symbol (the '#' form with empty member tail).
+    assert python_symbol_to_parts(_sym("m/Worker#")) == {"file": "", "path": "Worker"}
+    # Non-joinable descriptors and other schemes.
+    assert python_symbol_to_parts(_sym("m/__init__:")) is None  # module init
+    assert python_symbol_to_parts(_sym("m/helper().(name)")) is None  # parameter
+    # Attribute/field members and module-level assignments have no codegraph
+    # symbol node: non-joinable descriptors, not join failures.
+    assert python_symbol_to_parts(_sym("m/Worker#enabled.")) is None  # field
+    assert python_symbol_to_parts(_sym("m/MAX_DEPTH.")) is None  # module constant
+    assert python_symbol_to_parts("local 0") is None
+    assert python_symbol_to_parts("scip-python rust crate/x") is None
+    # stdlib reference: parseable (name extraction works), never defined here.
+    assert python_symbol_to_parts("scip-python python python-stdlib 3.11 builtins/str#") == {
+        "file": "",
+        "path": "str",
+    }
 
 
 def test_unique_file_name_join_resolves_functions_classes_methods():
@@ -84,11 +115,11 @@ def test_unique_file_name_join_resolves_functions_classes_methods():
         _doc(
             "src/m.py",
             [
-                _occ("python src/m.py`pkg.helper().", 1, DEF),
-                _occ("python src/m.py`pkg.Worker().", 10, DEF),
-                _occ("python src/m.py`pkg.Worker.run().", 20, DEF),
+                _occ(_sym("m/helper()."), 1, DEF),
+                _occ(_sym("m/Worker#"), 10, DEF),
+                _occ(_sym("m/Worker#run()."), 20, DEF),
                 # references: helper used inside run
-                _occ("python src/m.py`pkg.helper().", 22, 0),
+                _occ(_sym("m/helper()."), 22, 0),
             ],
         )
     )
@@ -105,37 +136,127 @@ def test_unique_file_name_join_resolves_functions_classes_methods():
     assert harvest.unjoined == 0
 
 
-def test_cross_file_marker_rejected_and_own_file_used():
+def test_out_of_corpus_references_are_not_join_failures():
     nodes = _nodes()
-    # The symbol's marker says another file -> must NOT join to src/m.py's
-    # same-named node; the join key is the DOCUMENT's file anyway.
     index = _index(
         _doc(
             "src/m.py",
             [
-                _occ("python src/other.py`pkg.helper().", 1, DEF),
-                _occ("python src/other.py`pkg.helper().", 3, 0),
+                _occ(_sym("m/helper()."), 1, DEF),
+                # stdlib + site-packages + parameter/local mentions: defined
+                # nowhere in this index -> out-of-corpus, uncounted.
+                _occ("scip-python python python-stdlib 3.11 builtins/str#", 2, 0),
+                _occ("scip-python python pip numpy 2.0 numpy/array#", 3, 0),
+                _occ(_sym("m/helper().(name)"), 4, 0),
+                _occ("local 0", 5, 0),
+            ],
+        )
+    )
+    harvest = join_occurrences(index, {"src/m.py": nodes[:1]})
+    assert harvest.resolved == 0 and harvest.edges == []
+    assert harvest.unjoined == 0
+
+
+def test_documents_without_codegraph_bucket_are_out_of_corpus():
+    """The real grammar carries no file in the symbol: the DOCUMENT bucket is
+    the file binding. A document whose file has NO node bucket is
+    out-of-corpus-by-codegraph — its occurrences are counted separately,
+    never as join failures, and the segment-aligned fallback must not hand
+    it another file's nodes."""
+    nodes = _nodes()
+    index = _index(
+        _doc(
+            "src/other.py",  # NOT in nodes_by_file buckets for m.py nodes
+            [
+                _occ(_sym("other/helper()."), 1, DEF),
+                _occ(_sym("other/helper()."), 3, 0),
             ],
         )
     )
     harvest = join_occurrences(index, {"src/m.py": nodes[:3]})
     assert harvest.resolved == 0 and harvest.edges == []
-    assert harvest.unjoined >= 1
+    assert harvest.unjoined == 0  # out-of-corpus, not a join failure
+    assert harvest.out_of_corpus_documents == 1
+    assert harvest.out_of_corpus_occurrences == 2
+
+
+def test_out_of_corpus_defs_do_not_pollute_the_definition_pool():
+    """References (in a BUCKETED document) to a symbol whose only definition
+    lives in an out-of-corpus document are out-of-corpus too — never
+    "defined but unjoinable" noise in the failure metric."""
+    nodes = _nodes()
+    index = _index(
+        _doc(
+            "src/other.py",  # no bucket: defines helper
+            [
+                _occ(_sym("other/helper()."), 1, DEF),
+            ],
+        ),
+        _doc(
+            "src/m.py",  # bucketed: references that helper
+            [
+                _occ(_sym("m/run()."), 1, DEF),
+                _occ(_sym("other/helper()."), 3, 0),
+            ],
+        ),
+    )
+    harvest = join_occurrences(index, {"src/m.py": nodes[:3]})
+    assert harvest.unjoined == 0  # the ref is out-of-corpus, not unjoined
+    assert harvest.resolved == 0 and harvest.edges == []
+    assert harvest.out_of_corpus_documents == 1
+
+
+def test_unjoined_splits_definitions_targets_and_ownerless():
+    """The failure metric decomposes into its three honest buckets."""
+    nodes = _nodes()
+    index = _index(
+        _doc(
+            "src/m.py",
+            [
+                _occ(_sym("m/helper()."), 1, DEF),  # joins
+                _occ(
+                    _sym("m/run()."), 2, DEF
+                ),  # joins (meth-id via scope? no: run -> meth-id needs scope match)
+                _occ(_sym("m/dup()."), 3, DEF),  # no node named dup -> def unjoined
+                _occ(_sym("m/helper()."), 0, 0),  # ref before any joined def -> ownerless
+                _occ(_sym("m/Worker#"), 5, DEF),  # class joins
+                _occ(_sym("m/dup()."), 6, 0),  # target unjoined (def failed)
+            ],
+        )
+    )
+    harvest = join_occurrences(index, {"src/m.py": nodes[:3]})
+    assert harvest.definitions_unjoined >= 1  # dup has no node
+    assert harvest.references_unjoined >= 1  # ref to dup
+    assert harvest.references_ownerless >= 1  # helper ref at line 0, before defs
+    assert harvest.unjoined == (
+        harvest.definitions_unjoined + harvest.references_unjoined + harvest.references_ownerless
+    )
+
+
+def test_suffix_fallback_is_segment_aligned(tmp_path):
+    from victor.core.graph_rag.precise_index import _suffix_match
+
+    bucket = {"src/m.py": _nodes()[:3]}
+    # Drift spellings bind...
+    assert _suffix_match(bucket, "./src/m.py") is bucket["src/m.py"]
+    assert _suffix_match({"./src/m.py": [1]}, "src/m.py") == [1]
+    # ...same-stem different-directory never does.
+    assert _suffix_match(bucket, "tests/m.py") == []
 
 
 def test_same_name_multiple_scopes_scope_chain_disambiguates():
     nodes = _nodes()
     # Two run methods in different classes: meth-id chains via parent_id
-    # (the real GraphNode path), meth2-id carries an explicit chain.
+    # (the real GraphNode path), meth2-id under another class node.
     nodes.append(N("other-cls", "Other", "src/m.py", type="class"))
     nodes.append(N("meth2-id", "run", "src/m.py", type="method", parent_id="other-cls"))
     index = _index(
         _doc(
             "src/m.py",
             [
-                _occ("python src/m.py`pkg.Worker.run().", 5, DEF),
-                _occ("python src/m.py`pkg.Other.run().", 10, DEF),
-                _occ("python src/m.py`pkg.Worker.run().", 12, 0),
+                _occ(_sym("m/Worker#run()."), 5, DEF),
+                _occ(_sym("m/Other#run()."), 10, DEF),
+                _occ(_sym("m/Worker#run()."), 12, 0),
             ],
         )
     )
@@ -153,8 +274,8 @@ def test_ambiguity_stays_unjoined_never_guessed():
         _doc(
             "src/m.py",
             [
-                _occ("python src/m.py`pkg.helper().", 1, DEF),
-                _occ("python src/m.py`pkg.helper().", 3, 0),
+                _occ(_sym("m/helper()."), 1, DEF),
+                _occ(_sym("m/helper()."), 3, 0),
             ],
         )
     )
@@ -165,15 +286,17 @@ def test_ambiguity_stays_unjoined_never_guessed():
 
 def test_kind_disagreement_stays_unjoined():
     nodes = _nodes()
-    # scip says helper is a class; the only node named helper is a function.
+    # A producer that DOES emit kinds (scip-python 0.6.x emits
+    # UnspecifiedKind; this pins the machinery for those that do): scip says
+    # helper is a class, the only node named helper is a function.
     index = _index(
         _doc(
             "src/m.py",
             [
-                _occ("python src/m.py`pkg.helper().", 1, DEF),
-                _occ("python src/m.py`pkg.helper().", 3, 0),
+                _occ(_sym("m/helper()."), 1, DEF),
+                _occ(_sym("m/helper()."), 3, 0),
             ],
-            symbols=[_sym("python src/m.py`pkg.helper().", 5)],  # SymbolKind.CLASS
+            symbols=[_syminfo(_sym("m/helper()."), 7)],  # Kind.Class
         )
     )
     harvest = join_occurrences(index, {"src/m.py": nodes[:1]})
@@ -190,13 +313,13 @@ def test_kind_agreement_selects_among_same_name_nodes():
         _doc(
             "src/m.py",
             [
-                _occ("python src/m.py`pkg.Worker().", 4, DEF),
-                _occ("python src/m.py`pkg.helper().", 10, DEF),
-                _occ("python src/m.py`pkg.Worker().", 12, 0),  # ref inside helper
+                _occ(_sym("m/Worker#"), 4, DEF),
+                _occ(_sym("m/helper()."), 10, DEF),
+                _occ(_sym("m/Worker#"), 12, 0),  # ref inside helper
             ],
             symbols=[
-                _sym("python src/m.py`pkg.Worker().", 5),
-                _sym("python src/m.py`pkg.helper().", 3),
+                _syminfo(_sym("m/Worker#"), 7),  # Kind.Class
+                _syminfo(_sym("m/helper()."), 17),  # Kind.Function
             ],
         )
     )
@@ -220,8 +343,8 @@ def test_reference_before_any_definition_counts_unjoined():
         _doc(
             "src/m.py",
             [
-                _occ("python src/m.py`pkg.helper().", 5, 0),  # ref BEFORE def line 9
-                _occ("python src/m.py`pkg.helper().", 9, DEF),
+                _occ(_sym("m/helper()."), 5, 0),  # ref BEFORE def line 9
+                _occ(_sym("m/helper()."), 9, DEF),
             ],
         )
     )
@@ -235,9 +358,9 @@ def test_self_reference_and_duplicate_edges_dropped():
         _doc(
             "src/m.py",
             [
-                _occ("python src/m.py`pkg.helper().", 1, DEF),
-                _occ("python src/m.py`pkg.helper().", 3, 0),  # self
-                _occ("python src/m.py`pkg.helper().", 5, 0),  # dup pair
+                _occ(_sym("m/helper()."), 1, DEF),
+                _occ(_sym("m/helper()."), 3, 0),  # self
+                _occ(_sym("m/helper()."), 5, 0),  # dup pair
             ],
         )
     )
@@ -245,84 +368,33 @@ def test_self_reference_and_duplicate_edges_dropped():
     assert harvest.resolved == 0 and harvest.edges == []
 
 
-def test_dump_command_timeout_label_and_tool_detection(monkeypatch):
-    from victor.core.graph_rag.precise_index import harvest_scip_index
+def test_scope_chain_walks_container_parents_only():
+    from victor.core.graph_rag.precise_index import _scope_chain
 
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/scip-python")
-    import subprocess as subprocess_mod
-
-    def timeout(*a, **k):
-        raise subprocess_mod.TimeoutExpired(cmd="x", timeout=1)
-
-    monkeypatch.setattr(subprocess_mod, "run", timeout)
-    assert harvest_scip_index(Path("/tmp"), Path("/tmp/o.scip")) is None
-    # No pip-module branch: absent binary -> None.
-    monkeypatch.setattr("shutil.which", lambda name: None)
-    assert detect_precise_tool("auto") is None
-
-
-def test_vendored_bindings_parse_real_schema():
-    pytest.importorskip("google.protobuf")
-    from victor.core.graph_rag._scip import scip_pb2
-
-    index = scip_pb2.Index()
-    index.metadata.project_root = "/repo"
-    document = index.documents.add()
-    document.relative_path = "src/m.py"
-    occurrence = document.occurrences.add()
-    occurrence.symbol = "python src/m.py`pkg.helper()."
-    occurrence.symbol_roles = 1
-    occurrence.range.extend([1, 0])
-
-    blob = index.SerializeToString()
-    parsed = scip_pb2.Index()
-    parsed.ParseFromString(blob)
-    assert parsed.documents[0].occurrences[0].symbol == "python src/m.py`pkg.helper()."
+    file_node = N("file-id", "m.py", "src/m.py", type="file")
+    cls = N("cls-id", "Worker", "src/m.py", type="class", parent_id="file-id")
+    fn = N("fn-id", "helper", "src/m.py", parent_id="cls-id")
+    by_id = {n.node_id: n for n in (file_node, cls, fn)}
+    # file node is NOT a container: walk stops at the class boundary.
+    assert _scope_chain(fn, by_id) == ["Worker"]
+    # explicit field wins over any parent structure.
+    explicit = N("x", "run", "src/m.py", scope_chain=["Other"])
+    assert _scope_chain(explicit, by_id) == ["Other"]
+    # unknown parent id ends the walk without crashing.
+    orphan = N("o", "solo", "src/m.py", parent_id="missing-id")
+    assert _scope_chain(orphan, by_id) == []
 
 
-@pytest.mark.asyncio
-async def test_harvest_precise_edges_end_to_end_through_vendored_reader(tmp_path):
-    """Real protobuf round-trip: vendored bindings write, read, and join."""
-    pytest.importorskip("google.protobuf")
-    from victor.core.graph_rag import precise_index
-    from victor.core.graph_rag._scip import scip_pb2
+def test_unique_join_unmapped_kind_keeps_population_typed_empty_unjoins():
+    from victor.core.graph_rag.precise_index import _unique_join
 
-    index = scip_pb2.Index()
-    doc = index.documents.add()
-    doc.relative_path = "src/m.py"
-    table = doc.symbols.add()
-    table.symbol = "python src/m.py`pkg.helper()."
-    table.kind = 3  # SymbolKind.FUNCTION
-    d = doc.occurrences.add()
-    d.symbol = "python src/m.py`pkg.helper()."
-    d.symbol_roles = 1
-    d.range.extend([1, 0])
-    r = doc.occurrences.add()
-    r.symbol = "python src/m.py`pkg.Worker()."
-    r.symbol_roles = 0
-    r.single_line_range.line = 5
-    r.single_line_range.start_character = 4
-
-    nodes = [N("fn-id", "helper", "src/m.py"), N("cls-id", "Worker", "src/m.py", type="class")]
-    # Worker has no joinable definition occurrence: reference is ownerless.
-    path = tmp_path / "dump.scip"
-    path.write_bytes(index.SerializeToString())
-    harvest = precise_index.harvest_precise_edges(path, {"src/m.py": nodes})
-    assert harvest.skipped_reason is None
-    assert harvest.resolved == 0 and harvest.edges == []
-    assert harvest.unjoined == 1  # definition joined, ownerless ref counted
-
-
-def test_harvest_precise_edges_unreadable_dump_reports_no_reader(tmp_path):
-    """No-reader covers BOTH absence modes: unreadable bytes, and a protobuf
-    runtime that is not installed (the minimal CI env has none)."""
-    from victor.core.graph_rag import precise_index
-
-    bogus = tmp_path / "not-a-scip.proto"
-    bogus.write_bytes(b"\x00garbage\xff")
-    harvest = precise_index.harvest_precise_edges(bogus, {})
-    assert harvest.skipped_reason == "no-reader"
-    assert harvest.edges == []
+    nodes = [N("fn-id", "helper", "src/m.py")]
+    parts = {"file": "", "path": "helper"}
+    no_chain = lambda node: []  # noqa: E731 - trivial fixture lambda
+    # Unmapped scip kind (0.6.x always emits 0): no filtering, join proceeds.
+    assert _unique_join(parts, nodes, 0, no_chain) == "fn-id"
+    # Mapped kind with zero matching-type nodes: unjoined, not guessed.
+    assert _unique_join(parts, nodes, 7, no_chain) is None  # Kind.Class vs function node
 
 
 def test_occurrence_offset_handles_all_range_encodings():
@@ -350,33 +422,115 @@ def test_occurrence_offset_handles_all_range_encodings():
     assert _occurrence_offset(scip_pb2.Occurrence()) == 0
 
 
-def test_scope_chain_walks_container_parents_only():
-    from victor.core.graph_rag.precise_index import _scope_chain
+def test_harvest_precise_edges_end_to_end_through_vendored_reader(tmp_path):
+    """The REAL captured 0.6.6 dump shapes (a two-file fixture), end to end:
+    vendored bindings write → read → join, producing the full expected edge
+    set with stdlib/parameter/local occurrences uncounted."""
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag import precise_index
+    from victor.core.graph_rag._scip import scip_pb2
 
-    file_node = N("file-id", "m.py", "src/m.py", type="file")
-    cls = N("cls-id", "Worker", "src/m.py", type="class", parent_id="file-id")
-    fn = N("fn-id", "helper", "src/m.py", parent_id="cls-id")
-    by_id = {n.node_id: n for n in (file_node, cls, fn)}
-    # file node is NOT a container: walk stops at the class boundary.
-    assert _scope_chain(fn, by_id) == ["Worker"]
-    # explicit field wins over any parent structure.
-    explicit = N("x", "run", "src/m.py", scope_chain=["Other"])
-    assert _scope_chain(explicit, by_id) == ["Other"]
-    # unknown parent id ends the walk without crashing.
-    orphan = N("o", "solo", "src/m.py", parent_id="missing-id")
-    assert _scope_chain(orphan, by_id) == []
+    index = scip_pb2.Index()
+    lib = index.documents.add()
+    lib.relative_path = "lib.py"
+    stdlib_str = "scip-python python python-stdlib 3.11 builtins/str#"
+    lib_occurrences = [
+        (_sym("lib/__init__:"), 0, DEF),
+        (_sym("lib/Greeter#"), 3, DEF),
+        (_sym("lib/Greeter#greet()."), 4, DEF),
+        (stdlib_str, 4, 0),
+        (_sym("lib/Greeter#greet().(self)"), 4, DEF),
+        (_sym("lib/helper()."), 5, 0),  # inside greet: helper("world")
+        (_sym("lib/helper()."), 8, DEF),
+        (stdlib_str, 8, 0),
+        (_sym("lib/helper().(name)"), 8, DEF),
+        (_sym("lib/helper().(name)"), 9, 0),
+        (_sym("lib/caller()."), 12, DEF),
+        (stdlib_str, 12, 0),
+        ("local 0", 13, DEF),
+        (_sym("lib/Greeter#"), 13, 0),
+        ("local 0", 14, DEF),
+        (_sym("lib/Greeter#greet()."), 14, 0),
+        (_sym("lib/helper()."), 14, 0),
+    ]
+    main = index.documents.add()
+    main.relative_path = "main.py"
+    main_occurrences = [
+        (_sym("main/__init__:"), 0, DEF),
+        (_sym("lib/__init__:"), 0, 0),
+        (_sym("lib/Greeter#"), 0, 0),
+        (_sym("lib/caller()."), 0, 0),
+        (_sym("main/run()."), 3, DEF),
+        (stdlib_str, 3, 0),
+        (_sym("lib/caller()."), 4, 0),
+        (_sym("lib/Greeter#"), 4, 0),
+        (_sym("lib/Greeter#greet()."), 4, 0),
+    ]
+    for doc, rows in ((lib, lib_occurrences), (main, main_occurrences)):
+        for symbol, line, roles in rows:
+            occ = doc.occurrences.add()
+            occ.symbol = symbol
+            occ.symbol_roles = roles
+            occ.range.extend([line, 0])
+
+    nodes = {
+        "lib.py": [
+            N("greeter", "Greeter", "lib.py", type="class"),
+            N("greet", "greet", "lib.py", type="method", parent_id="greeter"),
+            N("helper", "helper", "lib.py"),
+            N("caller", "caller", "lib.py"),
+        ],
+        "main.py": [N("run", "run", "main.py")],
+    }
+    path = tmp_path / "dump.scip"
+    path.write_bytes(index.SerializeToString())
+    harvest = precise_index.harvest_precise_edges(path, nodes)
+    assert harvest.skipped_reason is None
+    pairs = {e[:2] for e in harvest.edges}
+    # greet -> helper (inside greet), caller -> {Greeter, greet, helper},
+    # run -> {caller, Greeter, greet}: exactly 7 compiler REFERENCES edges.
+    assert pairs == {
+        ("greet", "helper"),
+        ("caller", "greeter"),
+        ("caller", "greet"),
+        ("caller", "helper"),
+        ("run", "caller"),
+        ("run", "greeter"),
+        ("run", "greet"),
+    }
+    assert harvest.resolved == 7
+    # Out-of-corpus (stdlib/params/locals) occurrences are uncounted; the
+    # two ownerless IMPORT-line references in main.py (no joined definition
+    # at line 0 encloses them) are honest unjoined evidence.
+    assert harvest.unjoined == 2
 
 
-def test_unique_join_unmapped_kind_keeps_population_typed_empty_unjoins():
-    from victor.core.graph_rag.precise_index import _unique_join
+def test_harvest_precise_edges_unreadable_dump_reports_no_reader(tmp_path):
+    """No-reader covers BOTH absence modes: unreadable bytes, and a protobuf
+    runtime that is not installed (the minimal CI env has none)."""
+    from victor.core.graph_rag import precise_index
 
-    nodes = [N("fn-id", "helper", "src/m.py")]
-    parts = {"file": "src/m.py", "path": "pkg.helper"}
-    no_chain = lambda node: []  # noqa: E731 - trivial fixture lambda
-    # Unmapped scip kind (e.g. a parameter): no filtering, join proceeds.
-    assert _unique_join(parts, nodes, 999, no_chain) == "fn-id"
-    # Mapped kind with zero matching-type nodes: unjoined, not guessed.
-    assert _unique_join(parts, nodes, 5, no_chain) is None  # CLASS vs function node
+    bogus = tmp_path / "not-a-scip.proto"
+    bogus.write_bytes(b"\x00garbage\xff")
+    harvest = precise_index.harvest_precise_edges(bogus, {})
+    assert harvest.skipped_reason == "no-reader"
+    assert harvest.edges == []
+
+
+def test_dump_command_timeout_label_and_tool_detection(monkeypatch):
+    from victor.core.graph_rag.precise_index import harvest_scip_index
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/scip-python")
+    import subprocess as subprocess_mod
+
+    def timeout(*a, **k):
+        raise subprocess_mod.TimeoutExpired(cmd="x", timeout=1)
+
+    monkeypatch.setattr(subprocess_mod, "run", timeout)
+    assert harvest_scip_index(Path("/tmp"), Path("/tmp/o.scip")) is None
+    # No pip-module branch: absent binary -> None.
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    assert detect_precise_tool("auto") is None
 
 
 def test_harvest_scip_index_oserror_degrades_to_none(tmp_path, monkeypatch):
@@ -393,6 +547,78 @@ def test_harvest_scip_index_oserror_degrades_to_none(tmp_path, monkeypatch):
     assert precise_index.harvest_scip_index(tmp_path, tmp_path / "o.scip") is None
 
 
+def test_dump_subprocess_gets_node_heap_hint(tmp_path, monkeypatch):
+    """scip-python's pyright pass OOM-crashes on Node's default ~4 GB heap at
+    monorepo scale; the harvest injects a larger cap unless the operator set
+    NODE_OPTIONS themselves."""
+    import subprocess as subprocess_mod
+
+    from victor.core.graph_rag import precise_index
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/scip-python")
+    captured = {}
+
+    class FakeResult:
+        returncode = 1
+        stdout = ""
+        stderr = "boom"
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess_mod, "run", fake_run)
+    monkeypatch.delenv("NODE_OPTIONS", raising=False)
+    precise_index.harvest_scip_index(tmp_path, tmp_path / "o.scip")  # fails; env captured
+    assert captured["env"]["NODE_OPTIONS"] == "--max-old-space-size=16384"
+    monkeypatch.setenv("NODE_OPTIONS", "--max-old-space-size=512")
+    precise_index.harvest_scip_index(tmp_path, tmp_path / "o.scip")
+    assert captured["env"]["NODE_OPTIONS"] == "--max-old-space-size=512"
+
+
+def test_vendored_bindings_parse_real_schema():
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag._scip import scip_pb2
+
+    index = scip_pb2.Index()
+    index.metadata.project_root = "/repo"
+    document = index.documents.add()
+    document.relative_path = "src/m.py"
+    occurrence = document.occurrences.add()
+    occurrence.symbol = _sym("m/pkg.helper().")
+    occurrence.symbol_roles = 1
+    occurrence.range.extend([1, 0])
+
+    blob = index.SerializeToString()
+    parsed = scip_pb2.Index()
+    parsed.ParseFromString(blob)
+    assert parsed.documents[0].occurrences[0].symbol == _sym("m/pkg.helper().")
+
+
+def test_kind_map_matches_vendored_enum():
+    """The numeric kind map is pinned to the vendored scip.proto enum; a
+    schema regeneration that renumbers kinds must fail here, not silently
+    mis-filter producers that populate kinds (TS, rust-analyzer)."""
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import _KIND_TO_TYPE
+
+    kinds = scip_pb2.SymbolInformation.Kind.DESCRIPTOR.values_by_name
+    expected = {
+        kinds[f"{name}Kind" if f"{name}Kind" in kinds else name].number: typ
+        for name, typ in [
+            ("Class", "class"),
+            ("Method", "method"),
+            ("Function", "function"),
+            ("Constructor", "constructor"),
+            ("Struct", "struct"),
+            ("Interface", "interface"),
+            ("Enum", "enum"),
+        ]
+    }
+    assert _KIND_TO_TYPE == expected
+
+
 @pytest.mark.asyncio
 async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkeypatch):
     pytest.importorskip("victor_codegraph")
@@ -403,7 +629,13 @@ async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkey
 
     (tmp_path / "m.py").write_text("def f():\n    return 1\n")
     monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
-    monkeypatch.setattr(precise_index, "harvest_scip_index", lambda *a, **k: None)
+    # Provider world: the toolchain is ABSENT at the provider seam, after
+    # real nodes exist (an empty store is its own honest outcome).
+    from victor.core.graph_rag import precise_providers
+
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider, "detect", lambda self, hint="auto": None
+    )
 
     store = SqliteGraphStore(tmp_path)
     await store.initialize()
@@ -416,7 +648,219 @@ async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkey
             incremental=False,
         )
         pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()
         harvest = await pipeline._harvest_precise_index(tmp_path)
         assert harvest.skipped_reason == "toolchain-or-dump-failed"
+        assert harvest.per_language == {"scip-python": "toolchain-absent"}
+        assert harvest.edges == []
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
+    """The provider loop's full taxonomy through the real pipeline: an ok
+    provider with edges, a dump-failed provider, and an absent one — merged
+    edges plus honest per-language accounting. Needs the vendored bindings
+    (the fake dump writes a real artifact); skips where protobuf is absent,
+    exactly like the other binding-dependent tests."""
+    pytest.importorskip("victor_codegraph")
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag import precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n\n\ndef g():\n    return f()\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+
+    def fake_detect(self, hint="auto"):
+        return f"/usr/bin/{self.name}"
+
+    def make_dump(outcome):
+        def fake_dump(self, tool, root, output_path, *, timeout_seconds):
+            if outcome == "fail":
+                return None
+            # ok: emit a REAL two-symbol python index for this project.
+            from victor.core.graph_rag._scip import scip_pb2
+
+            index = scip_pb2.Index()
+            doc = index.documents.add()
+            doc.relative_path = "m.py"
+            for symbol, line, roles in (
+                ("scip-python python m 0.1.0 m/f().", 0, 1),
+                ("scip-python python m 0.1.0 m/g().", 4, 1),
+                ("scip-python python m 0.1.0 m/f().", 5, 0),
+            ):
+                occ = doc.occurrences.add()
+                occ.symbol = symbol
+                occ.symbol_roles = roles
+                occ.range.extend([line, 0])
+            output_path.write_bytes(index.SerializeToString())
+            return output_path
+
+        return fake_dump
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "detect", fake_detect)
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", make_dump("ok"))
+    # The other two providers: one fails its dump, one is absent.
+    monkeypatch.setattr(precise_providers.ScipTypescriptProvider, "detect", fake_detect)
+    monkeypatch.setattr(precise_providers.ScipTypescriptProvider, "dump", make_dump("fail"))
+    monkeypatch.setattr(
+        precise_providers.RustAnalyzerProvider, "detect", lambda self, hint="auto": None
+    )
+
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()
+        harvest = await pipeline._harvest_precise_index(tmp_path)
+        # Only python nodes exist, so only scip-python runs; the loop still
+        # exercises one ok outcome with a real edge.
+        assert harvest.per_language["scip-python"].startswith("ok:1 edges (")
+        assert "0 docs out-of-corpus" in harvest.per_language["scip-python"]
+        assert harvest.skipped_reason is None
+        assert len(harvest.edges) == 1
+        assert harvest.edges[0][2] == "REFERENCES"
+        assert harvest.edges[0][3]["provenance"] == "compiler"
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_harvest_reuses_cached_dump_on_second_run(tmp_path, monkeypatch):
+    """Dump once, reuse forever while the language's file set is unchanged.
+    Protobuf-free (harvest faked at the join seam) so CI's minimal env
+    covers the cache loop too; the vendored-bindings path has its own tests.
+    """
+    pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag import precise_index, precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n\n\ndef g():\n    return f()\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider,
+        "detect",
+        lambda self, hint="auto": "/usr/bin/scip-python",
+    )
+    dump_calls = []
+
+    def fake_dump(self, tool, root, output_path, *, timeout_seconds):
+        dump_calls.append(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"fake-scip-artifact")
+        return output_path
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", fake_dump)
+
+    def fake_harvest(index_path, nodes_by_file, *, symbol_parts=None):
+        from victor.core.graph_rag.precise_index import PreciseHarvest
+
+        return PreciseHarvest(
+            edges=[
+                (
+                    "g-node",
+                    "f-node",
+                    "REFERENCES",
+                    {"provenance": "compiler", "confidence": 1.0, "use": "load"},
+                )
+            ],
+            resolved=1,
+        )
+
+    monkeypatch.setattr(precise_index, "harvest_precise_edges", fake_harvest)
+
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()  # harvests once internally: the one dump
+        assert len(dump_calls) == 1
+        second = await pipeline._harvest_precise_index(tmp_path)
+        assert len(dump_calls) == 1  # no second dump: cache hit
+        assert second.per_language["scip-python"].endswith("[cached dump]")
+        assert len(second.edges) == 1
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_harvest_dump_failure_and_cache_store_degrade(tmp_path, monkeypatch):
+    """A failed dump reports dump-failed and never poisons the cache; a
+    cache-store failure degrades to uncached use without failing the harvest."""
+    pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag import precise_cache, precise_index, precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider,
+        "detect",
+        lambda self, hint="auto": "/usr/bin/scip-python",
+    )
+
+    def failing_dump(self, tool, root, output_path, *, timeout_seconds):
+        return None
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", failing_dump)
+    from victor.core.graph_rag.precise_index import PreciseHarvest
+
+    def fake_harvest(index_path, nodes_by_file, *, symbol_parts=None):
+        return PreciseHarvest(edges=[], resolved=0)
+
+    monkeypatch.setattr(precise_index, "harvest_precise_edges", fake_harvest)
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()
+        first = await pipeline._harvest_precise_index(tmp_path)
+        assert first.per_language == {"scip-python": "dump-failed"}
+        assert not (tmp_path / ".victor" / "precise").exists() or not any(
+            (tmp_path / ".victor" / "precise").iterdir()
+        )
+
+        # Store-side degradation: a working dump whose sidecar write fails
+        # (e.g. refused artifact) still harvests fine, uncached.
+        def ok_dump(self, tool, root, output_path, *, timeout_seconds):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"artifact")
+            return output_path
+
+        monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", ok_dump)
+        monkeypatch.setattr(
+            precise_cache, "store", lambda *a, **k: (_ for _ in ()).throw(ValueError("refused"))
+        )
+        second = await pipeline._harvest_precise_index(tmp_path)
+        assert second.per_language["scip-python"].startswith("ok:0 edges")
+        assert "[cached dump]" not in second.per_language["scip-python"]
     finally:
         await store.close()

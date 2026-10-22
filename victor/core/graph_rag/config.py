@@ -106,10 +106,12 @@ class GraphIndexConfig:
     # last-writer-wins (src,dst,type) upsert makes them dominate.
     enable_precise_index: bool = False
     precise_index_tool: str = "auto"
-    # A pyright-based SCIP dump of a large monorepo takes minutes; the
-    # harvester degrades with an explicit dump-timeout skip label when
-    # exceeded.
-    precise_index_timeout_seconds: int = 1200
+    # Dump timeout ceiling. 0 (default) = each provider's own measured
+    # default (python/pyright 1200s, typescript 600s, rust-analyzer 120s);
+    # a positive value overrides every provider uniformly. A pyright dump
+    # of a large monorepo takes minutes — the harvester degrades with an
+    # explicit dump-timeout skip label when exceeded.
+    precise_index_timeout_seconds: int = 0
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     write_batch_size: int = 20  # Files per mini-batch flush in the streaming pipeline
     queue_maxsize: int = 100  # Bounded queue depth between producers and consumer

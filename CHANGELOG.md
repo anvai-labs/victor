@@ -5,6 +5,101 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-22
+
+### Added
+
+- ADR-032 tier 3 is polyglot with dump caching (full detail in the 0.14.1
+  unreleased block below, now released here): scip-python /
+  scip-typescript / rust-analyzer providers with producer-owned grammars
+  (python 143,558 compiler REFERENCES edges @ 76.9%, TypeScript 1,701 @
+  67.4%, Rust 952 @ 89.2% on this monorepo); artifacts cached under
+  `.victor/precise/` (unchanged corpus 642s → 54s; the python artifact is
+  ~336 MB on monorepo corpora — no eviction, `rm -rf` busts); honest
+  per-language accounting; provider-measured dump timeouts.
+
+### Changed
+
+- ADR-032 tier 3.5 (retrieval-first): graph expansion now ranks edges by
+  provenance VALUE (compiler > scope/repository resolver > parser >
+  unknown/absent) instead of mere provenance presence; the lazy neighbor
+  cap sorts before cutting (store order used to drop high-precision edges
+  that arrived late in a batch); the parallel traversal scorer consumes
+  precision-ordered edges for tie behavior. The retrieval query cache now
+  round-trips per-edge metadata — cache hits previously stripped
+  provenance, silently degrading expansion order versus misses (legacy
+  entries reconstruct with empty metadata, ranked conservatively).
+
+### Added
+
+- ADR-032 tier-3 dump artifacts now cache on disk (`.victor/precise/`):
+  one artifact per provider keyed by tool identity + that language's file
+  content hashes — an unchanged corpus reuses the (potentially
+  minutes-scale) dump across harvests, and editing one language's files
+  re-dumps only that language. Atomic, process-unique writes (a raced
+  fixed tmp name once persisted a truncated artifact that parsed as a
+  valid EMPTY index — now structurally impossible); a zero-byte artifact
+  is never cached; a schema bump or `rm -rf .victor/precise` busts
+  everything. Note: the python artifact is ~336 MB on a monorepo-scale
+  corpus (no eviction yet — the tier is opt-in). Measured on this
+  monorepo: an unchanged-corpus harvest drops 642s → 54s (~12x) with
+  identical edge counts across runs.
+
+### Changed
+
+- Dump timeouts are provider-measured defaults (python/pyright 1200s,
+  typescript 600s, rust-analyzer 120s) instead of one flat 1200s;
+  `precise_index_timeout_seconds = 0` (new default) selects them, a
+  positive value overrides uniformly.
+
+- ADR-032 tier-3 harvest accounting is decomposed and honest: documents
+  whose file has no codegraph node bucket are out-of-corpus-by-codegraph
+  (counted separately, never as join failures, and their definitions no
+  longer pollute the reference-evidence pool), and the unjoined metric
+  splits into definitions-unjoined / target-unjoined references /
+  ownerless (import/module-level) references. Per-language harvest
+  outcomes and `GraphIndexStats` carry the decomposition. Corpus gate:
+  python/TypeScript/Rust compiler-edge counts byte-identical (143,558 /
+  1,701 / 952) — accounting only, no join-predicate change.
+
+### Added
+
+- ADR-032 tier 3 is now polyglot (contract rev 1.5 implemented): precise
+  SCIP harvesting runs one provider per language present — scip-python
+  (python), scip-typescript (TypeScript/JavaScript), rust-analyzer's
+  native `scip` CLI (Rust) — each owning its toolchain detection, dump
+  transport, and PRODUCER symbol grammar. Per-language outcomes ride the
+  harvest (`per_language`: ok/edges, toolchain-absent, dump-failed,
+  no-reader); a language without its toolchain skips honestly and never
+  blocks the others. First polyglot corpus numbers (this monorepo):
+  TypeScript 1,701 compiler REFERENCES edges at 67.4% join rate; Rust 952
+  at 89.2%; python per the rev 1.4 dossier (143,558 at 76.9%).
+
+### Fixed
+
+- The SCIP kind map used values from a different proto revision than the
+  vendored schema (3/4/5 vs the real Class=7/Method=26/Function=17/...):
+  kind-populating producers (scip-typescript, rust-analyzer) would have
+  filtered on garbage. Now pinned by test against the vendored enum.
+
+- ADR-032 tier-3 dumps no longer OOM-crash on large corpora: scip-python
+  is a Node process whose pyright pass holds the program in memory, and
+  Node's default ~4 GB heap aborts around ~2,200 files (observed on the
+  victor monorepo). The harvest subprocess now injects
+  `NODE_OPTIONS=--max-old-space-size=16384` when the environment does not
+  set `NODE_OPTIONS` itself.
+
+- ADR-032 tier-3 symbol parsing now matches the REAL npm scip-python
+  grammar (0.6.x package-qualified descriptors, backticked dotted module
+  paths, `#` class members — verified against a live 0.6.6 dump; the
+  previously assumed `python <file>\`<path>` backtick form is not what
+  the tool emits, so real dumps joined nothing). References to symbols
+  defined nowhere in the index (stdlib, site-packages) and
+  non-symbol descriptors (parameters, locals, attribute fields, module
+  inits) are no longer counted as join failures. First real-contact
+  numbers on a victor graph_rag slice: 26 compiler REFERENCES edges, 90%
+  join rate (was 0%).
+
 ## [0.14.1] - 2026-10-21
 
 ### Added
