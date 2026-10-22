@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- ADR-032 tier 3.5 (retrieval-first): graph expansion now ranks edges by
+  provenance VALUE (compiler > scope/repository resolver > parser >
+  unknown/absent) instead of mere provenance presence; the lazy neighbor
+  cap sorts before cutting (store order used to drop high-precision edges
+  that arrived late in a batch); the parallel traversal scorer consumes
+  precision-ordered edges for tie behavior. The retrieval query cache now
+  round-trips per-edge metadata — cache hits previously stripped
+  provenance, silently degrading expansion order versus misses (legacy
+  entries reconstruct with empty metadata, ranked conservatively).
+
 ### Added
 
 - ADR-032 tier-3 dump artifacts now cache on disk (`.victor/precise/`):

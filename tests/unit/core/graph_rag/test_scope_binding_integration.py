@@ -107,6 +107,39 @@ def test_capability_probe_downgrades_on_old_codegraph(tmp_path, monkeypatch, cap
     assert pipeline._scope_binding_supported() is False
 
 
+def test_retrieval_precision_first_ranks_provenance_VALUES():
+    """Tier 3.5 (retrieval-first): compiler > scope/repository resolver >
+    parser > unknown/absent — and unknown ranks WITH absent (conservative)."""
+    from victor.core.graph_rag.retrieval import _precision_first
+    from victor.storage.graph.protocol import GraphEdge
+
+    def e(dst, provenance=None):
+        meta = {"provenance": provenance} if provenance else {}
+        return GraphEdge(src="a", dst=dst, type="CALLS", metadata=meta)
+
+    ordered = _precision_first(
+        [
+            e("parser", "parser"),
+            e("absent"),
+            e("unknown-producer", "some-new-producer"),
+            e("scope_resolver", "scope_resolver"),
+            e("compiler", "compiler"),
+            e("repository_import_resolver", "repository_import_resolver"),
+        ]
+    )
+    assert [edge.dst for edge in ordered] == [
+        "compiler",
+        "scope_resolver",
+        "repository_import_resolver",
+        "parser",
+        "absent",
+        "unknown-producer",
+    ]
+    # Stability: equal-rank edges keep input order.
+    again = _precision_first([e("p1", "parser"), e("p2", "parser")])
+    assert [edge.dst for edge in again] == ["p1", "p2"]
+
+
 def test_retrieval_precision_first_orders_provenance_edges_ahead():
     from victor.core.graph_rag.retrieval import _precision_first
     from victor.storage.graph.protocol import GraphEdge
@@ -212,3 +245,64 @@ async def test_pipeline_explicit_opt_out_writes_no_references(tmp_path, monkeypa
         assert [e for e in await store.get_all_edges() if e.type == "REFERENCES"] == []
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_lazy_neighbor_cap_keeps_precision_best_not_earliest():
+    """Tier 3.5: the lazy path's max-neighbors cap must sort BEFORE cutting —
+    store order is arbitrary, and an early batch of heuristic edges must not
+    evict a compiler-provenance edge that arrived later."""
+    from victor.core.graph_rag.retrieval import MultiHopRetriever
+    from victor.storage.graph.protocol import GraphEdge
+
+    def e(dst, provenance=None):
+        meta = {"provenance": provenance} if provenance else {}
+        return GraphEdge(src="seed", dst=dst, type="CALLS", metadata=meta)
+
+    # Batch 1 alone is under the cap; batch 2 crosses it and carries the
+    # compiler edge — the cap must keep the BEST of the accumulated set,
+    # not the earliest five.
+    first_batch = [e(f"heuristic-{i}") for i in range(5)]
+    second_batch = [e("compiler-late", "compiler"), e("heuristic-5"), e("heuristic-6")]
+
+    class FakeAsyncIter:
+        def __init__(self, batches):
+            self._batches = batches
+
+        def __aiter__(self):
+            self._i = 0
+            return self
+
+        async def __anext__(self):
+            if self._i >= len(self._batches):
+                raise StopAsyncIteration
+            batch = self._batches[self._i]
+            self._i += 1
+            return batch
+
+    class FakeStore:
+        def iter_neighbors(self, node_id, *, batch_size, edge_types, direction):
+            return FakeAsyncIter([first_batch, second_batch])
+
+    from types import SimpleNamespace
+
+    config = SimpleNamespace(
+        use_lazy_loading=True,
+        lazy_load_batch_size=5,
+        max_neighbors_per_node=6,
+        direction="out",
+        top_k=10,
+    )
+    retriever = MultiHopRetriever.__new__(MultiHopRetriever)
+    retriever.graph_store = FakeStore()
+    kept = await retriever._get_neighbors_lazy("seed", None, config)
+    dsts = [edge.dst for edge in kept]
+    assert len(kept) == 6
+    # Cross-rank: the compiler edge LEADS the kept set (without the sort it
+    # sorted after nothing — it arrived in the crossing batch and an
+    # earliest-first cut would have kept 6 heuristics instead). Equal-rank
+    # ties keep arrival order (stability), so among the eight equal-rank
+    # heuristics the first five fill the remaining slots deterministically.
+    assert dsts[0] == "compiler-late"
+    assert sorted(dsts[1:]) == [f"heuristic-{i}" for i in range(5)]
+    assert "heuristic-5" not in dsts and "heuristic-6" not in dsts
