@@ -10,7 +10,9 @@ which deletes the workspace's `.victor/` (untracked) — including the backup_di
 The next edit's `_create_backup` then does `shutil.copy2` into a non-existent
 dir → FileNotFoundError → the whole commit rolls back → every later edit fails.
 
-Fix: `_create_backup` re-ensures the backup_dir exists before each copy.
+Fix: `_create_backup` re-ensures the backup_dir exists before each copy
+(ported to core `victor/processing/editing/editor.py` when the victor-coding
+editor fork was unified away — the fork had carried the fix since #346).
 """
 
 from __future__ import annotations
@@ -22,11 +24,10 @@ import pytest
 
 def test_edit_self_heals_after_backup_dir_deleted(tmp_path):
     """An edit must still commit after an external process deletes backup_dir."""
-    pytest.importorskip("victor_coding")  # FileEditor lives in the victor-coding vertical
     import os
     from pathlib import Path
 
-    from victor_coding.editing.editor import EditOperation, FileEditor, OperationType
+    from victor.processing.editing.editor import EditOperation, FileEditor, OperationType
 
     f = tmp_path / "x.py"
     f.write_text("a = 1\n")
@@ -54,3 +55,58 @@ def test_edit_self_heals_after_backup_dir_deleted(tmp_path):
     assert _commit("x.py", "a = 3\n") is True
     assert editor.last_commit_error is None
     assert f.read_text() == "a = 3\n"
+
+
+def test_reset_state_clears_transaction_history_and_error(tmp_path):
+    """reset_state (#368): the FileEditor is a singleton; per-task state must
+    not leak across tasks — transaction history bounded, stale commit error
+    cleared, backup_dir re-ensured."""
+    from victor.processing.editing.editor import EditOperation, FileEditor, OperationType
+
+    editor = FileEditor(backup_dir=str(tmp_path / "backups"))
+    editor.start_transaction("task N")
+    editor.current_transaction.operations.append(
+        EditOperation(
+            type=OperationType.CREATE,
+            path=str(tmp_path / "a.txt"),
+            content="hello",
+        )
+    )
+    editor.commit()
+    editor.last_commit_error = "StaleError: from task N"
+    editor.reset_state()
+    assert editor.current_transaction is None
+    assert editor.transaction_history == []
+    assert editor.last_commit_error is None
+    # Re-ensures a deleted backup dir (same hygiene as _create_backup).
+    import shutil as _shutil
+
+    _shutil.rmtree(tmp_path / "backups")
+    editor.reset_state()
+    assert (tmp_path / "backups").is_dir()
+
+
+def test_commit_failure_populates_last_commit_error(tmp_path, caplog):
+    """last_commit_error (#344): commit failures are captured and logged —
+    the victor edit tool suppresses the editor's rich-console stdout, so the
+    attribute is the only surface for the real error."""
+    import logging
+
+    from victor.processing.editing.editor import EditOperation, FileEditor, OperationType
+
+    editor = FileEditor(backup_dir=str(tmp_path / "backups"))
+    editor.start_transaction("doomed")
+    # RENAME without new_path raises deterministically INSIDE the apply loop
+    # (bypassing the add_* helpers' up-front validation) -> rollback path.
+    editor.current_transaction.operations.append(
+        EditOperation(
+            type=OperationType.RENAME,
+            path=str(tmp_path / "anything.txt"),
+        )
+    )
+    with caplog.at_level(logging.ERROR, logger="victor.processing.editing.editor"):
+        committed = editor.commit()
+    assert committed is False
+    assert editor.last_commit_error is not None
+    assert editor.last_commit_error.startswith("ValueError:")
+    assert any("FileEditor.commit failed" in r.message for r in caplog.records)
