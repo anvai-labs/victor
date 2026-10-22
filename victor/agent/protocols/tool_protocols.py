@@ -29,7 +29,6 @@ __all__ = [
     "ToolSelectorFeatures",
     "ToolRegistryProtocol",
     "ToolSelectorProtocol",
-    "ToolPipelineProtocol",
     "ToolExecutorProtocol",
     "ToolCacheProtocol",
     "ToolRegistrarProtocol",
@@ -174,40 +173,6 @@ class ToolSelectorProtocol(Protocol):
 
     def get_tools_for_stage(self, stage: "ConversationStage") -> Set[str]:
         """Get recommended tools for a conversation stage."""
-        ...
-
-
-@runtime_checkable
-class ToolPipelineProtocol(Protocol):
-    """Protocol for tool execution pipeline.
-
-    Coordinates tool execution flow, budget enforcement, and caching.
-    """
-
-    @property
-    def calls_used(self) -> int:
-        """Number of tool calls used in current session."""
-        ...
-
-    @property
-    def budget(self) -> int:
-        """Maximum tool calls allowed."""
-        ...
-
-    async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> "ToolCallResult":
-        """Execute a tool call.
-
-        Args:
-            tool_name: Name of tool to execute
-            arguments: Tool arguments
-
-        Returns:
-            Tool execution result
-        """
-        ...
-
-    def is_budget_exhausted(self) -> bool:
-        """Check if tool budget is exhausted."""
         ...
 
 

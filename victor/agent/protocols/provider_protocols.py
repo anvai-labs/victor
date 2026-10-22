@@ -15,62 +15,12 @@ from typing import (
 )
 
 __all__ = [
-    "ProviderManagerProtocol",
     "ProviderRegistryProtocol",
     "IProviderHealthMonitor",
     "IProviderSwitcher",
     "IProviderEventEmitter",
     "IProviderClassificationStrategy",
 ]
-
-
-@runtime_checkable
-class ProviderManagerProtocol(Protocol):
-    """Protocol for provider management.
-
-    Manages LLM provider lifecycle, switching, and health monitoring.
-    """
-
-    @property
-    def provider(self) -> Any:
-        """Get the current provider instance."""
-        ...
-
-    @property
-    def model(self) -> str:
-        """Get the current model identifier."""
-        ...
-
-    @property
-    def provider_name(self) -> str:
-        """Get the provider name (e.g., 'anthropic', 'openai')."""
-        ...
-
-    @property
-    def tool_adapter(self) -> Any:
-        """Get the tool calling adapter for current provider."""
-        ...
-
-    @property
-    def capabilities(self) -> Any:
-        """Get tool calling capabilities for current model."""
-        ...
-
-    def initialize_tool_adapter(self) -> None:
-        """Initialize the tool adapter for current provider/model."""
-        ...
-
-    async def switch_provider(self, provider_name: str, model: Optional[str] = None) -> bool:
-        """Switch to a different provider/model.
-
-        Args:
-            provider_name: Name of provider to switch to
-            model: Optional model to use
-
-        Returns:
-            True if switch successful
-        """
-        ...
 
 
 @runtime_checkable
