@@ -50,7 +50,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = ROOT / "scripts" / "ci" / "duplication_baseline.json"
-SCAN_TIMEOUT_SECONDS = 300  # measured ~2-3s locally; generous CI ceiling
+SCAN_TIMEOUT_SECONDS = 600  # ~3s warm locally; cold-cache CI fetch+scan needs the headroom
 # Only used to BOOTSTRAP a missing baseline under --update-baseline; after the
 # first commit the pinned version always comes from the baseline file itself.
 _BOOTSTRAP_PIN = "5.4.2"
@@ -96,14 +96,32 @@ def run_jscpd(version: str, output_dir: Path) -> Path:
     ]
     last_output = ""
     for attempt in (1, 2):
-        result = subprocess.run(  # noqa: S603 - fixed argv, pinned package
-            command,
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            timeout=SCAN_TIMEOUT_SECONDS,
-            check=False,
-        )
+        try:
+            result = subprocess.run(  # noqa: S603 - fixed argv, pinned package
+                command,
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                timeout=SCAN_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            # A timeout is a size/runner problem, not a transient one:
+            # retrying burns another full scan. Fail with the ceiling named
+            # (observed on #1441: a cold-cache runner's npx fetch + scan
+            # exceeded a 300s ceiling a warm local run finishes in ~3s).
+            raise SystemExit(
+                f"duplication-ratchet: jscpd@{version} exceeded the "
+                f"{SCAN_TIMEOUT_SECONDS}s scan ceiling (cold-cache fetch + scan; "
+                "raise SCAN_TIMEOUT_SECONDS if the corpus grew) — not retried"
+            ) from None
+        except OSError as exc:
+            if attempt == 1:
+                print(f"jscpd attempt 1 failed to spawn ({exc}); retrying once")
+                continue
+            raise SystemExit(
+                f"duplication-ratchet: jscpd@{version} failed to spawn twice ({exc})"
+            ) from None
         report = output_dir / "jscpd-report.json"
         if result.returncode == 0 and report.exists():
             return report
