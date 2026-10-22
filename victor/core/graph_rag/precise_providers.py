@@ -142,6 +142,9 @@ class ScipPythonProvider:
 
     name = "scip-python"
     languages = frozenset({"python"})
+    # Measured ~500s on the victor monorepo (6,707 files) under the heap
+    # hint; generous headroom for bigger corpora.
+    default_timeout_seconds = 1200
 
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
         if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
@@ -202,6 +205,8 @@ class ScipTypescriptProvider:
 
     name = "scip-typescript"
     languages = frozenset({"typescript"})
+    # Measured ~3s on vscode-victor (89 docs).
+    default_timeout_seconds = 600
 
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
         if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
@@ -295,6 +300,8 @@ class RustAnalyzerProvider:
 
     name = "rust-analyzer"
     languages = frozenset({"rust"})
+    # Measured ~13s on the victor rust workspace (30 docs, 10 crates).
+    default_timeout_seconds = 120
 
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
         if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
@@ -319,20 +326,32 @@ class RustAnalyzerProvider:
         *,
         timeout_seconds: int,
     ) -> Optional[Path]:
+        import os
+
         crate_root = self.crate_root(root)
         if crate_root is None:
             logger.info("precise-index: no Cargo.toml at %s or one level down; skipping", root)
             return None
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        # rust-analyzer scip takes the project PATH and writes index.scip to
-        # the process CWD (no --output flag), so run from the artifact dir.
-        return _run_dump(
+        # rust-analyzer scip takes the project PATH and ALWAYS writes
+        # ``index.scip`` to the process CWD (no --output flag): run in the
+        # artifact directory, validate the FIXED name, then move it to the
+        # caller's path. Validating output_path directly would fail — the
+        # tool never writes there (caught by a real pipeline validation;
+        # the argv-level tests could not see it).
+        produced = output_path.parent / "index.scip"
+        result = _run_dump(
             [tool, "scip", str(crate_root)],
             cwd=output_path.parent,
-            output_path=output_path,
+            output_path=produced,
             timeout_seconds=timeout_seconds,
             node_heap=False,
         )
+        if result is None:
+            return None
+        if produced != output_path:
+            os.replace(produced, output_path)
+        return output_path
 
     def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
         # Grammar (verified, rust-analyzer 1.99): ``rust-analyzer cargo
@@ -423,3 +442,12 @@ def providers_for_files(files: list[str]) -> dict[str, PreciseIndexProvider]:
 
 def all_providers() -> tuple[PreciseIndexProvider, ...]:
     return tuple(registered.provider for registered in _REGISTRY)
+
+
+def extensions_for_provider(provider_name: str) -> frozenset[str]:
+    """The file extensions a provider's cache slice covers."""
+
+    for registered in _REGISTRY:
+        if registered.provider.name == provider_name:
+            return registered.extensions
+    return frozenset()

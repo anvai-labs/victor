@@ -733,3 +733,134 @@ async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
         assert harvest.edges[0][3]["provenance"] == "compiler"
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_harvest_reuses_cached_dump_on_second_run(tmp_path, monkeypatch):
+    """Dump once, reuse forever while the language's file set is unchanged.
+    Protobuf-free (harvest faked at the join seam) so CI's minimal env
+    covers the cache loop too; the vendored-bindings path has its own tests.
+    """
+    pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag import precise_index, precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n\n\ndef g():\n    return f()\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider,
+        "detect",
+        lambda self, hint="auto": "/usr/bin/scip-python",
+    )
+    dump_calls = []
+
+    def fake_dump(self, tool, root, output_path, *, timeout_seconds):
+        dump_calls.append(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"fake-scip-artifact")
+        return output_path
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", fake_dump)
+
+    def fake_harvest(index_path, nodes_by_file, *, symbol_parts=None):
+        from victor.core.graph_rag.precise_index import PreciseHarvest
+
+        return PreciseHarvest(
+            edges=[
+                (
+                    "g-node",
+                    "f-node",
+                    "REFERENCES",
+                    {"provenance": "compiler", "confidence": 1.0, "use": "load"},
+                )
+            ],
+            resolved=1,
+        )
+
+    monkeypatch.setattr(precise_index, "harvest_precise_edges", fake_harvest)
+
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()  # harvests once internally: the one dump
+        assert len(dump_calls) == 1
+        second = await pipeline._harvest_precise_index(tmp_path)
+        assert len(dump_calls) == 1  # no second dump: cache hit
+        assert second.per_language["scip-python"].endswith("[cached dump]")
+        assert len(second.edges) == 1
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_harvest_dump_failure_and_cache_store_degrade(tmp_path, monkeypatch):
+    """A failed dump reports dump-failed and never poisons the cache; a
+    cache-store failure degrades to uncached use without failing the harvest."""
+    pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag import precise_cache, precise_index, precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider,
+        "detect",
+        lambda self, hint="auto": "/usr/bin/scip-python",
+    )
+
+    def failing_dump(self, tool, root, output_path, *, timeout_seconds):
+        return None
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", failing_dump)
+    from victor.core.graph_rag.precise_index import PreciseHarvest
+
+    def fake_harvest(index_path, nodes_by_file, *, symbol_parts=None):
+        return PreciseHarvest(edges=[], resolved=0)
+
+    monkeypatch.setattr(precise_index, "harvest_precise_edges", fake_harvest)
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        await pipeline.index_repository()
+        first = await pipeline._harvest_precise_index(tmp_path)
+        assert first.per_language == {"scip-python": "dump-failed"}
+        assert not (tmp_path / ".victor" / "precise").exists() or not any(
+            (tmp_path / ".victor" / "precise").iterdir()
+        )
+
+        # Store-side degradation: a working dump whose sidecar write fails
+        # (e.g. refused artifact) still harvests fine, uncached.
+        def ok_dump(self, tool, root, output_path, *, timeout_seconds):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"artifact")
+            return output_path
+
+        monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", ok_dump)
+        monkeypatch.setattr(
+            precise_cache, "store", lambda *a, **k: (_ for _ in ()).throw(ValueError("refused"))
+        )
+        second = await pipeline._harvest_precise_index(tmp_path)
+        assert second.per_language["scip-python"].startswith("ok:0 edges")
+        assert "[cached dump]" not in second.per_language["scip-python"]
+    finally:
+        await store.close()

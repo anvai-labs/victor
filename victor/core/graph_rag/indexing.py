@@ -848,15 +848,17 @@ class GraphIndexingPipeline:
         the tier-2.5 graph stays complete without the toolchain.
         """
 
+        from victor.core.graph_rag import precise_cache
         from victor.core.graph_rag.precise_index import (
             PreciseHarvest,
             harvest_precise_edges,
         )
-        from victor.core.graph_rag.precise_providers import providers_for_files
+        from victor.core.graph_rag.precise_providers import (
+            extensions_for_provider,
+            providers_for_files,
+        )
 
         try:
-            import tempfile
-
             # Join by node metadata, not by re-derived key hashes: the
             # persisted stable keys embed the codegraph fqn shape and the
             # extracted signature, neither of which the SCIP symbol string
@@ -867,11 +869,14 @@ class GraphIndexingPipeline:
 
             # Polyglot (contract rev 1.5): one dump per language actually
             # present in the persisted nodes, each with its own producer
-            # grammar. Per-language outcomes are reported honestly; a
-            # language without its toolchain skips with a named reason and
+            # grammar, dumped through the artifact cache when the language's
+            # file set is unchanged (editing .rs reuses the ~8-minute
+            # pyright artifact). Per-language outcomes are reported honestly;
+            # a language without its toolchain skips with a named reason and
             # never blocks the others.
-            timeout_seconds = getattr(self.config, "precise_index_timeout_seconds", 1200)
+            config_timeout = getattr(self.config, "precise_index_timeout_seconds", 0)
             tool_hint = getattr(self.config, "precise_index_tool", "auto")
+            manifest = getattr(getattr(self, "_codegraph_repository", None), "manifest", None)
             merged_edges: list[tuple[str, str, str, dict[str, Any]]] = []
             merged_resolved = 0
             merged_unjoined = 0
@@ -882,48 +887,74 @@ class GraphIndexingPipeline:
             merged_ooocc = 0
             outcomes: dict[str, str] = {}
             providers = providers_for_files(list(nodes_by_file))
-            with tempfile.TemporaryDirectory(prefix="scip-harvest-") as tmp:
-                for provider in providers.values():
-                    tool = provider.detect(tool_hint)
-                    if tool is None:
-                        outcomes[provider.name] = "toolchain-absent"
-                        logger.info(
-                            "precise-index: %s toolchain absent; %s skipped",
-                            provider.name,
-                            "/".join(sorted(provider.languages)),
-                        )
-                        continue
-                    dump_path = Path(tmp) / f"{provider.name}.scip"
+            for provider in providers.values():
+                tool = provider.detect(tool_hint)
+                if tool is None:
+                    outcomes[provider.name] = "toolchain-absent"
+                    logger.info(
+                        "precise-index: %s toolchain absent; %s skipped",
+                        provider.name,
+                        "/".join(sorted(provider.languages)),
+                    )
+                    continue
+                timeout_seconds = config_timeout or provider.default_timeout_seconds
+                file_hashes = precise_cache.slice_manifest_for_extensions(
+                    manifest, extensions_for_provider(provider.name)
+                )
+                cache_key = (
+                    precise_cache.dump_cache_key(provider.name, tool, file_hashes)
+                    if manifest is not None
+                    else None
+                )
+                reused = (
+                    precise_cache.load_cached(root, provider.name, cache_key) if cache_key else None
+                )
+                if reused is not None:
+                    dump_path = reused
+                else:
+                    dump_path, tmp_path = precise_cache.atomic_dump_path(root, provider.name)
                     dumped = await asyncio.to_thread(
                         provider.dump,
                         tool,
                         root,
-                        dump_path,
+                        tmp_path,
                         timeout_seconds=timeout_seconds,
                     )
                     if dumped is None:
                         outcomes[provider.name] = "dump-failed"
                         continue
-                    harvest = await asyncio.to_thread(
-                        harvest_precise_edges,
-                        dumped,
-                        nodes_by_file,
-                        symbol_parts=provider.symbol_parts,
-                    )
-                    if harvest.skipped_reason:
-                        outcomes[provider.name] = harvest.skipped_reason
-                        continue
-                    outcomes[provider.name] = (
-                        f"ok:{len(harvest.edges)} edges ({harvest.accounting})"
-                    )
-                    merged_edges.extend(harvest.edges)
-                    merged_resolved += harvest.resolved
-                    merged_unjoined += harvest.unjoined
-                    merged_defs_unjoined += harvest.definitions_unjoined
-                    merged_refs_unjoined += harvest.references_unjoined
-                    merged_refs_ownerless += harvest.references_ownerless
-                    merged_oodocs += harvest.out_of_corpus_documents
-                    merged_ooocc += harvest.out_of_corpus_occurrences
+                    import os
+
+                    os.replace(tmp_path, dump_path)
+                    if cache_key:
+                        try:
+                            precise_cache.store(root, provider.name, dump_path, cache_key)
+                        except (OSError, ValueError) as exc:
+                            # Cache bookkeeping is best-effort: the artifact
+                            # itself is valid for THIS harvest; only future
+                            # reuse is forgone.
+                            logger.warning("precise-index cache store skipped: %s", exc)
+                harvest = await asyncio.to_thread(
+                    harvest_precise_edges,
+                    dump_path,
+                    nodes_by_file,
+                    symbol_parts=provider.symbol_parts,
+                )
+                if harvest.skipped_reason:
+                    outcomes[provider.name] = harvest.skipped_reason
+                    continue
+                outcomes[provider.name] = (
+                    f"ok:{len(harvest.edges)} edges ({harvest.accounting})"
+                    + (" [cached dump]" if reused is not None else "")
+                )
+                merged_edges.extend(harvest.edges)
+                merged_resolved += harvest.resolved
+                merged_unjoined += harvest.unjoined
+                merged_defs_unjoined += harvest.definitions_unjoined
+                merged_refs_unjoined += harvest.references_unjoined
+                merged_refs_ownerless += harvest.references_ownerless
+                merged_oodocs += harvest.out_of_corpus_documents
+                merged_ooocc += harvest.out_of_corpus_occurrences
             if not providers:
                 return PreciseHarvest(
                     skipped_reason="no-indexable-languages", per_language=outcomes

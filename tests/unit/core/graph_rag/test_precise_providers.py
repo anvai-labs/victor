@@ -307,12 +307,33 @@ def test_rust_dump_argv_runs_from_artifact_dir(tmp_path, monkeypatch):
     (tmp_path / "rust").mkdir()
     (tmp_path / "rust" / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
     out_dir = tmp_path / "artifact"
-    RS.dump("/usr/bin/rust-analyzer", tmp_path, out_dir / "index.scip", timeout_seconds=60)
-    # rust-analyzer writes index.scip to the process CWD: cwd IS the
-    # artifact directory, and the path arg is the discovered crate root.
+    # rust-analyzer writes index.scip to the process CWD regardless of the
+    # requested path: the transport validates the FIXED name and the
+    # provider MOVES it to the caller's path (caught by a real pipeline
+    # validation — argv-level tests alone could not see this).
+    import victor.core.graph_rag.precise_providers as mod
+
+    def fake_run_dump(command, *, cwd, output_path, timeout_seconds, node_heap):
+        captured.update(
+            command=command,
+            cwd=cwd,
+            output=output_path,
+            timeout=timeout_seconds,
+            node_heap=node_heap,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"scip")
+        return output_path
+
+    monkeypatch.setattr(mod, "_run_dump", fake_run_dump)
+    final = RS.dump("/usr/bin/rust-analyzer", tmp_path, out_dir / "rust.scip", timeout_seconds=60)
+    assert final == out_dir / "rust.scip"
     assert captured["command"] == ["/usr/bin/rust-analyzer", "scip", str(tmp_path / "rust")]
     assert captured["cwd"] == out_dir
+    assert captured["output"] == out_dir / "index.scip"  # the FIXED name
     assert captured["node_heap"] is False  # native producer: no Node hint
+    assert final.exists() and final.read_bytes() == b"scip"
+    assert not (out_dir / "index.scip").exists()  # moved, not copied
 
 
 def test_run_dump_failure_taxonomy(tmp_path, monkeypatch):
