@@ -88,21 +88,36 @@ def _neighbor_endpoint(edge: GraphEdge, node_id: str, direction: str) -> Optiona
     return edge.src
 
 
-def _precision_first(edges: List[GraphEdge]) -> List[GraphEdge]:
-    """Stable-sort a neighbour batch so binding-provenance edges lead.
+# ADR-032 provenance VALUE ranking (tier 3.5, retrieval-first): compiler
+# edges are ground truth, scope/repository resolvers are binding-proven,
+# parser provenance is heuristic naming. Unknown or absent values rank last
+# together — conservative: an unrecognized producer never outranks a known
+# heuristic.
+_PROVENANCE_RANK = {
+    "compiler": 0,
+    "scope_resolver": 1,
+    "repository_resolver": 1,
+    "repository_import_resolver": 2,
+    "parser": 3,
+}
 
-    ADR-032 provenance model: edges carrying resolver provenance (scope-
-    resolved bindings, later SCIP-harvested compiler edges) are more
-    trustworthy than heuristic name-index edges. Retrieval explores them
-    first, which matters exactly when the candidate safety budget bites —
-    under the ceiling, the provenance-backed subgraph survives. Flag-
-    independent: without provenance metadata the order is unchanged.
+
+def _precision_first(edges: List[GraphEdge]) -> List[GraphEdge]:
+    """Stable-sort a neighbour batch so higher-precision edges lead.
+
+    ADR-032 provenance model, by VALUE (tier 3.5): compiler-harvested edges
+    outrank scope-resolved bindings, which outrank heuristic parser edges —
+    retrieval explores the most trustworthy subgraph first, which matters
+    exactly when the candidate safety budget bites (under the ceiling the
+    precise subgraph survives) and when shortest-path ties are broken by
+    visit order. Flag-independent: without provenance metadata the order is
+    unchanged, and unknown provenance values rank with absent.
     """
 
     return sorted(
         edges,
         key=lambda edge: (
-            0 if (edge.metadata or {}).get("provenance") else 1,
+            _PROVENANCE_RANK.get((edge.metadata or {}).get("provenance"), 4),
             0 if edge.type == "REFERENCES" else 1,
         ),
     )
@@ -619,10 +634,13 @@ class MultiHopRetriever:
             async for batch in iter_neighbors:
                 edges.extend(batch)
 
-                # Early termination if we have enough neighbors
+                # Early termination if we have enough neighbors. Sort BEFORE
+                # the cap: store order is arbitrary, so cutting first would
+                # drop high-precision edges that merely arrived late in the
+                # batch — the cap must keep the best, not the earliest.
                 max_neighbors = getattr(config, "max_neighbors_per_node", 100)
                 if len(edges) >= max_neighbors:
-                    edges = edges[:max_neighbors]
+                    edges = _precision_first(edges)[:max_neighbors]
                     break
 
         except Exception as e:
@@ -988,7 +1006,10 @@ class MultiHopRetriever:
         nodes_by_id = {node.node_id: node for node in graph_result.nodes}
 
         adjacency: Dict[str, List[str]] = {}
-        for edge in graph_result.edges:
+        # Precision-ordered input: membership is unchanged, but any
+        # downstream tie broken by adjacency order now favours the more
+        # trustworthy edge (ADR-032 tier 3.5, retrieval-first).
+        for edge in _precision_first(graph_result.edges):
             adjacency.setdefault(edge.src, []).append(edge.dst)
 
         distances: Dict[str, int] = {}

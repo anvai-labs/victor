@@ -674,7 +674,10 @@ jobs:
     # Full-monorepo scan measured ~2-3s locally; npx fetch dominates the job.
     name: Duplication Ratchet (jscpd)
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    # 15 min: a cold-cache runner pays the npx fetch plus the scan inside the
+    # script's own 600s ceiling; 8 min red-red the job before the script
+    # could even report (observed on #1441).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

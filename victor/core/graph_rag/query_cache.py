@@ -393,8 +393,20 @@ class GraphQueryCache:
             for n in result.nodes
         ]
 
-        # Convert edges to minimal representation
-        edges_data = [{"src": e.src, "dst": e.dst, "type": e.type} for e in result.edges]
+        # Edge payloads ride along: provenance/confidence/use drive
+        # precision-ordered expansion (ADR-032 tier 3.5) — a cache hit that
+        # stripped them would silently degrade retrieval order vs a miss.
+        edges_data = [
+            {
+                "src": e.src,
+                "dst": e.dst,
+                "type": e.type,
+                "metadata": (
+                    dict(e.metadata) if isinstance(getattr(e, "metadata", None), dict) else {}
+                ),
+            }
+            for e in result.edges
+        ]
 
         return {
             "nodes": nodes_data,
@@ -441,6 +453,9 @@ class GraphQueryCache:
                 dst=e["dst"],
                 type=e["type"],
                 weight=1.0,
+                # Legacy cache entries predate per-edge metadata: absent -> {}
+                # (ranks with unknown provenance, conservative).
+                metadata=e.get("metadata") or {},
             )
             for e in data.get("edges", [])
         ]
