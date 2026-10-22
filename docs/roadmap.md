@@ -29,7 +29,7 @@ evaluation loop and gating every change on it over adding new capabilities.
 | Client routing | REPL still streams through an agent; completions still calls the provider directly | Item 32 |
 | Graph interrupt/resume | General paused signal and resume-after semantics remain open | FEP-0032; item 24 |
 | Coordinator, benchmarks and RL | Extraction/consolidation remains open; preserve newer safety and formation contracts | Items 30 → 31 → 29; FEP-0033 |
-| Vertical bases and indexing | Family extraction, full boundary-manifest migration and parse reuse remain open | ADR-031; items 28, 22a follow-up, 26b |
+| Vertical bases and indexing | Family extraction, full boundary-manifest migration and parse reuse remain open | ADR-031; items 28, 22a follow-up, 26b. Recorded 2026-10-22 (dedup round 8): vector-store embedding-models family — `victor/storage/vector_stores/models.py` vs `victor-coding/codebase/embeddings/models.py` (+base.py, graph/protocol.py pairs; 636 dup lines at min-tokens 120) — needs a config-injection design under ADR-031's no-parallel-hierarchies rule (sides intentionally diverge on defaults bge-small vs MiniLM and print vs logging; core is ahead with EmbeddingProfile attestation; ~10 core importers + the coding embeddings trio in blast radius). Expected drop ~636 when done. |
 | Documentation rollout | Index, diagrams, Pages and link checker shipped; release/status drift maintenance continues | D1–D3 |
 | Newer safety and live acceptance | Partial source repairs; retained G60–G70/G72/C5 gaps require their own acceptance | [Safety audit](architecture/agentic-workflow-safety-audit.md), [formation ledger](architecture/multiagent-formation-coverage-handoff.md) |
 
