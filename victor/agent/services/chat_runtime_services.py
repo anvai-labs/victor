@@ -21,7 +21,7 @@ from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
 from victor.agent.unified_task_tracker import TrackerTaskType
-from victor.framework.policies.gate import GateResult
+from victor.agent.policies.gate import GateResult
 from victor.providers.base import BaseProvider, Message, StreamChunk
 
 logger = logging.getLogger(__name__)

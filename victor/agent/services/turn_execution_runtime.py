@@ -224,7 +224,7 @@ class TurnExecutor:
                 ExplorationCoordinator helper only when no orchestrator-backed
                 state-passed surface is available.
             message_policy_gate: Optional governance
-                :class:`~victor.framework.policies.gate.MessagePolicyGate` that
+                :class:`~victor.agent.policies.gate.MessagePolicyGate` that
                 gates the REQUEST (user message pre-LLM) and RESPONSE (assistant
                 output) phases. None disables message-phase governance (default).
             runtime_context: Shared identity resolver, required when lifecycle

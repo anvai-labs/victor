@@ -32,10 +32,10 @@ from __future__ import annotations
 import contextvars
 from typing import TYPE_CHECKING, Any, Optional
 
-from victor.framework.approval_pause import ApprovalPause
+from victor.agent.approval_pause import ApprovalPause
 
 if TYPE_CHECKING:
-    from victor.framework.hitl import ApprovalRequest
+    from victor.agent.hitl import ApprovalRequest
 
 #: The member-tagging ASK approval handler in effect while a member orchestrator is being
 #: constructed. ``None`` everywhere else (zero overhead on the top-level/single-agent path).

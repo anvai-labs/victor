@@ -75,7 +75,7 @@ from victor.agent.planning.readable_schema import (
 )
 from victor.agent.task_analyzer import TaskAnalysis
 from victor.agent.services.context_service import compact_context_if_recommended
-from victor.framework.execution_checkpoint import ApprovalState
+from victor.agent.execution_checkpoint import ApprovalState
 from victor.framework.task import TaskComplexity
 from victor.providers.base import CompletionResponse
 

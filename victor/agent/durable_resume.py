@@ -114,7 +114,7 @@ async def resume_paused_run(
     import math
     import time
 
-    from victor.framework.approval_binding import (
+    from victor.agent.approval_binding import (
         ApprovalBindingError,
         ApprovalGrant,
         current_approval_grant,
@@ -242,7 +242,7 @@ async def resume_paused_run(
     # tools. Durable pause is ARMED here (FEP-0029 chained pauses): a *new* ASK during the
     # continuation raises ApprovalPause (the Phase-1 mechanism), which we catch and record as a fresh
     # paused_run — the run parks again with a new run_id that the surfaces already render.
-    from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
+    from victor.agent.approval_pause import ApprovalPause, current_durable_pause_enabled
 
     tool_name = gated_tool or "unknown"
     user_message = _last_user_message(messages)

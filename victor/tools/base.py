@@ -304,7 +304,7 @@ class ToolMetadataProvider(Protocol):
 
 
 if TYPE_CHECKING:
-    from victor.framework.action_recovery import ActionRecovery
+    from victor.core.action_recovery import ActionRecovery
 
 
 class BaseTool(ABC):

@@ -18,8 +18,8 @@ from victor.agent.tool_execution.categorization import (
     categorize_tool_call,
 )
 from victor.agent.tool_output_formatter import FormattingContext
-from victor.framework.execution_checkpoint import ExecutionCheckpoint
-from victor.framework.approval_pause import mark_batch_publication_incomplete
+from victor.agent.execution_checkpoint import ExecutionCheckpoint
+from victor.agent.approval_pause import mark_batch_publication_incomplete
 from victor.agent.tool_pipeline import PipelineExecutionResult, ToolCallResult
 from victor.agent.member_approval_context import MemberApprovalPause
 
