@@ -157,11 +157,12 @@ def test_out_of_corpus_references_are_not_join_failures():
     assert harvest.unjoined == 0
 
 
-def test_document_scope_binds_files_no_marker_needed():
+def test_documents_without_codegraph_bucket_are_out_of_corpus():
     """The real grammar carries no file in the symbol: the DOCUMENT bucket is
-    the file binding. A def in a document with no node bucket stays unjoined
-    even when another file has a same-named node — and the segment-aligned
-    fallback must not hand it that file's nodes."""
+    the file binding. A document whose file has NO node bucket is
+    out-of-corpus-by-codegraph — its occurrences are counted separately,
+    never as join failures, and the segment-aligned fallback must not hand
+    it another file's nodes."""
     nodes = _nodes()
     index = _index(
         _doc(
@@ -174,7 +175,62 @@ def test_document_scope_binds_files_no_marker_needed():
     )
     harvest = join_occurrences(index, {"src/m.py": nodes[:3]})
     assert harvest.resolved == 0 and harvest.edges == []
-    assert harvest.unjoined == 2
+    assert harvest.unjoined == 0  # out-of-corpus, not a join failure
+    assert harvest.out_of_corpus_documents == 1
+    assert harvest.out_of_corpus_occurrences == 2
+
+
+def test_out_of_corpus_defs_do_not_pollute_the_definition_pool():
+    """References (in a BUCKETED document) to a symbol whose only definition
+    lives in an out-of-corpus document are out-of-corpus too — never
+    "defined but unjoinable" noise in the failure metric."""
+    nodes = _nodes()
+    index = _index(
+        _doc(
+            "src/other.py",  # no bucket: defines helper
+            [
+                _occ(_sym("other/helper()."), 1, DEF),
+            ],
+        ),
+        _doc(
+            "src/m.py",  # bucketed: references that helper
+            [
+                _occ(_sym("m/run()."), 1, DEF),
+                _occ(_sym("other/helper()."), 3, 0),
+            ],
+        ),
+    )
+    harvest = join_occurrences(index, {"src/m.py": nodes[:3]})
+    assert harvest.unjoined == 0  # the ref is out-of-corpus, not unjoined
+    assert harvest.resolved == 0 and harvest.edges == []
+    assert harvest.out_of_corpus_documents == 1
+
+
+def test_unjoined_splits_definitions_targets_and_ownerless():
+    """The failure metric decomposes into its three honest buckets."""
+    nodes = _nodes()
+    index = _index(
+        _doc(
+            "src/m.py",
+            [
+                _occ(_sym("m/helper()."), 1, DEF),  # joins
+                _occ(
+                    _sym("m/run()."), 2, DEF
+                ),  # joins (meth-id via scope? no: run -> meth-id needs scope match)
+                _occ(_sym("m/dup()."), 3, DEF),  # no node named dup -> def unjoined
+                _occ(_sym("m/helper()."), 0, 0),  # ref before any joined def -> ownerless
+                _occ(_sym("m/Worker#"), 5, DEF),  # class joins
+                _occ(_sym("m/dup()."), 6, 0),  # target unjoined (def failed)
+            ],
+        )
+    )
+    harvest = join_occurrences(index, {"src/m.py": nodes[:3]})
+    assert harvest.definitions_unjoined >= 1  # dup has no node
+    assert harvest.references_unjoined >= 1  # ref to dup
+    assert harvest.references_ownerless >= 1  # helper ref at line 0, before defs
+    assert harvest.unjoined == (
+        harvest.definitions_unjoined + harvest.references_unjoined + harvest.references_ownerless
+    )
 
 
 def test_suffix_fallback_is_segment_aligned(tmp_path):
@@ -669,7 +725,8 @@ async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
         harvest = await pipeline._harvest_precise_index(tmp_path)
         # Only python nodes exist, so only scip-python runs; the loop still
         # exercises one ok outcome with a real edge.
-        assert harvest.per_language == {"scip-python": "ok:1 edges"}
+        assert harvest.per_language["scip-python"].startswith("ok:1 edges (")
+        assert "0 docs out-of-corpus" in harvest.per_language["scip-python"]
         assert harvest.skipped_reason is None
         assert len(harvest.edges) == 1
         assert harvest.edges[0][2] == "REFERENCES"
