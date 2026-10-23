@@ -43,7 +43,7 @@ from victor.agent.request_scope_heuristics import (
     is_ambiguous_write_followup_request,
 )
 from victor.framework.topology_runtime import prepare_topology_runtime_contract
-from victor.framework.task import TaskComplexity
+from victor.core.task.protocols import TaskComplexity
 from victor.providers.base import Message, StreamChunk
 from victor.providers.openai_compat import consume_last_tool_message_cleanup_stats
 
