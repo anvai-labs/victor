@@ -49,10 +49,6 @@ UNIVERSAL_EXCLUDE_PATTERNS = [
     "**/.git/**",
     "**/.svn/**",
     "**/.hg/**",
-    # Packaging: Homebrew formula directories are packaging artifacts, not
-    # source — victor's own formula (scripts/homebrew/victor.rb) indexed as
-    # a ruby module and tripped the scip-ruby provider for no value.
-    "**/scripts/homebrew/**",
     # Python
     "**/__pycache__/**",
     "**/*.pyc",

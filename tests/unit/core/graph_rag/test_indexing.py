@@ -2525,3 +2525,66 @@ async def test_stream_releases_delivered_payload_before_next_parse(monkeypatch, 
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         pipeline._get_executor().shutdown(wait=True)
+
+
+class TestParseWorkerCount:
+    """The old silent 8-core cap under-used many-core boxes and hid the GIL
+    ceiling from every measurement (self-analysis round 2, F1)."""
+
+    def _pipeline(self, tmp_path, **config_overrides):
+        from victor.core.graph_rag.config import GraphIndexConfig
+        from victor.core.graph_rag.indexing import GraphIndexingPipeline
+
+        config = GraphIndexConfig(root_path=tmp_path, **config_overrides)
+        return GraphIndexingPipeline(graph_store=None, config=config)
+
+    def test_default_uses_full_core_count_not_eight(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("os.cpu_count", lambda: 16)
+        assert self._pipeline(tmp_path)._parse_worker_count() == 16
+
+    def test_explicit_value_honored_verbatim(self, tmp_path):
+        assert self._pipeline(tmp_path, parse_workers=1)._parse_worker_count() == 1
+        assert self._pipeline(tmp_path, parse_workers=3)._parse_worker_count() == 3
+
+    def test_stats_default_and_dict_carry_phase_timers(self):
+        from victor.core.graph_rag.indexing import GraphIndexStats
+
+        stats = GraphIndexStats()
+        assert stats.parse_seconds == 0.0
+        assert stats.persist_seconds == 0.0
+        assert stats.harvest_seconds == 0.0
+        payload = stats.to_dict()
+        assert payload["parse_seconds"] == 0.0
+        assert payload["persist_seconds"] == 0.0
+        assert payload["harvest_seconds"] == 0.0
+
+    async def test_persist_batch_accumulates_busy_time(self, tmp_path):
+        import asyncio
+        import contextlib
+
+        pipeline = self._pipeline(tmp_path)
+
+        @contextlib.asynccontextmanager
+        async def write_batch():
+            await asyncio.sleep(0.02)
+            yield
+
+        pipeline.graph_store = type("S", (), {"write_batch": staticmethod(write_batch)})()
+        async with pipeline._graph_store_write_batch():
+            pass
+        assert pipeline._persist_busy_seconds >= 0.01
+
+    def test_parse_timing_accumulates(self, tmp_path, monkeypatch):
+        import time as _time
+
+        from victor.core.graph_rag.indexing import ParseResult
+
+        pipeline = self._pipeline(tmp_path)
+
+        def slow_work(file_path):
+            _time.sleep(0.02)
+            return ParseResult(file_path=file_path, language=None)
+
+        monkeypatch.setattr(pipeline, "_parse_file_work", slow_work)
+        pipeline._parse_file_sync(tmp_path / "x.py")
+        assert pipeline._parse_busy_seconds >= 0.01

@@ -50,6 +50,11 @@ class GraphSettings(BaseModel):
     # Provider selection hint ("auto" or a provider name); mirrors
     # GraphIndexConfig.precise_index_tool.
     precise_index_tool: str = "auto"
+    # Parser thread-pool size. 0 = the machine's full core count (the old
+    # silent 8-core cap is gone); 1 = serial. Mirrors
+    # GraphIndexConfig.parse_workers — the knob for measuring the GIL
+    # ceiling on many-core boxes.
+    parse_workers: int = 0
     enable_graph_rag: bool = True
     rag_seed_count: int = 5
     rag_max_hops: int = 2
