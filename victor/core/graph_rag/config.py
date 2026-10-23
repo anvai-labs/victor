@@ -107,7 +107,8 @@ class GraphIndexConfig:
     enable_precise_index: bool = False
     precise_index_tool: str = "auto"
     # Dump timeout ceiling. 0 (default) = each provider's own measured
-    # default (python/pyright 1200s, typescript 600s, rust-analyzer 120s);
+    # default (pyright 1200s, typescript 600s, rust-analyzer 120s,
+    # scip-clang 600s, scip-java 1200s, scip-ruby 900s, scip-go 600s);
     # a positive value overrides every provider uniformly. A pyright dump
     # of a large monorepo takes minutes — the harvester degrades with an
     # explicit dump-timeout skip label when exceeded.

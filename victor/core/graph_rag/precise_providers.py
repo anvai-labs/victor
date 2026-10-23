@@ -13,13 +13,14 @@ runtimes a provider detail:
   0.6.x emits package-qualified descriptors that match no documentation),
   so each producer parses its own symbol strings here.
 
-All three current producers emit SCIP, so the protobuf reader stays shared
+All current producers emit SCIP, so the protobuf reader stays shared
 (``precise_index._read_index``); a future non-SCIP producer (LSIF adapter,
 in-process Jedi) implements its own read against the same normalized parts.
 
 Symbol-grammar facts below are pinned empirically against real dumps
-(scip-python 0.6.6, scip-typescript 0.5.1, rust-analyzer 1.99); the unit
-tests reproduce the captured shapes.
+(scip-python 0.6.6, scip-typescript 0.5.1, rust-analyzer 1.99, scip-clang
+0.4.1, scip-java 0.13.2, scip-ruby 0.5.1, scip-go 0.2.9); the unit tests
+reproduce the captured shapes.
 
 Tier-3.5 payloads (contract: "ride from day one"): ``symbol_parts`` carries
 ``syntax_kind`` when the occurrence provides it, and the join may consume
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -135,6 +137,23 @@ def _split_descriptor(symbol: str, prefix: str, tokens_before_path: int) -> Opti
 
 def _strip_backticks(name: str) -> str:
     return name.removeprefix("`").removesuffix("`")
+
+
+def _descriptor_after_tokens(symbol: str, scheme: str, tokens: int) -> Optional[str]:
+    """Split off the first ``tokens`` space-separated tokens, verifying the
+    scheme — for producers whose package/version tokens vary per project
+    (scip-java, scip-ruby) and so have no fixed prefix string."""
+
+    parts = symbol.split(" ", tokens)
+    if len(parts) <= tokens or parts[0] != scheme or not parts[-1]:
+        return None
+    return parts[-1]
+
+
+# scip-clang suffixes callables with a 16-hex SIGNATURE hash — not an
+# identity: ``helper(int)`` and ``overload(int)`` share one. Stripped before
+# the join; identity rides name+scope like the kind-dormant producers.
+_CXX_SIGNATURE_HASH = re.compile(r"\([0-9a-f]{16}\)$")
 
 
 class ScipPythonProvider:
@@ -412,6 +431,392 @@ class RustAnalyzerProvider:
         return {"file": "", "path": f"{scope}.{name}"}
 
 
+class ScipClangProvider:
+    """``scip-clang`` — C/C++ (native; needs a compilation database)."""
+
+    name = "scip-clang"
+    languages = frozenset({"c", "cpp"})
+    # Measured 0.1s on the 5-TU capture project; real template-heavy TUs are
+    # slower and the tool parallelizes by default, so typescript-class budget.
+    default_timeout_seconds = 600
+
+    def detect(self, tool_hint: str = "auto") -> Optional[str]:
+        if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
+            return tool_hint
+        return shutil.which(self.name)
+
+    def compilation_database(self, root: Path) -> Optional[Path]:
+        """Compile-database discovery: root, root/build, or one level down
+        (out-of-source cmake layouts). Never generates one — building is the
+        user's build system's job, not a dump side effect."""
+
+        for candidate in (
+            root / "compile_commands.json",
+            root / "build" / "compile_commands.json",
+            *sorted(root.glob("*/compile_commands.json")),
+            *sorted(root.glob("*/build/compile_commands.json")),
+        ):
+            if candidate.exists():
+                return candidate
+        return None
+
+    def dump(
+        self,
+        tool: str,
+        root: Path,
+        output_path: Path,
+        *,
+        timeout_seconds: int,
+    ) -> Optional[Path]:
+        compdb = self.compilation_database(root)
+        if compdb is None:
+            logger.info(
+                "precise-index: no compile_commands.json at %s or one level down "
+                "(generate with cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON or bear); skipping",
+                root,
+            )
+            return None
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # scip-clang filters documents to project_root = CWD — running from
+        # the artifact directory silently produces an EMPTY index (caught by
+        # real-pipeline validation; argv mocks cannot see it). cwd is root.
+        return _run_dump(
+            [
+                tool,
+                "--compdb-path",
+                str(compdb),
+                "--index-output-path",
+                str(output_path),
+                "--no-progress-report",
+            ],
+            cwd=root,
+            output_path=output_path,
+            timeout_seconds=timeout_seconds,
+            node_heap=False,
+        )
+
+    @staticmethod
+    def _callable_name(segment: str) -> Optional[str]:
+        segment = _strip_backticks(segment)
+        match = _CXX_SIGNATURE_HASH.search(segment)
+        if match is None:
+            return None  # field, or a hash-less callable variant: refuse to guess
+        return segment[: match.start()] or None
+
+    def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
+        # Grammar (verified, scip-clang 0.4.1): ``cxx . . $ <descriptor>`` —
+        # EMPTY package/version tokens emitted as literal '.', then '$'.
+        # Descriptors: namespaces ``ns1/ns2/``, types ``ns/Type#`` (nested
+        # types chain '#': ``Outer#Inner#``; C structs share the shape),
+        # callables ``name(<hash>).`` / ``Type#member(<hash>).``, fields
+        # ``Type#field.``, macros ``<loc>`!``, file pseudo-symbols
+        # `` `<file>/path`/ ``. Templates are transparent (``Box#``); the
+        # parenthesized suffix is a signature hash (see _CXX_SIGNATURE_HASH).
+        path = _split_descriptor(symbol, "cxx . . $ ", 4)
+        if path is None:
+            return None
+        if path.endswith("!") or path.endswith("`/"):
+            return None  # macros; file pseudo-symbols
+        body = path.removesuffix(".")
+        if not body or body.endswith("/"):
+            return None  # namespaces
+        segments = body.split("#")
+        if body.endswith("#"):
+            # Type chain — namespace components (the '/'-joined prefix of
+            # the first segment) drop; codegraph scopes carry types, never
+            # namespaces (the rust module rule).
+            types = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
+            types = [t for t in types if t]
+            if not types:
+                return None
+            return {"file": "", "path": ".".join(types)}
+        if len(segments) == 1:
+            # Free function; leading namespace components drop.
+            name = self._callable_name(segments[0].split("/")[-1])
+            if name is None:
+                return None
+            return {"file": "", "path": name}
+        scope = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
+        name = self._callable_name(segments[-1])
+        if name is None or not all(scope):
+            return None
+        return {"file": "", "path": ".".join([*scope, name])}
+
+
+class ScipJavaProvider:
+    """``scip-java`` (JVM) — Java on maven/gradle/sbt projects.
+
+    Scala rides the same toolchain (scip-java instruments scalac through the
+    JVM) once its grammar is captured against a real sbt dump; until then
+    the language set stays Java-only rather than shipping an unverified
+    parser.
+    """
+
+    name = "scip-java"
+    languages = frozenset({"java"})
+    # JVM + build-tool startup measured ~12s on the 2-file capture project;
+    # real JVM builds are minutes-class → pyright-class budget.
+    default_timeout_seconds = 1200
+
+    _BUILD_MARKERS = (
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts",
+        "build.sbt",
+        "WORKSPACE",
+        "MILL_VERSION",
+    )
+
+    def detect(self, tool_hint: str = "auto") -> Optional[str]:
+        if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
+            return tool_hint
+        return shutil.which(self.name)
+
+    def dump(
+        self,
+        tool: str,
+        root: Path,
+        output_path: Path,
+        *,
+        timeout_seconds: int,
+    ) -> Optional[Path]:
+        if not any((root / marker).exists() for marker in self._BUILD_MARKERS):
+            logger.info(
+                "precise-index: no JVM build file (pom.xml/gradle/sbt/mill) at %s; skipping",
+                root,
+            )
+            return None
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        return _run_dump(
+            [tool, "index", f"--output={output_path}"],
+            cwd=root,
+            output_path=output_path,
+            timeout_seconds=timeout_seconds,
+            node_heap=False,
+        )
+
+    def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
+        # Grammar (verified, scip-java 0.13.2, maven): ``scip-java maven
+        # <module-coordinate> <version> com/pkg/Class#method().`` — the
+        # leading tokens VARY per project (no fixed prefix), package
+        # components drop like namespaces, kinds ARE populated (the kind map
+        # handles them), and constructors emit the ``<init>`` literal —
+        # mapped like scip-typescript.
+        path = _descriptor_after_tokens(symbol, "scip-java", 4)
+        if path is None:
+            return None
+        body = path.removesuffix(".")
+        if not body:
+            return None
+        segments = body.split("#")
+        if body.endswith("#"):
+            types = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
+            types = [t for t in types if t]
+            if not types:
+                return None
+            return {"file": "", "path": ".".join(types)}
+        if len(segments) == 1 or not segments[-1].endswith("()"):
+            return None  # fields / top-level non-callables: no codegraph node
+        scope = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
+        if not scope or not all(scope):
+            return None
+        name = _strip_backticks(segments[-1].removesuffix("()"))
+        if not name:
+            return None
+        if name == "<init>":
+            name = "constructor"  # codegraph names the synthesized member literally
+        return {"file": "", "path": ".".join([*scope, name])}
+
+
+class ScipRubyProvider:
+    """``scip-ruby`` (Sorbet) — Ruby.
+
+    The gem's wrapper refuses direct invocation: the toolchain only runs as
+    ``bundle exec scip-ruby .`` inside a project whose Gemfile includes the
+    scip-ruby gem. ``detect()`` therefore requires BOTH bundler and the gem
+    binary on PATH; a project without that Gemfile setup degrades to a
+    named dump failure rather than a toolchain-absent lie.
+    """
+
+    name = "scip-ruby"
+    languages = frozenset({"ruby"})
+    # Sorbet on large Rails corpora is minutes-class → pyright-class budget.
+    default_timeout_seconds = 900
+
+    def detect(self, tool_hint: str = "auto") -> Optional[str]:
+        if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
+            return tool_hint  # override = path to the bundler to run through
+        bundle = shutil.which("bundle")
+        if bundle and shutil.which("scip-ruby"):
+            return bundle
+        return None
+
+    def dump(
+        self,
+        tool: str,
+        root: Path,
+        output_path: Path,
+        *,
+        timeout_seconds: int,
+    ) -> Optional[Path]:
+        if not (root / "Gemfile").exists():
+            logger.info(
+                "precise-index: no Gemfile at %s; skipping "
+                "(add gem 'scip-ruby' to the Gemfile and bundle install)",
+                root,
+            )
+            return None
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # No --output flag exists: index.scip lands in the CWD (the repo
+        # root). Run there, validate the FIXED name, then move it to the
+        # artifact path — the same fixed-name contract as rust-analyzer.
+        produced = root / "index.scip"
+        result = _run_dump(
+            [tool, "exec", "scip-ruby", "."],
+            cwd=root,
+            output_path=produced,
+            timeout_seconds=timeout_seconds,
+            node_heap=False,
+        )
+        if result is None:
+            return None
+        if produced != output_path:
+            os.replace(produced, output_path)
+        return output_path
+
+    @staticmethod
+    def _scope_component(segment: str) -> Optional[str]:
+        component = _strip_backticks(segment.split("/")[-1])
+        if component.startswith("<Class:") and component.endswith(">"):
+            # Singleton-class scope for `def self.x` methods — the metaclass
+            # literal maps to the class itself, matching how codegraph scopes
+            # class methods.
+            return component[len("<Class:") : -1]
+        return component or None
+
+    def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
+        # Grammar (verified, scip-ruby 0.5.1): ``scip-ruby gem <name> <ver>
+        # Module#Class#method().`` — module/class nesting is KEPT as scope
+        # (ruby modules are real lexical nesting, unlike cxx/java
+        # namespaces); singleton methods ride `` `<Class:Toy>` ``; ivars
+        # `` `@name` `` are fields; kinds are UnspecifiedKind (dormant).
+        path = _descriptor_after_tokens(symbol, "scip-ruby", 4)
+        if path is None:
+            return None
+        body = path.removesuffix(".")
+        if not body:
+            return None
+        segments = body.split("#")
+        if body.endswith("#"):
+            types = [self._scope_component(seg) for seg in segments[:-1]]
+            types = [t for t in types if t]
+            if not types:
+                return None
+            return {"file": "", "path": ".".join(types)}
+        if len(segments) == 1 or not segments[-1].endswith("()"):
+            return None  # ivars/fields (no codegraph node) or top-level non-methods
+        scope = [self._scope_component(seg) for seg in segments[:-1]]
+        if not scope or not all(scope):
+            return None
+        name = _strip_backticks(segments[-1].removesuffix("()"))
+        if not name:
+            return None
+        return {"file": "", "path": ".".join([*scope, name])}
+
+
+class ScipGoProvider:
+    """``scip-go`` — Go (native, gopls-based; needs go.mod)."""
+
+    name = "scip-go"
+    languages = frozenset({"go"})
+    # Measured ~1s on the 2-package capture project; gopls-class tooling
+    # stays fast on large corpora — typescript-class budget for headroom.
+    default_timeout_seconds = 600
+
+    def detect(self, tool_hint: str = "auto") -> Optional[str]:
+        if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
+            return tool_hint
+        return shutil.which(self.name)
+
+    def module_root(self, root: Path) -> Optional[Path]:
+        """Module discovery: root's go.mod, else a first-level
+        subdirectory's (multi-module layouts)."""
+
+        if (root / "go.mod").exists():
+            return root
+        for candidate in sorted(root.glob("*/go.mod")):
+            return candidate.parent
+        return None
+
+    def dump(
+        self,
+        tool: str,
+        root: Path,
+        output_path: Path,
+        *,
+        timeout_seconds: int,
+    ) -> Optional[Path]:
+        module_root = self.module_root(root)
+        if module_root is None:
+            logger.info("precise-index: no go.mod at %s or one level down; skipping", root)
+            return None
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # No --output flag: index.scip lands in the CWD. Run from the module
+        # root (its package resolution), validate the FIXED name, move to
+        # the artifact path — the rust-analyzer fixed-name contract.
+        produced = module_root / "index.scip"
+        result = _run_dump(
+            [tool, "index"],
+            cwd=module_root,
+            output_path=produced,
+            timeout_seconds=timeout_seconds,
+            node_heap=False,
+        )
+        if result is None:
+            return None
+        if produced != output_path:
+            os.replace(produced, output_path)
+        return output_path
+
+    def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
+        # Grammar (verified, scip-go 0.2.9): ``scip-go gomod <module> . `pkg/import/path`/Sym#member().``
+        # — FOUR leading tokens (version is the literal '.'), the head is
+        # the BACKTICKED IMPORT PATH whose components drop (codegraph scopes
+        # are receiver/file-local, never import paths); kinds ARE populated
+        # (Struct/Interface/Method/Function/Field); pointer receivers share
+        # the value-receiver shape (``Box#Set().``); interface method
+        # SIGNATURES are non-callable (``Speaker#Speak.``) and stay
+        # unjoinable like fields.
+        path = _descriptor_after_tokens(symbol, "scip-go", 4)
+        if path is None:
+            return None
+        if path.endswith("`/"):
+            return None  # package pseudo-symbols
+        body = path.removesuffix(".")
+        if not body or body.endswith("/"):
+            return None
+        segments = body.split("#")
+        if body.endswith("#"):
+            types = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
+            types = [t for t in types if t]
+            if not types:
+                return None
+            return {"file": "", "path": ".".join(types)}
+        if len(segments) == 1:
+            name = _strip_backticks(segments[0].split("/")[-1])
+            if not name.endswith("()"):
+                return None  # interface method signature / non-callable
+            name = name.removesuffix("()")
+            return {"file": "", "path": name} if name else None
+        scope = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
+        name = _strip_backticks(segments[-1])
+        if not name.endswith("()") or not scope or not all(scope):
+            return None
+        return {"file": "", "path": ".".join([*scope, name.removesuffix("()")])}
+
+
 @dataclass(frozen=True)
 class _Registered:
     provider: PreciseIndexProvider
@@ -424,6 +829,13 @@ _REGISTRY: tuple[_Registered, ...] = (
     _Registered(ScipPythonProvider(), frozenset({".py"})),
     _Registered(ScipTypescriptProvider(), frozenset({".ts", ".tsx", ".js", ".jsx", ".mjs"})),
     _Registered(RustAnalyzerProvider(), frozenset({".rs"})),
+    _Registered(
+        ScipClangProvider(),
+        frozenset({".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"}),
+    ),
+    _Registered(ScipJavaProvider(), frozenset({".java"})),
+    _Registered(ScipRubyProvider(), frozenset({".rb", ".rbi"})),
+    _Registered(ScipGoProvider(), frozenset({".go"})),
 )
 
 
