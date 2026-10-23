@@ -283,6 +283,12 @@ class GraphIndexStats:
     # raised or returned None for a language it claimed to support).
     provider_fallbacks: int = 0
     processing_time_seconds: float = 0.0
+    # Phase busy-time sums (Amdahl split; see GraphIndexingPipeline
+    # accumulators) — parse runs on executor threads, persist batches and
+    # the tier-3 harvest on the event loop; parse/persist overlap.
+    parse_seconds: float = 0.0
+    persist_seconds: float = 0.0
+    harvest_seconds: float = 0.0
     error_count: int = 0
     errors: List[str] = field(default_factory=list)
 
@@ -321,6 +327,9 @@ class GraphIndexStats:
             ),
             "provider_fallbacks": self.provider_fallbacks,
             "processing_time_seconds": self.processing_time_seconds,
+            "parse_seconds": round(self.parse_seconds, 3),
+            "persist_seconds": round(self.persist_seconds, 3),
+            "harvest_seconds": round(self.harvest_seconds, 3),
             "error_count": self.error_count,
             "errors": self.errors[:10],  # Limit errors in output
         }
@@ -424,6 +433,15 @@ class GraphIndexingPipeline:
         self.config = config
         self._ccg_builder = None
         self._files_to_process: Set[str] = set()
+        # Phase busy-time accumulators (seconds) for the Amdahl split the
+        # CLI summary prints: parse work runs on executor threads (lock
+        # guarded), persist batches and the harvest run on the event loop.
+        # Busy-time SUMS, not exclusive wall phases — parse and persist
+        # overlap by design in the streaming pipeline.
+        self._phase_lock = threading.Lock()
+        self._parse_busy_seconds = 0.0
+        self._persist_busy_seconds = 0.0
+        self._harvest_busy_seconds = 0.0
         # Content hashes computed during incremental planning (manifest
         # contract), persisted alongside mtimes after each file is written so
         # the next run can verify mtime-only churn as not-stale.
@@ -795,7 +813,9 @@ class GraphIndexingPipeline:
                 _, GraphEdge = _get_graph_types()
                 from victor.storage.graph.edge_types import EdgeType
 
+                harvest_started = time.monotonic()
                 precise = await self._harvest_precise_index(root)
+                self._harvest_busy_seconds += time.monotonic() - harvest_started
                 if isinstance(precise, PreciseHarvest) and precise.edges:
                     edges = [
                         GraphEdge(src=src, dst=dst, type=EdgeType(edge_type), metadata=metadata)
@@ -824,6 +844,9 @@ class GraphIndexingPipeline:
             stats.persisted_nodes = persisted.get("nodes")
             stats.persisted_edges = persisted.get("edges")
         stats.processing_time_seconds = time.time() - start_time
+        stats.parse_seconds = self._parse_busy_seconds
+        stats.persist_seconds = self._persist_busy_seconds
+        stats.harvest_seconds = self._harvest_busy_seconds
 
         logger.info(
             f"Indexing complete: {stats.files_processed} files, "
@@ -1781,8 +1804,13 @@ class GraphIndexingPipeline:
             return False
 
     def _parse_worker_count(self) -> int:
-        """Use the same concurrency bound for async producers and parser threads."""
-        return self.config.parse_workers or min(os.cpu_count() or 4, 8)
+        """Use the same concurrency bound for async producers and parser threads.
+
+        0 (default) = the machine's full core count — the old silent 8-core
+        cap under-used 16-core dev boxes and hid the GIL ceiling from every
+        measurement. Explicit values are honored verbatim (1 = serial).
+        """
+        return self.config.parse_workers or (os.cpu_count() or 4)
 
     def _get_executor(self) -> concurrent.futures.ThreadPoolExecutor:
         """Return (creating lazily) a thread pool for CPU-bound AST parsing."""
@@ -2071,6 +2099,15 @@ class GraphIndexingPipeline:
         Thread safety: each worker thread has its own parser cache, event loop,
         and CCG builder (all stored in self._thread_local).
         """
+        start = time.monotonic()
+        try:
+            return self._parse_file_work(file_path)
+        finally:
+            with self._phase_lock:
+                self._parse_busy_seconds += time.monotonic() - start
+
+    def _parse_file_work(self, file_path: Path) -> ParseResult:
+        """The parse work itself (timed by _parse_file_sync)."""
         if not file_path.is_file():
             return ParseResult(file_path=file_path, language=None, vanished=True)
 
@@ -2389,13 +2426,17 @@ class GraphIndexingPipeline:
 
     @asynccontextmanager
     async def _graph_store_write_batch(self):
-        """Use store-native batched writes when available."""
-        write_batch = getattr(self.graph_store, "write_batch", None)
-        if callable(write_batch):
-            async with write_batch():
-                yield
-            return
-        yield
+        """Use store-native batched writes when available (timed)."""
+        start = time.monotonic()
+        try:
+            write_batch = getattr(self.graph_store, "write_batch", None)
+            if callable(write_batch):
+                async with write_batch():
+                    yield
+                return
+            yield
+        finally:
+            self._persist_busy_seconds += time.monotonic() - start
 
     def _detect_language(self, file_path: Path) -> str:
         """Detect programming language from file extension.
