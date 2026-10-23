@@ -415,11 +415,14 @@ class CompiledGraph(Generic[StateType]):
             use_copy_on_write=use_cow,
         )
 
-        # Load initial state (from checkpoint or input)
+        # Load initial state (from checkpoint or input). The successor resolver lets a
+        # checkpoint taken after a completed node resume past it (FEP-0032); an explicit
+        # start_node replaces the resume point, so it is not consulted then.
         state, current_node = await checkpoint_manager.load_initial_state(
             thread_id=thread_id,
             input_state=input_state,
             entry_point=self._entry_point,
+            resolve_successor=self._get_next_node if start_node is None else None,
         )
 
         # Explicit start_node overrides both checkpoint and entry point
@@ -469,6 +472,8 @@ class CompiledGraph(Generic[StateType]):
             duration=runtime_outcome.duration,
             node_history=runtime_outcome.node_history,
             state_history=runtime_outcome.state_history,
+            interrupted=runtime_outcome.interrupted,
+            next_node=runtime_outcome.next_node,
         )
 
     def _get_next_node(
@@ -595,6 +600,7 @@ class CompiledGraph(Generic[StateType]):
             thread_id=thread_id,
             input_state=input_state,
             entry_point=self._entry_point,
+            resolve_successor=self._get_next_node,
         )
 
         async with aclosing(

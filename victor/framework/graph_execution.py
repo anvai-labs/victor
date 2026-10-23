@@ -23,7 +23,7 @@ import copy
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
+from typing import Any, Callable, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from pydantic import BaseModel
 
@@ -47,6 +47,10 @@ class GraphExecutionResult(Generic[StateType]):
     duration: float = 0.0
     node_history: List[str] = field(default_factory=list)
     state_history: List[Tuple[str, Any]] = field(default_factory=list)
+    # FEP-0032: a paused run is still successful; ``interrupted`` tells paused from done
+    # and ``next_node`` is where resuming the same thread continues.
+    interrupted: bool = False
+    next_node: Optional[str] = None
 
 
 def snapshot_state_for_result(state: Any) -> Any:
@@ -238,17 +242,22 @@ class GraphCheckpointManager:
     def __init__(self, checkpointer: Optional[CheckpointerProtocol]):
         self.checkpointer = checkpointer
         self.routing_state: Optional[Dict[str, Any]] = None
+        # Node whose interrupt-before the loaded checkpoint paused at: resuming the
+        # thread is the approval to run it, so that interrupt is bypassed once.
+        self.resume_past_interrupt: Optional[str] = None
 
     async def load_initial_state(
         self,
         thread_id: str,
         input_state: StateType,
         entry_point: str,
+        resolve_successor: Optional[Callable[[str, Any], Any]] = None,
     ) -> tuple[StateType, str]:
         if self.checkpointer:
             checkpoint = await self.checkpointer.load(thread_id)
             if checkpoint:
-                logger.info("Resuming from checkpoint at node: %s", checkpoint.node_id)
+                if checkpoint.metadata.get("checkpoint_boundary") == "before":
+                    self.resume_past_interrupt = checkpoint.next_node
                 self.routing_state = copy.deepcopy(checkpoint.metadata.get("sequential_frontier"))
                 if self.routing_state is not None:
                     pending = self.routing_state["pending_nodes"]
@@ -256,15 +265,69 @@ class GraphCheckpointManager:
                 # Deep copy: shallow copy() would alias nested dicts with the
                 # stored checkpoint, and the execution loop mutates state
                 # in place as it runs.
-                return copy.deepcopy(checkpoint.state), checkpoint.node_id
+                state = copy.deepcopy(checkpoint.state)
+                resume_at = self._resume_node(checkpoint, state, resolve_successor)
+                logger.info(
+                    "Resuming from checkpoint taken at node %s; continuing at %s",
+                    checkpoint.node_id,
+                    resume_at,
+                )
+                return state, resume_at
         return copy.deepcopy(input_state), entry_point
+
+    @staticmethod
+    def _resume_node(
+        checkpoint: WorkflowCheckpoint,
+        state: Any,
+        resolve_successor: Optional[Callable[[str, Any], Any]],
+    ) -> str:
+        """Where a resume continues (FEP-0032).
+
+        An explicit ``next_node`` wins (interrupt checkpoints record it). A checkpoint
+        taken after a node completed resumes at that node's successor, so the node is
+        not executed twice. Checkpoints written before FEP-0032, and successors that
+        are not a single node (dynamic ``Send`` fan-out), keep resuming at ``node_id``.
+        """
+        if checkpoint.next_node is not None:
+            return checkpoint.next_node
+        if checkpoint.metadata.get("checkpoint_boundary") != "after" or resolve_successor is None:
+            return checkpoint.node_id
+        try:
+            successor = resolve_successor(checkpoint.node_id, state)
+        except ProviderPolicyError:
+            raise
+        except Exception as error:
+            logger.warning(
+                "Could not resolve the successor of %s on resume (%s); re-running it",
+                checkpoint.node_id,
+                error,
+            )
+            return checkpoint.node_id
+        if isinstance(successor, str):
+            return successor
+        logger.warning(
+            "Successor of %s is a fan-out; resume re-runs %s",
+            checkpoint.node_id,
+            checkpoint.node_id,
+        )
+        return checkpoint.node_id
 
     async def save_checkpoint(
         self,
         thread_id: str,
         node_id: str,
         state: StateType,
+        *,
+        next_node: Optional[str] = None,
+        completed: bool = False,
+        paused_before: bool = False,
     ) -> None:
+        """Persist ``state`` taken at ``node_id``.
+
+        ``completed`` marks a checkpoint taken after ``node_id`` finished;
+        ``paused_before`` one taken at an interrupt before ``node_id`` ran; ``next_node``
+        records an already-resolved resume target (FEP-0032).
+        """
         if self.checkpointer:
             checkpoint_id = f"{thread_id}_{node_id}_{time.time()}"
             self._bind_graph_checkpoint_id(state, checkpoint_id)
@@ -276,6 +339,12 @@ class GraphCheckpointManager:
                 timestamp=time.time(),
                 metadata=self._checkpoint_metadata(state),
             )
+            if completed:
+                checkpoint.metadata["checkpoint_boundary"] = "after"
+            elif paused_before:
+                checkpoint.metadata["checkpoint_boundary"] = "before"
+            if next_node is not None:
+                checkpoint.metadata["next_node"] = next_node
             if self.routing_state is not None:
                 checkpoint.metadata["sequential_frontier"] = copy.deepcopy(self.routing_state)
             await self.checkpointer.save(checkpoint)
