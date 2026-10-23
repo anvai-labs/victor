@@ -116,22 +116,36 @@ def _tarjan_sccs(adjacency: Dict[str, Set[str]]) -> List[List[str]]:
     return sccs
 
 
-def _cross_target_edges(conn: sqlite3.Connection) -> List[Tuple[str, str, int]]:
-    """Aggregated src-package -> dst-package weights over CALLS/REFERENCES."""
+def _file_edge_weights(
+    conn: sqlite3.Connection,
+    *,
+    path_filter: Optional[str] = None,
+    key_mapper=_file_package_of,
+) -> List[Tuple[Tuple[str, str], int]]:
+    """Aggregated (src_key, dst_key) -> weight over cross-FILE
+    CALLS/REFERENCES edges, mapped through ``key_mapper`` (package for the
+    package view, identity for the module view) and optionally restricted
+    to files under ``path_filter``. Shared by both coupling views."""
+
+    clauses = [f"e.type IN ({', '.join('?' * len(_EDGE_TYPES))})", "ns.file != nd.file"]
+    params: list = list(_EDGE_TYPES)
+    if path_filter is not None:
+        clauses.append("ns.file LIKE ?")
+        params.append(path_filter)
+        clauses.append("nd.file LIKE ?")
+        params.append(path_filter)
     weights: Dict[Tuple[str, str], int] = defaultdict(int)
-    rows = conn.execute(
+    for row in conn.execute(
         f"""
         SELECT ns.file AS src_file, nd.file AS dst_file
         FROM graph_edge e
         JOIN graph_node ns ON ns.node_id = e.src
         JOIN graph_node nd ON nd.node_id = e.dst
-        WHERE e.type IN ({", ".join("?" * len(_EDGE_TYPES))})
-          AND ns.file != nd.file
+        WHERE {" AND ".join(clauses)}
         """,
-        _EDGE_TYPES,
-    )
-    for row in rows:
-        src, dst = _file_package_of(row["src_file"]), _file_package_of(row["dst_file"])
+        params,
+    ):
+        src, dst = key_mapper(row["src_file"]), key_mapper(row["dst_file"])
         if src and dst and src != dst:
             weights[(src, dst)] += 1
     return sorted(weights.items(), key=lambda kv: (-kv[1], kv[0]))
@@ -146,7 +160,7 @@ def package_coupling_mermaid(db_path: Path, top_packages: int = 12) -> str:
     """
     conn = _connect(db_path)
     try:
-        ranked = _cross_target_edges(conn)
+        ranked = _file_edge_weights(conn)
     finally:
         conn.close()
 
@@ -197,26 +211,12 @@ def module_coupling_mermaid(db_path: Path, package: str, top_modules: int = 12) 
     """File-level coupling inside one package (prefix match on the path)."""
     conn = _connect(db_path)
     try:
-        weights: Dict[Tuple[str, str], int] = defaultdict(int)
-        rows = conn.execute(
-            f"""
-            SELECT ns.file AS src_file, nd.file AS dst_file
-            FROM graph_edge e
-            JOIN graph_node ns ON ns.node_id = e.src
-            JOIN graph_node nd ON nd.node_id = e.dst
-            WHERE e.type IN ({", ".join("?" * len(_EDGE_TYPES))})
-              AND ns.file != nd.file
-              AND ns.file LIKE ?
-              AND nd.file LIKE ?
-            """,
-            (*_EDGE_TYPES, f"{package}/%", f"{package}/%"),
+        ranked = _file_edge_weights(
+            conn, path_filter=f"{package}/%", key_mapper=lambda path: path or None
         )
-        for row in rows:
-            weights[(row["src_file"], row["dst_file"])] += 1
     finally:
         conn.close()
 
-    ranked = sorted(weights.items(), key=lambda kv: (-kv[1], kv[0]))
     modules: List[str] = []
     for (src, dst), _ in ranked:
         for candidate in (src, dst):

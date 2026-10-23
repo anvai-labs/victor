@@ -105,9 +105,7 @@ def test_cli_writes_package_view_and_errors_honestly(tmp_path, db_path, monkeypa
     with patch.object(graph, "console", output):
         # Direct calls must pass level explicitly — typer defaults are
         # OptionInfo objects outside a real CLI invocation.
-        graph.graph_viz(
-            level="package", top=12, path=str(project_root), out=tmp_path / "p.mmd"
-        )
+        graph.graph_viz(level="package", top=12, path=str(project_root), out=tmp_path / "p.mmd")
         assert (tmp_path / "p.mmd").read_text().startswith("%%")
         assert "✓ package view" in output.export_text()
 
