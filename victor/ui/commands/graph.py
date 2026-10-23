@@ -81,6 +81,12 @@ def _write_index_summary(project_root: Path, stats: Any, *, enable_precise: bool
         "root": str(project_root),
         "files_processed": getattr(stats, "files_processed", 0),
         "files_partial": getattr(stats, "files_partial", 0),
+        "seconds": {
+            "parse": round(getattr(stats, "parse_seconds", 0.0), 3),
+            "persist": round(getattr(stats, "persist_seconds", 0.0), 3),
+            "harvest": round(getattr(stats, "harvest_seconds", 0.0), 3),
+            "total": getattr(stats, "processing_time_seconds", 0.0),
+        },
         "precise_index": {
             "enabled": enable_precise,
             "skipped": getattr(stats, "precise_index_skipped", ""),
@@ -152,6 +158,12 @@ def _print_index_summary(stats: Any, *, list_partial: bool = False) -> None:
     if stats.embeddings_generated > 0:
         console.print(f"  Embeddings generated: {stats.embeddings_generated}")
     _print_precise_index_summary(stats)
+    # Amdahl split: busy-time sums (parse runs on executor threads, persist
+    # and harvest on the event loop; parse/persist overlap by design).
+    console.print(
+        f"  Time: parse {stats.parse_seconds:.1f}s busy · persist "
+        f"{stats.persist_seconds:.1f}s busy · harvest {stats.harvest_seconds:.1f}s"
+    )
     if stats.repository_relations_dropped_unmaterialized:
         console.print(
             "  Relations omitted (unmaterialized endpoints): "
@@ -181,6 +193,7 @@ async def _index_async(
     *,
     precise: Optional[bool] = None,
     precise_timeout: Optional[int] = None,
+    parse_workers: Optional[int] = None,
     list_partial: bool = False,
     settings: Optional[Any] = None,
 ) -> bool:
@@ -196,6 +209,8 @@ async def _index_async(
         precise_timeout: Override for the tier-3 dump timeout in seconds;
             None honors ``search.graph.precise_index_timeout_seconds`` (0 =
             per-provider measured default)
+        parse_workers: Override for the parser thread pool; None honors
+            ``search.graph.parse_workers`` (0 = all cores, 1 = serial)
         list_partial: Print the paths of files whose parse was partial
         settings: Pre-resolved settings (tests); None resolves through
             ``Settings.from_sources()`` so ``settings.yaml``/``profiles.yaml``
@@ -255,6 +270,11 @@ async def _index_async(
         enable_precise_index=enable_precise,
         precise_index_timeout_seconds=timeout_seconds,
         precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
+        parse_workers=(
+            parse_workers
+            if parse_workers is not None
+            else graph_setting(settings, "parse_workers", 0)
+        ),
     )
 
     # Build index
@@ -652,6 +672,15 @@ def graph_index(
             "search.graph.precise_index_timeout_seconds; 0 = per-provider default)"
         ),
     ),
+    parse_workers: Optional[int] = typer.Option(
+        None,
+        "--parse-workers",
+        min=0,
+        help=(
+            "Parser thread pool size (default: search.graph.parse_workers; "
+            "0 = all cores, 1 = serial)"
+        ),
+    ),
     list_partial: bool = typer.Option(
         False,
         "--list-partial",
@@ -670,6 +699,7 @@ def graph_index(
             embeddings,
             precise=precise,
             precise_timeout=precise_timeout,
+            parse_workers=parse_workers,
             list_partial=list_partial,
         )
     )
