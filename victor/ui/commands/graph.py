@@ -757,6 +757,64 @@ def graph_stats(
         raise typer.Exit(1)
 
 
+@graph_app.command("viz")
+def graph_viz(
+    level: str = typer.Option(
+        "package", "--level", help="Visualization level: package, module, or class"
+    ),
+    path: str = typer.Option(".", "--path", "-p", help="Path to codebase"),
+    package: Optional[str] = typer.Option(
+        None, "--package", help="module level: the package to look inside (e.g. victor/agent)"
+    ),
+    module: Optional[str] = typer.Option(
+        None, "--module", help="class level: the module file (repo-relative path)"
+    ),
+    top: int = typer.Option(12, "--top", min=4, max=40, help="How many nodes to include"),
+    out: Optional[Path] = typer.Option(
+        None, "--out", help="Output .mmd path (default: .victor/graph-viz-<level>.mmd)"
+    ),
+):
+    """Render coupling visualizations from the indexed graph (mermaid)."""
+    from victor.core.graph_rag import visualize
+
+    root_path = Path(path).resolve()
+    db_path = get_project_paths(root_path).project_victor_dir / "project.db"
+    if not db_path.exists():
+        console.print(
+            f"[red]Error:[/red] No project graph at {db_path} — run 'victor index graph index' first"
+        )
+        raise typer.Exit(1)
+
+    out_path = out or (root_path / ".victor" / f"graph-viz-{level}.mmd")
+    if level == "package":
+        result = visualize.render(
+            visualize.package_coupling_mermaid(db_path, top_packages=top), out_path
+        )
+    elif level == "module":
+        if not package:
+            console.print("[red]Error:[/red] --level module requires --package")
+            raise typer.Exit(1)
+        result = visualize.render(
+            visualize.module_coupling_mermaid(db_path, package, top_modules=top), out_path
+        )
+    elif level == "class":
+        if not module:
+            console.print("[red]Error:[/red] --level class requires --module")
+            raise typer.Exit(1)
+        result = visualize.render(
+            visualize.class_graph_mermaid(db_path, module, top_symbols=top), out_path
+        )
+    else:
+        console.print(f"[red]Error:[/red] Unknown level '{level}' (package|module|class)")
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓ {level} view:[/green] {result.mmd_path}")
+    if result.svg_path:
+        console.print(f"[green]✓ rendered:[/green] {result.svg_path}")
+    else:
+        console.print("[dim]mmdc not found on PATH — .mmd written only[/dim]")
+
+
 @graph_app.command("export")
 def graph_export(
     output: str = typer.Option("graph.json", "--output", "-o", help="Output file"),
