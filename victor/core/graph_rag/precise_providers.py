@@ -156,6 +156,67 @@ def _descriptor_after_tokens(symbol: str, scheme: str, tokens: int) -> Optional[
 _CXX_SIGNATURE_HASH = re.compile(r"\([0-9a-f]{16}\)$")
 
 
+def _detect_tool(name: str, tool_hint: str) -> Optional[str]:
+    """Shared detection: an existing-path hint overrides, else PATH lookup."""
+    if tool_hint not in ("auto", name) and Path(tool_hint).exists():
+        return tool_hint
+    return shutil.which(name)
+
+
+def _sharp_chain_path(body, scope_component, callable_name) -> Optional[str]:
+    """Parse a ``#``-chained descriptor body — the shared spine of the
+    cxx/java/go producers (kept out of the providers so the duplication
+    ratchet holds).
+
+    A body ending ``#`` is a TYPE CHAIN (every '#' segment is a type; the
+    '/'-joined prefixes are namespaces/packages and drop per
+    ``scope_component``). Otherwise the last segment must parse as a
+    callable through ``callable_name`` (None ⇒ field/non-callable ⇒ no
+    codegraph node) and the earlier segments form the scope; a single
+    segment is a free function.
+    """
+
+    segments = body.split("#")
+    if body.endswith("#"):
+        types = [t for t in (scope_component(seg) for seg in segments[:-1]) if t]
+        return ".".join(types) if types else None
+    if len(segments) == 1:
+        return callable_name(scope_component(segments[0]))
+    scope = [scope_component(seg) for seg in segments[:-1]]
+    if not scope or not all(scope):
+        return None
+    name = callable_name(segments[-1])
+    if name is None:
+        return None
+    return ".".join([*scope, name])
+
+
+def _dump_fixed_name(
+    command: list[str],
+    *,
+    cwd: Path,
+    produced: Path,
+    output_path: Path,
+    timeout_seconds: int,
+) -> Optional[Path]:
+    """Shared fixed-name dump contract: the tool writes ``produced`` in its
+    CWD (no --output flag); validate that exact name, then move it to the
+    artifact path (the rust-analyzer contract)."""
+
+    result = _run_dump(
+        command,
+        cwd=cwd,
+        output_path=produced,
+        timeout_seconds=timeout_seconds,
+        node_heap=False,
+    )
+    if result is None:
+        return None
+    if produced != output_path:
+        os.replace(produced, output_path)
+    return output_path
+
+
 class ScipPythonProvider:
     """npm ``scip-python`` (Pyright) — python."""
 
@@ -441,9 +502,7 @@ class ScipClangProvider:
     default_timeout_seconds = 600
 
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
-        if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
-            return tool_hint
-        return shutil.which(self.name)
+        return _detect_tool(self.name, tool_hint)
 
     def compilation_database(self, root: Path) -> Optional[Path]:
         """Compile-database discovery: root, root/build, or one level down
@@ -497,11 +556,10 @@ class ScipClangProvider:
 
     @staticmethod
     def _callable_name(segment: str) -> Optional[str]:
-        segment = _strip_backticks(segment)
         match = _CXX_SIGNATURE_HASH.search(segment)
         if match is None:
             return None  # field, or a hash-less callable variant: refuse to guess
-        return segment[: match.start()] or None
+        return _strip_backticks(segment[: match.start()]) or None
 
     def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
         # Grammar (verified, scip-clang 0.4.1): ``cxx . . $ <descriptor>`` —
@@ -512,6 +570,8 @@ class ScipClangProvider:
         # ``Type#field.``, macros ``<loc>`!``, file pseudo-symbols
         # `` `<file>/path`/ ``. Templates are transparent (``Box#``); the
         # parenthesized suffix is a signature hash (see _CXX_SIGNATURE_HASH).
+        # Namespace components (the '/'-joined prefixes) drop — codegraph
+        # scopes carry types, never namespaces (the rust module rule).
         path = _split_descriptor(symbol, "cxx . . $ ", 4)
         if path is None:
             return None
@@ -520,27 +580,12 @@ class ScipClangProvider:
         body = path.removesuffix(".")
         if not body or body.endswith("/"):
             return None  # namespaces
-        segments = body.split("#")
-        if body.endswith("#"):
-            # Type chain — namespace components (the '/'-joined prefix of
-            # the first segment) drop; codegraph scopes carry types, never
-            # namespaces (the rust module rule).
-            types = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
-            types = [t for t in types if t]
-            if not types:
-                return None
-            return {"file": "", "path": ".".join(types)}
-        if len(segments) == 1:
-            # Free function; leading namespace components drop.
-            name = self._callable_name(segments[0].split("/")[-1])
-            if name is None:
-                return None
-            return {"file": "", "path": name}
-        scope = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
-        name = self._callable_name(segments[-1])
-        if name is None or not all(scope):
-            return None
-        return {"file": "", "path": ".".join([*scope, name])}
+        parsed = _sharp_chain_path(
+            body,
+            scope_component=lambda seg: _strip_backticks(seg.split("/")[-1]) or None,
+            callable_name=self._callable_name,
+        )
+        return {"file": "", "path": parsed} if parsed else None
 
 
 class ScipJavaProvider:
@@ -570,9 +615,7 @@ class ScipJavaProvider:
     )
 
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
-        if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
-            return tool_hint
-        return shutil.which(self.name)
+        return _detect_tool(self.name, tool_hint)
 
     def dump(
         self,
@@ -597,37 +640,37 @@ class ScipJavaProvider:
             node_heap=False,
         )
 
+    @staticmethod
+    def _callable_name(segment: str) -> Optional[str]:
+        if not segment.endswith("()"):
+            return None  # fields / interface-style signatures: no codegraph node
+        name = _strip_backticks(segment.removesuffix("()"))
+        if not name:
+            return None
+        if name == "<init>":
+            # codegraph names the synthesized constructor member literally
+            # (same mapping as scip-typescript).
+            return "constructor"
+        return name
+
     def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
         # Grammar (verified, scip-java 0.13.2, maven): ``scip-java maven
         # <module-coordinate> <version> com/pkg/Class#method().`` — the
         # leading tokens VARY per project (no fixed prefix), package
         # components drop like namespaces, kinds ARE populated (the kind map
-        # handles them), and constructors emit the ``<init>`` literal —
-        # mapped like scip-typescript.
+        # handles them), and constructors emit the ``<init>`` literal.
         path = _descriptor_after_tokens(symbol, "scip-java", 4)
         if path is None:
             return None
         body = path.removesuffix(".")
         if not body:
             return None
-        segments = body.split("#")
-        if body.endswith("#"):
-            types = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
-            types = [t for t in types if t]
-            if not types:
-                return None
-            return {"file": "", "path": ".".join(types)}
-        if len(segments) == 1 or not segments[-1].endswith("()"):
-            return None  # fields / top-level non-callables: no codegraph node
-        scope = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
-        if not scope or not all(scope):
-            return None
-        name = _strip_backticks(segments[-1].removesuffix("()"))
-        if not name:
-            return None
-        if name == "<init>":
-            name = "constructor"  # codegraph names the synthesized member literally
-        return {"file": "", "path": ".".join([*scope, name])}
+        parsed = _sharp_chain_path(
+            body,
+            scope_component=lambda seg: _strip_backticks(seg.split("/")[-1]) or None,
+            callable_name=self._callable_name,
+        )
+        return {"file": "", "path": parsed} if parsed else None
 
 
 class ScipRubyProvider:
@@ -670,21 +713,14 @@ class ScipRubyProvider:
             return None
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # No --output flag exists: index.scip lands in the CWD (the repo
-        # root). Run there, validate the FIXED name, then move it to the
-        # artifact path — the same fixed-name contract as rust-analyzer.
-        produced = root / "index.scip"
-        result = _run_dump(
+        # root) — the shared fixed-name contract moves it to the artifact.
+        return _dump_fixed_name(
             [tool, "exec", "scip-ruby", "."],
             cwd=root,
-            output_path=produced,
+            produced=root / "index.scip",
+            output_path=output_path,
             timeout_seconds=timeout_seconds,
-            node_heap=False,
         )
-        if result is None:
-            return None
-        if produced != output_path:
-            os.replace(produced, output_path)
-        return output_path
 
     @staticmethod
     def _scope_component(segment: str) -> Optional[str]:
@@ -696,34 +732,32 @@ class ScipRubyProvider:
             return component[len("<Class:") : -1]
         return component or None
 
+    @staticmethod
+    def _callable_name(segment: str) -> Optional[str]:
+        segment = _strip_backticks(segment)
+        if not segment.endswith("()"):
+            return None  # ivars/fields: no codegraph node
+        name = segment.removesuffix("()")
+        return name or None
+
     def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
         # Grammar (verified, scip-ruby 0.5.1): ``scip-ruby gem <name> <ver>
         # Module#Class#method().`` — module/class nesting is KEPT as scope
         # (ruby modules are real lexical nesting, unlike cxx/java
-        # namespaces); singleton methods ride `` `<Class:Toy>` ``; ivars
-        # `` `@name` `` are fields; kinds are UnspecifiedKind (dormant).
+        # namespaces); singleton methods ride `` `<Class:Toy>` `` in any
+        # position; ivars `` `@name` `` are fields; kinds are dormant.
         path = _descriptor_after_tokens(symbol, "scip-ruby", 4)
         if path is None:
             return None
         body = path.removesuffix(".")
         if not body:
             return None
-        segments = body.split("#")
-        if body.endswith("#"):
-            types = [self._scope_component(seg) for seg in segments[:-1]]
-            types = [t for t in types if t]
-            if not types:
-                return None
-            return {"file": "", "path": ".".join(types)}
-        if len(segments) == 1 or not segments[-1].endswith("()"):
-            return None  # ivars/fields (no codegraph node) or top-level non-methods
-        scope = [self._scope_component(seg) for seg in segments[:-1]]
-        if not scope or not all(scope):
-            return None
-        name = _strip_backticks(segments[-1].removesuffix("()"))
-        if not name:
-            return None
-        return {"file": "", "path": ".".join([*scope, name])}
+        parsed = _sharp_chain_path(
+            body,
+            scope_component=self._scope_component,
+            callable_name=self._callable_name,
+        )
+        return {"file": "", "path": parsed} if parsed else None
 
 
 class ScipGoProvider:
@@ -736,9 +770,7 @@ class ScipGoProvider:
     default_timeout_seconds = 600
 
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
-        if tool_hint not in ("auto", self.name) and Path(tool_hint).exists():
-            return tool_hint
-        return shutil.which(self.name)
+        return _detect_tool(self.name, tool_hint)
 
     def module_root(self, root: Path) -> Optional[Path]:
         """Module discovery: root's go.mod, else a first-level
@@ -763,22 +795,24 @@ class ScipGoProvider:
             logger.info("precise-index: no go.mod at %s or one level down; skipping", root)
             return None
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        # No --output flag: index.scip lands in the CWD. Run from the module
-        # root (its package resolution), validate the FIXED name, move to
-        # the artifact path — the rust-analyzer fixed-name contract.
-        produced = module_root / "index.scip"
-        result = _run_dump(
+        # No --output flag: index.scip lands in the CWD — run from the
+        # module root (its package resolution) under the shared fixed-name
+        # contract.
+        return _dump_fixed_name(
             [tool, "index"],
             cwd=module_root,
-            output_path=produced,
+            produced=module_root / "index.scip",
+            output_path=output_path,
             timeout_seconds=timeout_seconds,
-            node_heap=False,
         )
-        if result is None:
-            return None
-        if produced != output_path:
-            os.replace(produced, output_path)
-        return output_path
+
+    @staticmethod
+    def _callable_name(segment: str) -> Optional[str]:
+        segment = _strip_backticks(segment)
+        if not segment.endswith("()"):
+            return None  # interface method signatures / fields: non-callable
+        name = segment.removesuffix("()")
+        return name or None
 
     def symbol_parts(self, symbol: str) -> Optional[dict[str, Any]]:
         # Grammar (verified, scip-go 0.2.9): ``scip-go gomod <module> . `pkg/import/path`/Sym#member().``
@@ -797,24 +831,12 @@ class ScipGoProvider:
         body = path.removesuffix(".")
         if not body or body.endswith("/"):
             return None
-        segments = body.split("#")
-        if body.endswith("#"):
-            types = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
-            types = [t for t in types if t]
-            if not types:
-                return None
-            return {"file": "", "path": ".".join(types)}
-        if len(segments) == 1:
-            name = _strip_backticks(segments[0].split("/")[-1])
-            if not name.endswith("()"):
-                return None  # interface method signature / non-callable
-            name = name.removesuffix("()")
-            return {"file": "", "path": name} if name else None
-        scope = [_strip_backticks(seg.split("/")[-1]) for seg in segments[:-1]]
-        name = _strip_backticks(segments[-1])
-        if not name.endswith("()") or not scope or not all(scope):
-            return None
-        return {"file": "", "path": ".".join([*scope, name.removesuffix("()")])}
+        parsed = _sharp_chain_path(
+            body,
+            scope_component=lambda seg: _strip_backticks(seg.split("/")[-1]) or None,
+            callable_name=self._callable_name,
+        )
+        return {"file": "", "path": parsed} if parsed else None
 
 
 @dataclass(frozen=True)
