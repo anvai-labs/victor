@@ -99,7 +99,7 @@ provider counts against the source tree and maintains the declared tool-module i
 | Framework delegates to Runtime | `Agent.create()` goes through `AgentFactory` | Agent entry point |
 | Runtime delegates to Services | `ChatService` owns the turn frame and typed stream-control capabilities; broader state migration continues under FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
 | Services own infrastructure | Effectful behavior via `ExecutionContext.services` | Service accessor |
-| Lower layers never import higher-layer implementations | An upward import of a concrete class/function is a leak; importing a higher layer's Protocol/ABC/Enum/dataclass is dependency inversion and allowed; teams/workflows→StateGraph and the bootstrap composition roots are sanctioned. Existing leaks are a shrink-only baseline | `test_layering_ratchet.py` (`scripts/ci/layering_ratchet.py`) |
+| Lower layers never import higher-layer implementations | An upward import of a concrete class/function is a leak; importing a higher layer's Protocol/ABC/Enum/dataclass is dependency inversion and allowed; teams/workflows→StateGraph, runtime→the RL engine (`victor.framework.rl.*`, which lower layers reach only via `victor.core.rl.coordinator_port`) and the bootstrap composition roots are sanctioned. Existing leaks are a shrink-only baseline | `test_layering_ratchet.py` (`scripts/ci/layering_ratchet.py`) |
 | Vertical definitions use Contracts | Definition files import `victor_contracts`; runtime extension allowances are separately audited | `test_contracts_import_boundaries.py`, `check_extracted_vertical_boundaries.py` |
 
 ### Data Flow
