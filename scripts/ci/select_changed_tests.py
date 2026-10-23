@@ -87,6 +87,14 @@ RELATED_TESTS = {
             "tests/unit/architecture/test_layering_facades.py",
         ),
     ),
+    "victor/core/protocol_support.py": (
+        "tests/unit/core/test_protocol_support.py",
+        "tests/unit/agent/test_capability_mixin.py",
+    ),
+    "victor/storage/memory/adapters.py": (
+        "tests/unit/memory/test_memory_adapters.py",
+        "tests/unit/memory/test_conversation_history_store_protocol.py",
+    ),
     "victor/config/classification_settings.py": (
         "tests/unit/agent/services/test_classification_backend.py",
         "tests/unit/architecture/test_layering_facades.py",
