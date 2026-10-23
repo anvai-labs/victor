@@ -484,6 +484,12 @@ image::d07_graph_rag.{diagram-ext}[Graph-RAG retrieval vs single-hop grep]
 
 **4. Skeleton extraction.** Instead of feeding whole files, Victor extracts signatures + docstrings (function/class *skeletons*), cutting context tokens by roughly an order of magnitude — the model sees the *shape* of the code, then pulls full bodies on demand.
 
+**5. Compiler-accurate tier (opt-in).** Tree-sitter edges are syntactic; tier 3 adds compiler-proven `REFERENCES` edges harvested from offline SCIP dumps. Seven producers cover Python, TypeScript/JS, Rust, C/C++, Java, Ruby and Go — each producer's symbol grammar pinned against a real dump. Dumps are cached per language and time-budgeted; a missing toolchain degrades to tier 2.5 with one log line, never a failed index.
+
+image::d13_tier3_precise.{diagram-ext}[Tier-3 precise index: producers to compiler-provenance edges]
+
+Enable with `search.graph.enable_precise_index: true` in settings.yaml (optional `precise_index_timeout_seconds` for large corpora) or `victor index graph index --precise --precise-timeout 3600`; harvest health shows in the index summary and `victor index graph stats`.
+
 === Why it wins (empirically)
 
 The graph + vector approach is grounded in published results — GraphCoder (+6% code match), CodexGraph (47.99% on SWE-bench Lite), GraphCodeAgent (+43.81% on DevEval) — and measured inside Victor: the benchmark reports `code_intelligence_pass_rate` *vs* `non_code_intelligence_pass_rate`, isolating the effect of structured retrieval. A real repo indexes to ~1.26M nodes / ~2.97M edges / ~78K embeddings; ProximaDB is an optional multi-model backend for the largest repos.

@@ -5,6 +5,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-23
+
+### Added
+
+- ADR-032 tier 3 covers **eight languages** (rev 1.9): new `scip-clang`
+  (C/C++), `scip-java` (Java), `scip-ruby` (Ruby) and `scip-go` (Go)
+  providers join scip-python / scip-typescript / rust-analyzer. Every
+  producer grammar is pinned against a real captured dump; toolchain
+  install matrix in the graph-RAG guide. Scala deferred with evidence (no
+  verifiable emitter in scip-java 0.13.2 — sbt unsupported, Gradle
+  instrumentation is JavaCompile-only).
+- Tier 3 is drivable and observable from the CLI (ADR rev 1.8): the graph
+  CLI/init/watcher resolve settings through `Settings.from_sources()` (the
+  env-only snapshot silently ignored every yaml-configured graph option);
+  `victor index graph index` gains `--precise/--no-precise`,
+  `--precise-timeout` and `--list-partial`; `precise_index_timeout_seconds`
+  is wired end to end; per-provider harvest outcomes and join accounting
+  surface in the index summary, `victor index graph stats` and the watch
+  manifest.
+- FEP-0032: interrupted and crashed workflow runs resume at the right node.
+- Canonical code-intelligence section in `docs/architecture.md` plus a
+  tier-3 deck diagram (`d13`) for the VICTOR_AGENT_GUIDE presentation.
+
+### Changed
+
+- Layering round 2 (#1453–#1466): layering ratchet live (sanctioned pairs
+  200 → 98; concrete upward graph edges 612 → 275), RL coordinator reached
+  through a core port, conversation-store port, prompt assembly under
+  `agent/prompting`, approval chain and policy engine in the runtime.
+- ToolPipeline single-call path split into stages (#1472); teams
+  coordinator formation run phased with pure delegate-contract builders
+  (#1467/#1468 — Stage C item 30 complete); SSO login moved out of the
+  workflow package (#1474); FileEditor unified behind one core
+  implementation (#1447); embedding models behind a contracts runtime seam
+  (#1449).
+- CI: the ~1,320 integration tests no workflow ran now run, with the six
+  rotted ones fixed (#1462); unit shards ~95% faster after dropping a
+  per-test full `gc.collect()` (#1460); circuit-breaker isolation tests
+  aligned with per-endpoint keying (#1471).
+
+### Fixed
+
+- victor-rag wheels now ship the live capabilities package (#1446);
+  victor-coding's dead completion package removed (−2,628 lines, #1445);
+  embedding revision resolved under transformers 5 (#1473); dead protocol
+  tail deleted after victor's self-indexed self-analysis (#1451).
+- Dependency maintenance: python (10 updates) and rust (3 updates) groups
+  (#1434/#1443).
+
 ## [0.15.0] - 2026-10-22
 
 ### Added

@@ -22,7 +22,7 @@ rendered to `.svg`. The `.svg` files are build artifacts — regenerate them fro
   `multi-agent` are focused component diagrams referenced from `architecture.md`.
 - **`sequences/`** — sequence diagrams for key flows: `tool-execution`, `provider-switch`,
   `workflow-execution` (each has a rendered `.svg`).
-- **`victor-guide/`** — the 12 diagrams (`d01`–`d12`) for the
+- **`victor-guide/`** — the 13 diagrams (`d01`–`d13`) for the
   [`VICTOR_AGENT_GUIDE.adoc`](https://github.com/anvai-labs/victor/blob/develop/VICTOR_AGENT_GUIDE.adoc) presentation deck.
 
 ## Re-rendering
