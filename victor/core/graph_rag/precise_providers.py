@@ -36,7 +36,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Optional, Protocol, Union
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class PreciseIndexProvider(Protocol):
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         """One offline dump; the artifact path, or None on any failure."""
         ...
 
@@ -156,6 +156,16 @@ def _descriptor_after_tokens(symbol: str, scheme: str, tokens: int) -> Optional[
 _CXX_SIGNATURE_HASH = re.compile(r"\([0-9a-f]{16}\)$")
 
 
+@dataclass(frozen=True)
+class DumpSkipped:
+    """A provider refusing to dump because its PROJECT MARKER is absent —
+    the honest taxonomy's third state, distinct from ``None`` (toolchain or
+    dump failure). Conflating them labeled a Homebrew formula's repo
+    ``dump-failed`` when the truth was "no Gemfile setup" (rev 1.9 fallout)."""
+
+    reason: str
+
+
 def _detect_tool(name: str, tool_hint: str) -> Optional[str]:
     """Shared detection: an existing-path hint overrides, else PATH lookup."""
     if tool_hint not in ("auto", name) and Path(tool_hint).exists():
@@ -238,7 +248,7 @@ class ScipPythonProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         return _run_dump(
             [tool, "index", "--project-name", "victor-harvest", "--output", str(output_path)],
@@ -313,11 +323,11 @@ class ScipTypescriptProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         projects = self.tsconfig_projects(root)
         if not projects:
             logger.info("precise-index: no tsconfig.json at %s or one level down; skipping", root)
-            return None
+            return DumpSkipped("no-tsconfig")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         return _run_dump(
             [
@@ -405,13 +415,13 @@ class RustAnalyzerProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         import os
 
         crate_root = self.crate_root(root)
         if crate_root is None:
             logger.info("precise-index: no Cargo.toml at %s or one level down; skipping", root)
-            return None
+            return DumpSkipped("no-cargo-toml")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # rust-analyzer scip takes the project PATH and ALWAYS writes
         # ``index.scip`` to the process CWD (no --output flag): run in the
@@ -526,7 +536,7 @@ class ScipClangProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         compdb = self.compilation_database(root)
         if compdb is None:
             logger.info(
@@ -534,7 +544,7 @@ class ScipClangProvider:
                 "(generate with cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON or bear); skipping",
                 root,
             )
-            return None
+            return DumpSkipped("no-compile-database")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # scip-clang filters documents to project_root = CWD — running from
         # the artifact directory silently produces an EMPTY index (caught by
@@ -624,13 +634,13 @@ class ScipJavaProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         if not any((root / marker).exists() for marker in self._BUILD_MARKERS):
             logger.info(
                 "precise-index: no JVM build file (pom.xml/gradle/sbt/mill) at %s; skipping",
                 root,
             )
-            return None
+            return DumpSkipped("no-jvm-build")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         return _run_dump(
             [tool, "index", f"--output={output_path}"],
@@ -703,14 +713,14 @@ class ScipRubyProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         if not (root / "Gemfile").exists():
             logger.info(
                 "precise-index: no Gemfile at %s; skipping "
                 "(add gem 'scip-ruby' to the Gemfile and bundle install)",
                 root,
             )
-            return None
+            return DumpSkipped("no-gemfile")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # No --output flag exists: index.scip lands in the CWD (the repo
         # root) — the shared fixed-name contract moves it to the artifact.
@@ -789,11 +799,11 @@ class ScipGoProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
-    ) -> Optional[Path]:
+    ) -> Union[Path, DumpSkipped, None]:
         module_root = self.module_root(root)
         if module_root is None:
             logger.info("precise-index: no go.mod at %s or one level down; skipping", root)
-            return None
+            return DumpSkipped("no-go-module")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # No --output flag: index.scip lands in the CWD — run from the
         # module root (its package resolution) under the shared fixed-name
