@@ -258,18 +258,23 @@ class GraphRagConfig:
         Returns:
             GraphRagConfig instance
         """
-        # Extract graph settings if available
-        enable_ccg = getattr(settings, "enable_ccg", True)
-        enable_graph_rag = getattr(settings, "enable_graph_rag", True)
-        enable_scope_binding = getattr(settings, "enable_scope_binding", True)
-        enable_precise_index = getattr(settings, "enable_precise_index", False)
+        # Read through the nested search.graph accessors: flat getattr
+        # against the Settings surface silently misses every key (the same
+        # defect graph_flag was introduced to fix at the UI call sites).
+        from victor.config.settings import graph_flag, graph_setting
 
+        enable_ccg = graph_flag(settings, "enable_ccg", True)
+        enable_graph_rag = graph_flag(settings, "enable_graph_rag", True)
         index_config = GraphIndexConfig(
             root_path=root_path,
             enable_ccg=enable_ccg,
             enable_embeddings=enable_graph_rag,
-            enable_scope_binding=enable_scope_binding,
-            enable_precise_index=enable_precise_index,
+            enable_scope_binding=graph_flag(settings, "enable_scope_binding", True),
+            enable_precise_index=graph_flag(settings, "enable_precise_index", False),
+            precise_index_timeout_seconds=graph_setting(
+                settings, "precise_index_timeout_seconds", 0
+            ),
+            precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
         )
 
         return cls(index=index_config)

@@ -247,6 +247,9 @@ class GraphManager:
             "on_refresh_complete": on_refresh_complete,
             "on_refresh_error": on_refresh_error,
             "min_refresh_interval_seconds": max(0.0, float(min_refresh_interval_seconds)),
+            # ADR-032 tier 2.5/3 options resolve from settings here so the
+            # watcher honors them; _refresh_graph_index reads them back out.
+            **self._precise_refresh_settings(),
         }
 
         initial_stats = None
@@ -516,6 +519,41 @@ class GraphManager:
         except Exception:
             return False
 
+    @staticmethod
+    def _precise_refresh_settings() -> Dict[str, Any]:
+        """Resolve ADR-032 graph settings for background refresh seeding.
+
+        ``ensure_background_refresh`` callers pass only ``enable_ccg``; the
+        tier-2.5/3 options used to fall to hardcoded defaults no configuration
+        source could override — the watcher could never harvest precise edges
+        even with ``search.graph.enable_precise_index: true``. Reads through
+        ``Settings.from_sources()`` so settings.yaml/profiles.yaml participate
+        (``load_settings()`` is env-only).
+        """
+        defaults: Dict[str, Any] = {
+            "enable_scope_binding": True,
+            "enable_precise_index": False,
+            "precise_index_timeout_seconds": 0,
+            "precise_index_tool": "auto",
+        }
+        try:
+            from victor.config.settings import Settings, graph_flag, graph_setting
+
+            settings = Settings.from_sources()
+            return {
+                "enable_scope_binding": graph_flag(settings, "enable_scope_binding", True),
+                "enable_precise_index": graph_flag(settings, "enable_precise_index", False),
+                "precise_index_timeout_seconds": graph_setting(
+                    settings, "precise_index_timeout_seconds", 0
+                ),
+                "precise_index_tool": graph_setting(settings, "precise_index_tool", "auto"),
+            }
+        except Exception as exc:
+            # Never block refresh startup on settings resolution, but leave a
+            # trace — silently dropping config is the bug class this seeds.
+            logger.debug("graph refresh settings resolution failed; using defaults: %s", exc)
+            return defaults
+
     async def _refresh_graph_index(self, root: Path) -> Any:
         """Incrementally refresh the persisted graph and synthetic edges for a root."""
         from victor.core.graph_rag import (
@@ -565,9 +603,13 @@ class GraphManager:
                     enable_embeddings=self._background_embeddings_enabled(),
                     enable_subgraph_cache=False,
                     incremental=True,  # Use incremental updates (default, but explicit for clarity)
-                    # ADR-032 tier 2.5 rides the refresh config like enable_ccg
+                    # ADR-032 tier 2.5/3 ride the refresh config like enable_ccg
                     enable_scope_binding=refresh_config.get("enable_scope_binding", True),
                     enable_precise_index=refresh_config.get("enable_precise_index", False),
+                    precise_index_timeout_seconds=refresh_config.get(
+                        "precise_index_timeout_seconds", 0
+                    ),
+                    precise_index_tool=refresh_config.get("precise_index_tool", "auto"),
                 )
 
                 phase2_time = datetime.now().timestamp() - phase2_start

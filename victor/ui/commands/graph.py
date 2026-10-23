@@ -31,9 +31,10 @@ from typing import Any, Iterator, Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
-from victor.config.settings import get_project_paths, graph_flag, load_settings
+from victor.config.settings import Settings, get_project_paths, graph_flag, graph_setting
 from victor.core.async_utils import run_sync
 from victor.storage.graph import create_graph_store
 
@@ -62,11 +63,126 @@ def _default_graph_watch_manifest_file(project_root: Path) -> Path:
     return paths.project_victor_dir / "graph-watch.json"
 
 
+def _index_summary_file(project_root: Path) -> Path:
+    """Return the last-index-run summary sidecar path for a project."""
+    paths = get_project_paths(project_root)
+    return paths.project_victor_dir / "graph-index-summary.json"
+
+
+def _write_index_summary(project_root: Path, stats: Any, *, enable_precise: bool) -> None:
+    """Persist the last index-run outcome so ``victor graph stats`` can show it.
+
+    The store's own ``stats()`` counts nodes/edges and knows nothing about
+    tier-3 harvest outcomes; this sidecar is derived, rebuildable state
+    (same class as graph-watch.json). Best-effort: never fails the index run.
+    """
+    payload = {
+        "generated_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
+        "root": str(project_root),
+        "files_processed": getattr(stats, "files_processed", 0),
+        "files_partial": getattr(stats, "files_partial", 0),
+        "precise_index": {
+            "enabled": enable_precise,
+            "skipped": getattr(stats, "precise_index_skipped", ""),
+            "outcomes": dict(getattr(stats, "precise_index_outcomes", None) or {}),
+            "references_resolved": getattr(stats, "precise_references_resolved", 0),
+            "unjoined": getattr(stats, "precise_index_unjoined", 0),
+            "unjoined_docs": getattr(stats, "precise_index_unjoined_docs", 0),
+        },
+    }
+    try:
+        summary_file = _index_summary_file(project_root)
+        summary_file.parent.mkdir(parents=True, exist_ok=True)
+        summary_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    except OSError as exc:
+        console.print(f"[dim]Warning: could not write index summary: {exc}[/]")
+
+
+def _read_index_summary(project_root: Path) -> Optional[dict[str, Any]]:
+    """Load the last index-run summary for a project if it exists."""
+    summary_file = _index_summary_file(project_root)
+    if not summary_file.exists():
+        return None
+    try:
+        payload = json.loads(summary_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _print_precise_index_summary(stats: Any) -> None:
+    """Print the tier-3 harvest health section of an index-run summary."""
+    outcomes: dict[str, str] = dict(getattr(stats, "precise_index_outcomes", None) or {})
+    skipped = getattr(stats, "precise_index_skipped", "")
+    if not outcomes and not skipped:
+        return
+    console.print("  Precise index (tier 3):")
+    for provider in sorted(outcomes):
+        console.print(f"    {provider}: {outcomes[provider]}", markup=False)
+    if skipped:
+        console.print(f"    skipped: {skipped}", markup=False)
+    console.print(
+        "    Join: "
+        f"resolved={getattr(stats, 'precise_references_resolved', 0)}, "
+        f"unjoined={getattr(stats, 'precise_index_unjoined', 0)} "
+        f"(out-of-corpus docs={getattr(stats, 'precise_index_unjoined_docs', 0)})"
+    )
+
+
+def _print_index_summary(stats: Any, *, list_partial: bool = False) -> None:
+    """Print the human-facing index-run result summary."""
+    if stats.error_count:
+        console.print("\n[red]Indexing incomplete[/red]")
+    elif stats.files_partial or stats.repository_relations_dropped_unmaterialized:
+        console.print("\n[yellow]Indexing finished with coverage gaps[/yellow]")
+    else:
+        console.print("\n[green]✓ Indexing pass complete[/green]")
+    console.print(f"  Files processed: {stats.files_processed}")
+    console.print(f"  Partial parses this pass: {stats.files_partial}")
+    if stats.files_unchanged:
+        console.print(f"  Unchanged files: {stats.files_unchanged}")
+        console.print("  Existing file diagnostics are retained; this pass does not clear them.")
+    console.print(f"  Node upserts attempted: {stats.nodes_created}")
+    console.print(f"  Edge upserts attempted: {stats.edges_created}")
+    console.print(f"  Persisted nodes: {stats.persisted_nodes}")
+    console.print(f"  Persisted edges: {stats.persisted_edges}")
+    if stats.ccg_nodes_created > 0:
+        console.print(f"  CCG nodes: {stats.ccg_nodes_created}")
+        console.print(f"  CCG edges: {stats.ccg_edges_created}")
+    if stats.embeddings_generated > 0:
+        console.print(f"  Embeddings generated: {stats.embeddings_generated}")
+    _print_precise_index_summary(stats)
+    if stats.repository_relations_dropped_unmaterialized:
+        console.print(
+            "  Relations omitted (unmaterialized endpoints): "
+            f"{stats.repository_relations_dropped_unmaterialized}"
+        )
+    if list_partial:
+        partial_files: list[str] = list(getattr(stats, "partial_files", None) or [])
+        if partial_files:
+            console.print(f"  Partial-parse files ({len(partial_files)}):")
+            for file_path in partial_files:
+                console.print(f"    {file_path}", markup=False)
+        else:
+            console.print("  Partial-parse files: none recorded this pass")
+    if stats.error_count > 0:
+        console.print(f"[red]  Errors: {stats.error_count}[/red]")
+        for error in stats.errors[:10]:
+            console.print(f"    {error}", markup=False)
+        if stats.error_count > 10:
+            console.print(f"    ... {stats.error_count - 10} additional errors")
+
+
 async def _index_async(
     path: str,
     enable_ccg: bool,
     force: bool,
     enable_embeddings: bool = False,
+    *,
+    precise: Optional[bool] = None,
+    precise_timeout: Optional[int] = None,
+    list_partial: bool = False,
+    settings: Optional[Any] = None,
 ) -> bool:
     """Index codebase into graph store asynchronously.
 
@@ -75,6 +191,16 @@ async def _index_async(
         enable_ccg: Whether to build CCG
         force: Force rebuild
         enable_embeddings: Whether to generate node embeddings for semantic search
+        precise: Override for tier-3 precise indexing; None honors the
+            ``search.graph.enable_precise_index`` setting
+        precise_timeout: Override for the tier-3 dump timeout in seconds;
+            None honors ``search.graph.precise_index_timeout_seconds`` (0 =
+            per-provider measured default)
+        list_partial: Print the paths of files whose parse was partial
+        settings: Pre-resolved settings (tests); None resolves through
+            ``Settings.from_sources()`` so ``settings.yaml``/``profiles.yaml``
+            participate — ``load_settings()`` is env-only and would silently
+            drop every yaml-configured graph option
 
     Returns:
         True if successful
@@ -107,13 +233,28 @@ async def _index_async(
         await graph_store.delete_by_repo()
         console.print("[dim]Cleared existing graph data[/dim]")
 
-    # Configure indexing
+    # Configure indexing. Settings come through from_sources() (the
+    # documented precedence: CLI > env > .env > settings.yaml > profiles.yaml
+    # > defaults); the process-cached load_settings() snapshot reads env only
+    # and used to make every yaml-configured graph option a silent no-op.
+    if settings is None:
+        settings = Settings.from_sources()
+    enable_precise = (
+        precise if precise is not None else graph_flag(settings, "enable_precise_index", False)
+    )
+    timeout_seconds = (
+        precise_timeout
+        if precise_timeout is not None
+        else graph_setting(settings, "precise_index_timeout_seconds", 0)
+    )
     config = GraphIndexConfig(
         root_path=root_path,
         enable_ccg=enable_ccg,
         enable_embeddings=enable_embeddings,
-        enable_scope_binding=graph_flag(load_settings(), "enable_scope_binding", True),
-        enable_precise_index=graph_flag(load_settings(), "enable_precise_index", False),
+        enable_scope_binding=graph_flag(settings, "enable_scope_binding", True),
+        enable_precise_index=enable_precise,
+        precise_index_timeout_seconds=timeout_seconds,
+        precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
     )
 
     # Build index
@@ -128,38 +269,9 @@ async def _index_async(
         except Exception:  # noqa: BLE001 - cache invalidation is best-effort
             pass
 
-    # Print results
-    if stats.error_count:
-        console.print("\n[red]Indexing incomplete[/red]")
-    elif stats.files_partial or stats.repository_relations_dropped_unmaterialized:
-        console.print("\n[yellow]Indexing finished with coverage gaps[/yellow]")
-    else:
-        console.print("\n[green]✓ Indexing pass complete[/green]")
-    console.print(f"  Files processed: {stats.files_processed}")
-    console.print(f"  Partial parses this pass: {stats.files_partial}")
-    if stats.files_unchanged:
-        console.print(f"  Unchanged files: {stats.files_unchanged}")
-        console.print("  Existing file diagnostics are retained; this pass does not clear them.")
-    console.print(f"  Node upserts attempted: {stats.nodes_created}")
-    console.print(f"  Edge upserts attempted: {stats.edges_created}")
-    console.print(f"  Persisted nodes: {stats.persisted_nodes}")
-    console.print(f"  Persisted edges: {stats.persisted_edges}")
-    if stats.ccg_nodes_created > 0:
-        console.print(f"  CCG nodes: {stats.ccg_nodes_created}")
-        console.print(f"  CCG edges: {stats.ccg_edges_created}")
-    if stats.embeddings_generated > 0:
-        console.print(f"  Embeddings generated: {stats.embeddings_generated}")
-    if stats.repository_relations_dropped_unmaterialized:
-        console.print(
-            "  Relations omitted (unmaterialized endpoints): "
-            f"{stats.repository_relations_dropped_unmaterialized}"
-        )
-    if stats.error_count > 0:
-        console.print(f"[red]  Errors: {stats.error_count}[/red]")
-        for error in stats.errors[:10]:
-            console.print(f"    {error}", markup=False)
-        if stats.error_count > 10:
-            console.print(f"    ... {stats.error_count - 10} additional errors")
+    # Print results and persist the run summary for `victor graph stats`
+    _write_index_summary(root_path, stats, enable_precise=enable_precise)
+    _print_index_summary(stats, list_partial=list_partial)
 
     return stats.error_count == 0
 
@@ -389,6 +501,28 @@ async def _stats_async(path: str) -> bool:
     table.add_row("Edges", str(stats.get("edges", 0)))
     table.add_row("Indexed files", str(stats.get("indexed_files", 0)))
 
+    # Tier-3 health lives in the last index-run summary sidecar (the store
+    # counts nodes/edges and cannot answer provenance questions).
+    summary = _read_index_summary(root_path)
+    precise = summary.get("precise_index") if summary else None
+    if isinstance(precise, dict):
+        table.add_row("Precise index (last run)", str(summary.get("generated_at", "unknown time")))
+        table.add_row("  enabled", "yes" if precise.get("enabled") else "no")
+        for provider, outcome in sorted((precise.get("outcomes") or {}).items()):
+            # Outcomes carry rich-markup-shaped suffixes ("[cached dump]");
+            # unescaped, rich strips them from the cell.
+            table.add_row(f"  {provider}", escape(str(outcome)))
+        if precise.get("skipped"):
+            table.add_row("  skipped", escape(str(precise["skipped"])))
+        table.add_row(
+            "  join",
+            (
+                f"resolved={precise.get('references_resolved', 0)}, "
+                f"unjoined={precise.get('unjoined', 0)}, "
+                f"out-of-corpus docs={precise.get('unjoined_docs', 0)}"
+            ),
+        )
+
     console.print(table)
 
     return True
@@ -501,12 +635,44 @@ def graph_index(
         "--embeddings/--no-embeddings",
         help="Generate node embeddings for semantic graph search",
     ),
+    precise: Optional[bool] = typer.Option(
+        None,
+        "--precise/--no-precise",
+        help=(
+            "Harvest compiler-accurate tier-3 edges from SCIP dumps "
+            "(default: search.graph.enable_precise_index in settings)"
+        ),
+    ),
+    precise_timeout: Optional[int] = typer.Option(
+        None,
+        "--precise-timeout",
+        min=0,
+        help=(
+            "Tier-3 dump timeout in seconds (default: "
+            "search.graph.precise_index_timeout_seconds; 0 = per-provider default)"
+        ),
+    ),
+    list_partial: bool = typer.Option(
+        False,
+        "--list-partial",
+        help="List the files whose parse was partial this pass",
+    ),
 ):
     """Index codebase into graph store."""
     cwd = os.path.abspath(path)
 
     start_time = time.time()
-    success = run_sync(_index_async(cwd, enable_ccg, force, embeddings))
+    success = run_sync(
+        _index_async(
+            cwd,
+            enable_ccg,
+            force,
+            embeddings,
+            precise=precise,
+            precise_timeout=precise_timeout,
+            list_partial=list_partial,
+        )
+    )
     elapsed = time.time() - start_time
 
     if success:
@@ -739,6 +905,8 @@ def _record_graph_watch_refresh(project_root: Path, stats: Any) -> Path:
             "errors": getattr(stats, "error_count", 0),
             "duration_seconds": getattr(stats, "processing_time_seconds", 0.0),
             "completed_at": time.time(),
+            "precise_index_outcomes": dict(getattr(stats, "precise_index_outcomes", None) or {}),
+            "precise_index_skipped": getattr(stats, "precise_index_skipped", ""),
         },
     )
 
@@ -1302,6 +1470,15 @@ def graph_watch_status(
             ),
         )
         table.add_row("Refresh errors", str(last_refresh.get("errors", 0)))
+        precise_outcomes = last_refresh.get("precise_index_outcomes")
+        if isinstance(precise_outcomes, dict) and precise_outcomes:
+            for provider in sorted(precise_outcomes):
+                table.add_row(f"Precise {provider}", escape(str(precise_outcomes[provider])))
+        if (
+            isinstance(last_refresh.get("precise_index_skipped"), str)
+            and last_refresh["precise_index_skipped"].strip()
+        ):
+            table.add_row("Precise skipped", escape(str(last_refresh["precise_index_skipped"])))
         duration_seconds = last_refresh.get("duration_seconds")
         if isinstance(duration_seconds, (int, float)):
             table.add_row("Refresh duration", f"{duration_seconds:.2f}s")

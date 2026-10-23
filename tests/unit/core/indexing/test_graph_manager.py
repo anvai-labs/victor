@@ -290,6 +290,49 @@ class TestGraphManager:
 
         assert 20.0 <= delay <= 30.0
 
+    def test_precise_refresh_settings_read_nested_settings_group(self, monkeypatch):
+        """The watcher seeds ADR-032 tier-2.5/3 options from settings through
+        from_sources() — ensure_background_refresh callers pass only
+        enable_ccg, and the hardcoded defaults used to make settings-configured
+        precise indexing unreachable for the daemon."""
+        from types import SimpleNamespace
+
+        from victor.config import settings as settings_module
+
+        stub = SimpleNamespace(
+            search=SimpleNamespace(
+                graph=SimpleNamespace(
+                    enable_scope_binding=False,
+                    enable_precise_index=True,
+                    precise_index_timeout_seconds=3600,
+                    precise_index_tool="scip-python",
+                )
+            )
+        )
+        monkeypatch.setattr(settings_module.Settings, "from_sources", classmethod(lambda cls: stub))
+
+        assert GraphManager._precise_refresh_settings() == {
+            "enable_scope_binding": False,
+            "enable_precise_index": True,
+            "precise_index_timeout_seconds": 3600,
+            "precise_index_tool": "scip-python",
+        }
+
+    def test_precise_refresh_settings_fall_back_to_defaults_on_error(self, monkeypatch):
+        from victor.config import settings as settings_module
+
+        def boom(cls=None, *args, **kwargs):
+            raise RuntimeError("settings sources unreadable")
+
+        monkeypatch.setattr(settings_module.Settings, "from_sources", classmethod(boom))
+
+        assert GraphManager._precise_refresh_settings() == {
+            "enable_scope_binding": True,
+            "enable_precise_index": False,
+            "precise_index_timeout_seconds": 0,
+            "precise_index_tool": "auto",
+        }
+
     @pytest.mark.asyncio
     async def test_background_refresh_skips_indexing_when_source_mtime_unchanged(
         self, temp_codebase, monkeypatch
