@@ -175,7 +175,7 @@ def bootstrap_new_services(
     decision_service = None
     feature_flags = _get_feature_flag_manager_optional()
     try:
-        from victor.agent.services.decision_backend import DecisionBackend
+        from victor.config.decision_backend import DecisionBackend
         from victor.config.decision_settings import DecisionServiceSettings
 
         backend = DecisionServiceSettings().decision_backend

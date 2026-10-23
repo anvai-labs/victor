@@ -58,6 +58,37 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/config/classification_settings.py": (
+        "tests/unit/agent/services/test_classification_backend.py",
+        "tests/unit/architecture/test_layering_facades.py",
+    ),
+    "victor/storage/embeddings/intent_classifier.py": (
+        "tests/unit/agent/test_continuation_loop_fix.py",
+        "tests/unit/architecture/test_layering_facades.py",
+    ),
+    **dict.fromkeys(
+        (
+            "victor/config/classification_backend.py",
+            "victor/agent/services/classification_backend.py",
+            "victor/config/decision_backend.py",
+            "victor/agent/services/decision_backend.py",
+            "victor/core/mode_controller.py",
+            "victor/agent/mode_controller.py",
+        ),
+        (
+            "tests/unit/agent/services/test_classification_backend.py",
+            "tests/unit/architecture/test_layering_facades.py",
+            "tests/unit/config/test_decision_settings_env.py",
+            "tests/unit/rl/test_mode_transition_learner.py",
+            "tests/unit/core/test_mode_controller.py",
+            "tests/unit/tools/test_keyword_tool_selector.py",
+            "tests/unit/agent/test_local_classifier_service.py",
+            "tests/unit/agent/services/test_decision_service_flag_gate.py",
+            "tests/unit/core/test_bootstrap_services.py",
+            "tests/unit/tools/test_tool_access_controller.py",
+            "tests/unit/tools/test_tool_selection_stage_readonly.py",
+        ),
+    ),
     "victor/agent/mode_controller.py": (
         "tests/unit/rl/test_mode_transition_learner.py",
         "tests/unit/tools/test_tool_access_controller.py",

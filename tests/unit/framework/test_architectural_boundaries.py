@@ -509,7 +509,6 @@ class TestIntegrationsLayerBoundaries:
         {
             "victor.agent.model_switcher",
             "victor.agent.background_agent",
-            "victor.agent.mode_controller",
             "victor.agent.subagents",
             "victor.agent.tool_calling.base",
         }

@@ -45,7 +45,7 @@ class ModeCommand(BaseSlashCommand):
         if not self._require_agent(ctx):
             return
 
-        from victor.agent.mode_controller import AgentMode, get_mode_controller
+        from victor.core.mode_controller import AgentMode, get_mode_controller
 
         # Safely get mode controller - try multiple methods
         mode_controller = None
@@ -246,7 +246,7 @@ class PlanCommand(BaseSlashCommand):
                 self._show_plan(ctx)
                 return
 
-        from victor.agent.mode_controller import AgentMode, get_mode_controller
+        from victor.core.mode_controller import AgentMode, get_mode_controller
 
         # Safely get mode controller - try multiple methods
         mode_controller = None

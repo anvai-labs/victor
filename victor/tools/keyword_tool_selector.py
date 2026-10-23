@@ -250,7 +250,7 @@ class KeywordToolSelector:
         if stage is None:
             return self._get_core_tools_cached()
 
-        from victor.agent.conversation.state_machine import ConversationStage
+        from victor.core.shared_types import ConversationStage
 
         if stage in {
             ConversationStage.INITIAL,
@@ -381,7 +381,7 @@ class KeywordToolSelector:
             logger.info("Write intent detected in prompt, skipping HITL annotation")
             return tools
 
-        from victor.agent.conversation.state_machine import ConversationStage
+        from victor.core.shared_types import ConversationStage
 
         # Only annotate during exploration/analysis stages
         if stage not in {

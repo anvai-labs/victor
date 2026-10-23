@@ -27,7 +27,7 @@ ALLOWED_GET_CONTAINER_PREFIXES = (
     "victor/agent/subagents/base.py",  # Member ASK handler resolution (FEP-0028 slice 2a, #740)
     # Singleton accessor functions (DI migration compatibility shims)
     "victor/agent/task_analyzer.py",  # get_task_analyzer() singleton accessor
-    "victor/agent/mode_controller.py",  # get_mode_controller() singleton accessor
+    "victor/core/mode_controller.py",  # get_mode_controller() singleton accessor
     "victor/agent/tool_call_tracker.py",  # get_tool_call_tracker() singleton accessor
     "victor/storage/embeddings/service.py",  # get_embedding_service() singleton accessor
     # Service infrastructure (self-configuration)

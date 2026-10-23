@@ -506,9 +506,9 @@ def reset_mode_controller():
     yield
     import sys
 
-    if "victor.agent.mode_controller" in sys.modules:
+    if "victor.core.mode_controller" in sys.modules:
         try:
-            from victor.agent.mode_controller import reset_mode_controller
+            from victor.core.mode_controller import reset_mode_controller
 
             reset_mode_controller()
         except (ImportError, AttributeError):

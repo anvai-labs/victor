@@ -52,6 +52,9 @@ MOVES = [
     ("victor.framework.loop.guards", "victor.agent.loop_guards"),
     ("victor.framework.perception_integration", "victor.agent.perception_integration"),
     ("victor.framework.rl.hooks", "victor.core.rl.hooks"),
+    ("victor.agent.services.classification_backend", "victor.config.classification_backend"),
+    ("victor.agent.services.decision_backend", "victor.config.decision_backend"),
+    ("victor.agent.mode_controller", "victor.core.mode_controller"),
 ]
 
 # Lower-layer modules retargeted to the new homes (module-level imports).
@@ -90,6 +93,13 @@ RETARGETED = [
     "victor.storage.cache.tiered_cache",
     "victor.teams.mixins.rl",
     "victor.agent.mode_controller",
+    "victor.config.classification_settings",
+    "victor.config.decision_settings",
+    "victor.storage.embeddings.intent_classifier",
+    "victor.protocols.mode_aware",
+    "victor.tools.filesystem",
+    "victor.tools.keyword_tool_selector",
+    "victor.integrations.protocol.interface",
 ]
 
 
@@ -294,3 +304,24 @@ def test_no_sys_modules_seam_is_keyed_on_a_facade_path():
             if f'"{old}"' in text or f"'{old}'" in text:
                 offenders.append(f"{path.relative_to(root)}: {old}")
     assert offenders == [], offenders
+
+
+def test_mode_controller_singleton_is_shared_through_the_facade():
+    """Tools (core path) and the slash command / API (old and new paths) must
+    see the one operational-mode controller."""
+    import victor.agent.mode_controller as old
+    from victor.core import mode_controller as new
+
+    new.reset_mode_controller()
+    try:
+        assert old.get_mode_controller() is new.get_mode_controller()
+        assert old.AgentMode is new.AgentMode
+    finally:
+        new.reset_mode_controller()
+
+
+def test_keyword_selector_stage_is_the_canonical_conversation_stage():
+    from victor.agent.conversation.state_machine import ConversationStage as Runtime
+    from victor.core.shared_types import ConversationStage as Canonical
+
+    assert Runtime is Canonical

@@ -85,7 +85,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         if current is not None:
             await server.update_session_config(replace(current, mode=request.mode))
         try:
-            from victor.agent.mode_controller import AgentMode, get_mode_controller
+            from victor.core.mode_controller import AgentMode, get_mode_controller
 
             get_mode_controller().switch_mode(AgentMode(request.mode))
         except Exception:
