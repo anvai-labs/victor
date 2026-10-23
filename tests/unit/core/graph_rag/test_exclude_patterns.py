@@ -41,6 +41,14 @@ class TestUniversalExcludes:
         assert any("__pycache__" in p for p in patterns)
         assert any(".pytest_cache" in p for p in patterns)
 
+        # Universal patterns must NOT encode repo-layout assumptions: a
+        # homebrew/ directory is legitimate source in taps and Homebrew-based
+        # repos. Repo-specific artifacts belong in that repo's .gitignore
+        # (honored via respect_gitignore), never here — pinned after the
+        # over-broad "**/scripts/homebrew/**" hardcode was reverted (owner
+        # review of #1480).
+        assert not any("homebrew" in p for p in patterns)
+
         # Node.js
         assert any("node_modules" in p for p in patterns)
         assert any(".next" in p for p in patterns)

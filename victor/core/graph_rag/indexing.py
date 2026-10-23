@@ -888,6 +888,7 @@ class GraphIndexingPipeline:
             harvest_precise_edges,
         )
         from victor.core.graph_rag.precise_providers import (
+            DumpSkipped,
             extensions_for_provider,
             providers_for_files,
         )
@@ -954,6 +955,11 @@ class GraphIndexingPipeline:
                         tmp_path,
                         timeout_seconds=timeout_seconds,
                     )
+                    if isinstance(dumped, DumpSkipped):
+                        # Project marker absent — a setup gap, not a toolchain
+                        # or dump failure (the honest taxonomy's third state).
+                        outcomes[provider.name] = dumped.reason
+                        continue
                     if dumped is None:
                         outcomes[provider.name] = "dump-failed"
                         continue

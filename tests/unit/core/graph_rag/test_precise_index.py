@@ -658,6 +658,51 @@ async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkey
 
 
 @pytest.mark.asyncio
+async def test_marker_absent_maps_to_named_outcome_not_dump_failed(tmp_path, monkeypatch):
+    """DumpSkipped (project marker absent) surfaces as its own reason in the
+    harvest outcomes — never conflated with 'dump-failed' (rev 1.9 fallout:
+    a Homebrew formula's repo reported scip-ruby dump-failed; the truth was
+    'no Gemfile setup')."""
+    pytest.importorskip("victor_codegraph")
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.core.graph_rag.precise_providers import DumpSkipped
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "m.py").write_text("def f():\n    return 1\n")
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    from victor.core.graph_rag import precise_providers
+
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider,
+        "detect",
+        lambda self, hint="auto": "/usr/bin/scip-python",
+    )
+    monkeypatch.setattr(
+        precise_providers.ScipPythonProvider,
+        "dump",
+        lambda self, tool, root, output_path, timeout_seconds: DumpSkipped("no-marker"),
+    )
+
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        config = GraphIndexConfig(
+            root_path=tmp_path,
+            enable_ccg=False,
+            enable_embeddings=False,
+            enable_precise_index=True,
+            incremental=False,
+        )
+        pipeline = GraphIndexingPipeline(store, config)
+        stats = await pipeline.index_repository()
+        assert stats.precise_index_outcomes == {"scip-python": "no-marker"}
+        assert "dump-failed" not in str(stats.precise_index_outcomes)
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
     """The provider loop's full taxonomy through the real pipeline: an ok
     provider with edges, a dump-failed provider, and an absent one — merged
