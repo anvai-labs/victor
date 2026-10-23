@@ -60,6 +60,17 @@ DEPRECATION_NOTICE_FILES = (
 RELATED_TESTS = {
     **dict.fromkeys(
         (
+            "victor/framework/graph_checkpoint.py",
+            "victor/framework/graph_execution.py",
+        ),
+        (
+            "tests/unit/framework/test_graph_interrupt_resume.py",
+            "tests/unit/framework/test_graph.py",
+            "tests/unit/framework/test_graph_sequential_fanout.py",
+        ),
+    ),
+    **dict.fromkeys(
+        (
             "victor/core/rl/coordinator_port.py",
             "victor/core/bootstrap.py",
             "victor/storage/cache/tool_cache.py",
@@ -727,6 +738,7 @@ RELATED_TESTS = {
     ),
     "victor/core/identity/gateway.py": ("tests/unit/providers/test_subscription_gateway.py",),
     "victor/framework/graph_runtime.py": (
+        "tests/unit/framework/test_graph_interrupt_resume.py",
         "tests/unit/framework/test_graph.py",
         "tests/unit/providers/test_gateway_policy_resilience.py",
     ),

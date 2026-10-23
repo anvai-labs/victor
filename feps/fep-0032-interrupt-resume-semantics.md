@@ -177,6 +177,28 @@ FEP-0032 is constrained to:
 4. **Docs** — `docs/architecture/` note on the checkpoint contract; HITL API's paused-vs-done
    mapping documented against its own request store.
 
+### Implementation status (2026-10-23)
+
+Phases 1 and 3 are implemented; phase 2 (the loud input-discard `ValueError`) is not, pending
+the override-ergonomics question below, so this FEP stays Draft.
+
+- `GraphRuntimeOutcome` and `GraphExecutionResult` carry `interrupted` / `next_node`;
+  `ExecutorResult.interrupted` / `interrupt_node` are now set from them.
+- Checkpoints keep `node_id` as the node they were taken at and record the resume position in
+  metadata: `checkpoint_boundary` (`"after"` for a completed node, `"before"` for an
+  interrupt-before) and `next_node` (`WorkflowCheckpoint.next_node`). No new storage shape.
+- Resume order: sequential fan-out frontier, then `next_node`, then the successor of an
+  `"after"` checkpoint (resolved through the graph's router), then legacy `node_id`
+  (pre-FEP-0032 checkpoints, and fan-out `Send` successors, which still re-run).
+- Interrupt-after resolves the successor once, at interrupt time, and persists it, so the
+  router is not re-evaluated on resume. A router that fails there leaves `next_node` unset.
+- **Correction to the motivation:** interrupt-*before* was not fully correct either — resuming
+  under the same interrupt config paused at the same node again. Resuming an `"before"`
+  checkpoint now bypasses that interrupt once, for the first node only; a later visit (a
+  cycle) pauses again.
+- Consequence: re-invoking a thread whose last checkpoint is a completed final node executes
+  nothing (it previously re-ran the last node). An explicit `start_node` still overrides.
+
 ## Benefits
 
 - HITL callers distinguish paused/done/failed from the execution result — no out-of-band store

@@ -41,6 +41,29 @@ class GraphRuntimeOutcome:
     duration: float = 0.0
     node_history: List[str] = field(default_factory=list)
     state_history: List[Tuple[str, Any]] = field(default_factory=list)
+    interrupted: bool = False
+    next_node: Optional[str] = None
+
+
+def _resolve_resume_target(
+    get_next_node: Callable[[str, Any], Union[str, List[Any], Tuple[str, ...]]],
+    node_id: str,
+    state: Any,
+) -> Optional[str]:
+    """Successor of a node interrupted after, when it is a single node (FEP-0032).
+
+    Resolved once, at interrupt time, and persisted so resume does not re-run the
+    router. A fan-out successor, or a router that fails here, leaves it unresolved:
+    the checkpoint still marks the node completed and resume resolves it then.
+    """
+    try:
+        target = get_next_node(node_id, state)
+    except ProviderPolicyError:
+        raise
+    except Exception as error:
+        logger.warning("Could not resolve the successor of %s at interrupt: %s", node_id, error)
+        return None
+    return target if isinstance(target, str) else None
 
 
 async def run_graph_execution(
@@ -215,6 +238,9 @@ async def _run_graph_execution_loop(
 
     active_node: Optional[str] = None
     node_start_time = time.time()
+    # Applies to the first node only: a resume continues past the interrupt it paused at.
+    resume_past_interrupt = checkpoint_manager.resume_past_interrupt
+    checkpoint_manager.resume_past_interrupt = None
 
     async def report_node_error(message: str) -> None:
         nonlocal active_node
@@ -238,11 +264,15 @@ async def _run_graph_execution_loop(
                     state_history=state_history,
                 )
 
-            if interrupt_handler.should_interrupt_before(current_node):
+            bypass_interrupt = current_node == resume_past_interrupt
+            resume_past_interrupt = None
+            if interrupt_handler.should_interrupt_before(current_node) and not bypass_interrupt:
                 logger.info("Interrupt before node: %s", current_node)
                 if sequential_fanout:
                     save_frontier([current_node, *pending_nodes])
-                await checkpoint_manager.save_checkpoint(thread_id, current_node, state)
+                await checkpoint_manager.save_checkpoint(
+                    thread_id, current_node, state, next_node=current_node, paused_before=True
+                )
                 return GraphRuntimeOutcome(
                     state=state,
                     success=True,
@@ -250,6 +280,8 @@ async def _run_graph_execution_loop(
                     duration=timeout_manager.get_elapsed(),
                     node_history=node_history,
                     state_history=state_history,
+                    interrupted=True,
+                    next_node=current_node,
                 )
 
             active_node = current_node
@@ -319,7 +351,16 @@ async def _run_graph_execution_loop(
                     ):
                         pending_nodes.append(target)
                 save_frontier(pending_nodes)
-            await checkpoint_manager.save_checkpoint(thread_id, current_node, state)
+            interrupt_after = interrupt_handler.should_interrupt_after(current_node)
+            resume_target: Optional[str] = None
+            if interrupt_after:
+                if sequential_fanout:
+                    resume_target = pending_nodes[0] if pending_nodes else end_node_token
+                else:
+                    resume_target = _resolve_resume_target(get_next_node, current_node, state)
+            await checkpoint_manager.save_checkpoint(
+                thread_id, current_node, state, next_node=resume_target, completed=True
+            )
             if node_observer is not None:
                 await node_observer(
                     "complete", current_node, state, None, time.time() - node_start_time
@@ -336,7 +377,7 @@ async def _run_graph_execution_loop(
                 duration=time.time() - node_start_time,
             )
 
-            if interrupt_handler.should_interrupt_after(current_node):
+            if interrupt_after:
                 logger.info("Interrupt after node: %s", current_node)
                 return GraphRuntimeOutcome(
                     state=state,
@@ -345,6 +386,8 @@ async def _run_graph_execution_loop(
                     duration=timeout_manager.get_elapsed(),
                     node_history=node_history,
                     state_history=state_history,
+                    interrupted=True,
+                    next_node=resume_target,
                 )
 
             if sequential_fanout:
