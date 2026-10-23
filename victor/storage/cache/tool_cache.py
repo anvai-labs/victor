@@ -31,7 +31,7 @@ class ToolCache:
         # Get CacheEvictionLearner from RLCoordinator if not provided
         if cache_eviction_learner is None:
             try:
-                from victor.framework.rl.coordinator import get_rl_coordinator
+                from victor.core.rl.coordinator_port import get_rl_coordinator
 
                 coordinator = get_rl_coordinator()
                 cache_eviction_learner = coordinator.get_learner("cache_eviction")

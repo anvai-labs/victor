@@ -8,8 +8,9 @@ submodule imported by its old dotted path is never loaded a second time.
 import importlib
 import sys
 
-from victor.agent import policies as _moved
 from victor.agent.policies import *  # noqa: F401,F403  (static re-export for type checkers)
+
+_moved = importlib.import_module("victor.agent.policies")
 
 for _name in ("base", "builtins", "engine", "gate", "handlers", "middleware", "types"):
     sys.modules[f"{__name__}.{_name}"] = importlib.import_module(f"victor.agent.policies.{_name}")

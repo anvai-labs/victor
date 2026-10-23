@@ -1,5 +1,5 @@
 {
-  "count": 113,
+  "count": 111,
   "pairs": [
     "victor.agent -> victor.framework.decorators",
     "victor.agent.adaptive_mode_controller -> victor.framework.rl.migration",
@@ -90,7 +90,6 @@
     "victor.providers.oauth_manager -> victor.workflows.services.credentials",
     "victor.providers.ollama_provider -> victor.agent.format_strategies",
     "victor.providers.vllm_provider -> victor.agent.format_strategies",
-    "victor.storage.cache.tool_cache -> victor.framework.rl.coordinator",
     "victor.storage.embeddings.intent_classifier -> victor.agent.services.tiered_decision_service",
     "victor.storage.embeddings.service -> victor.agent.debug_logger",
     "victor.storage.embeddings.task_classifier -> victor.agent.services.tiered_decision_service",
@@ -102,7 +101,6 @@
     "victor.tools.enums -> victor.agent.presentation",
     "victor.tools.graph_query_tool -> victor.framework.search.hybrid",
     "victor.tools.hybrid_tool_selector -> victor.agent.protocols",
-    "victor.tools.hybrid_tool_selector -> victor.framework.rl.coordinator",
     "victor.tools.keyword_tool_selector -> victor.agent.protocols",
     "victor.tools.merge_tool -> victor.agent.presentation",
     "victor.tools.output_condenser -> victor.agent.usage_analytics",

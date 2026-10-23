@@ -145,7 +145,7 @@ class HybridToolSelector:
 
         self._rl_init_attempted = True
         try:
-            from victor.framework.rl.coordinator import get_rl_coordinator
+            from victor.core.rl.coordinator_port import get_rl_coordinator
 
             coordinator = get_rl_coordinator()
             self._rl_learner = coordinator.get_learner("tool_selector")
@@ -368,7 +368,7 @@ class HybridToolSelector:
 
         try:
             from victor.framework.rl.base import RLOutcome
-            from victor.framework.rl.coordinator import get_rl_coordinator
+            from victor.core.rl.coordinator_port import get_rl_coordinator
 
             ctx = context or {}
             task_type = ctx.get("task_type", "default")
