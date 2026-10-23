@@ -60,6 +60,20 @@ DEPRECATION_NOTICE_FILES = (
 RELATED_TESTS = {
     **dict.fromkeys(
         (
+            "victor/core/rl/coordinator_port.py",
+            "victor/core/bootstrap.py",
+            "victor/storage/cache/tool_cache.py",
+            "victor/tools/hybrid_tool_selector.py",
+        ),
+        (
+            "tests/unit/core/test_rl_coordinator_port.py",
+            "tests/unit/tools/test_hybrid_tool_selector.py",
+            "tests/unit/tools/test_tool_cache_unit.py",
+            "tests/unit/tools/test_tool_cache_integration.py",
+        ),
+    ),
+    **dict.fromkeys(
+        (
             "victor/agent/task_complexity.py",
             "victor/framework/task/complexity.py",
         ),

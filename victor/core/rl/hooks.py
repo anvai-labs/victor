@@ -65,7 +65,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 from victor.core.constants import DEFAULT_VERTICAL
 
 if TYPE_CHECKING:
-    from victor.framework.rl.coordinator import RLCoordinator
+    from victor.core.rl.coordinator_port import RLCoordinatorProtocol
     from victor.framework.rl.base import RLOutcome
 
 logger = logging.getLogger(__name__)
@@ -250,7 +250,7 @@ class RLHookRegistry:
         - Learner subscription management
     """
 
-    def __init__(self, coordinator: Optional["RLCoordinator"] = None):
+    def __init__(self, coordinator: Optional["RLCoordinatorProtocol"] = None):
         """Initialize hook registry.
 
         Args:
@@ -279,7 +279,7 @@ class RLHookRegistry:
         for event_type, learners in EVENT_TO_LEARNER.items():
             self._subscribers[event_type] = set(learners)
 
-    def set_coordinator(self, coordinator: "RLCoordinator") -> None:
+    def set_coordinator(self, coordinator: "RLCoordinatorProtocol") -> None:
         """Set the RL coordinator for learner access.
 
         Args:
@@ -474,7 +474,7 @@ class RLHookRegistry:
 _hook_registry: Optional[RLHookRegistry] = None
 
 
-def get_rl_hooks(coordinator: Optional["RLCoordinator"] = None) -> RLHookRegistry:
+def get_rl_hooks(coordinator: Optional["RLCoordinatorProtocol"] = None) -> RLHookRegistry:
     """Get the global RL hook registry.
 
     Args:

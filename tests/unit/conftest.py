@@ -528,6 +528,10 @@ def reset_rl_coordinator():
             reset_rl_coordinator()
         except (ImportError, AttributeError):
             pass
+    if "victor.core.rl.coordinator_port" in sys.modules:
+        from victor.core.rl.coordinator_port import set_rl_coordinator_provider
+
+        set_rl_coordinator_provider(None)
 
 
 @pytest.fixture(autouse=True)

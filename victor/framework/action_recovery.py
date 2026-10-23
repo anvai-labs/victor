@@ -5,9 +5,11 @@ moved module (``sys.modules`` alias), so module state, singletons and
 ``mock.patch`` targets under this path all resolve to the one real module.
 """
 
+import importlib
 import sys
 
-from victor.core import action_recovery as _moved
 from victor.core.action_recovery import *  # noqa: F401,F403  (static re-export for type checkers)
+
+_moved = importlib.import_module("victor.core.action_recovery")
 
 sys.modules[__name__] = _moved

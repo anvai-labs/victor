@@ -336,3 +336,36 @@ def test_keyword_selector_stage_is_the_canonical_conversation_stage():
     from victor.core.shared_types import ConversationStage as Canonical
 
     assert Runtime is Canonical
+
+
+def test_facades_survive_sys_modules_eviction():
+    """``patch.dict(sys.modules)`` drops every module first imported inside the
+    block, but the parent package keeps its stale submodule attribute. A facade
+    imported afterwards must bind the module ``sys.modules`` resolves, not that
+    stale attribute, or old and new paths become two module copies (two
+    singletons). Replays the eviction for every move in a fresh interpreter.
+    """
+    import json
+    import subprocess
+    import sys
+
+    code = (
+        "import importlib, json, sys\n"
+        "pairs = json.loads(sys.argv[1])\n"
+        "bad = []\n"
+        "for old, new in pairs:\n"
+        "    importlib.import_module(new)\n"
+        "    sys.modules.pop(new)\n"
+        "    sys.modules.pop(old, None)\n"
+        "    if importlib.import_module(old) is not importlib.import_module(new):\n"
+        "        bad.append(old)\n"
+        "assert not bad, bad\n"
+    )
+    # The policies package facade installs its submodule aliases in the same
+    # __init__ run as the package key, so eviction always drops them together;
+    # popping one alias alone is not a reachable state.
+    leaf_moves = [(o, n) for o, n in MOVES if ".policies" not in o]
+    result = subprocess.run(
+        [sys.executable, "-c", code, json.dumps(leaf_moves)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
