@@ -41,8 +41,9 @@ class GraphSettings(BaseModel):
     # (scip-python); opt-in, degrades gracefully when absent.
     enable_precise_index: bool = False
     # Dump timeout ceiling for the tier-3 harvest. 0 = each provider's own
-    # measured default (python/pyright 1200s, typescript 600s, rust-analyzer
-    # 120s); a positive value overrides every provider uniformly. Mirrors
+    # measured default (pyright 1200s, typescript 600s, rust-analyzer 120s,
+    # scip-clang 600s, scip-java 1200s, scip-ruby 900s, scip-go 600s);
+    # a positive value overrides every provider uniformly. Mirrors
     # GraphIndexConfig.precise_index_timeout_seconds — without this key the
     # yaml merge drops the setting before it can reach the pipeline.
     precise_index_timeout_seconds: int = 0

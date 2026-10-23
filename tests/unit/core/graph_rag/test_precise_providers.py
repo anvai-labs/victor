@@ -1,7 +1,8 @@
 """ADR-032 tier 3 providers — producer grammars, registry, project discovery.
 
 Every grammar case below is pinned to a REAL captured dump (scip-python
-0.6.6, scip-typescript 0.5.1, rust-analyzer 1.99) — the #1436 lesson: symbol
+0.6.6, scip-typescript 0.5.1, rust-analyzer 1.99, scip-clang 0.4.1,
+scip-java 0.13.2, scip-ruby 0.5.1, scip-go 0.2.9) — the #1436 lesson: symbol
 grammars are producer properties and documentation is not evidence.
 """
 
@@ -11,7 +12,11 @@ from pathlib import Path
 
 from victor.core.graph_rag.precise_providers import (
     RustAnalyzerProvider,
+    ScipClangProvider,
+    ScipGoProvider,
+    ScipJavaProvider,
     ScipPythonProvider,
+    ScipRubyProvider,
     ScipTypescriptProvider,
     providers_for_files,
 )
@@ -19,6 +24,10 @@ from victor.core.graph_rag.precise_providers import (
 PY = ScipPythonProvider()
 TS = ScipTypescriptProvider()
 RS = RustAnalyzerProvider()
+CC = ScipClangProvider()
+JV = ScipJavaProvider()
+RB = ScipRubyProvider()
+GO = ScipGoProvider()
 
 
 def _path(provider, symbol):
@@ -85,6 +94,102 @@ def test_registry_routes_extensions_to_providers():
     # Monorepo reality: all three at once.
     providers = providers_for_files(["victor/x.py", "vscode-victor/src/y.ts", "rust/z.rs"])
     assert set(providers) == {"scip-python", "scip-typescript", "rust-analyzer"}
+    # Polyglot extension (rev 1.9): C/C++ headers route to scip-clang (one
+    # producer for both languages); JVM/ruby/go get their own producers.
+    providers = providers_for_files(["src/a.c", "src/b.cpp", "inc/x.hpp", "src/y.h"])
+    assert set(providers) == {"scip-clang"}
+    providers = providers_for_files(["App.java", "lib/toy.rb", "cmd/main.go"])
+    assert set(providers) == {"scip-java", "scip-ruby", "scip-go"}
+    # .scala stays UNROUTED until its grammar is captured against a real
+    # dump — routing it to scip-java today would ship an unverified parser.
+    assert providers_for_files(["App.scala"]) == {}
+
+
+def test_clang_grammar_real_shapes():
+    # Prefix has EMPTY package/version tokens as literal '.': "cxx . . $ ".
+    assert _path(CC, "cxx . . $ helper(d4f767463ce0a6b3).") == "helper"
+    # Namespace components drop from free functions AND type chains.
+    assert _path(CC, "cxx . . $ outer/inner/nsfree(7864480464b09eea).") == "nsfree"
+    assert _path(CC, "cxx . . $ ns/Greeter#") == "Greeter"
+    assert _path(CC, "cxx . . $ Point#") == "Point"  # C struct shares the shape
+    assert _path(CC, "cxx . . $ outer/inner/Widget#Handle#") == "Widget.Handle"
+    assert _path(CC, "cxx . . $ ns/Greeter#greet(49f6e7a06ebc5aa8).") == "Greeter.greet"
+    assert _path(CC, "cxx . . $ outer/inner/Widget#Handle#grab(49f6e7a06ebc5aa8).") == (
+        "Widget.Handle.grab"
+    )
+    # Templates are transparent.
+    assert _path(CC, "cxx . . $ Box#") == "Box"
+    assert _path(CC, "cxx . . $ Box#get(5f357b03ed472e5e).") == "Box.get"
+    # The parenthesized suffix is a SIGNATURE hash: helper(int) and
+    # overload(int) share one — identity must ride name+scope, so the hash
+    # strips and the two collapse to their (distinct) names.
+    assert _path(CC, "cxx . . $ overload(d4f767463ce0a6b3).") == "overload"
+    assert _path(CC, "cxx . . $ overload(ba8836b59fb42830).") == "overload"
+    # Non-joinable descriptors: namespaces, fields, macros, file pseudos.
+    assert _path(CC, "cxx . . $ outer/") is None
+    assert _path(CC, "cxx . . $ outer/inner/") is None
+    assert _path(CC, "cxx . . $ Box#value.") is None
+    assert _path(CC, "cxx . . $ Point#x.") is None
+    assert _path(CC, "cxx . . $ `src/a.h:2:9`!") is None
+    assert _path(CC, "cxx . . $ `<file>/src/a.c`/") is None
+    assert _path(CC, "local 0") is None
+    assert _path(CC, "cxx . . $ helper().") is None  # hash-less variant: refuse to guess
+
+
+def test_java_grammar_real_shapes():
+    # Leading tokens VARY per project (no fixed prefix); packages drop.
+    P = "scip-java maven maven/com.toy/toy 0.1.0 "
+    assert _path(JV, P + "com/toy/App#") == "App"
+    assert _path(JV, P + "com/toy/App#helper().") == "App.helper"
+    assert _path(JV, P + "com/toy/App#main().") == "App.main"
+    assert _path(JV, P + "com/toy/Util#twice().") == "Util.twice"
+    # Constructors emit the `<init>` literal — mapped like scip-typescript.
+    assert _path(JV, P + "com/toy/App#`<init>`().") == "App.constructor"
+    # Nested classes chain '#'; packages still drop.
+    assert _path(JV, P + "com/toy/Outer#Inner#") == "Outer.Inner"
+    assert _path(JV, P + "com/toy/Outer#Inner#deep().") == "Outer.Inner.deep"
+    assert _path(JV, P + "com/toy/Outer#Inner#`<init>`().") == "Outer.Inner.constructor"
+    # Fields are non-joinable.
+    assert _path(JV, P + "com/toy/App#value.") is None
+    assert _path(JV, "local 2") is None
+    assert _path(JV, "scip-java maven maven/com.toy/toy 0.1.0") is None
+
+
+def test_ruby_grammar_real_shapes():
+    # Leading tokens vary per gem; module/class nesting is KEPT as scope
+    # (ruby modules are real lexical nesting — unlike cxx/java namespaces).
+    P = "scip-ruby gem toy 0.1.0 "
+    assert _path(RB, P + "Toy#") == "Toy"
+    assert _path(RB, P + "Toy#Greeter#") == "Toy.Greeter"
+    assert _path(RB, P + "Toy#Greeter#greet().") == "Toy.Greeter.greet"
+    assert _path(RB, P + "Toy#Greeter#initialize().") == "Toy.Greeter.initialize"
+    # Singleton methods ride the metaclass literal — mapped to the class,
+    # INCLUDING in middle position for nested modules.
+    assert _path(RB, P + "`<Class:Toy>`#build().") == "Toy.build"
+    assert _path(RB, P + "Toy#Inner#") == "Toy.Inner"
+    assert _path(RB, P + "Toy#`<Class:Inner>`#helper().") == "Toy.Inner.helper"
+    # Ivars are fields: non-joinable.
+    assert _path(RB, P + "Toy#Greeter#`@name`.") is None
+    assert _path(RB, "local 1$3681232888") is None
+
+
+def test_go_grammar_real_shapes():
+    # FOUR leading tokens (version is the literal '.'); the backticked
+    # import-path head drops entirely.
+    P = "scip-go gomod example.com/toy . "
+    assert _path(GO, P + "`example.com/toy/util`/Box#") == "Box"
+    assert _path(GO, P + "`example.com/toy/util`/Box#Get().") == "Box.Get"
+    # Pointer receivers share the value-receiver shape (no marker).
+    assert _path(GO, P + "`example.com/toy/util`/Box#Set().") == "Box.Set"
+    assert _path(GO, P + "`example.com/toy/util`/Twice().") == "Twice"
+    assert _path(GO, P + "`example.com/toy`/main().") == "main"
+    # Interfaces are type nodes; their method SIGNATURES are non-callable
+    # (no '()') and stay unjoinable like fields.
+    assert _path(GO, P + "`example.com/toy/util`/Speaker#") == "Speaker"
+    assert _path(GO, P + "`example.com/toy/util`/Speaker#Speak.") is None
+    assert _path(GO, P + "`example.com/toy/util`/Box#Value.") is None
+    assert _path(GO, P + "`example.com/toy/util`/") is None
+    assert _path(GO, "local 0") is None
 
 
 def test_typescript_project_discovery(tmp_path):
@@ -105,6 +210,144 @@ def test_rust_crate_discovery(tmp_path):
     assert RS.crate_root(tmp_path) == tmp_path / "rust"
     (tmp_path / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
     assert RS.crate_root(tmp_path) == tmp_path
+
+
+def test_clang_compile_database_discovery(tmp_path):
+    assert CC.compilation_database(tmp_path) is None
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "compile_commands.json").write_text("[]", encoding="utf-8")
+    assert CC.compilation_database(tmp_path) == tmp_path / "build" / "compile_commands.json"
+    (tmp_path / "compile_commands.json").write_text("[]", encoding="utf-8")
+    assert CC.compilation_database(tmp_path) == tmp_path / "compile_commands.json"
+    # Bear-style one-level-down layouts.
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "compile_commands.json").write_text("[]", encoding="utf-8")
+    empty = tmp_path / "elsewhere"
+    empty.mkdir()
+    (empty / "sub").mkdir()
+    (empty / "sub" / "build" / "compile_commands.json").parent.mkdir(parents=True)
+    (empty / "sub" / "build" / "compile_commands.json").write_text("[]", encoding="utf-8")
+    assert CC.compilation_database(empty) == empty / "sub" / "build" / "compile_commands.json"
+
+
+def test_go_module_discovery(tmp_path):
+    assert GO.module_root(tmp_path) is None
+    (tmp_path / "server").mkdir()
+    (tmp_path / "server" / "go.mod").write_text("module x\n", encoding="utf-8")
+    assert GO.module_root(tmp_path) == tmp_path / "server"
+    (tmp_path / "go.mod").write_text("module y\n", encoding="utf-8")
+    assert GO.module_root(tmp_path) == tmp_path
+
+
+def test_clang_dump_argv_runs_from_project_root(tmp_path, monkeypatch):
+    # scip-clang filters documents to project_root = CWD: running from the
+    # artifact dir silently yields an EMPTY index — cwd must be the repo
+    # root (caught by real-pipeline validation, not argv mocks).
+    (tmp_path / "compile_commands.json").write_text("[]", encoding="utf-8")
+    captured = _capture_dump(monkeypatch, dump_result=Path("/x/index.scip"))
+    output = tmp_path / ".victor" / "precise" / "out.scip"
+    assert CC.dump("/usr/bin/scip-clang", tmp_path, output, timeout_seconds=42) is not None
+    assert captured["command"] == [
+        "/usr/bin/scip-clang",
+        "--compdb-path",
+        str(tmp_path / "compile_commands.json"),
+        "--index-output-path",
+        str(output),
+        "--no-progress-report",
+    ]
+    assert captured["cwd"] == tmp_path
+    assert captured["timeout"] == 42
+    assert captured["node_heap"] is False
+
+
+def test_clang_dump_without_database_skips(tmp_path, monkeypatch):
+    captured = _capture_dump(monkeypatch)
+    assert CC.dump("/usr/bin/scip-clang", tmp_path, Path("/x.scip"), timeout_seconds=1) is None
+    assert captured == {}  # never reached the transport
+
+
+def test_java_dump_argv_and_build_marker_gate(tmp_path, monkeypatch):
+    output = tmp_path / "precise" / "out.scip"
+    captured = _capture_dump(monkeypatch, dump_result=output)
+    # No JVM build file → named skip before the transport.
+    assert JV.dump("/usr/bin/scip-java", tmp_path, output, timeout_seconds=42) is None
+    assert captured == {}
+    (tmp_path / "pom.xml").write_text("<project/>", encoding="utf-8")
+    assert JV.dump("/usr/bin/scip-java", tmp_path, output, timeout_seconds=42) is not None
+    assert captured["command"] == ["/usr/bin/scip-java", "index", f"--output={output}"]
+    assert captured["cwd"] == tmp_path
+    assert captured["node_heap"] is False
+
+
+def test_ruby_dump_argv_bundle_exec_and_fixed_name_move(tmp_path, monkeypatch):
+    (tmp_path / "Gemfile").write_text('source "https://rubygems.org"\n', encoding="utf-8")
+    output = tmp_path / ".victor" / "precise" / "out.scip"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    captured = {}
+
+    def fake_run_dump(command, *, cwd, output_path, timeout_seconds, node_heap):
+        captured.update(command=command, cwd=cwd, output=output_path, timeout=timeout_seconds)
+        # Simulate scip-ruby's fixed-name contract: index.scip lands in CWD.
+        output_path.write_bytes(b"dump")
+        return output_path
+
+    import victor.core.graph_rag.precise_providers as mod
+
+    monkeypatch.setattr(mod, "_run_dump", fake_run_dump)
+    assert RB.dump("/usr/bin/bundle", tmp_path, output, timeout_seconds=42) is not None
+    assert captured["command"] == ["/usr/bin/bundle", "exec", "scip-ruby", "."]
+    assert captured["cwd"] == tmp_path
+    assert captured["output"] == tmp_path / "index.scip"
+    assert output.read_bytes() == b"dump"  # moved to the artifact path
+    assert not (tmp_path / "index.scip").exists()
+
+
+def test_ruby_dump_without_gemfile_skips(tmp_path, monkeypatch):
+    captured = _capture_dump(monkeypatch)
+    assert RB.dump("/usr/bin/bundle", tmp_path, Path("/x.scip"), timeout_seconds=1) is None
+    assert captured == {}
+
+
+def test_go_dump_argv_fixed_name_move_from_module_root(tmp_path, monkeypatch):
+    (tmp_path / "go.mod").write_text("module x\n", encoding="utf-8")
+    output = tmp_path / ".victor" / "precise" / "out.scip"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    captured = {}
+
+    def fake_run_dump(command, *, cwd, output_path, timeout_seconds, node_heap):
+        captured.update(command=command, cwd=cwd)
+        output_path.write_bytes(b"dump")
+        return output_path
+
+    import victor.core.graph_rag.precise_providers as mod
+
+    monkeypatch.setattr(mod, "_run_dump", fake_run_dump)
+    assert GO.dump("/usr/bin/scip-go", tmp_path, output, timeout_seconds=42) is not None
+    assert captured["command"] == ["/usr/bin/scip-go", "index"]
+    assert captured["cwd"] == tmp_path
+    assert output.read_bytes() == b"dump"
+    assert not (tmp_path / "index.scip").exists()
+
+
+def test_detection_for_polyglot_providers(monkeypatch, tmp_path):
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+    assert CC.detect() == "/usr/bin/scip-clang"
+    assert JV.detect() == "/usr/bin/scip-java"
+    assert GO.detect() == "/usr/bin/scip-go"
+    # scip-ruby needs BOTH bundler and the gem (the wrapper refuses direct
+    # invocation); the hint override names the bundler to run through.
+    assert RB.detect() == "/usr/bin/bundle"
+    which_calls = []
+
+    def which(name):
+        which_calls.append(name)
+        return None if name == "scip-ruby" else f"/usr/bin/{name}"
+
+    monkeypatch.setattr("shutil.which", which)
+    assert RB.detect() is None  # gem absent → toolchain-absent, not a lie
+    explicit = tmp_path / "bundler"
+    explicit.write_text("", encoding="utf-8")
+    assert RB.detect(str(explicit)) == str(explicit)
 
 
 def test_typescript_join_end_to_end_with_kinds(tmp_path):
@@ -221,6 +464,206 @@ def test_rust_join_end_to_end_impl_scope(tmp_path):
         ("caller", "helper"),
     }
     assert harvest.unjoined == 0  # the external String ref is out-of-corpus
+
+
+def test_clang_join_end_to_end_hash_and_cross_file(tmp_path):
+    """Captured scip-clang shapes: cross-file refs carry the identical
+    signature-hash string; namespaces drop; fields/file-pseudos never pool."""
+    import pytest
+
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import join_occurrences
+
+    class N:
+        def __init__(self, node_id, name, file, type_, parent_id=None):
+            self.node_id, self.name, self.file, self.type = node_id, name, file, type_
+            self.parent_id = parent_id
+
+    index = scip_pb2.Index()
+    doc_a = index.documents.add()
+    doc_a.relative_path = "src/a.c"
+    doc_b = index.documents.add()
+    doc_b.relative_path = "src/b.c"
+    rows_a = [
+        ("cxx . . $ `<file>/src/a.c`/", 0, 1),
+        ("cxx . . $ helper(d4f767463ce0a6b3).", 2, 1),
+    ]
+    rows_b = [
+        ("cxx . . $ `<file>/src/b.c`/", 0, 1),
+        ("cxx . . $ main(b126dc7c1de90089).", 2, 1),
+        ("cxx . . $ helper(d4f767463ce0a6b3).", 4, 0),  # cross-file ref
+    ]
+    for doc, rows in ((doc_a, rows_a), (doc_b, rows_b)):
+        for symbol, line, roles in rows:
+            occ = doc.occurrences.add()
+            occ.symbol = symbol
+            occ.symbol_roles = roles
+            occ.range.extend([line, 0])
+
+    nodes = {
+        "src/a.c": [N("helper", "helper", "src/a.c", "function")],
+        "src/b.c": [N("main", "main", "src/b.c", "function")],
+    }
+    harvest = join_occurrences(index, nodes, symbol_parts=CC.symbol_parts)
+    assert harvest.edges == [
+        (
+            "main",
+            "helper",
+            "REFERENCES",
+            {"provenance": "compiler", "confidence": 1.0, "use": "load"},
+        )
+    ]
+    assert harvest.unjoined == 0  # file pseudo-symbols never pool
+
+
+def test_java_join_end_to_end_and_honest_constructor_gap(tmp_path):
+    """Captured scip-java shapes: methods join through the class-parented
+    scope; the `<init>` constructor has NO codegraph node (the java
+    extractor emits none) and must stay honestly unjoined, never guessed."""
+    import pytest
+
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import join_occurrences
+
+    class N:
+        def __init__(self, node_id, name, file, type_, parent_id=None):
+            self.node_id, self.name, self.file, self.type = node_id, name, file, type_
+            self.parent_id = parent_id
+
+    P = "scip-java maven maven/com.toy/toy 0.1.0 "
+    index = scip_pb2.Index()
+    doc = index.documents.add()
+    doc.relative_path = "src/main/java/com/toy/App.java"
+    rows = [
+        (P + "com/toy/App#", 0, 1),
+        (P + "com/toy/App#`<init>`().", 2, 1),
+        (P + "com/toy/App#helper().", 5, 1),
+        (P + "com/toy/App#main().", 8, 1),
+        (P + "com/toy/App#helper().", 9, 0),  # ref inside main
+        (P + "com/toy/App#value.", 4, 1),  # field def: never pools
+    ]
+    for symbol, line, roles in rows:
+        occ = doc.occurrences.add()
+        occ.symbol = symbol
+        occ.symbol_roles = roles
+        occ.range.extend([line, 0])
+
+    # Measured codegraph java shape: class + methods, NO constructor node.
+    nodes = [
+        N("app", "App", "src/main/java/com/toy/App.java", "class"),
+        N("helper", "helper", "src/main/java/com/toy/App.java", "method", "app"),
+        N("main", "main", "src/main/java/com/toy/App.java", "method", "app"),
+    ]
+    harvest = join_occurrences(
+        index, {"src/main/java/com/toy/App.java": nodes}, symbol_parts=JV.symbol_parts
+    )
+    assert harvest.edges == [
+        (
+            "main",
+            "helper",
+            "REFERENCES",
+            {"provenance": "compiler", "confidence": 1.0, "use": "load"},
+        )
+    ]
+    assert harvest.definitions_unjoined == 1  # <init>: honest, not guessed
+
+
+def test_ruby_join_refuses_false_flat_joins(tmp_path):
+    """Captured scip-ruby shapes vs the MEASURED codegraph ruby extractor
+    (flat functions, file-named module — no class/singleton nodes): the
+    producer-correct paths must NOT be flattened to force joins."""
+    import pytest
+
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import join_occurrences
+
+    class N:
+        def __init__(self, node_id, name, file, type_, parent_id=None):
+            self.node_id, self.name, self.file, self.type = node_id, name, file, type_
+            self.parent_id = parent_id
+
+    P = "scip-ruby gem toy 0.1.0 "
+    index = scip_pb2.Index()
+    doc = index.documents.add()
+    doc.relative_path = "lib/toy.rb"
+    rows = [
+        (P + "Toy#Greeter#greet().", 3, 1),
+        (P + "`<Class:Toy>`#build().", 9, 1),
+        (P + "Toy#Greeter#greet().", 12, 0),  # ref at the call site
+    ]
+    for symbol, line, roles in rows:
+        occ = doc.occurrences.add()
+        occ.symbol = symbol
+        occ.symbol_roles = roles
+        occ.range.extend([line, 0])
+
+    # Measured extractor output: flat greet function, no Greeter/build nodes.
+    nodes = [N("greet", "greet", "lib/toy.rb", "function")]
+    harvest = join_occurrences(index, {"lib/toy.rb": nodes}, symbol_parts=RB.symbol_parts)
+    assert harvest.edges == []  # no false flat join: Toy.Greeter.greet ≠ greet
+    assert harvest.resolved == 0
+    # The unjoined decomposition rides the join's ref-dedup rules (refs
+    # whose owning def never joined collapse into it) — the contract here is
+    # the honest-zero: nothing resolved, nothing guessed.
+    assert harvest.unjoined >= 1
+
+
+def test_go_join_end_to_end_perfect_alignment(tmp_path):
+    """Captured scip-go shapes: receiver methods join through the struct
+    scope; import-path heads drop; the measured toy corpus joined 100%."""
+    import pytest
+
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import join_occurrences
+
+    class N:
+        def __init__(self, node_id, name, file, type_, parent_id=None):
+            self.node_id, self.name, self.file, self.type = node_id, name, file, type_
+            self.parent_id = parent_id
+
+    P = "scip-go gomod example.com/toy . "
+    index = scip_pb2.Index()
+    doc_main = index.documents.add()
+    doc_main.relative_path = "main.go"
+    doc_util = index.documents.add()
+    doc_util.relative_path = "util/util.go"
+    rows_util = [
+        (P + "`example.com/toy/util`/", 0, 1),
+        (P + "`example.com/toy/util`/Box#", 3, 1),
+        (P + "`example.com/toy/util`/Box#Get().", 6, 1),
+        (P + "`example.com/toy/util`/Box#Set().", 10, 1),
+        (P + "`example.com/toy/util`/Twice().", 13, 1),
+    ]
+    rows_main = [
+        (P + "`example.com/toy`/", 0, 1),
+        (P + "`example.com/toy`/main().", 6, 1),
+        (P + "`example.com/toy/util`/Twice().", 8, 0),  # cross-file ref
+        (P + "`example.com/toy/util`/Box#Get().", 10, 0),
+    ]
+    for doc, rows in ((doc_main, rows_main), (doc_util, rows_util)):
+        for symbol, line, roles in rows:
+            occ = doc.occurrences.add()
+            occ.symbol = symbol
+            occ.symbol_roles = roles
+            occ.range.extend([line, 0])
+
+    nodes = {
+        "main.go": [N("main", "main", "main.go", "function")],
+        "util/util.go": [
+            N("box", "Box", "util/util.go", "class"),
+            N("get", "Get", "util/util.go", "method", "box"),
+            N("set", "Set", "util/util.go", "method", "box"),
+            N("twice", "Twice", "util/util.go", "function"),
+        ],
+    }
+    harvest = join_occurrences(index, nodes, symbol_parts=GO.symbol_parts)
+    pairs = {e[:2] for e in harvest.edges}
+    assert pairs == {("main", "twice"), ("main", "get")}
+    assert harvest.unjoined == 0
 
 
 def _capture_dump(monkeypatch, dump_result=None):
