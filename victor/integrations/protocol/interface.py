@@ -11,7 +11,7 @@ from typing import AsyncIterator, Any
 from datetime import datetime
 
 # Import canonical AgentMode from mode_controller
-from victor.agent.mode_controller import AgentMode
+from victor.core.mode_controller import AgentMode
 from victor.integrations.search_types import CodeSearchResult
 
 

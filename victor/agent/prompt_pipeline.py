@@ -58,7 +58,7 @@ from victor.agent.control_plane import (
     mint_channel_nonce,
     wrap_guidance,
 )
-from victor.framework.request_scope_heuristics import (
+from victor.agent.request_scope_heuristics import (
     contains_keyword_marker,
     has_ambiguous_target_reference,
 )
@@ -729,8 +729,8 @@ class UnifiedPromptPipeline:
         Returns:
             Prefix string to prepend to user message, or empty string.
         """
-        from victor.framework.prompt_dictionary_compressor import compress_prompt_blocks
-        from victor.framework.prompt_document import PromptBlock, PromptDocument
+        from victor.agent.prompting.dictionary_compressor import compress_prompt_blocks
+        from victor.agent.prompting.document import PromptBlock, PromptDocument
 
         document = PromptDocument()
         self._last_prompt_completeness_assessment = None
@@ -1172,7 +1172,7 @@ class UnifiedPromptPipeline:
     def _emit_prompt_used_event(self, prompt: str) -> None:
         """Emit PROMPT_USED event for RL prompt template learner."""
         try:
-            from victor.framework.rl.hooks import get_rl_hooks, RLEvent, RLEventType
+            from victor.core.rl.hooks import get_rl_hooks, RLEvent, RLEventType
 
             hooks = get_rl_hooks()
             if hooks is None:

@@ -107,14 +107,14 @@ class ClassifierTaskType(Enum):
         Collapses this adapter enum onto the single registry taxonomy; coarse values
         (analysis/generation/default) resolve through the registry's alias map.
         """
-        from victor.framework.task_types import canonicalize_task_type
+        from victor.core.task_types import canonicalize_task_type
 
         return canonicalize_task_type(self.value)
 
     @classmethod
     def from_canonical(cls, name: str) -> "Optional[ClassifierTaskType]":
         """Best-effort reverse map: a canonical name -> the member that yields it."""
-        from victor.framework.task_types import canonicalize_task_type
+        from victor.core.task_types import canonicalize_task_type
 
         target = canonicalize_task_type(name)
         for member in cls:
@@ -867,7 +867,7 @@ class UnifiedTaskClassifier:
         if self._tiered_decision_service is not None and confidence < 0.8:
             try:
                 from victor.agent.decisions.schemas import DecisionType
-                from victor.framework.runtime_evaluation_policy import (
+                from victor.core.runtime_evaluation_policy import (
                     RuntimeEvaluationPolicy,
                 )
                 from victor.agent.services.tiered_decision_service import (

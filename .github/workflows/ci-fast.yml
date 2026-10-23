@@ -654,6 +654,7 @@ jobs:
         run: |
           python -m pytest \
             tests/unit/runtime/test_hotspot_size_guard.py \
+            tests/unit/architecture/test_layering_ratchet.py \
             tests/unit/runtime/test_cli_import_weight_guard.py \
             tests/unit/runtime/test_singleton_guard.py \
             tests/unit/runtime/test_feature_flag_manifest_guard.py \

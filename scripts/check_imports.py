@@ -104,23 +104,10 @@ class ImportValidator:
         # They should be moved to agent/ or use dependency injection
         "victor/tools/semantic_selector.py": {
             "allowed_imports": [
-                "victor.agent.tool_sequence_tracker",
                 "victor.agent.debug_logger",
                 "victor.agent.unified_classifier",
             ],
             "reason": "TECH DEBT: Should use DI or move to agent/",
-        },
-        "victor/tools/filesystem.py": {
-            "allowed_imports": ["victor.agent.change_tracker"],
-            "reason": "TECH DEBT: Should use DI or move change_tracker to core/",
-        },
-        "victor/tools/file_editor_tool.py": {
-            "allowed_imports": ["victor.agent.change_tracker"],
-            "reason": "TECH DEBT: Should use DI or move change_tracker to core/",
-        },
-        "victor/tools/patch_tool.py": {
-            "allowed_imports": ["victor.agent.change_tracker"],
-            "reason": "TECH DEBT: Should use DI or move change_tracker to core/",
         },
     }
 

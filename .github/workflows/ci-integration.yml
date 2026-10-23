@@ -32,6 +32,17 @@ jobs:
             path: tests/integration/workflows
           - name: tool-integration
             path: tests/integration/tools
+          # Everything not owned by a suite above (agent, framework, multi_agent,
+          # hitl, streaming, storage, top-level files, and any new directory), so
+          # integration tests can no longer exist without running anywhere.
+          # verticals/ is owned by the verticals-integration job below.
+          - name: core-integration
+            path: >-
+              tests/integration -n auto
+              --ignore=tests/integration/providers
+              --ignore=tests/integration/workflows
+              --ignore=tests/integration/tools
+              --ignore=tests/integration/verticals
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -56,6 +67,9 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e ./victor-contracts
           pip install -e ".[dev]"
+          # Shared code->CPG parser: graph_rag and storage/graph integration
+          # tests import victor_codegraph (ADR-014).
+          pip install -e ./victor-codegraph
 
       - name: Run integration tests
         run: |
@@ -159,10 +173,11 @@ jobs:
 
       - name: Run verticals integration suite (incl. external vertical install/discovery)
         run: |
-          # -m slow selects the isolated-venv install/discovery proofs
-          # (tests/integration/verticals/test_external_vertical_install_discovery.py
-          # and friends) that were previously never executed in CI.
-          pytest tests/integration/verticals -m slow -q --tb=short
+          # The whole directory: the slow isolated-venv install/discovery proofs
+          # (test_external_vertical_install_discovery.py and friends) AND the
+          # non-slow suites. A former `-m slow` filter left ~70 tests here running
+          # in no workflow, which is how stale circuit-breaker tests rotted (#1471).
+          pytest tests/integration/verticals -q --tb=short
 
       - name: Run framework tests with verticals
         run: |

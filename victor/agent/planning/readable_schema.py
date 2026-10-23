@@ -1542,7 +1542,7 @@ class ReadableTaskPlan(BaseModel):
 
         For the canonical alias registry, see victor/framework/task_types.py
         """
-        from victor.framework.task_types import TaskTypeRegistry
+        from victor.core.task_types import TaskTypeRegistry
 
         # Use the canonical registry - SINGLE SOURCE OF TRUTH
         registry = TaskTypeRegistry.get_instance()

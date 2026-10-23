@@ -43,7 +43,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from victor.framework.tool_progress import emit_tool_progress, has_progress_sink
+from victor.core.tool_progress import emit_tool_progress, has_progress_sink
 
 logger = logging.getLogger(__name__)
 

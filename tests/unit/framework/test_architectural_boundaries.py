@@ -507,10 +507,8 @@ class TestIntegrationsLayerBoundaries:
     # sequencing the co-design review applied to every boundary.
     INTEGRATIONS_AGENT_ALLOWLIST = frozenset(
         {
-            "victor.agent.change_tracker",
             "victor.agent.model_switcher",
             "victor.agent.background_agent",
-            "victor.agent.mode_controller",
             "victor.agent.subagents",
             "victor.agent.tool_calling.base",
         }

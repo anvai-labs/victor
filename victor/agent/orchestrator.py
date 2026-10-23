@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     # Factory-created components (type hints only)
     from victor.agent.response_sanitizer import ResponseSanitizer
     from victor.agent.search_router import SearchRouter
-    from victor.framework.task import TaskComplexityService as ComplexityClassifier
+    from victor.agent.task_complexity import TaskComplexityService as ComplexityClassifier
     from victor.agent.metrics_collector import MetricsCollector
     from victor.agent.conversation.controller import ConversationController
     from victor.agent.context_compactor import ContextCompactor
@@ -154,7 +154,8 @@ from victor.agent.conversation.state_machine import (
 from victor.agent.action_authorizer import ActionIntent, INTENT_BLOCKED_TOOLS
 from victor.agent.prompt_builder import get_task_type_hint, SystemPromptBuilder
 from victor.agent.search_router import SearchRoute, SearchType
-from victor.framework.task import TaskComplexity, DEFAULT_BUDGETS
+from victor.core.task.protocols import TaskComplexity
+from victor.agent.task_complexity import DEFAULT_BUDGETS
 from victor.agent.stream_handler import StreamMetrics
 from victor.agent.metrics_collector import MetricsCollectorConfig
 from victor.agent.unified_task_tracker import TrackerTaskType, UnifiedTaskTracker
@@ -2313,7 +2314,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
     async def _run_runtime_preload(self) -> None:
         """Run feature-flagged runtime preload tasks via PreloadManager."""
-        from victor.framework.preload import (
+        from victor.agent.preload import (
             PreloadManager,
             PreloadPriority,
             preload_configuration,

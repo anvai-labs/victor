@@ -32,6 +32,16 @@ class WorkflowCheckpoint:
     timestamp: float
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def next_node(self) -> Optional[str]:
+        """Node a resume continues at, when the checkpoint recorded one (FEP-0032).
+
+        Stored in ``metadata`` so every checkpointer backend persists it unchanged.
+        ``node_id`` keeps naming the node the checkpoint was taken at.
+        """
+        value = self.metadata.get("next_node")
+        return value if isinstance(value, str) else None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "checkpoint_id": self.checkpoint_id,

@@ -23,7 +23,7 @@ from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
     ToolDefinition,
 )
-from victor.workflows.services.credentials import SSOTokens
+from victor.security.auth.sso import SSOTokens
 
 
 @pytest.fixture

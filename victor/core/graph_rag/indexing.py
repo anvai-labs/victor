@@ -252,6 +252,9 @@ class GraphIndexStats:
     files_unchanged: int = 0
     files_deleted: int = 0
     files_partial: int = 0
+    # Paths of files whose parse was partial this pass — the count alone
+    # (files_partial) gives operators no way to see WHICH files need help.
+    partial_files: List[str] = field(default_factory=list)
     persisted_nodes: int | None = None
     persisted_edges: int | None = None
     nodes_created: int = 0
@@ -269,6 +272,11 @@ class GraphIndexStats:
     precise_index_unjoined: int = 0
     precise_index_unjoined_docs: int = 0
     precise_index_skipped: str = ""
+    # Per-provider harvest outcome under the ADR-032 degradation taxonomy
+    # ("ok:<n> edges (...)" | "toolchain-absent" | "dump-failed" | ...).
+    # Surfaced so CLI/API summaries can show tier-3 health instead of it
+    # dying in a log line.
+    precise_index_outcomes: Dict[str, str] = field(default_factory=dict)
     repository_relations_dropped_unmaterialized: int = 0
     # Files that tried the enhanced TreeSitterAnalysisProtocol provider but
     # had to fall back to the hardcoded extraction path (because the provider
@@ -306,6 +314,8 @@ class GraphIndexStats:
             "precise_references_resolved": self.precise_references_resolved,
             "precise_index_unjoined": self.precise_index_unjoined,
             "precise_index_unjoined_docs": self.precise_index_unjoined_docs,
+            "precise_index_outcomes": dict(self.precise_index_outcomes),
+            "partial_files": self.partial_files[:200],
             "repository_relations_dropped_unmaterialized": (
                 self.repository_relations_dropped_unmaterialized
             ),
@@ -796,6 +806,7 @@ class GraphIndexingPipeline:
                 stats.precise_references_resolved = getattr(precise, "resolved", 0)
                 stats.precise_index_unjoined = getattr(precise, "unjoined", 0)
                 stats.precise_index_unjoined_docs = getattr(precise, "out_of_corpus_documents", 0)
+                stats.precise_index_outcomes.update(getattr(precise, "per_language", None) or {})
                 if getattr(precise, "skipped_reason", None):
                     stats.precise_index_skipped = precise.skipped_reason
                 stats.edges_created += len(getattr(precise, "edges", []))
@@ -2257,6 +2268,8 @@ class GraphIndexingPipeline:
 
         stats.files_processed += 1
         stats.files_partial += int(result.partial)
+        if result.partial:
+            stats.partial_files.append(str(result.file_path))
         stats.nodes_created += len(result.symbol_nodes)
         stats.edges_created += len(symbol_edges)
         stats.ccg_nodes_created += len(result.ccg_nodes)
@@ -3662,10 +3675,13 @@ class GraphIndexingPipeline:
         target.scope_references_resolved += source.scope_references_resolved
         target.precise_references_resolved += source.precise_references_resolved
         target.precise_index_unjoined += source.precise_index_unjoined
+        target.precise_index_unjoined_docs += source.precise_index_unjoined_docs
+        target.precise_index_outcomes.update(source.precise_index_outcomes)
         target.repository_relations_dropped_unmaterialized += (
             source.repository_relations_dropped_unmaterialized
         )
         target.files_partial += source.files_partial
+        target.partial_files.extend(source.partial_files)
         target.error_count += source.error_count
         target.errors.extend(source.errors)
 
@@ -3881,6 +3897,8 @@ class _IndexingStreamPipeline:
             all_ccg_nodes.extend(result.ccg_nodes)
             all_ccg_edges.extend(result.ccg_edges)
             stats.files_partial += int(result.partial)
+            if result.partial:
+                stats.partial_files.append(str(result.file_path))
             stats.nodes_created += len(result.symbol_nodes)
             stats.edges_created += len(sym_edges)
             stats.ccg_nodes_created += len(result.ccg_nodes)

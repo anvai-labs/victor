@@ -18,7 +18,7 @@ from victor.providers.qwen_provider import (
     QwenProvider,
 )
 from victor.providers.sandhi_transport import SandhiTypedProviderMixin
-from victor.workflows.services.credentials import SSOConfig, SSOProvider, SSOTokens
+from victor.security.auth.sso import SSOConfig, SSOProvider, SSOTokens
 
 
 def _tokens(access_token: str) -> SSOTokens:

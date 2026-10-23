@@ -22,11 +22,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.action_authorizer import ActionAuthorizer, ActionIntent
-from victor.framework.task import (
-    TaskComplexityService as ComplexityClassifier,
-    TaskClassification,
-    TaskComplexity,
-)
+
+# Canonical homes, NOT the victor.framework.task facade: the facade's
+# re-export of these moved names pulls victor.agent.__init__, which cycles
+# back into the partially-initialized framework.task when framework.task is
+# the first framework import (perf-suite entry order; promotion battery).
+from victor.agent.task_complexity import TaskComplexityService as ComplexityClassifier
+from victor.core.task.protocols import TaskClassification, TaskComplexity
 from victor.agent.unified_classifier import (
     UnifiedTaskClassifier,
     ClassificationResult,
@@ -38,7 +40,7 @@ if TYPE_CHECKING:
     from victor.storage.embeddings.intent_classifier import IntentType
     from victor.protocols.coordination import CoordinationAdvisorProtocol
     from victor.protocols.coordination import CoordinationSuggestion
-    from victor.framework.task.complexity import ComplexityBudget
+    from victor.agent.task_complexity import ComplexityBudget
 
 # Import protocols for type hints (available at runtime since protocols.py has no heavy deps)
 from victor.core.protocols import TaskClassifierProtocol, IntentClassifierProtocol
@@ -255,7 +257,7 @@ class TaskAnalyzer:
         )
 
         # Get framework-driven resource allocation
-        from victor.framework.task.complexity import ComplexityBudget as _CB
+        from victor.agent.task_complexity import ComplexityBudget as _CB
 
         _budget = _CB.for_complexity(complexity_result.complexity)
 

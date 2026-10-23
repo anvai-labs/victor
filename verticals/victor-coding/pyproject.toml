@@ -143,7 +143,7 @@ coding-compaction = "victor_coding.protocols:CodingCompactionProvider"
 [tool.setuptools.packages.find]
 # Auto-discover all `victor_coding*` subpackages. An explicit `packages` list
 # here previously omitted nested subpackages (languages.plugins,
-# codebase.embeddings, codebase.graph, compat, completion.providers,
+# codebase.embeddings, codebase.graph, compat,
 # coverage.parsers, native, performance, refactor.transforms), which silently
 # broke the published wheel (ModuleNotFoundError) while editable installs
 # worked — because the whole source tree is on sys.path under `-e`.

@@ -31,7 +31,7 @@ def _try_import(module_path: str) -> ModuleType:
 def _try_entry_point(group: str, name: str) -> object:
     """Load a named entry point from a group. Returns None if not found."""
     try:
-        from victor.framework.entry_point_registry import get_entry_point
+        from victor.core.entry_point_registry import get_entry_point
 
         return get_entry_point(group, name)
     except Exception:
@@ -41,7 +41,7 @@ def _try_entry_point(group: str, name: str) -> object:
 def _try_capability_entry_point(name: str) -> object:
     """Load a capability provider from preferred and legacy entry-point groups."""
     try:
-        from victor.framework.entry_point_registry import CAPABILITY_ENTRY_POINT_GROUPS
+        from victor.core.entry_point_registry import CAPABILITY_ENTRY_POINT_GROUPS
     except Exception:
         groups = ("victor.extension.capabilities", "victor.sdk.capabilities")
     else:

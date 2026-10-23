@@ -1,101 +1,15 @@
-# Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""Compatibility facade: moved to :mod:`victor.agent.approval_pause`.
 
-"""Durable approval-pause control-flow signal, shared by single-agent and team runs (FEP-0029).
-
-When durable pause is armed, a policy ``ASK`` raises :class:`ApprovalPause` instead of blocking on
-the terminal modal, so the run can park and resume later (headless/API/deferred approval). This is
-the single-agent generalization of ADR-023's team member pause; :class:`MemberApprovalPause`
-(``victor.agent.member_approval_context``) is a subclass so team behavior is unchanged.
-
-``ApprovalPause`` is deliberately a :class:`BaseException` (not :class:`Exception`) so it rides
-*through* every ``except Exception:`` on the policy-ASK → tool-pipeline → orchestrator → AgenticLoop
-path without conversion to an ordinary tool failure. Batch owners join siblings and preserve
-completed evidence before re-raising the signal to the turn boundary
-(``victor.framework.message_execution``), which converts it into an
-``awaiting_approval`` result. Distinct from :class:`asyncio.CancelledError`.
+Kept so the existing import path is unchanged. At runtime this name IS the
+moved module (``sys.modules`` alias), so module state, singletons and
+``mock.patch`` targets under this path all resolve to the one real module.
 """
 
-from __future__ import annotations
+import importlib
+import sys
 
-import contextvars
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from victor.agent.approval_pause import *  # noqa: F401,F403  (static re-export for type checkers)
 
-if TYPE_CHECKING:
-    from victor.framework.hitl import ApprovalRequest
+_moved = importlib.import_module("victor.agent.approval_pause")
 
-
-@dataclass
-class ApprovalDecision:
-    """A human's decision on a durably-paused approval request (FEP-0029 resume).
-
-    Passed to ``VictorClient.resume(run_id, decision)``: ``approved=True`` replays the persisted
-    gated tool call; ``approved=False`` skips it with a tool-error result. ``response`` is the
-    human's note and ``responder`` their identity (both surfaced to the model / audit).
-    """
-
-    approved: bool
-    response: Optional[str] = None
-    responder: Optional[str] = None
-
-
-#: ADR-028 / FEP-0029: durable pause is armed for the duration of a single-agent turn (a
-#: checkpointer-free opt-in via ``SessionConfig.tool_approval.durable`` → ``governance.durable``).
-#: While set, the policy ``ASK`` handler raises :class:`ApprovalPause` — durably pausing the run —
-#: instead of blocking on the terminal modal (ADR-021). ``False`` everywhere else: a normal
-#: interactive turn keeps the inline modal (byte-identical). The team path uses its own peer var
-#: (``current_member_durable_pause_enabled``); both raise the same signal family.
-current_durable_pause_enabled: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
-    "current_durable_pause_enabled", default=False
-)
-
-
-class ApprovalPause(BaseException):
-    """Control-flow signal: a durable run paused awaiting human approval (FEP-0029).
-
-    Carries the pending :class:`~victor.framework.hitl.ApprovalRequest`. Caught at the turn
-    boundary and converted into an ``awaiting_approval`` result + a resumable ``run_id``.
-    """
-
-    def __init__(self, request: "ApprovalRequest") -> None:
-        self.request = request
-        title = getattr(request, "title", "")
-        super().__init__(f"Run paused awaiting approval: {title}")
-
-
-def mark_batch_publication_incomplete(control: BaseException, *, reason: str | None = None) -> None:
-    """Record the resume barrier on the canonical mutable approval request.
-
-    Adapter notes preserve diagnostics only; unsupported immutable contexts cannot
-    supply durable resume safety and must not be used for durable approvals.
-    """
-    if not isinstance(control, ApprovalPause):
-        return
-    try:
-        context = getattr(control.request, "context", None)
-        if not isinstance(context, dict):
-            context = {}
-            control.request.context = context
-        previous = context.get("batch_result_publication")
-        if reason is None and isinstance(previous, dict):
-            reason = previous.get("reason")
-        context["batch_result_publication"] = {
-            "schema_version": 1,
-            "status": "incomplete",
-            **({"reason": reason} if reason is not None else {}),
-        }
-    except Exception:
-        # Nonconforming approval adapters must not replace the pending control.
-        control.add_note("Interrupted batch evidence marker could not be recorded")
+sys.modules[__name__] = _moved

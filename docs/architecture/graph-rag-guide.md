@@ -249,7 +249,54 @@ search:
     # Subgraph Caching
     enable_subgraph_cache: true
     subgraph_cache_ttl: 3600
+
+    # ADR-032 tier 3: compiler-accurate edges from offline SCIP dumps.
+    # Opt-in; degrades gracefully (one log line) when the toolchain is absent.
+    enable_precise_index: false
+    # Dump timeout ceiling in seconds. 0 = per-provider measured default
+    # (pyright 1200s, typescript 600s, rust-analyzer 120s) — those defaults
+    # are calibrated on small corpora; raise this for large workspaces.
+    precise_index_timeout_seconds: 0
+    # Provider selection: "auto" or an explicit provider name.
+    precise_index_tool: auto
 ```
+
+Tier 3 can also be driven per-invocation from the CLI, overriding the
+settings above:
+
+```bash
+victor index graph index --precise --precise-timeout 3600
+```
+
+Harvest health (per-provider outcome and join accounting) is printed in the
+index summary and persisted to `.victor/graph-index-summary.json`, which
+`victor index graph stats` surfaces afterwards.
+
+### Tier-3 toolchains (per language)
+
+One provider per toolchain family; each degrades to a named outcome
+(`toolchain-absent`, `dump-failed`, skip log line) and never blocks the
+others. Grammars are pinned against real dumps — see ADR-032.
+
+| Language(s) | Provider | Install | Project marker |
+|-------------|----------|---------|----------------|
+| Python | `scip-python` | `npm i -g scip-python` | python project |
+| TypeScript/JavaScript | `scip-typescript` | `npm i -g scip-typescript` | `tsconfig.json` (root or one level down) |
+| Rust | `rust-analyzer` | `rustup component add rust-analyzer` | `Cargo.toml` (root or one level down) |
+| C / C++ | `scip-clang` | [scip-clang release binary](https://github.com/sourcegraph/scip-clang/releases) on PATH | `compile_commands.json` (root, `build/`, or one level down — generate with `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON` or `bear`) |
+| Java | `scip-java` | [scip-java launcher](https://github.com/scip-code/scip-java/releases) on PATH (needs a JDK) | `pom.xml` / gradle build file |
+| Ruby | `scip-ruby` | `gem install scip-ruby` (run as `bundle exec scip-ruby`) | `Gemfile` **with the scip-ruby gem in it**, bundled |
+| Go | `scip-go` | `go install github.com/scip-code/scip-go/cmd/scip-go@latest` | `go.mod` (root or one level down) |
+
+Notes:
+- `scip-clang` filters documents to its CWD — victor always runs it from
+  the repo root, so dumps include exactly the indexed corpus.
+- `scip-ruby` requires the *indexed project* to carry the gem in its
+  Gemfile (the wrapper refuses direct invocation); without that setup the
+  harvest reports a named dump failure rather than pretending.
+- Scala has no verifiable emitter in scip-java 0.13.2 (sbt unsupported;
+  Gradle instrumentation attaches to `JavaCompile` only — zero shards on a
+  pure-Scala project). Revisit when scip-java ships Scala instrumentation.
 
 ### Feature Flags
 

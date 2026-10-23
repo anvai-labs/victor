@@ -353,13 +353,32 @@ class EmbeddingService:
         self._ensure_model_loaded()
         if self._model is None:
             raise RuntimeError("semantic model is unavailable")
-        revision = getattr(self._model[0].auto_model.config, "_commit_hash", None)
         return EmbeddingProfile(
             model_id=self.model_name,
-            revision=revision or "",
+            revision=self._loaded_model_revision(self._model) or "",
             dimension=int(self._model.get_sentence_embedding_dimension()),
             max_tokens=int(self._model.max_seq_length),
         )
+
+    @staticmethod
+    def _loaded_model_revision(model: Any) -> Optional[str]:
+        """Hub commit the loaded weights came from, or None for local/unversioned models.
+
+        transformers 4.x records it as ``config._commit_hash``; transformers 5 dropped
+        that attribute, and sentence-transformers records the same commit as
+        ``model_card_data.base_model_revision`` when it loads from the Hub.
+        """
+        try:
+            config = model[0].auto_model.config
+        except (AttributeError, IndexError, KeyError, TypeError):
+            config = None
+        commit = getattr(config, "_commit_hash", None)
+        if isinstance(commit, str) and commit:
+            return commit
+        card_revision = getattr(
+            getattr(model, "model_card_data", None), "base_model_revision", None
+        )
+        return card_revision if isinstance(card_revision, str) and card_revision else None
 
     @staticmethod
     def _is_transient_load_error(exc: Exception) -> bool:

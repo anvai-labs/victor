@@ -107,7 +107,8 @@ class GraphIndexConfig:
     enable_precise_index: bool = False
     precise_index_tool: str = "auto"
     # Dump timeout ceiling. 0 (default) = each provider's own measured
-    # default (python/pyright 1200s, typescript 600s, rust-analyzer 120s);
+    # default (pyright 1200s, typescript 600s, rust-analyzer 120s,
+    # scip-clang 600s, scip-java 1200s, scip-ruby 900s, scip-go 600s);
     # a positive value overrides every provider uniformly. A pyright dump
     # of a large monorepo takes minutes — the harvester degrades with an
     # explicit dump-timeout skip label when exceeded.
@@ -258,18 +259,23 @@ class GraphRagConfig:
         Returns:
             GraphRagConfig instance
         """
-        # Extract graph settings if available
-        enable_ccg = getattr(settings, "enable_ccg", True)
-        enable_graph_rag = getattr(settings, "enable_graph_rag", True)
-        enable_scope_binding = getattr(settings, "enable_scope_binding", True)
-        enable_precise_index = getattr(settings, "enable_precise_index", False)
+        # Read through the nested search.graph accessors: flat getattr
+        # against the Settings surface silently misses every key (the same
+        # defect graph_flag was introduced to fix at the UI call sites).
+        from victor.config.settings import graph_flag, graph_setting
 
+        enable_ccg = graph_flag(settings, "enable_ccg", True)
+        enable_graph_rag = graph_flag(settings, "enable_graph_rag", True)
         index_config = GraphIndexConfig(
             root_path=root_path,
             enable_ccg=enable_ccg,
             enable_embeddings=enable_graph_rag,
-            enable_scope_binding=enable_scope_binding,
-            enable_precise_index=enable_precise_index,
+            enable_scope_binding=graph_flag(settings, "enable_scope_binding", True),
+            enable_precise_index=graph_flag(settings, "enable_precise_index", False),
+            precise_index_timeout_seconds=graph_setting(
+                settings, "precise_index_timeout_seconds", 0
+            ),
+            precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
         )
 
         return cls(index=index_config)

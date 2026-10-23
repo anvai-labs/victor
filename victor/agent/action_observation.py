@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from typing import Any, AsyncIterator, Iterator
 
-from victor.framework.approval_binding import ActionObserver, digest
+from victor.agent.approval_binding import ActionObserver, digest
 
 
 class ActionStateError(RuntimeError):
@@ -34,7 +34,7 @@ def begin_record(
         or binding.get("tool_name") != run.pending_tool.get("tool_name")
     ):
         raise ActionStateError("Action requires the original claimed approval and no prior intent")
-    from victor.framework.action_recovery import RecoveryIdentity
+    from victor.core.action_recovery import RecoveryIdentity
 
     if recovery is not None:
         recovery = RecoveryIdentity.from_dict(recovery).to_dict()
@@ -90,7 +90,7 @@ class ActionJournal:
 
     def begin(self) -> str:
         try:
-            from victor.framework.action_recovery import ActionLookup, RecoveryIdentity
+            from victor.core.action_recovery import ActionLookup, RecoveryIdentity
 
             action = self.store.begin_action(
                 self.run_id,
@@ -191,7 +191,7 @@ async def observe_dispatch_async(
 
 
 def _lookup_request(run: Any) -> Any:
-    from victor.framework.action_recovery import ActionLookup, RecoveryIdentity
+    from victor.core.action_recovery import ActionLookup, RecoveryIdentity
 
     if run is None:
         raise ActionStateError("Persisted action is unavailable")
@@ -221,7 +221,7 @@ def _lookup_request(run: Any) -> Any:
 
 
 def _receipt_record(request: Any, receipt: Any) -> dict[str, Any]:
-    from victor.framework.action_recovery import ActionLookup, BackendReceipt
+    from victor.core.action_recovery import ActionLookup, BackendReceipt
 
     if type(request) is not ActionLookup or type(receipt) is not BackendReceipt:
         raise ActionStateError("A typed authoritative backend receipt is required")
@@ -255,8 +255,8 @@ def require_receipt_access(run: Any, runtime: Any) -> tuple[Any, Any]:
     This is embedded configured authority, not a hosted authenticated principal.
     It grants no tool execution, approval, result publication or continuation.
     """
-    from victor.framework.action_recovery import BackendReceipt, recovery_identity
-    from victor.framework.approval_binding import tool_contract
+    from victor.core.action_recovery import BackendReceipt, recovery_identity
+    from victor.agent.approval_binding import tool_contract
 
     try:
         request = _lookup_request(run)
@@ -287,7 +287,7 @@ async def reconcile_action_receipt(
     """Read backend evidence and persist it; never execute or continue an action."""
     import math
     from victor.agent.paused_run_store import ProjectDbPausedRunStore
-    from victor.framework.action_recovery import BackendReceipt
+    from victor.core.action_recovery import BackendReceipt
 
     if (
         type(timeout_seconds) not in (int, float)

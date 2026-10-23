@@ -89,21 +89,21 @@ _CONTRIB_VERTICAL_WARNED: Set[str] = set()
 
 def get_entry_point_registry() -> Any:
     """Lazy delegate for :func:`victor.framework.entry_point_registry.get_entry_point_registry`."""
-    from victor.framework.entry_point_registry import get_entry_point_registry as _impl
+    from victor.core.entry_point_registry import get_entry_point_registry as _impl
 
     return _impl()
 
 
 def get_entry_point_values(group_name: str, *, force: bool = False) -> Dict[str, str]:
     """Lazy delegate for :func:`victor.framework.entry_point_registry.get_entry_point_values`."""
-    from victor.framework.entry_point_registry import get_entry_point_values as _impl
+    from victor.core.entry_point_registry import get_entry_point_values as _impl
 
     return _impl(group_name, force=force)
 
 
 def get_entry_point_cache() -> Any:
     """Lazy delegate for :func:`victor.framework.module_loader.get_entry_point_cache`."""
-    from victor.framework.module_loader import get_entry_point_cache as _impl
+    from victor.core.module_loader import get_entry_point_cache as _impl
 
     return _impl()
 

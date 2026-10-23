@@ -38,7 +38,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, Optional, Protocol, Set, runtime_checkable
 
 if TYPE_CHECKING:
-    from victor.agent.mode_controller import AgentModeController, OperationalModeConfig
+    from victor.core.mode_controller import AgentModeController, OperationalModeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ class ModeAwareMixin:
         """
         if self._mode_controller is None:
             try:
-                from victor.agent.mode_controller import get_mode_controller
+                from victor.core.mode_controller import get_mode_controller
 
                 self._mode_controller = get_mode_controller()
             except Exception as e:

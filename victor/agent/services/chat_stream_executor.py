@@ -41,7 +41,7 @@ from victor.core.completion_markers import (
     FILE_DONE_MARKER,
     strip_active_completion_markers,
 )
-from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
+from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.providers.base import CompletionResponse, StreamChunk
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.streaming.tool_execution import ToolExecutionResult
@@ -319,7 +319,7 @@ class StreamingChatExecutor:
             return ""
 
         if user_message:
-            from victor.framework.task.direct_response import (
+            from victor.core.task.direct_response import (
                 normalize_direct_response_output,
             )
 

@@ -264,3 +264,40 @@ def test_workflow_executor_runtime_deprecated_but_resolves() -> None:
     assert ExecutorNodeStatus.__name__ == "ExecutorNodeStatus"
     assert ComputeNode.__name__ == "ComputeNode"
     assert callable(register_compute_handler)
+
+
+def test_embeddings_runtime_exports_host_helpers() -> None:
+    """The embeddings seam resolves to the ONE implementation in
+    victor.storage.vector_stores (dedup round 8 follow-up: the victor-coding
+    model fork was deleted; verticals reach the models through this shim)."""
+    from victor_contracts.embeddings_runtime import (
+        BaseEmbeddingModel,
+        BaseEmbeddingProvider,
+        CohereEmbeddingModel,
+        EmbeddingConfig,
+        EmbeddingModelConfig,
+        EmbeddingRegistry,
+        EmbeddingSearchResult,
+        OllamaEmbeddingModel,
+        OpenAIEmbeddingModel,
+        SentenceTransformerModel,
+        create_embedding_model,
+    )
+
+    from victor.storage.vector_stores import models as core_models
+
+    assert SentenceTransformerModel is core_models.SentenceTransformerModel
+    assert OllamaEmbeddingModel is core_models.OllamaEmbeddingModel
+    assert OpenAIEmbeddingModel is core_models.OpenAIEmbeddingModel
+    assert CohereEmbeddingModel is core_models.CohereEmbeddingModel
+    assert BaseEmbeddingModel is core_models.BaseEmbeddingModel
+    assert create_embedding_model is core_models.create_embedding_model
+    assert EmbeddingModelConfig is core_models.EmbeddingModelConfig
+    # Unknown names fail loudly, not silently.
+    import pytest
+
+    with pytest.raises(AttributeError):
+        _ = victor_contracts.embeddings_runtime.NotARealSymbol  # type: ignore[attr-defined]
+
+
+import victor_contracts.embeddings_runtime  # noqa: E402  (module-level for the AttributeError probe)

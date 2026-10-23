@@ -24,7 +24,7 @@ Uses canonical tool names from ToolNames for consistency.
 from typing import Dict, List, Set, Tuple
 
 from victor.core.tool_types import ToolDependency
-from victor.framework.tool_naming import ToolNames
+from victor.core.tool_naming import ToolNames
 
 # =============================================================================
 # Common Tool Clusters

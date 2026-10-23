@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
-from victor.framework.prompt_builder import PromptBuilder
+from victor.agent.prompting.builder import PromptBuilder
 
 if TYPE_CHECKING:
     from victor.agent.services.prompt_runtime import PromptRuntimeContext as TaskContext

@@ -40,7 +40,13 @@ from victor.providers.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
 )
-from victor.providers import failure_taxonomy
+
+# Submodule import with alias (NOT `from victor.providers import ...`):
+# that spelling binds through the package __init__, forming the
+# base -> __init__ -> registry -> base cycle — the only python import
+# cycle on the code graph. This statement targets the sibling module
+# directly; call sites keep the `failure_taxonomy.X` spelling.
+import victor.providers.failure_taxonomy as failure_taxonomy
 from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
 
 # -----------------------------------------------------------------------------

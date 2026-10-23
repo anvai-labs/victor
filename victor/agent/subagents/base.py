@@ -76,7 +76,7 @@ if TYPE_CHECKING:
     from victor.agent.orchestrator import AgentOrchestrator
     from victor.agent.services.context_lifecycle_service import ContextLifecycleService
     from victor.core.container import ServiceContainer
-    from victor.framework.hitl import ApprovalHandler, ApprovalRequest
+    from victor.agent.hitl import ApprovalHandler, ApprovalRequest
     from victor.providers.base import StreamChunk
     from victor.teams.types import AgentMessage
 
@@ -397,7 +397,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
 
         try:
             from victor.core import get_container
-            from victor.framework.policies import PolicyApprovalHandler
+            from victor.agent.policies import PolicyApprovalHandler
 
             holder = get_container().get_optional(PolicyApprovalHandler)
         except Exception:  # pragma: no cover - defensive; approval is best-effort
@@ -420,7 +420,7 @@ class SubAgent(IAgent):  # type: ignore[misc]
             if inner is not None:
                 return await inner(request)
             # No handler and not durable at call time: fall safe to a rejection.
-            from victor.framework.hitl import ApprovalStatus
+            from victor.agent.hitl import ApprovalStatus
 
             return (ApprovalStatus.REJECTED, None, "no-handler")
 

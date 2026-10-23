@@ -39,7 +39,7 @@ from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.tools.tool_names import get_canonical_name
 
 if TYPE_CHECKING:
-    from victor.framework.search_novelty import SearchNoveltyTracker
+    from victor.agent.search_novelty import SearchNoveltyTracker
 
 logger = logging.getLogger(__name__)
 
@@ -737,7 +737,7 @@ class TurnEvaluationController:
         fulfillment_min_findings: int = 3,
         min_iterations_before_fulfillment: int = 4,
     ) -> None:
-        from victor.framework.search_novelty import SearchNoveltyTracker
+        from victor.agent.search_novelty import SearchNoveltyTracker
 
         self.spin_detector = spin_detector or SpinDetector()
         self.nudge_policy = nudge_policy or NudgePolicy()
@@ -786,7 +786,7 @@ class TurnEvaluationController:
         (plateau/budget/novelty) stay caller-controlled; the numeric thresholds and the
         guard on/off switches come from settings.
         """
-        from victor.framework.search_novelty import NoveltyConfig, SearchNoveltyTracker
+        from victor.agent.search_novelty import NoveltyConfig, SearchNoveltyTracker
 
         def _g(name: str, default: Any) -> Any:
             return getattr(exploration, name, default) if exploration is not None else default
@@ -915,7 +915,7 @@ class TurnEvaluationController:
             nudge_message, nudge_role = spin_nudge.message, spin_nudge.role
             nudge_kind = spin_nudge.nudge_type.value
         elif self._enable_search_novelty and novelty.should_nudge:
-            from victor.framework.search_novelty import synthesize_nudge_message
+            from victor.agent.search_novelty import synthesize_nudge_message
 
             nudge_message = synthesize_nudge_message()
             nudge_kind = "synthesize"

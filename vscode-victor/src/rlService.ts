@@ -10,7 +10,7 @@
  */
 
 import * as vscode from 'vscode';
-import { getProviders } from './extension';
+import { getProviders } from './providerAccessor';
 
 /**
  * RL Statistics interface

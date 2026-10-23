@@ -491,9 +491,9 @@ def reset_change_tracker():
     yield
     import sys
 
-    if "victor.agent.change_tracker" in sys.modules:
+    if "victor.core.change_tracker" in sys.modules:
         try:
-            from victor.agent.change_tracker import reset_change_tracker
+            from victor.core.change_tracker import reset_change_tracker
 
             reset_change_tracker()
         except (ImportError, AttributeError):
@@ -506,9 +506,9 @@ def reset_mode_controller():
     yield
     import sys
 
-    if "victor.agent.mode_controller" in sys.modules:
+    if "victor.core.mode_controller" in sys.modules:
         try:
-            from victor.agent.mode_controller import reset_mode_controller
+            from victor.core.mode_controller import reset_mode_controller
 
             reset_mode_controller()
         except (ImportError, AttributeError):
@@ -528,6 +528,10 @@ def reset_rl_coordinator():
             reset_rl_coordinator()
         except (ImportError, AttributeError):
             pass
+    if "victor.core.rl.coordinator_port" in sys.modules:
+        from victor.core.rl.coordinator_port import set_rl_coordinator_provider
+
+        set_rl_coordinator_provider(None)
 
 
 @pytest.fixture(autouse=True)

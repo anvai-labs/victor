@@ -72,7 +72,7 @@ def _get_rl_hooks():
     global _rl_hooks
     if _rl_hooks is None:
         try:
-            from victor.framework.rl.hooks import get_rl_hooks
+            from victor.core.rl.hooks import get_rl_hooks
 
             _rl_hooks = get_rl_hooks()
         except ImportError:
@@ -799,7 +799,7 @@ class ToolExecutor:
             except (AttributeError, TypeError, ValueError, RuntimeError) as e:
                 logger.warning("Code correction middleware failed: %s", str(e))
 
-        from victor.framework.approval_binding import current_approval_grant
+        from victor.agent.approval_binding import current_approval_grant
 
         if current_approval_grant.get() is not None:
             skip_cache = True
@@ -1121,7 +1121,7 @@ class ToolExecutor:
             if rl_hooks is None:
                 return
 
-            from victor.framework.rl.hooks import RLEvent, RLEventType
+            from victor.core.rl.hooks import RLEvent, RLEventType
 
             # Truthful RL signal (P7): unified tools report failures as
             # '### ❌' markdown strings with invocation-level success=True —
@@ -1212,7 +1212,7 @@ class ToolExecutor:
                 arguments.pop("_exec_ctx", None)
                 # Per-tool timeout: tool-level override then executor default
                 per_attempt_timeout = self._get_tool_timeout(tool)
-                from victor.framework.approval_binding import current_approval_grant
+                from victor.agent.approval_binding import current_approval_grant
 
                 grant = current_approval_grant.get()
                 if grant is not None:
@@ -1221,8 +1221,8 @@ class ToolExecutor:
 
                 observer = grant.action_observer if grant is not None else None
                 if observer is not None:
-                    from victor.framework.action_recovery import recovery_identity
-                    from victor.framework.approval_binding import tool_contract
+                    from victor.core.action_recovery import recovery_identity
+                    from victor.agent.approval_binding import tool_contract
 
                     observer.bind_recovery(recovery_identity(tool), tool_contract(tool))
                 async with observe_dispatch_async(observer) as action_id:

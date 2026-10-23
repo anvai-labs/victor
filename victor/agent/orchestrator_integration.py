@@ -879,7 +879,7 @@ class OrchestratorIntegration:
             stuck_detected: Whether a stuck loop was detected
         """
         try:
-            from victor.framework.rl.hooks import get_rl_hooks, RLEvent, RLEventType
+            from victor.core.rl.hooks import get_rl_hooks, RLEvent, RLEventType
 
             hooks = get_rl_hooks()
             if hooks is None:

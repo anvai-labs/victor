@@ -295,7 +295,7 @@ class MiddlewareChain:
         if not self._enabled:
             return result
 
-        from victor.framework.policies.types import _ToolResultReplacement
+        from victor.agent.policies.types import _ToolResultReplacement
 
         try:
             applicable = self._get_applicable_middleware(tool_name)

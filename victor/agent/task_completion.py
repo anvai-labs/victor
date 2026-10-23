@@ -922,8 +922,8 @@ class TaskCompletionDetector:
         Uses ComplexityBudget from victor.framework.task for consolidated limits.
         """
         try:
-            from victor.framework.task.complexity import ComplexityBudget
-            from victor.framework.task.protocols import TaskComplexity
+            from victor.agent.task_complexity import ComplexityBudget
+            from victor.core.task.protocols import TaskComplexity
 
             complexity_enum = TaskComplexity(complexity.lower())
             budget = ComplexityBudget.for_complexity(complexity_enum)

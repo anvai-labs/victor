@@ -1403,7 +1403,7 @@ class TaskTypeClassifier:
 
     def _get_tiered_service(self) -> Optional[Any]:
         """Return TieredDecisionService if tiered classification is enabled."""
-        from victor.agent.services.classification_backend import (
+        from victor.config.classification_backend import (
             use_tiered_classification,
         )
 
@@ -1678,7 +1678,7 @@ class TaskTypeClassifier:
         Returns:
             TaskTypeResult with classified task type
         """
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )
 

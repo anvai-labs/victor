@@ -39,7 +39,7 @@ from victor_coding.codebase.embeddings.base import (
     EmbeddingConfig,
     EmbeddingSearchResult,
 )
-from victor_coding.codebase.embeddings.models import (
+from victor_coding.codebase.embeddings import (
     BaseEmbeddingModel,
     EmbeddingModelConfig,
     create_embedding_model,

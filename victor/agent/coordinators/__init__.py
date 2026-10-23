@@ -82,15 +82,6 @@ _MODULE_MEMBERS = {
         "ProviderContextProtocol",
         "ToolContextProtocol",
     ],
-    "protocols": [
-        "CacheProvider",
-        "CacheEventType",
-        "EventEmitter",
-        "ConfigProvider",
-        "NoOpCacheProvider",
-        "NoOpEventEmitter",
-        "DictConfigProvider",
-    ],
     "system_prompt_state_passed": [
         "SystemPromptStatePassedCoordinator",
     ],

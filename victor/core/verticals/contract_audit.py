@@ -46,6 +46,7 @@ _RUNTIME_IMPORT_REPLACEMENTS = {
     "victor.framework.rl.config": "victor_contracts.rl",
     "victor.framework.team_registry": "PluginContext team registration or victor_contracts.team_schema",
     "victor.framework.tool_naming": "victor_contracts.constants",
+    "victor.core.tool_naming": "victor_contracts.constants",
     "victor.providers": "victor_contracts.provider_runtime",
     "victor.security.safety.pii": "victor_contracts.safety",
     "victor.workflows": "victor_contracts.workflow_runtime",

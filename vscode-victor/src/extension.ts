@@ -40,6 +40,7 @@ import { ComposerViewProvider, registerComposerCommands } from './composer';
 import { TeamsViewProvider, registerTeamCommands } from './teamsView';
 import { WorkflowsViewProvider, registerWorkflowCommands } from './workflowsView';
 import { getStore, selectors, AgentMode, ModelInfo } from './state';
+import { setClientProviders } from './providerAccessor';
 
 // Provider instances (managed centrally, accessed via module)
 interface ExtensionProviders {
@@ -528,6 +529,7 @@ export async function activate(context: vscode.ExtensionContext) {
         statusBarItem,
         serverStatusBarItem,
     };
+    setClientProviders(providers);
 
     // Register inline completions if enabled
     if (config.get('showInlineCompletions', true)) {
@@ -1162,6 +1164,7 @@ export function deactivate() {
             providers.toolExecutionService.dispose();
         }
         providers = null;
+        setClientProviders(null);
     }
 
     console.log('Victor AI extension deactivated');

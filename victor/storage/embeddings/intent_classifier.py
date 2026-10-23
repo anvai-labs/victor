@@ -882,7 +882,7 @@ class IntentClassifier:
 
     def _get_tiered_service(self) -> Optional[Any]:
         """Return TieredDecisionService if tiered classification is enabled."""
-        from victor.agent.services.classification_backend import (
+        from victor.config.classification_backend import (
             use_tiered_classification,
         )
 
@@ -1137,7 +1137,7 @@ class IntentClassifier:
             Tuple of (intent, confidence, source) where source is one of:
             - "keyword", "semantic", "llm", "edge_verification", "heuristic_fallback"
         """
-        from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
+        from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
         from victor.agent.services.tiered_decision_service import ClassificationTriage
 
         if runtime_policy is None:

@@ -164,7 +164,7 @@ class UndoCommand(BaseSlashCommand):
         if not self._require_agent(ctx):
             return
 
-        from victor.agent.change_tracker import get_change_tracker
+        from victor.core.change_tracker import get_change_tracker
 
         tracker = get_change_tracker()
         success, message, files = tracker.undo()
@@ -192,7 +192,7 @@ class RedoCommand(BaseSlashCommand):
         if not self._require_agent(ctx):
             return
 
-        from victor.agent.change_tracker import get_change_tracker
+        from victor.core.change_tracker import get_change_tracker
 
         tracker = get_change_tracker()
         success, message, files = tracker.redo()
@@ -223,7 +223,7 @@ class HistoryCommand(BaseSlashCommand):
 
         limit = self._parse_int_arg(ctx, 0, default=20)
 
-        from victor.agent.change_tracker import get_change_tracker
+        from victor.core.change_tracker import get_change_tracker
 
         tracker = get_change_tracker()
         history = tracker.get_history(limit=limit)

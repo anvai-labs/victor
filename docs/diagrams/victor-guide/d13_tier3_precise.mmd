@@ -1,0 +1,23 @@
+%% Tier-3 precise index: compiler-accurate edges from offline SCIP dumps (ADR-032).
+flowchart LR
+  classDef producer fill:#ecfeff,stroke:#0891b2,color:#0f172a
+  classDef pipeline fill:#eff6ff,stroke:#1d4ed8,color:#0f172a
+  classDef out fill:#f0fdf4,stroke:#16a34a,color:#052e16,stroke-width:3px
+  classDef degrade fill:#fffbeb,stroke:#d97706,color:#451a03
+
+  subgraph PROD["7 producers — one per toolchain (opt-in)"]
+    direction TB
+    P1["scip-python"]:::producer
+    P2["scip-typescript"]:::producer
+    P3["rust-analyzer"]:::producer
+    P4["scip-clang\nC / C++"]:::producer
+    P5["scip-java\nJava"]:::producer
+    P6["scip-ruby\nRuby"]:::producer
+    P7["scip-go\nGo"]:::producer
+  end
+
+  PROD -->|"one SCIP dump per language present\ncached .victor/precise · timeout budget"| RD["shared\nprotobuf reader"]:::pipeline
+  RD -->|"producer grammar → name+scope join"| JOIN["join against\npersisted graph nodes"]:::pipeline
+  JOIN -->|"REFERENCES edges\nprovenance = compiler\nlast-writer-wins upsert"| EDGES["compiler-accurate edges"]:::out
+  EDGES --> RANK["tier 3.5 retrieval\nprovenance-ranked edges"]:::out
+  JOIN -.->|"toolchain absent · dump failed\nnamed skip, one log line"| T25["tier 2.5 graph\nstays complete"]:::degrade

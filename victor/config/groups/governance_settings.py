@@ -1,6 +1,6 @@
 """Governance policy configuration.
 
-Settings for the governance policy engine (``victor.framework.policies``): a
+Settings for the governance policy engine (``victor.agent.policies``): a
 declarative ALLOW / DENY / ASK layer over tool execution. Disabled by default;
 enabling also requires the ``USE_POLICY_ENGINE`` feature flag.
 """

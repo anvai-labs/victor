@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Pattern
 
-from victor.framework.task.protocols import TaskComplexity
+from victor.core.task.protocols import TaskComplexity
 
 # Adapter-local pre-map (tool-supply P7 follow-on) for the handful of members that have
 # NO alias or canonical name in the *default* (core) ``TaskTypeRegistry``. Everything
@@ -130,7 +130,7 @@ class TaskType(Enum):
         (kubernetes, terraform, …) resolve to themselves (they are registered under
         their vertical); the genuine orphans route through ``_CANONICAL_OVERRIDES``.
         """
-        from victor.framework.task_types import canonicalize_task_type
+        from victor.core.task_types import canonicalize_task_type
 
         return canonicalize_task_type(self.value, overrides=_CANONICAL_OVERRIDES)
 
@@ -142,7 +142,7 @@ class TaskType(Enum):
         edit); the first definition-order member is returned, which is canonical-stable
         on round trip.
         """
-        from victor.framework.task_types import canonicalize_task_type
+        from victor.core.task_types import canonicalize_task_type
 
         target = canonicalize_task_type(name, overrides=_CANONICAL_OVERRIDES)
         for member in cls:

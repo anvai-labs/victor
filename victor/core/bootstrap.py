@@ -206,6 +206,26 @@ class UsageLoggerProtocol:
 
 
 # =============================================================================
+# RL Coordinator Binding
+# =============================================================================
+
+
+def bind_default_rl_coordinator() -> None:
+    """Bind the framework RL coordinator behind ``victor.core.rl.coordinator_port``.
+
+    The composition root owns this concrete edge so infrastructure can depend
+    on the port alone. The accessor is looked up on every call, so the
+    framework singleton (and its reset/reopen-after-close handling, plus any
+    patch of ``victor.framework.rl.coordinator.get_rl_coordinator``) stays the
+    single source of the coordinator.
+    """
+    import victor.framework.rl.coordinator as coordinator_module
+    from victor.core.rl.coordinator_port import set_rl_coordinator_provider
+
+    set_rl_coordinator_provider(lambda: coordinator_module.get_rl_coordinator())
+
+
+# =============================================================================
 # Bootstrap Function
 # =============================================================================
 
@@ -738,7 +758,7 @@ def bootstrap_capabilities() -> None:
     #    framework/SDK groups to bridge older packages during migration.
     #    Uses UnifiedEntryPointRegistry for single-pass lazy scanning.
     try:
-        from victor.framework.entry_point_registry import (
+        from victor.core.entry_point_registry import (
             CAPABILITY_ENTRY_POINT_GROUPS,
             get_entry_point_registry,
         )

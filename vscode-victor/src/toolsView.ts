@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { getProviders } from './extension';
+import { getProviders } from './providerAccessor';
 
 export interface ToolInfo {
     name: string;

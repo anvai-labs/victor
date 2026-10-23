@@ -339,8 +339,8 @@ class StateGraphExecutor:
                 nodes_executed=result.node_history,
                 iterations=result.iterations,
                 node_results=state_dict.get("_node_results", {}),
-                interrupted=getattr(result, "interrupted", False),
-                interrupt_node=getattr(result, "interrupt_node", None),
+                interrupted=result.interrupted,
+                interrupt_node=result.next_node if result.interrupted else None,
                 checkpoints_saved=getattr(result, "checkpoints_saved", 0),
             )
 

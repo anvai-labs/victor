@@ -124,7 +124,7 @@ def _resolve_inner_approval_handler(governance: Any, container: Any = None) -> O
     # 1. Container-registered handler (works on non-TTY surfaces).
     if container is not None:
         try:
-            from victor.framework.policies import PolicyApprovalHandler
+            from victor.agent.policies import PolicyApprovalHandler
 
             holder = container.get_optional(PolicyApprovalHandler)
             if holder is not None:
@@ -143,7 +143,7 @@ def _resolve_inner_approval_handler(governance: Any, container: Any = None) -> O
         if not sys.stdin or not sys.stdin.isatty():
             logger.debug("interactive_approval set but stdin is not a TTY; skipping handler")
             return None
-        from victor.framework.policies import console_approval_handler
+        from victor.agent.policies import console_approval_handler
 
         return console_approval_handler
     except Exception:
@@ -172,7 +172,7 @@ def resolve_policy_approval_handler(governance: Any, container: Any = None) -> O
         # prompts the base handler or, if None, falls back via ask_fallback — byte-identical.
         return inner
 
-    from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
+    from victor.agent.approval_pause import ApprovalPause, current_durable_pause_enabled
 
     async def _durable_pause_handler(request: Any) -> Any:
         # Armed for this turn → durably pause instead of prompting/blocking.
@@ -181,7 +181,7 @@ def resolve_policy_approval_handler(governance: Any, container: Any = None) -> O
         if inner is not None:
             return await inner(request)
         # Durable configured but not armed at call time, and no base handler: fail safe.
-        from victor.framework.hitl import ApprovalStatus
+        from victor.agent.hitl import ApprovalStatus
 
         return (ApprovalStatus.REJECTED, None, "no-handler")
 
@@ -195,7 +195,7 @@ def build_message_policy_gate(settings: Any, container: Any, model: Optional[str
     ``settings.governance.enabled`` are both set AND at least one message-phase
     policy is configured (redaction or block patterns). Mirrors
     ``CoordinationBuildersMixin._maybe_add_policy_engine`` for the tool path but
-    returns a :class:`~victor.framework.policies.gate.MessagePolicyGate` for the
+    returns a :class:`~victor.agent.policies.gate.MessagePolicyGate` for the
     turn boundary to consume.
     """
     try:
@@ -208,7 +208,7 @@ def build_message_policy_gate(settings: Any, container: Any, model: Optional[str
         if governance is None or not getattr(governance, "enabled", False):
             return None
 
-        from victor.framework.policies import (
+        from victor.agent.policies import (
             BlockPatternPolicy,
             MessagePolicyGate,
             Phase,
@@ -546,7 +546,7 @@ class CoordinationBuildersMixin:
             if governance is None or not getattr(governance, "enabled", False):
                 return
 
-            from victor.framework.policies import (
+            from victor.agent.policies import (
                 AllowToolsPolicy,
                 AskOnToolsPolicy,
                 CostBudgetPolicy,

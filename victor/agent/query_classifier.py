@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
 
-from victor.framework.task.protocols import TaskClassification, TaskComplexity
+from victor.core.task.protocols import TaskClassification, TaskComplexity
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class QueryClassifier:
     def _get_complexity_service(self):
         if self._complexity_service is not None:
             return self._complexity_service
-        from victor.framework.task.complexity import TaskComplexityService
+        from victor.agent.task_complexity import TaskComplexityService
 
         self._complexity_service = TaskComplexityService(use_semantic=False, use_rl=False)
         return self._complexity_service
@@ -121,7 +121,7 @@ class QueryClassifier:
 
     def _classify_query_type(self, message: str) -> QueryType:
         """Determine the semantic type via regex patterns."""
-        from victor.framework.task.direct_response import (
+        from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )
 

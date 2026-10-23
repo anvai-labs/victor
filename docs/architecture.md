@@ -99,6 +99,7 @@ provider counts against the source tree and maintains the declared tool-module i
 | Framework delegates to Runtime | `Agent.create()` goes through `AgentFactory` | Agent entry point |
 | Runtime delegates to Services | `ChatService` owns the turn frame and typed stream-control capabilities; broader state migration continues under FEP-0031 | `test_service_layer_validation.py`, facade and hotspot guards |
 | Services own infrastructure | Effectful behavior via `ExecutionContext.services` | Service accessor |
+| Lower layers never import higher-layer implementations | An upward import of a concrete class/function is a leak; importing a higher layer's Protocol/ABC/Enum/dataclass is dependency inversion and allowed; teams/workflows→StateGraph, runtime→the RL engine (`victor.framework.rl.*`, which lower layers reach only via `victor.core.rl.coordinator_port`) and the bootstrap composition roots are sanctioned. Existing leaks are a shrink-only baseline | `test_layering_ratchet.py` (`scripts/ci/layering_ratchet.py`) |
 | Vertical definitions use Contracts | Definition files import `victor_contracts`; runtime extension allowances are separately audited | `test_contracts_import_boundaries.py`, `check_extracted_vertical_boundaries.py` |
 
 ### Data Flow
@@ -120,7 +121,7 @@ The table below identifies the owning modules.
 |-------|--------|-------------|----------------|
 | **Client** | `victor/ui/` | `cli.py` | CLI, TUI, commands |
 | **Client** | `victor/integrations/api/` | `server.py` | FastAPI REST server |
-| **Client** | `victor/integrations/mcp/` | — | MCP protocol bridge |
+| **Client** | `victor/integrations/mcp/server.py` | `victor-mcp-server` | Victor exposed as an MCP server |
 | **Framework** | `victor/framework/` | `agent.py` | Public API surface |
 | **Runtime** | `victor/agent/` | `orchestrator.py` | Orchestration facade |
 | **Runtime** | `victor/agent/services/` | `chat_service.py` | Service-owned behavior |
@@ -129,6 +130,7 @@ The table below identifies the owning modules.
 | **Infrastructure** | `victor/state/` | `__init__.py` | 4-scope state management |
 | **Infrastructure** | `victor/config/` | `settings.py` | Settings and profiles |
 | **Infrastructure** | `victor/core/` | `database.py` | Event sourcing, CQRS, DI |
+| **Infrastructure** | `victor/integrations/mcp/` (client, registry, transports) | `client.py` | MCP protocol client consumed by the runtime and tools |
 
 ---
 
@@ -438,6 +440,47 @@ graph.add_node("research_team", coordinator)  # Direct usage!
 ```
 
 > **Do not** create wrapper nodes for each formation or separate "multi-agent graph" types.
+
+---
+
+## Code Intelligence (Graph-RAG)
+
+Code intelligence is a ladder (ADR-032): **tier 2** tree-sitter structure
+(symbols, `CALLS`/`CONTAINS`/… edges), **tier 2.5** scope-resolved
+`REFERENCES` binding edges (default ON), and **tier 3** — opt-in
+compiler-accurate edges harvested from offline SCIP dumps, one producer per
+toolchain. Producer grammars are producer properties pinned against real
+dumps, never documentation; the vendored protobuf reader stays shared
+because every producer emits SCIP.
+
+```mermaid
+flowchart LR
+  subgraph PROD["Tier-3 producers (opt-in, one per toolchain)"]
+    direction TB
+    P1["scip-python"]
+    P2["scip-typescript"]
+    P3["rust-analyzer"]
+    P4["scip-clang (C/C++)"]
+    P5["scip-java (Java)"]
+    P6["scip-ruby (Ruby)"]
+    P7["scip-go (Go)"]
+  end
+  PROD -->|"one SCIP dump per language present\ncached under .victor/precise · timeout budget"| RD["shared protobuf reader"]
+  RD -->|"producer grammar -> name+scope join"| JOIN["join against persisted nodes"]
+  JOIN -->|"REFERENCES edges, provenance=compiler\nlast-writer-wins upsert"| G[("graph store")]
+  G --> RANK["tier 3.5 retrieval\nprovenance-ranked edges"]
+  JOIN -.->|"toolchain absent / dump failed:\nnamed skip, one log line"| T25["tier 2.5 graph stays complete"]
+```
+
+Dumps run last in the resolution sequence so compiler provenance dominates
+shared keys; a missing toolchain, failed dump or exhausted budget degrades
+to tier 2.5 without failing the index. Harvest health (per-provider outcome
+plus join accounting) surfaces in the `victor index graph index` summary,
+`victor index graph stats` and the watch manifest. Enable with
+`search.graph.enable_precise_index` (+ optional
+`precise_index_timeout_seconds`) or `victor index graph index --precise`;
+see the [toolchain matrix](architecture/graph-rag-guide.md#tier-3-toolchains-per-language)
+and [ADR-032](architecture/adr/032-structural-code-intelligence-tiers.md).
 
 ---
 
