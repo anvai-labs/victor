@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.action_authorizer import ActionAuthorizer, ActionIntent
+
 # Canonical homes, NOT the victor.framework.task facade: the facade's
 # re-export of these moved names pulls victor.agent.__init__, which cycles
 # back into the partially-initialized framework.task when framework.task is
