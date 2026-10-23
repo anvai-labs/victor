@@ -58,6 +58,26 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/agent/tool_pipeline.py": (
+        "tests/unit/agent/services/test_chat_service_tool_result.py",
+        "tests/unit/agent/services/test_orchestrator_service_delegation.py",
+        "tests/unit/agent/services/test_service_runtime_parity.py",
+        "tests/unit/agent/services/test_tool_execution_runtime.py",
+        "tests/unit/agent/services/test_tool_retry.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/agent/test_chat_protocols.py",
+        "tests/unit/agent/test_continuation_loop_fix.py",
+        "tests/unit/agent/test_durable_resume.py",
+        "tests/unit/agent/test_orchestrator_core.py",
+        "tests/unit/agent/test_orchestrator_repeat_failures.py",
+        "tests/unit/agent/test_orchestrator_stream_tool_calls.py",
+        "tests/unit/agent/test_streaming_tool_execution_handler.py",
+        "tests/unit/agent/test_tool_optimization_integration.py",
+        "tests/unit/agent/test_tool_pipeline.py",
+        "tests/unit/agent/tool_execution/test_async_executor.py",
+        "tests/unit/tools/test_search_router_pipeline.py",
+        "tests/unit/tools/test_tool_pipeline_parallel.py",
+    ),
     **dict.fromkeys(
         (
             "victor/framework/graph_checkpoint.py",
