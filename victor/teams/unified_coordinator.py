@@ -80,6 +80,7 @@ from victor.teams.workspace_isolation import (
     WorkspaceMaterializationOutcome,
 )
 from victor.teams import delegate_contracts
+from victor.teams.formation_outcome import aggregate_member_results, apply_pause_status
 from victor.teams.worktree_runtime import (
     MaterializedWorktreeAssignment,
     WorktreeAssignment,
@@ -129,6 +130,25 @@ class StateGraphNodeConfig:
     output_key: str = "team_output"
     error_key: str = "error"
     formation_strategy: Optional[Callable[[Any], TeamFormation]] = None
+
+
+@dataclass
+class _FormationRun:
+    """State resolved before one formation run executes."""
+
+    active_formation: TeamFormation
+    strategy: Any
+    effective_context: Dict[str, Any]
+    team_context_id: Any
+    thread_id: Any
+    checkpointer: Any
+    worktree_plan: Optional[WorktreeExecutionPlan]
+    worktree_session: Optional[WorktreeMaterializationSession]
+    workspace_diagnostics: List[Dict[str, Any]]
+    participants: List[TeamParticipant]
+    shared_state_with_supervisor: Dict[str, Any]
+    team_context: TeamContext
+    agent_task: AgentMessage
 
 
 @dataclass
@@ -799,6 +819,128 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
         Returns:
             Result dictionary
         """
+        run = await self._prepare_formation_run(task, context, formation_override)
+        active_formation = run.active_formation
+        strategy = run.strategy
+        effective_context = run.effective_context
+        team_context_id = run.team_context_id
+        thread_id = run.thread_id
+        checkpointer = run.checkpointer
+        worktree_plan = run.worktree_plan
+        worktree_session = run.worktree_session
+        workspace_diagnostics = run.workspace_diagnostics
+        shared_state_with_supervisor = run.shared_state_with_supervisor
+        team_context = run.team_context
+
+        result_dict: Optional[Dict[str, Any]] = None
+        checkpoint_failure: Optional[MemberCheckpointError] = None
+        durable_cancelled = False
+        # ADR-023 pillar 2b: arm durable member pause for the duration of member execution when a
+        # checkpointer + thread_id are configured (pause_hook set) AND the formation actually
+        # implements durable pause. A member's ASK then raises MemberApprovalPause (durable) instead
+        # of blocking on the modal. Gating on supports_durable_pause() is essential: arming a
+        # formation that can't stop-and-checkpoint (e.g. PARALLEL) would silently abort the gated
+        # tool. Non-supporting formations keep slice-2a inline approval.
+        from victor.agent.member_approval_context import current_member_durable_pause_enabled
+
+        _durable_pause_token = (
+            current_member_durable_pause_enabled.set(True)
+            if team_context.pause_hook is not None and strategy.supports_durable_pause()
+            else None
+        )
+        try:
+            # Execute using formation strategy (durable-pause arming reset immediately after).
+            try:
+                member_results_list = await strategy.execute(
+                    run.participants, team_context, run.agent_task
+                )
+            finally:
+                if _durable_pause_token is not None:
+                    current_member_durable_pause_enabled.reset(_durable_pause_token)
+
+            # Convert list of MemberResults to dict
+            member_results: Dict[str, MemberResult] = {r.member_id: r for r in member_results_list}
+            self._inject_worktree_changed_files(
+                member_results,
+                worktree_session=worktree_session,
+            )
+
+            success, final_output, total_tool_calls = aggregate_member_results(
+                active_formation, member_results_list, effective_context
+            )
+
+            # Extract consensus metadata if present (from ConsensusFormation)
+            result_dict = {
+                "success": success,
+                "member_results": member_results,
+                "final_output": final_output,
+                "formation": active_formation.value,
+                "total_tool_calls": total_tool_calls,
+                "communication_log": list(self._active_message_history()),
+                "shared_context": dict(shared_state_with_supervisor),
+            }
+
+            apply_pause_status(result_dict, team_context.shared_state, thread_id)
+
+            # Add consensus metadata if any member result has it
+            if member_results_list:
+                first_metadata = member_results_list[0].metadata
+                if "consensus_achieved" in first_metadata:
+                    result_dict["consensus_achieved"] = first_metadata["consensus_achieved"]
+                if "consensus_rounds" in first_metadata:
+                    result_dict["consensus_rounds"] = first_metadata["consensus_rounds"]
+            if worktree_plan is not None:
+                result_dict["worktree_plan"] = worktree_plan.to_dict()
+            if worktree_session is not None:
+                result_dict["worktree_session"] = worktree_session.to_dict()
+            if workspace_diagnostics:
+                result_dict["workspace_isolation_diagnostics"] = list(workspace_diagnostics)
+            self._attach_merge_contracts(
+                result_dict,
+                member_results,
+                worktree_plan=worktree_plan,
+                worktree_session=worktree_session,
+                workspace_diagnostics=workspace_diagnostics,
+                effective_context=effective_context,
+            )
+
+            return result_dict
+        except MemberCheckpointError as exc:
+            checkpoint_failure = exc
+            raise
+        except asyncio.CancelledError:
+            durable_cancelled = checkpointer is not None and bool(thread_id)
+            raise
+        finally:
+            cleanup_summary = self._cleanup_formation_worktrees(
+                worktree_session,
+                effective_context=effective_context,
+                result_dict=result_dict,
+                checkpoint_failure=checkpoint_failure,
+                durable_cancelled=durable_cancelled,
+            )
+            if durable_cancelled:
+                self._emit_team_event(
+                    "cancelled",
+                    {
+                        "team_id": team_context_id,
+                        "thread_id": str(thread_id),
+                        "reconciliation_required": True,
+                        **({"worktree_cleanup": cleanup_summary} if cleanup_summary else {}),
+                    },
+                )
+
+    async def _prepare_formation_run(
+        self,
+        task: str,
+        context: Dict[str, Any],
+        formation_override: Optional[TeamFormation],
+    ) -> _FormationRun:
+        """Resolve recovery state, members, workspaces and the team context for one run.
+
+        Runs before member execution: anything raised here happens before the
+        cleanup ``finally`` in :meth:`_execute_formation`, as it always has.
+        """
         # Get the formation strategy
         active_formation = formation_override or self._active_formation()
         strategy = self._formations[active_formation]
@@ -1003,271 +1145,145 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
             message_type=MessageType.TASK,
             data=effective_context,
         )
-
-        result_dict: Optional[Dict[str, Any]] = None
-        checkpoint_failure: Optional[MemberCheckpointError] = None
-        durable_cancelled = False
-        # ADR-023 pillar 2b: arm durable member pause for the duration of member execution when a
-        # checkpointer + thread_id are configured (pause_hook set) AND the formation actually
-        # implements durable pause. A member's ASK then raises MemberApprovalPause (durable) instead
-        # of blocking on the modal. Gating on supports_durable_pause() is essential: arming a
-        # formation that can't stop-and-checkpoint (e.g. PARALLEL) would silently abort the gated
-        # tool. Non-supporting formations keep slice-2a inline approval.
-        from victor.agent.member_approval_context import current_member_durable_pause_enabled
-
-        _durable_pause_token = (
-            current_member_durable_pause_enabled.set(True)
-            if team_context.pause_hook is not None and strategy.supports_durable_pause()
-            else None
+        return _FormationRun(
+            active_formation=active_formation,
+            strategy=strategy,
+            effective_context=effective_context,
+            team_context_id=team_context_id,
+            thread_id=thread_id,
+            checkpointer=checkpointer,
+            worktree_plan=worktree_plan,
+            worktree_session=worktree_session,
+            workspace_diagnostics=workspace_diagnostics,
+            participants=participants,
+            shared_state_with_supervisor=shared_state_with_supervisor,
+            team_context=team_context,
+            agent_task=agent_task,
         )
-        try:
-            # Execute using formation strategy (durable-pause arming reset immediately after).
-            try:
-                member_results_list = await strategy.execute(participants, team_context, agent_task)
-            finally:
-                if _durable_pause_token is not None:
-                    current_member_durable_pause_enabled.reset(_durable_pause_token)
 
-            # Convert list of MemberResults to dict
-            member_results: Dict[str, MemberResult] = {r.member_id: r for r in member_results_list}
-            self._inject_worktree_changed_files(
-                member_results,
-                worktree_session=worktree_session,
-            )
+    def _attach_merge_contracts(
+        self,
+        result_dict: Dict[str, Any],
+        member_results: Dict[str, MemberResult],
+        *,
+        worktree_plan: Optional[WorktreeExecutionPlan],
+        worktree_session: Optional[WorktreeMaterializationSession],
+        workspace_diagnostics: List[Dict[str, Any]],
+        effective_context: Dict[str, Any],
+    ) -> None:
+        """Attach merge analysis, review/approval, execution and follow-up contracts.
 
-            # Build final output
-            if not member_results_list:
-                success = False
-            elif active_formation == TeamFormation.PARALLEL:
-                # PARALLEL members are independent by contract (redundancy,
-                # diverse perspectives): the team succeeds when at least one
-                # member delivered. Failed members stay visible in
-                # member_results instead of failing the whole team.
-                success = any(r.success for r in member_results_list)
-            else:
-                success = all(r.success for r in member_results_list)
-            final_outputs = [r.output for r in member_results_list if r.success]
-            total_tool_calls = sum(r.tool_calls_used for r in member_results_list)
-
-            # Determine final output based on formation
-            # For pipeline, use only the last stage's output
-            # For other formations, join all outputs
-            if active_formation == TeamFormation.PIPELINE and final_outputs:
-                final_output = final_outputs[-1]  # Last stage's output only
-            else:
-                final_output = "\n\n".join(final_outputs)
-
-            if active_formation == TeamFormation.PARALLEL:
-                failed = [result for result in member_results_list if not result.success]
-                if failed:
-                    summary = "Member failures:\n" + "\n".join(
-                        f"- {result.member_id}: {result.error or 'execution failed'}"
-                        for result in failed
-                    )
-                    final_output = f"{final_output}\n\n{summary}" if final_output else summary
-            if active_formation == TeamFormation.CONSENSUS and member_results_list:
-                metadata = member_results_list[0].metadata
-                success = success and bool(
-                    metadata.get("consensus_achieved") or "consensus_decision" in metadata
-                )
-                if "consensus_decision" in metadata:
-                    final_output = metadata["consensus_decision"]
-
-            if member_results_list and "ensemble_success" in member_results_list[0].metadata:
-                metadata = member_results_list[0].metadata
-                success = bool(metadata["ensemble_success"]) and all(
-                    r.success for r in member_results_list
-                )
-                final_output = (
-                    metadata["ensemble_decision"] if success else metadata["ensemble_error"]
-                )
-
-            if member_results_list and "conversation_success" in member_results_list[0].metadata:
-                metadata = member_results_list[0].metadata
-                success = bool(metadata["conversation_success"]) and all(
-                    r.success for r in member_results_list
-                )
-                final_output = metadata["conversation_output"]
-
-            if (
-                active_formation == TeamFormation.REFLECTION
-                and effective_context.get("capture_member_usage", False)
-                and member_results_list
-                and "reflection_success" in member_results_list[0].metadata
-            ):
-                metadata = member_results_list[0].metadata
-                success = bool(metadata["reflection_success"]) and all(
-                    r.success for r in member_results_list
-                )
-                final_output = metadata["reflection_output"]
-
-            # Extract consensus metadata if present (from ConsensusFormation)
-            result_dict = {
-                "success": success,
-                "member_results": member_results,
-                "final_output": final_output,
-                "formation": active_formation.value,
-                "total_tool_calls": total_tool_calls,
-                "communication_log": list(self._active_message_history()),
-                "shared_context": dict(shared_state_with_supervisor),
-            }
-
-            # ADR-023 pillar 2b: the formation stopped at a member awaiting approval —
-            # surface a durable paused aggregate. The run is resumable on the same thread_id
-            # (with an ``approval_decision`` in context) via the persisted pause checkpoint.
-            awaiting = team_context.shared_state.get("__awaiting_approval__")
-            awaiting_many = team_context.shared_state.get("__awaiting_approvals__")
-            if awaiting:
-                result_dict["success"] = False  # team did not complete — it is paused
-                result_dict["status"] = "awaiting_approval"
-                result_dict["paused_member_id"] = awaiting.get("member_id")
-                result_dict["approval_request"] = awaiting.get("approval_request")
-                if thread_id:
-                    result_dict["thread_id"] = str(thread_id)
-            elif awaiting_many:
-                # ADR-023 concurrent pause: a PARALLEL wave stopped with one or more members
-                # awaiting approval — surface the multi-pause aggregate. Resumable on the same
-                # thread_id via the persisted pause checkpoint (re-runs exactly the paused set).
-                result_dict["success"] = False  # team did not complete — it is paused
-                result_dict["status"] = "awaiting_approval"
-                result_dict["awaiting_approvals"] = list(awaiting_many)
-                result_dict["paused_member_ids"] = [a.get("member_id") for a in awaiting_many]
-                if thread_id:
-                    result_dict["thread_id"] = str(thread_id)
-
-            # Add consensus metadata if any member result has it
-            if member_results_list:
-                first_metadata = member_results_list[0].metadata
-                if "consensus_achieved" in first_metadata:
-                    result_dict["consensus_achieved"] = first_metadata["consensus_achieved"]
-                if "consensus_rounds" in first_metadata:
-                    result_dict["consensus_rounds"] = first_metadata["consensus_rounds"]
-            if worktree_plan is not None:
-                result_dict["worktree_plan"] = worktree_plan.to_dict()
+        Mutates ``result_dict`` and extends ``workspace_diagnostics`` in place.
+        """
+        merge_analysis = self._analyze_merge(member_results, worktree_plan=worktree_plan)
+        worker_return_contracts = delegate_contracts.build_worker_return_contracts(
+            member_results,
+            merge_analysis=merge_analysis,
+        )
+        if worker_return_contracts:
+            result_dict["worker_return_contracts"] = worker_return_contracts
+        merge_orchestration: Optional[Dict[str, Any]] = None
+        if merge_analysis is not None:
+            result_dict["merge_analysis"] = merge_analysis.to_dict()
+            result_dict["merge_risk_level"] = merge_analysis.risk_level.value
             if worktree_session is not None:
-                result_dict["worktree_session"] = worktree_session.to_dict()
-            if workspace_diagnostics:
-                result_dict["workspace_isolation_diagnostics"] = list(workspace_diagnostics)
-            merge_analysis = self._analyze_merge(member_results, worktree_plan=worktree_plan)
-            worker_return_contracts = delegate_contracts.build_worker_return_contracts(
-                member_results,
+                merge_orchestration = self._build_merge_orchestration(
+                    worktree_session,
+                    merge_analysis=merge_analysis.to_dict(),
+                )
+                if merge_orchestration is not None:
+                    result_dict["merge_orchestration"] = merge_orchestration
+        if worker_return_contracts:
+            merge_review_contract = self._build_merge_review_contract(
+                worker_return_contracts,
                 merge_analysis=merge_analysis,
+                merge_orchestration=merge_orchestration,
             )
-            if worker_return_contracts:
-                result_dict["worker_return_contracts"] = worker_return_contracts
-            merge_orchestration: Optional[Dict[str, Any]] = None
-            if merge_analysis is not None:
-                result_dict["merge_analysis"] = merge_analysis.to_dict()
-                result_dict["merge_risk_level"] = merge_analysis.risk_level.value
+            if merge_review_contract:
+                result_dict["merge_review_contract"] = merge_review_contract
+                # Gate: evaluate before executing — review contract gates execution
                 if worktree_session is not None:
-                    merge_orchestration = self._build_merge_orchestration(
-                        worktree_session,
-                        merge_analysis=merge_analysis.to_dict(),
+                    approval_decision = self._workspace_isolation.should_execute_merge_with_review(
+                        effective_context,
+                        merge_review_contract=merge_review_contract,
+                        merge_orchestration=merge_orchestration,
                     )
-                    if merge_orchestration is not None:
-                        result_dict["merge_orchestration"] = merge_orchestration
-            if worker_return_contracts:
-                merge_review_contract = self._build_merge_review_contract(
-                    worker_return_contracts,
-                    merge_analysis=merge_analysis,
-                    merge_orchestration=merge_orchestration,
-                )
-                if merge_review_contract:
-                    result_dict["merge_review_contract"] = merge_review_contract
-                    # Gate: evaluate before executing — review contract gates execution
-                    if worktree_session is not None:
-                        approval_decision = (
-                            self._workspace_isolation.should_execute_merge_with_review(
-                                effective_context,
-                                merge_review_contract=merge_review_contract,
-                                merge_orchestration=merge_orchestration,
-                            )
-                        )
-                        import dataclasses as _dc
+                    import dataclasses as _dc
 
-                        result_dict["merge_approval_decision"] = _dc.asdict(approval_decision)
-                        if approval_decision.approved:
-                            merge_execution = self._execute_merge_orchestration(
-                                worktree_session,
-                                merge_analysis=(
-                                    merge_analysis.to_dict() if merge_analysis is not None else None
-                                ),
-                                context=effective_context,
-                            )
-                            if merge_execution is not None:
-                                result_dict["merge_execution"] = merge_execution
-                                merge_execution_diagnostics = (
-                                    delegate_contracts.normalize_workspace_diagnostics(
-                                        merge_execution.get("diagnostics")
-                                    )
+                    result_dict["merge_approval_decision"] = _dc.asdict(approval_decision)
+                    if approval_decision.approved:
+                        merge_execution = self._execute_merge_orchestration(
+                            worktree_session,
+                            merge_analysis=(
+                                merge_analysis.to_dict() if merge_analysis is not None else None
+                            ),
+                            context=effective_context,
+                        )
+                        if merge_execution is not None:
+                            result_dict["merge_execution"] = merge_execution
+                            merge_execution_diagnostics = (
+                                delegate_contracts.normalize_workspace_diagnostics(
+                                    merge_execution.get("diagnostics")
                                 )
-                                if merge_execution_diagnostics:
-                                    workspace_diagnostics.extend(merge_execution_diagnostics)
-                                    result_dict["workspace_isolation_diagnostics"] = list(
-                                        workspace_diagnostics
-                                    )
-                    delegate_follow_up_contract = (
-                        delegate_contracts.build_delegate_follow_up_contract(
-                            worker_return_contracts,
-                            merge_review_contract=merge_review_contract,
-                            worktree_session=worktree_session,
-                            merge_execution=result_dict.get("merge_execution"),
-                            merge_analysis=result_dict.get("merge_analysis"),
-                            merge_orchestration=merge_orchestration,
-                            workspace_diagnostics=workspace_diagnostics,
-                            preserve_merge_follow_up=delegate_contracts.resolve_context_mode(
-                                effective_context
                             )
-                            == "delegate",
-                        )
+                            if merge_execution_diagnostics:
+                                workspace_diagnostics.extend(merge_execution_diagnostics)
+                                result_dict["workspace_isolation_diagnostics"] = list(
+                                    workspace_diagnostics
+                                )
+                delegate_follow_up_contract = delegate_contracts.build_delegate_follow_up_contract(
+                    worker_return_contracts,
+                    merge_review_contract=merge_review_contract,
+                    worktree_session=worktree_session,
+                    merge_execution=result_dict.get("merge_execution"),
+                    merge_analysis=result_dict.get("merge_analysis"),
+                    merge_orchestration=merge_orchestration,
+                    workspace_diagnostics=workspace_diagnostics,
+                    preserve_merge_follow_up=delegate_contracts.resolve_context_mode(
+                        effective_context
                     )
-                    if delegate_follow_up_contract:
-                        result_dict["delegate_follow_up_contract"] = delegate_follow_up_contract
-                        delegate_contracts.attach_delegate_follow_up_suggestions(
-                            result_dict,
-                            delegate_follow_up_contract,
-                        )
-
-            return result_dict
-        except MemberCheckpointError as exc:
-            checkpoint_failure = exc
-            raise
-        except asyncio.CancelledError:
-            durable_cancelled = checkpointer is not None and bool(thread_id)
-            raise
-        finally:
-            cleanup_summary = None
-            if worktree_session is not None:
-                if checkpoint_failure is not None:
-                    cleanup_summary = self._build_preserved_worktree_cleanup_summary(
-                        worktree_session,
-                        reason="member_checkpoint_failed",
-                    )
-                    checkpoint_failure.worktree_cleanup = cleanup_summary
-                elif durable_cancelled:
-                    cleanup_summary = self._build_preserved_worktree_cleanup_summary(
-                        worktree_session,
-                        reason="member_execution_cancelled",
-                    )
-                elif self._should_cleanup_worktrees(effective_context, result_dict=result_dict):
-                    cleanup_summary = self._cleanup_worktree_session(worktree_session)
-                else:
-                    cleanup_summary = self._build_preserved_worktree_cleanup_summary(
-                        worktree_session,
-                        reason="preserved_for_follow_up",
-                    )
-                if result_dict is not None:
-                    result_dict["worktree_cleanup"] = cleanup_summary
-            if durable_cancelled:
-                self._emit_team_event(
-                    "cancelled",
-                    {
-                        "team_id": team_context_id,
-                        "thread_id": str(thread_id),
-                        "reconciliation_required": True,
-                        **({"worktree_cleanup": cleanup_summary} if cleanup_summary else {}),
-                    },
+                    == "delegate",
                 )
+                if delegate_follow_up_contract:
+                    result_dict["delegate_follow_up_contract"] = delegate_follow_up_contract
+                    delegate_contracts.attach_delegate_follow_up_suggestions(
+                        result_dict,
+                        delegate_follow_up_contract,
+                    )
+
+    def _cleanup_formation_worktrees(
+        self,
+        worktree_session: Optional[WorktreeMaterializationSession],
+        *,
+        effective_context: Dict[str, Any],
+        result_dict: Optional[Dict[str, Any]],
+        checkpoint_failure: Optional[MemberCheckpointError],
+        durable_cancelled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Clean up or preserve the run's worktrees; return the cleanup summary."""
+        cleanup_summary = None
+        if worktree_session is not None:
+            if checkpoint_failure is not None:
+                cleanup_summary = self._build_preserved_worktree_cleanup_summary(
+                    worktree_session,
+                    reason="member_checkpoint_failed",
+                )
+                checkpoint_failure.worktree_cleanup = cleanup_summary
+            elif durable_cancelled:
+                cleanup_summary = self._build_preserved_worktree_cleanup_summary(
+                    worktree_session,
+                    reason="member_execution_cancelled",
+                )
+            elif self._should_cleanup_worktrees(effective_context, result_dict=result_dict):
+                cleanup_summary = self._cleanup_worktree_session(worktree_session)
+            else:
+                cleanup_summary = self._build_preserved_worktree_cleanup_summary(
+                    worktree_session,
+                    reason="preserved_for_follow_up",
+                )
+            if result_dict is not None:
+                result_dict["worktree_cleanup"] = cleanup_summary
+        return cleanup_summary
 
     def _plan_worktree_execution(
         self,
