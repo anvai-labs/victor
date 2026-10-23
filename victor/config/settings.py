@@ -21,7 +21,7 @@ import logging
 import os
 import warnings
 from pathlib import Path
-from typing import Annotated, Any, Callable, ClassVar, Dict, Optional, Union, List
+from typing import Annotated, Any, Callable, ClassVar, Dict, Optional, TypeVar, Union, List
 
 logger = logging.getLogger(__name__)
 
@@ -2937,8 +2937,33 @@ def graph_flag(settings: Any, name: str, default: bool) -> bool:
     Fixes the flat-getattr defect: UI construction sites previously read
     ``getattr(settings, name, default)`` against the flat surface, where the
     flag only exists on the nested group — silently ignoring configuration.
+
+    Bool keys only: the value is coerced with ``bool()``. For numeric or
+    string keys (``precise_index_timeout_seconds``, ``precise_index_tool``)
+    use :func:`graph_setting`, which preserves the declared default's type —
+    ``graph_flag`` would collapse a numeric 0/1 default to False/True.
     """
 
     search = getattr(settings, "search", None)
     graph = getattr(search, "graph", None)
     return bool(getattr(graph, name, default))
+
+
+_GraphSettingT = TypeVar("_GraphSettingT")
+
+
+def graph_setting(settings: Any, name: str, default: _GraphSettingT) -> _GraphSettingT:
+    """Read a typed search.graph value off a Settings object (env/file config).
+
+    Same nested-group read as :func:`graph_flag` but without ``bool()``
+    coercion, so non-boolean settings (dump timeouts, tool hints) keep their
+    declared type. A value of ``None`` on the group falls back to ``default``
+    so optional overrides stay tri-state at the call site.
+    """
+
+    search = getattr(settings, "search", None)
+    graph = getattr(search, "graph", None)
+    value = getattr(graph, name, default)
+    if value is None:
+        return default
+    return value

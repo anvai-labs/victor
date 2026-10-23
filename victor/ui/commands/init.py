@@ -1219,19 +1219,34 @@ def init(
                         # init had never populated.
                         graph_store = create_graph_store("auto", project_path=project_root)
                         try:
-                            from victor.config.settings import graph_flag, load_settings
+                            from victor.config.settings import (
+                                Settings,
+                                graph_flag,
+                                graph_setting,
+                            )
 
-                            settings = load_settings()
+                            # from_sources() honors settings.yaml/profiles.yaml;
+                            # the load_settings() snapshot is env-only and made
+                            # yaml-configured graph options a silent no-op here.
+                            settings = Settings.from_sources()
                             scope_binding = graph_flag(settings, "enable_scope_binding", True)
                             precise_index = graph_flag(settings, "enable_precise_index", False)
+                            precise_timeout = graph_setting(
+                                settings, "precise_index_timeout_seconds", 0
+                            )
+                            precise_tool = graph_setting(settings, "precise_index_tool", "auto")
                         except Exception:
                             scope_binding = True
                             precise_index = False
+                            precise_timeout = 0
+                            precise_tool = "auto"
                         config = GraphIndexConfig(
                             root_path=project_root,
                             enable_ccg=True,
                             enable_scope_binding=scope_binding,
                             enable_precise_index=precise_index,
+                            precise_index_timeout_seconds=precise_timeout,
+                            precise_index_tool=precise_tool,
                             # Off by default because generating vectors roughly
                             # triples init time, but no longer hardcoded: without
                             # this, `GraphIndexConfig.enable_embeddings` (which

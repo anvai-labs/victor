@@ -40,6 +40,15 @@ class GraphSettings(BaseModel):
     # ADR-032 tier 3: compiler-accurate edges from offline SCIP dumps
     # (scip-python); opt-in, degrades gracefully when absent.
     enable_precise_index: bool = False
+    # Dump timeout ceiling for the tier-3 harvest. 0 = each provider's own
+    # measured default (python/pyright 1200s, typescript 600s, rust-analyzer
+    # 120s); a positive value overrides every provider uniformly. Mirrors
+    # GraphIndexConfig.precise_index_timeout_seconds — without this key the
+    # yaml merge drops the setting before it can reach the pipeline.
+    precise_index_timeout_seconds: int = 0
+    # Provider selection hint ("auto" or a provider name); mirrors
+    # GraphIndexConfig.precise_index_tool.
+    precise_index_tool: str = "auto"
     enable_graph_rag: bool = True
     rag_seed_count: int = 5
     rag_max_hops: int = 2

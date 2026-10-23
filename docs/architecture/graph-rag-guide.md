@@ -249,7 +249,28 @@ search:
     # Subgraph Caching
     enable_subgraph_cache: true
     subgraph_cache_ttl: 3600
+
+    # ADR-032 tier 3: compiler-accurate edges from offline SCIP dumps.
+    # Opt-in; degrades gracefully (one log line) when the toolchain is absent.
+    enable_precise_index: false
+    # Dump timeout ceiling in seconds. 0 = per-provider measured default
+    # (pyright 1200s, typescript 600s, rust-analyzer 120s) — those defaults
+    # are calibrated on small corpora; raise this for large workspaces.
+    precise_index_timeout_seconds: 0
+    # Provider selection: "auto" or an explicit provider name.
+    precise_index_tool: auto
 ```
+
+Tier 3 can also be driven per-invocation from the CLI, overriding the
+settings above:
+
+```bash
+victor index graph index --precise --precise-timeout 3600
+```
+
+Harvest health (per-provider outcome and join accounting) is printed in the
+index summary and persisted to `.victor/graph-index-summary.json`, which
+`victor index graph stats` surfaces afterwards.
 
 ### Feature Flags
 

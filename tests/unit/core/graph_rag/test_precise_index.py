@@ -736,6 +736,80 @@ async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_configured_dump_timeout_reaches_provider_and_stats_outcomes(tmp_path, monkeypatch):
+    """precise_index_timeout_seconds must actually reach provider.dump — the
+    provider defaults (rust-analyzer 120s) are calibrated on small corpora and
+    silently kill real-workspace dumps — and per-provider harvest outcomes
+    must surface on GraphIndexStats instead of only in the log line."""
+    pytest.importorskip("victor_codegraph")
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag import precise_providers
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+
+    def fake_detect(self, hint="auto"):
+        return f"/usr/bin/{self.name}"
+
+    recorded: list[int] = []
+
+    def recording_dump(self, tool, root, output_path, *, timeout_seconds):
+        recorded.append(timeout_seconds)
+        # Real two-symbol python index (same shape as the polyglot test).
+        from victor.core.graph_rag._scip import scip_pb2
+
+        index = scip_pb2.Index()
+        doc = index.documents.add()
+        doc.relative_path = "m.py"
+        for symbol, line, roles in (
+            ("scip-python python m 0.1.0 m/f().", 0, 1),
+            ("scip-python python m 0.1.0 m/g().", 4, 1),
+            ("scip-python python m 0.1.0 m/f().", 5, 0),
+        ):
+            occ = doc.occurrences.add()
+            occ.symbol = symbol
+            occ.symbol_roles = roles
+            occ.range.extend([line, 0])
+        output_path.write_bytes(index.SerializeToString())
+        return output_path
+
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "detect", fake_detect)
+    monkeypatch.setattr(precise_providers.ScipPythonProvider, "dump", recording_dump)
+
+    async def run(root, timeout):
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "m.py").write_text("def f():\n    return 1\n\n\ndef g():\n    return f()\n")
+        store = SqliteGraphStore(root)
+        await store.initialize()
+        try:
+            config = GraphIndexConfig(
+                root_path=root,
+                enable_ccg=False,
+                enable_embeddings=False,
+                enable_precise_index=True,
+                incremental=False,
+                precise_index_timeout_seconds=timeout,
+            )
+            pipeline = GraphIndexingPipeline(store, config)
+            return await pipeline.index_repository()
+        finally:
+            await store.close()
+
+    # A configured timeout overrides the provider default (would previously
+    # be killed at the default → outcome "dump-timeout"/"dump-failed").
+    stats = await run(tmp_path / "configured", 3600)
+    assert recorded[-1] == 3600
+    assert stats.precise_index_outcomes["scip-python"].startswith("ok:")
+    assert stats.precise_references_resolved >= 1
+
+    # 0 keeps the provider's own measured default.
+    await run(tmp_path / "default", 0)
+    assert recorded[-1] == precise_providers.ScipPythonProvider.default_timeout_seconds
+
+
+@pytest.mark.asyncio
 async def test_harvest_reuses_cached_dump_on_second_run(tmp_path, monkeypatch):
     """Dump once, reuse forever while the language's file set is unchanged.
     Protobuf-free (harvest faked at the join seam) so CI's minimal env
