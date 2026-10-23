@@ -199,25 +199,35 @@ class TestProviderCircuitBreakerIntegration:
         assert provider.get_circuit_breaker_stats() is None
 
 
-class TestCircuitBreakerScopedPerInstance:
-    """Tests for circuit breaker isolation across provider instances."""
+class TestCircuitBreakerScopedPerEndpoint:
+    """Breaker state is shared per provider class + endpoint, isolated across endpoints.
 
-    def test_same_provider_type_gets_distinct_breakers(self):
-        """Fresh provider instances should not inherit breaker state."""
-        provider1 = MockProvider(use_circuit_breaker=True)
-        provider2 = MockProvider(use_circuit_breaker=True)
+    The breaker is keyed ``provider_{class}_{base_url}`` (see
+    ``BaseProvider.circuit_breaker`` and tests/unit/providers/test_circuit_breaker_keying.py):
+    a fresh instance pointed at an endpoint that is failing must see the open circuit.
+    """
+
+    def test_distinct_endpoints_get_distinct_breakers(self):
+        provider1 = MockProvider(use_circuit_breaker=True, base_url="http://a.example")
+        provider2 = MockProvider(use_circuit_breaker=True, base_url="http://b.example")
 
         assert provider1.circuit_breaker is not provider2.circuit_breaker
         assert provider1.circuit_breaker.name != provider2.circuit_breaker.name
 
+    def test_same_endpoint_shares_one_breaker(self):
+        provider1 = MockProvider(use_circuit_breaker=True, base_url="http://a.example")
+        provider2 = MockProvider(use_circuit_breaker=True, base_url="http://a.example")
+
+        assert provider1.circuit_breaker is provider2.circuit_breaker
+
     @pytest.mark.asyncio
-    async def test_failure_in_one_does_not_affect_other(self):
-        """Failures in one provider instance should not poison another."""
+    async def test_failure_on_one_endpoint_does_not_affect_another(self):
         provider1 = MockProvider(
             use_circuit_breaker=True,
             circuit_breaker_failure_threshold=2,
+            base_url="http://a.example",
         )
-        provider2 = MockProvider(use_circuit_breaker=True)
+        provider2 = MockProvider(use_circuit_breaker=True, base_url="http://b.example")
         provider1.set_should_fail(True)
 
         messages = [Message(role="user", content="Hello")]
@@ -229,3 +239,17 @@ class TestCircuitBreakerScopedPerInstance:
 
         assert provider1.is_circuit_open()
         assert not provider2.is_circuit_open()
+
+    @pytest.mark.asyncio
+    async def test_failure_is_visible_to_a_new_instance_on_the_same_endpoint(self):
+        failing = MockProvider(
+            use_circuit_breaker=True,
+            circuit_breaker_failure_threshold=2,
+            base_url="http://a.example",
+        )
+        failing.set_should_fail(True)
+        for _ in range(2):
+            with pytest.raises(ValueError):
+                await failing.chat([Message(role="user", content="Hi")], model="test")
+
+        assert MockProvider(use_circuit_breaker=True, base_url="http://a.example").is_circuit_open()
