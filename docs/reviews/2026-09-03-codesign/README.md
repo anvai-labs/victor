@@ -171,7 +171,7 @@ Shipping note: victor-contracts 0.9.1 (sdk-v0.9.1) published 2026-09-07 with
 | 27 | ChatService inversion: turn frame and stream-control capabilities complete; broader runtime-state migration remains | U1-4/7 | L |
 | 28 | Contrib bases → `victor_contracts.verticals`; de-template the 4 small verticals (~12k LOC) | U9-F5 | M–L |
 | 29 | RL/prompt-evolution out of `victor/framework` (FEP-0033; caller inventory must be refreshed) | U2-F4 | L |
-| 30 | Coordinator split: WorktreeMergeService + DelegateContractBuilder | U6-F7 | L |
+| 30 | Coordinator split: WorktreeMergeService + DelegateContractBuilder | U6-F7 | L — **done** #1467, #1468 |
 | 31 | One benchmark stack on the BenchmarkRunner protocol; single agent-creation path in evals | U10-F1/F8 | L |
 | 32 | REPL/`/completions` through VictorClient; session-aware API contract | U7-F5/F6/F10 | M |
 
