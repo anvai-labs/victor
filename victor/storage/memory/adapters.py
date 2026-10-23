@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Protocol, Tuple, TYPE_CHECKING
 
 from dataclasses import replace
 
@@ -60,9 +60,75 @@ from victor.storage.memory.unified import (
 if TYPE_CHECKING:
     from victor.storage.memory.entity_memory import EntityMemory
     from victor.storage.memory.entity_graph import EntityGraph
-    from victor.agent.conversation.store import ConversationStore
+    from victor.agent.conversation.types import (
+        ConversationMessage,
+        MessagePriority,
+        MessageRole,
+    )
 
 logger = logging.getLogger(__name__)
+
+
+class ConversationHistoryStore(Protocol):
+    """The conversation-store surface these adapters read and write.
+
+    Owned by the consumer so storage does not depend on the runtime's
+    concrete ``ConversationStore``, which satisfies it structurally.
+    """
+
+    def add_message(
+        self,
+        session_id: str,
+        role: "MessageRole",
+        content: str,
+        priority: Optional["MessagePriority"] = None,
+        tool_name: Optional[str] = None,
+        tool_call_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        tool_calls: Optional[List[Any]] = None,
+    ) -> "ConversationMessage": ...
+
+    def get_recent_messages(
+        self, session_id: str, count: int = 10
+    ) -> List["ConversationMessage"]: ...
+
+    def get_semantically_relevant_messages(
+        self,
+        session_id: str,
+        query: str,
+        limit: int = 10,
+        min_similarity: float = 0.3,
+        exclude_recent: int = 5,
+    ) -> List[Tuple["ConversationMessage", float]]: ...
+
+    async def aget_semantically_relevant_messages(
+        self,
+        session_id: str,
+        query: str,
+        limit: int = 10,
+        min_similarity: float = 0.3,
+        exclude_recent: int = 5,
+    ) -> List[Tuple["ConversationMessage", float]]: ...
+
+    async def aget_dual_trace_relevant_messages(
+        self,
+        session_id: str,
+        query: str,
+        semantic_limit: int = 5,
+        execution_limit: int = 3,
+        min_similarity: float = 0.3,
+    ) -> Dict[str, List[Tuple["ConversationMessage", float]]]: ...
+
+    def get_message_trace_text(
+        self, message: "ConversationMessage", trace_kind: Optional[str] = None
+    ) -> str: ...
+
+    def get_historical_tool_results(
+        self,
+        session_id: str,
+        tool_names: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> List["ConversationMessage"]: ...
 
 
 # =============================================================================
@@ -255,7 +321,7 @@ class ConversationMemoryAdapter:
 
     def __init__(
         self,
-        conversation_store: "ConversationStore",
+        conversation_store: ConversationHistoryStore,
         session_id: Optional[str] = None,
     ):
         """Initialize adapter.
@@ -657,7 +723,7 @@ class ToolResultsMemoryAdapter:
 
     def __init__(
         self,
-        conversation_store: "ConversationStore",
+        conversation_store: ConversationHistoryStore,
         session_id: Optional[str] = None,
     ):
         """Initialize adapter.
@@ -784,7 +850,7 @@ def create_entity_adapter(entity_memory: "EntityMemory") -> EntityMemoryAdapter:
 
 
 def create_conversation_adapter(
-    conversation_store: "ConversationStore",
+    conversation_store: ConversationHistoryStore,
     session_id: Optional[str] = None,
 ) -> ConversationMemoryAdapter:
     """Create a ConversationMemoryAdapter.
@@ -812,7 +878,7 @@ def create_graph_adapter(entity_memory: "EntityMemory") -> GraphMemoryAdapter:
 
 
 def create_tool_results_adapter(
-    conversation_store: "ConversationStore",
+    conversation_store: ConversationHistoryStore,
     session_id: Optional[str] = None,
 ) -> ToolResultsMemoryAdapter:
     """Create a ToolResultsMemoryAdapter.

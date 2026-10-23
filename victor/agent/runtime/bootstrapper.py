@@ -115,9 +115,7 @@ class AgentRuntimeBootstrapper:
             from victor.agent.services.protocols.chat_runtime import (
                 ChatOrchestratorProtocol,
             )
-            from victor.framework.protocols import (
-                verify_protocol_conformance,
-            )
+            from victor.core.protocol_support import verify_protocol_conformance
 
             _conforms, _missing = verify_protocol_conformance(
                 orchestrator, ChatOrchestratorProtocol

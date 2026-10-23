@@ -1,9 +1,8 @@
 {
-  "count": 115,
+  "count": 113,
   "pairs": [
     "victor.agent -> victor.framework.decorators",
     "victor.agent.adaptive_mode_controller -> victor.framework.rl.migration",
-    "victor.agent.capability_registry -> victor.framework.protocols",
     "victor.agent.complexity_estimator -> victor.framework.agentic_loop",
     "victor.agent.creation_strategies -> victor.framework.agent_factory",
     "victor.agent.factory.coordination_builders -> victor.framework.coordination_runtime",
@@ -25,7 +24,6 @@
     "victor.agent.prompt_section_registry -> victor.framework.init_synthesizer",
     "victor.agent.recovery.strategies -> victor.framework.temperature",
     "victor.agent.recovery.temperature -> victor.framework.temperature.defaults",
-    "victor.agent.runtime.bootstrapper -> victor.framework.protocols",
     "victor.agent.services.chat_stream_executor -> victor.framework.agentic_loop",
     "victor.agent.services.chat_stream_executor -> victor.framework.agentic_loop_executor",
     "victor.agent.services.chat_stream_executor -> victor.framework.effect_gate",
