@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from victor.core.graph_rag.precise_providers import (
+    DumpSkipped,
     RustAnalyzerProvider,
     ScipClangProvider,
     ScipGoProvider,
@@ -262,15 +263,18 @@ def test_clang_dump_argv_runs_from_project_root(tmp_path, monkeypatch):
 
 def test_clang_dump_without_database_skips(tmp_path, monkeypatch):
     captured = _capture_dump(monkeypatch)
-    assert CC.dump("/usr/bin/scip-clang", tmp_path, Path("/x.scip"), timeout_seconds=1) is None
+    result = CC.dump("/usr/bin/scip-clang", tmp_path, Path("/x.scip"), timeout_seconds=1)
+    assert isinstance(result, DumpSkipped) and result.reason == "no-compile-database"
     assert captured == {}  # never reached the transport
 
 
 def test_java_dump_argv_and_build_marker_gate(tmp_path, monkeypatch):
     output = tmp_path / "precise" / "out.scip"
     captured = _capture_dump(monkeypatch, dump_result=output)
-    # No JVM build file → named skip before the transport.
-    assert JV.dump("/usr/bin/scip-java", tmp_path, output, timeout_seconds=42) is None
+    # No JVM build file → a typed marker skip (NOT dump-failed) before the
+    # transport.
+    result = JV.dump("/usr/bin/scip-java", tmp_path, output, timeout_seconds=42)
+    assert isinstance(result, DumpSkipped) and result.reason == "no-jvm-build"
     assert captured == {}
     (tmp_path / "pom.xml").write_text("<project/>", encoding="utf-8")
     assert JV.dump("/usr/bin/scip-java", tmp_path, output, timeout_seconds=42) is not None
@@ -304,8 +308,24 @@ def test_ruby_dump_argv_bundle_exec_and_fixed_name_move(tmp_path, monkeypatch):
 
 def test_ruby_dump_without_gemfile_skips(tmp_path, monkeypatch):
     captured = _capture_dump(monkeypatch)
-    assert RB.dump("/usr/bin/bundle", tmp_path, Path("/x.scip"), timeout_seconds=1) is None
+    result = RB.dump("/usr/bin/bundle", tmp_path, Path("/x.scip"), timeout_seconds=1)
+    assert isinstance(result, DumpSkipped) and result.reason == "no-gemfile"
     assert captured == {}
+
+
+def test_marker_gates_return_typed_skips_not_failures(tmp_path, monkeypatch):
+    """The honest taxonomy's third state: project marker absent ≠ toolchain
+    or dump failure. Rust/TS/Go gates join the clang/java/ruby ones."""
+    captured = _capture_dump(monkeypatch)
+
+    def assert_skip(provider, tool, reason):
+        result = provider.dump(tool, tmp_path, Path("/x.scip"), timeout_seconds=1)
+        assert isinstance(result, DumpSkipped) and result.reason == reason, provider.name
+
+    assert_skip(RS, "/usr/bin/rust-analyzer", "no-cargo-toml")
+    assert_skip(TS, "/usr/bin/scip-typescript", "no-tsconfig")
+    assert_skip(GO, "/usr/bin/scip-go", "no-go-module")
+    assert captured == {}  # no transport call for any of them
 
 
 def test_go_dump_argv_fixed_name_move_from_module_root(tmp_path, monkeypatch):
@@ -719,11 +739,9 @@ def test_python_dump_argv(tmp_path, monkeypatch):
 
 def test_typescript_dump_argv_and_no_project_skip(tmp_path, monkeypatch):
     captured = _capture_dump(monkeypatch)
-    # No tsconfig anywhere -> explicit skip before any subprocess.
-    assert (
-        TS.dump("/usr/bin/scip-typescript", tmp_path, tmp_path / "o.scip", timeout_seconds=60)
-        is None
-    )
+    # No tsconfig anywhere -> typed marker skip before any subprocess.
+    result = TS.dump("/usr/bin/scip-typescript", tmp_path, tmp_path / "o.scip", timeout_seconds=60)
+    assert isinstance(result, DumpSkipped) and result.reason == "no-tsconfig"
     assert "command" not in captured
     (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
     (tmp_path / "ui").mkdir()
@@ -743,9 +761,8 @@ def test_typescript_dump_argv_and_no_project_skip(tmp_path, monkeypatch):
 
 def test_rust_dump_argv_runs_from_artifact_dir(tmp_path, monkeypatch):
     captured = _capture_dump(monkeypatch)
-    assert (
-        RS.dump("/usr/bin/rust-analyzer", tmp_path, tmp_path / "o.scip", timeout_seconds=60) is None
-    )
+    result = RS.dump("/usr/bin/rust-analyzer", tmp_path, tmp_path / "o.scip", timeout_seconds=60)
+    assert isinstance(result, DumpSkipped) and result.reason == "no-cargo-toml"
     assert "command" not in captured  # no Cargo.toml -> skip
     (tmp_path / "rust").mkdir()
     (tmp_path / "rust" / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")

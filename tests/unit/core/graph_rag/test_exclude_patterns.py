@@ -41,6 +41,10 @@ class TestUniversalExcludes:
         assert any("__pycache__" in p for p in patterns)
         assert any(".pytest_cache" in p for p in patterns)
 
+        # Packaging: Homebrew formulas are packaging artifacts, not source —
+        # victor's own formula indexed as a ruby module (rev 1.9 fallout).
+        assert any("scripts/homebrew" in p for p in patterns)
+
         # Node.js
         assert any("node_modules" in p for p in patterns)
         assert any(".next" in p for p in patterns)
