@@ -369,3 +369,39 @@ def test_facades_survive_sys_modules_eviction():
         [sys.executable, "-c", code, json.dumps(leaf_moves)], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr[-2000:]
+
+
+def test_cold_imports_do_not_cycle_through_the_task_facade():
+    """Regression (0.16.0 promotion battery): agent modules imported their
+    moved task names through the ``victor.framework.task`` compat facade,
+    and cold-importing framework-first cycled — framework.task -> .complexity
+    facade -> victor.agent.__init__ -> orchestrator -> services ->
+    task_analyzer -> the PARTIALLY initialized framework.task. Agent modules
+    now import from canonical homes (victor.agent.task_complexity /
+    victor.core.task.protocols); every entry order must import clean in a
+    fresh interpreter."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[3]
+    # Evict the victor_ai editable finder so the subprocess resolves the
+    # CHECKOUT (CI shape); a no-op where no editable install exists.
+    preamble = (
+        "import sys; sys.meta_path = [f for f in sys.meta_path "
+        "if 'victor_ai' not in getattr(f, '__module__', '')]; "
+    )
+    for entry in (
+        # The perf-suite entry order that failed the 0.16.0 promotion.
+        "from victor.framework.capabilities.base import BaseCapabilityProvider",
+        "import victor.framework.task",
+        "import victor.framework.agent",
+        "from victor.agent.task_analyzer import TaskAnalyzer",
+    ):
+        result = subprocess.run(
+            [sys.executable, "-c", preamble + entry],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+        )
+        assert result.returncode == 0, (entry, result.stderr[-2000:])

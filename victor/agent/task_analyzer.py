@@ -22,11 +22,12 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.action_authorizer import ActionAuthorizer, ActionIntent
-from victor.framework.task import (
-    TaskComplexityService as ComplexityClassifier,
-    TaskClassification,
-    TaskComplexity,
-)
+# Canonical homes, NOT the victor.framework.task facade: the facade's
+# re-export of these moved names pulls victor.agent.__init__, which cycles
+# back into the partially-initialized framework.task when framework.task is
+# the first framework import (perf-suite entry order; promotion battery).
+from victor.agent.task_complexity import TaskComplexityService as ComplexityClassifier
+from victor.core.task.protocols import TaskClassification, TaskComplexity
 from victor.agent.unified_classifier import (
     UnifiedTaskClassifier,
     ClassificationResult,
