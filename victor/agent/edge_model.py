@@ -416,7 +416,7 @@ def verify_classification_with_edge_llm(
     """
     import time
 
-    from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
+    from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
 
     start = time.monotonic()
 

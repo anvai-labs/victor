@@ -867,7 +867,7 @@ class UnifiedTaskClassifier:
         if self._tiered_decision_service is not None and confidence < 0.8:
             try:
                 from victor.agent.decisions.schemas import DecisionType
-                from victor.framework.runtime_evaluation_policy import (
+                from victor.core.runtime_evaluation_policy import (
                     RuntimeEvaluationPolicy,
                 )
                 from victor.agent.services.tiered_decision_service import (

@@ -58,6 +58,35 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    **dict.fromkeys(
+        (
+            "victor/agent/task_complexity.py",
+            "victor/framework/task/complexity.py",
+        ),
+        (
+            "tests/unit/agent/test_task_complexity.py",
+            "tests/unit/classification/test_task_classifier.py",
+            "tests/unit/agent/test_query_classifier.py",
+            "tests/unit/agent/test_task_analyzer.py",
+            "tests/unit/agent/test_edge_model.py",
+            "tests/unit/architecture/test_layering_facades.py",
+        ),
+    ),
+    **dict.fromkeys(
+        (
+            "victor/core/runtime_evaluation_policy.py",
+            "victor/framework/runtime_evaluation_policy.py",
+        ),
+        (
+            "tests/unit/core/test_runtime_evaluation_policy_core.py",
+            "tests/unit/framework/test_runtime_evaluation_policy.py",
+            "tests/unit/agent/services/test_runtime_intelligence_service.py",
+            "tests/unit/agent/services/test_decision_service.py",
+            "tests/unit/agent/services/test_tiered_decision_service.py",
+            "tests/unit/evaluation/test_runtime_feedback.py",
+            "tests/unit/architecture/test_layering_facades.py",
+        ),
+    ),
     "victor/config/classification_settings.py": (
         "tests/unit/agent/services/test_classification_backend.py",
         "tests/unit/architecture/test_layering_facades.py",

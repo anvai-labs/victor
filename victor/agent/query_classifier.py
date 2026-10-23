@@ -92,7 +92,7 @@ class QueryClassifier:
     def _get_complexity_service(self):
         if self._complexity_service is not None:
             return self._complexity_service
-        from victor.framework.task.complexity import TaskComplexityService
+        from victor.agent.task_complexity import TaskComplexityService
 
         self._complexity_service = TaskComplexityService(use_semantic=False, use_rl=False)
         return self._complexity_service

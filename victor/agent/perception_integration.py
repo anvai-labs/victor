@@ -63,7 +63,7 @@ from victor.agent.request_scope_heuristics import (
     conversation_history_has_explicit_target,
     has_ambiguous_target_reference,
 )
-from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
+from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.core.task.protocols import TaskComplexity
 
 logger = logging.getLogger(__name__)

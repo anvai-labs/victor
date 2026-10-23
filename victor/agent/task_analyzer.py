@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from victor.storage.embeddings.intent_classifier import IntentType
     from victor.protocols.coordination import CoordinationAdvisorProtocol
     from victor.protocols.coordination import CoordinationSuggestion
-    from victor.framework.task.complexity import ComplexityBudget
+    from victor.agent.task_complexity import ComplexityBudget
 
 # Import protocols for type hints (available at runtime since protocols.py has no heavy deps)
 from victor.core.protocols import TaskClassifierProtocol, IntentClassifierProtocol
@@ -255,7 +255,7 @@ class TaskAnalyzer:
         )
 
         # Get framework-driven resource allocation
-        from victor.framework.task.complexity import ComplexityBudget as _CB
+        from victor.agent.task_complexity import ComplexityBudget as _CB
 
         _budget = _CB.for_complexity(complexity_result.complexity)
 
