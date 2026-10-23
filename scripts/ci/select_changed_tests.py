@@ -892,6 +892,11 @@ RELATED_TESTS = {
     ),
     "victor/integrations/mcp/stdio_transport.py": MCP_LIFECYCLE_TESTS,
     "victor/ui/cli_group.py": ("tests/unit/ui/test_cli_command_resolution.py",),
+    # SSO moved to victor.security.auth.sso; credentials re-exports it.
+    "victor/workflows/services/credentials.py": (
+        "tests/unit/security/auth/test_sso.py",
+        "tests/unit/providers/test_oauth_manager.py",
+    ),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
     **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
     "victor/tools/base.py": (

@@ -1,5 +1,5 @@
 {
-  "count": 99,
+  "count": 98,
   "pairs": [
     "victor.agent -> victor.framework.decorators",
     "victor.agent.complexity_estimator -> victor.framework.agentic_loop",
@@ -75,7 +75,6 @@
     "victor.processing.native.classifier -> victor.agent.unified_classifier",
     "victor.processing.native.streaming -> victor.agent.response_sanitizer",
     "victor.providers.llamacpp_provider -> victor.agent.format_strategies",
-    "victor.providers.oauth_manager -> victor.workflows.services.credentials",
     "victor.providers.ollama_provider -> victor.agent.format_strategies",
     "victor.providers.vllm_provider -> victor.agent.format_strategies",
     "victor.storage.embeddings.intent_classifier -> victor.agent.services.tiered_decision_service",
