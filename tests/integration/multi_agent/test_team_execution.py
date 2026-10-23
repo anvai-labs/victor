@@ -185,6 +185,14 @@ def three_agent_team() -> List[IntegrationTestAgent]:
 
 
 @pytest.fixture
+def agreeing_team() -> List[IntegrationTestAgent]:
+    """Create a three-agent team whose members produce identical outputs."""
+    return [
+        IntegrationTestAgent(f"agent_{i}", delay=0.01, output_prefix="agreed") for i in (1, 2, 3)
+    ]
+
+
+@pytest.fixture
 def hierarchical_team() -> tuple:
     """Create a team with manager and workers."""
     manager_role = ManagerRole()
@@ -419,13 +427,29 @@ class TestParallelFormation:
 
         result = await coordinator.execute_task("Test task", {})
 
-        # Overall should fail
-        assert result["success"] is False
-        # Successful agents recorded
+        # PARALLEL members are independent: the team succeeds when any member
+        # delivered, and failures stay visible instead of failing the whole team.
+        assert result["success"] is True
         assert result["member_results"]["agent_1"].success is True
         assert result["member_results"]["agent_3"].success is True
-        # Failed agent recorded
         assert result["member_results"]["agent_2"].success is False
+        assert "Member failures:" in result["final_output"]
+        assert "agent_2" in result["final_output"].split("Member failures:")[1]
+
+    @pytest.mark.asyncio
+    async def test_parallel_fails_when_every_member_fails(
+        self,
+        coordinator: UnifiedTeamCoordinator,
+    ):
+        """Parallel formation fails only when no member delivered."""
+        for agent_id in ("agent_1", "agent_2"):
+            coordinator.add_member(IntegrationTestAgent(agent_id, fail_on_task=True))
+        coordinator.set_formation(TeamFormation.PARALLEL)
+
+        result = await coordinator.execute_task("Test task", {})
+
+        assert result["success"] is False
+        assert all(not r.success for r in result["member_results"].values())
 
     @pytest.mark.asyncio
     async def test_parallel_collects_all_results(
@@ -710,33 +734,38 @@ class TestPipelineFormation:
 @pytest.mark.integration
 @pytest.mark.agents
 class TestConsensusFormation:
-    """Integration tests for CONSENSUS team formation."""
+    """Integration tests for CONSENSUS team formation.
+
+    Successful execution alone is not agreement: ConsensusFormation compares member
+    outputs (or explicit ``consensus_key`` metadata). Agreeing teams therefore share an
+    ``output_prefix`` so their outputs are identical.
+    """
 
     @pytest.mark.asyncio
     async def test_consensus_all_agents_execute(
         self,
         coordinator: UnifiedTeamCoordinator,
-        three_agent_team: List[IntegrationTestAgent],
+        agreeing_team: List[IntegrationTestAgent],
     ):
-        """All agents execute in consensus formation."""
-        for agent in three_agent_team:
+        """All agents execute once when the first round already agrees."""
+        for agent in agreeing_team:
             coordinator.add_member(agent)
 
         coordinator.set_formation(TeamFormation.CONSENSUS)
 
-        result = await coordinator.execute_task("Consensus task", {})
+        await coordinator.execute_task("Consensus task", {})
 
-        for agent in three_agent_team:
+        for agent in agreeing_team:
             assert len(agent.executed_tasks) == 1
 
     @pytest.mark.asyncio
     async def test_consensus_achieved_when_all_succeed(
         self,
         coordinator: UnifiedTeamCoordinator,
-        three_agent_team: List[IntegrationTestAgent],
+        agreeing_team: List[IntegrationTestAgent],
     ):
-        """Consensus is achieved when all agents succeed."""
-        for agent in three_agent_team:
+        """Consensus is achieved when all agents succeed with the same answer."""
+        for agent in agreeing_team:
             coordinator.add_member(agent)
 
         coordinator.set_formation(TeamFormation.CONSENSUS)
@@ -751,10 +780,14 @@ class TestConsensusFormation:
         self,
         coordinator: UnifiedTeamCoordinator,
     ):
-        """Consensus fails when any agent fails."""
-        agent1 = IntegrationTestAgent("agent_1")
+        """Consensus fails when any agent fails.
+
+        The two healthy agents agree, but the failed member stays in the denominator:
+        2/3 is below the default 0.7 agreement threshold.
+        """
+        agent1 = IntegrationTestAgent("agent_1", output_prefix="agreed")
         agent2 = IntegrationTestAgent("agent_2", fail_on_task=True)
-        agent3 = IntegrationTestAgent("agent_3")
+        agent3 = IntegrationTestAgent("agent_3", output_prefix="agreed")
 
         coordinator.add_member(agent1).add_member(agent2).add_member(agent3)
         coordinator.set_formation(TeamFormation.CONSENSUS)
@@ -763,6 +796,26 @@ class TestConsensusFormation:
 
         assert result["success"] is False
         assert result.get("consensus_achieved", True) is False
+
+    @pytest.mark.asyncio
+    async def test_consensus_not_achieved_when_outputs_disagree(
+        self,
+        coordinator: UnifiedTeamCoordinator,
+        three_agent_team: List[IntegrationTestAgent],
+    ):
+        """All members succeeding with different answers is not consensus."""
+        for agent in three_agent_team:
+            coordinator.add_member(agent)
+
+        coordinator.set_formation(TeamFormation.CONSENSUS)
+
+        result = await coordinator.execute_task("Consensus task", {})
+
+        assert result["success"] is False
+        assert result.get("consensus_achieved", True) is False
+        # Every round re-asks every member before giving up (default max_rounds=3).
+        for agent in three_agent_team:
+            assert len(agent.executed_tasks) == 3
 
 
 # =============================================================================
@@ -806,41 +859,82 @@ class TestCrossFormation:
             > results[TeamFormation.PARALLEL]["duration"]
         )
 
+    # Formations that run prose-only members directly, one result per member.
+    PER_MEMBER_FORMATIONS = {
+        TeamFormation.SEQUENTIAL,
+        TeamFormation.PARALLEL,
+        TeamFormation.HIERARCHICAL,
+        TeamFormation.PIPELINE,
+        TeamFormation.ADAPTIVE,
+        TeamFormation.MULTI_LEVEL_HIERARCHY,
+    }
+    # Formations that succeed with a single synthesized/selected result:
+    # REFLECTION collapses generator+critic, DYNAMIC_ROUTER dispatches to one member.
+    SINGLE_RESULT_FORMATIONS = {TeamFormation.REFLECTION, TeamFormation.DYNAMIC_ROUTER}
+    # Formations whose contract prose-only members cannot satisfy, so they must
+    # fail closed: CONSENSUS needs agreeing outputs, GROUP_CHAT/HANDOFF speak a JSON
+    # turn protocol, DEBATE needs a configured judge member.
+    FAIL_CLOSED_FORMATIONS = {
+        TeamFormation.CONSENSUS,
+        TeamFormation.GROUP_CHAT,
+        TeamFormation.HANDOFF,
+        TeamFormation.DEBATE,
+    }
+
+    def test_formation_expectations_are_exhaustive(self):
+        """Every formation has exactly one declared expectation (new ones must opt in)."""
+        groups = (
+            self.PER_MEMBER_FORMATIONS,
+            self.SINGLE_RESULT_FORMATIONS,
+            self.FAIL_CLOSED_FORMATIONS,
+        )
+        assert set().union(*groups) == set(TeamFormation)
+        assert sum(len(g) for g in groups) == len(TeamFormation)
+
     @pytest.mark.asyncio
-    async def test_all_formations_produce_results(
-        self,
-        coordinator: UnifiedTeamCoordinator,
-    ):
-        """All formations produce member results."""
-        for formation in TeamFormation:
-            coord = UnifiedTeamCoordinator()
+    @pytest.mark.parametrize("formation", list(TeamFormation), ids=lambda f: f.value)
+    async def test_all_formations_produce_results(self, formation: TeamFormation):
+        """Each formation either delivers member results or fails closed."""
+        coord = UnifiedTeamCoordinator()
 
-            # For hierarchical, need a manager
-            if formation == TeamFormation.HIERARCHICAL:
-                manager_role = IntegrationTestRole(
-                    name="manager",
-                    capabilities={
-                        AgentCapability.DELEGATE,
-                        AgentCapability.COMMUNICATE,
-                    },
-                )
-                manager = IntegrationTestAgent("manager", role=manager_role)
-                worker = IntegrationTestAgent("worker")
-                coord.add_member(manager).add_member(worker)
-                coord.set_manager(manager)
+        # For hierarchical, need a manager
+        if formation == TeamFormation.HIERARCHICAL:
+            manager_role = IntegrationTestRole(
+                name="manager",
+                capabilities={
+                    AgentCapability.DELEGATE,
+                    AgentCapability.COMMUNICATE,
+                },
+            )
+            manager = IntegrationTestAgent("manager", role=manager_role)
+            worker = IntegrationTestAgent("worker")
+            coord.add_member(manager).add_member(worker)
+            coord.set_manager(manager)
+        else:
+            coord.add_member(IntegrationTestAgent("agent_1"))
+            coord.add_member(IntegrationTestAgent("agent_2"))
+
+        coord.set_formation(formation)
+
+        result = await coord.execute_task("Test task", {})
+
+        assert "member_results" in result
+        if formation in self.FAIL_CLOSED_FORMATIONS:
+            assert result["success"] is False
+            if formation == TeamFormation.CONSENSUS:
+                # Members ran fine; their distinct outputs simply never agreed.
+                assert result["consensus_achieved"] is False
             else:
-                coord.add_member(IntegrationTestAgent("agent_1"))
-                coord.add_member(IntegrationTestAgent("agent_2"))
-
-            coord.set_formation(formation)
-
-            result = await coord.execute_task("Test task", {})
-
-            assert "member_results" in result
-            # REFLECTION collapses the generator+critic loop into a single
-            # synthesized result; other formations return one result per member.
-            expected_min = 1 if formation == TeamFormation.REFLECTION else 2
-            assert len(result["member_results"]) >= expected_min
+                failed = [r for r in result["member_results"].values() if not r.success]
+                # Either a member carries the protocol error, or the team-level error
+                # explains why no member could run (e.g. DEBATE without a judge).
+                assert (failed and all(r.error for r in failed)) or result.get("error")
+        elif formation in self.SINGLE_RESULT_FORMATIONS:
+            assert result["success"] is True
+            assert len(result["member_results"]) == 1
+        else:
+            assert result["success"] is True
+            assert len(result["member_results"]) >= 2
 
     @pytest.mark.asyncio
     async def test_formation_switching(

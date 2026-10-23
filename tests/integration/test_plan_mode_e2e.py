@@ -134,7 +134,9 @@ class TestPlanModeApprovalFlow:
         mock_orchestrator.model = "test-model"
         mock_orchestrator.max_tokens = 1000
         mock_orchestrator.provider = MagicMock()
-        mock_orchestrator.provider.chat = AsyncMock(
+        # Completions route through the metrics coordinator (token/cost accounting),
+        # which receives the orchestrator's provider; mock that seam, not provider.chat.
+        mock_orchestrator._metrics_coordinator.complete = AsyncMock(
             return_value=MagicMock(
                 content="I understand you've rejected the plan. Would you like to try a different approach?"
             )
@@ -158,6 +160,14 @@ class TestPlanModeApprovalFlow:
         # Should return a helpful response
         assert response is not None
         assert "rejected" in response.content.lower() or "understand" in response.content.lower()
+        # The rejection prompt is sent to the orchestrator's provider/model and names the plan.
+        complete = mock_orchestrator._metrics_coordinator.complete
+        complete.assert_awaited_once()
+        assert complete.await_args.args[0] is mock_orchestrator.provider
+        assert complete.await_args.kwargs["model"] == "test-model"
+        prompt = complete.await_args.kwargs["messages"][0]["content"]
+        assert "Rejected Plan" in prompt
+        assert "different approach" in prompt.lower()
         assert len(response.content) > 0
 
 
@@ -501,7 +511,7 @@ class TestPlanModeEndToEnd:
         mock_orchestrator.model = "test-model"
         mock_orchestrator.max_tokens = 1000
         mock_orchestrator.provider = MagicMock()
-        mock_orchestrator.provider.chat = AsyncMock(
+        mock_orchestrator._metrics_coordinator.complete = AsyncMock(
             return_value=MagicMock(content="I understand. Let's try a different approach.")
         )
 
