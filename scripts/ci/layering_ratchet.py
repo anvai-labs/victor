@@ -95,12 +95,26 @@ LAYER_PREFIXES: dict[str, str] = {
 }
 RANK = {"client": 0, "framework": 1, "runtime": 2, "infrastructure": 3}
 
-# Design-sanctioned upward edges: (importer prefix, imported prefix).
+# Design-sanctioned upward edges: (importer prefix, imported prefix). An
+# imported prefix ending in "." matches that package and its submodules only.
 SANCTIONED: tuple[tuple[str, str], ...] = (
     # Teams are formations used directly as StateGraph nodes, and YAML
     # workflows compile to StateGraph (CLAUDE.md architecture facts).
     ("victor.teams", "victor.framework.graph"),
     ("victor.workflows", "victor.framework.graph"),
+    # The RL engine (coordinator, learners, credit assignment) is a shared
+    # engine the runtime drives, not public API layered above it. Lower
+    # layers still reach it only through victor.core.rl.coordinator_port.
+    *(
+        (runtime, "victor.framework.rl.")
+        for runtime in (
+            "victor.agent",
+            "victor.teams",
+            "victor.workflows",
+            "victor.runtime",
+            "victor.context",
+        )
+    ),
     # Composition roots wire concrete services from every layer by design.
     ("victor.core.bootstrap", ""),
     ("victor.core.bootstrap_services", ""),
@@ -132,7 +146,7 @@ def layer_of(module: str) -> Optional[str]:
 def _is_sanctioned(importer: str, imported: str) -> bool:
     for src, dst in SANCTIONED:
         if (importer == src or importer.startswith(src + ".")) and (
-            not dst or imported == dst or imported.startswith(dst)
+            not dst or imported == dst.rstrip(".") or imported.startswith(dst)
         ):
             return True
     return False

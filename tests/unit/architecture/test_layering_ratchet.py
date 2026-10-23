@@ -151,6 +151,42 @@ def test_sanctioned_edges(fake_tree):
     assert _leaks(fake_tree, [team, root]) == set()
 
 
+def test_runtime_may_drive_the_rl_engine(fake_tree):
+    fake_tree("victor/framework/rl/__init__.py", "def analyze():\n    pass\n")
+    fake_tree("victor/framework/rl/coordinator.py", "def get_rl_coordinator():\n    pass\n")
+    agent = fake_tree(
+        "victor/agent/rl_user.py",
+        "from victor.framework.rl.coordinator import get_rl_coordinator\n"
+        "from victor.framework.rl import analyze\n",
+    )
+    team = fake_tree(
+        "victor/teams/rl_user.py",
+        "from victor.framework.rl.coordinator import get_rl_coordinator\n",
+    )
+    assert _leaks(fake_tree, [agent, team]) == set()
+
+
+def test_rl_sanction_is_runtime_only_and_package_bounded(fake_tree):
+    fake_tree("victor/framework/rl/coordinator.py", "def get_rl_coordinator():\n    pass\n")
+    fake_tree("victor/framework/rlx.py", "def lookalike():\n    pass\n")
+    fake_tree("victor/framework/agentic_loop.py", "def run():\n    pass\n")
+    tool = fake_tree(
+        "victor/tools/rl_user.py",
+        "from victor.framework.rl.coordinator import get_rl_coordinator\n",
+    )
+    lookalike = fake_tree(
+        "victor/agent/lookalike.py", "from victor.framework.rlx import lookalike\n"
+    )
+    other = fake_tree(
+        "victor/agent/loop_user.py", "from victor.framework.agentic_loop import run\n"
+    )
+    assert _leaks(fake_tree, [tool, lookalike, other]) == {
+        ("victor.tools.rl_user", "victor.framework.rl.coordinator"),
+        ("victor.agent.lookalike", "victor.framework.rlx"),
+        ("victor.agent.loop_user", "victor.framework.agentic_loop"),
+    }
+
+
 def test_relative_import_resolution(fake_tree):
     fake_tree("victor/framework/rl/hooks.py", "def get_rl_hooks():\n    pass\n")
     # a relative import inside the framework package resolves within it: no leak
