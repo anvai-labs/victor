@@ -187,11 +187,8 @@ class TaskCoordinator:
         from victor.agent.prompt_builder import get_task_type_hint
         from victor.storage.embeddings.task_classifier import TaskTypeClassifier
         from victor.agent.action_authorizer import ActionIntent, split_continuation_request
-        from victor.framework.task import (
-            TaskClassification,
-            TaskComplexity,
-            DEFAULT_BUDGETS,
-        )
+        from victor.core.task.protocols import TaskClassification, TaskComplexity
+        from victor.agent.task_complexity import DEFAULT_BUDGETS
         from victor.core.task.direct_response import (
             classify_direct_response_prompt,
         )

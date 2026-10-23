@@ -37,7 +37,7 @@ from victor.evaluation.runtime_feedback import (
 )
 from victor.agent.perception_integration import PerceptionIntegration
 from victor.framework.routing_policy import StructuredRoutingPolicy
-from victor.framework.runtime_evaluation_policy import (
+from victor.core.runtime_evaluation_policy import (
     ClarificationDecision,
     RuntimeEvaluationFeedback,
     RuntimeEvaluationPolicy,

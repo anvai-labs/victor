@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from victor.agent.response_sanitizer import ResponseSanitizer
     from victor.agent.prompt_builder import SystemPromptBuilder
     from victor.agent.context_project import ProjectContext
-    from victor.framework.task import TaskComplexityService as ComplexityClassifier
+    from victor.agent.task_complexity import TaskComplexityService as ComplexityClassifier
     from victor.agent.action_authorizer import ActionAuthorizer
     from victor.agent.search_router import SearchRouter
     from victor.agent.metrics_collector import MetricsCollector

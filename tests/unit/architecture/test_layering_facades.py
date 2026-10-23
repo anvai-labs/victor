@@ -55,6 +55,8 @@ MOVES = [
     ("victor.agent.services.classification_backend", "victor.config.classification_backend"),
     ("victor.agent.services.decision_backend", "victor.config.decision_backend"),
     ("victor.agent.mode_controller", "victor.core.mode_controller"),
+    ("victor.framework.runtime_evaluation_policy", "victor.core.runtime_evaluation_policy"),
+    ("victor.framework.task.complexity", "victor.agent.task_complexity"),
 ]
 
 # Lower-layer modules retargeted to the new homes (module-level imports).
@@ -100,6 +102,15 @@ RETARGETED = [
     "victor.tools.filesystem",
     "victor.tools.keyword_tool_selector",
     "victor.integrations.protocol.interface",
+    "victor.agent.edge_model",
+    "victor.agent.unified_classifier",
+    "victor.agent.services.decision_service",
+    "victor.agent.services.tiered_decision_service",
+    "victor.agent.services.chat_stream_executor",
+    "victor.agent.perception_integration",
+    "victor.agent.task_analyzer",
+    "victor.agent.task_completion",
+    "victor.agent.orchestrator_factory",
 ]
 
 

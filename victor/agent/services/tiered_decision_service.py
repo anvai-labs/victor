@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Set
 from victor.agent.decisions.schemas import DecisionType
 from victor.agent.services.protocols.decision_service import DecisionResult
 from victor.config.decision_settings import DecisionServiceSettings
-from victor.framework.runtime_evaluation_policy import (
+from victor.core.runtime_evaluation_policy import (
     RuntimeEvaluationFeedback,
     RuntimeEvaluationPolicy,
 )
