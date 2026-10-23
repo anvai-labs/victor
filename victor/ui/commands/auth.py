@@ -1049,7 +1049,7 @@ def _load_codex_openai_tokens(codex_auth_path: Path):
     if not isinstance(scopes, list):
         scopes = []
 
-    from victor.workflows.services.credentials import SSOTokens
+    from victor.security.auth.sso import SSOTokens
 
     return SSOTokens(
         access_token=access_token,

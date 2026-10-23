@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from victor.workflows.services.credentials import (
+from victor.security.auth.sso import (
     SSOAuthenticator,
     SSOConfig,
     SSOProvider,
