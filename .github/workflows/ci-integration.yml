@@ -32,6 +32,17 @@ jobs:
             path: tests/integration/workflows
           - name: tool-integration
             path: tests/integration/tools
+          # Everything not owned by a suite above (agent, framework, multi_agent,
+          # hitl, streaming, storage, top-level files, and any new directory), so
+          # integration tests can no longer exist without running anywhere.
+          # verticals/ is owned by the verticals-integration job below.
+          - name: core-integration
+            path: >-
+              tests/integration -n auto
+              --ignore=tests/integration/providers
+              --ignore=tests/integration/workflows
+              --ignore=tests/integration/tools
+              --ignore=tests/integration/verticals
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
