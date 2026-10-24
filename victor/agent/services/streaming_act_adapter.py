@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 from victor.core.async_utils import aclosing_if_supported
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 
 @dataclass

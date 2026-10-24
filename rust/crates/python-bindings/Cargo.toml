@@ -14,7 +14,7 @@
 
 [package]
 name = "victor_native"
-version = "0.16.0"
+version = "0.17.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -28,6 +28,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Workspace crates
+sha2 = "0.10"
+tree-sitter = "0.25"
+tree-sitter-python = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
 victor-protocol = { path = "../protocol" }
 
 # PyO3 for Python bindings. The extension-module feature is enabled only for

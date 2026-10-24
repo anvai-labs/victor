@@ -27,14 +27,14 @@ from victor.framework.events import EventType
 from victor.providers.base import CompletionResponse, StreamChunk
 
 
-class AgentOrchestrator(MagicMock):
+class AgentOrchestratorMock(MagicMock):
     """MagicMock subclass whose type name satisfies Agent.__init__ validation."""
 
 
 @pytest.fixture
-def mock_orchestrator() -> AgentOrchestrator:
+def mock_orchestrator() -> AgentOrchestratorMock:
     """Create a mock AgentOrchestrator for testing."""
-    orchestrator = AgentOrchestrator()
+    orchestrator = AgentOrchestratorMock()
     orchestrator.provider = MagicMock()
     orchestrator.provider.name = "test_provider"
     orchestrator.model = "test-model"

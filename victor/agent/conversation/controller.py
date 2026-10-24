@@ -35,7 +35,7 @@ from victor.config.orchestrator_constants import (
 )
 from victor.core.completion_markers import strip_active_completion_markers
 from victor.config.conversation_settings import DEFAULT_MAX_SESSION_PREFILL_TOKENS
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 if TYPE_CHECKING:
     from victor.storage.embeddings.service import EmbeddingService

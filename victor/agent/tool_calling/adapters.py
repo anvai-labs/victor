@@ -39,7 +39,7 @@ from victor.agent.tool_calling.base import (
     ToolCallParseResult,
 )
 from victor.agent.tool_calling.capabilities import ModelCapabilityLoader
-from victor.providers.base import ToolDefinition
+from victor.core.provider_messages import ToolDefinition
 from victor.tools.tool_names import get_canonical_name
 
 logger = logging.getLogger(__name__)

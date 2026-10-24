@@ -51,7 +51,7 @@ from victor.agent.services.protocols.runtime_support import (
     RLLearningRuntimeProtocol as StreamingRLRuntimeProtocol,
 )
 from victor.core.protocols import ProviderProtocol as StreamingProviderRuntimeProtocol
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 __all__ = [
     "StreamingChunkRuntimeProtocol",

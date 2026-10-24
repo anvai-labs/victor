@@ -43,7 +43,9 @@ def _settings_from_yaml(tmp_path, yaml_body):
     return Settings.from_sources(config_dir=config_dir)
 
 
-async def _run_index(tmp_path, settings, stats, *, precise=None, precise_timeout=None):
+async def _run_index(
+    tmp_path, settings, stats, *, precise=None, precise_timeout=None, parse_workers=None
+):
     """Drive ``_index_async`` with the pipeline mocked; return the captured
     GraphIndexConfig and the rendered summary."""
     output = Console(record=True, width=200)
@@ -64,6 +66,7 @@ async def _run_index(tmp_path, settings, stats, *, precise=None, precise_timeout
             False,
             precise=precise,
             precise_timeout=precise_timeout,
+            parse_workers=parse_workers,
             settings=settings,
         )
     return ok, pipeline.call_args[0][1], output.export_text()
@@ -305,3 +308,34 @@ def test_watch_status_reports_precise_outcomes(tmp_path):
     rendered = output.export_text()
     assert "Precise rust-analyzer" in rendered
     assert "dump-failed" in rendered
+
+
+async def test_parse_workers_cli_and_settings_wiring(tmp_path):
+    """--parse-workers overrides; search.graph.parse_workers honored when the
+    flag is absent; default stays 0 (= all cores, the old 8-cap removed)."""
+    from victor.core.graph_rag.indexing import GraphIndexStats
+
+    from_config = _settings_from_yaml(
+        tmp_path,
+        "search:\n  graph:\n    parse_workers: 4\n",
+    )
+
+    ok, config, _ = await _run_index(tmp_path, from_config, GraphIndexStats(files_processed=1))
+    assert ok
+    assert config.parse_workers == 4
+
+    ok, config, _ = await _run_index(
+        tmp_path,
+        _settings_from_yaml(tmp_path, ""),
+        GraphIndexStats(files_processed=1),
+        parse_workers=16,
+    )
+    assert ok
+    assert config.parse_workers == 16
+
+    ok, config, rendered = await _run_index(
+        tmp_path, _settings_from_yaml(tmp_path, ""), GraphIndexStats(files_processed=1)
+    )
+    assert ok
+    assert config.parse_workers == 0
+    assert "Time: parse" in rendered

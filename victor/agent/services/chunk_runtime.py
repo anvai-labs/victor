@@ -25,7 +25,7 @@ import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.core.events import ObservabilityBus
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 if TYPE_CHECKING:
     from victor.agent.streaming import StreamingChatContext, StreamingChatHandler

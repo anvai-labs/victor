@@ -116,7 +116,6 @@ from victor.agent.tool_supply_policy import (
 )
 from victor.agent.control_plane import envelope_if_internal
 from victor.agent.conversation.store import ConversationStore
-from victor.agent.prompt_prefix import apply_turn_prefix
 from victor.agent.system_nudges import log_dropped_system_nudge
 
 # DI container bootstrap
@@ -1905,25 +1904,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
 
     def _get_conversation_message_count(self) -> int:
         """Return the current conversation length across history implementations."""
-        conversation = getattr(self, "conversation", None)
-        if conversation is None:
-            return 0
+        from victor.agent.conversation.context_assembly import conversation_message_count
 
-        messages = getattr(conversation, "messages", None)
-        if messages is not None:
-            try:
-                return len(messages)
-            except TypeError:
-                pass
-
-        message_count = getattr(conversation, "message_count", None)
-        if callable(message_count):
-            try:
-                return int(message_count())
-            except TypeError:
-                pass
-
-        return 0
+        return conversation_message_count(self)
 
     def _get_model_context_window(self) -> int:
         """Get context window size for the current model.
@@ -2013,27 +1996,9 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         tool prefix remains byte-identical across API calls in the same session.
         When cache optimization is disabled, returns None (use per-turn).
         """
-        if not self._cache_optimization_enabled:
-            return None
-        session_tools = getattr(self, "_session_tools", None)
-        if session_tools is None:
-            try:
-                enabled_tools = self.get_enabled_tools()
-                locked_tools = [
-                    tool
-                    for tool in self.tools.list_tools(only_enabled=True)
-                    if getattr(tool, "name", None) in enabled_tools
-                ]
-                if locked_tools:
-                    self._session_tools = locked_tools
-                    logger.debug(
-                        "[cache] Session tools locked: %d tools (prefix-stable)",
-                        len(locked_tools),
-                    )
-                    return locked_tools
-            except Exception:
-                return None
-        return session_tools
+        from victor.agent.conversation.context_assembly import session_tools
+
+        return session_tools(self)
 
     def get_assembled_messages(
         self,
@@ -2054,104 +2019,20 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         prepended to the last user message instead of being injected as system
         messages. For KV-capable providers this also keeps the system prompt
         byte-identical across turns for provider prefix caching.
+
+        Implementation lives in victor.agent.conversation.context_assembly
+        (self-analysis round 2, W3) — this facade method keeps its name and
+        mock.patch target.
         """
-        self._get_prompt_builder_runtime().ensure_system_prompt_current()
+        from victor.agent.conversation.context_assembly import assembled_messages_for_call
 
-        assembler = getattr(self, "_context_assembler", None)
-        if assembler is None:
-            messages = list(self.messages)
-        else:
-            max_chars = self._get_max_context_chars()
-            messages = assembler.assemble(self.messages, max_chars, current_query=current_query)
-
-            if len(messages) < len(self.messages):
-                total_original = sum(len(m.content) for m in self.messages)
-                total_assembled = sum(len(m.content) for m in messages)
-                logger.debug(
-                    "[context] Assembled %d/%d messages (%dK/%dK chars, budget=%dK)",
-                    len(messages),
-                    len(self.messages),
-                    total_assembled // 1024,
-                    total_original // 1024,
-                    max_chars // 1024,
-                )
-
-        # Boundary guard: ensure all items are Message objects before sending
-        # to the provider. Converts dicts/strings that may have leaked in from
-        # session restore, compaction, or serialization round-trips.
-        from victor.providers.base import Message as _Msg
-
-        normalized = []
-        for m in messages:
-            if isinstance(m, _Msg):
-                normalized.append(m)
-            elif isinstance(m, dict) and "role" in m:
-                normalized.append(_Msg(**{k: v for k, v in m.items() if k in _Msg.model_fields}))
-            elif isinstance(m, str):
-                normalized.append(_Msg(role="assistant", content=m))
-            else:
-                logger.debug("Dropping non-Message item from assembled messages: %s", type(m))
-        if len(normalized) != len(messages):
-            logger.debug(
-                "[context] Normalized %d/%d non-Message items in assembled messages",
-                len(messages) - len(normalized),
-                len(messages),
-            )
-        messages = normalized
-
-        # Log KV prefix fingerprint for observability (system-prompt head only;
-        # the full-payload append-only classification is recorded below).
-        if self._kv_optimization_enabled:
-            logger.debug(
-                "[kv-cache] prefix=%s frozen=%s tools_cached=%s",
-                self._kv_prefix_fingerprint(),
-                getattr(self, "_system_prompt_frozen", False),
-                getattr(self, "_last_sorted_tool_names", None) is not None,
-            )
-
-        # Canonical per-turn prompt optimizations live on the prompt pipeline.
-        # KV-capable providers additionally benefit from stable system-prompt
-        # caching, but Tier C providers still need the same dynamic guidance.
-        # KV prefix stability: the turn prefix is frozen per user turn (anchor
-        # identity) by the turn-prefix runtime; mid-loop failure signals are
-        # appended as hidden messages rather than re-rendering sent bytes.
-        prefix = ""
-        pipeline = getattr(self, "_prompt_pipeline", None)
-        if messages and pipeline:
-            from victor.agent.turn_prefix_runtime import compose_turn_prefix_for_call
-
-            prefix = compose_turn_prefix_for_call(
-                self,
-                messages,
-                current_query=current_query,
-                goals=goals,
-                selected_tools=selected_tools,
-                planned_tools=planned_tools,
-            )
-
-        final_messages = apply_turn_prefix(messages, prefix)
-
-        # Full-payload prefix-stability classification: within a user turn the
-        # serialized payload must extend the previous call's bytes so provider
-        # prefix caching holds; sanctioned boundaries are announced via the
-        # tracker and logged once. Observability must never break the call.
-        # (Inline lazy wiring: the facade ratchet forbids new probe methods.)
-        if self._kv_optimization_enabled:
-            try:
-                tracker = getattr(self, "_prefix_call_tracker", None)
-                if tracker is None:
-                    from victor.agent.kv_prefix_observability import PrefixCallTracker
-
-                    tracker = PrefixCallTracker()
-                    self._prefix_call_tracker = tracker
-                tracker.record(
-                    final_messages,
-                    tools=getattr(self, "_last_sorted_tool_names", None),
-                )
-            except Exception:  # noqa: BLE001 - diagnostics only
-                logger.debug("[kv-cache] prefix tracker skipped (record failed)", exc_info=True)
-
-        return final_messages
+        return assembled_messages_for_call(
+            self,
+            current_query,
+            selected_tools=selected_tools,
+            planned_tools=planned_tools,
+            goals=goals,
+        )
 
     def _check_context_overflow(self, max_context_chars: int = 200000) -> bool:
         """Check if context is at risk of overflow.

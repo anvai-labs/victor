@@ -84,12 +84,13 @@ class TestTaskClassificationWithTypos:
         # With typos: "analize architcture and dseign"
         result = self.classifier.classify_sync("analize architcture and dseign")
 
-        # Should still classify correctly (ANALYSIS_DEEP is also valid for "architecture")
-        assert result.task_type in [
-            TaskType.ANALYZE,
-            TaskType.SEARCH,
-            TaskType.ANALYSIS_DEEP,
-        ]
+        # Analysis-family membership per this file's contract (the family
+        # set above) — the stale hardcoded list here excluded
+        # DATA_ANALYSIS and failed the 0.17.0 promotion twice with the
+        # classifier legitimately answering DATA_ANALYSIS for a
+        # design-flavored analysis query. Promotion-only test (integration
+        # dir), which is why develop's ci-fast never saw it.
+        assert result.task_type in ANALYSIS_TASK_TYPES
         assert result.confidence > 0.3
 
     def test_exact_match_still_works(self):

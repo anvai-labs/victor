@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 
 class RecoveryRuntime:

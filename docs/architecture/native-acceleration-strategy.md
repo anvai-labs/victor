@@ -95,6 +95,78 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    noise controls; never make microbenchmarks the sole merge gate.
 6. Revisit Cython only if this work identifies a qualifying hotspot for which Rust/PyO3 and an
    already-installed vector library both fail the decision gates.
+7. **Code-index parse parallelism (measured 2026-10-24, self-analysis round 2 W2).** The graph
+   indexer's parse phase is the dominant cost (1,719s busy of a 957s wall run on the victor
+   corpus at 16 cores; the thread pool achieves only ~1.8x effective). Three measurements now
+   constrain the fix space:
+   - **py-tree-sitter's `parse()` holds the GIL** — a controlled probe (589KiB python source,
+     8 threads x 5 parses) measured 1,386ms wall vs 181ms perfect-scaling and 1,449ms
+     GIL-bound predictions. Threads cannot parallelize the parse even at the C-binding level.
+   - **Repository prep is NOT a hidden serial bound**: `prepare_repository_snapshot`
+     (codegraph `parse_repo` over 4,921 files, scope binding on) measures **45.4s** serial —
+     the executor phase (CCG building + projection) is where the time is.
+   - **Process-IPC parallelism is a measured dead end**: a full fork-based process-parse
+     implementation (fork-inherited pipeline, warmed imports, parent-side phase timing) ran the
+     same corpus at 1,411s wall vs 957s thread mode — normalizing for a fresh 499s pyright
+     harvest (vs 56s cached), the pipeline itself was a wash (~912s vs ~901s). The GIL win was
+     consumed by pickling full `ParseResult`s — the ~1.5M CCG statement `GraphNode`s make the
+     per-file IPC payload enormous. The experiment was removed per the completion gate.
+   Consequence: the only remaining path to parse-phase parallelism is the **in-process native
+   extraction engine** (Rust/PyO3 in victor-codegraph: tree-sitter crates are first-class Rust
+   over the identical C core, rayon intra-batch, `py.allow_threads`, extraction stays
+   in-process so no result pickling). The serial write path (595s busy, 62% occupancy) is the
+   second bound — WAL/batch tuning pairs with the engine for the full win. Any future
+   "just use processes" proposal must answer the measured IPC objection first.
+
+   **Engine phase 1 LANDED (vertical slice, 2026-10-24)**: native CCG statement extraction
+   in the victor-ai Rust workspace (`ccg_extract.rs`, tree-sitter-python/-javascript/
+   -typescript grammars, `Python::detach` + rayon, one FFI crossing per batch).
+   Record-for-record byte parity with the Python walk (differential tests over repo
+   fixtures, python + typescript; scope cascade and sha256-16 ids identical) and a
+   measured **28.2x** on the statement-extraction walk (800 files / 188,200 statements:
+   3.7s Python → 0.1s native, counts identical). The Python walk STAYS as oracle and
+   fallback; `GraphNode` construction remains in Python. Next engine phases: the CFG/CDG/
+   DDG edge builders over the native statement records, then codegraph symbol extraction.
+
+   **Engine phase 2 LANDED (complete CCG, 2026-10-24)**: `build_ccg_batch` — statements +
+   CFG (sequential + structural) + CDG (reachability domination) + DDG (def-use chains) in
+   one detached batch call. **81.1x measured** on the complete per-file CCG (600 files /
+   146,191 nodes / 4,334,417 edges: 81.2s Python → 1.0s native, counts identical).
+   Parity quirks the port had to reproduce exactly (all pinned by differential tests):
+   the class defines `_should_connect_cfg` TWICE — the second definition (file-based,
+   `abs(gap) <= 30`, same-line pairs connected) shadows the first (10-line) — the port
+   follows the executed one; structural edges walk in LIFO stack order; CDG emits from a
+   hash-randomized set (native returns sorted; consumers upsert by key — order-insensitive
+   by contract); and `_build_ddg` DOUBLE-RECURSES (`_walk_ast` drives a visitor that also
+   recurses children — every subtree visited once per ancestor path, 63k visits on a
+   750-line file), massively redundant and precisely the Python-side cost the native path
+   removes. Remaining engine phase: codegraph symbol extraction (`victor-codegraph`).
+
+   **End-to-end re-measure with phases 1-2 active (2026-10-24) — two findings that
+   reshape the remaining work:**
+   - **The victor-coding enhanced CCG builder shadows the native path for the dominant
+     language.** `build_ccg_for_file` consults the CapabilityRegistry's enhanced builder
+     FIRST; on installs carrying the victor-coding vertical (this repo's editable install,
+     and any `victor-ai[graph]` + verticals deployment) Python files go to the enhanced
+     builder's own Python implementation — the native engine only serves the languages the
+     enhanced builder does not claim. E2E evidence: parse busy fell only 1,719s → 1,412s
+     (the non-Python languages), not the collapse the 81x slice predicts. Before any
+     further engine investment, decide the boundary: either port/absorb the enhanced
+     builder's semantics natively, or route it through the native statement walk.
+   - **The write path dominates and its obvious suspects are measured-INNOCENT.**
+     Persist busy 579.7s (wall 1,385.8s incl. a fresh 481.9s pyright harvest; normalized
+     ≈ the pre-engine 957s baseline). Micro-benchmarks of the suspected hot spots, both
+     REJECTED: the FTS5 sync triggers cost ~1.2s/150k node upserts ≈ 12s/run (statement
+     nodes are the vast majority and are FTS garbage — skipping them in the triggers is a
+     real but small cleanup, ~2%); the edge-upsert per-row COALESCE file subqueries cost
+     ~0.9s/400k edges ≈ 9s/run. Together ~20s of ~580s — the remaining ~550s lives in the
+     Python-side row preparation and orchestration inside `_graph_store_write_batch`
+     (GraphEdge/GraphNode → row tuples with per-edge `json.dumps`,
+     `_drop_dangling_edge_rows`/`_clear_dangling_parent_links` per-batch queries,
+     `_order_rows_parents_first`, mtime writes). Next step, before any rewrite: cProfile a
+     single `_IndexingStreamPipeline._commit_batch` of ~20 realistic files and attribute
+     the batch wall time to those components; only then choose the fix (batched JSON
+     serialization, hoisted lookups, or precomputed ordering).
 
 ## Primary references
 

@@ -19,7 +19,7 @@ from victor.agent.services.context_service import (
     ContextServiceConfig,
     ContextServiceRegistry,
 )
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 logger = logging.getLogger(__name__)
 

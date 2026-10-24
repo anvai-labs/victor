@@ -82,7 +82,7 @@ from victor.agent.services.protocols.streaming_runtime import (
     StreamingSanitizerRuntimeProtocol,
 )
 from victor.agent.streaming.context import StreamingChatContext
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 if TYPE_CHECKING:
     from victor.agent.orchestrator import AgentOrchestrator

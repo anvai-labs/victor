@@ -81,6 +81,12 @@ def _write_index_summary(project_root: Path, stats: Any, *, enable_precise: bool
         "root": str(project_root),
         "files_processed": getattr(stats, "files_processed", 0),
         "files_partial": getattr(stats, "files_partial", 0),
+        "seconds": {
+            "parse": round(getattr(stats, "parse_seconds", 0.0), 3),
+            "persist": round(getattr(stats, "persist_seconds", 0.0), 3),
+            "harvest": round(getattr(stats, "harvest_seconds", 0.0), 3),
+            "total": getattr(stats, "processing_time_seconds", 0.0),
+        },
         "precise_index": {
             "enabled": enable_precise,
             "skipped": getattr(stats, "precise_index_skipped", ""),
@@ -152,6 +158,12 @@ def _print_index_summary(stats: Any, *, list_partial: bool = False) -> None:
     if stats.embeddings_generated > 0:
         console.print(f"  Embeddings generated: {stats.embeddings_generated}")
     _print_precise_index_summary(stats)
+    # Amdahl split: busy-time sums (parse runs on executor threads, persist
+    # and harvest on the event loop; parse/persist overlap by design).
+    console.print(
+        f"  Time: parse {stats.parse_seconds:.1f}s busy · persist "
+        f"{stats.persist_seconds:.1f}s busy · harvest {stats.harvest_seconds:.1f}s"
+    )
     if stats.repository_relations_dropped_unmaterialized:
         console.print(
             "  Relations omitted (unmaterialized endpoints): "
@@ -181,6 +193,7 @@ async def _index_async(
     *,
     precise: Optional[bool] = None,
     precise_timeout: Optional[int] = None,
+    parse_workers: Optional[int] = None,
     list_partial: bool = False,
     settings: Optional[Any] = None,
 ) -> bool:
@@ -196,6 +209,8 @@ async def _index_async(
         precise_timeout: Override for the tier-3 dump timeout in seconds;
             None honors ``search.graph.precise_index_timeout_seconds`` (0 =
             per-provider measured default)
+        parse_workers: Override for the parser thread pool; None honors
+            ``search.graph.parse_workers`` (0 = all cores, 1 = serial)
         list_partial: Print the paths of files whose parse was partial
         settings: Pre-resolved settings (tests); None resolves through
             ``Settings.from_sources()`` so ``settings.yaml``/``profiles.yaml``
@@ -255,6 +270,11 @@ async def _index_async(
         enable_precise_index=enable_precise,
         precise_index_timeout_seconds=timeout_seconds,
         precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
+        parse_workers=(
+            parse_workers
+            if parse_workers is not None
+            else graph_setting(settings, "parse_workers", 0)
+        ),
     )
 
     # Build index
@@ -445,7 +465,14 @@ async def _impact_async(
 
 
 async def _resolve_target(target: str, graph_store) -> Optional[str]:
-    """Resolve a target string to a node ID."""
+    """Resolve a target string to a node ID.
+
+    Ambiguity handling: a bare name matching several nodes prefers
+    NON-TEST definitions (test doubles routinely share names with the
+    production symbols they stand in for — 14 such classes in this repo),
+    and when even that leaves multiple candidates, prints them so the user
+    can disambiguate with the file:line form instead of a bare refusal.
+    """
     from victor.storage.graph.edge_types import EdgeType
 
     exact = await graph_store.get_node_by_id(target)
@@ -468,6 +495,25 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
     nodes = await graph_store.find_nodes(name=target)
     if len(nodes) == 1:
         return nodes[0].node_id
+
+    if len(nodes) > 1:
+        non_test = [n for n in nodes if not n.file.startswith("tests/")]
+        candidates = non_test if non_test else nodes
+        if len(candidates) == 1:
+            return candidates[0].node_id
+        # Still ambiguous: show the candidates — a bare None erases the
+        # information the user needs to proceed.
+        console.print(
+            f"[yellow]Ambiguous target '{target}' — {len(candidates)} definitions:[/yellow]"
+        )
+        for node in candidates[:10]:
+            console.print(f"  {node.name} ({node.type}) {node.file}:{node.line}")
+        if len(candidates) > 10:
+            console.print(f"  ... {len(candidates) - 10} more")
+        console.print(
+            "[dim]Disambiguate with the file:line form (e.g. "
+            f"'{candidates[0].file}:{candidates[0].line}')[/dim]"
+        )
 
     return None
 
@@ -652,6 +698,15 @@ def graph_index(
             "search.graph.precise_index_timeout_seconds; 0 = per-provider default)"
         ),
     ),
+    parse_workers: Optional[int] = typer.Option(
+        None,
+        "--parse-workers",
+        min=0,
+        help=(
+            "Parser thread pool size (default: search.graph.parse_workers; "
+            "0 = all cores, 1 = serial)"
+        ),
+    ),
     list_partial: bool = typer.Option(
         False,
         "--list-partial",
@@ -670,6 +725,7 @@ def graph_index(
             embeddings,
             precise=precise,
             precise_timeout=precise_timeout,
+            parse_workers=parse_workers,
             list_partial=list_partial,
         )
     )
@@ -725,6 +781,64 @@ def graph_stats(
 
     if not success:
         raise typer.Exit(1)
+
+
+@graph_app.command("viz")
+def graph_viz(
+    level: str = typer.Option(
+        "package", "--level", help="Visualization level: package, module, or class"
+    ),
+    path: str = typer.Option(".", "--path", "-p", help="Path to codebase"),
+    package: Optional[str] = typer.Option(
+        None, "--package", help="module level: the package to look inside (e.g. victor/agent)"
+    ),
+    module: Optional[str] = typer.Option(
+        None, "--module", help="class level: the module file (repo-relative path)"
+    ),
+    top: int = typer.Option(12, "--top", min=4, max=40, help="How many nodes to include"),
+    out: Optional[Path] = typer.Option(
+        None, "--out", help="Output .mmd path (default: .victor/graph-viz-<level>.mmd)"
+    ),
+):
+    """Render coupling visualizations from the indexed graph (mermaid)."""
+    from victor.core.graph_rag import visualize
+
+    root_path = Path(path).resolve()
+    db_path = get_project_paths(root_path).project_victor_dir / "project.db"
+    if not db_path.exists():
+        console.print(
+            f"[red]Error:[/red] No project graph at {db_path} — run 'victor index graph index' first"
+        )
+        raise typer.Exit(1)
+
+    out_path = out or (root_path / ".victor" / f"graph-viz-{level}.mmd")
+    if level == "package":
+        result = visualize.render(
+            visualize.package_coupling_mermaid(db_path, top_packages=top), out_path
+        )
+    elif level == "module":
+        if not package:
+            console.print("[red]Error:[/red] --level module requires --package")
+            raise typer.Exit(1)
+        result = visualize.render(
+            visualize.module_coupling_mermaid(db_path, package, top_modules=top), out_path
+        )
+    elif level == "class":
+        if not module:
+            console.print("[red]Error:[/red] --level class requires --module")
+            raise typer.Exit(1)
+        result = visualize.render(
+            visualize.class_graph_mermaid(db_path, module, top_symbols=top), out_path
+        )
+    else:
+        console.print(f"[red]Error:[/red] Unknown level '{level}' (package|module|class)")
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓ {level} view:[/green] {result.mmd_path}")
+    if result.svg_path:
+        console.print(f"[green]✓ rendered:[/green] {result.svg_path}")
+    else:
+        console.print("[dim]mmdc not found on PATH — .mmd written only[/dim]")
 
 
 @graph_app.command("export")

@@ -31,7 +31,7 @@ from victor.agent.services.protocols.decision_service import (
 )
 from victor.core.async_utils import run_sync
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationFeedback
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 if TYPE_CHECKING:
     from victor.providers.base import BaseProvider
