@@ -56,10 +56,14 @@ docstring-parser==0.18.0
     # via
     #   anthropic
     #   victor-ai (pyproject.toml)
-filelock==4.0.0
+filelock==4.2.1
     # via
     #   huggingface-hub
     #   torch
+    # Security floor (CVE-2026-112940, HIGH): 4.0.0 had arbitrary file
+    # overwrite via insecure database file reopening; fixed in 4.2.1. This
+    # lock is what the release Docker image installs, so the Trivy image
+    # scan gates the 0.17.0 publish chain on this pin.
 frozenlist==1.8.0
     # via
     #   aiohttp
