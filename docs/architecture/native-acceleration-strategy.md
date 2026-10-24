@@ -142,6 +142,32 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    750-line file), massively redundant and precisely the Python-side cost the native path
    removes. Remaining engine phase: codegraph symbol extraction (`victor-codegraph`).
 
+   **End-to-end re-measure with phases 1-2 active (2026-10-24) — two findings that
+   reshape the remaining work:**
+   - **The victor-coding enhanced CCG builder shadows the native path for the dominant
+     language.** `build_ccg_for_file` consults the CapabilityRegistry's enhanced builder
+     FIRST; on installs carrying the victor-coding vertical (this repo's editable install,
+     and any `victor-ai[graph]` + verticals deployment) Python files go to the enhanced
+     builder's own Python implementation — the native engine only serves the languages the
+     enhanced builder does not claim. E2E evidence: parse busy fell only 1,719s → 1,412s
+     (the non-Python languages), not the collapse the 81x slice predicts. Before any
+     further engine investment, decide the boundary: either port/absorb the enhanced
+     builder's semantics natively, or route it through the native statement walk.
+   - **The write path dominates and its obvious suspects are measured-INNOCENT.**
+     Persist busy 579.7s (wall 1,385.8s incl. a fresh 481.9s pyright harvest; normalized
+     ≈ the pre-engine 957s baseline). Micro-benchmarks of the suspected hot spots, both
+     REJECTED: the FTS5 sync triggers cost ~1.2s/150k node upserts ≈ 12s/run (statement
+     nodes are the vast majority and are FTS garbage — skipping them in the triggers is a
+     real but small cleanup, ~2%); the edge-upsert per-row COALESCE file subqueries cost
+     ~0.9s/400k edges ≈ 9s/run. Together ~20s of ~580s — the remaining ~550s lives in the
+     Python-side row preparation and orchestration inside `_graph_store_write_batch`
+     (GraphEdge/GraphNode → row tuples with per-edge `json.dumps`,
+     `_drop_dangling_edge_rows`/`_clear_dangling_parent_links` per-batch queries,
+     `_order_rows_parents_first`, mtime writes). Next step, before any rewrite: cProfile a
+     single `_IndexingStreamPipeline._commit_batch` of ~20 realistic files and attribute
+     the batch wall time to those components; only then choose the fix (batched JSON
+     serialization, hoisted lookups, or precomputed ordering).
+
 ## Primary references
 
 - [PyO3 performance guidance](https://pyo3.rs/main/performance.html)
