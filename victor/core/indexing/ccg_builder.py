@@ -271,18 +271,27 @@ class CodeContextGraphBuilder:
         previous_language = self.language
         self.language = lang
         try:
-            # Parse the AST
-            ast_root = self._parse_source(source_code, file_path, lang)
-            if ast_root is None:
-                return [], []
+            # Native fast path (engine phase 2): the complete CCG —
+            # statements + CFG + CDG + DDG — in one detached batch call,
+            # record-for-record identical to the Python builders below
+            # (differential parity pinned by tests; the Python path STAYS
+            # as oracle and fallback).
+            native_result = self._build_native_ccg(file_path, lang, source_code)
+            if native_result is not None:
+                all_nodes, all_edges = native_result
+            else:
+                # Parse the AST
+                ast_root = self._parse_source(source_code, file_path, lang)
+                if ast_root is None:
+                    return [], []
 
-            # Build all three graphs
-            cfg_nodes, cfg_edges = await self._build_cfg(ast_root, file_path, source_code)
-            cdg_edges = await self._build_cdg(cfg_nodes, cfg_edges)
-            ddg_edges = await self._build_ddg(ast_root, cfg_nodes, file_path, source_code)
+                # Build all three graphs
+                cfg_nodes, cfg_edges = await self._build_cfg(ast_root, file_path, source_code)
+                cdg_edges = await self._build_cdg(cfg_nodes, cfg_edges)
+                ddg_edges = await self._build_ddg(ast_root, cfg_nodes, file_path, source_code)
 
-            all_nodes = cfg_nodes
-            all_edges = cfg_edges + cdg_edges + ddg_edges
+                all_nodes = cfg_nodes
+                all_edges = cfg_edges + cdg_edges + ddg_edges
         finally:
             self.language = previous_language
 
@@ -291,6 +300,68 @@ class CodeContextGraphBuilder:
         )
 
         return all_nodes, all_edges
+
+    def _build_native_ccg(  # pragma: no cover - extension-only path
+        self, file_path: Path, lang: str, source_code: str
+    ) -> Optional[Tuple[List[Any], List[Any]]]:
+        """The complete native CCG as (nodes, edges), or None to fall back.
+
+        GraphNode/GraphEdge construction stays here with the exact
+        metadata shapes the Python builders produce (sequential CFG edges
+        carry {"file": ...}; structural ones don't; CDG carries file; DDG
+        carries variable + file).
+        """
+        from victor.processing.native.ccg_extract import build_ccg
+
+        result = build_ccg(lang, str(file_path), source_code.encode())
+        if result is None:
+            return None
+
+        GraphNode, GraphEdge, _ = _get_graph_types()
+        file_str = str(file_path)
+
+        nodes = [
+            GraphNode(
+                node_id=record.node_id,
+                type="statement",
+                name=f"{record.node_type}:{record.start_line}",
+                file=file_str,
+                line=record.start_line,
+                end_line=record.end_line,
+                lang=lang,
+                ast_kind=record.node_type,
+                scope_id=record.scope_id or None,
+                statement_type=record.statement_type,
+                visibility=record.visibility,
+                metadata={
+                    "node_type": record.node_type,
+                    "content_preview": record.content_preview,
+                },
+            )
+            for record in result.statements
+        ]
+
+        def _edge(record: Any, metadata: Optional[Dict[str, Any]]) -> Any:
+            return GraphEdge(
+                src=record.src,
+                dst=record.dst,
+                type=record.edge_type,
+                weight=1.0,
+                metadata=metadata if metadata else {},
+            )
+
+        edges = []
+        for record in result.cfg_edges:
+            # Sequential edges carry file metadata; structural don't —
+            # the exact shapes of _build_cfg_edges.
+            edges.append(_edge(record, {"file": file_str} if not record.structural else None))
+        for record in result.cdg_edges:
+            edges.append(_edge(record, {"file": file_str}))
+        for record in result.ddg_edges:
+            edges.append(
+                _edge(record, {"variable": record.variable, "file": file_str})
+            )
+        return nodes, edges
 
     def _detect_language(self, file_path: Path) -> str:
         """Detect programming language from file extension.

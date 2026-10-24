@@ -140,7 +140,10 @@ fn victor_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(thinking::detect_circular_phrases, m)?)?;
     m.add_function(wrap_pyfunction!(thinking::count_circular_patterns, m)?)?;
     m.add_function(wrap_pyfunction!(ccg_extract::extract_statements_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(ccg_extract::build_ccg_batch, m)?)?;
     m.add_class::<ccg_extract::StatementRecord>()?;
+    m.add_class::<ccg_extract::EdgeRecord>()?;
+    m.add_class::<ccg_extract::CcgFileResult>()?;
     m.add_function(wrap_pyfunction!(thinking::find_circular_patterns, m)?)?;
 
     // Task classification classes and functions
