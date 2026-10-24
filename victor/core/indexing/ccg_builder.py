@@ -527,6 +527,9 @@ class CodeContextGraphBuilder:
         """
         if source_code is None:
             return None
+        # pragma: no cover - extension-only path: exercised by the
+        # differential tests in the native CI job where the extension is
+        # built; pure-Python installs measure the fallback walk below.
         from victor.processing.native.ccg_extract import extract_statements
 
         records = extract_statements(self.language, str(file_path), source_code.encode())
