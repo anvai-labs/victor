@@ -43,6 +43,16 @@ def native_statements_available(language: str) -> bool:
     )
 
 
+def native_ccg_available(language: str) -> bool:
+    """Whether the COMPLETE native CCG (statements + CFG + CDG + DDG) can
+    serve this language right now (engine phase 2)."""
+    return (
+        _NATIVE_AVAILABLE
+        and language in NATIVE_STATEMENT_LANGUAGES
+        and hasattr(_native, "build_ccg_batch")
+    )
+
+
 def extract_statements(language: str, file_path: str, source: bytes) -> Optional[List[Any]]:
     """Native statement records for one file, or None (caller falls back).
 
@@ -76,3 +86,20 @@ def extract_statements_batch(  # pragma: no cover - extension-only path
         return _native.extract_statements_batch(files)
     except Exception:
         return None
+
+
+def build_ccg(language: str, file_path: str, source: bytes) -> Optional[Any]:
+    """The COMPLETE native CCG for one file, or None (caller falls back).
+
+    Returns an object with ``statements``, ``cfg_edges``, ``cdg_edges`` and
+    ``ddg_edges`` — each edge record carrying ``src``, ``dst``,
+    ``edge_type``, ``variable`` (DDG) and ``structural`` (CFG metadata
+    shape). Record-for-record identical to the Python builders.
+    """
+    if not native_ccg_available(language):
+        return None
+    try:  # pragma: no cover - extension-only path (differential CI job)
+        results = _native.build_ccg_batch([(language, file_path, source)])
+    except Exception:  # pragma: no cover - bounded failure semantics
+        return None
+    return results[0] if results else None

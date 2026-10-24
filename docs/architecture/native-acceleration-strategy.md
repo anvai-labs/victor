@@ -128,6 +128,20 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    fallback; `GraphNode` construction remains in Python. Next engine phases: the CFG/CDG/
    DDG edge builders over the native statement records, then codegraph symbol extraction.
 
+   **Engine phase 2 LANDED (complete CCG, 2026-10-24)**: `build_ccg_batch` — statements +
+   CFG (sequential + structural) + CDG (reachability domination) + DDG (def-use chains) in
+   one detached batch call. **81.1x measured** on the complete per-file CCG (600 files /
+   146,191 nodes / 4,334,417 edges: 81.2s Python → 1.0s native, counts identical).
+   Parity quirks the port had to reproduce exactly (all pinned by differential tests):
+   the class defines `_should_connect_cfg` TWICE — the second definition (file-based,
+   `abs(gap) <= 30`, same-line pairs connected) shadows the first (10-line) — the port
+   follows the executed one; structural edges walk in LIFO stack order; CDG emits from a
+   hash-randomized set (native returns sorted; consumers upsert by key — order-insensitive
+   by contract); and `_build_ddg` DOUBLE-RECURSES (`_walk_ast` drives a visitor that also
+   recurses children — every subtree visited once per ancestor path, 63k visits on a
+   750-line file), massively redundant and precisely the Python-side cost the native path
+   removes. Remaining engine phase: codegraph symbol extraction (`victor-codegraph`).
+
 ## Primary references
 
 - [PyO3 performance guidance](https://pyo3.rs/main/performance.html)
