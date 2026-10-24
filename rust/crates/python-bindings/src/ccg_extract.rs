@@ -99,11 +99,15 @@ fn classify_statement(language: &str, node_type: &str) -> Option<&'static str> {
             "catch_clause" | "finally_clause" => Some("catch"),
             "switch_statement" => Some("switch"),
             "switch_case" | "switch_default" => Some("case"),
-            "variable_declaration" | "lexical_declaration" | "assignment_expression"
+            "variable_declaration"
+            | "lexical_declaration"
+            | "assignment_expression"
             | "augmented_assignment_expression" => Some("assignment"),
             "call_expression" => Some("call"),
             "return_statement" => Some("return"),
-            "function_declaration" | "function_expression" | "arrow_function"
+            "function_declaration"
+            | "function_expression"
+            | "arrow_function"
             | "method_definition" => Some("function_def"),
             "class_declaration" => Some("class_def"),
             "expression_statement" => Some("expression"),
@@ -154,7 +158,11 @@ fn statement_id(file_path: &str, start_line: i64, end_line: i64, node_type: &str
     let mut hasher = Sha256::new();
     hasher.update(format!("{file_path}:{start_line}:{end_line}:{node_type}"));
     let digest = hasher.finalize();
-    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..16].to_string()
+    digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()[..16]
+        .to_string()
 }
 
 fn language_for(language: &str) -> Option<tree_sitter::Language> {
@@ -197,7 +205,11 @@ fn extract_statements_from_tree(
                 .get(start_line as usize - 1)
                 .map(|l| l.trim())
                 .unwrap_or("");
-            let content_preview = if raw_line.len() > 100 { &raw_line[..100] } else { raw_line };
+            let content_preview = if raw_line.len() > 100 {
+                &raw_line[..100]
+            } else {
+                raw_line
+            };
             let node_id = statement_id(file_path, start_line, end_line, node_type);
             records.push(StatementRecord {
                 visibility: determine_visibility(language, raw_line),
@@ -214,7 +226,14 @@ fn extract_statements_from_tree(
 
         if cursor.goto_first_child() {
             loop {
-                walk(cursor, language, file_path, lines, &scope_for_children, records);
+                walk(
+                    cursor,
+                    language,
+                    file_path,
+                    lines,
+                    &scope_for_children,
+                    records,
+                );
                 if !cursor.goto_next_sibling() {
                     break;
                 }
@@ -247,11 +266,11 @@ pub fn extract_statements_batch(
     // All inputs are owned values: no Python API use inside detach.
     // PyErr is !Ungil, so per-file failures cross as Strings (the crate's
     // established idiom) and convert to exceptions after the GIL returns.
-    let results: Vec<Result<Vec<StatementRecord>, String>> =
-        py.detach(move || {
-            files
-                .into_par_iter()
-                .map(|(language, path, source)| -> Result<Vec<StatementRecord>, String> {
+    let results: Vec<Result<Vec<StatementRecord>, String>> = py.detach(move || {
+        files
+            .into_par_iter()
+            .map(
+                |(language, path, source)| -> Result<Vec<StatementRecord>, String> {
                     let grammar = language_for(&language)
                         .ok_or_else(|| format!("no native grammar for language '{language}'"))?;
                     let mut parser = Parser::new();
@@ -261,10 +280,13 @@ pub fn extract_statements_batch(
                     let tree = parser
                         .parse(&source, None)
                         .ok_or_else(|| format!("parse failed for '{path}'"))?;
-                    Ok(extract_statements_from_tree(&language, &path, &source, &tree))
-                })
-                .collect()
-        });
+                    Ok(extract_statements_from_tree(
+                        &language, &path, &source, &tree,
+                    ))
+                },
+            )
+            .collect()
+    });
 
     results
         .into_iter()
@@ -279,12 +301,27 @@ mod tests {
     #[test]
     fn classification_matches_python_tables() {
         // Spot-checks of the exact tables from _classify_statement.
-        assert_eq!(classify_statement("python", "elif_clause"), Some("condition"));
-        assert_eq!(classify_statement("python", "async_function_definition"), Some("function_def"));
-        assert_eq!(classify_statement("python", "match_statement"), Some("switch"));
+        assert_eq!(
+            classify_statement("python", "elif_clause"),
+            Some("condition")
+        );
+        assert_eq!(
+            classify_statement("python", "async_function_definition"),
+            Some("function_def")
+        );
+        assert_eq!(
+            classify_statement("python", "match_statement"),
+            Some("switch")
+        );
         assert_eq!(classify_statement("python", "module"), None);
-        assert_eq!(classify_statement("typescript", "arrow_function"), Some("function_def"));
-        assert_eq!(classify_statement("typescript", "switch_default"), Some("case"));
+        assert_eq!(
+            classify_statement("typescript", "arrow_function"),
+            Some("function_def")
+        );
+        assert_eq!(
+            classify_statement("typescript", "switch_default"),
+            Some("case")
+        );
         assert_eq!(classify_statement("go", "for_range"), Some("loop"));
         // Go has NO native grammar yet — unsupported languages classify to
         // None at walk time via language_for, but the table itself is pinned.
@@ -293,14 +330,29 @@ mod tests {
 
     #[test]
     fn visibility_rules_match_python() {
-        assert_eq!(determine_visibility("python", "_private = 1"), Some("private".into()));
-        assert_eq!(determine_visibility("python", "__init__(self)"), Some("private".into()));
+        assert_eq!(
+            determine_visibility("python", "_private = 1"),
+            Some("private".into())
+        );
+        assert_eq!(
+            determine_visibility("python", "__init__(self)"),
+            Some("private".into())
+        );
         // The dunder check is on the whole stripped LINE: "__x__ = 1" ends
         // with "= 1" so Python classifies it private, not public.
-        assert_eq!(determine_visibility("python", "__all__ = 1"), Some("private".into()));
+        assert_eq!(
+            determine_visibility("python", "__all__ = 1"),
+            Some("private".into())
+        );
         // A line that is ONLY the dunder name is public.
-        assert_eq!(determine_visibility("python", "__init__"), Some("public".into()));
-        assert_eq!(determine_visibility("typescript", "private x = 1"), Some("private".into()));
+        assert_eq!(
+            determine_visibility("python", "__init__"),
+            Some("public".into())
+        );
+        assert_eq!(
+            determine_visibility("typescript", "private x = 1"),
+            Some("private".into())
+        );
         assert_eq!(determine_visibility("go", "x := 1"), None);
     }
 
@@ -310,7 +362,11 @@ mod tests {
         let expected = {
             let mut h = Sha256::new();
             h.update(b"a.py:3:5:if_statement");
-            h.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()[..16].to_string()
+            h.finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()[..16]
+                .to_string()
         };
         assert_eq!(statement_id("a.py", 3, 5, "if_statement"), expected);
         assert_eq!(statement_id("a.py", 3, 5, "if_statement").len(), 16);
@@ -323,8 +379,7 @@ mod tests {
         let mut parser = Parser::new();
         parser.set_language(&grammar).unwrap();
         let tree = parser.parse(source, None).unwrap();
-        let records =
-            extract_statements_from_tree("python", "a.py", source, &tree);
+        let records = extract_statements_from_tree("python", "a.py", source, &tree);
         // function_def -> condition -> return, nested scopes cascade.
         let kinds: Vec<&str> = records.iter().map(|r| r.statement_type.as_str()).collect();
         assert_eq!(kinds, vec!["function_def", "condition", "return"]);
