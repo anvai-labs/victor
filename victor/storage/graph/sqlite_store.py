@@ -47,6 +47,9 @@ _NODE_TABLE = Tables.GRAPH_NODE
 _EDGE_TABLE = Tables.GRAPH_EDGE
 _MTIME_TABLE = Tables.GRAPH_FILE_MTIME
 _FTS_TABLE = f"{_NODE_TABLE}_fts"
+# Write-path cache bound: distinct path strings are bounded by the corpus
+# file count in practice; the cap only guards pathological variety.
+_CANONICAL_PATH_CACHE_MAX = 262_144
 
 # Schema for consolidated database
 _TABLE_SCHEMA = f"""
@@ -105,7 +108,13 @@ CREATE INDEX IF NOT EXISTS idx_{_MTIME_TABLE}_mtime ON {_MTIME_TABLE}(mtime);
 
 SCHEMA = "PRAGMA journal_mode=WAL;\n" + _TABLE_SCHEMA
 
-# FTS5 schema for full-text search on symbols
+# FTS5 schema for full-text search on symbols. Statement rows are EXCLUDED
+# from the sync triggers (write-path profile, 2026-10-24): they are the vast
+# majority of node upserts (~97% on a full rebuild) yet carry no searchable
+# content — names like "assignment:42" are pure FTS garbage, and tokenizing
+# them cost ~12s per full rebuild for negative search value. The WHEN
+# clauses keep insert/delete/update symmetric so a node's FTS presence
+# always matches its type.
 FTS_SCHEMA = f"""
 CREATE VIRTUAL TABLE IF NOT EXISTS {_FTS_TABLE} USING fts5(
     node_id,
@@ -116,23 +125,35 @@ CREATE VIRTUAL TABLE IF NOT EXISTS {_FTS_TABLE} USING fts5(
     content_rowid='rowid'
 );
 
--- Triggers to keep FTS index in sync
-CREATE TRIGGER IF NOT EXISTS {_NODE_TABLE}_ai AFTER INSERT ON {_NODE_TABLE} BEGIN
+-- Triggers to keep FTS index in sync (symbols only; statements skipped)
+CREATE TRIGGER IF NOT EXISTS {_NODE_TABLE}_ai AFTER INSERT ON {_NODE_TABLE}
+WHEN new.type != 'statement' BEGIN
     INSERT INTO {_FTS_TABLE}(rowid, node_id, name, signature, docstring)
     VALUES (new.rowid, new.node_id, new.name, new.signature, new.docstring);
 END;
 
-CREATE TRIGGER IF NOT EXISTS {_NODE_TABLE}_ad AFTER DELETE ON {_NODE_TABLE} BEGIN
+CREATE TRIGGER IF NOT EXISTS {_NODE_TABLE}_ad AFTER DELETE ON {_NODE_TABLE}
+WHEN old.type != 'statement' BEGIN
     INSERT INTO {_FTS_TABLE}({_FTS_TABLE}, rowid, node_id, name, signature, docstring)
     VALUES ('delete', old.rowid, old.node_id, old.name, old.signature, old.docstring);
 END;
 
-CREATE TRIGGER IF NOT EXISTS {_NODE_TABLE}_au AFTER UPDATE ON {_NODE_TABLE} BEGIN
+CREATE TRIGGER IF NOT EXISTS {_NODE_TABLE}_au AFTER UPDATE ON {_NODE_TABLE}
+WHEN old.type != 'statement' AND new.type != 'statement' BEGIN
     INSERT INTO {_FTS_TABLE}({_FTS_TABLE}, rowid, node_id, name, signature, docstring)
     VALUES ('delete', old.rowid, old.node_id, old.name, old.signature, old.docstring);
     INSERT INTO {_FTS_TABLE}(rowid, node_id, name, signature, docstring)
     VALUES (new.rowid, new.node_id, new.name, new.signature, new.docstring);
 END;
+"""
+
+# Drop the sync triggers so a changed FTS_SCHEMA definition (the WHEN
+# clauses above) recreates them on the next executescript — CREATE TRIGGER
+# IF NOT EXISTS alone never replaces an existing body.
+FTS_TRIGGER_REFRESH = f"""
+DROP TRIGGER IF EXISTS {_NODE_TABLE}_ai;
+DROP TRIGGER IF EXISTS {_NODE_TABLE}_ad;
+DROP TRIGGER IF EXISTS {_NODE_TABLE}_au;
 """
 
 
@@ -163,6 +184,8 @@ class SqliteGraphStore(GraphStoreProtocol):
         self._write_batch_owner: asyncio.Task[Any] | None = None
         self._write_batch_depth = 0
         self._edge_has_file_column: bool | None = None
+        # Raw path string -> canonical form (see _canonical_file_path).
+        self._canonical_path_cache: Dict[str, str] = {}
         # Dedicated single-worker executor for all synchronous SQLite work
         # (co-design review item 20b). Single-worker, NOT the default shared
         # pool: this store's dedicated connection (see _open_dedicated_connection)
@@ -307,7 +330,21 @@ class SqliteGraphStore(GraphStoreProtocol):
         return None
 
     def _canonical_file_path(self, file: str | Path) -> str:
-        """Normalize project-local file paths to repo-relative graph keys."""
+        """Normalize project-local file paths to repo-relative graph keys.
+
+        MEMOIZED (write-path profile, 2026-10-24): this runs once per NODE
+        and once per EDGE during upserts — 5.5M calls on a full corpus
+        rebuild, each doing a full ``Path.resolve()`` (a syscall walk). The
+        mapping is a pure function of the raw string for a store instance
+        (project_root is fixed), so an instance dict collapses the ~5,600
+        distinct corpus paths to one resolution each — ~80% of measured
+        persist-batch time. Dict get/set are GIL-atomic; the cap guards
+        against adversarial path variety.
+        """
+        key = str(file)
+        cached = self._canonical_path_cache.get(key)
+        if cached is not None:
+            return cached
         path = Path(file).expanduser()
         if not path.is_absolute():
             path = self._project_root / path
@@ -316,9 +353,13 @@ class SqliteGraphStore(GraphStoreProtocol):
         except OSError:
             resolved = path.absolute()
         try:
-            return resolved.relative_to(self._project_root).as_posix()
+            canonical = resolved.relative_to(self._project_root).as_posix()
         except ValueError:
-            return str(resolved)
+            canonical = str(resolved)
+        if len(self._canonical_path_cache) >= _CANONICAL_PATH_CACHE_MAX:
+            self._canonical_path_cache.clear()
+        self._canonical_path_cache[key] = canonical
+        return canonical
 
     def _file_path_variants(self, file: str | Path) -> List[str]:
         """Return raw plus canonical path forms for compatibility lookups."""
@@ -336,8 +377,12 @@ class SqliteGraphStore(GraphStoreProtocol):
         # Add new columns if upgrading from older schema
         self._migrate_schema(conn)
         self._edge_has_file_column = self._has_table_column(conn, _EDGE_TABLE, "file")
-        # Create FTS5 table separately (handles IF NOT EXISTS)
+        # Create FTS5 table separately (handles IF NOT EXISTS). The sync
+        # triggers are dropped first so a changed trigger definition (e.g.
+        # the statement-skip WHEN clauses) replaces the stale one —
+        # IF NOT EXISTS alone would keep serving the old body forever.
         try:
+            conn.executescript(FTS_TRIGGER_REFRESH)
             conn.executescript(FTS_SCHEMA)
         except sqlite3.OperationalError:
             # FTS5 might not be available on all SQLite builds
@@ -1241,31 +1286,52 @@ class SqliteGraphStore(GraphStoreProtocol):
             conn = self._connect()
 
             def _work() -> List[GraphNode]:
-                # Try FTS5 first
-                try:
-                    type_clause = ""
-                    params: list[Any] = [query, limit]
-                    if symbol_types:
-                        types = list(symbol_types)
-                        type_clause = f"AND n.type IN ({','.join('?' for _ in types)})"
-                        params = [query] + types + [limit]
+                # FTS5 first — but punctuation must not silently change what
+                # the call means. A query like "name:42" is VALID FTS5 syntax
+                # (a column filter: column `name` contains token `42`) that
+                # returns nothing for what the user meant; others ("a(b")
+                # raise OperationalError. Both cases retry as a quoted PHRASE
+                # (adjacent tokens — the intuitive meaning), and only when
+                # FTS5 is genuinely unavailable does the unranked LIKE
+                # fallback run.
+                import re
 
-                    fts_query = f"""
-                        SELECT n.node_id, n.type, n.name, n.file, n.line, n.end_line, n.lang,
-                               n.signature, n.docstring, n.parent_id, n.embedding_ref, n.metadata
-                        FROM {_FTS_TABLE} fts
-                        JOIN {_NODE_TABLE} n ON fts.node_id = n.node_id
-                        WHERE {_FTS_TABLE} MATCH ?
-                        {type_clause}
-                        ORDER BY rank
-                        LIMIT ?
-                    """
-                    cur = conn.execute(fts_query, params)
-                    return [self._row_to_node(row) for row in cur.fetchall()]
-                except sqlite3.OperationalError:
-                    pass
+                has_special = bool(re.search(r'[:*"^()]', query))
 
-                # Fallback: LIKE search
+                def _fts_search(match_param: str) -> Optional[List[GraphNode]]:
+                    try:
+                        type_clause = ""
+                        params: list[Any] = [match_param, limit]
+                        if symbol_types:
+                            types = list(symbol_types)
+                            type_clause = f"AND n.type IN ({','.join('?' for _ in types)})"
+                            params = [match_param] + types + [limit]
+
+                        fts_query = f"""
+                            SELECT n.node_id, n.type, n.name, n.file, n.line, n.end_line, n.lang,
+                                   n.signature, n.docstring, n.parent_id, n.embedding_ref, n.metadata
+                            FROM {_FTS_TABLE} fts
+                            JOIN {_NODE_TABLE} n ON fts.node_id = n.node_id
+                            WHERE {_FTS_TABLE} MATCH ?
+                            {type_clause}
+                            ORDER BY rank
+                            LIMIT ?
+                        """
+                        cur = conn.execute(fts_query, params)
+                        return [self._row_to_node(row) for row in cur.fetchall()]
+                    except sqlite3.OperationalError:
+                        return None  # FTS5 unavailable or unparseable
+
+                results = _fts_search(query)
+                if results is None or (not results and has_special):
+                    phrase_results = _fts_search(f'"{query}"')
+                    if phrase_results:
+                        return phrase_results
+                if results is not None:
+                    return results
+
+                # Fallback: LIKE search — only reached when FTS5 is missing
+                # (both raw and quoted-phrase MATCH failed operationally).
                 like_pattern = f"%{query}%"
                 type_clause = ""
                 params = [like_pattern, like_pattern, like_pattern, limit]
