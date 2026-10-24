@@ -1142,4 +1142,104 @@ mod tests {
         let grammar = language_for("go");
         assert!(grammar.is_none());
     }
+
+    fn parse_python(source: &[u8]) -> tree_sitter::Tree {
+        let grammar = language_for("python").unwrap();
+        let mut parser = Parser::new();
+        parser.set_language(&grammar).unwrap();
+        parser.parse(source, None).unwrap()
+    }
+
+    #[test]
+    fn sequential_edges_use_the_shadowed_thirty_line_rule() {
+        // Same-line pairs connect and gaps up to 30 lines connect — the
+        // SECOND _should_connect_cfg definition (the executed one).
+        // (Two assignments on adjacent lines yield 4 statements — each
+        // assignment also rides inside an expression_statement — and 3
+        // sequential edges between them.)
+        let source = b"a = 1\nb = 2\n";
+        let tree = parse_python(source);
+        let records = extract_statements_from_tree("python", "a.py", source, &tree);
+        let edges = build_sequential_cfg_edges(&records);
+        assert_eq!(edges.len(), 3);
+        assert!(edges.iter().all(|e| e.edge_type == "CFG_SUCCESSOR"));
+        assert!(edges.iter().all(|e| !e.structural));
+    }
+
+    #[test]
+    fn structural_edges_cover_false_branch_and_loop_back() {
+        let source = b"def f(xs):\n    for i in xs:\n        if i:\n            a = 1\n        else:\n            a = 2\n    return a\n";
+        let tree = parse_python(source);
+        let records = extract_statements_from_tree("python", "a.py", source, &tree);
+        let edges = build_structural_cfg_edges(&records, &tree.root_node());
+        let kinds: Vec<&str> = edges.iter().map(|e| e.edge_type.as_str()).collect();
+        assert!(kinds.contains(&"CFG_FALSE"), "{kinds:?}");
+        assert!(kinds.contains(&"CFG_LOOP_BACK"), "{kinds:?}");
+        assert!(edges.iter().all(|e| e.structural));
+    }
+
+    #[test]
+    fn structural_try_catch_edges() {
+        let source = b"try:\n    a = 1\nexcept ValueError:\n    a = 2\nfinally:\n    a = 3\n";
+        let tree = parse_python(source);
+        let records = extract_statements_from_tree("python", "a.py", source, &tree);
+        let edges = build_structural_cfg_edges(&records, &tree.root_node());
+        let kinds: Vec<&str> = edges.iter().map(|e| e.edge_type.as_str()).collect();
+        assert!(kinds.contains(&"CFG_CATCH"), "{kinds:?}");
+        assert!(kinds.contains(&"CFG_FINALLY"), "{kinds:?}");
+    }
+
+    #[test]
+    fn cdg_edges_sorted_deterministic() {
+        let source = b"def f(x):\n    if x:\n        a = 1\n        b = a\n    else:\n        c = 2\n    return a\n";
+        let tree = parse_python(source);
+        let records = extract_statements_from_tree("python", "a.py", source, &tree);
+        let cfg = build_sequential_cfg_edges(&records);
+        let cdg = build_cdg_edges(&records, &cfg);
+        assert!(!cdg.is_empty());
+        let mut sorted = cdg.clone();
+        sorted.sort_by(|a, b| (&a.src, &a.dst, &a.edge_type).cmp(&(&b.src, &b.dst, &b.edge_type)));
+        assert_eq!(cdg, sorted);
+        assert!(cdg
+            .iter()
+            .all(|e| e.edge_type == "CDG" || e.edge_type == "CDG_LOOP"));
+    }
+
+    #[test]
+    fn ddg_edges_reproduce_def_use_with_redundant_visits() {
+        // The double-recursion semantics: uses appended per occurrence per
+        // ancestor visit — duplicates preserved.
+        // Module-level def + use in a DIFFERENT statement (uses nested in a
+        // function resolve to the enclosing function statement and
+        // self-cancel against their own definitions).
+        let source = b"total = 0\nx = total + 1\nprint(total)\n";
+        let tree = parse_python(source);
+        let records = extract_statements_from_tree("python", "a.py", source, &tree);
+        let ddg = build_ddg_edges("python", &records, &tree.root_node(), "a.py", source);
+        assert!(!ddg.is_empty());
+        assert!(ddg.iter().all(|e| e.edge_type == "DDG_DEF_USE"));
+        assert!(ddg.iter().any(|e| e.variable.as_deref() == Some("total")));
+        // Duplicates (multiple visits / occurrences) preserved.
+        assert!(
+            ddg.len()
+                > ddg
+                    .iter()
+                    .map(|e| (e.src.clone(), e.dst.clone()))
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+        );
+    }
+
+    #[test]
+    fn complete_ccg_assembles_all_three_graphs() {
+        // Needs a condition (CDG is emitted from condition/loop/switch
+        // statements only) and a cross-statement def-use (DDG).
+        let source = b"total = 0\nif total:\n    x = total + 1\nprint(total)\n";
+        let tree = parse_python(source);
+        let result = build_ccg_for_tree("python", "a.py", source, &tree);
+        assert!(!result.statements.is_empty());
+        assert!(!result.cfg_edges.is_empty());
+        assert!(!result.cdg_edges.is_empty());
+        assert!(!result.ddg_edges.is_empty());
+    }
 }

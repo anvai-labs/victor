@@ -358,9 +358,7 @@ class CodeContextGraphBuilder:
         for record in result.cdg_edges:
             edges.append(_edge(record, {"file": file_str}))
         for record in result.ddg_edges:
-            edges.append(
-                _edge(record, {"variable": record.variable, "file": file_str})
-            )
+            edges.append(_edge(record, {"variable": record.variable, "file": file_str}))
         return nodes, edges
 
     def _detect_language(self, file_path: Path) -> str:
