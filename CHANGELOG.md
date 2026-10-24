@@ -5,6 +5,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-24
+
+### Added
+
+- **Hierarchical coupling visualizations**: `victor index graph viz --level
+  package|module|class` — deterministic query→mermaid over the project graph
+  (Tarjan cycle-island highlight; SVG when mmdc is present) (#1483).
+- **Native CCG engine, phases 1-2**: statement extraction (28.2×) and the
+  complete CCG — CFG + CDG + DDG edge builders — in one detached, rayon-
+  parallel batch call (81.1×; 600 files / 4.33M edges identical) with
+  record-for-record differential parity; the Python builders stay as oracle
+  and fallback (#1488, #1489). Basis and boundary recorded in the native-
+  acceleration-strategy doc (item 7, including the fork-pool negative result
+  #1487).
+- `--parse-workers` / `search.graph.parse_workers`; the silent 8-core parse
+  cap removed; GraphIndexStats carries the Amdahl split (parse/persist/
+  harvest busy times) printed and sidecar'd (#1481).
+- ADR-033 filed: interactive multi-level UML visualization roadmap (#1492).
+
+### Changed
+
+- **Provider message vocabulary kernel** (`victor.core.provider_messages`):
+  Message/StreamChunk/CompletionResponse (the most load-bearing types by
+  compiler call-graph) as pure data with zero provider deps; base re-exports
+  unchanged (#1484).
+- Context assembly extracted from the orchestrator (W3: get_assembled_
+  messages et al. → conversation/context_assembly.py; the other three
+  planned blocks verified already extracted) (#1485). ProfileConfig → its
+  own module (#1486).
+- **Write path 2.1×** (persist 580→281s on the full corpus): path
+  canonicalization memoized (was once per node + per edge — 5.5M
+  Path.resolve() syscalls per rebuild); FTS triggers skip statement rows
+  (~97% of upserts, pure FTS garbage); search_symbols no longer silently
+  switches engines on punctuation (quoted-phrase FTS retry) (#1491).
+- Agent.__init__ validates orchestrators structurally, not by class-name
+  string; test doubles renamed semantically (AgentOrchestratorMock) with a
+  general collision guard and tracked-debt allowlist (#1492).
+
+### Fixed
+
+- Tier-3 skip taxonomy: marker-absent providers report their reason
+  (no-tsconfig / no-cargo-toml / no-compile-database / no-jvm-build /
+  no-gemfile / no-go-module), never conflated with dump-failed (#1480,
+  #1482).
+- Cold-import cycle: agent modules importing through the framework.task
+  compat facade cycled when framework.task was the first framework import
+  (perf-suite collection order) (#1479 — landed in 0.16.0's promotion).
+- `victor index graph impact` prefers non-test definitions and lists
+  candidates on ambiguity instead of a bare refusal (#1492).
+
 ## [0.16.0] - 2026-10-23
 
 ### Added
