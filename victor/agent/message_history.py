@@ -29,7 +29,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from victor.config.conversation_settings import DEFAULT_MAX_CONVERSATION_HISTORY
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 logger = logging.getLogger(__name__)
 

@@ -78,7 +78,7 @@ from victor.agent.services.protocols.streaming_runtime import (
 )
 from victor.agent.streaming.context import StreamingChatContext
 from victor.agent.services.turn_execution_runtime import TurnDisposition
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 from victor.tools.decorators import resolve_tool_name
 

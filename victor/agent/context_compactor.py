@@ -53,7 +53,7 @@ from victor.config.orchestrator_constants import (
 # Lazy import to avoid circular dependency
 AdaptiveCompactionThreshold = None
 from victor.core.shared_types import TaskPhase
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 if TYPE_CHECKING:
     from victor.agent.conversation.controller import ConversationController
@@ -762,7 +762,7 @@ class ContextCompactor:
             return None
 
         # Wrap summary in a message
-        from victor.providers.base import Message
+        from victor.core.provider_messages import Message
 
         summary_msg = Message(
             role="assistant",

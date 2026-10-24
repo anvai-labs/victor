@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional, Set
 
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 logger = logging.getLogger(__name__)
 

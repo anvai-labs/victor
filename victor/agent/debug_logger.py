@@ -35,7 +35,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 if TYPE_CHECKING:
     from victor.agent.presentation import PresentationProtocol

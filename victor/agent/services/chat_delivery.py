@@ -6,7 +6,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 
 class ContentChunkGenerator(Protocol):

@@ -48,7 +48,7 @@ from victor.core.loop_thresholds import (
     DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD,
     DEFAULT_BLOCKED_TOTAL_THRESHOLD,
 )
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 
 if TYPE_CHECKING:

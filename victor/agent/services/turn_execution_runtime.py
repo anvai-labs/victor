@@ -57,7 +57,7 @@ from victor.agent.runtime.context import RuntimeContextResolver, require_runtime
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
-from victor.providers.base import CompletionResponse
+from victor.core.provider_messages import CompletionResponse
 from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 
 if TYPE_CHECKING:

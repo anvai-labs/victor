@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Protocol, Sequence
 
 from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
-from victor.providers.base import Message as ProviderMessage
+from victor.core.provider_messages import Message as ProviderMessage
 
 from victor.agent.runtime.context import AgentRuntimeContext
 

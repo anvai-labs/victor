@@ -77,7 +77,7 @@ from victor.agent.task_analyzer import TaskAnalysis
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.execution_checkpoint import ApprovalState
 from victor.core.task.protocols import TaskComplexity
-from victor.providers.base import CompletionResponse
+from victor.core.provider_messages import CompletionResponse
 
 if TYPE_CHECKING:
     from victor.agent.services.protocols.chat_runtime import PlanningContextProtocol

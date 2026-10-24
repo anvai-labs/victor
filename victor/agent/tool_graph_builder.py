@@ -41,7 +41,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
-from victor.providers.base import ToolDefinition
+from victor.core.provider_messages import ToolDefinition
 from victor.tools.registry import ToolRegistry, CostTier
 
 logger = logging.getLogger(__name__)
