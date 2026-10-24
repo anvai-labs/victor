@@ -53,18 +53,18 @@ def extract_statements(language: str, file_path: str, source: bytes) -> Optional
     """
     if not native_statements_available(language):
         return None
-    try:  # pragma: no cover - requires the built extension; parity is
-        # exercised in the native CI job (differential tests), and the
-        # fallback path is what pure-Python installs measure.
+    # Extension-only path from here: parity is exercised in the native CI
+    # job (differential tests); pure-Python installs measure the fallback.
+    # Bounded failure semantics — degrade to the Python walk, never break
+    # the index run; no side effects replay after an FFI failure.
+    try:  # pragma: no cover
         results = _native.extract_statements_batch([(language, file_path, source)])
-    except Exception:  # pragma: no cover - bounded failure semantics:
-        # degrade to the Python walk, never break the index run; no side
-        # effects replay after an FFI failure.
+    except Exception:  # pragma: no cover
         return None
     return results[0] if results else []
 
 
-def extract_statements_batch(
+def extract_statements_batch(  # pragma: no cover - extension-only path
     files: List[Tuple[str, str, bytes]],
 ) -> Optional[List[List[Any]]]:
     """Batch variant — one FFI crossing for many files (rayon inside)."""
@@ -72,7 +72,7 @@ def extract_statements_batch(
         return None
     if not files or not all(lang in NATIVE_STATEMENT_LANGUAGES for lang, _, _ in files):
         return None
-    try:  # pragma: no cover - extension-only path (see extract_statements)
+    try:
         return _native.extract_statements_batch(files)
-    except Exception:  # pragma: no cover - bounded failure semantics
+    except Exception:
         return None

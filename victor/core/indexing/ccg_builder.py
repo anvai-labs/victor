@@ -516,7 +516,7 @@ class CodeContextGraphBuilder:
         walk(ast_root)
         return nodes
 
-    def _extract_statement_nodes_native(
+    def _extract_statement_nodes_native(  # pragma: no cover - extension-only
         self, GraphNode: Any, file_path: Path, source_code: Optional[str]
     ) -> Optional[List[Any]]:
         """Native fast path — None when unavailable (caller falls back).
@@ -524,12 +524,11 @@ class CodeContextGraphBuilder:
         The Rust walk (victor_native.extract_statements_batch) is
         record-for-record identical to the Python walk below (differential
         parity pinned by tests); GraphNode construction stays here.
+        Exercised by the differential tests in the native CI job where the
+        extension is built; pure-Python installs measure the fallback walk.
         """
         if source_code is None:
             return None
-        # pragma: no cover - extension-only path: exercised by the
-        # differential tests in the native CI job where the extension is
-        # built; pure-Python installs measure the fallback walk below.
         from victor.processing.native.ccg_extract import extract_statements
 
         records = extract_statements(self.language, str(file_path), source_code.encode())
