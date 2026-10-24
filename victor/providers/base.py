@@ -63,20 +63,22 @@ from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
 # the system, and importing them must not drag provider machinery along.
 # Re-exported here unchanged: the 200+ existing import sites keep working,
 # and `from victor.providers.base import Message` remains the compat path.
+# The `as` spelling is mypy's explicit-reexport contract (the strict gates
+# forbid implicit re-export).
 from victor.core.provider_messages import (  # noqa: F401 - compat re-export
-    CacheCostModel,
-    CompletionResponse,
-    Message,
-    ModelNotFoundError,
-    ProviderAuthError,
-    ProviderConnectionError,
-    ProviderError,
-    ProviderInvalidResponseError,
-    ProviderNotFoundError,
-    ProviderRateLimitError,
-    ProviderTimeoutError,
-    StreamChunk,
-    ToolDefinition,
+    CacheCostModel as CacheCostModel,
+    CompletionResponse as CompletionResponse,
+    Message as Message,
+    ModelNotFoundError as ModelNotFoundError,
+    ProviderAuthError as ProviderAuthError,
+    ProviderConnectionError as ProviderConnectionError,
+    ProviderError as ProviderError,
+    ProviderInvalidResponseError as ProviderInvalidResponseError,
+    ProviderNotFoundError as ProviderNotFoundError,
+    ProviderRateLimitError as ProviderRateLimitError,
+    ProviderTimeoutError as ProviderTimeoutError,
+    StreamChunk as StreamChunk,
+    ToolDefinition as ToolDefinition,
 )
 
 
