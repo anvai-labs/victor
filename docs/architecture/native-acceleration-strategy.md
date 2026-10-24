@@ -95,6 +95,28 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    noise controls; never make microbenchmarks the sole merge gate.
 6. Revisit Cython only if this work identifies a qualifying hotspot for which Rust/PyO3 and an
    already-installed vector library both fail the decision gates.
+7. **Code-index parse parallelism (measured 2026-10-24, self-analysis round 2 W2).** The graph
+   indexer's parse phase is the dominant cost (1,719s busy of a 957s wall run on the victor
+   corpus at 16 cores; the thread pool achieves only ~1.8x effective). Three measurements now
+   constrain the fix space:
+   - **py-tree-sitter's `parse()` holds the GIL** — a controlled probe (589KiB python source,
+     8 threads x 5 parses) measured 1,386ms wall vs 181ms perfect-scaling and 1,449ms
+     GIL-bound predictions. Threads cannot parallelize the parse even at the C-binding level.
+   - **Repository prep is NOT a hidden serial bound**: `prepare_repository_snapshot`
+     (codegraph `parse_repo` over 4,921 files, scope binding on) measures **45.4s** serial —
+     the executor phase (CCG building + projection) is where the time is.
+   - **Process-IPC parallelism is a measured dead end**: a full fork-based process-parse
+     implementation (fork-inherited pipeline, warmed imports, parent-side phase timing) ran the
+     same corpus at 1,411s wall vs 957s thread mode — normalizing for a fresh 499s pyright
+     harvest (vs 56s cached), the pipeline itself was a wash (~912s vs ~901s). The GIL win was
+     consumed by pickling full `ParseResult`s — the ~1.5M CCG statement `GraphNode`s make the
+     per-file IPC payload enormous. The experiment was removed per the completion gate.
+   Consequence: the only remaining path to parse-phase parallelism is the **in-process native
+   extraction engine** (Rust/PyO3 in victor-codegraph: tree-sitter crates are first-class Rust
+   over the identical C core, rayon intra-batch, `py.allow_threads`, extraction stays
+   in-process so no result pickling). The serial write path (595s busy, 62% occupancy) is the
+   second bound — WAL/batch tuning pairs with the engine for the full win. Any future
+   "just use processes" proposal must answer the measured IPC objection first.
 
 ## Primary references
 
