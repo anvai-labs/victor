@@ -118,6 +118,16 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    second bound — WAL/batch tuning pairs with the engine for the full win. Any future
    "just use processes" proposal must answer the measured IPC objection first.
 
+   **Engine phase 1 LANDED (vertical slice, 2026-10-24)**: native CCG statement extraction
+   in the victor-ai Rust workspace (`ccg_extract.rs`, tree-sitter-python/-javascript/
+   -typescript grammars, `Python::detach` + rayon, one FFI crossing per batch).
+   Record-for-record byte parity with the Python walk (differential tests over repo
+   fixtures, python + typescript; scope cascade and sha256-16 ids identical) and a
+   measured **28.2x** on the statement-extraction walk (800 files / 188,200 statements:
+   3.7s Python → 0.1s native, counts identical). The Python walk STAYS as oracle and
+   fallback; `GraphNode` construction remains in Python. Next engine phases: the CFG/CDG/
+   DDG edge builders over the native statement records, then codegraph symbol extraction.
+
 ## Primary references
 
 - [PyO3 performance guidance](https://pyo3.rs/main/performance.html)

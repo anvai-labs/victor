@@ -421,7 +421,9 @@ class CodeContextGraphBuilder:
             source_lines = []
 
         # Walk the AST and build CFG nodes
-        statement_nodes = self._extract_statement_nodes(ast_root, file_path, source_lines)
+        statement_nodes = self._extract_statement_nodes(
+            ast_root, file_path, source_lines, source_code=source_code
+        )
         nodes.extend(statement_nodes)
 
         # Build CFG edges by analyzing control flow
@@ -435,6 +437,7 @@ class CodeContextGraphBuilder:
         ast_root: Any,
         file_path: Path,
         source_lines: List[str],
+        source_code: Optional[str] = None,
     ) -> List[Any]:
         """Extract statement-level nodes from AST.
 
@@ -442,11 +445,17 @@ class CodeContextGraphBuilder:
             ast_root: Tree-sitter AST root node
             file_path: Path to source file
             source_lines: Source code lines for content extraction
+            source_code: Full source (enables the native fast path —
+                byte-identical records without per-node GIL hops)
 
         Returns:
             List of GraphNode instances representing statements
         """
         GraphNode, _, _ = _get_graph_types()
+
+        native_nodes = self._extract_statement_nodes_native(GraphNode, file_path, source_code)
+        if native_nodes is not None:
+            return native_nodes
 
         nodes: List[Any] = []
         file_str = str(file_path)
@@ -505,6 +514,46 @@ class CodeContextGraphBuilder:
                     walk(child, new_scope)
 
         walk(ast_root)
+        return nodes
+
+    def _extract_statement_nodes_native(
+        self, GraphNode: Any, file_path: Path, source_code: Optional[str]
+    ) -> Optional[List[Any]]:
+        """Native fast path — None when unavailable (caller falls back).
+
+        The Rust walk (victor_native.extract_statements_batch) is
+        record-for-record identical to the Python walk below (differential
+        parity pinned by tests); GraphNode construction stays here.
+        """
+        if source_code is None:
+            return None
+        from victor.processing.native.ccg_extract import extract_statements
+
+        records = extract_statements(self.language, str(file_path), source_code.encode())
+        if records is None:
+            return None
+        file_str = str(file_path)
+        nodes = []
+        for record in records:
+            nodes.append(
+                GraphNode(
+                    node_id=record.node_id,
+                    type="statement",
+                    name=f"{record.node_type}:{record.start_line}",
+                    file=file_str,
+                    line=record.start_line,
+                    end_line=record.end_line,
+                    lang=self.language,
+                    ast_kind=record.node_type,
+                    scope_id=record.scope_id or None,
+                    statement_type=record.statement_type,
+                    visibility=record.visibility,
+                    metadata={
+                        "node_type": record.node_type,
+                        "content_preview": record.content_preview,
+                    },
+                )
+            )
         return nodes
 
     def _classify_statement(self, node_type: str) -> StatementType:

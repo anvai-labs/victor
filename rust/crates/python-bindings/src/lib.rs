@@ -46,6 +46,7 @@ use pyo3::prelude::*;
 
 mod arg_normalizer;
 mod ast_indexer;
+mod ccg_extract;
 mod chunking;
 mod classifier;
 mod context_fitter;
@@ -138,6 +139,8 @@ fn victor_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<thinking::PatternAnalysis>()?;
     m.add_function(wrap_pyfunction!(thinking::detect_circular_phrases, m)?)?;
     m.add_function(wrap_pyfunction!(thinking::count_circular_patterns, m)?)?;
+    m.add_function(wrap_pyfunction!(ccg_extract::extract_statements_batch, m)?)?;
+    m.add_class::<ccg_extract::StatementRecord>()?;
     m.add_function(wrap_pyfunction!(thinking::find_circular_patterns, m)?)?;
 
     // Task classification classes and functions
