@@ -38,7 +38,7 @@ from victor_contracts.core.types import VerticalDefinition
 # Agent.__init__ validates type(orchestrator).__name__ == "AgentOrchestrator".
 # Defining this class at module level gives inline tests a lightweight mock that
 # passes the check without importing the real orchestrator (which has heavy deps).
-class AgentOrchestrator(MagicMock):
+class AgentOrchestratorMock(MagicMock):
     """MagicMock subclass whose type name satisfies Agent.__init__ validation."""
 
 
@@ -51,7 +51,7 @@ class AgentOrchestrator(MagicMock):
 def mock_orchestrator():
     """Create a mock AgentOrchestrator for testing."""
 
-    orchestrator = AgentOrchestrator()
+    orchestrator = AgentOrchestratorMock()
     orchestrator.provider = MagicMock()
     orchestrator.provider.name = "test_provider"
     orchestrator.model = "test-model"
@@ -231,7 +231,7 @@ class TestAgentFromOrchestrator:
         """from_orchestrator should handle missing provider name."""
         from victor.framework.agent import Agent
 
-        orchestrator = AgentOrchestrator()
+        orchestrator = AgentOrchestratorMock()
         orchestrator.provider = MagicMock(spec=[])  # No 'name' attribute
         orchestrator.model = None
 
@@ -1512,7 +1512,7 @@ class TestAgentCreate:
         """create should create Agent with orchestrator."""
         from victor.framework.agent import Agent
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
 
         with (
             patch("victor.config.settings.load_settings", return_value=MagicMock()),
@@ -1531,7 +1531,7 @@ class TestAgentCreate:
         """create should apply vertical configuration."""
         from victor.framework.agent import Agent
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
 
         with (
             patch("victor.config.settings.load_settings", return_value=MagicMock()),
@@ -1553,7 +1553,7 @@ class TestAgentCreate:
         """create should respect provider hints from vertical config."""
         from victor.framework.agent import Agent
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
 
         mock_vertical.get_definition = MagicMock(
             return_value=VerticalDefinition(
@@ -1600,7 +1600,7 @@ class TestAgentCreate:
             def get_system_prompt(cls):
                 return "Use direct config path."
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
 
         with (
             patch("victor.config.settings.load_settings", return_value=MagicMock()),
@@ -1656,7 +1656,7 @@ class TestAgentCreate:
         from victor.framework.agent import Agent
         from victor.framework.session_config import SessionConfig
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
         settings = MagicMock()
         settings.provider = SimpleNamespace(
             default_provider="ollama",
@@ -1710,7 +1710,7 @@ class TestAgentCreate:
         from victor.framework.agent import Agent
         from victor.framework.session_config import SessionConfig
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
         settings = MagicMock()
         settings.provider = SimpleNamespace(
             default_provider="ollama",
@@ -1762,7 +1762,7 @@ class TestAgentCreateTeam:
         from victor.framework.agent import Agent
         from victor.framework.teams import TeamMemberSpec
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
         mock_team = MagicMock()
 
         with (
@@ -1794,7 +1794,7 @@ class TestAgentCreateTeam:
         from victor.framework.teams import TeamMemberSpec
         from victor.teams import TeamFormation
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
         mock_team = MagicMock()
 
         with (
@@ -1825,7 +1825,7 @@ class TestAgentCreateTeam:
         from victor.framework.teams import TeamMemberSpec
         from victor.teams import TeamFormation
 
-        mock_orchestrator = AgentOrchestrator()
+        mock_orchestrator = AgentOrchestratorMock()
         mock_team = MagicMock()
 
         with (

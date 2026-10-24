@@ -25,7 +25,7 @@ from victor.framework.task import TaskResult
 
 # Agent.__init__ validates type(orchestrator).__name__ == "AgentOrchestrator".
 # We need to create a class with the exact name "AgentOrchestrator" to pass validation.
-class AgentOrchestrator(MagicMock):
+class AgentOrchestratorMock(MagicMock):
     """Lightweight mock that passes Agent.__init__ validation."""
 
     pass
@@ -34,7 +34,7 @@ class AgentOrchestrator(MagicMock):
 @pytest.fixture
 def mock_orchestrator():
     """Create a mock orchestrator for testing."""
-    orchestrator = AgentOrchestrator()
+    orchestrator = AgentOrchestratorMock()
     orchestrator.provider = MagicMock()
     orchestrator.provider.name = "test_provider"
     orchestrator.model = "test-model"

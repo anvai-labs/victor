@@ -465,7 +465,14 @@ async def _impact_async(
 
 
 async def _resolve_target(target: str, graph_store) -> Optional[str]:
-    """Resolve a target string to a node ID."""
+    """Resolve a target string to a node ID.
+
+    Ambiguity handling: a bare name matching several nodes prefers
+    NON-TEST definitions (test doubles routinely share names with the
+    production symbols they stand in for — 14 such classes in this repo),
+    and when even that leaves multiple candidates, prints them so the user
+    can disambiguate with the file:line form instead of a bare refusal.
+    """
     from victor.storage.graph.edge_types import EdgeType
 
     exact = await graph_store.get_node_by_id(target)
@@ -488,6 +495,25 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
     nodes = await graph_store.find_nodes(name=target)
     if len(nodes) == 1:
         return nodes[0].node_id
+
+    if len(nodes) > 1:
+        non_test = [n for n in nodes if not n.file.startswith("tests/")]
+        candidates = non_test if non_test else nodes
+        if len(candidates) == 1:
+            return candidates[0].node_id
+        # Still ambiguous: show the candidates — a bare None erases the
+        # information the user needs to proceed.
+        console.print(
+            f"[yellow]Ambiguous target '{target}' — {len(candidates)} definitions:[/yellow]"
+        )
+        for node in candidates[:10]:
+            console.print(f"  {node.name} ({node.type}) {node.file}:{node.line}")
+        if len(candidates) > 10:
+            console.print(f"  ... {len(candidates) - 10} more")
+        console.print(
+            "[dim]Disambiguate with the file:line form (e.g. "
+            f"'{candidates[0].file}:{candidates[0].line}')[/dim]"
+        )
 
     return None
 
