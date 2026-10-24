@@ -145,3 +145,99 @@ def test_fallback_when_native_absent(monkeypatch):
     monkeypatch.setattr(ccg_extract, "_NATIVE_AVAILABLE", False)
     monkeypatch.setattr(ccg_extract, "native_statements_available", lambda language: False)
     assert ccg_extract.extract_statements("python", "/x/a.py", b"x = 1") is None
+
+
+class TestCompleteCcgPhase2:
+    """Engine phase 2: the complete CCG (CFG + CDG + DDG) natively."""
+
+    def _native_result(self, path: Path, language: str):
+        if not native_statements_available(language):
+            pytest.skip("native extension not built")
+        import victor_native
+
+        return victor_native.build_ccg_batch([(language, str(path), path.read_bytes())])[0]
+
+    def _python_result(self, path: Path, language: str):
+        import asyncio
+
+        builder = CodeContextGraphBuilder(language=language)
+        tree = _parse_with(path, language)
+        source = path.read_text()
+        nodes = builder._extract_statement_nodes(
+            tree.root_node, path, source.split("\n"), source_code=None
+        )
+        cfg = builder._build_cfg_edges(nodes, tree.root_node, path)
+        cdg = asyncio.run(builder._build_cdg(nodes, cfg))
+        ddg = asyncio.run(builder._build_ddg(tree.root_node, nodes, path, source))
+        return nodes, cfg, cdg, ddg
+
+    @pytest.mark.parametrize("fixture", ["victor/core/graph_rag/precise_providers.py"])
+    def test_complete_ccg_matches_python_builders(self, fixture):
+        """CFG in order; CDG as multiset (Python emits in hash-randomized
+        set order — consumers upsert by key, order-insensitive by
+        contract); DDG in order with variables."""
+        from collections import Counter
+
+        path = REPO_ROOT / fixture
+        if not path.exists():
+            pytest.skip(f"fixture not present: {fixture}")
+        result = self._native_result(path, "python")
+        p_nodes, p_cfg, p_cdg, p_ddg = self._python_result(path, "python")
+
+        assert [r.node_id for r in result.statements] == [n.node_id for n in p_nodes]
+        assert [(e.src, e.dst, e.edge_type) for e in result.cfg_edges] == [
+            (e.src, e.dst, str(e.type.value)) for e in p_cfg
+        ]
+        assert Counter((e.src, e.dst, e.edge_type) for e in result.cdg_edges) == Counter(
+            (e.src, e.dst, str(e.type.value)) for e in p_cdg
+        )
+        assert [(e.src, e.dst, e.variable) for e in result.ddg_edges] == [
+            (e.src, e.dst, e.metadata.get("variable")) for e in p_ddg
+        ]
+
+    def test_integrated_native_path_equals_builtin_including_metadata(self):
+        """Through _build_native_ccg: GraphNode/GraphEdge construction with
+        the exact metadata shapes of the Python builders."""
+        import asyncio
+        from pathlib import Path as P
+
+        path = REPO_ROOT / "victor/core/graph_rag/precise_providers.py"
+        if not path.exists() or not native_statements_available("python"):
+            pytest.skip("fixture or native extension unavailable")
+        builder = CodeContextGraphBuilder(language="python")
+        source = path.read_text()
+        native = builder._build_native_ccg(P(path), "python", source)
+        assert native is not None
+        n_nodes, n_edges = native
+
+        ast_root = builder._parse_source(source, P(path), "python")
+        cfg_nodes, cfg_edges = asyncio.run(builder._build_cfg(ast_root, P(path), source))
+        cdg = asyncio.run(builder._build_cdg(cfg_nodes, cfg_edges))
+        ddg = asyncio.run(builder._build_ddg(ast_root, cfg_nodes, P(path), source))
+
+        def t(e):
+            return str(getattr(e.type, "value", e.type))
+
+        def ekey(e):
+            return (e.src, e.dst, t(e), e.weight, tuple(sorted((e.metadata or {}).items())))
+
+        assert len(n_nodes) == len(cfg_nodes)
+        assert [(n.node_id, n.name, n.line, n.statement_type) for n in n_nodes] == [
+            (n.node_id, n.name, n.line, n.statement_type) for n in cfg_nodes
+        ]
+        # CFG + DDG in order; CDG as multiset (hash-randomized Python order).
+        nat_cfg = [ekey(e) for e in n_edges if t(e).startswith("CFG")]
+        nat_ddg = [ekey(e) for e in n_edges if t(e).startswith("DDG")]
+        assert nat_cfg == [ekey(e) for e in cfg_edges]
+        assert nat_ddg == [ekey(e) for e in ddg]
+        from collections import Counter
+
+        assert Counter(ekey(e) for e in n_edges if t(e).startswith("CDG")) == Counter(
+            ekey(e) for e in cdg
+        )
+
+    def test_unsupported_language_ccg_falls_back(self):
+        from victor.processing.native.ccg_extract import build_ccg, native_ccg_available
+
+        assert native_ccg_available("go") is False
+        assert build_ccg("go", "/x/main.go", b"package main") is None
