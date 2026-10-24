@@ -25,7 +25,7 @@ import asyncio
 import logging
 from typing import Any, List, Optional, TYPE_CHECKING
 
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 if TYPE_CHECKING:
     from victor.providers.base import BaseProvider

@@ -17,7 +17,7 @@ from victor.core.errors import (
     ProviderRateLimitError,
     ProviderTimeoutError,
 )
-from victor.providers.base import Message, StreamChunk
+from victor.core.provider_messages import Message, StreamChunk
 
 logger = logging.getLogger(__name__)
 

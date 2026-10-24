@@ -44,7 +44,7 @@ from victor.agent.request_scope_heuristics import (
 )
 from victor.framework.topology_runtime import prepare_topology_runtime_contract
 from victor.core.task.protocols import TaskComplexity
-from victor.providers.base import Message, StreamChunk
+from victor.core.provider_messages import Message, StreamChunk
 from victor.providers.openai_compat import consume_last_tool_message_cleanup_stats
 
 if TYPE_CHECKING:

@@ -42,7 +42,7 @@ from victor.core.completion_markers import (
     strip_active_completion_markers,
 )
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
-from victor.providers.base import CompletionResponse, StreamChunk
+from victor.core.provider_messages import CompletionResponse, StreamChunk
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.streaming.tool_execution import ToolExecutionResult
 

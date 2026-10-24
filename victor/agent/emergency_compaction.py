@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 logger = logging.getLogger(__name__)
 

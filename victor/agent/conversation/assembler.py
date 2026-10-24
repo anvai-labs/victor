@@ -28,7 +28,7 @@ from victor.config.orchestrator_constants import (
     ContextAssemblerConfig,
     CONTEXT_ASSEMBLER_CONFIG,
 )
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 logger = logging.getLogger(__name__)
 

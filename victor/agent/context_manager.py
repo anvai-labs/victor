@@ -56,7 +56,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Optional, TYPE_CHECKING
 
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 if TYPE_CHECKING:
     from victor.agent.conversation.controller import (

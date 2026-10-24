@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from victor.providers.base import CompletionResponse
+from victor.core.provider_messages import CompletionResponse
 
 
 class PlanningChatRuntime:

@@ -28,7 +28,7 @@ from victor.config.orchestrator_constants import (
     DeduplicationConfig,
     DEDUPLICATION_CONFIG,
 )
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 logger = logging.getLogger(__name__)
 

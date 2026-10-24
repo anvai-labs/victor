@@ -24,7 +24,7 @@ import re
 import logging
 from typing import List, Optional, Protocol
 
-from victor.providers.base import Message
+from victor.core.provider_messages import Message
 
 logger = logging.getLogger(__name__)
 

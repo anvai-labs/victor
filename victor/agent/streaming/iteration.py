@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 
 if TYPE_CHECKING:
     from victor.agent.presentation import PresentationProtocol

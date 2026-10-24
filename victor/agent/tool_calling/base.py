@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from victor.providers.base import ToolDefinition
+from victor.core.provider_messages import ToolDefinition
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 
 logger = logging.getLogger(__name__)

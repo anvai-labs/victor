@@ -17,7 +17,6 @@
 import contextlib
 import logging
 import math
-from dataclasses import dataclass
 import ssl
 import time
 import threading
@@ -32,8 +31,6 @@ from typing import (
 )
 
 logger = logging.getLogger(__name__)
-
-from pydantic import BaseModel, Field
 
 from victor.core.circuit_breaker import CircuitBreakerError
 from victor.providers.circuit_breaker import (
@@ -57,135 +54,30 @@ from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
 # is strictly more expressive than boolean Protocol conformance — e.g.
 # ``supports_reasoning_effort(model)`` is per-model — so no parallel Protocol /
 # ``is_*_provider`` helper layer is kept.
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
-
-class Message(BaseModel):
-    """Standard message format across all providers."""
-
-    role: str = Field(
-        ...,
-        description=(
-            "Message role. OpenAI Chat Completions supports developer, system, user, "
-            "assistant, tool, and legacy function; other provider families may differ."
-        ),
-    )
-    content: str = Field(..., description="Message content")
-    name: Optional[str] = Field(default=None, description="Optional name for the message sender")
-    tool_calls: Optional[List[Dict[str, Any]]] = Field(
-        default=None, description="Tool calls requested by the assistant"
-    )
-    tool_call_id: Optional[str] = Field(
-        default=None, description="ID of the tool call being responded to"
-    )
-    images: Optional[List[str]] = Field(
-        default=None,
-        description="Image data URIs (data:image/png;base64,...) for multimodal user messages",
-    )
-    metadata: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Internal metadata (e.g. MessageSource). Never serialised to providers.",
-        exclude=True,
-    )
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert message to dictionary representation."""
-        return self.model_dump()
-
-
-class ToolDefinition(BaseModel):
-    """Standard tool definition format.
-
-    The optional schema_level tracks which verbosity tier was used to
-    generate the description and parameters. It is excluded from
-    serialization (never sent to providers) — used only for internal
-    cache-aware ordering.
-    """
-
-    name: str = Field(..., description="Tool name")
-    description: str = Field(..., description="What the tool does")
-    parameters: Dict[str, Any] = Field(..., description="JSON Schema for tool parameters")
-    schema_level: Optional[str] = Field(default=None, exclude=True)
-
-
-class CompletionResponse(BaseModel):
-    """Standard completion response format."""
-
-    content: str = Field(..., description="Generated content")
-    role: str = Field(default="assistant", description="Response role")
-    tool_calls: Optional[List[Dict[str, Any]]] = Field(None, description="Tool calls requested")
-    stop_reason: Optional[str] = Field(None, description="Why generation stopped")
-    usage: Optional[Dict[str, int | bool]] = Field(
-        None, description="Token usage stats and reasoning inclusion convention"
-    )
-    model: Optional[str] = Field(None, description="Model used")
-    raw_response: Optional[Dict[str, Any]] = Field(None, description="Raw provider response")
-    metadata: Optional[Dict[str, Any]] = Field(
-        None, description="Additional metadata (e.g., reasoning_content)"
-    )
-
-
-class StreamChunk(BaseModel):
-    """Streaming response chunk."""
-
-    content: str = Field(default="", description="Incremental content")
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    stop_reason: Optional[str] = None
-    is_final: bool = Field(default=False, description="Is this the final chunk")
-    metadata: Optional[Dict[str, Any]] = Field(
-        default=None, description="Additional metadata (e.g., reasoning_content)"
-    )
-    usage: Optional[Dict[str, int | bool]] = Field(
-        default=None,
-        description="Token usage stats (typically on final chunk). Keys: prompt_tokens, completion_tokens, total_tokens, cache_creation_input_tokens, cache_read_input_tokens",
-    )
-
-
-# Provider error classes - re-exported from victor/core/errors for backward compatibility
-# All error classes are defined in victor/core/errors.py as the single source of truth
-from victor.core.errors import (
+# The message vocabulary (Message, ToolDefinition, CompletionResponse,
+# StreamChunk, CacheCostModel, provider errors) moved to
+# victor.core.provider_messages (self-analysis round 2, W4) — the
+# compiler-verified call graph ranked these the most load-bearing types in
+# the system, and importing them must not drag provider machinery along.
+# Re-exported here unchanged: the 200+ existing import sites keep working,
+# and `from victor.providers.base import Message` remains the compat path.
+from victor.core.provider_messages import (  # noqa: F401 - compat re-export
+    CacheCostModel,
+    CompletionResponse,
+    Message,
     ModelNotFoundError,
-    ProviderError,
-    ProviderNotFoundError,
-    ProviderTimeoutError,
-    ProviderRateLimitError,
     ProviderAuthError,
     ProviderConnectionError,
+    ProviderError,
     ProviderInvalidResponseError,
+    ProviderNotFoundError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    StreamChunk,
+    ToolDefinition,
 )
-
-
-@dataclass(frozen=True)
-class CacheCostModel:
-    """Characterized caching economics for a provider capability (FEP-0011).
-
-    Replaces branching on a single boolean with a value object the prompt
-    assembler can optimize against (pruning aggressiveness, stable/dynamic
-    prefix split, prefix freeze size). See FEP-0011 for the full design.
-
-    Phase 1 (this): additive only. ``BaseProvider.cache_cost_model()`` defaults
-    to ``CacheCostModel(supported=self.supports_prompt_caching())`` so existing
-    providers behave identically; providers may override to advertise real
-    numbers. The assembler still reads the booleans today; consumption is a
-    later phase.
-
-    Attributes:
-        supported: Whether this caching capability is available at all.
-        read_discount: Fraction saved on a cached read (0.0–1.0).
-        write_overhead: Cost multiplier for a cache write (>=1.0; 1.0 = none).
-        ttl_seconds: Lifetime of a cache entry (0.0 = no TTL / indefinite).
-        min_prefix_tokens: Minimum stable prefix to be eligible for caching.
-        max_cache_tokens: Maximum cacheable tokens (0 = no published limit).
-        prefix_granularity: Smallest cacheable unit ("token"|"message"|"system_block").
-    """
-
-    supported: bool = False
-    read_discount: float = 0.0
-    write_overhead: float = 1.0
-    ttl_seconds: float = 0.0
-    min_prefix_tokens: int = 0
-    max_cache_tokens: int = 0
-    prefix_granularity: str = "token"
 
 
 class BaseProvider(ABC):

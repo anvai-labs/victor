@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
-from victor.providers.base import StreamChunk
+from victor.core.provider_messages import StreamChunk
 from victor.providers.usage_accounting import billable_completion_tokens, usage_total_tokens
 
 logger = logging.getLogger(__name__)
