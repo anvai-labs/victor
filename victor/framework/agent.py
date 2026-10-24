@@ -145,13 +145,27 @@ class Agent:
         Raises:
             ValueError: If orchestrator is not a valid AgentOrchestrator instance
         """
-        # Validate that orchestrator is a proper AgentOrchestrator instance
-        # This prevents misuse where someone tries to call Agent(...) directly
-        orchestrator_type_name = type(orchestrator).__name__
-        if orchestrator_type_name != "AgentOrchestrator":
+        # Validate that orchestrator is orchestrator-shaped. This prevents
+        # misuse where someone tries to call Agent(...) directly (strings,
+        # dicts, plain objects) — but it is a STRUCTURAL check, not a
+        # class-name check: the previous `type(orchestrator).__name__ !=
+        # "AgentOrchestrator"` gate forced every test double in the repo to
+        # be NAMED "AgentOrchestrator", shadowing the real symbol in the
+        # code graph (impact resolution found 6 same-named nodes and
+        # refused to guess — the collision class this repo names things to
+        # avoid).
+        #
+        # The gate is the ONE operation every orchestrator-shaped object
+        # demonstrably has (real class and faithful doubles alike), NOT
+        # OrchestratorProtocol: the protocol is aspirational — the concrete
+        # class does not satisfy it at runtime (model/provider_name/
+        # tool_budget are dynamic getattr surfaces, absent as class
+        # attributes), so isinstance would reject the real orchestrator.
+        # Follow-up recorded in ADR-034's backlog.
+        if not callable(getattr(orchestrator, "chat", None)):
             raise ValueError(
                 f"Agent.__init__() requires an AgentOrchestrator instance, "
-                f"but got {type(orchestrator).__module__}.{orchestrator_type_name}. "
+                f"but got {type(orchestrator).__module__}.{type(orchestrator).__name__}. "
                 f"Use Agent.create() instead of calling Agent() directly.\n\n"
                 f"Correct usage:\n"
                 f"  agent = await Agent.create(provider='anthropic', model='claude-3-5-sonnet-20241022')\n"

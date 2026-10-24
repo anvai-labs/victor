@@ -14,12 +14,12 @@ from victor.framework.task import TaskResult
 from victor.providers.base import CompletionResponse
 
 
-class AgentOrchestrator(MagicMock):
+class AgentOrchestratorMock(MagicMock):
     """MagicMock subclass whose type name satisfies Agent.__init__ validation."""
 
 
-def _make_orchestrator() -> AgentOrchestrator:
-    orchestrator = AgentOrchestrator()
+def _make_orchestrator() -> AgentOrchestratorMock:
+    orchestrator = AgentOrchestratorMock()
     orchestrator.model = "test-model"
     orchestrator.provider = MagicMock()
     orchestrator.provider.name = "test-provider"

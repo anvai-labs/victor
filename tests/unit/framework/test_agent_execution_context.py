@@ -12,7 +12,7 @@ from victor.providers.base import CompletionResponse
 from victor.runtime.context import ResolvedRuntimeServices
 
 
-class AgentOrchestrator:
+class AgentOrchestratorMock:
     """Lightweight orchestrator double that passes Agent type validation."""
 
 
@@ -21,7 +21,7 @@ def _make_orchestrator(
     execution_context=None,
     chat_service=None,
 ):
-    orchestrator = AgentOrchestrator()
+    orchestrator = AgentOrchestratorMock()
     orchestrator.provider = SimpleNamespace(name="test_provider")
     orchestrator.model = "test-model"
     orchestrator._execution_context = execution_context
