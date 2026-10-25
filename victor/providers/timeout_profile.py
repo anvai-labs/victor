@@ -15,9 +15,10 @@
 """Named timeout slots for the provider request lifecycle (co-design review
 item 18).
 
-Today these eight numbers live scattered across five files as bare literals
+Today these nine numbers live scattered across five files as bare literals
 (``ProviderFactoryConfig.timeout``, ``BaseProvider.__init__``'s ``timeout``
-default, a hardcoded ``stream_idle_timeout_secs`` in sandhi_transport.py,
+default, hardcoded ``stream_idle_timeout_secs`` and
+``stream_setup_timeout_secs`` defaults in sandhi_transport.py,
 ``BaseProvider``'s ``circuit_breaker_recovery_timeout`` default,
 ``ProviderRetryConfig``'s delay bounds, and the dead ``Timeouts.HTTP_LLM_API``
 / ``Timeouts.HTTP_EMBEDDING`` constants in victor/config/timeouts.py). This
