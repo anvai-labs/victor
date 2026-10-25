@@ -29,7 +29,7 @@ import sqlite3
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from victor.core.graph_rag.visualize import _package_of
+from victor.core.graph_rag.visualize import _file_edge_weights, _package_of
 
 _EDGE_TYPES = ("CALLS", "REFERENCES")
 # Statement nodes are CCG machinery (97% of upserts, FTS-skipped): the
@@ -75,26 +75,10 @@ def package_graph(db_path, top_packages: int = 12) -> Dict[str, List[Dict[str, A
     count). Nodes carry degree; edges carry weight."""
     conn = _connect(db_path)
     try:
-        weights: Dict[tuple[str, str], int] = defaultdict(int)
-        for row in conn.execute(
-            f"""
-            SELECT ns.file AS src_file, nd.file AS dst_file
-            FROM graph_edge e
-            JOIN graph_node ns ON ns.node_id = e.src
-            JOIN graph_node nd ON nd.node_id = e.dst
-            WHERE e.type IN ({", ".join("?" * len(_EDGE_TYPES))})
-              AND ns.file != nd.file
-            """,
-            _EDGE_TYPES,
-        ):
-            src = _package_of(row["src_file"])
-            dst = _package_of(row["dst_file"])
-            if src and dst and src != dst:
-                weights[(src, dst)] += 1
+        ranked = _file_edge_weights(conn, key_mapper=_package_of)
     finally:
         conn.close()
 
-    ranked = sorted(weights.items(), key=lambda kv: (-kv[1], kv[0]))
     packages: List[str] = []
     for (src, dst), _ in ranked:
         for candidate in (src, dst):
@@ -123,30 +107,16 @@ def module_graph(db_path, package: str, top_modules: int = 15) -> Dict[str, List
     """File-level coupling inside one package as Cytoscape elements."""
     conn = _connect(db_path)
     try:
-        weights: Dict[tuple[str, str], int] = defaultdict(int)
+        prefix = f"{package}/%"
+        ranked = _file_edge_weights(conn, path_filter=prefix, key_mapper=lambda p: p or None)
         node_rows = conn.execute(
             "SELECT DISTINCT file FROM graph_node WHERE file LIKE ?",
-            (f"{package}/%",),
+            (prefix,),
         ).fetchall()
         file_kinds: Dict[str, str] = {row["file"]: "module" for row in node_rows}
-        for row in conn.execute(
-            f"""
-            SELECT ns.file AS src_file, nd.file AS dst_file
-            FROM graph_edge e
-            JOIN graph_node ns ON ns.node_id = e.src
-            JOIN graph_node nd ON nd.node_id = e.dst
-            WHERE e.type IN ({", ".join("?" * len(_EDGE_TYPES))})
-              AND ns.file != nd.file
-              AND ns.file LIKE ?
-              AND nd.file LIKE ?
-            """,
-            (*_EDGE_TYPES, f"{package}/%", f"{package}/%"),
-        ):
-            weights[(row["src_file"], row["dst_file"])] += 1
     finally:
         conn.close()
 
-    ranked = sorted(weights.items(), key=lambda kv: (-kv[1], kv[0]))
     modules: List[str] = []
     for (src, dst), _ in ranked:
         for candidate in (src, dst):
