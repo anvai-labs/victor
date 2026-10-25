@@ -533,6 +533,7 @@ RELATED_TESTS = {
         (
             "victor/core/graph_rag/viz_queries.py",
             "victor/integrations/api/viz_server.py",
+            "victor/integrations/api/routes/viz_routes.py",
             "victor/core/graph_rag/indexing.py",
             "victor/core/graph_rag/codegraph_repository.py",
             "victor/core/graph_rag/retrieval.py",

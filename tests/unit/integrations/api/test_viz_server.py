@@ -86,17 +86,33 @@ def test_class_graph_excludes_statement_nodes(db_path):
 
 
 def test_index_served(client):
-    res = client.get("/")
+    res = client.get("/viz")
     assert res.status_code == 200
     assert "Victor Code Explorer" in res.text
 
 
+def test_index_uses_relative_asset_paths(client):
+    """The page must reference assets relatively so it works under /viz on
+    BOTH the main server and the standalone wrapper."""
+    res = client.get("/viz")
+    assert "assets/explorer.js" in res.text
+    assert "assets/vendor/cytoscape.min.js" in res.text
+    assert 'src="/static' not in res.text
+
+
 def test_static_allowlist_hardening(client):
     for good in ("explorer.js", "explorer.css"):
-        assert client.get(f"/static/{good}").status_code == 200
-    assert client.get("/static/secret.txt").status_code == 404
-    assert client.get("/static/vendor/cytoscape.min.js").status_code in (200, 404)
-    assert client.get("/static/vendor/evil.js").status_code == 404
+        assert client.get(f"/viz/assets/{good}").status_code == 200
+    assert client.get("/viz/assets/vendor/cytoscape.min.js").status_code in (200, 404)
+    assert client.get("/viz/assets/vendor/cytoscape-dagre.min.js").status_code in (200, 404)
+    # Path escape attempts are rejected.
+    for bad in (
+        "/viz/assets/secret.txt",
+        "/viz/assets/../../pyproject.toml",
+        "/viz/assets/vendor/evil.js",
+        "/viz/assets/vendor/../../pyproject.toml",
+    ):
+        assert client.get(bad).status_code == 404, bad
 
 
 def test_no_graph_is_a_409(tmp_path):
@@ -105,6 +121,19 @@ def test_no_graph_is_a_409(tmp_path):
     res = TestClient(create_viz_app(empty)).get("/api/graph/package")
     assert res.status_code == 409
     assert "index graph" in res.json()["detail"]
+
+
+def test_factory_registered_in_main_server_router_list():
+    """create_all_routers must yield the viz routes (the main-server mount)."""
+    from types import SimpleNamespace
+
+    from victor.integrations.api.routes import create_all_routers
+
+    stub = SimpleNamespace(workspace_root="/nonexistent")
+    routers = create_all_routers(stub)
+    paths = {getattr(r, "path", None) for r in routers for r in getattr(r, "routes", [])}
+    assert "/viz" in paths
+    assert "/api/graph/package" in paths
 
 
 def test_api_routes_return_element_lists(client):
