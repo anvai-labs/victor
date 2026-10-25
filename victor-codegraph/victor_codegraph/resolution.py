@@ -39,6 +39,15 @@ def resolve_relations(
     symbols: list[CodeSymbol],
     relations: list[CodeRelation],
 ) -> list[CodeRelation]:
+    # Class namespace scopes, precomputed once: the Python branch used to
+    # scan ALL symbols per candidate per relation (O(R*C*S); R explodes
+    # under emit_references) just to ask "is this candidate a direct member
+    # of a class?". scope_chain is a LIST — compare as tuples for hashing.
+    _class_namespaces = {
+        (*parent.scope_chain, parent.simple_name)
+        for parent in symbols
+        if parent.symbol_type == CodeSymbolType.CLASS
+    }
     """Resolve textual relation targets to in-file symbol ids.
 
     Args:
@@ -104,11 +113,7 @@ def resolve_relations(
                     c
                     for c in candidates
                     if c.symbol_type != CodeSymbolType.METHOD
-                    and not any(
-                        parent.symbol_type == CodeSymbolType.CLASS
-                        and [*parent.scope_chain, parent.simple_name] == c.scope_chain
-                        for parent in symbols
-                    )
+                    and tuple(c.scope_chain) not in _class_namespaces
                     and [*source.scope_chain, source.simple_name][: len(c.scope_chain)]
                     == c.scope_chain
                 ]

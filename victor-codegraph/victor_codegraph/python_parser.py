@@ -39,14 +39,29 @@ _BRANCH_NODES = (
 )
 
 
-def _cyclomatic(node: ast.AST) -> dict[str, int]:
-    count = 1
-    for child in ast.walk(node):
-        if isinstance(child, _BRANCH_NODES):
-            count += 1
-    lineno = getattr(node, "lineno", 1)
-    end = getattr(node, "end_lineno", lineno) or lineno
-    return {"cyclomatic": count, "lines": end - lineno + 1}
+def _branch_subtree_counts(root: ast.AST) -> dict[int, int]:
+    """Branch-node count of every subtree, one post-order pass.
+
+    ``id(node) -> branch nodes in node's subtree`` (all descendants, exactly
+    the set ``ast.walk`` yielded). The per-symbol ``_cyclomatic`` used to
+    re-walk each symbol's full subtree — nested definitions included, once
+    per enclosing symbol — which made symbol extraction O(n * nesting depth)
+    on deeply nested files; this precompute makes it an O(1) lookup.
+    """
+    counts: dict[int, int] = {}
+    stack: list[tuple[ast.AST, bool]] = [(root, False)]
+    while stack:
+        node, processed = stack.pop()
+        if processed:
+            total = 1 if isinstance(node, _BRANCH_NODES) else 0
+            for child in ast.iter_child_nodes(node):
+                total += counts[id(child)]
+            counts[id(node)] = total
+        else:
+            stack.append((node, True))
+            for child in ast.iter_child_nodes(node):
+                stack.append((child, False))
+    return counts
 
 
 class _Parameter(TypedDict):
@@ -79,8 +94,12 @@ def _params(args: ast.arguments) -> list[_Parameter]:
 
 
 def _signature(name: str, args: ast.arguments, returns: ast.AST | None) -> str:
+    return _signature_from_params(name, _params(args), returns)
+
+
+def _signature_from_params(name: str, params: list[_Parameter], returns: ast.AST | None) -> str:
     parts = []
-    for p in _params(args):
+    for p in params:
         s = p["name"]
         if p.get("type"):
             s += f": {p['type']}"
@@ -157,6 +176,8 @@ def _lexical_bindings(nodes: Sequence[ast.AST]) -> tuple[set[str], set[str]]:
 
 class _Visitor:
     def __init__(self, file_path: str, source: str, *, emit_references: bool = False) -> None:
+        # One-pass branch counts (see _branch_subtree_counts); filled by run().
+        self._branch_counts: dict[int, int] = {}
         self.file_path = file_path
         self.source = source
         self.emit_references = emit_references
@@ -195,6 +216,14 @@ class _Visitor:
             return self._source_bytes[start : start + length].decode("utf-8")
         except Exception:
             return ""
+
+    def _complexity(self, node: ast.AST) -> dict[str, int]:
+        lineno = getattr(node, "lineno", 1)
+        end = getattr(node, "end_lineno", lineno) or lineno
+        return {
+            "cyclomatic": 1 + self._branch_counts.get(id(node), 0),
+            "lines": end - lineno + 1,
+        }
 
     def _make_symbol(
         self,
@@ -235,7 +264,7 @@ class _Visitor:
             scope_chain=list(scope),
             parameters=[dict(parameter) for parameter in params or []],
             return_type=return_type,
-            complexity=_cyclomatic(node),
+            complexity=self._complexity(node),
         )
 
     def visit_function(
@@ -250,13 +279,14 @@ class _Visitor:
             stype = CodeSymbolType.CONSTRUCTOR if name == "__init__" else CodeSymbolType.METHOD
         else:
             stype = CodeSymbolType.FUNCTION
+        params = _params(node.args)
         sym = self._make_symbol(
             node,
             name,
             stype,
             scope,
-            signature=_signature(name, node.args, node.returns),
-            params=_params(node.args),
+            signature=_signature_from_params(name, params, node.returns),
+            params=params,
             return_type=ast.unparse(node.returns) if node.returns is not None else None,
             modifiers=_modifiers(name, node.decorator_list, isinstance(node, ast.AsyncFunctionDef)),
         )
@@ -294,7 +324,8 @@ class _Visitor:
         # and otherwise keeps it as a bare name (so cross-file/external calls — e.g.
         # a CPG's blast radius — are not silently dropped). ``call_site`` records the
         # call line for consumers that need it.
-        for call in _calls_owned_by(node):
+        owned_calls = list(_calls_owned_by(node))
+        for call in owned_calls:
             ref = _callee_ref(call)
             if ref:
                 line, col, end_line, end_col, offset, length = self._span(call)
@@ -328,7 +359,7 @@ class _Visitor:
                 sym,
                 self.file_path,
                 self.relations,
-                excluded={id(call.func) for call in _calls_owned_by(node)},
+                excluded={id(call.func) for call in owned_calls},
             )
         for child in node.body:
             nested: CodeSymbol | None = None
@@ -441,6 +472,7 @@ def parse_python(content: str, file_path: str, *, emit_references: bool = False)
 
     tree = ast.parse(content)
     v = _Visitor(file_path, content, emit_references=emit_references)
+    v._branch_counts = _branch_subtree_counts(tree)
     v.run(tree)
     # Resolve CALLS/EXTENDS/REFERENCES targets to real in-file symbol ids when
     # possible (shared with the tree-sitter path — see ``resolution`` for the

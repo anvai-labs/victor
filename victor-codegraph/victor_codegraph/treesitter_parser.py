@@ -96,7 +96,16 @@ _CONTAINER_SYMBOL_TYPES = frozenset(
 )
 
 
+_PARSER_CACHE: dict[str, "object"] = {}
+
+
 def _get_parser(grammar: str):
+    """Cached per-grammar Parser (grammar Language loading is native and
+    was repeated per call — the repository binding pass used to construct
+    one per rust use-import statement)."""
+    cached = _PARSER_CACHE.get(grammar)
+    if cached is not None:
+        return cached
     # Build an OFFICIAL `tree_sitter.Parser` from the pack's Language, rather than
     # `tree_sitter_language_pack.get_parser()` — the latter can return a vendored
     # binding whose nodes are a minimal `builtins.Node` lacking `.type`/`.children`.
@@ -111,11 +120,12 @@ def _get_parser(grammar: str):
     except Exception as e:
         raise GrammarUnavailable(f"grammar '{grammar}' unavailable: {e}") from e
     try:
-        return Parser(language)  # tree_sitter >= 0.23
+        parser = Parser(language)  # tree_sitter >= 0.23
     except TypeError:
         parser = Parser()  # older API: set the language attribute
         parser.language = language
-        return parser
+    _PARSER_CACHE[grammar] = parser
+    return parser
 
 
 def _text(node, src: bytes) -> str:

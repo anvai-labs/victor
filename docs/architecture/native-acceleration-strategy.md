@@ -238,6 +238,33 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    (py-tree-sitter for hints, Rust for the walk). The ``plugin`` knob
    value remains the forced-Python-walk escape hatch.
 
+   **Codegraph symbol extraction, phases 0-1 (2026-10-25).** The recorded
+   "remaining engine phase" is now measured precisely
+   (`scripts/benchmark_codegraph_phases.py`, wall-clock only). Repo mix:
+   4,950 source files, **96.5% python** (stdlib-ast path), 99 ts, 37
+   rust. Per-file: python 44.3 ms (59.4 with refs), ts 52.5/85.8, rust
+   13.8/30.9; the parse() wrapper and repository binding are innocent
+   (~1 ms and small). Phase 1 (pure-Python, output-identical —
+   differential-pinned on 6 real files x refs on/off): one-pass
+   post-order cyclomatic precompute replacing per-symbol subtree
+   re-walks; ``_params`` unpar sed once (was twice per function);
+   ``_calls_owned_by`` once per function (was twice under
+   emit_references); resolver class-namespace set precompute (was
+   O(R*C*S)); per-grammar Parser cache; repository binding via the
+   existing ``by_path`` index (was a linear scan per relation x
+   binding). Result: **python 37.8 ms (-15%), +refs 46.0 (-22%)**;
+   rust/ts ~-10%. Extrapolated index impact ~4.5% of the ~1,412 s parse
+   busy — the halving gate is NOT met, and the measured remainder is
+   DISTRIBUTED visitor cost (~19 ms/file: per-symbol source slicing,
+   lexical-binding/reference walks, unparse, dataclass assembly) with no
+   single algorithmic defect left. Phase 3 (native tree-sitter walk for
+   the symbol path) is therefore justified BY MEASUREMENT, with the
+   python stdlib-ast parity trap noted in the plan. Measurement trap
+   recorded: victor-codegraph's ``__editable__`` finder intercepts
+   BEFORE sys.path, so worktree benchmarks silently measure develop
+   twice — the /tmp/tier3-shim sitecustomize now evicts all
+   ``__editable___victor`` finders.
+
    **Reproducibility defect found and fixed while measuring (same date):**
    the enhanced builder's CFG and DDG ordered records by the path-derived
    `node_id`, so byte-identical source indexed from two directories
