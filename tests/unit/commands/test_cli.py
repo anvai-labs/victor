@@ -1188,7 +1188,7 @@ class TestConsoleInitialization:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestCliErrorHandling:
     """Tests for error handling in CLI commands."""
 
     @pytest.fixture

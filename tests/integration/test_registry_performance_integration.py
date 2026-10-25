@@ -347,7 +347,7 @@ class TestCachingIntegration:
         assert stats["hits"] >= 90  # 100 accesses, only 10 unique keys
 
 
-class TestErrorHandling:
+class TestOptimizationErrorHandling:
     """Integration tests for error handling in optimizations."""
 
     def test_batch_registration_with_failures(self):

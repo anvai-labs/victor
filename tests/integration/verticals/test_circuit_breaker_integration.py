@@ -26,7 +26,7 @@ from victor.providers.circuit_breaker import (
 )
 
 
-class MockProvider(BaseProvider):
+class CircuitBreakerMockProvider(BaseProvider):
     """Mock provider for testing circuit breaker integration."""
 
     def __init__(self, **kwargs):
@@ -86,25 +86,25 @@ class TestProviderCircuitBreakerIntegration:
 
     def test_provider_has_circuit_breaker(self):
         """Test that provider initializes with circuit breaker."""
-        provider = MockProvider(use_circuit_breaker=True)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=True)
         assert provider.circuit_breaker is not None
         assert isinstance(provider.circuit_breaker, CircuitBreaker)
 
     def test_provider_without_circuit_breaker(self):
         """Test provider can be created without circuit breaker."""
-        provider = MockProvider(use_circuit_breaker=False)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=False)
         assert provider.circuit_breaker is None
 
     def test_circuit_breaker_registered(self):
         """Test that circuit breaker is registered in global registry."""
-        provider = MockProvider(use_circuit_breaker=True)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=True)
         breaker = CircuitBreakerRegistry.get(provider.circuit_breaker.name)
         assert breaker is provider.circuit_breaker
 
     @pytest.mark.asyncio
     async def test_successful_call_through_circuit_breaker(self):
         """Test successful call passes through circuit breaker."""
-        provider = MockProvider(use_circuit_breaker=True)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=True)
         provider.set_response(CompletionResponse(content="Success"))
 
         messages = [Message(role="user", content="Hello")]
@@ -116,7 +116,7 @@ class TestProviderCircuitBreakerIntegration:
     @pytest.mark.asyncio
     async def test_circuit_opens_after_failures(self):
         """Test circuit opens after threshold failures."""
-        provider = MockProvider(
+        provider = CircuitBreakerMockProvider(
             use_circuit_breaker=True,
             circuit_breaker_failure_threshold=3,
         )
@@ -135,7 +135,7 @@ class TestProviderCircuitBreakerIntegration:
     @pytest.mark.asyncio
     async def test_open_circuit_rejects_calls(self):
         """Test that open circuit rejects calls immediately."""
-        provider = MockProvider(
+        provider = CircuitBreakerMockProvider(
             use_circuit_breaker=True,
             circuit_breaker_failure_threshold=2,
             circuit_breaker_recovery_timeout=60.0,  # Long timeout
@@ -161,7 +161,7 @@ class TestProviderCircuitBreakerIntegration:
 
     def test_is_circuit_open_method(self):
         """Test is_circuit_open helper method."""
-        provider = MockProvider(use_circuit_breaker=True)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=True)
         assert not provider.is_circuit_open()
 
         # Force open
@@ -172,7 +172,7 @@ class TestProviderCircuitBreakerIntegration:
 
     def test_reset_circuit_breaker(self):
         """Test manual circuit breaker reset."""
-        provider = MockProvider(use_circuit_breaker=True)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=True)
 
         # Force open
         provider.circuit_breaker._failure_count = provider.circuit_breaker.failure_threshold
@@ -185,7 +185,7 @@ class TestProviderCircuitBreakerIntegration:
 
     def test_get_circuit_breaker_stats(self):
         """Test getting circuit breaker statistics."""
-        provider = MockProvider(use_circuit_breaker=True)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=True)
         stats = provider.get_circuit_breaker_stats()
 
         assert stats is not None
@@ -195,7 +195,7 @@ class TestProviderCircuitBreakerIntegration:
 
     def test_provider_without_breaker_returns_no_stats(self):
         """Test that provider without breaker returns None for stats."""
-        provider = MockProvider(use_circuit_breaker=False)
+        provider = CircuitBreakerMockProvider(use_circuit_breaker=False)
         assert provider.get_circuit_breaker_stats() is None
 
 
@@ -208,26 +208,36 @@ class TestCircuitBreakerScopedPerEndpoint:
     """
 
     def test_distinct_endpoints_get_distinct_breakers(self):
-        provider1 = MockProvider(use_circuit_breaker=True, base_url="http://a.example")
-        provider2 = MockProvider(use_circuit_breaker=True, base_url="http://b.example")
+        provider1 = CircuitBreakerMockProvider(
+            use_circuit_breaker=True, base_url="http://a.example"
+        )
+        provider2 = CircuitBreakerMockProvider(
+            use_circuit_breaker=True, base_url="http://b.example"
+        )
 
         assert provider1.circuit_breaker is not provider2.circuit_breaker
         assert provider1.circuit_breaker.name != provider2.circuit_breaker.name
 
     def test_same_endpoint_shares_one_breaker(self):
-        provider1 = MockProvider(use_circuit_breaker=True, base_url="http://a.example")
-        provider2 = MockProvider(use_circuit_breaker=True, base_url="http://a.example")
+        provider1 = CircuitBreakerMockProvider(
+            use_circuit_breaker=True, base_url="http://a.example"
+        )
+        provider2 = CircuitBreakerMockProvider(
+            use_circuit_breaker=True, base_url="http://a.example"
+        )
 
         assert provider1.circuit_breaker is provider2.circuit_breaker
 
     @pytest.mark.asyncio
     async def test_failure_on_one_endpoint_does_not_affect_another(self):
-        provider1 = MockProvider(
+        provider1 = CircuitBreakerMockProvider(
             use_circuit_breaker=True,
             circuit_breaker_failure_threshold=2,
             base_url="http://a.example",
         )
-        provider2 = MockProvider(use_circuit_breaker=True, base_url="http://b.example")
+        provider2 = CircuitBreakerMockProvider(
+            use_circuit_breaker=True, base_url="http://b.example"
+        )
         provider1.set_should_fail(True)
 
         messages = [Message(role="user", content="Hello")]
@@ -242,7 +252,7 @@ class TestCircuitBreakerScopedPerEndpoint:
 
     @pytest.mark.asyncio
     async def test_failure_is_visible_to_a_new_instance_on_the_same_endpoint(self):
-        failing = MockProvider(
+        failing = CircuitBreakerMockProvider(
             use_circuit_breaker=True,
             circuit_breaker_failure_threshold=2,
             base_url="http://a.example",
@@ -252,4 +262,6 @@ class TestCircuitBreakerScopedPerEndpoint:
             with pytest.raises(ValueError):
                 await failing.chat([Message(role="user", content="Hi")], model="test")
 
-        assert MockProvider(use_circuit_breaker=True, base_url="http://a.example").is_circuit_open()
+        assert CircuitBreakerMockProvider(
+            use_circuit_breaker=True, base_url="http://a.example"
+        ).is_circuit_open()

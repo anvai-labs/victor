@@ -493,7 +493,7 @@ class TestAbortAction:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestMergeToolErrorHandling:
     """Tests for error handling."""
 
     @pytest.mark.asyncio

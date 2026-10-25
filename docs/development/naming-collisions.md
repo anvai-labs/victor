@@ -1,9 +1,10 @@
 # Naming collisions — tracked debt (TD-033)
 
-**Status:** Open — renames queued. Guard: `tests/unit/framework/
+**Status:** Rename queue CLEARED 2026-10-24. Guard: `tests/unit/framework/
 test_agent_naming_validation.py::TestNoProductionSymbolShadowing` (general
-AST scan; new top-level test classes shadowing production classes FAIL
-unless listed here with a reason).
+AST scan; new top-level test classes shadowing production classes FAIL —
+allowlist EMPTY; a genuine alias needs an owner-approved reason to be
+added).
 
 ## Why this matters
 
@@ -22,15 +23,15 @@ A test double is named for what it IS (`AgentOrchestratorMock`,
 `FakeProvider`, `StubRepository`), never for what it REPLACES. Production
 symbols keep their bare names findable.
 
-## Queued renames (top-level test classes shadowing production classes)
+## Completed renames (2026-10-24; guard allowlist now empty)
 
-| Name | Test files | Notes |
-|------|-----------|-------|
-| `TestErrorHandling` | 13 files | test-suffixed classes colliding with the production `TestErrorHandling` reporter — the biggest cluster |
-| `MockProvider` | 3 files | test-local provider fixtures vs the distinct production `MockProvider` |
-| `User` | 2 files | test-local RBAC fixtures |
-| `ModelFamily` | 1 file | test-local enum fixture |
-| `TestStatus` | 1 file | test-local status enum |
+| Was | Files | Became |
+|-----|-------|--------|
+| `TestErrorHandling` | 13 | contextual pytest-group names (`TestAuditToolErrorHandling`, `TestWebSocketErrorHandling`, …) |
+| `MockProvider` | 3 | `CircuitBreakerMockProvider` / `ToolStrategyMockProvider` / `SmartRoutingMockProvider` |
+| `User` | 2 | `SampleUser` |
+| `ModelFamily` | 1 | `MultiModelFamily` |
+| `TestStatus` | 1 | `SwitcherStatusReporting` |
 
 ## Function-nested doubles (graph-name noise, not import shadows)
 

@@ -1575,7 +1575,7 @@ workflows:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestUnifiedCompilerErrorHandling:
     """Tests for error handling during compilation."""
 
     def test_invalid_yaml_raises_error(self, tmp_path: Path):

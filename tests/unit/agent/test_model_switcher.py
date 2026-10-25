@@ -334,7 +334,7 @@ class TestModelSuggestion:
         assert "code" in model.capabilities
 
 
-class TestStatus:
+class SwitcherStatusReporting:
     """Tests for status reporting."""
 
     def test_get_status_initial(self, switcher):

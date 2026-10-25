@@ -90,7 +90,7 @@ def requires_ollama():
 
 
 @dataclass
-class ModelFamily:
+class MultiModelFamily:
     """Configuration for a model family."""
 
     name: str
@@ -100,27 +100,29 @@ class ModelFamily:
 
 # Define model families - using smaller/faster variants for testing
 MODEL_FAMILIES = {
-    "qwen": ModelFamily(
+    "qwen": MultiModelFamily(
         name="qwen",
         models=["qwen2.5-coder:7b", "qwen3-coder:30b"],
         description="Alibaba Qwen coder models",
     ),
-    "deepseek": ModelFamily(
+    "deepseek": MultiModelFamily(
         name="deepseek",
         models=["deepseek-coder-v2:16b", "deepseek-r1:14b"],
         description="DeepSeek coder and reasoning models",
     ),
-    "gpt_oss": ModelFamily(
+    "gpt_oss": MultiModelFamily(
         name="gpt_oss",
         models=["gpt-oss:20b"],
         description="GPT-OSS open source GPT-like models",
     ),
-    "devstral": ModelFamily(
+    "devstral": MultiModelFamily(
         name="devstral",
         models=["devstral:latest"],
         description="Mistral-based DevStral coding model",
     ),
-    "llama": ModelFamily(name="llama", models=["llama3.1:8b"], description="Meta Llama models"),
+    "llama": MultiModelFamily(
+        name="llama", models=["llama3.1:8b"], description="Meta Llama models"
+    ),
 }
 
 # Define model pairs for cross-family testing

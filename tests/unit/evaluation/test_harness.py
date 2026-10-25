@@ -1808,7 +1808,7 @@ class TestTaskEnvironmentIntegration:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestHarnessErrorHandling:
     """Tests for error handling in evaluation infrastructure."""
 
     @pytest.mark.asyncio

@@ -22,7 +22,7 @@ from victor.config.tool_tiers import get_tool_tier, get_tier_summary
 from victor.tools.enums import SchemaLevel
 
 
-class MockProvider(BaseProvider):
+class ToolStrategyMockProvider(BaseProvider):
     """Mock provider for testing."""
 
     def __init__(self, context_window_size: int = 128000):
@@ -60,25 +60,25 @@ class TestContextWindowDetection:
 
     def test_large_context_window(self):
         """Test large context window detection (cloud providers)."""
-        provider = MockProvider(context_window_size=200000)
+        provider = ToolStrategyMockProvider(context_window_size=200000)
         context_window = provider.context_window("claude-sonnet-4-20250514")
         assert context_window == 200000
 
     def test_medium_context_window(self):
         """Test medium context window detection (some local providers)."""
-        provider = MockProvider(context_window_size=65536)
+        provider = ToolStrategyMockProvider(context_window_size=65536)
         context_window = provider.context_window("qwen2.5:14b")
         assert context_window == 65536
 
     def test_small_context_window(self):
         """Test small context window detection (small local models)."""
-        provider = MockProvider(context_window_size=32768)
+        provider = ToolStrategyMockProvider(context_window_size=32768)
         context_window = provider.context_window("qwen2.5-coder:7b")
         assert context_window == 32768
 
     def test_context_window_calculation(self):
         """Test context window budget calculation (25% constraint)."""
-        provider = MockProvider(context_window_size=128000)
+        provider = ToolStrategyMockProvider(context_window_size=128000)
         context_window = provider.context_window("model")
         max_tool_tokens = int(context_window * 0.25)
         assert max_tool_tokens == 32000
@@ -306,7 +306,7 @@ class TestValidationCriteria:
 
     def test_context_window_detection_passes(self):
         """Test context window detection validation."""
-        provider = MockProvider(context_window_size=128000)
+        provider = ToolStrategyMockProvider(context_window_size=128000)
         context_window = provider.context_window("model")
 
         # Should detect context window

@@ -557,7 +557,7 @@ class TestCompareCoverageAction:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestPipelineToolErrorHandling:
     """Tests for error handling."""
 
     @pytest.mark.asyncio
