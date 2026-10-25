@@ -27,9 +27,9 @@ prefix so it cannot collide with observability's catch-all
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from victor.core.graph_rag import viz_queries
@@ -38,7 +38,7 @@ _STATIC_VIZ_DIR = Path(__file__).parent.parent / "static" / "viz"
 _VENDOR_DIR = Path(__file__).parent.parent / "templates" / "vendor"
 # Vendor files reused from the workflow visualizer's wheel-shipped copy
 # rather than duplicated (~1MB of JS).
-_VENDOR_FILES = frozenset({"cytoscape.min.js", "cytoscape-dagre.min.js"})
+_VENDOR_FILES = frozenset({"cytoscape.min.js", "cytoscape-dagre.min.js", "mermaid.min.js"})
 _LOCAL_FILES = frozenset({"explorer.js", "explorer.css"})
 
 
@@ -112,5 +112,31 @@ def create_router(server: Any) -> APIRouter:
     @router.get("/api/graph/search")
     async def search(q: str, limit: int = 25) -> JSONResponse:
         return JSONResponse({"results": viz_queries.search(require_db(), q, limit=limit)})
+
+    @router.get("/api/graph/flow")
+    async def flow(
+        symbol: str,
+        node_id: Optional[str] = None,
+        depth: int = Query(2, ge=1, le=5),
+        granularity: str = Query("class", pattern="^(class|module)$"),
+        max_messages: int = Query(150, ge=10, le=400),
+    ) -> JSONResponse:
+        """Call-flow sequence view for one symbol (ADR-033 phase 2)."""
+        result = viz_queries.flow(
+            require_db(),
+            symbol,
+            node_id=node_id,
+            depth=depth,
+            granularity=granularity,
+            max_messages=max_messages,
+        )
+        # {"candidates": ...} (ambiguous name) passes through with 200;
+        # {"entry": None} is a genuine unknown symbol.
+        if "candidates" not in result and result.get("entry") is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No callable symbol named {symbol!r} in this graph",
+            )
+        return JSONResponse(result)
 
     return router

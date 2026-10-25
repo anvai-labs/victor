@@ -15,6 +15,14 @@
       "integrity": "sha512-hyNdh8Vp1nwzBcjHnM4c71G81bFhPmQYLXD2HM9AZIvl+8TrMzWEOPW45hF/XOBQiEguPcDQzi6VrXR1XBcXOA==",
       "file": "cytoscape-dagre.min.js",
       "sha256": "ec671a41d2bfcac580352e2997797793949e3489cecaf347fc48670d4bd456b0"
+    },
+    {
+      "package": "mermaid",
+      "version": "11.8.1",
+      "url": "https://registry.npmjs.org/mermaid/-/mermaid-11.8.1.tgz",
+      "integrity": "sha512-VSXJLqP1Sqw5sGr273mhvpPRhXwE6NlmMSqBZQw+yZJoAJkOIPPn/uT3teeCBx60Fkt5zEI3FrH2eVT0jXRDzw==",
+      "file": "mermaid.min.js",
+      "sha256": "f452fa3b11dac64b895fb478b7331f535e7ee922b3592b1887b0210b6a3d78c7"
     }
   ],
   "bundled_dependencies": {
@@ -23,5 +31,5 @@
       "@dagrejs/graphlib": "4.0.1"
     }
   },
-  "note": "Upstream npm dist artifacts copied byte-for-byte. Bundled dependency versions verified in upstream source map. Cytoscape-dagre package 4.0.1 retains upstream 4.0.0 banner. Refresh from npm tarballs and verify integrity before replacing; retain all MIT licenses."
+  "note": "Upstream npm dist artifacts copied byte-for-byte. Bundled dependency versions verified in upstream source map. Cytoscape-dagre package 4.0.1 retains upstream 4.0.0 banner. Refresh from npm tarballs and verify integrity before replacing; retain all MIT licenses. Mermaid UMD dist copied byte-for-byte from the mermaid-cli dependency tree; integrity matches registry mermaid@11.8.1."
 }

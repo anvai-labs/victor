@@ -9,6 +9,7 @@ const state = {
   package: null,
   module: null,
   history: [],
+  flowNodeId: null,
 };
 
 const cy = cytoscape({
@@ -30,6 +31,13 @@ const cy = cytoscape({
   layout: { name: "grid" },
 });
 
+function esc(text) {
+  // Escape untrusted text at the DOM boundary (symbol names, files, errors).
+  const el = document.createElement("span");
+  el.textContent = String(text);
+  return el.innerHTML;
+}
+
 async function fetchElements(path) {
   const res = await fetch(path);
   if (!res.ok) {
@@ -43,9 +51,19 @@ function inspect(node) {
   const d = node.data();
   const fields = Object.entries(d)
     .filter(([k]) => !["id", "label"].includes(k))
-    .map(([k, v]) => `<div class="field"><strong>${k}</strong>${String(v)}</div>`)
+    .map(([k, v]) => `<div class="field"><strong>${esc(k)}</strong>${esc(v)}</div>`)
     .join("");
   inspectorBody.innerHTML = fields || '<p class="hint">No metadata.</p>';
+  if (["function", "method", "constructor"].includes(d.kind)) {
+    const btn = document.createElement("button");
+    btn.textContent = "Trace call flow";
+    btn.className = "flow-action";
+    btn.addEventListener("click", () => {
+      pushHistory();
+      showFlow(d.label, d.id);
+    });
+    inspectorBody.appendChild(btn);
+  }
 }
 
 function showHint(text) {
@@ -53,6 +71,7 @@ function showHint(text) {
 }
 
 async function loadPackage(top = 12) {
+  hideFlow();
   state.level = "package"; state.package = null; state.module = null;
   updateNav();
   try {
@@ -63,18 +82,21 @@ async function loadPackage(top = 12) {
   } catch (e) { showHint(`Error: ${e.message}`); }
 }
 
-async function loadModule(package) {
-  state.level = "module"; state.package = package; state.module = null;
+async function loadModule(pkg) {
+  hideFlow();
+  // "package" is a strict-mode reserved word — it cannot be a binding name.
+  state.level = "module"; state.package = pkg; state.module = null;
   updateNav();
   try {
-    const els = await fetchElements(`/api/graph/module/${encodeURIComponent(package)}`);
+    const els = await fetchElements(`/api/graph/module/${encodeURIComponent(pkg)}`);
     cy.json({ elements: els });
     cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 40 }).run();
-    showHint(`Modules of ${package}. Click a module for its symbols.`);
+    showHint(`Modules of ${pkg}. Click a module for its symbols.`);
   } catch (e) { showHint(`Error: ${e.message}`); }
 }
 
 async function loadClass(module) {
+  hideFlow();
   state.level = "class"; state.module = module;
   updateNav();
   try {
@@ -85,12 +107,83 @@ async function loadClass(module) {
   } catch (e) { showHint(`Error: ${e.message}`); }
 }
 
+let flowRenderSeq = 0;
+
+async function showFlow(symbol, nodeId = null) {
+  document.body.classList.add("flow-mode");
+  document.getElementById("flow-view").hidden = false;
+  cyContainer.style.display = "none";
+  state.level = "flow";
+  state.flowNodeId = nodeId;
+  updateNav();
+  document.getElementById("flow-symbol").value = symbol || "";
+  if (symbol) await renderFlow();
+}
+
+function hideFlow() {
+  document.body.classList.remove("flow-mode");
+  document.getElementById("flow-view").hidden = true;
+  cyContainer.style.display = "";
+}
+
+async function renderFlow() {
+  const symbol = document.getElementById("flow-symbol").value.trim();
+  const diagram = document.getElementById("flow-diagram");
+  const badges = document.getElementById("flow-badges");
+  const candidates = document.getElementById("flow-candidates");
+  badges.textContent = "";
+  candidates.innerHTML = "";
+  if (!symbol) return;
+  diagram.innerHTML = '<p class="hint">Tracing call flow…</p>';
+  const params = new URLSearchParams({
+    symbol,
+    depth: document.getElementById("flow-depth").value,
+    granularity: document.getElementById("flow-granularity").value,
+  });
+  if (state.flowNodeId) params.set("node_id", state.flowNodeId);
+  try {
+    const res = await fetch(`/api/graph/flow?${params}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    if (body.candidates) {
+      diagram.innerHTML = '<p class="hint">Multiple symbols share that name — pick one:</p>';
+      body.candidates.forEach((c) => {
+        const el = document.createElement("div");
+        el.className = "field result-link";
+        el.innerHTML = `<strong>${esc(c.type)} · ${esc(c.file)}:${esc(c.line)}</strong>${esc(c.name)}`;
+        el.addEventListener("click", () => {
+          state.flowNodeId = c.node_id;
+          document.getElementById("flow-symbol").value = c.name;
+          renderFlow();
+        });
+        candidates.appendChild(el);
+      });
+      return;
+    }
+    const flags = [];
+    if (!body.ordered) flags.push("unordered — reindex for call-line order");
+    if (body.truncated) flags.push(`truncated (${body.pruned} pruned)`);
+    badges.textContent = flags.join(" · ");
+    if (window.mermaid) {
+      window.mermaid.initialize({ startOnLoad: false }); // strict: graph labels are untrusted
+      const { svg } = await window.mermaid.render(`flow-svg-${++flowRenderSeq}`, body.mermaid);
+      diagram.innerHTML = svg;
+    } else {
+      diagram.innerHTML = '<p class="hint">mermaid.min.js unavailable — showing source.</p>' +
+        `<pre>${esc(body.mermaid)}</pre>`;
+    }
+  } catch (e) {
+    diagram.innerHTML = `<p class="hint">Error: ${esc(e.message)}</p>`;
+  }
+}
+
 function updateNav() {
   document.getElementById("btn-package").classList.toggle("active", state.level === "package");
   document.getElementById("btn-module").disabled = !state.package;
   document.getElementById("btn-module").classList.toggle("active", state.level === "module");
   document.getElementById("btn-class").disabled = !state.module;
   document.getElementById("btn-class").classList.toggle("active", state.level === "class");
+  document.getElementById("btn-flow").classList.toggle("active", state.level === "flow");
   document.getElementById("btn-back").disabled = state.history.length === 0;
 }
 
@@ -110,12 +203,22 @@ cy.on("tap", "node", (evt) => {
 document.getElementById("btn-package").addEventListener("click", () => loadPackage());
 document.getElementById("btn-module").addEventListener("click", () => state.package && loadModule(state.package));
 document.getElementById("btn-class").addEventListener("click", () => state.module && loadClass(state.module));
+document.getElementById("btn-flow").addEventListener("click", () => {
+  pushHistory();
+  showFlow(document.getElementById("flow-symbol").value.trim());
+});
+document.getElementById("flow-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  state.flowNodeId = null; // a typed name is a fresh lookup
+  renderFlow();
+});
 document.getElementById("btn-back").addEventListener("click", () => {
   const prev = state.history.pop();
   if (!prev) return;
-  if (prev.level === "package") loadPackage();
-  else if (prev.level === "module") loadModule(prev.package);
-  else loadClass(prev.module);
+  if (prev.level === "package") { hideFlow(); loadPackage(); }
+  else if (prev.level === "module") { hideFlow(); loadModule(prev.package); }
+  else if (prev.level === "class") { hideFlow(); loadClass(prev.module); }
+  else showFlow(document.getElementById("flow-symbol").value.trim(), state.flowNodeId);
 });
 
 document.getElementById("search-form").addEventListener("submit", async (e) => {
@@ -127,8 +230,8 @@ document.getElementById("search-form").addEventListener("submit", async (e) => {
     const body = await res.json();
     const items = (body.results || []).map((r) => {
       const d = r.data;
-      return `<div class="field result-link" data-module="${d.file}">` +
-        `<strong>${d.kind} · ${d.file}:${d.line}</strong>${d.label}</div>`;
+      return `<div class="field result-link" data-module="${esc(d.file)}">` +
+        `<strong>${esc(d.kind)} · ${esc(d.file)}:${esc(d.line)}</strong>${esc(d.label)}</div>`;
     }).join("");
     inspectorBody.innerHTML = items || '<p class="hint">No symbols matched.</p>';
     inspectorBody.querySelectorAll(".result-link").forEach((el) => {

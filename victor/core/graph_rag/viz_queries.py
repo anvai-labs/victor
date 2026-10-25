@@ -25,6 +25,7 @@ protocol cannot express the GROUP-BY aggregations.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
@@ -225,3 +226,310 @@ def search(db_path, query: str, limit: int = 25) -> List[Dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+# --- Call-flow sequence diagrams (ADR-033 phase 2) -------------------------
+#
+# The explorer's zoom levels answer "what is here"; flow answers "how does a
+# request move through it". The carrier is CALLS edges; message order within a
+# caller is the persisted ``call_line`` (first-use site, 1-based). Graphs
+# indexed before that metadata existed fall back to a deterministic but
+# unordered listing — surfaced honestly as ``ordered: false``, never guessed.
+
+_FLOW_ENTRY_TYPES = ("function", "method", "constructor")
+_FLOW_MAX_DEPTH = 5
+_MERMAID_UNSAFE = str.maketrans(
+    {'"': "'", "\n": " ", "\r": " ", ":": " -", "<": "", ">": "", "&": "+"}
+)
+
+
+def _mermaid_safe(text: str) -> str:
+    """Strip characters that break a mermaid sequenceDiagram token."""
+    return str(text).translate(_MERMAID_UNSAFE).strip()
+
+
+def flow(
+    db_path,
+    symbol: str,
+    *,
+    node_id: Optional[str] = None,
+    depth: int = 2,
+    granularity: str = "class",
+    max_messages: int = 150,
+    max_fanout: int = 12,
+) -> Dict[str, Any]:
+    """Call-flow view for one entry symbol (ADR-033 sequence diagrams).
+
+    BFS over CALLS edges, expanded once per symbol (cycles become revisit
+    notes, not loops). Messages within a caller are ordered by the persisted
+    ``call_line``; when any edge predates that metadata the response is
+    flagged ``ordered: false`` and falls back to name order. Participants
+    aggregate callees by owning class (methods/constructors) or module
+    (functions / class granularity misses). Truncation under the
+    ``max_messages``/``max_fanout`` caps is reported, never silent.
+
+    ``node_id`` pins the entry when the caller already disambiguated (the
+    explorer's inspector knows it). Returns ``{"entry": None}`` when the
+    symbol is unknown and ``{"candidates": [...]}`` when the simple name
+    matches several symbols.
+    """
+    depth = max(1, min(depth, _FLOW_MAX_DEPTH))
+    granularity = granularity if granularity in ("class", "module") else "class"
+    conn = _connect(db_path)
+    try:
+        if node_id:
+            placeholders = ", ".join("?" for _ in _FLOW_ENTRY_TYPES)
+            rows = conn.execute(
+                f"""
+                SELECT node_id, name, type, file, line FROM graph_node
+                WHERE node_id = ? AND type IN ({placeholders})
+                """,
+                (node_id, *_FLOW_ENTRY_TYPES),
+            ).fetchall()
+            entries = [dict(row) for row in rows]
+        else:
+            entries = _flow_entry_candidates(conn, symbol)
+        if not entries:
+            return {"entry": None}
+        if len(entries) > 1:
+            return {"candidates": entries}
+        entry = entries[0]
+
+        nodes: Dict[str, Dict[str, Any]] = {entry["node_id"]: entry}
+        messages: List[Dict[str, Any]] = []
+        ordered = True
+        truncated = False
+        pruned = 0
+        visited = {entry["node_id"]}
+        frontier = [entry["node_id"]]
+
+        for level in range(depth):
+            callees = _flow_callees(conn, frontier)
+            next_frontier: List[str] = []
+            for caller_id in frontier:
+                outgoing = callees.get(caller_id, [])
+                if any(row["call_line"] is None for row in outgoing):
+                    ordered = False
+                if len(outgoing) > max_fanout:
+                    truncated = True
+                    pruned += len(outgoing) - max_fanout
+                    outgoing = outgoing[:max_fanout]
+                for row in outgoing:
+                    if len(messages) >= max_messages:
+                        truncated = True
+                        pruned += 1
+                        continue
+                    dst_id = row["dst"]
+                    revisit = dst_id in visited
+                    if not revisit:
+                        visited.add(dst_id)
+                        nodes[dst_id] = row
+                        next_frontier.append(dst_id)
+                    label = (
+                        f"\u00abnew\u00bb {row['name']}" if row["type"] == "class" else row["name"]
+                    )
+                    messages.append(
+                        {
+                            "from": caller_id,
+                            "to": dst_id,
+                            "label": label,
+                            "call_line": row["call_line"],
+                            "depth": level + 1,
+                            "revisit": revisit,
+                        }
+                    )
+            if not next_frontier:
+                break
+            frontier = next_frontier
+
+        participants = _flow_participants(conn, nodes, granularity)
+        return {
+            "entry": {k: entry[k] for k in ("node_id", "name", "type", "file", "line")},
+            "granularity": granularity,
+            "depth": depth,
+            "ordered": ordered,
+            "truncated": truncated,
+            "pruned": pruned,
+            "participants": participants,
+            "messages": [
+                {
+                    "from_participant": participants[caller_id]["label"],
+                    "to_participant": participants[msg["to"]]["label"],
+                    "label": msg["label"],
+                    "call_line": msg["call_line"],
+                    "depth": msg["depth"],
+                    "revisit": msg["revisit"],
+                }
+                for msg in messages
+                if msg["from"] in participants and msg["to"] in participants
+            ],
+            "mermaid": _flow_mermaid(participants, messages, truncated, pruned),
+        }
+    finally:
+        conn.close()
+
+
+def _flow_entry_candidates(conn: sqlite3.Connection, symbol: str) -> List[Dict[str, Any]]:
+    placeholders = ", ".join("?" for _ in _FLOW_ENTRY_TYPES)
+    rows = conn.execute(
+        f"""
+        SELECT node_id, name, type, file, line
+        FROM graph_node
+        WHERE name = ? AND type IN ({placeholders})
+        ORDER BY file, line, node_id
+        """,
+        (symbol, *_FLOW_ENTRY_TYPES),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _flow_callees(conn: sqlite3.Connection, frontier: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """Outgoing CALLS per caller, deduped per (callee, line), line-ordered."""
+    callees: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    placeholders = ", ".join("?" for _ in frontier)
+    seen: Dict[str, set] = defaultdict(set)
+    for row in conn.execute(
+        f"""
+        SELECT e.src, e.dst, e.metadata, n.name, n.type, n.file, n.line
+        FROM graph_edge e
+        JOIN graph_node n ON n.node_id = e.dst
+        WHERE e.type = 'CALLS' AND e.src IN ({placeholders})
+        """,
+        tuple(frontier),
+    ):
+        call_line = None
+        if row["metadata"]:
+            try:
+                value = json.loads(row["metadata"]).get("call_line")
+            except (ValueError, TypeError):
+                value = None
+            if isinstance(value, int) and value > 0:
+                call_line = value
+        key = (row["dst"], call_line)
+        if key in seen[row["src"]]:
+            continue
+        seen[row["src"]].add(key)
+        callees[row["src"]].append(
+            {
+                "dst": row["dst"],
+                "name": row["name"],
+                "type": row["type"],
+                "file": row["file"],
+                "line": row["line"],
+                "call_line": call_line,
+            }
+        )
+    for rows in callees.values():
+        # Program order when call lines are known; otherwise a stable,
+        # clearly-flagged name fallback (ordered: false in the response).
+        rows.sort(key=lambda r: (r["call_line"] is None, r["call_line"] or 0, r["name"], r["dst"]))
+    return callees
+
+
+def _flow_participants(
+    conn: sqlite3.Connection,
+    nodes: Dict[str, Dict[str, Any]],
+    granularity: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Map every symbol in the flow onto a sequence-diagram participant.
+
+    Class granularity: methods/constructors join their owning class's lane;
+    functions (and class targets of constructor calls) get a module lane.
+    """
+    placeholders = ", ".join("?" for _ in nodes)
+    parent_of = {
+        row["node_id"]: row["parent_id"]
+        for row in conn.execute(
+            f"SELECT node_id, parent_id FROM graph_node WHERE node_id IN ({placeholders})",
+            tuple(nodes),
+        )
+    }
+    parent_ids = {pid for pid in parent_of.values() if pid is not None}
+    parents = (
+        {
+            row["node_id"]: dict(row)
+            for row in conn.execute(
+                f"""
+            SELECT node_id, name, type, file FROM graph_node
+            WHERE node_id IN ({", ".join("?" for _ in parent_ids)})
+            """,
+                tuple(parent_ids),
+            )
+        }
+        if parent_ids
+        else {}
+    )
+
+    participants: Dict[str, Dict[str, Any]] = {}
+    for node_id, node in nodes.items():
+        parent = parents.get(parent_of.get(node_id))
+        if node["type"] == "class":
+            # Constructor-call target (method -> class CALLS edge): the class
+            # IS the interaction participant.
+            participants[node_id] = {
+                "key": node_id,
+                "label": node["name"],
+                "kind": "class",
+                "file": node["file"],
+            }
+            continue
+        if granularity == "class" and node["type"] in ("method", "constructor"):
+            if parent and parent["type"] == "class":
+                participants[node_id] = {
+                    "key": parent["node_id"],
+                    "label": parent["name"],
+                    "kind": "class",
+                    "file": parent["file"],
+                }
+                continue
+        participants[node_id] = {
+            "key": node["file"],
+            "label": (node["file"] or "?").rsplit("/", 1)[-1],
+            "kind": "module",
+            "file": node["file"],
+        }
+    return participants
+
+
+def _flow_mermaid(
+    participants: Dict[str, Dict[str, Any]],
+    messages: List[Dict[str, Any]],
+    truncated: bool,
+    pruned: int,
+) -> str:
+    """Render the flow as a mermaid ``sequenceDiagram`` (same grammar as the
+    static visualize.py layer — one export path from either surface)."""
+    lane_order: List[str] = []
+    lane_ids: Dict[str, str] = {}
+    for node_id in sorted(participants, key=lambda n: participants[n]["key"]):
+        key = participants[node_id]["key"]
+        if key not in lane_ids:
+            lane_ids[key] = f"P{len(lane_ids)}"
+            lane_order.append(key)
+    by_key: Dict[str, str] = {}
+    for node_id, participant in participants.items():
+        by_key[node_id] = lane_ids[participant["key"]]
+
+    lines = ["sequenceDiagram", "    autonumber"]
+    for key in lane_order:
+        first_label = next(
+            participants[n]["label"] for n in participants if participants[n]["key"] == key
+        )
+        lines.append(f'    participant {lane_ids[key]} as "{_mermaid_safe(first_label)}"')
+    for msg in messages:
+        src, dst = by_key.get(msg["from"]), by_key.get(msg["to"])
+        if src is None or dst is None:
+            continue
+        suffix = " ⟲" if msg["revisit"] else ""
+        line_note = f"  (L{msg['call_line']})" if msg["call_line"] else ""
+        lines.append(f"    {src}->>{dst}: {_mermaid_safe(msg['label'])}{line_note}{suffix}")
+    if truncated and lane_order:
+        span = (
+            lane_ids[lane_order[0]]
+            if len(lane_order) == 1
+            else f"{lane_ids[lane_order[0]]},{lane_ids[lane_order[-1]]}"
+        )
+        lines.append(
+            f"    Note over {span}: truncated - {pruned} further message(s) pruned by caps"
+        )
+    return "\n".join(lines) + "\n"

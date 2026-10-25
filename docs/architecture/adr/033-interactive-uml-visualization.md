@@ -1,7 +1,8 @@
 # ADR-033: Interactive multi-level code visualization (UML roadmap)
 
-**Status:** Proposed — pending effort, folded into the next plan-mode
-cycle (owner request 2026-10-24).
+**Status:** Accepted (direction) — phase 1 (package→class explorer)
+shipped #1502/#1503; phase 2 (call-flow sequence diagrams) shipped with
+call-site-line persistence on CALLS edges.
 
 **Date:** 2026-10-24
 
@@ -51,6 +52,16 @@ query layer; the delivery changes):
 - UML families land incrementally AFTER the explorer, each driven by an
   actual understanding need (e.g. sequence diagrams from the tier-3 call
   graph), not by diagram-taxonomy completeness.
+- Phase 2 (sequence diagrams) reads the ordering key from CALLS-edge
+  ``call_line`` metadata (1-based first-use site from
+  victor-codegraph's ``CodeRelation.call_site``, persisted since phase 2 —
+  graphs indexed before it report ``ordered: false`` and fall back to a
+  deterministic name order, never a guessed one). Participants: owning
+  class for methods/constructors (constructor-call targets ARE lanes),
+  module for free functions; caps and truncation are reported, never
+  silent. Rendering: vendored mermaid UMD — the same grammar as the static
+  layer, and the renderer for the remaining families (class, use-case,
+  activity, deployment) without new vendored surface.
 - Frontend assets are a new dependency surface for victor — vendored,
   no runtime CDN fetches (offline-first).
 

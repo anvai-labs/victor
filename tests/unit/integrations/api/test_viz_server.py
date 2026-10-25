@@ -1,8 +1,10 @@
-"""ADR-033 phase 1: the interactive explorer (viz_queries + server).
+"""ADR-033: the interactive explorer (viz_queries + server).
 
-Golden-element determinism, the read-only surface, allowlist hardening,
-the no-graph 409, and statement-node exclusion — against a seeded store,
-so CI exercises everything without a pre-indexed checkout.
+Phase 1: golden-element determinism, the read-only surface, allowlist
+hardening, the no-graph 409, and statement-node exclusion. Phase 2: the
+call-flow sequence view (call_line ordering, cycle guard, truncation caps,
+unordered-graph fallback) — against a seeded store, so CI exercises
+everything without a pre-indexed checkout.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ async def _seed(tmp_path: Path) -> Path:
     from victor.storage.graph.protocol import GraphEdge, GraphNode
     from victor.storage.graph.sqlite_store import SqliteGraphStore
 
-    def node(node_id, name, file, type_, line=1):
+    def node(node_id, name, file, type_, line=1, parent_id=None):
         return GraphNode(
             node_id=node_id,
             type=type_,
@@ -34,6 +36,7 @@ async def _seed(tmp_path: Path) -> Path:
             line=line,
             end_line=line + 1,
             lang="python",
+            parent_id=parent_id,
         )
 
     nodes = [
@@ -43,6 +46,21 @@ async def _seed(tmp_path: Path) -> Path:
         node("msg", "Message", "victor/providers/base.py", "class"),
         # A statement node: must never appear in explorer output.
         node("stmt", "assignment:1", "victor/agent/orchestrator.py", "statement"),
+        # Flow-shape (ADR-033 phase 2): a service class with methods, a repo
+        # class, and a free function — calls carry call_line metadata.
+        node("svc_cls", "TurnService", "victor/agent/services/turn.py", "class"),
+        node("svc_execute", "execute", "victor/agent/services/turn.py", "method", 30, "svc_cls"),
+        node("svc_step", "_step", "victor/agent/services/turn.py", "method", 80, "svc_cls"),
+        node("svc_helper", "helper", "victor/agent/services/turn.py", "method", 120, "svc_cls"),
+        node("svc_handle", "handle", "victor/agent/services/turn.py", "method", 200, "svc_cls"),
+        node("repo_cls", "Repo", "victor/core/repo.py", "class"),
+        node("repo_save", "save", "victor/core/repo.py", "method", 10, "repo_cls"),
+        node("repo_handle", "handle", "victor/core/repo.py", "method", 50, "repo_cls"),
+        node("util_fn", "serialize", "victor/core/util.py", "function", 5),
+        node("plain_fn", "plain", "victor/core/util.py", "function", 60),
+        # Hostile name: graph names are untrusted text (polyglot harvest);
+        # mermaid output must never carry raw markup through.
+        node("evil_fn", 'bad<svg>"onload"&', "victor/core/util.py", "function", 90),
     ]
     edges = [
         GraphEdge(src="orch", dst="cfg", type="CALLS"),
@@ -50,6 +68,53 @@ async def _seed(tmp_path: Path) -> Path:
         GraphEdge(src="chat", dst="cfg", type="CALLS"),
         GraphEdge(src="orch", dst="chat", type="REFERENCES"),
         GraphEdge(src="chat", dst="msg", type="CALLS"),
+        # execute: constructor (L20), method (L40), function (L60) — inserted
+        # deliberately out of source order; flow must sort by call_line.
+        GraphEdge(
+            src="svc_execute",
+            dst="repo_cls",
+            type="CALLS",
+            metadata={"call_line": 20, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(
+            src="svc_execute",
+            dst="svc_step",
+            type="CALLS",
+            metadata={"call_line": 40, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(
+            src="svc_execute",
+            dst="util_fn",
+            type="CALLS",
+            metadata={"call_line": 60, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(
+            src="svc_execute",
+            dst="svc_helper",
+            type="CALLS",
+            metadata={"call_line": 70, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(
+            src="svc_step",
+            dst="repo_save",
+            type="CALLS",
+            metadata={"call_line": 99, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(
+            src="svc_step",
+            dst="svc_execute",
+            type="CALLS",
+            metadata={"call_line": 105, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(
+            src="svc_helper",
+            dst="svc_helper",
+            type="CALLS",
+            metadata={"call_line": 7, "provenance": "scope_resolver"},
+        ),
+        # Pre-flow edge shape: no call_line anywhere on this path.
+        GraphEdge(src="plain_fn", dst="util_fn", type="CALLS"),
+        GraphEdge(src="plain_fn", dst="evil_fn", type="CALLS", metadata={"call_line": 91}),
     ]
     store = SqliteGraphStore(tmp_path)
     await store.initialize()
@@ -91,12 +156,19 @@ def test_index_served(client):
     assert "Victor Code Explorer" in res.text
 
 
-def test_index_uses_relative_asset_paths(client):
-    """The page must reference assets relatively so it works under /viz on
-    BOTH the main server and the standalone wrapper."""
+def test_index_uses_viz_absolute_asset_paths(client):
+    """Assets must be /viz-absolute. Relative paths break in a real browser:
+    at /viz (no trailing slash) the base directory is /, so "assets/x.js"
+    resolves to /assets/x.js and 404s — the page ships but never renders.
+    Both mounts (main server, standalone wrapper) serve the page at the
+    identical /viz path, so root-absolute is correct everywhere."""
     res = client.get("/viz")
-    assert "assets/explorer.js" in res.text
-    assert "assets/vendor/cytoscape.min.js" in res.text
+    assert res.status_code == 200
+    assert 'src="/viz/assets/explorer.js"' in res.text
+    assert 'src="/viz/assets/vendor/mermaid.min.js"' in res.text
+    assert 'href="/viz/assets/explorer.css"' in res.text
+    # No bare-relative or foreign-prefix references remain.
+    assert 'src="assets/' not in res.text
     assert 'src="/static' not in res.text
 
 
@@ -134,6 +206,7 @@ def test_factory_registered_in_main_server_router_list():
     paths = {getattr(r, "path", None) for r in routers for r in getattr(r, "routes", [])}
     assert "/viz" in paths
     assert "/api/graph/package" in paths
+    assert "/api/graph/flow" in paths
 
 
 def test_api_routes_return_element_lists(client):
@@ -147,3 +220,139 @@ def test_api_routes_return_element_lists(client):
     hits = client.get("/api/graph/search?q=chat")
     assert hits.status_code == 200
     assert any(r["data"]["label"] == "chat" for r in hits.json()["results"])
+
+
+# --- Call-flow sequence view (ADR-033 phase 2) ------------------------------
+
+
+def _labels(result):
+    return [m["label"] for m in result["messages"]]
+
+
+def test_flow_orders_messages_by_call_line(db_path):
+    result = viz_queries.flow(db_path, "execute", depth=1)
+    assert result["ordered"] is True
+    assert result["entry"]["name"] == "execute"
+    first_caller = [m for m in result["messages"] if m["depth"] == 1]
+    assert _labels(result) == ["«new» Repo", "_step", "serialize", "helper"]
+    assert [m["call_line"] for m in first_caller] == [20, 40, 60, 70]
+    assert "sequenceDiagram" in result["mermaid"]
+    assert "«new» Repo" in result["mermaid"]
+    assert 'as "TurnService"' in result["mermaid"]
+
+
+def test_flow_class_granularity_participants(db_path):
+    result = viz_queries.flow(db_path, "execute", depth=2)
+    labels = {p["label"] for p in result["participants"].values()}
+    assert "TurnService" in labels  # methods lane onto their class
+    assert "Repo" in labels  # constructor target is its own lane
+    assert "util.py" in labels  # free functions lane onto their module
+
+
+def test_flow_cycle_and_recursion_are_guarded(db_path):
+    result = viz_queries.flow(db_path, "execute", depth=4)
+    revisits = [m for m in result["messages"] if m["revisit"]]
+    assert revisits, "the execute -> _step -> execute cycle must be a revisit"
+    # Recursion (helper -> helper) appears exactly once and terminates.
+    self_calls = [m for m in result["messages"] if m["label"] == "helper" and m["revisit"]]
+    assert len(self_calls) == 1
+    assert len(result["messages"]) < 20, "guards must bound the expansion"
+
+
+def test_flow_without_call_lines_is_honestly_unordered(db_path):
+    result = viz_queries.flow(db_path, "plain", depth=1)
+    assert result["ordered"] is False
+    # call_line order (91) beats the no-line edge; the no-line edge follows.
+    assert _labels(result) == ['bad<svg>"onload"&', "serialize"]
+
+
+def test_flow_sanitizes_hostile_symbol_names(db_path):
+    """Symbol names are untrusted text; mermaid output must never carry raw
+    markup (angle brackets, quotes, ampersands) through to the renderer."""
+    result = viz_queries.flow(db_path, "plain", depth=1)
+    assert "<svg>" not in result["mermaid"]
+    assert 'bad"' not in result["mermaid"]
+    assert "&" not in result["mermaid"] or "&amp;" in result["mermaid"]
+    # JSON keeps the raw name (data fidelity); the UI escapes at the DOM
+    # boundary — the renderer-facing mermaid source is what must be clean.
+    assert any("<svg>" in m["label"] for m in result["messages"])
+
+
+def test_flow_ambiguity_returns_candidates(db_path):
+    result = viz_queries.flow(db_path, "handle")
+    assert "candidates" in result
+    assert {c["file"] for c in result["candidates"]} == {
+        "victor/agent/services/turn.py",
+        "victor/core/repo.py",
+    }
+    pinned = viz_queries.flow(db_path, "handle", node_id="repo_handle")
+    assert pinned["entry"]["file"] == "victor/core/repo.py"
+
+
+def test_flow_unknown_symbol_has_no_entry(db_path):
+    assert viz_queries.flow(db_path, "does_not_exist") == {"entry": None}
+
+
+def test_flow_fanout_cap_reports_truncation(db_path):
+    result = viz_queries.flow(db_path, "execute", depth=1, max_fanout=2)
+    assert result["truncated"] is True
+    assert result["pruned"] == 2  # 4 callees, cap 2 — reported, never silent
+
+
+def test_flow_truncation_is_reported(db_path):
+    result = viz_queries.flow(db_path, "execute", depth=3, max_messages=2)
+    assert result["truncated"] is True
+    assert result["pruned"] > 0
+    assert len(result["messages"]) == 2
+    assert "truncated" in result["mermaid"]
+
+
+def test_flow_endpoint_happy_path_and_errors(client):
+    ok = client.get("/api/graph/flow", params={"symbol": "execute", "depth": "2"})
+    assert ok.status_code == 200
+    body = ok.json()
+    assert body["entry"]["name"] == "execute"
+    assert body["mermaid"].startswith("sequenceDiagram")
+
+    missing = client.get("/api/graph/flow", params={"symbol": "nope"})
+    assert missing.status_code == 404
+
+    ambiguous = client.get("/api/graph/flow", params={"symbol": "handle"})
+    assert ambiguous.status_code == 200
+    assert len(ambiguous.json()["candidates"]) == 2
+
+    pinned = client.get("/api/graph/flow", params={"symbol": "handle", "node_id": "repo_handle"})
+    assert pinned.json()["entry"]["file"] == "victor/core/repo.py"
+
+    assert client.get("/api/graph/flow", params={"symbol": "x", "depth": "9"}).status_code == 422
+    assert (
+        client.get("/api/graph/flow", params={"symbol": "x", "granularity": "both"})
+    ).status_code == 422
+
+
+def test_flow_409_without_graph(tmp_path):
+    empty = tmp_path / "empty-ws"
+    empty.mkdir()
+    res = TestClient(create_viz_app(empty)).get("/api/graph/flow", params={"symbol": "x"})
+    assert res.status_code == 409
+
+
+def test_explorer_assets_are_parseable():
+    """The explorer JS must survive a real engine parse — phase 1 shipped a
+    strict-mode reserved word (`package` as a parameter) that curl smoke
+    tests cannot catch. Skip when node is unavailable."""
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    asset = (
+        Path(viz_queries.__file__).parent.parent.parent
+        / "integrations"
+        / "api"
+        / "static"
+        / "viz"
+        / "explorer.js"
+    )
+    proc = subprocess.run(["node", "--check", str(asset)], capture_output=True, text=True)
+    assert proc.returncode == 0, f"explorer.js failed to parse:\n{proc.stderr}"

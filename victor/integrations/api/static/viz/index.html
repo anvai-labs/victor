@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Victor Code Explorer</title>
-<link rel="stylesheet" href="assets/explorer.css">
-<script src="assets/vendor/cytoscape.min.js"></script>
-<script src="assets/vendor/cytoscape-dagre.min.js"></script>
+<link rel="stylesheet" href="/viz/assets/explorer.css">
+<script src="/viz/assets/vendor/cytoscape.min.js"></script>
+<script src="/viz/assets/vendor/cytoscape-dagre.min.js"></script>
+<script src="/viz/assets/vendor/mermaid.min.js"></script>
 </head>
 <body>
 <header>
@@ -15,6 +16,7 @@
     <button id="btn-package" class="active">Packages</button>
     <button id="btn-module" disabled>Module</button>
     <button id="btn-class" disabled>Class</button>
+    <button id="btn-flow">Flow</button>
     <button id="btn-back" disabled>&larr; Back</button>
   </nav>
   <form id="search-form">
@@ -28,7 +30,26 @@
     <div id="inspector-body"><p class="hint">Select a node to inspect.</p></div>
   </aside>
   <div id="cy"></div>
+  <section id="flow-view" hidden>
+    <form id="flow-form">
+      <input id="flow-symbol" type="text" placeholder="Entry symbol (e.g. execute_turn)" autocomplete="off">
+      <select id="flow-depth" title="Call depth">
+        <option value="1" selected>depth 1</option>
+        <option value="2">depth 2</option>
+        <option value="3">depth 3</option>
+        <option value="4">depth 4</option>
+      </select>
+      <select id="flow-granularity" title="Participant granularity">
+        <option value="class" selected>by class</option>
+        <option value="module">by module</option>
+      </select>
+      <button type="submit">Trace</button>
+      <span id="flow-badges"></span>
+    </form>
+    <div id="flow-candidates"></div>
+    <div id="flow-diagram"></div>
+  </section>
 </main>
-<script src="assets/explorer.js"></script>
+<script src="/viz/assets/explorer.js"></script>
 </body>
 </html>
