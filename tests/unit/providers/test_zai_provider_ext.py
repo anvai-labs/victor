@@ -17,6 +17,8 @@ def test_zai_is_thin_typed_policy_without_python_http_client() -> None:
 def test_context_policy_preserves_glm_limits_and_suffixes() -> None:
     provider = ZAIProvider(api_key="test-key")
     assert ZAI_MODELS["glm-5.2"]["context_window"] == 1_000_000
+    assert provider.context_window("glm-5.3") == 1_000_000
+    assert provider.context_window("glm-5.3:coding") == 1_000_000
     assert provider.context_window("glm-5.2") == 1_000_000
     assert provider.context_window("glm-5.2:coding") == 1_000_000
     assert provider.context_window("glm-4.7") == 200_000

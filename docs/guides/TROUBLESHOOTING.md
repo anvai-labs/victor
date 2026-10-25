@@ -874,9 +874,20 @@ result shows `8192` or a value far below the advertised window, plus the
        supports_extended_context: true
 
    models:
-     "glm-5.2*":              # model-specific override (highest precedence)
-       context_window: 1000000  # 753B MoE, 1M context
+     "glm-5.3*":              # model-specific override (highest precedence)
+       context_window: 1000000  # Z.AI: 1M context
+       response_reserve: 131072  # 128K maximum output
    ```
+
+   For Sandhi-backed providers, also register the model in
+   `victor/config/openai_compat_model_policy.yaml`: its context-window routes
+   take precedence in the provider's `context_window()` method, and its model
+   catalog advertises `max_output` for discovery.
+
+   `response_reserve` budgets context; it does not change the per-request
+   `max_tokens` in `~/.victor/profiles.yaml`. The Z.AI GLM-5.3 API supports
+   up to 128K output tokens, but a profile may choose a smaller operational
+   limit (for example, 32768) to control latency and usage.
 
    Resolution order at runtime:
    1. `models:` fnmatch pattern (e.g. `glm-5.2*` matches `glm-5.2` and

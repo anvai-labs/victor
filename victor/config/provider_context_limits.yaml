@@ -224,6 +224,9 @@ models:
   # Adding a new GLM model = add a pattern here. No code change required.
   # These patterns take precedence over the `zai:` provider default above
   # and over the provider's hardcoded ZAI_MODELS table.
+  "glm-5.3*":
+    context_window: 1000000  # Z.AI: 1M context, up to 128K output
+    response_reserve: 131072
   "glm-5.2*":
     context_window: 1000000  # 753B MoE, 1M context
   "glm-5.1*":
