@@ -823,14 +823,22 @@ class PluginBackedCCGBuilder:
             records_by_scope.setdefault(record.graph_node.scope_id, []).append(record)
 
         for scoped_records in records_by_scope.values():
-            ordered = sorted(
-                scoped_records,
-                key=lambda record: (
-                    record.graph_node.line or 0,
-                    record.graph_node.end_line or 0,
-                    record.graph_node.node_id,
-                ),
-            )
+            # Same-line statements (expression/assignment/call at one line)
+            # tie-break by walk order -- tree-sitter children are in source
+            # order, so this is the true textual order and, unlike the
+            # path-derived node_id, identical for identical content indexed
+            # from any directory. Matches _build_ddg_edges.
+            ordered = [
+                record
+                for _, record in sorted(
+                    enumerate(scoped_records),
+                    key=lambda pair: (
+                        pair[1].graph_node.line or 0,
+                        pair[1].graph_node.end_line or 0,
+                        pair[0],
+                    ),
+                )
+            ]
             for current, next_record in zip(ordered, ordered[1:], strict=False):
                 if current.graph_node.node_id == next_record.graph_node.node_id:
                     continue
@@ -900,14 +908,23 @@ class PluginBackedCCGBuilder:
     ):
         edges = []
         latest_definition: Dict[str, StatementRecord] = {}
-        ordered = sorted(
-            records,
-            key=lambda record: (
-                record.graph_node.line or 0,
-                record.graph_node.end_line or 0,
-                record.graph_node.node_id,
-            ),
-        )
+        # Order must be path-independent: node_id embeds the file path, and
+        # using it as the tie-breaker made byte-identical source indexed from
+        # two directories produce different DDG graphs (measured: 3333 vs
+        # 3331 edges on the boundary corpus) -- same-line statements resolved
+        # latest_definition differently. Walk order (tree-sitter source
+        # order) breaks ties, matching _build_cfg_edges.
+        ordered = [
+            record
+            for _, record in sorted(
+                enumerate(records),
+                key=lambda pair: (
+                    pair[1].graph_node.line or 0,
+                    pair[1].graph_node.end_line or 0,
+                    pair[0],
+                ),
+            )
+        ]
 
         for record in ordered:
             uses = record.identifiers - record.definitions

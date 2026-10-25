@@ -149,3 +149,85 @@ def test_coding_plugin_registers_ccg_builder() -> None:
     assert language == "all"
     assert isinstance(builder, PluginBackedCCGBuilder)
     assert builder.supports_language("rust")
+
+
+def test_ccg_is_path_independent() -> None:
+    """Identical content indexed from differently-named directories must
+    produce identical graphs. Regression: CFG/DDG ordered records by the
+    path-derived node_id, so same-line statements chained and resolved
+    latest-definition differently per directory (measured on the boundary
+    corpus: 3333 vs 3331 vs 3321 edges for byte-identical source)."""
+    import asyncio
+
+    source = (
+        "import os\n"
+        "VALUE = compute(os.getcwd())\n"
+        "\n"
+        "\n"
+        "def compute(path: str) -> str:\n"
+        "    prefix = path.strip()\n"
+        "    result = wrap(prefix, len(prefix))\n"
+        "    return result\n"
+        "\n"
+        "\n"
+        "def wrap(text: str, width: int) -> str:\n"
+        "    padded = text.ljust(width)\n"
+        "    return padded\n"
+    )
+    builder = PluginBackedCCGBuilder()
+
+    def build(directory: str) -> tuple[list[Any], list[Any]]:
+        import tempfile
+
+        target = Path(tempfile.mkdtemp()) / directory / "sample.py"
+        target.parent.mkdir(parents=True)
+        target.write_text(source, encoding="utf-8")
+        return asyncio.run(builder.build_ccg_for_file(target))
+
+    nodes_a, edges_a = build("a")
+    nodes_b, edges_b = build("a_much_longer_directory_name")
+
+    assert nodes_a and edges_a, "sample must yield statements and edges"
+
+    def span_of(nodes: list[Any]) -> dict[str, tuple[Any, ...]]:
+        return {n.node_id: (n.line, n.end_line, n.statement_type, n.name) for n in nodes}
+
+    def node_signature(nodes: list[Any]) -> list[tuple[Any, ...]]:
+        return sorted(
+            (
+                n.line,
+                n.end_line,
+                n.statement_type,
+                n.name,
+                tuple(sorted((n.metadata or {}).items())),
+            )
+            for n in nodes
+        )
+
+    def edge_signature(nodes: list[Any], edges: list[Any]) -> list[tuple[Any, ...]]:
+        span = span_of(nodes)
+        normalized = []
+        for edge in edges:
+            metadata = tuple(
+                sorted(
+                    (key, value) for key, value in (edge.metadata or {}).items() if key != "file"
+                )
+            )
+            normalized.append((span.get(edge.src), span.get(edge.dst), str(edge.type), metadata))
+        return sorted(normalized, key=repr)
+
+    assert len(edges_a) == len(edges_b)
+    assert node_signature(nodes_a) == node_signature(nodes_b)
+    assert edge_signature(nodes_a, edges_a) == edge_signature(nodes_b, edges_b)
+    # The same-line chain must follow source order, not hash order: the
+    # assignment statement at line 2 precedes the call it wraps.
+    spans = span_of(nodes_a)
+    successors = {
+        (spans[e.src], spans[e.dst]) for e in edges_a if str(e.type).endswith("CFG_SUCCESSOR")
+    }
+    same_line = {
+        edge
+        for edge in successors
+        if edge[0] is not None and edge[1] is not None and edge[0][0] == edge[1][0] == 2
+    }
+    assert same_line, "same-line statements must be chained"

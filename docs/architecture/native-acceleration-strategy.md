@@ -159,6 +159,39 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    merge (native absorbs plugin semantics) remains the documented
    follow-up with this delta table as its evidence base.
 
+   **Plugin-builder phase profile + the boundary decision sharpened (2026-10-25).**
+   A phase-level wall-clock profile of the enhanced builder
+   (`scripts/benchmark_ccg_builder_phases.py`, boundary corpus,
+   1161 nodes/3321 edges) — six instrumented call sites per file, NOT
+   per-call wrappers: walk **40.5 ms (79%)**, edges 4.5 ms, hints 2.5 ms,
+   dedupe 2.4 ms, parse 2.2 ms. The identifier/call extractors the
+   instrumented profile had put at "58%" cost **~4 ms** in wall time —
+   cProfile's per-call overhead on 2.8M calls fabricated the share. A
+   memoized single-pass extraction was built, proven byte-identical
+   (6 files, 11k nodes incl. metadata), measured **perf-neutral**
+   (54-59 ms both ways), and removed per the complete-only-if-improved
+   gate; per-node interpreter steps (~50k tree nodes) are the walk's
+   floor, so no Python-side reordering of the builder buys more than a
+   few ms. **Decision: Option B — route the plugin builder through the
+   native statement walk** (extend `extract_statements_batch` with the
+   plugin's emission classes: block bodies, conditions, returns, plus
+   per-statement definitions/uses/calls/preview; differential parity on
+   shape AND metadata per language; then the plugin consumes native
+   records and keeps its CDG/DDG/dedupe in Python, ~10 ms/file combined).
+   Projected file cost ~15 ms vs ~51 ms today with the graph shape
+   preserved exactly.
+
+   **Reproducibility defect found and fixed while measuring (same date):**
+   the enhanced builder's CFG and DDG ordered records by the path-derived
+   `node_id`, so byte-identical source indexed from two directories
+   produced different graphs (3333 vs 3331 vs 3321 edges on the boundary
+   corpus — same-line statements chained in hash order). Both sorts now
+   tie-break by walk order (tree-sitter source order); graphs are
+   path-independent (pinned by a regression test; three directories,
+   identical edge signatures). Graphs built before the fix may differ by
+   a few same-line CFG/DDG edges — reindex reconciles (derived,
+   rebuildable state by design).
+
    **End-to-end re-measure with phases 1-2 active (2026-10-24) — two findings that
    reshape the remaining work:**
    - **The victor-coding enhanced CCG builder shadows the native path for the dominant
