@@ -10,12 +10,20 @@ The native extensions provide high-performance implementations of:
 
 ## What's NOT Included
 
-**Tree-sitter symbol extraction** is intentionally **NOT** included because:
-- Python's `tree-sitter` package already provides efficient bindings to the C library
-- Adding Rust (Python → Rust → C) would introduce FFI overhead without benefit
-- The existing Python bindings are well-optimized for this use case
-
-For tree-sitter operations, use Python's `tree-sitter` package directly.
+**Tree-sitter symbol extraction** is intentionally **NOT** included here.
+The original reasoning ("Python bindings are well-optimized; Rust would
+add FFI overhead without benefit") held for the C library's own cost — but
+the 2026-10-25 boundary measurement
+(`docs/architecture/native-acceleration-strategy.md`,
+`scripts/benchmark_ccg_builder_phases.py`) showed the plugin CCG builder's
+cost is the PYTHON-side per-node walk (~37 ms/file, 71%), not parsing
+(~2 ms). The decided path (Option B) keeps this crate tree-sitter-free and
+serves the plugin's statement walk from the ROOT engine's native batch
+(`extract_plugin_statements_batch`, parameterized by THIS package's
+classification/identifier tables as data — language-syntax knowledge stays
+in victor-coding, the engine stays generic, grammar versions stay
+single-sourced in the root crate). The parity oracle is the golden corpus
+under `tests/codebase/goldens/`.
 
 ## Performance Improvements
 

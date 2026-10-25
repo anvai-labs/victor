@@ -179,7 +179,13 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    shape AND metadata per language; then the plugin consumes native
    records and keeps its CDG/DDG/dedupe in Python, ~10 ms/file combined).
    Projected file cost ~15 ms vs ~51 ms today with the graph shape
-   preserved exactly.
+   preserved exactly. The parity oracle is the golden corpus at
+   `verticals/victor-coding/tests/codebase/goldens/` (six languages,
+   statement shape + enrichment, path-normalized) — the native port's
+   differential test reads the same samples/goldens as pure data, so
+   semantics stay owned by victor-coding and no root→vertical import
+   appears. Symbol hints stay Python-side in the first phase (~2.7 ms);
+   they ride into the native batch as data.
 
    **Reproducibility defect found and fixed while measuring (same date):**
    the enhanced builder's CFG and DDG ordered records by the path-derived
