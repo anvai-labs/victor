@@ -215,6 +215,28 @@ class CodeContextGraphBuilder:
         supports_language = getattr(builder, "supports_language", None)
         return not callable(supports_language) or bool(supports_language(language))
 
+    def _inject_native_plugin_walk(self, enhanced_builder: Any) -> None:
+        """Give the enhanced builder the native plugin-walk extractor.
+
+        Option B phase 2: the enhanced builder's Python statement walk (the
+        measured hot core — ~37 ms/file of per-node interpreter work) is
+        served by the native table-driven walk when its language has a
+        grammar. Duck-typed injection, deliberately: the vertical owns all
+        language-syntax knowledge (it passes its own tables to the
+        extractor) and no cross-package import appears in either
+        direction. An absent extension, unsupported language, or FFI
+        failure makes the extractor decline (None) and the builder keeps
+        its Python walk — the typed reference implementation and fallback.
+        """
+        if getattr(enhanced_builder, "_native_extractor", None) is not None:
+            return
+        try:
+            from victor.processing.native.plugin_ccg import extract_plugin_statements
+
+            enhanced_builder._native_extractor = extract_plugin_statements
+        except Exception:  # pragma: no cover - extension entirely optional
+            logger.debug("native plugin-walk extractor unavailable; Python walk stays")
+
     def _resolve_enhanced_builder(self, language: str) -> Optional[Any]:
         """Resolve an enhanced builder for the current file language.
 
@@ -269,6 +291,7 @@ class CodeContextGraphBuilder:
         if enhanced_builder:
             try:
                 if self._enhanced_builder_supports_language(enhanced_builder, lang):
+                    self._inject_native_plugin_walk(enhanced_builder)
                     return await enhanced_builder.build_ccg_for_file(file_path, lang)
             except Exception as e:
                 logger.warning(f"Enhanced CCG builder failed: {e}, falling back to built-in")
