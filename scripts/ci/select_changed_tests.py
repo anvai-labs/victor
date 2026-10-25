@@ -713,6 +713,11 @@ RELATED_TESTS = {
             "tests/unit/providers/test_provider_stream_aclosing.py",
         ),
     ),
+    # The timeout-slot inventory is pinned in one place, not per-provider.
+    "victor/providers/timeout_profile.py": (
+        "tests/unit/providers/test_failure_taxonomy.py",
+        "tests/unit/providers/test_stream_setup_config.py",
+    ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",
         "tests/unit/protocols/test_protocol_adapters.py",
