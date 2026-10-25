@@ -142,6 +142,23 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    750-line file), massively redundant and precisely the Python-side cost the native path
    removes. Remaining engine phase: codegraph symbol extraction (`victor-codegraph`).
 
+   **Boundary measurement + resolution knob (2026-10-24, #1500-series):** the
+   plugin-vs-native delta measured precisely on precise_providers.py — the
+   victor-coding plugin graph is a DIFFERENT SHAPE, not a superset: 1161 vs
+   754 statement nodes (plugin emits `block` bodies, +400 nodes incl.
+   148 blocks/96 conditions/113 returns), per-node metadata enrichment
+   (definitions/uses/language provenance), and fundamentally different
+   CDG/DDG algorithms (plugin CDG 255 vs native 30,119 edges from
+   reachability domination; plugin DDG 2,025 vs native 568 from the
+   double-recursion semantics). Full-parity porting was scoped out at the
+   B1 gate per the recorded fallback. Landed instead:
+   `search.graph.ccg_builder = auto|native|plugin|builtin` (default auto =
+   plugin-first, the richer graph — never a silent flip), threaded from
+   GraphIndexConfig into every per-thread CodeContextGraphBuilder;
+   `native` buys the 81x engine at the measured shape trade. The full
+   merge (native absorbs plugin semantics) remains the documented
+   follow-up with this delta table as its evidence base.
+
    **End-to-end re-measure with phases 1-2 active (2026-10-24) — two findings that
    reshape the remaining work:**
    - **The victor-coding enhanced CCG builder shadows the native path for the dominant
