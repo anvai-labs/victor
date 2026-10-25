@@ -25,7 +25,23 @@ const cy = cytoscape({
       "background-color": "#e0e7ff", color: "#111", width: "label", height: 20,
       "padding-left": "6px", "padding-right": "6px", "border-width": 1, "border-color": "#94a3b8",
     }},
+    // Kind taxonomy reads at a glance: one hue per zoom level's currency —
+    // packages blue, modules teal, classes amber, interfaces/structs/enums
+    // violet, methods indigo, functions green, constructors rose.
     { selector: 'node[kind = "package"]', style: { "background-color": "#bfdbfe", "font-weight": "bold" } },
+    { selector: 'node[kind = "module"]', style: { "background-color": "#99f6e4" } },
+    { selector: 'node[kind = "class"]', style: { "background-color": "#fde68a" } },
+    { selector: 'node[kind = "interface"], node[kind = "struct"], node[kind = "enum"]',
+      style: { "background-color": "#e9d5ff" } },
+    { selector: 'node[kind = "method"]', style: { "background-color": "#c7d2fe" } },
+    { selector: 'node[kind = "constructor"]', style: { "background-color": "#fecdd3" } },
+    { selector: 'node[kind = "function"]', style: { "background-color": "#bbf7d0" } },
+    { selector: ":parent", style: {
+      "background-color": "#f8fafc", "background-opacity": 0.35,
+      "border-width": 1, "border-style": "dashed", "border-color": "#94a3b8",
+      label: "data(label)", "text-valign": "top", "font-size": "9px", color: "#64748b",
+      shape: "round-rectangle", padding: "12px",
+    }},
     { selector: "edge", style: {
       width: "mapData(weight, 1, 500, 1, 6)", "line-color": "#94a3b8",
       "target-arrow-shape": "triangle", "arrow-scale": 0.6, "curve-style": "bezier",
@@ -79,7 +95,7 @@ function showHint(text) {
   inspectorBody.innerHTML = `<p class="hint">${text}</p>`;
 }
 
-async function loadPackage(top = 12) {
+async function loadPackage(top = 16) {
   hideFlow();
   state.level = "package"; state.package = null; state.module = null;
   updateNav();
@@ -98,6 +114,7 @@ async function loadPackage(top = 12) {
       concentric: (n) => Math.log10(1 + (n.data("degree") || 0)),
       levelWidth: () => 2,
     }).run();
+    fitReadable();
     const groups = els.nodes.filter((n) => n.data.parent).length
       ? new Set(els.nodes.map((n) => n.data.parent).filter(Boolean)).size
       : 0;
@@ -137,6 +154,7 @@ async function loadModule(pkg) {
     const els = await fetchElements(`/api/graph/module/${encodeURIComponent(pkg)}`);
     cy.json({ elements: els });
     cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 40 }).run();
+    fitReadable();
     showHint(`Modules of ${pkg}. Click a module for its symbols.`);
   } catch (e) { showHint(`Error: ${e.message}`); }
 }
@@ -197,6 +215,18 @@ function renderCouplingMatrix(els) {
   showHint("Coupling matrix — darker cells couple more (log scale). Click a header to open that package.");
 }
 
+function fitReadable(minZoom = 0.35, maxZoom = 1.25) {
+  // Formula zoom: fit the content, then clamp into a readable band — a
+  // fit alone happily lands at 0.13 (unreadable) for wide graphs; below
+  // minZoom the user pans instead of squinting, above maxZoom dense
+  // modules stop ballooning.
+  cy.fit(undefined, 30);
+  const fitted = cy.zoom();
+  cy.zoom(Math.min(maxZoom, Math.max(minZoom, fitted)));
+  cy.center();
+  return cy.zoom();
+}
+
 function componentGroups(els) {
   // Union-find over the element edges -> the connected components (the
   // module-cohesion signal AND the packages-view island grouping). One
@@ -248,9 +278,11 @@ async function loadClass(module) {
     if (stats.largest * 2 < els.nodes.length) {
       const cols = Math.max(1, Math.ceil(Math.sqrt(els.nodes.length)));
       cy.layout({ name: "grid", cols, avoidOverlap: true, condense: true }).run();
+      fitReadable();
       showHint(`${els.nodes.length} symbols · ${stats.groups} unlinked groups (largest ${stats.largest}) — sibling methods of one class are normally unlinked; multiple unlinked top-level symbols suggest the module co-locates unrelated jobs.`);
     } else {
       cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 30 }).run();
+      fitReadable();
       showHint(`${els.nodes.length} symbols · linked by ${els.edges.length} intra-module edges.`);
     }
     // (cohesion readout set above — this used to overwrite it)
@@ -294,7 +326,7 @@ function setMatrixMode(on) {
   matrixView.hidden = !on;
   cyContainer.style.display = on ? "none" : "";
   document.getElementById("btn-matrix").classList.toggle("active", on);
-  if (state.level === "package") loadPackage();
+  if (state.level === "package") loadPackage(16);
 }
 
 function hideFlow() {
@@ -378,7 +410,7 @@ cy.on("tap", "node", (evt) => {
   else if (d.kind === "module") { pushHistory(); loadClass(d.id); }
 });
 
-document.getElementById("btn-package").addEventListener("click", () => { setMatrixMode(false); loadPackage(); });
+document.getElementById("btn-package").addEventListener("click", () => { setMatrixMode(false); loadPackage(16); });
 document.getElementById("btn-matrix").addEventListener("click", () => setMatrixMode(!state.matrixMode));
 document.getElementById("btn-module").addEventListener("click", () => state.package && loadModule(state.package));
 document.getElementById("btn-class").addEventListener("click", () => state.module && loadClass(state.module));
