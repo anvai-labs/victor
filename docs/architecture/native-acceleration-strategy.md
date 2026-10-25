@@ -206,6 +206,16 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    consult path; phase 2 flips ``PluginBackedCCGBuilder`` onto it behind
    the builder-resolution knob.
 
+   **Single-pass memo LANDED (same date):** one post-order pass memoizes
+   per-node (identifiers, calls) keyed by ``Node::id``, replacing the
+   faithful per-statement subtree re-walks; misses (nodes under skip
+   subtrees) fall back to the recursive walk so the memo is exact, never
+   approximate. Golden parity unchanged. Measured boundary corpus:
+   walk+parse **15.7 -> ~10 ms** (39.1 Python -> 10 native = 3.9x on the
+   slice; the remaining ~9 ms is parse + memo build + emission — sha256
+   ids, previews, string building for 1161 records). End-to-end lands at
+   phase 2 (hints 4.8 Python + walk 10 native + edges/dedupe ~7 Python).
+
    **Reproducibility defect found and fixed while measuring (same date):**
    the enhanced builder's CFG and DDG ordered records by the path-derived
    `node_id`, so byte-identical source indexed from two directories

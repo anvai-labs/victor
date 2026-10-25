@@ -121,6 +121,90 @@ fn collect_identifiers(node: Node, source: &[u8], tables: &PluginTables) -> Hash
     out
 }
 
+/// Per-node (identifiers, calls) from ONE post-order pass — the single-pass
+/// memo. The phase-1 port faithfully reproduced the plugin's per-statement
+/// subtree re-walks (~410k node visits on the boundary corpus); computing
+/// each node's aggregate exactly once cuts that to one visit per node.
+/// Keyed by `Node::id()` (stable within a tree). Nodes inside skip
+/// subtrees are never visited — a lookup miss falls back to the recursive
+/// walk, so the memo is exact, never approximate.
+type EnrichmentMemo = HashMap<usize, (HashSet<String>, HashSet<String>)>;
+
+fn build_enrichment_memo(
+    node: Node,
+    source: &[u8],
+    tables: &PluginTables,
+    memo: &mut EnrichmentMemo,
+) -> (HashSet<String>, HashSet<String>) {
+    if tables.skip_descent.contains(node.kind()) {
+        // Mirrors the recursive walk's root prune: a skip-typed root yields
+        // empty sets (a field child CAN be a skip type).
+        return (HashSet::new(), HashSet::new());
+    }
+    let mut identifiers = HashSet::new();
+    let mut calls = HashSet::new();
+    if tables.identifier_types.contains(node.kind()) {
+        let owned = node_text(&node, source);
+        let text = trimmed(&owned);
+        if !text.is_empty() && !tables.is_keyword(text) {
+            identifiers.insert(text.to_string());
+        }
+    }
+    if tables.statement_type_of(node.kind()) == Some(tables.call_type.as_str()) {
+        if let Some(name) = call_name(node, source, tables) {
+            calls.insert(name);
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        let (child_ids, child_calls) = build_enrichment_memo(child, source, tables, memo);
+        identifiers.extend(child_ids);
+        calls.extend(child_calls);
+    }
+    memo.insert(node.id(), (identifiers.clone(), calls.clone()));
+    (identifiers, calls)
+}
+
+/// Exact memo lookups with recursive-walk fallback on miss. The borrow
+/// variants avoid cloning a statement's full aggregate (function-level
+/// statements carry the largest identifier sets); callers that need an
+/// owned set (definitions unions) use the owned variants.
+fn memoized_identifiers_ref<'a>(
+    node: Node,
+    source: &[u8],
+    tables: &PluginTables,
+    memo: &'a EnrichmentMemo,
+) -> std::borrow::Cow<'a, HashSet<String>> {
+    match memo.get(&node.id()) {
+        Some((identifiers, _)) => std::borrow::Cow::Borrowed(identifiers),
+        None => std::borrow::Cow::Owned(collect_identifiers(node, source, tables)),
+    }
+}
+
+fn memoized_identifiers(
+    node: Node,
+    source: &[u8],
+    tables: &PluginTables,
+    memo: &EnrichmentMemo,
+) -> HashSet<String> {
+    match memo.get(&node.id()) {
+        Some((identifiers, _)) => identifiers.clone(),
+        None => collect_identifiers(node, source, tables),
+    }
+}
+
+fn memoized_calls(
+    node: Node,
+    source: &[u8],
+    tables: &PluginTables,
+    memo: &EnrichmentMemo,
+) -> HashSet<String> {
+    match memo.get(&node.id()) {
+        Some((_, calls)) => calls.clone(),
+        None => extract_call_names(node, source, tables),
+    }
+}
+
 fn collect_identifiers_into(
     node: Node,
     source: &[u8],
@@ -261,11 +345,16 @@ fn declared_name(
 }
 
 /// `_extract_parameter_names`.
-fn parameter_names(node: Node, source: &[u8], tables: &PluginTables) -> HashSet<String> {
+fn parameter_names(
+    node: Node,
+    source: &[u8],
+    tables: &PluginTables,
+    memo: &EnrichmentMemo,
+) -> HashSet<String> {
     let mut out = HashSet::new();
     for field in &tables.param_fields {
         if let Some(child) = node.child_by_field_name(field) {
-            out.extend(collect_identifiers(child, source, tables));
+            out.extend(memoized_identifiers(child, source, tables, memo));
         }
     }
     out
@@ -277,6 +366,7 @@ fn extract_definitions(
     statement_type: &str,
     source: &[u8],
     tables: &PluginTables,
+    memo: &EnrichmentMemo,
 ) -> HashSet<String> {
     if !tables.definition_types.contains(statement_type) {
         return HashSet::new();
@@ -286,7 +376,7 @@ fn extract_definitions(
         if let Some(declared) = declared_name(node, statement_type, source, tables) {
             names.insert(declared);
         }
-        names.extend(parameter_names(node, source, tables));
+        names.extend(parameter_names(node, source, tables, memo));
         return names
             .into_iter()
             .filter(|name| !tables.is_keyword(name))
@@ -310,7 +400,7 @@ fn extract_definitions(
     }
     let mut names = HashSet::new();
     for target in targets {
-        names.extend(collect_identifiers(target, source, tables));
+        names.extend(memoized_identifiers(target, source, tables, memo));
     }
     names
 }
@@ -380,7 +470,18 @@ fn extract_plugin_statements_from_tree(
     hints: &HashMap<(i64, i64, String), (String, Option<String>)>,
 ) -> Vec<PluginStatementRecord> {
     let mut out = Vec::new();
-    walk_plugin_statements(tree.root_node(), path, source, tables, hints, "", &mut out);
+    let mut memo: EnrichmentMemo = HashMap::new();
+    build_enrichment_memo(tree.root_node(), source, tables, &mut memo);
+    walk_plugin_statements(
+        tree.root_node(),
+        path,
+        source,
+        tables,
+        hints,
+        &memo,
+        "",
+        &mut out,
+    );
     out
 }
 
@@ -391,6 +492,7 @@ fn walk_plugin_statements(
     source: &[u8],
     tables: &PluginTables,
     hints: &HashMap<(i64, i64, String), (String, Option<String>)>,
+    memo: &EnrichmentMemo,
     parent_scope: &str,
     out: &mut Vec<PluginStatementRecord>,
 ) {
@@ -409,9 +511,9 @@ fn walk_plugin_statements(
             .map(|(name, _)| name.clone())
             .or_else(|| declared_name(node, statement_type, source, tables));
         let preview = content_preview(node, source);
-        let definitions = extract_definitions(node, statement_type, source, tables);
-        let identifiers = collect_identifiers(node, source, tables);
-        let calls = extract_call_names(node, source, tables);
+        let definitions = extract_definitions(node, statement_type, source, tables, memo);
+        let identifiers = memoized_identifiers_ref(node, source, tables, memo);
+        let calls = memoized_calls(node, source, tables, memo);
         let uses: HashSet<String> = identifiers.difference(&definitions).cloned().collect();
         let visibility = determine_visibility(symbol_name.as_deref(), &preview);
         let name = match &symbol_name {
@@ -449,7 +551,7 @@ fn walk_plugin_statements(
         if tables.skip_descent.contains(child.kind()) {
             continue;
         }
-        walk_plugin_statements(child, path, source, tables, hints, &scope, out);
+        walk_plugin_statements(child, path, source, tables, hints, memo, &scope, out);
     }
 }
 
