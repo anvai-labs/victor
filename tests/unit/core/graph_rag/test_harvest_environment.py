@@ -206,3 +206,87 @@ def test_external_packages_from_index_and_reflection():
     assert reflection["baseline_occurrences"] == 100
     assert reflection["constrained_occurrences"] == 80
     assert reflection["selected_distributions"] == 2
+
+
+def test_reflect_or_redump_covers_and_falls_back(monkeypatch, tmp_path):
+    """The orchestration reflection: reader-stubbed both paths — clean
+    coverage keeps the dump (no re-dump), a regression re-dumps once."""
+    import asyncio
+    from types import SimpleNamespace as NS
+
+    from victor.core.graph_rag import indexing as indexing_module
+
+    def stub_index(packages: list[str], occurrences: int):
+        symbols = [NS(symbol=f"scip-python python {pkg} 1.0 `m`/x().") for pkg in packages]
+        return NS(external_symbols=symbols, documents=[NS(occurrences=[0] * occurrences)])
+
+    calls = {"redumps": 0}
+
+    class _Provider:
+        name = "scip-python"
+        languages = frozenset({"python"})
+
+        def dump(self, *args, **kwargs):
+            calls["redumps"] += 1
+            return tmp_path / "redump.scip"
+
+    pipeline = indexing_module.GraphIndexingPipeline.__new__(indexing_module.GraphIndexingPipeline)
+
+    async def run(baseline_packages, constrained_packages):
+        import victor.core.graph_rag.precise_index as precise_module
+
+        def fake_read(path):
+            if "baseline" in str(path):
+                return stub_index(baseline_packages, 10)
+            return stub_index(constrained_packages, 10)
+
+        monkeypatch.setattr(precise_module, "_read_index", fake_read)
+        baseline_path = tmp_path / "baseline.scip"
+        baseline_path.write_text("x", encoding="utf-8")
+        return await pipeline._reflect_or_redump(
+            _Provider(),
+            "scip-python",
+            tmp_path,
+            baseline_path,
+            tmp_path / "fresh.scip",
+            dumped=tmp_path / "fresh.scip",
+            timeout_seconds=1,
+        )
+
+    # Clean coverage: no missing packages -> original dump kept, no re-dump.
+    result = asyncio.run(run(["pydantic"], ["pydantic", "numpy"]))
+    assert calls["redumps"] == 0
+    assert str(result) == str(tmp_path / "fresh.scip")
+
+    # Regression: a baseline package is lost -> exactly ONE unconstrained
+    # re-dump, and its result replaces the constrained dump.
+    result = asyncio.run(run(["pydantic", "numpy"], ["pydantic"]))
+    assert calls["redumps"] == 1
+    assert str(result) == str(tmp_path / "redump.scip")
+
+
+def test_reflect_or_redump_without_reader_keeps_dump(monkeypatch, tmp_path):
+    import asyncio
+
+    import victor.core.graph_rag.precise_index as precise_module
+    from victor.core.graph_rag import indexing as indexing_module
+
+    monkeypatch.setattr(precise_module, "_read_index", lambda path: None)
+    pipeline = indexing_module.GraphIndexingPipeline.__new__(indexing_module.GraphIndexingPipeline)
+    baseline = tmp_path / "baseline.scip"
+    baseline.write_text("x", encoding="utf-8")
+    dumped = tmp_path / "fresh.scip"
+
+    class _Provider:
+        name = "scip-python"
+        languages = frozenset({"python"})
+
+        def dump(self, *args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("no re-dump without a reader")
+
+    result = asyncio.run(
+        pipeline._reflect_or_redump(
+            _Provider(), "t", tmp_path, baseline, dumped, dumped, timeout_seconds=1
+        )
+    )
+    assert result is dumped
