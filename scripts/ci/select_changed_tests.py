@@ -531,6 +531,8 @@ RELATED_TESTS = {
     ),
     **dict.fromkeys(
         (
+            "victor/core/graph_rag/viz_queries.py",
+            "victor/integrations/api/viz_server.py",
             "victor/core/graph_rag/indexing.py",
             "victor/core/graph_rag/codegraph_repository.py",
             "victor/core/graph_rag/retrieval.py",
@@ -544,6 +546,7 @@ RELATED_TESTS = {
             "victor/core/graph_rag/_scip/scip_pb2.py",
         ),
         (
+            "tests/unit/integrations/api/test_viz_server.py",
             "tests/unit/core/graph_rag/test_scope_binding_integration.py",
             "tests/unit/core/graph_rag/test_precise_index.py",
             "tests/unit/core/graph_rag/test_precise_providers.py",
