@@ -396,6 +396,7 @@ providers:
     cache: {supported: true, kv_prefix_caching: true, read_discount: 0.5}
     default_context_window: 200000
     context_window_routes:
+      - {model_prefix: glm-5.3, tokens: 1000000}
       - {model_prefix: glm-5.2, tokens: 1000000}
       - {model_prefix: glm-5, tokens: 200000}
       - {model_prefix: glm-4.7, tokens: 200000}
@@ -403,8 +404,9 @@ providers:
       - {model_prefix: glm-4.6, tokens: 128000}
       - {model_prefix: glm-4.5, tokens: 128000}
     models:
-      glm-5.2: {description: GLM 5.2, context_window: 1000000, max_output: 65535, supports_tools: true}
-      glm-5.1: {description: GLM 5.1, context_window: 200000, max_output: 65535, supports_tools: true}
+      glm-5.3: {description: GLM 5.3, context_window: 1000000, max_output: 131072, supports_tools: true}
+      glm-5.2: {description: GLM 5.2, context_window: 1000000, max_output: 131072, supports_tools: true}
+      glm-5.1: {description: GLM 5.1, context_window: 200000, max_output: 131072, supports_tools: true}
       glm-5: {description: GLM 5, context_window: 200000, max_output: 65535, supports_tools: true}
       glm-5-turbo: {description: GLM 5 Turbo, context_window: 200000, max_output: 16384, supports_tools: true}
       glm-5-code: {description: GLM 5 Code, context_window: 200000, max_output: 65535, supports_tools: true}
