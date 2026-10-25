@@ -889,6 +889,20 @@ result shows `8192` or a value far below the advertised window, plus the
    up to 128K output tokens, but a profile may choose a smaller operational
    limit (for example, 32768) to control latency and usage.
 
+   Official model references used to check the additional model limits:
+   [GLM-5.2](https://docs.z.ai/guides/llm/glm-5.2) (1M context, 128K output),
+   [GLM-5.1](https://docs.z.ai/guides/llm/glm-5.1) (200K context, 128K output),
+   [GPT-5 nano](https://platform.openai.com/docs/models/gpt-5-nano)
+   (400K context, 128K output), and
+   [Gemini 2.5 Pro](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-pro)
+   (1,048,576 input tokens, 65,536 output tokens). Profiles with custom
+   gateway model IDs or locally served variants must be checked against their
+   deployed limits; do not infer those limits from the model name alone.
+   Groq's [model table](https://console.groq.com/docs/models) lists
+   `llama-3.3-70b-versatile` at 131,072 context / 32,768 maximum completion
+   and `openai/gpt-oss-120b` at 131,072 / 65,536. These are hosted limits,
+   not proof that a locally hosted model with a similar name shares them.
+
    Resolution order at runtime:
    1. `models:` fnmatch pattern (e.g. `glm-5.2*` matches `glm-5.2` and
       `glm-5.2:coding`)
