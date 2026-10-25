@@ -953,13 +953,48 @@ class GraphIndexingPipeline:
                     dump_path = reused
                 else:
                     dump_path, tmp_path = precise_cache.atomic_dump_path(root, provider.name)
+                    # ADR-032 harvest constraint (python): Pyright's
+                    # whole-environment enumeration is the measured hot spot
+                    # (2,980 s / ~130 GB reads on a shared conda env). Hand
+                    # scip-python exactly the distributions the codebase
+                    # imports; the builder declines (None) on any failure.
+                    environment_json = None
+                    constrained = False
+                    if "python" in provider.languages:
+                        from victor.core.graph_rag.harvest_environment import (
+                            build_python_environment,
+                        )
+
+                        environment_json = await asyncio.to_thread(
+                            build_python_environment,
+                            root,
+                            dump_path.parent / "harvest-environment.json",
+                        )
+                        constrained = environment_json is not None
+                    dump_kwargs = {"environment_json": environment_json} if constrained else {}
                     dumped = await asyncio.to_thread(
                         provider.dump,
                         tool,
                         root,
                         tmp_path,
                         timeout_seconds=timeout_seconds,
+                        **dump_kwargs,
                     )
+                    if constrained and dumped is not None and not isinstance(dumped, DumpSkipped):
+                        # Dynamic reflection: compare resolved external
+                        # packages against the previous (baseline) dump. A
+                        # real coverage regression re-dumps unconstrained —
+                        # never a silent degradation of the compile-level
+                        # harvest.
+                        dumped = await self._reflect_or_redump(
+                            provider,
+                            tool,
+                            root,
+                            dump_path,
+                            tmp_path,
+                            dumped,
+                            timeout_seconds=timeout_seconds,
+                        )
                     if isinstance(dumped, DumpSkipped):
                         # Project marker absent — a setup gap, not a toolchain
                         # or dump failure (the honest taxonomy's third state).
@@ -991,6 +1026,7 @@ class GraphIndexingPipeline:
                 outcomes[provider.name] = (
                     f"ok:{len(harvest.edges)} edges ({harvest.accounting})"
                     + (" [cached dump]" if reused is not None else "")
+                    + (" [constrained env]" if constrained else "")
                 )
                 merged_edges.extend(harvest.edges)
                 merged_resolved += harvest.resolved
@@ -2123,6 +2159,71 @@ class GraphIndexingPipeline:
         # appear on a smaller line than their children in source.
         nodes.sort(key=lambda n: (n.line if n.line is not None else 0, n.name or ""))
         return nodes
+
+    async def _reflect_or_redump(
+        self,
+        provider: Any,
+        tool: str,
+        root: Path,
+        baseline_path: Path,
+        tmp_path: Path,
+        dumped: Any,
+        *,
+        timeout_seconds: int,
+    ) -> Any:
+        """Compare the constrained dump against the previous baseline dump.
+
+        Reflection, not intent: coverage is judged by the dumps' own
+        resolved external-package sets. A package the baseline resolved
+        that the constrained run lost triggers ONE unconstrained re-dump
+        (the safe dynamic fallback); reflection is logged either way.
+        """
+        from victor.core.graph_rag.harvest_environment import reflect_harvest
+        from victor.core.graph_rag.precise_index import _read_index
+        from victor.core.graph_rag.precise_providers import DumpSkipped
+
+        try:
+            baseline = (
+                _read_index(baseline_path)
+                if baseline_path is not None and baseline_path.exists()
+                else None
+            )
+            constrained_index = _read_index(tmp_path)
+            if baseline is None or constrained_index is None:
+                logger.info("harvest reflection skipped (no readable baseline or reader)")
+                return dumped
+            reflection = reflect_harvest(baseline, constrained_index)
+            missing = reflection["missing_vs_baseline"]
+            logger.info(
+                "harvest reflection: %d baseline packages -> %d constrained; "
+                "occurrences %d -> %d; missing: %s; newly resolved: %s",
+                reflection["baseline_packages"],
+                reflection["constrained_packages"],
+                reflection["baseline_occurrences"],
+                reflection["constrained_occurrences"],
+                ", ".join(missing[:8]) or "none",
+                ", ".join(reflection["newly_resolved"][:8]) or "none",
+            )
+            if missing:
+                logger.warning(
+                    "harvest constraint lost %d baseline-resolved packages "
+                    "(%s...) — re-dumping unconstrained",
+                    len(missing),
+                    missing[0],
+                )
+                redumped = await asyncio.to_thread(
+                    provider.dump,
+                    tool,
+                    root,
+                    tmp_path,
+                    timeout_seconds=timeout_seconds,
+                )
+                if redumped is not None and not isinstance(redumped, DumpSkipped):
+                    return redumped
+            return dumped
+        except Exception as exc:  # reflection must never break the harvest
+            logger.debug("harvest reflection failed: %s", exc)
+            return dumped
 
     def _parse_file_sync(self, file_path: Path) -> ParseResult:
         """Read + tree-sitter parse + symbol extraction + CCG building.
