@@ -257,7 +257,7 @@ class TestMultiClientConnections:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestWebSocketErrorHandling:
     """Tests for error handling in WebSocket endpoints."""
 
     @skip_if_ci_no_websocket

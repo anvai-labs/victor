@@ -596,7 +596,7 @@ class TestFormations:
         assert reviewer_2_metadata["team_id"] == "team_consensus"
 
 
-class TestErrorHandling:
+class TestCoordinatorErrorHandling:
     """Tests for error handling."""
 
     @pytest.mark.asyncio

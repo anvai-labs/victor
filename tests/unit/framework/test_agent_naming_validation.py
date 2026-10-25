@@ -67,22 +67,13 @@ class TestNoProductionSymbolShadowing:
         repo_root = Path(__file__).resolve().parents[3]
 
         # Intentional aliases: production class name -> reason the test-local
-        # class of the same name is deliberate. The entries below are TRACKED
-        # DEBT (semantically-unique renames queued in the naming-collisions
-        # TD backlog, docs/development/naming-collisions.md), listed per-name
-        # so nothing passes silently; a NEW shadow not listed here FAILS.
+        # class of the same name is deliberate. Add ONLY with a reason; the
+        # default is a semantically unique rename (…Mock / Fake…). The TD-033
+        # debt queue is cleared — this stays EMPTY unless a genuine alias
+        # emerges with an owner-approved reason.
         # (Function-nested test doubles — Config/State/Agent-style — cannot
         # shadow imports and are handled by graph resolution; not listed.)
-        allowlist = {
-            "MockProvider": "test-local provider fixtures colliding with the "
-            "distinct production MockProvider; rename queued",
-            "ModelFamily": "test-local enum fixture; rename queued",
-            "TestErrorHandling": "test-suffixed classes colliding with the "
-            "production TestErrorHandling reporter; rename queued (13 files)",
-            "TestStatus": "test-local status enum colliding with the "
-            "production TestStatus; rename queued",
-            "User": "test-local RBAC fixtures; rename queued",
-        }
+        allowlist: dict[str, str] = {}
 
         production_classes: set[str] = set()
         for path in (repo_root / "victor").rglob("*.py"):

@@ -83,7 +83,7 @@ class TestMetricComputation:
 # ---------------------------------------------------------------------------
 
 
-class TestErrorHandling:
+class TestRetrievalBaselineErrorHandling:
     async def test_backend_exception_counted_as_error(self):
         backend = MagicMock()
         backend.name = "buggy"

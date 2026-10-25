@@ -319,7 +319,7 @@ class TestGetCapabilityProviderMethod:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestWorkflowHooksErrorHandling:
     """Tests for error handling in get_capability_provider()."""
 
     def test_handles_import_error_gracefully(self):
@@ -608,7 +608,7 @@ __all__ = [
     # Test classes
     "TestGetCapabilityProviderModuleHook",
     "TestGetCapabilityProviderMethod",
-    "TestErrorHandling",
+    "TestWorkflowHooksErrorHandling",
     "TestRealVerticalIntegration",
     "TestCapabilityProviderMetadata",
     "TestLazyLoading",

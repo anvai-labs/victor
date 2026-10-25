@@ -691,9 +691,12 @@ def _create_tool_class(
                 # Convert Python-specific types to JSON Schema types
                 prop_type = prop_schema.get("type", "string")
 
-                # Path -> string
-                if "Path" in str(prop_type) or (
-                    hasattr(prop_type, "__name__") and prop_type.__name__ == "Path"
+                # Path -> string (isinstance identity, not a name-string
+                # check — any class NAMED "Path" would also have matched)
+                from pathlib import Path as _Path
+
+                if prop_type is _Path or (
+                    isinstance(prop_type, type) and issubclass(prop_type, _Path)
                 ):
                     prop_schema["type"] = "string"
                     prop_schema["description"] = prop_schema.get("description", "") + " (file path)"
