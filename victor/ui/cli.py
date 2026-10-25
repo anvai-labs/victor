@@ -84,6 +84,7 @@ from victor.ui.commands.profiles import profiles_app
 from victor.ui.commands.providers import providers_app
 from victor.ui.commands.security import security_app
 from victor.ui.commands.serve import serve_app
+from victor.ui.commands.viz import viz_app
 from victor.ui.commands.ui import ui_app
 from victor.ui.commands.tools import tools_app
 from victor.ui.commands.scaffold import scaffold_app
@@ -466,6 +467,7 @@ app.add_typer(workflow_app, rich_help_panel="Development")
 app.add_typer(index_app, rich_help_panel="Development")
 app.add_typer(plugin_app, rich_help_panel="Development")
 app.add_typer(serve_app, rich_help_panel="Development")
+app.add_typer(viz_app, rich_help_panel="Development")
 app.add_typer(mcp_app, rich_help_panel="Development")
 app.add_typer(verify_app, name="verify", rich_help_panel="Development")
 

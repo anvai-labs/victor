@@ -55,6 +55,12 @@ class GraphSettings(BaseModel):
     # GraphIndexConfig.parse_workers — the knob for measuring the GIL
     # ceiling on many-core boxes.
     parse_workers: int = 0
+    # CCG builder resolution: "auto" (plugin-first when a vertical's
+    # enhanced builder is registered — the richer graph), "native" (the
+    # 81x Rust engine; measured divergence from the plugin graph is
+    # recorded in native-acceleration-strategy), "plugin"/"builtin" to
+    # force a leg explicitly. Mirrors GraphIndexConfig.ccg_builder.
+    ccg_builder: str = "auto"
     enable_graph_rag: bool = True
     rag_seed_count: int = 5
     rag_max_hops: int = 2

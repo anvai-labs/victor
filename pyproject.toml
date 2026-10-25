@@ -735,6 +735,7 @@ victor = [
     "ui/chat_app/assets/*.svg",
     "integrations/api/templates/*.html",
     "integrations/api/templates/vendor/*",
+    "integrations/api/static/viz/*",
     "verticals/contrib/*/*.yaml",
     "verticals/contrib/*/*.toml",
     "verticals/contrib/*/*.svg",

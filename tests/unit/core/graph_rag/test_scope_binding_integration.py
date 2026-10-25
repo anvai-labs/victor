@@ -306,3 +306,31 @@ async def test_lazy_neighbor_cap_keeps_precision_best_not_earliest():
     assert dsts[0] == "compiler-late"
     assert sorted(dsts[1:]) == [f"heuristic-{i}" for i in range(5)]
     assert "heuristic-5" not in dsts and "heuristic-6" not in dsts
+
+
+def test_projection_carries_call_line_for_flow_ordering():
+    """ADR-033 phase 2: the resolver's call_site line must survive projection
+    (it is the sequence-diagram ordering key); absence stays None."""
+    with_site = _relation("CALLS", "a", "b", "repository_resolver")
+    with_site.call_site = SimpleNamespace(start_line=42)
+    without_site = _relation("CALLS", "b", "c", "repository_resolver")
+    repository = SimpleNamespace(relations=[with_site, without_site])
+    projection = project_resolved_relations(repository, materialized_symbol_ids={"a", "b", "c"})
+    lines = [edge.call_line for edge in projection.edges]
+    assert lines == [42, None]
+
+
+def test_binding_metadata_persists_call_line():
+    """_binding_metadata (the in-file scope path) persists the 1-based
+    first-use line; zero/absent sites stay out of the payload."""
+    from victor.core.graph_rag.indexing import _binding_metadata
+
+    relation = _relation("CALLS", "a", "b", "scope_resolver")
+    relation.call_site = SimpleNamespace(start_line=7)
+    assert _binding_metadata(relation)["call_line"] == 7
+
+    relation.call_site = SimpleNamespace(start_line=0)  # SourceLocation unset
+    assert "call_line" not in _binding_metadata(relation)
+
+    relation.call_site = None
+    assert "call_line" not in _binding_metadata(relation)
