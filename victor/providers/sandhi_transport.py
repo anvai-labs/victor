@@ -848,6 +848,21 @@ class SandhiTypedProviderMixin:
             raise ValueError("stream idle timeout must be finite and between 0 and 600 seconds")
         return value
 
+    def _sandhi_stream_setup_timeout(self) -> float:
+        """Stream-setup (time-to-first-byte) budget forwarded to Sandhi.
+
+        Mirrors the idle knob: default 90s (the library default since the 30s
+        era was measured too tight for cache-miss prefills of large agentic
+        prompts), overridable per provider via ``stream_setup_timeout_secs``.
+        """
+        value = (getattr(self, "extra_config", None) or {}).get("stream_setup_timeout_secs", 90.0)
+        if isinstance(value, bool):
+            raise ValueError("stream setup timeout must be finite and between 0 and 600 seconds")
+        value = float(value)
+        if not math.isfinite(value) or not 0 < value <= 600:
+            raise ValueError("stream setup timeout must be finite and between 0 and 600 seconds")
+        return value
+
     def _sandhi_timeout(self) -> float:
         try:
             return float(getattr(self, "timeout", 120.0) or 120.0)
@@ -984,6 +999,7 @@ class SandhiTypedProviderMixin:
             kwargs: Dict[str, Any] = {
                 "base_url": explicit_base_url or None,
                 "timeout_secs": self._sandhi_timeout(),
+                "stream_setup_timeout_secs": self._sandhi_stream_setup_timeout(),
                 "stream_idle_timeout_secs": self._sandhi_stream_idle_timeout(),
                 "max_retries": (
                     0 if gateway is not None else max(0, int(getattr(self, "max_retries", 0) or 0))
