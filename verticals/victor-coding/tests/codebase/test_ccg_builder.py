@@ -231,3 +231,80 @@ def test_ccg_is_path_independent() -> None:
         if edge[0] is not None and edge[1] is not None and edge[0][0] == edge[1][0] == 2
     }
     assert same_line, "same-line statements must be chained"
+
+
+def _graph_signature(nodes, edges):
+    return (
+        sorted((n.node_id, n.name, tuple(sorted((n.metadata or {}).items()))) for n in nodes),
+        sorted(
+            (e.src, e.dst, str(e.type), tuple(sorted((e.metadata or {}).items()))) for e in edges
+        ),
+    )
+
+
+@pytest.mark.parametrize("sample", ["sample.py", "sample.ts"], ids=["python", "typescript"])
+def test_native_walk_flip_matches_python_walk(sample, tmp_path):
+    """Option B phase 2: with the native extractor injected, the builder's
+    graph must be IDENTICAL to its Python walk — nodes, metadata, edges,
+    edge metadata. Skips cleanly on pure-Python installs (the flip is
+    availability-gated); the injected-native path only runs where the
+    extension serves the language."""
+    import asyncio
+    import shutil
+
+    try:
+        from victor.processing.native.plugin_ccg import (
+            extract_plugin_statements,
+            plugin_statements_available,
+        )
+    except ImportError:
+        pytest.skip("native extension not built")
+
+    language = {"sample.py": "python", "sample.ts": "typescript"}[sample]
+    if not plugin_statements_available(language):
+        pytest.skip(f"no native grammar for {language}")
+
+    source = Path(__file__).parent / "goldens" / "samples" / sample
+    target = tmp_path / sample
+    shutil.copy(source, target)
+
+    plain = PluginBackedCCGBuilder()
+    flipped = PluginBackedCCGBuilder()
+    flipped._native_extractor = extract_plugin_statements
+
+    plain_result = asyncio.run(plain.build_ccg_for_file(target))
+    flipped_result = asyncio.run(flipped.build_ccg_for_file(target))
+    assert _graph_signature(*flipped_result) == _graph_signature(*plain_result)
+    assert flipped_result[0], "the sample must yield statements"
+
+
+def test_declining_extractor_falls_back_to_python_walk(tmp_path):
+    """Extractor present but declining (None) — the Python walk serves."""
+    import asyncio
+
+    target = tmp_path / "fallback.py"
+    target.write_text("def f(x):\n    return x + 1\n", encoding="utf-8")
+
+    declining = PluginBackedCCGBuilder()
+    declining._native_extractor = lambda files, tables, hints_by_file: None
+    nodes, edges = asyncio.run(declining.build_ccg_for_file(target))
+
+    plain = PluginBackedCCGBuilder()
+    plain_nodes, plain_edges = asyncio.run(plain.build_ccg_for_file(target))
+    assert _graph_signature(nodes, edges) == _graph_signature(plain_nodes, plain_edges)
+
+
+def test_failing_extractor_falls_back_to_python_walk(tmp_path):
+    """Extractor raising — bounded failure semantics: walk instead."""
+    import asyncio
+
+    target = tmp_path / "boom.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+
+    def _boom(files, tables, hints_by_file):
+        raise RuntimeError("ffi blew up")
+
+    failing = PluginBackedCCGBuilder()
+    failing._native_extractor = _boom
+    nodes, edges = asyncio.run(failing.build_ccg_for_file(target))
+    assert nodes, "the Python walk must serve when the extractor fails"

@@ -453,10 +453,12 @@ fn determine_visibility(symbol_name: Option<&str>, preview: &str) -> Option<Stri
     None
 }
 
-fn capped_sorted(set: &HashSet<String>, cap: usize) -> Vec<String> {
+/// Sorted, UNCAPPED — the Python StatementRecord carries full sets (DDG
+/// edges depend on them); the 25-item cap is a metadata-render concern the
+/// owning side applies when it builds GraphNode metadata.
+fn sorted_full(set: &HashSet<String>) -> Vec<String> {
     let mut items: Vec<String> = set.iter().cloned().collect();
     items.sort();
-    items.truncate(cap);
     items
 }
 
@@ -533,14 +535,12 @@ fn walk_plugin_statements(
             scope_id: parent_scope.to_string(),
             symbol_name: symbol_name.clone(),
             symbol_type: hint.and_then(|(_, st)| st.clone()),
-            definitions: capped_sorted(&definitions, 25),
-            uses: capped_sorted(&uses, 25),
-            calls: capped_sorted(&calls, 25),
-            content_preview: {
-                let mut p = preview;
-                p.truncate(160);
-                p
-            },
+            definitions: sorted_full(&definitions),
+            uses: sorted_full(&uses),
+            calls: sorted_full(&calls),
+            // Python str[:160] slices CODEPOINTS — byte truncate would
+            // come up short whenever multibyte text precedes the cap.
+            content_preview: preview.chars().take(160).collect(),
         });
         if tables.scope_types.contains(statement_type) {
             scope = node_id;

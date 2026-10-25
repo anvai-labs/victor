@@ -58,9 +58,11 @@ def _record_to_signature(record, scope_index):
         "scope": scope_index.get(record.scope_id, -1),
         "symbol_name": record.symbol_name,
         "symbol_type": record.symbol_type,
-        "definitions": list(record.definitions),
-        "uses": list(record.uses),
-        "calls": list(record.calls),
+        # The golden stores the metadata view (25-item caps); the native
+        # records carry FULL sets — capping is the metadata layer's job.
+        "definitions": list(record.definitions)[:25],
+        "uses": list(record.uses)[:25],
+        "calls": list(record.calls)[:25],
         "content_preview": record.content_preview,
     }
 
@@ -230,3 +232,33 @@ def test_stubbed_native_ffi_failure_degrades_to_none(monkeypatch):
     assert (
         mod.extract_plugin_statements([("python", "/x.py", b"pass")], _valid_tables(), [[]]) is None
     )
+
+
+def test_consult_site_injects_the_extractor(tmp_path, monkeypatch):
+    """The root consult site must hand the enhanced builder the native
+    extractor (duck-typed, no cross-package import) before calling it."""
+    import asyncio
+
+    from victor.core.indexing.ccg_builder import CodeContextGraphBuilder
+
+    injected = {}
+
+    class _Enhanced:
+        supports_language = staticmethod(lambda lang: lang == "python")
+
+        async def build_ccg_for_file(self, path, language=None):
+            injected["extractor"] = getattr(self, "_native_extractor", None)
+            return [], []
+
+    builder = CodeContextGraphBuilder.__new__(CodeContextGraphBuilder)
+    builder._builder_resolution = "auto"
+    builder._resolve_enhanced_builder = lambda lang: _Enhanced()
+    builder._enhanced_builder_supports_language = lambda b, lang: True
+
+    target = tmp_path / "x.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    asyncio.run(builder.build_ccg_for_file(target))
+
+    from victor.processing.native.plugin_ccg import extract_plugin_statements
+
+    assert injected["extractor"] is extract_plugin_statements

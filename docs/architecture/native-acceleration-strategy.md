@@ -216,6 +216,28 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    ids, previews, string building for 1161 records). End-to-end lands at
    phase 2 (hints 4.8 Python + walk 10 native + edges/dedupe ~7 Python).
 
+   **Phase 2 LANDED — the consult-path flip (2026-10-25):** the runtime
+   consult site injects the native extractor into the enhanced builder as
+   a duck-typed attribute (``_native_extractor``; no cross-package import
+   in either direction — the builder passes its OWN tables via
+   ``native_tables()``; an absent, declining, or failing extractor simply
+   keeps the Python walk, which stays the typed reference
+   implementation). The builder's edge algorithms and metadata assembly
+   never moved. Two parity-level fixes surfaced by the end-to-end
+   differential: Rust returned 25-capped enrichment lists while the
+   Python StatementRecord carries full sets (DDG edges on >25-identifier
+   statements would have diverged — the cap belongs to the metadata
+   layer; Rust now returns full sorted sets), and preview capping sliced
+   CODEPOINTS in Python but BYTES in Rust (160 chars vs 158 on multibyte
+   docstrings). After both: **the boundary corpus is fully identical
+   end-to-end** — 1161 nodes, 3321 edges, every metadata field — with
+   python and typescript samples likewise. Measured: **69.7 -> 46.1
+   ms/file through ``build_ccg_for_file`` with the default auto
+   resolution (1.5x)**; the remaining delta vs the ~22 ms projection is
+   Python-side GraphNode assembly per statement plus the double parse
+   (py-tree-sitter for hints, Rust for the walk). The ``plugin`` knob
+   value remains the forced-Python-walk escape hatch.
+
    **Reproducibility defect found and fixed while measuring (same date):**
    the enhanced builder's CFG and DDG ordered records by the path-derived
    `node_id`, so byte-identical source indexed from two directories

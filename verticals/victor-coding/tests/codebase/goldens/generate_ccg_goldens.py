@@ -87,42 +87,12 @@ def build_golden(language: str, file_name: str) -> dict:
 
 
 def export_tables() -> dict:
-    """The language-syntax tables as data — the native engine's parameters.
+    """The language-syntax tables as data — the native engine's parameters."""
+    from victor_coding.codebase.ccg_builder import native_tables
 
-    Single source of truth stays this package; the JSON snapshot lets the
-    root-side differential drive the native function without any
-    root-to-vertical import (the companion test asserts freshness).
-    """
-    import victor_coding.codebase.ccg_builder as m
-
-    def_fields = (
-        "left",
-        "lhs",
-        "name",
-        "pattern",
-        "declarator",
-        "declarators",
-        "target",
-        "key",
-        "value",
-    )
-    name_fields = ("name", "declarator", "declarators", "type", "path")
-    param_fields = ("parameters", "parameter", "arguments")
-    call_fields = ("function", "method", "name", "command")
+    tables = native_tables()
     return {
-        "classify": dict(sorted(m.NODE_TYPE_TO_STATEMENT_TYPE.items())),
-        "identifier_types": sorted(m.IDENTIFIER_NODE_TYPES),
-        "skip_descent": sorted(m.SKIP_IDENTIFIER_DESCENT_TYPES),
-        "scope_types": sorted(m.SCOPE_STATEMENT_TYPES),
-        "definition_types": sorted(m.DEFINITION_STATEMENT_TYPES),
-        "keywords": sorted(m.BROAD_KEYWORDS),
-        "function_def": m.STATEMENT_FUNCTION_DEF,
-        "class_def": m.STATEMENT_CLASS_DEF,
-        "call_type": m.STATEMENT_CALL,
-        "def_fields": list(def_fields),
-        "name_fields": list(name_fields),
-        "param_fields": list(param_fields),
-        "call_fields": list(call_fields),
+        key: (sorted(value) if isinstance(value, set) else value) for key, value in tables.items()
     }
 
 
