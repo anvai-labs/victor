@@ -218,6 +218,11 @@ def _binding_metadata(relation: Any) -> Dict[str, Any]:
         metadata["confidence"] = confidence
     if use is not None:
         metadata["use"] = use
+    call_site = getattr(relation, "call_site", None)
+    if call_site is not None and getattr(call_site, "start_line", None):
+        # ADR-033: 1-based first-use site — ordering metadata for flow
+        # diagrams, never identity. Absent on older graphs (pre-flow reindex).
+        metadata["call_line"] = call_site.start_line
     return metadata
 
 
@@ -456,7 +461,7 @@ class GraphIndexingPipeline:
         # inferred -- the resolver uses this to drop method calls with no
         # inferable type (name-only fallback would bind them to unrelated
         # user-defined methods with the same leaf name).
-        self._pending_call_records: List[Tuple[str, str, Optional[str], bool]] = []
+        self._pending_call_records: List[Tuple[str, str, Optional[str], bool, Optional[int]]] = []
         # Buffered non-CALLS structural relationships (INHERITS / IMPLEMENTS /
         # COMPOSITION) emitted by language handlers. Source is always a
         # class-like symbol in the current file so it resolves immediately
@@ -1118,6 +1123,7 @@ class GraphIndexingPipeline:
                         ("provenance", edge.provenance),
                         ("confidence", edge.confidence),
                         ("use", edge.use),
+                        ("call_line", edge.call_line),
                     )
                     if value is not None
                 },
@@ -1261,15 +1267,20 @@ class GraphIndexingPipeline:
         method_calls_dropped = 0
         for record in self._pending_call_records:
             # Tolerate legacy tuple shapes for callers that haven't migrated.
-            if len(record) == 4:
+            if len(record) >= 5:
+                caller_id, callee_name, receiver_type, is_method_call, call_line = record[:5]
+            elif len(record) == 4:
                 caller_id, callee_name, receiver_type, is_method_call = record
+                call_line = None
             elif len(record) == 3:
                 caller_id, callee_name, receiver_type = record
                 is_method_call = receiver_type is not None
+                call_line = None
             else:
                 caller_id, callee_name = record  # type: ignore[misc]
                 receiver_type = None
                 is_method_call = False
+                call_line = None
 
             # Receiver-typed lookup. When receiver_type is set, the plugin has
             # told us the call targets a specific impl T::method. A hit binds
@@ -1283,7 +1294,14 @@ class GraphIndexingPipeline:
                     for callee_id in typed_candidates:
                         if callee_id == caller_id:
                             continue
-                        edges.append(GraphEdge(src=caller_id, dst=callee_id, type=EdgeType.CALLS))
+                        edges.append(
+                            GraphEdge(
+                                src=caller_id,
+                                dst=callee_id,
+                                type=EdgeType.CALLS,
+                                metadata={"call_line": call_line} if call_line else {},
+                            )
+                        )
                 else:
                     receiver_typed_unresolved += 1
                 continue
@@ -1322,7 +1340,14 @@ class GraphIndexingPipeline:
             for callee_id in candidates:
                 if callee_id == caller_id:
                     continue
-                edges.append(GraphEdge(src=caller_id, dst=callee_id, type=EdgeType.CALLS))
+                edges.append(
+                    GraphEdge(
+                        src=caller_id,
+                        dst=callee_id,
+                        type=EdgeType.CALLS,
+                        metadata={"call_line": call_line} if call_line else {},
+                    )
+                )
 
         if edges:
             async with self._graph_store_write_batch():
@@ -3058,6 +3083,11 @@ class GraphIndexingPipeline:
                                     relation.target_ref.name,
                                     None,
                                     bool(relation.target_ref.qualifier),
+                                    (
+                                        relation.call_site.start_line
+                                        if relation.call_site is not None
+                                        else None
+                                    ),
                                 )
                             )
                     elif relation.relation_type.name == "REFERENCES":
@@ -3171,7 +3201,13 @@ class GraphIndexingPipeline:
                 is_method_call = getattr(call, "is_method_call", False)
                 for caller_id in name_to_ids.get(call.caller_name, []):
                     self._pending_call_records.append(
-                        (caller_id, call.callee_name, receiver_type, is_method_call)
+                        (
+                            caller_id,
+                            call.callee_name,
+                            receiver_type,
+                            is_method_call,
+                            getattr(call, "call_line", None),
+                        )
                     )
                     buffered += 1
 
