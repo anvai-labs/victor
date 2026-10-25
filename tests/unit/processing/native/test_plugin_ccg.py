@@ -116,7 +116,24 @@ def test_languages_without_grammar_return_none():
 
 def test_malformed_tables_decline():
     assert extract_plugin_statements([("python", "/x", b"pass")], {"classify": {}}, [[]]) is None
+
+
+@pytest.mark.skipif(
+    not plugin_statements_available("python"),
+    reason="empty-batch shape needs the extension (None means unavailable)",
+)
+def test_empty_batch_returns_empty():
     assert extract_plugin_statements([], {}, []) == []
+
+
+def test_unavailable_extension_declines(monkeypatch):
+    """Pure-Python installs: every call declines (None), never raises —
+    the bounded-failure contract the future consult path relies on."""
+    import victor.processing.native.plugin_ccg as mod
+
+    monkeypatch.setattr(mod, "_NATIVE_AVAILABLE", False, raising=False)
+    assert extract_plugin_statements([("python", "/x", b"pass")], {"classify": {}}, [[]]) is None
+    assert extract_plugin_statements([], {}, []) is None
 
 
 def test_tables_export_is_fresh():
