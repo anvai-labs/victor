@@ -187,6 +187,25 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    appears. Symbol hints stay Python-side in the first phase (~2.7 ms);
    they ride into the native batch as data.
 
+   **Option B phase 1 LANDED (2026-10-25):** ``extract_plugin_statements_batch``
+   in the root crate — a table-driven walk (classification/identifier/scope
+   tables + hints passed as data; the engine stays language-agnostic) with
+   per-statement enrichment (definitions/uses/calls, preview, visibility,
+   symbol hints, keyword filtering, the ``pieces[-3:]`` qualified-name
+   rule). Golden parity: python AND typescript reproduce all 63/35
+   statements field-for-field on the first differential run; languages
+   without a native grammar decline (None), never guess. Measured on the
+   boundary corpus: native walk+parse **15.7 ms** vs Python walk 36.8 +
+   parse 2.3 — a 2.5x slice gain, not the builtin's 81x: the port
+   FAITHFULLY reproduces the plugin's per-statement subtree re-walks
+   (~410k node visits at native speed). The next engine increment is the
+   bottom-up single-pass memo IN RUST (the Python memo was perf-neutral
+   because interpreter overhead dominated; in Rust one post-order pass
+   replaces the re-walks, projected ~2-4 ms walk, ~10 ms/file end-to-end)
+   — re-validated against the same goldens. Not yet wired into the
+   consult path; phase 2 flips ``PluginBackedCCGBuilder`` onto it behind
+   the builder-resolution knob.
+
    **Reproducibility defect found and fixed while measuring (same date):**
    the enhanced builder's CFG and DDG ordered records by the path-derived
    `node_id`, so byte-identical source indexed from two directories

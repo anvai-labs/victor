@@ -57,6 +57,7 @@ mod graph_algo;
 mod hashing;
 mod json_repair;
 mod pattern_match;
+mod plugin_ccg;
 mod sanitizer;
 mod secrets;
 mod similarity;
@@ -140,6 +141,11 @@ fn victor_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(thinking::detect_circular_phrases, m)?)?;
     m.add_function(wrap_pyfunction!(thinking::count_circular_patterns, m)?)?;
     m.add_function(wrap_pyfunction!(ccg_extract::extract_statements_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        plugin_ccg::extract_plugin_statements_batch,
+        m
+    )?)?;
+    m.add_class::<plugin_ccg::PluginStatementRecord>()?;
     m.add_function(wrap_pyfunction!(ccg_extract::build_ccg_batch, m)?)?;
     m.add_class::<ccg_extract::StatementRecord>()?;
     m.add_class::<ccg_extract::EdgeRecord>()?;
