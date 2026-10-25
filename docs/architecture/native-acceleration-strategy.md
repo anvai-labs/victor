@@ -302,6 +302,38 @@ platform support, and deployment dependencies conflict with predictable CLI and 
      the batch wall time to those components; only then choose the fix (batched JSON
      serialization, hoisted lookups, or precomputed ordering).
 
+### Harvest environment constraint (2026-10-25, landed)
+
+The python tier-3 harvest ran **2,980 s** (half the full-index wall clock):
+scip-python's embedded Pyright resolves imports against the RUNNING
+interpreter's environment — 17 GB of site-packages on a shared conda env,
+~130 GB of reads with WAL writeback thrashing the page cache.
+
+victor now derives the environment from the CODEBASE and hands
+scip-python `--environment` (schema verified against the installed
+bundle: `[{name, version, files}]` — providing it skips Pyright's
+whole-environment enumeration): an AST import scan (the tree-parse basis
+of the earlier passes; ~7 s, 138 third-party roots) mapped to installed
+distributions plus dependency closure (264 of 762), case-canonicalized,
+round-trip validated; any failure declines to the unconstrained run.
+**Reflection is part of the contract**: the builder logs direct-vs-closure
+provenance and unmapped roots; every fresh constrained dump is compared
+against the previous baseline dump (external packages via
+`Index.external_symbols` + occurrence counts), and a real coverage
+regression triggers ONE unconstrained re-dump — never a silent
+degradation.
+
+Measured: harvest **2,980 s → ~8.5 min (~5.8×)**; dump size within
+0.002%; occurrences 2,885,017 → 2,885,269 (+0.009%); zero packages lost
+vs baseline. Operational notes: the production node heap (16 GB) is
+still required — the constraint shrinks the search universe, not
+Pyright's working set; and the repo carries a stale `build/` tree that
+scip-python indexes as project files (6,789 total) — deletion candidate.
+Other languages surveyed, NOT applicable: scip-typescript is
+tsconfig-bounded, scip-clang compilation-database-bounded, rust-analyzer
+cargo-workspace-bounded, java maven/gradle — the interpreter-mediated
+environment walk is python-specific.
+
 ## Primary references
 
 - [PyO3 performance guidance](https://pyo3.rs/main/performance.html)
