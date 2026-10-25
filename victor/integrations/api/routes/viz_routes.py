@@ -113,6 +113,28 @@ def create_router(server: Any) -> APIRouter:
     async def search(q: str, limit: int = 25) -> JSONResponse:
         return JSONResponse({"results": viz_queries.search(require_db(), q, limit=limit)})
 
+    @router.get("/api/graph/classdiagram")
+    async def classdiagram(
+        symbol: str,
+        node_id: Optional[str] = None,
+        max_members: int = Query(25, ge=5, le=100),
+        max_related: int = Query(8, ge=1, le=25),
+    ) -> JSONResponse:
+        """Type neighborhood for one class (ADR-033 class diagrams)."""
+        result = viz_queries.class_diagram(
+            require_db(),
+            symbol,
+            node_id=node_id,
+            max_members=max_members,
+            max_related=max_related,
+        )
+        if "candidates" not in result and result.get("entry") is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No class named {symbol!r} in this graph",
+            )
+        return JSONResponse(result)
+
     @router.get("/api/graph/flow")
     async def flow(
         symbol: str,

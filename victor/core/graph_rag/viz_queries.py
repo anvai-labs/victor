@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""JSON graph queries for the interactive explorer (ADR-033 phase 1).
+"""JSON graph queries for the interactive explorer (ADR-033).
 
 The mermaid layer (``visualize.py``) renders static snapshots; this module
 answers the SAME aggregations as Cytoscape-ready element lists (the shape
 ``graph_export.py`` established for workflow graphs) so the web explorer
-can navigate package -> module -> class as zoom states of one graph.
-Deterministic ordering everywhere (weight desc, name asc) — golden tests
-pin it. Same scope as visualize.py: the SQLite project store; the store
-protocol cannot express the GROUP-BY aggregations.
+can navigate package -> module -> class as zoom states of one graph, plus
+the diagram families (phase 2: ``flow`` call sequences and
+``class_diagram`` type neighborhoods) as mermaid sources generated
+Python-side — one grammar shared with the static export. Deterministic
+ordering everywhere (weight desc, name asc) — golden tests pin it. Same
+scope as visualize.py: the SQLite project store; the store protocol
+cannot express the GROUP-BY aggregations.
 """
 
 from __future__ import annotations
@@ -532,4 +535,216 @@ def _flow_mermaid(
         lines.append(
             f"    Note over {span}: truncated - {pruned} further message(s) pruned by caps"
         )
+    return "\n".join(lines) + "\n"
+
+
+# --- Class diagrams (ADR-033: type neighborhoods as mermaid classDiagram) --
+#
+# The flow view answers "how does a request move"; the class diagram answers
+# "what is this type and what is it related to". Carrier edges: INHERITS
+# (class -> class, both directions matter — bases above, subclasses below)
+# and class-level CALLS/REFERENCES aggregation for uses links. Only the
+# focal class gets its members (methods with signatures); relatives stay
+# name-only so real hierarchies stay readable.
+
+_CLASS_TYPES = ("class", "interface", "struct", "enum")
+_CLASS_MAX_ANCESTRY = 4
+
+
+def class_diagram(
+    db_path,
+    symbol: str,
+    *,
+    node_id: Optional[str] = None,
+    max_members: int = 25,
+    max_related: int = 8,
+) -> Dict[str, Any]:
+    """Type neighborhood for one class as a mermaid ``classDiagram``.
+
+    The focal class carries its methods (signatures where the graph has
+    them); bases and capped subclasses arrive via INHERITS, and uses
+    associations via class-level CALLS/REFERENCES. Like ``flow``:
+    ``node_id`` pins an ambiguous name, ``{"candidates": ...}``
+    disambiguates, ``{"entry": None}`` means unknown. Related classes are
+    returned as re-entry targets for the UI. Members are capped (god
+    classes stay readable; the cap is surfaced as a mermaid note and in
+    ``members_truncated``).
+    """
+    conn = _connect(db_path)
+    try:
+        entries = _class_entry_candidates(conn, symbol, node_id)
+        if not entries:
+            return {"entry": None}
+        if len(entries) > 1:
+            return {"candidates": entries}
+        entry = entries[0]
+
+        members = [
+            {"name": row["name"], "signature": row["signature"]}
+            for row in conn.execute(
+                """
+                SELECT name, signature FROM graph_node
+                WHERE parent_id = ? AND type IN ("method", "constructor")
+                ORDER BY name, node_id
+                """,
+                (entry["node_id"],),
+            )
+        ]
+        bases = _class_relatives(conn, entry["node_id"], "out")
+        subclasses = _class_relatives(conn, entry["node_id"], "in", max_related)
+        associates = _class_associates(conn, entry["node_id"], max_related)
+        related = _dedupe_related(entry, bases, subclasses, associates)
+        members_total = len(members)
+        members_truncated = members_total > max_members
+        members = members[:max_members]
+
+        return {
+            "entry": {k: entry[k] for k in ("node_id", "name", "type", "file", "line")},
+            "members": members,
+            "members_truncated": members_truncated,
+            "members_total": members_total,
+            "bases": [dict(r) for r in bases],
+            "subclasses": [dict(r) for r in subclasses],
+            "associates": [dict(r) for r in associates],
+            "related": related,
+            "truncated": len(subclasses) >= max_related or len(associates) >= max_related,
+            "mermaid": _class_mermaid(entry, members, bases, subclasses, associates, members_total),
+        }
+    finally:
+        conn.close()
+
+
+def _class_entry_candidates(
+    conn: sqlite3.Connection, symbol: str, node_id: Optional[str]
+) -> List[Dict[str, Any]]:
+    placeholders = ", ".join("?" for _ in _CLASS_TYPES)
+    if node_id:
+        rows = conn.execute(
+            f"""
+            SELECT node_id, name, type, file, line FROM graph_node
+            WHERE node_id = ? AND type IN ({placeholders})
+            """,
+            (node_id, *_CLASS_TYPES),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"""
+            SELECT node_id, name, type, file, line FROM graph_node
+            WHERE name = ? AND type IN ({placeholders})
+            ORDER BY file, line, node_id
+            """,
+            (symbol, *_CLASS_TYPES),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _class_relatives(
+    conn: sqlite3.Connection,
+    node_id: str,
+    direction: str,
+    limit: int = 8,
+) -> List[Dict[str, Any]]:
+    """INHERITS neighbors, edges being subclass -> base (src is the child):
+    ``out`` walks the focal class's bases (to ancestry depth), ``in``
+    collects direct subclasses (capped)."""
+    column, join = ("src", "dst") if direction == "out" else ("dst", "src")
+    rows: List[Dict[str, Any]] = []
+    frontier = [node_id]
+    seen = {node_id}
+    for _ in range(_CLASS_MAX_ANCESTRY if direction == "out" else 1):
+        placeholders = ", ".join("?" for _ in frontier)
+        found: Dict[str, Dict[str, Any]] = {}
+        for row in conn.execute(
+            f"""
+            SELECT n.node_id, n.name, n.type, n.file, n.line
+            FROM graph_edge e JOIN graph_node n ON n.node_id = e.{join}
+            WHERE e.type = "INHERITS" AND e.{column} IN ({placeholders})
+            ORDER BY n.name, n.node_id
+            """,
+            tuple(frontier),
+        ):
+            found[row["node_id"]] = dict(row)
+        if not found:
+            break
+        for relative in found.values():
+            if relative["node_id"] not in seen:
+                seen.add(relative["node_id"])
+                rows.append(relative)
+        if direction == "in" or len(rows) >= limit:
+            rows = rows[:limit]
+            break
+        frontier = list(found)
+    return rows
+
+
+def _class_associates(conn: sqlite3.Connection, node_id: str, limit: int) -> List[Dict[str, Any]]:
+    """Classes the focal class's methods call or reference (uses/creates),
+    aggregated to the target class, ranked by link count then name."""
+    counts: Dict[str, int] = defaultdict(int)
+    rows_by_id: Dict[str, Dict[str, Any]] = {}
+    for row in conn.execute(
+        """
+        SELECT e.type, d.node_id, d.name, d.type AS dtype, d.file, d.line
+        FROM graph_edge e
+        JOIN graph_node s ON s.node_id = e.src
+        JOIN graph_node d ON d.node_id = e.dst
+        WHERE e.type IN ("CALLS", "REFERENCES")
+          AND s.parent_id = ?
+          AND d.type IN ("class", "interface", "struct", "enum")
+          AND d.node_id != ?
+        """,
+        (node_id, node_id),
+    ):
+        counts[row["node_id"]] += 1
+        rows_by_id[row["node_id"]] = dict(row)
+    ranked = sorted(counts, key=lambda nid: (-counts[nid], rows_by_id[nid]["name"], nid))[:limit]
+    return [{**rows_by_id[nid], "links": counts[nid]} for nid in ranked]
+
+
+def _dedupe_related(entry, bases, subclasses, associates) -> List[Dict[str, Any]]:
+    """The flat re-entry list (UI jumps to another class's diagram)."""
+    seen = {entry["node_id"]}
+    related: List[Dict[str, Any]] = []
+    for group, relation in ((bases, "base"), (subclasses, "subclass"), (associates, "associate")):
+        for row in group:
+            if row["node_id"] not in seen:
+                seen.add(row["node_id"])
+                related.append(
+                    {
+                        "node_id": row["node_id"],
+                        "name": row["name"],
+                        "file": row["file"],
+                        "relation": relation,
+                    }
+                )
+    related.sort(key=lambda r: (r["relation"], r["name"], r["node_id"]))
+    return related
+
+
+def _class_mermaid(entry, members, bases, subclasses, associates, members_total: int = 0) -> str:
+    """Render the neighborhood as a mermaid ``classDiagram`` — same
+    sanitize-everything rule as the flow view (names are untrusted text)."""
+    lines = ["classDiagram"]
+
+    def ident(row: Dict[str, Any]) -> str:
+        # Mermaid class ids: no spaces; keep it readable and stable.
+        return _mermaid_safe(row["name"]).replace(" ", "_")
+
+    lines.append(f"    class {ident(entry)} {{")
+    for member in members:
+        text = member["signature"] or member["name"]
+        # Drop the return-annotation tail; the diagram wants the call shape.
+        call = text.split(" -> ")[0].strip()
+        lines.append(f"        {_mermaid_safe(call)}")
+    lines.append("    }")
+    if members_total > len(members):
+        lines.append(
+            f'    note for {ident(entry)} "{members_total} members - showing first {len(members)}"'
+        )
+    for row in bases:
+        lines.append(f"    {ident(row)} <|-- {ident(entry)}")
+    for row in subclasses:
+        lines.append(f"    {ident(entry)} <|-- {ident(row)}")
+    for row in associates:
+        lines.append(f"    {ident(entry)} --> {ident(row)} : uses")
     return "\n".join(lines) + "\n"

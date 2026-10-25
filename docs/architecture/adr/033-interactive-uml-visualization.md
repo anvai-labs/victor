@@ -1,8 +1,11 @@
 # ADR-033: Interactive multi-level code visualization (UML roadmap)
 
 **Status:** Accepted (direction) — phase 1 (package→class explorer)
-shipped #1502/#1503; phase 2 (call-flow sequence diagrams) shipped with
-call-site-line persistence on CALLS edges.
+shipped #1502/#1503; phase 2 (call-flow sequence diagrams) shipped #1504
+with call-site-line persistence on CALLS edges; phase 2b (class diagrams
+as mermaid ``classDiagram`` type neighborhoods: INHERITS bases/subclasses,
+uses associations, capped members with reported truncation) shipped on
+the same panel — the Diagram panel is now family-parameterized.
 
 **Date:** 2026-10-24
 
