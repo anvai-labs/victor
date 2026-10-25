@@ -4,12 +4,16 @@
 
 const cyContainer = document.getElementById("cy");
 const inspectorBody = document.getElementById("inspector-body");
+const matrixView = document.getElementById("matrix-view");
+const matrixTable = document.getElementById("matrix-table");
+
 const state = {
   level: "package",
   package: null,
   module: null,
   history: [],
   flowNodeId: null,
+  matrixMode: false,
 };
 
 const cy = cytoscape({
@@ -81,6 +85,11 @@ async function loadPackage(top = 12) {
   updateNav();
   try {
     const els = await fetchElements(`/api/graph/package?top=${top}`);
+    if (state.matrixMode) {
+      renderCouplingMatrix(els);
+      return;
+    }
+    groupComponents(els, { minSize: 2, label: (c) => `coupled group (${c.length})` });
     cy.json({ elements: els });
     cy.layout({
       name: "concentric",
@@ -89,8 +98,34 @@ async function loadPackage(top = 12) {
       concentric: (n) => Math.log10(1 + (n.data("degree") || 0)),
       levelWidth: () => 2,
     }).run();
-    showHint("Click a package to zoom into its modules.");
+    const groups = els.nodes.filter((n) => n.data.parent).length
+      ? new Set(els.nodes.map((n) => n.data.parent).filter(Boolean)).size
+      : 0;
+    showHint(
+      `${els.nodes.filter((n) => !n.data.parent).length} packages` +
+        (groups ? ` in ${groups} dashed coupling groups — nodes inside an envelope are coupled; bare nodes have no cross-package edges in this top-set.` : " (no coupling edges in this top-set).") +
+        " Click a package to zoom into its modules."
+    );
   } catch (e) { showHint(`Error: ${e.message}`); }
+}
+
+function groupComponents(els, { minSize = 2, label } = {}) {
+  // Connected components become cytoscape COMPOUND parents: the renderer
+  // draws each parent as a live envelope around its children, so coupled
+  // groups travel together and read as one island. Parents are prepended
+  // (they must exist before children reference them).
+  const parents = [];
+  let island = 0;
+  for (const group of componentGroups(els)) {
+    if (group.length < minSize) continue;
+    island += 1;
+    const id = `island-${island}`;
+    for (const n of group) n.data.parent = id;
+    parents.push({
+      data: { id, label: label ? label(group) : `group ${island}`, kind: "island" },
+    });
+  }
+  els.nodes = [...parents, ...els.nodes];
 }
 
 async function loadModule(pkg) {
@@ -106,6 +141,93 @@ async function loadModule(pkg) {
   } catch (e) { showHint(`Error: ${e.message}`); }
 }
 
+function renderCouplingMatrix(els) {
+  // Packages as a row/column heat matrix: every pair comparable, no edge
+  // crossings; intensity = log-scaled coupling weight. Header clicks drill
+  // into that package's module view; cells title their exact weight.
+  const pkgs = els.nodes
+    .map((n) => n.data)
+    .sort((a, b) => (b.degree || 0) - (a.degree || 0));
+  const weight = new Map();
+  let max = 1;
+  for (const e of els.edges) {
+    const d = e.data;
+    weight.set(`${d.source}\u0000${d.target}`, d.weight || 1);
+    weight.set(`${d.target}\u0000${d.source}`, d.weight || 1);
+    max = Math.max(max, d.weight || 1);
+  }
+  const short = (label) => label.split("/").pop();
+  const head = document.createElement("tr");
+  head.appendChild(document.createElement("th"));
+  for (const p of pkgs) {
+    const th = document.createElement("th");
+    th.className = "pkg-top";
+    th.textContent = short(p.label);
+    th.title = `${p.label} (degree ${p.degree || 0})`;
+    th.addEventListener("click", () => { state.matrixMode = false; setMatrixMode(false); loadModule(p.id); });
+    head.appendChild(th);
+  }
+  matrixTable.innerHTML = "";
+  matrixTable.appendChild(head);
+  for (const rowP of pkgs) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = short(rowP.label);
+    th.title = `${rowP.label} (degree ${rowP.degree || 0})`;
+    th.addEventListener("click", () => { setMatrixMode(false); loadModule(rowP.id); });
+    tr.appendChild(th);
+    for (const colP of pkgs) {
+      const td = document.createElement("td");
+      if (rowP.id === colP.id) {
+        td.className = "diag";
+      } else {
+        const w = weight.get(`${rowP.id}\u0000${colP.id}`) || 0;
+        td.className = "cell";
+        if (w) {
+          const t = Math.log10(1 + w) / Math.log10(1 + max);
+          td.style.backgroundColor = `rgba(37, 99, 235, ${(0.15 + 0.75 * t).toFixed(2)})`;
+          td.style.color = t > 0.55 ? "#fff" : "#475569";
+          td.title = `${rowP.label} ↔ ${colP.label}: ${w} edges`;
+        }
+      }
+      tr.appendChild(td);
+    }
+    matrixTable.appendChild(tr);
+  }
+  showHint("Coupling matrix — darker cells couple more (log scale). Click a header to open that package.");
+}
+
+function componentGroups(els) {
+  // Union-find over the element edges -> the connected components (the
+  // module-cohesion signal AND the packages-view island grouping). One
+  // implementation: componentStats summarizes it, groupComponents wraps
+  // it as cytoscape compound parents.
+  const parent = new Map();
+  const find = (x) => {
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root);
+    return root;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  for (const n of els.nodes) parent.set(n.data.id, n.data.id);
+  for (const e of els.edges) union(e.data.source, e.data.target);
+  const members = new Map();
+  for (const n of els.nodes) {
+    const r = find(n.data.id);
+    if (!members.has(r)) members.set(r, []);
+    members.get(r).push(n);
+  }
+  return [...members.values()];
+}
+
+function componentStats(els) {
+  const groups = componentGroups(els);
+  return { groups: groups.length, largest: Math.max(0, ...groups.map((g) => g.length)) };
+}
+
 async function loadClass(module) {
   hideFlow();
   state.level = "class"; state.module = module;
@@ -113,8 +235,25 @@ async function loadClass(module) {
   try {
     const els = await fetchElements(`/api/graph/class?module=${encodeURIComponent(module)}`);
     cy.json({ elements: els });
-    cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 30 }).run();
-    showHint(`Symbols in ${module}.`);
+    // Edge COUNT was the wrong predicate (52 edges can concentrate on a
+    // few hubs while 30+ symbols stay isolated — dagre then lays the
+    // disconnected components side-by-side: a 3500x280px strip at ~0.13
+    // zoom, effectively blank). CONNECTIVITY decides: grid the symbol
+    // sheet when most symbols sit outside the largest linked group; dagre
+    // when edges actually structure the module. The same component count
+    // is the cohesion readout — sibling methods of ONE class are normally
+    // unlinked (they collaborate through state); multiple UNLINKED
+    // top-level symbols are a real co-location smell.
+    const stats = componentStats(els);
+    if (stats.largest * 2 < els.nodes.length) {
+      const cols = Math.max(1, Math.ceil(Math.sqrt(els.nodes.length)));
+      cy.layout({ name: "grid", cols, avoidOverlap: true, condense: true }).run();
+      showHint(`${els.nodes.length} symbols · ${stats.groups} unlinked groups (largest ${stats.largest}) — sibling methods of one class are normally unlinked; multiple unlinked top-level symbols suggest the module co-locates unrelated jobs.`);
+    } else {
+      cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 30 }).run();
+      showHint(`${els.nodes.length} symbols · linked by ${els.edges.length} intra-module edges.`);
+    }
+    // (cohesion readout set above — this used to overwrite it)
   } catch (e) { showHint(`Error: ${e.message}`); }
 }
 
@@ -148,6 +287,14 @@ async function showFlow(symbol, nodeId = null, type = null) {
   document.getElementById("flow-symbol").value = symbol || "";
   if (type) document.getElementById("flow-type").value = type;
   if (symbol) await renderFlow();
+}
+
+function setMatrixMode(on) {
+  state.matrixMode = on;
+  matrixView.hidden = !on;
+  cyContainer.style.display = on ? "none" : "";
+  document.getElementById("btn-matrix").classList.toggle("active", on);
+  if (state.level === "package") loadPackage();
 }
 
 function hideFlow() {
@@ -231,7 +378,8 @@ cy.on("tap", "node", (evt) => {
   else if (d.kind === "module") { pushHistory(); loadClass(d.id); }
 });
 
-document.getElementById("btn-package").addEventListener("click", () => loadPackage());
+document.getElementById("btn-package").addEventListener("click", () => { setMatrixMode(false); loadPackage(); });
+document.getElementById("btn-matrix").addEventListener("click", () => setMatrixMode(!state.matrixMode));
 document.getElementById("btn-module").addEventListener("click", () => state.package && loadModule(state.package));
 document.getElementById("btn-class").addEventListener("click", () => state.module && loadClass(state.module));
 document.getElementById("btn-flow").addEventListener("click", () => {
