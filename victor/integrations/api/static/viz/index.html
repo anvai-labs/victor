@@ -14,6 +14,7 @@
   <h1>Victor Code Explorer</h1>
   <nav>
     <button id="btn-package" class="active">Packages</button>
+    <button id="btn-matrix">Matrix</button>
     <button id="btn-module" disabled>Module</button>
     <button id="btn-class" disabled>Class</button>
     <button id="btn-flow">Diagram</button>
@@ -30,6 +31,9 @@
     <div id="inspector-body"><p class="hint">Select a node to inspect.</p></div>
   </aside>
   <div id="cy"></div>
+  <section id="matrix-view" hidden>
+    <table id="matrix-table"></table>
+  </section>
   <section id="flow-view" hidden>
     <form id="flow-form">
       <input id="flow-symbol" type="text" placeholder="Entry symbol (e.g. execute_turn or AgentOrchestrator)" autocomplete="off">

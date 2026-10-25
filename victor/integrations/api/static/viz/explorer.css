@@ -33,3 +33,15 @@ main { flex: 1; display: flex; min-height: 0; }
 #flow-diagram svg { max-width: none; height: auto; margin: auto; }
 #flow-diagram pre, #flow-diagram .hint { margin: auto; }
 .flow-action { margin-top: 8px; width: 100%; }
+
+/* Coupling matrix (packages view alternate): every pair comparable, no
+   edge crossings; intensity is log-scaled coupling weight. */
+#matrix-view { flex: 1; overflow: auto; padding: 16px; background: #fff; }
+#matrix-view[hidden] { display: none; }
+#matrix-table { border-collapse: collapse; font-size: 12px; }
+#matrix-table th, #matrix-table td { border: 1px solid #e2e8f0; padding: 0; }
+#matrix-table th { position: sticky; background: #f1f5f9; font-weight: 600; padding: 4px 8px; cursor: pointer; }
+#matrix-table th.pkg-top { top: 0; }
+#matrix-table td.cell { width: 34px; height: 26px; text-align: center; color: #475569; }
+#matrix-table td.diag { background: #e2e8f0; }
+#matrix-table td.cell:hover { outline: 2px solid #2563eb; outline-offset: -2px; }
