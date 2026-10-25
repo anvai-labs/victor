@@ -455,3 +455,94 @@ def test_class_diagram_sanitizes_names(db_path):
     """Hostile names must not reach the mermaid source."""
     result = viz_queries.class_diagram(db_path, "SessionService")
     assert "<svg>" not in result["mermaid"]
+
+
+# --- Polyglot representation (monorepo trees in the package view) ---------
+
+
+def _seed_polyglot(tmp_path: Path) -> Path:
+    """A tiny monorepo: python coupling (visible by weight), a rust tree
+    coupling across crates (visible only at per-tree depth + partner
+    pull-in), and a vscode-like tree with purely internal coupling
+    (visible only by activity admission)."""
+    import asyncio
+
+    from victor.storage.graph.protocol import GraphEdge, GraphNode
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    def node(node_id, name, file, type_, line=1, parent_id=None):
+        return GraphNode(
+            node_id=node_id,
+            type=type_,
+            name=name,
+            file=file,
+            line=line,
+            end_line=line + 1,
+            lang="python",
+            parent_id=parent_id,
+        )
+
+    nodes = [
+        node("a1", "alpha", "victor/agent/alpha.py", "function"),
+        node("a2", "beta", "victor/core/beta.py", "function"),
+        node("r1", "rust_one", "rust/crates/edge-runtime/src/a.rs", "function"),
+        node("r2", "rust_two", "rust/crates/edge-runtime/src/b.rs", "function"),
+        node("r3", "rust_three", "rust/crates/protocol/src/c.rs", "function"),
+        node("r4", "rust_four", "rust/crates/tools/src/d.rs", "function"),
+        node("v1", "vs_one", "vscode-victor/src/one.ts", "function"),
+        node("v2", "vs_two", "vscode-victor/src/two.ts", "function"),
+    ]
+    edges = [
+        GraphEdge(src="a1", dst="a2", type="CALLS"),  # python coupling
+        GraphEdge(src="r1", dst="r2", type="CALLS"),  # rust same-crate
+        GraphEdge(src="r1", dst="r3", type="CALLS"),  # rust cross-crate
+        GraphEdge(src="r3", dst="r4", type="CALLS"),  # rust cross-crate
+        GraphEdge(src="v1", dst="v2", type="CALLS"),  # vscode internal only
+    ]
+    store = SqliteGraphStore(tmp_path)
+    asyncio.run(store.initialize())
+    asyncio.run(store.upsert_nodes(nodes))
+    asyncio.run(store.upsert_edges(edges))
+    asyncio.run(store.close())
+    return tmp_path / ".victor" / "project.db"
+
+
+def test_package_view_represents_all_trees(db_path, tmp_path):
+    """Every top-level tree appears — including a rust tree whose coupling
+    is cross-CRATE (needs depth-3 + partner pull-in) and a vscode-like
+    tree with purely INTERNAL coupling (needs activity admission)."""
+    poly = _seed_polyglot(tmp_path)
+    result = viz_queries.package_graph(poly, top_packages=2)
+    ids = {n["data"]["id"] for n in result["nodes"]}
+    assert any(i.startswith("rust/crates/") for i in ids), f"rust missing: {ids}"
+    assert any(i.startswith("vscode-victor") for i in ids), f"vscode missing: {ids}"
+    # Cross-crate edges render when both crates are present.
+    rust_edges = [
+        e
+        for e in result["edges"]
+        if "rust/crates" in e["data"]["source"] or "rust/crates" in e["data"]["target"]
+    ]
+    assert rust_edges, "rust cross-crate edges must render"
+    # Internally-coupled-only packages carry an honest internal degree.
+    vs = next(n["data"] for n in result["nodes"] if n["data"]["id"].startswith("vscode"))
+    assert vs["degree"] >= 1
+
+
+def test_package_view_never_labels_generic_components(db_path, tmp_path):
+    poly = _seed_polyglot(tmp_path)
+    result = viz_queries.package_graph(poly, top_packages=2)
+    labels = {n["data"]["label"] for n in result["nodes"]}
+    assert "src" not in labels, "generic component must not display as label"
+
+
+def test_internal_activity_packages_ranks_unrepresented(tmp_path):
+    poly = _seed_polyglot(tmp_path)
+    conn = viz_queries._connect(poly)
+    try:
+        ranked = viz_queries._internal_activity_packages(conn, exclude=set())
+    finally:
+        conn.close()
+    assert ranked, "activity ranking must see the seeded graph"
+    names = [p for p, _ in ranked]
+    assert any(p.startswith("vscode-victor") for p in names)
+    assert any(p.startswith("rust/crates") for p in names)

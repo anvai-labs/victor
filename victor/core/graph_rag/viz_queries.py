@@ -74,6 +74,14 @@ def _edge_entry(src: str, dst: str, kind: str, weight: int) -> Dict[str, Any]:
     }
 
 
+# Slots reserved beyond the weight fill: unrepresented-tree admission
+# (vscode-victor), cross-edge partner pull-in (rust crates), then weight
+# fill — in that order, each with a floor for the stages after it. The
+# budget SCALES with the view size (a fixed 8 starved partners on this
+# repo: python-bindings dropped out); the canvas is zoomable and the
+# island envelopes keep groups navigable, so breadth beats scarcity.
+
+
 def package_graph(db_path, top_packages: int = 12) -> Dict[str, List[Dict[str, Any]]]:
     """Cross-package coupling as Cytoscape elements (weight = CALLS/REFERENCES
     count). Nodes carry degree; edges carry weight."""
@@ -83,18 +91,116 @@ def package_graph(db_path, top_packages: int = 12) -> Dict[str, List[Dict[str, A
     finally:
         conn.close()
 
+    # Architectural coverage first: every top-level TREE of the monorepo
+    # is represented (its highest-coupled package), then remaining slots by
+    # weight. Without this, small-but-first-class trees (rust, vscode-victor)
+    # drown under python's coupling and never appear — the monorepo's other
+    # languages look unharvested when the graph has them all along.
     packages: List[str] = []
+
+    def tree_of(pkg: str) -> str:
+        return pkg.split("/", 1)[0]
+
+    best_of_tree: Dict[str, str] = {}
+    seen_trees = set()
+    tree_order: List[str] = []
     for (src, dst), _ in ranked:
         for candidate in (src, dst):
+            tree = tree_of(candidate)
+            if tree not in best_of_tree:
+                best_of_tree[tree] = candidate
+                tree_order.append(tree)
+    for tree in tree_order:
+        rep = best_of_tree[tree]
+        if rep not in packages:
+            packages.append(rep)
+            seen_trees.add(tree)
+    for (src, dst), _ in ranked:
+        for candidate in (src, dst):
+            if len(packages) >= top_packages + len(seen_trees):
+                break
             if candidate not in packages:
                 packages.append(candidate)
-        if len(packages) >= top_packages:
+        if len(packages) >= top_packages + len(seen_trees):
             break
+    # Trees whose coupling is entirely INTERNAL (vscode-victor: one
+    # extension, no cross-package edges) never appear in a cross-edge
+    # ranking. Guarantee each unrepresented TREE admission by total
+    # activity first — polyglot trees are architectural peers, not
+    # leftovers — then fill remaining capacity by weight alone.
+    conn = _connect(db_path)
+    try:
+        internal_all = _internal_activity_packages(conn, exclude=set(packages))
+    finally:
+        conn.close()
+    admitted: Dict[str, int] = {}
+    # Dedicated polyglot budget: the weight fill consumes the base slots,
+    # so tree guarantees and partner pull-in need their OWN margin or the
+    # monorepo's other languages starve again (measured: capacity hit 0).
+    # Scales with the requested view size.
+    polyglot_margin = max(8, top_packages)
+    fill_budget = max(3, top_packages // 4)
+    partner_budget = max(3, top_packages // 4)
+    capacity = polyglot_margin
+    internal_by_tree: Dict[str, tuple] = {}
+    for package, weight in internal_all:
+        tree = package.split("/", 1)[0]
+        if tree not in internal_by_tree:
+            internal_by_tree[tree] = (package, weight)
+    for tree, (package, weight) in sorted(internal_by_tree.items()):
+        if tree in seen_trees or capacity <= partner_budget:
+            continue
+        packages.append(package)
+        admitted[package] = weight
+        seen_trees.add(tree)
+        capacity -= 1
     top = set(packages)
+    # Partner pull-in BEFORE weight fill: a cross-edge with exactly ONE
+    # endpoint selected dangles (rust crates couple cross-crate; one tree
+    # rep hides the rest). Grow along real coupling first — weight fill
+    # would otherwise consume the whole margin on already-visible trees.
+    # Tree-fair pull-in: one partner PER TREE per pass. Weight order
+    # starves light trees — python's one-sided pairs outweigh rust's
+    # featherweight cross-crate couplings (26 edges) and eat the budget
+    # before any crate partner lands.
+    while capacity > fill_budget:
+        best_by_tree: Dict[str, tuple] = {}
+        for pair, weight in ranked:
+            src, dst = pair
+            if (src in top) != (dst in top):
+                partner = dst if src in top else src
+                tree = partner.split("/", 1)[0]
+                if partner not in top and tree not in best_by_tree:
+                    best_by_tree[tree] = (partner, weight)
+        if not best_by_tree:
+            break
+        for tree in sorted(best_by_tree):
+            if capacity <= fill_budget:
+                break
+            partner, _weight = best_by_tree[tree]
+            packages.append(partner)
+            top.add(partner)
+            capacity -= 1
+    for package, weight in internal_all:
+        if capacity <= 0:
+            break
+        if package not in packages:
+            packages.append(package)
+            admitted[package] = weight
+            capacity -= 1
 
     degree: Dict[str, int] = defaultdict(int)
+
+    def _package_label(pkg: str) -> str:
+        # Last component — unless it is a GENERIC directory name (src, lib,
+        # crates): 'vscode-victor/src' must not display as just 'src'.
+        last = pkg.rsplit("/", 1)[-1]
+        if last in ("src", "lib", "crates", "tests", "unit", "core"):
+            return pkg
+        return last
+
     nodes: Dict[str, Dict[str, Any]] = {
-        p: _node_entry(p, p.rsplit("/", 1)[-1], kind="package") for p in packages
+        p: _node_entry(p, _package_label(p), kind="package") for p in packages
     }
     edges: Dict[tuple[str, str, str], Dict[str, Any]] = {}
     for (src, dst), weight in ranked:
@@ -102,9 +208,43 @@ def package_graph(db_path, top_packages: int = 12) -> Dict[str, List[Dict[str, A
             degree[src] += weight
             degree[dst] += weight
             edges[(src, dst, "coupling")] = _edge_entry(src, dst, "coupling", weight)
-    for package, deg in degree.items():
-        nodes[package]["data"]["degree"] = deg
+    conn = _connect(db_path)
+    try:
+        internal_all = _internal_activity_packages(conn, exclude=set())
+    finally:
+        conn.close()
+    internal_weight = dict(internal_all)
+    for package in packages:
+        # Cross-coupled packages read their cross-edge degree; internally-
+        # coupled packages (one-crate/one-extension trees) carry their
+        # internal weight — an honest 'couples within itself' number.
+        nodes[package]["data"]["degree"] = max(
+            degree.get(package, 0), internal_weight.get(package, 0)
+        )
     return _elements(nodes, edges)
+
+
+def _internal_activity_packages(conn: sqlite3.Connection, *, exclude: set) -> List[tuple]:
+    """Packages by TOTAL CALLS/REFERENCES involvement (internal + cross) —
+    the admission path for trees whose coupling never crosses a package
+    boundary (one-crate/one-extension trees)."""
+    weights: Dict[str, int] = defaultdict(int)
+    for row in conn.execute(
+        f"""
+        SELECT s.file AS sfile, d.file AS dfile
+        FROM graph_edge e
+        JOIN graph_node s ON s.node_id = e.src
+        JOIN graph_node d ON d.node_id = e.dst
+        WHERE e.type IN ({", ".join("?" * len(_EDGE_TYPES))})
+        """,
+        _EDGE_TYPES,
+    ):
+        for f in (row["sfile"], row["dfile"]):
+            pkg = _package_of(f)
+            if pkg:
+                weights[pkg] += 1
+    ranked_internal = sorted(weights.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [(p, w) for p, w in ranked_internal if p not in exclude]
 
 
 def module_graph(db_path, package: str, top_modules: int = 15) -> Dict[str, List[Dict[str, Any]]]:
