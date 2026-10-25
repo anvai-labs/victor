@@ -156,3 +156,77 @@ def test_tables_export_is_fresh():
     assert set(tables["scope_types"]) == m.SCOPE_STATEMENT_TYPES
     assert set(tables["definition_types"]) == m.DEFINITION_STATEMENT_TYPES
     assert set(tables["keywords"]) == m.BROAD_KEYWORDS
+
+
+def _valid_tables():
+    return {
+        "classify": {"function_definition": "function_def"},
+        "identifier_types": ["identifier"],
+        "skip_descent": ["comment"],
+        "scope_types": ["function_def"],
+        "definition_types": ["function_def"],
+        "keywords": ["def"],
+        "function_def": "function_def",
+        "class_def": "class_def",
+        "call_type": "call",
+        "def_fields": ["left"],
+        "name_fields": ["name"],
+        "param_fields": ["parameters"],
+        "call_fields": ["function"],
+    }
+
+
+def test_tables_kwargs_normalizes_lists_to_sets():
+    from victor.processing.native.plugin_ccg import _tables_kwargs
+
+    kwargs = _tables_kwargs(_valid_tables())
+    assert kwargs is not None
+    assert kwargs["identifier_types"] == {"identifier"}
+    assert kwargs["skip_descent"] == {"comment"}
+    assert kwargs["classify"] == {"function_definition": "function_def"}
+
+
+def test_tables_kwargs_rejects_incomplete_shape():
+    from victor.processing.native.plugin_ccg import _tables_kwargs
+
+    tables = _valid_tables()
+    del tables["keywords"]
+    assert _tables_kwargs(tables) is None
+
+
+def test_stubbed_native_happy_path(monkeypatch):
+    """With a stubbed extension present, the wrapper unpacks tables,
+    forwards files and hints, and returns the FFI result verbatim."""
+    import victor.processing.native.plugin_ccg as mod
+
+    captured = {}
+
+    class _Stub:
+        @staticmethod
+        def extract_plugin_statements_batch(files, **kwargs):
+            captured["files"] = files
+            captured["kwargs"] = kwargs
+            return [["record"]]
+
+    monkeypatch.setattr(mod, "_NATIVE_AVAILABLE", True)
+    monkeypatch.setattr(mod, "_native", _Stub)
+    result = mod.extract_plugin_statements([("python", "/x.py", b"pass")], _valid_tables(), [[]])
+    assert result == [["record"]]
+    assert captured["files"] == [("python", "/x.py", b"pass")]
+    assert captured["kwargs"]["keywords"] == {"def"}
+    assert captured["kwargs"]["hints_by_file"] == [[]]
+
+
+def test_stubbed_native_ffi_failure_degrades_to_none(monkeypatch):
+    import victor.processing.native.plugin_ccg as mod
+
+    class _Boom:
+        @staticmethod
+        def extract_plugin_statements_batch(*args, **kwargs):
+            raise RuntimeError("ffi blew up")
+
+    monkeypatch.setattr(mod, "_NATIVE_AVAILABLE", True)
+    monkeypatch.setattr(mod, "_native", _Boom)
+    assert (
+        mod.extract_plugin_statements([("python", "/x.py", b"pass")], _valid_tables(), [[]]) is None
+    )
