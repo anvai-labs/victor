@@ -131,6 +131,17 @@ def resolve_tool_name(name: str, warn_on_legacy: bool = False) -> str:
         return name
 
 
+def _schema_type_is_path(prop_type: Any) -> bool:
+    """True when a JSON-schema property type carries pathlib.Path.
+
+    Identity/issubclass, NOT a name-string check — a class merely NAMED
+    "Path" used to convert to a file-path schema here.
+    """
+    from pathlib import Path as _Path
+
+    return prop_type is _Path or (isinstance(prop_type, type) and issubclass(prop_type, _Path))
+
+
 def _enum_values_to_schema(enum_cls: type[Enum]) -> Dict[str, Any]:
     """Convert an Enum class into a JSON Schema enum definition."""
     values = [member.value for member in enum_cls]
@@ -691,13 +702,9 @@ def _create_tool_class(
                 # Convert Python-specific types to JSON Schema types
                 prop_type = prop_schema.get("type", "string")
 
-                # Path -> string (isinstance identity, not a name-string
-                # check — any class NAMED "Path" would also have matched)
-                from pathlib import Path as _Path
-
-                if prop_type is _Path or (
-                    isinstance(prop_type, type) and issubclass(prop_type, _Path)
-                ):
+                # Path -> string (isinstance identity — see
+                # _schema_type_is_path)
+                if _schema_type_is_path(prop_type):
                     prop_schema["type"] = "string"
                     prop_schema["description"] = prop_schema.get("description", "") + " (file path)"
 

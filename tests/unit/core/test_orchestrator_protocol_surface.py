@@ -8,6 +8,8 @@ verified surface. The Path/HITLNode name-string checks became isinstance.
 
 from __future__ import annotations
 
+from pathlib import Path as RealPath
+from pathlib import PurePosixPath
 from types import SimpleNamespace
 
 
@@ -45,16 +47,44 @@ def test_protocol_presence_check_accepts_standins_rejects_misuse():
     assert not isinstance({"chat": True}, OrchestratorProtocol)
 
 
-def test_path_schema_conversion_is_isinstance_not_name():
-    """A class NAMED 'Path' that is not pathlib.Path must not be converted
-    to a file-path schema (the old name-string check matched it)."""
-    import inspect
+def test_path_schema_type_check_is_identity_not_name():
+    """The Path branch is identity/issubclass: real Path (and subclasses)
+    convert; a class merely NAMED 'Path' does not — the old name-string
+    check matched it."""
+    from victor.tools.decorators import _schema_type_is_path
 
-    import victor.tools.decorators as decorators
+    assert _schema_type_is_path(RealPath)
 
-    source = inspect.getsource(decorators)
-    assert 'prop_type.__name__ == "Path"' not in source
-    assert "issubclass(prop_type, _Path)" in source
+    class MyPath(RealPath):  # a real subclass still converts
+        pass
+
+    assert _schema_type_is_path(MyPath)
+    assert _schema_type_is_path(PurePosixPath) is False  # pathlib sibling, not Path
+
+    class Path:  # deliberately named Path, NOT pathlib.Path
+        pass
+
+    assert _schema_type_is_path(Path) is False
+    assert _schema_type_is_path("Path") is False
+    assert _schema_type_is_path("string") is False
+
+
+def test_has_hitl_nodes_detects_real_hitl_nodes():
+    """Cover the isinstance branch: a real HITLNode instance is detected,
+    and a plain node without HITL markers is not."""
+    from victor.workflows.hitl import HITLNode
+    from victor.workflows.runtime import WorkflowRuntime
+
+    node = HITLNode(id="h", name="approve")
+    workflow = SimpleNamespace(nodes={"h": node})
+
+    class Bare:
+        node_type = None  # not the HITL enum; not a HITLNode
+
+    wf_bare = SimpleNamespace(nodes=[Bare()])
+    runtime = WorkflowRuntime.__new__(WorkflowRuntime)  # no __init__ side effects
+    assert runtime._has_hitl_nodes(workflow) is True
+    assert runtime._has_hitl_nodes(wf_bare) is False
 
 
 def test_hitl_detection_is_isinstance_not_name():
