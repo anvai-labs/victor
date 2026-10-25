@@ -15,9 +15,10 @@
 """Named timeout slots for the provider request lifecycle (co-design review
 item 18).
 
-Today these eight numbers live scattered across five files as bare literals
+Today these nine numbers live scattered across five files as bare literals
 (``ProviderFactoryConfig.timeout``, ``BaseProvider.__init__``'s ``timeout``
-default, a hardcoded ``stream_idle_timeout_secs`` in sandhi_transport.py,
+default, hardcoded ``stream_idle_timeout_secs`` and
+``stream_setup_timeout_secs`` defaults in sandhi_transport.py,
 ``BaseProvider``'s ``circuit_breaker_recovery_timeout`` default,
 ``ProviderRetryConfig``'s delay bounds, and the dead ``Timeouts.HTTP_LLM_API``
 / ``Timeouts.HTTP_EMBEDDING`` constants in victor/config/timeouts.py). This
@@ -62,6 +63,13 @@ class TimeoutProfile:
         stream_idle_timeout_seconds: Maximum gap between streamed chunks
             before the sandhi gateway transport gives up. Current default
             mirrors the literal in sandhi_transport.py.
+        stream_setup_timeout_seconds: Time-to-first-byte budget for a
+            streaming call (POST to response headers) before the sandhi
+            transport gives up; a long generation after headers is never
+            bounded by this. Current default mirrors the literal in
+            sandhi_transport.py, which matches the Sandhi library default
+            (raised from 30s after measured cache-miss prefills of large
+            agentic prompts exceeded it).
         circuit_breaker_recovery_seconds: Grace period a tripped circuit
             breaker waits before allowing a trial request through. Current
             default mirrors ``BaseProvider``'s
@@ -85,6 +93,7 @@ class TimeoutProfile:
     request_timeout_seconds: float = 120.0
     sdk_timeout_seconds: float = 60.0
     stream_idle_timeout_seconds: float = 90.0
+    stream_setup_timeout_seconds: float = 90.0
     circuit_breaker_recovery_seconds: float = 30.0
     retry_base_delay_seconds: float = 1.0
     retry_max_delay_seconds: float = 60.0
