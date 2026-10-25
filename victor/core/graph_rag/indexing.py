@@ -949,6 +949,7 @@ class GraphIndexingPipeline:
                 reused = (
                     precise_cache.load_cached(root, provider.name, cache_key) if cache_key else None
                 )
+                constrained = False
                 if reused is not None:
                     dump_path = reused
                 else:
@@ -959,7 +960,6 @@ class GraphIndexingPipeline:
                     # scip-python exactly the distributions the codebase
                     # imports; the builder declines (None) on any failure.
                     environment_json = None
-                    constrained = False
                     if "python" in provider.languages:
                         from victor.core.graph_rag.harvest_environment import (
                             build_python_environment,
