@@ -27,7 +27,7 @@ async def _seed(tmp_path: Path) -> Path:
     from victor.storage.graph.protocol import GraphEdge, GraphNode
     from victor.storage.graph.sqlite_store import SqliteGraphStore
 
-    def node(node_id, name, file, type_, line=1, parent_id=None):
+    def node(node_id, name, file, type_, line=1, parent_id=None, signature=None):
         return GraphNode(
             node_id=node_id,
             type=type_,
@@ -37,6 +37,7 @@ async def _seed(tmp_path: Path) -> Path:
             end_line=line + 1,
             lang="python",
             parent_id=parent_id,
+            signature=signature,
         )
 
     nodes = [
@@ -61,6 +62,22 @@ async def _seed(tmp_path: Path) -> Path:
         # Hostile name: graph names are untrusted text (polyglot harvest);
         # mermaid output must never carry raw markup through.
         node("evil_fn", 'bad<svg>"onload"&', "victor/core/util.py", "function", 90),
+        # Class-diagram shape: a base, a focal service on it, a subclass,
+        # and classes the focal methods use.
+        node("base_cls", "BaseService", "victor/core/base.py", "class", 5),
+        node("svc2_cls", "SessionService", "victor/agent/services/session.py", "class", 20),
+        node(
+            "svc2_start",
+            "start",
+            "victor/agent/services/session.py",
+            "method",
+            30,
+            "svc2_cls",
+            signature="start(session - Session) -> None",
+        ),
+        node("svc2_stop", "stop", "victor/agent/services/session.py", "method", 40, "svc2_cls"),
+        node("sub_cls", "CachedSessionService", "victor/agent/services/cache.py", "class", 10),
+        node("used_cls", "Metrics", "victor/core/metrics.py", "class", 1),
     ]
     edges = [
         GraphEdge(src="orch", dst="cfg", type="CALLS"),
@@ -115,6 +132,22 @@ async def _seed(tmp_path: Path) -> Path:
         # Pre-flow edge shape: no call_line anywhere on this path.
         GraphEdge(src="plain_fn", dst="util_fn", type="CALLS"),
         GraphEdge(src="plain_fn", dst="evil_fn", type="CALLS", metadata={"call_line": 91}),
+        # INHERITS edges are subclass -> base (src is the child).
+        GraphEdge(src="svc2_cls", dst="base_cls", type="INHERITS"),
+        GraphEdge(src="sub_cls", dst="svc2_cls", type="INHERITS"),
+        GraphEdge(
+            src="svc2_start",
+            dst="used_cls",
+            type="CALLS",
+            metadata={"call_line": 35, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(
+            src="svc2_stop",
+            dst="used_cls",
+            type="CALLS",
+            metadata={"call_line": 45, "provenance": "scope_resolver"},
+        ),
+        GraphEdge(src="svc2_start", dst="repo_cls", type="REFERENCES"),
     ]
     store = SqliteGraphStore(tmp_path)
     await store.initialize()
@@ -207,6 +240,7 @@ def test_factory_registered_in_main_server_router_list():
     assert "/viz" in paths
     assert "/api/graph/package" in paths
     assert "/api/graph/flow" in paths
+    assert "/api/graph/classdiagram" in paths
 
 
 def test_api_routes_return_element_lists(client):
@@ -356,3 +390,68 @@ def test_explorer_assets_are_parseable():
     )
     proc = subprocess.run(["node", "--check", str(asset)], capture_output=True, text=True)
     assert proc.returncode == 0, f"explorer.js failed to parse:\n{proc.stderr}"
+
+
+# --- Class diagrams (ADR-033 diagram families) ------------------------------
+
+
+def test_class_diagram_hierarchy_direction(db_path):
+    """INHERITS is subclass -> base; the diagram must put bases above."""
+    result = viz_queries.class_diagram(db_path, "SessionService")
+    assert result["entry"]["name"] == "SessionService"
+    assert [b["name"] for b in result["bases"]] == ["BaseService"]
+    assert [c["name"] for c in result["subclasses"]] == ["CachedSessionService"]
+    assert "BaseService <|-- SessionService" in result["mermaid"]
+    assert "SessionService <|-- CachedSessionService" in result["mermaid"]
+
+
+def test_class_diagram_members_and_uses(db_path):
+    result = viz_queries.class_diagram(db_path, "SessionService")
+    assert [m["name"] for m in result["members"]] == ["start", "stop"]
+    # start uses Metrics twice + Repo once -> Metrics ranks first; the focal
+    # class never appears as its own associate.
+    assert [a["name"] for a in result["associates"]] == ["Metrics", "Repo"]
+    assert "start(session - Session)" in result["mermaid"]
+    assert "--> Metrics : uses" in result["mermaid"]
+    related = {r["name"]: r["relation"] for r in result["related"]}
+    assert related == {
+        "BaseService": "base",
+        "CachedSessionService": "subclass",
+        "Metrics": "associate",
+        "Repo": "associate",
+    }
+
+
+def test_class_diagram_member_cap_is_reported(db_path):
+    result = viz_queries.class_diagram(db_path, "SessionService", max_members=1)
+    assert result["members_truncated"] is True
+    assert result["members_total"] == 2
+    assert len(result["members"]) == 1
+    assert "2 members - showing first 1" in result["mermaid"]
+
+
+def test_class_diagram_route_and_errors(client):
+    ok = client.get("/api/graph/classdiagram", params={"symbol": "SessionService"})
+    assert ok.status_code == 200
+    assert ok.json()["mermaid"].startswith("classDiagram")
+
+    # "handle" is a method, not a class -> unknown at the class surface.
+    assert client.get("/api/graph/classdiagram", params={"symbol": "handle"}).status_code == 404
+    assert (
+        client.get("/api/graph/classdiagram", params={"symbol": "x", "max_members": "1"})
+    ).status_code == 422
+    pinned = client.get(
+        "/api/graph/classdiagram", params={"symbol": "SessionService", "node_id": "svc2_cls"}
+    )
+    assert pinned.json()["entry"]["file"] == "victor/agent/services/session.py"
+    # Pinning a non-class id is rejected like flow's callable-only pin.
+    bad_pin = client.get(
+        "/api/graph/classdiagram", params={"symbol": "x", "node_id": "svc_execute"}
+    )
+    assert bad_pin.status_code == 404
+
+
+def test_class_diagram_sanitizes_names(db_path):
+    """Hostile names must not reach the mermaid source."""
+    result = viz_queries.class_diagram(db_path, "SessionService")
+    assert "<svg>" not in result["mermaid"]

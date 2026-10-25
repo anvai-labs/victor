@@ -54,15 +54,20 @@ function inspect(node) {
     .map(([k, v]) => `<div class="field"><strong>${esc(k)}</strong>${esc(v)}</div>`)
     .join("");
   inspectorBody.innerHTML = fields || '<p class="hint">No metadata.</p>';
-  if (["function", "method", "constructor"].includes(d.kind)) {
+  const flowButton = (label, type) => {
     const btn = document.createElement("button");
-    btn.textContent = "Trace call flow";
+    btn.textContent = label;
     btn.className = "flow-action";
     btn.addEventListener("click", () => {
       pushHistory();
-      showFlow(d.label, d.id);
+      showFlow(d.label, d.id, type);
     });
-    inspectorBody.appendChild(btn);
+    return btn;
+  };
+  if (d.kind === "class" || d.kind === "interface" || d.kind === "struct" || d.kind === "enum") {
+    inspectorBody.appendChild(flowButton("Show class diagram", "class"));
+  } else if (["function", "method", "constructor"].includes(d.kind)) {
+    inspectorBody.appendChild(flowButton("Trace call flow", "flow"));
   }
 }
 
@@ -109,7 +114,20 @@ async function loadClass(module) {
 
 let flowRenderSeq = 0;
 
-async function showFlow(symbol, nodeId = null) {
+function candidateRow(c) {
+  const el = document.createElement("div");
+  el.className = "field result-link";
+  const where = c.line == null ? esc(c.file) : `${esc(c.file)}:${esc(c.line)}`;
+  el.innerHTML = `<strong>${esc(c.type)} · ${where}</strong>${esc(c.name)}`;
+  el.addEventListener("click", () => {
+    state.flowNodeId = c.node_id;
+    document.getElementById("flow-symbol").value = c.name;
+    renderFlow();
+  });
+  return el;
+}
+
+async function showFlow(symbol, nodeId = null, type = null) {
   document.body.classList.add("flow-mode");
   document.getElementById("flow-view").hidden = false;
   cyContainer.style.display = "none";
@@ -117,6 +135,7 @@ async function showFlow(symbol, nodeId = null) {
   state.flowNodeId = nodeId;
   updateNav();
   document.getElementById("flow-symbol").value = symbol || "";
+  if (type) document.getElementById("flow-type").value = type;
   if (symbol) await renderFlow();
 }
 
@@ -135,34 +154,35 @@ async function renderFlow() {
   candidates.innerHTML = "";
   if (!symbol) return;
   diagram.innerHTML = '<p class="hint">Tracing call flow…</p>';
-  const params = new URLSearchParams({
-    symbol,
-    depth: document.getElementById("flow-depth").value,
-    granularity: document.getElementById("flow-granularity").value,
-  });
+  const type = document.getElementById("flow-type").value;
+  const params = new URLSearchParams({ symbol });
+  if (type === "flow") {
+    params.set("depth", document.getElementById("flow-depth").value);
+    params.set("granularity", document.getElementById("flow-granularity").value);
+  }
   if (state.flowNodeId) params.set("node_id", state.flowNodeId);
   try {
-    const res = await fetch(`/api/graph/flow?${params}`);
+    const res = await fetch(`/api/graph/${type === "flow" ? "flow" : "classdiagram"}?${params}`);
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail || res.statusText);
     if (body.candidates) {
       diagram.innerHTML = '<p class="hint">Multiple symbols share that name — pick one:</p>';
       body.candidates.forEach((c) => {
-        const el = document.createElement("div");
-        el.className = "field result-link";
-        el.innerHTML = `<strong>${esc(c.type)} · ${esc(c.file)}:${esc(c.line)}</strong>${esc(c.name)}`;
-        el.addEventListener("click", () => {
-          state.flowNodeId = c.node_id;
-          document.getElementById("flow-symbol").value = c.name;
-          renderFlow();
-        });
-        candidates.appendChild(el);
+        candidates.appendChild(candidateRow(c));
       });
       return;
     }
+    if (body.related) {
+      // Class diagrams: related types are one-click re-entries.
+      body.related.forEach((r) => {
+        const el = candidateRow({ ...r, type: r.relation });
+        candidates.appendChild(el);
+      });
+    }
     const flags = [];
-    if (!body.ordered) flags.push("unordered — reindex for call-line order");
-    if (body.truncated) flags.push(`truncated (${body.pruned} pruned)`);
+    if (body.ordered === false) flags.push("unordered — reindex for call-line order");
+    if (body.pruned) flags.push(`truncated (${body.pruned} pruned)`);
+    if (body.members_truncated) flags.push(`${body.members_total} members — showing ${body.members.length}`);
     badges.textContent = flags.join(" · ");
     if (window.mermaid) {
       window.mermaid.initialize({ startOnLoad: false }); // strict: graph labels are untrusted
