@@ -521,6 +521,14 @@ RELATED_TESTS = {
         "tests/unit/providers/test_openai_compat_coverage.py",
         "tests/unit/providers/test_openai_compat.py",
     ),
+    # Shared context-window lookup tables: the singular-named mirror suite
+    # owns the tables and lookup(); the provider ext suites pin each
+    # provider's context_window() resolution against those tables.
+    "victor/providers/context_windows.py": (
+        "tests/unit/providers/test_context_window.py",
+        "tests/unit/providers/test_zai_provider_ext.py",
+        "tests/unit/providers/test_google_provider_ext.py",
+    ),
     **dict.fromkeys(
         (
             "victor/core/graph_rag/indexing.py",

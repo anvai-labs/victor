@@ -109,6 +109,9 @@ providers:
 # Pattern format: fnmatch patterns (supports *, ?)
 models:
   # OpenAI Models
+  "gpt-5-nano*":
+    context_window: 400000
+    response_reserve: 128000
   "gpt-4.1*":
     context_window: 128000  # GPT-4.1 series has 128k context
   "gpt-4-turbo*":
@@ -143,6 +146,9 @@ models:
     context_window: 100000
 
   # Google Gemini Models
+  "gemini-2.5-pro*":
+    context_window: 1048576
+    response_reserve: 65536
   "gemini-2*":
     context_window: 1000000
   "gemini-1.5-pro*":
@@ -165,6 +171,11 @@ models:
     context_window: 64000
   "deepseek-coder*":
     context_window: 64000
+
+  # Groq GPT OSS 120B (hosted limit; not a local gpt-oss alias)
+  "openai/gpt-oss-120b":
+    context_window: 131072
+    response_reserve: 65536
 
   # Llama Models
   "llama-3.3*":
@@ -224,10 +235,15 @@ models:
   # Adding a new GLM model = add a pattern here. No code change required.
   # These patterns take precedence over the `zai:` provider default above
   # and over the provider's hardcoded ZAI_MODELS table.
+  "glm-5.3*":
+    context_window: 1000000  # Z.AI: 1M context, up to 128K output
+    response_reserve: 131072
   "glm-5.2*":
     context_window: 1000000  # 753B MoE, 1M context
+    response_reserve: 131072
   "glm-5.1*":
     context_window: 200000
+    response_reserve: 131072
   "glm-5*":
     context_window: 200000
   "glm-4.7*":

@@ -51,6 +51,13 @@ class TestLookupTable:
         table = [("claude-sonnet-4-5", 200_000)]
         assert cw.lookup(table, "claude-sonnet-4-5", default=8192) == 200_000
 
+    def test_gpt_5_nano_precedes_generic_gpt_5(self):
+        assert cw.lookup(cw.OPENAI, "gpt-5-nano", cw.OPENAI_DEFAULT) == 400_000
+
+    def test_groq_hosted_models(self):
+        assert cw.lookup(cw.GROQ, "openai/gpt-oss-120b", cw.GROQ_DEFAULT) == 131_072
+        assert cw.lookup(cw.GROQ, "llama-3.3-70b-versatile", cw.GROQ_DEFAULT) == 131_072
+
 
 class _WindowProbeProvider(BaseProvider):
     """Concrete minimal provider — context_window needs no provider state."""

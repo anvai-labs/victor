@@ -50,6 +50,7 @@ ANTHROPIC: list[tuple[str, int]] = [
 ANTHROPIC_DEFAULT = 200_000
 
 OPENAI: list[tuple[str, int]] = [
+    ("gpt-5-nano", 400_000),
     ("gpt-5", 200_000),
     ("gpt-4.5", 200_000),
     ("gpt-4o", 128_000),
@@ -68,7 +69,7 @@ OPENAI: list[tuple[str, int]] = [
 OPENAI_DEFAULT = 128_000
 
 GOOGLE: list[tuple[str, int]] = [
-    ("gemini-2.5-pro", 2_000_000),
+    ("gemini-2.5-pro", 1_048_576),
     ("gemini-2.0-pro", 2_000_000),
     ("gemini-2.0-flash", 1_000_000),
     ("gemini-1.5-pro", 2_000_000),
@@ -80,7 +81,8 @@ GOOGLE: list[tuple[str, int]] = [
 GOOGLE_DEFAULT = 1_000_000
 
 GROQ: list[tuple[str, int]] = [
-    ("llama-3.3-70b", 128_000),
+    ("openai/gpt-oss-120b", 131_072),
+    ("llama-3.3-70b", 131_072),
     ("llama-3.1-70b", 128_000),
     ("llama-3.1-8b", 128_000),
     ("llama-3.2-90b", 128_000),
