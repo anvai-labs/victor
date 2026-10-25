@@ -1,0 +1,4249 @@
+{
+ "go": {
+  "language": "go",
+  "statements": [
+   {
+    "ast_kind": "function_declaration",
+    "calls": [
+     "append",
+     "make"
+    ],
+    "content_preview": "func publicFn(items []string) []string { results := make([]string, 0) for _, item := range items { if item == \"\" { continue } results = append(results, item) } ",
+    "definitions": [
+     "items",
+     "publicFn",
+     "string"
+    ],
+    "end_line": 14,
+    "line": 5,
+    "name": "function_def:publicFn:5",
+    "scope": -1,
+    "statement_type": "function_def",
+    "symbol_name": "publicFn",
+    "symbol_type": "function",
+    "uses": [
+     "_",
+     "append",
+     "item",
+     "make",
+     "results"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "append",
+     "make"
+    ],
+    "content_preview": "{ results := make([]string, 0) for _, item := range items { if item == \"\" { continue } results = append(results, item) } return results }",
+    "definitions": [],
+    "end_line": 14,
+    "line": 5,
+    "name": "block:5",
+    "scope": 0,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_",
+     "append",
+     "item",
+     "items",
+     "make",
+     "results",
+     "string"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "short_var_declaration",
+    "calls": [
+     "make"
+    ],
+    "content_preview": "results := make([]string, 0)",
+    "definitions": [
+     "results"
+    ],
+    "end_line": 6,
+    "line": 6,
+    "name": "short_var_declaration:6",
+    "scope": 1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "make",
+     "string"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_list",
+    "calls": [],
+    "content_preview": "results",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "expression_list:6",
+    "scope": 1,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_list",
+    "calls": [
+     "make"
+    ],
+    "content_preview": "make([]string, 0)",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "expression_list:6",
+    "scope": 1,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "make",
+     "string"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "make"
+    ],
+    "content_preview": "make([]string, 0)",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "call_expression:6",
+    "scope": 1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "make",
+     "string"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for_statement",
+    "calls": [
+     "append"
+    ],
+    "content_preview": "for _, item := range items { if item == \"\" { continue } results = append(results, item) }",
+    "definitions": [],
+    "end_line": 12,
+    "line": 7,
+    "name": "for_statement:7",
+    "scope": 1,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_",
+     "append",
+     "item",
+     "items",
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for",
+    "calls": [],
+    "content_preview": "for",
+    "definitions": [],
+    "end_line": 7,
+    "line": 7,
+    "name": "for:7",
+    "scope": 6,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "range_clause",
+    "calls": [],
+    "content_preview": "_, item := range items",
+    "definitions": [],
+    "end_line": 7,
+    "line": 7,
+    "name": "range_clause:7",
+    "scope": 6,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_",
+     "item",
+     "items"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_list",
+    "calls": [],
+    "content_preview": "_, item",
+    "definitions": [],
+    "end_line": 7,
+    "line": 7,
+    "name": "expression_list:7",
+    "scope": 8,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_",
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "append"
+    ],
+    "content_preview": "{ if item == \"\" { continue } results = append(results, item) }",
+    "definitions": [],
+    "end_line": 12,
+    "line": 7,
+    "name": "block:7",
+    "scope": 6,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "append",
+     "item",
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if_statement",
+    "calls": [],
+    "content_preview": "if item == \"\" { continue }",
+    "definitions": [],
+    "end_line": 10,
+    "line": 8,
+    "name": "if_statement:8",
+    "scope": 10,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "if:8",
+    "scope": 11,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "binary_expression",
+    "calls": [],
+    "content_preview": "item == \"\"",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "binary_expression:8",
+    "scope": 11,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "{ continue }",
+    "definitions": [],
+    "end_line": 10,
+    "line": 8,
+    "name": "block:8",
+    "scope": 11,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment_statement",
+    "calls": [
+     "append"
+    ],
+    "content_preview": "results = append(results, item)",
+    "definitions": [
+     "results"
+    ],
+    "end_line": 11,
+    "line": 11,
+    "name": "assignment_statement:11",
+    "scope": 10,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "append",
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_list",
+    "calls": [],
+    "content_preview": "results",
+    "definitions": [],
+    "end_line": 11,
+    "line": 11,
+    "name": "expression_list:11",
+    "scope": 10,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_list",
+    "calls": [
+     "append"
+    ],
+    "content_preview": "append(results, item)",
+    "definitions": [],
+    "end_line": 11,
+    "line": 11,
+    "name": "expression_list:11",
+    "scope": 10,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "append",
+     "item",
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "append"
+    ],
+    "content_preview": "append(results, item)",
+    "definitions": [],
+    "end_line": 11,
+    "line": 11,
+    "name": "call_expression:11",
+    "scope": 10,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "append",
+     "item",
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return results",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "return_statement:13",
+    "scope": 1,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "return:13",
+    "scope": 1,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_list",
+    "calls": [],
+    "content_preview": "results",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "expression_list:13",
+    "scope": 1,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "function_declaration",
+    "calls": [
+     "fmt.Println",
+     "publicFn"
+    ],
+    "content_preview": "func main() { fmt.Println(publicFn([]string{\"a\", \"\", \"c\"})) }",
+    "definitions": [
+     "main"
+    ],
+    "end_line": 18,
+    "line": 16,
+    "name": "function_def:main:16",
+    "scope": -1,
+    "statement_type": "function_def",
+    "symbol_name": "main",
+    "symbol_type": "function",
+    "uses": [
+     "Println",
+     "fmt",
+     "publicFn",
+     "string"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "fmt.Println",
+     "publicFn"
+    ],
+    "content_preview": "{ fmt.Println(publicFn([]string{\"a\", \"\", \"c\"})) }",
+    "definitions": [],
+    "end_line": 18,
+    "line": 16,
+    "name": "block:16",
+    "scope": 22,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "Println",
+     "fmt",
+     "publicFn",
+     "string"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "fmt.Println",
+     "publicFn"
+    ],
+    "content_preview": "fmt.Println(publicFn([]string{\"a\", \"\", \"c\"}))",
+    "definitions": [],
+    "end_line": 17,
+    "line": 17,
+    "name": "expression_statement:17",
+    "scope": 23,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "Println",
+     "fmt",
+     "publicFn",
+     "string"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "fmt.Println",
+     "publicFn"
+    ],
+    "content_preview": "fmt.Println(publicFn([]string{\"a\", \"\", \"c\"}))",
+    "definitions": [],
+    "end_line": 17,
+    "line": 17,
+    "name": "call_expression:17",
+    "scope": 23,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "Println",
+     "fmt",
+     "publicFn",
+     "string"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "publicFn"
+    ],
+    "content_preview": "publicFn([]string{\"a\", \"\", \"c\"})",
+    "definitions": [],
+    "end_line": 17,
+    "line": 17,
+    "name": "call_expression:17",
+    "scope": 23,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "publicFn",
+     "string"
+    ],
+    "visibility": "public"
+   }
+  ],
+  "supported": true
+ },
+ "java": {
+  "language": "java",
+  "statements": [
+   {
+    "ast_kind": "class_declaration",
+    "calls": [
+     "trim"
+    ],
+    "content_preview": "public class Sample { private int count = 0; public int increment() { count = count + 1; return count; } protected String format(String input) { if (input == nu",
+    "definitions": [
+     "Sample"
+    ],
+    "end_line": 15,
+    "line": 1,
+    "name": "class_def:Sample:1",
+    "scope": -1,
+    "statement_type": "class_def",
+    "symbol_name": "Sample",
+    "symbol_type": "class",
+    "uses": [
+     "String",
+     "count",
+     "format",
+     "increment",
+     "input",
+     "trim"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "class_body",
+    "calls": [
+     "trim"
+    ],
+    "content_preview": "{ private int count = 0; public int increment() { count = count + 1; return count; } protected String format(String input) { if (input == null) { return \"\"; } r",
+    "definitions": [],
+    "end_line": 15,
+    "line": 1,
+    "name": "class_body:1",
+    "scope": 0,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "String",
+     "count",
+     "format",
+     "increment",
+     "input",
+     "trim"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "field_declaration",
+    "calls": [],
+    "content_preview": "private int count = 0;",
+    "definitions": [
+     "count"
+    ],
+    "end_line": 2,
+    "line": 2,
+    "name": "assignment:count:2",
+    "scope": 1,
+    "statement_type": "assignment",
+    "symbol_name": "count",
+    "symbol_type": null,
+    "uses": [],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "variable_declarator",
+    "calls": [],
+    "content_preview": "count = 0",
+    "definitions": [
+     "count"
+    ],
+    "end_line": 2,
+    "line": 2,
+    "name": "assignment:count:2",
+    "scope": 1,
+    "statement_type": "assignment",
+    "symbol_name": "count",
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "method_declaration",
+    "calls": [],
+    "content_preview": "public int increment() { count = count + 1; return count; }",
+    "definitions": [
+     "increment"
+    ],
+    "end_line": 7,
+    "line": 4,
+    "name": "function_def:increment:4",
+    "scope": 1,
+    "statement_type": "function_def",
+    "symbol_name": "increment",
+    "symbol_type": "function",
+    "uses": [
+     "count"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "{ count = count + 1; return count; }",
+    "definitions": [],
+    "end_line": 7,
+    "line": 4,
+    "name": "block:4",
+    "scope": 4,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "count"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "count = count + 1;",
+    "definitions": [],
+    "end_line": 5,
+    "line": 5,
+    "name": "expression_statement:5",
+    "scope": 5,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "count"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment_expression",
+    "calls": [],
+    "content_preview": "count = count + 1",
+    "definitions": [
+     "count"
+    ],
+    "end_line": 5,
+    "line": 5,
+    "name": "assignment_expression:5",
+    "scope": 5,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "binary_expression",
+    "calls": [],
+    "content_preview": "count + 1",
+    "definitions": [],
+    "end_line": 5,
+    "line": 5,
+    "name": "binary_expression:5",
+    "scope": 5,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "count"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return count;",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "return_statement:6",
+    "scope": 5,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "count"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "return:6",
+    "scope": 5,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "method_declaration",
+    "calls": [
+     "trim"
+    ],
+    "content_preview": "protected String format(String input) { if (input == null) { return \"\"; } return input.trim(); }",
+    "definitions": [
+     "String",
+     "format",
+     "input"
+    ],
+    "end_line": 14,
+    "line": 9,
+    "name": "function_def:format:9",
+    "scope": 1,
+    "statement_type": "function_def",
+    "symbol_name": "format",
+    "symbol_type": "function",
+    "uses": [
+     "trim"
+    ],
+    "visibility": "protected"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "trim"
+    ],
+    "content_preview": "{ if (input == null) { return \"\"; } return input.trim(); }",
+    "definitions": [],
+    "end_line": 14,
+    "line": 9,
+    "name": "block:9",
+    "scope": 11,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "input",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if_statement",
+    "calls": [],
+    "content_preview": "if (input == null) { return \"\"; }",
+    "definitions": [],
+    "end_line": 12,
+    "line": 10,
+    "name": "if_statement:10",
+    "scope": 12,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "input"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 10,
+    "line": 10,
+    "name": "if:10",
+    "scope": 13,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "parenthesized_expression",
+    "calls": [],
+    "content_preview": "(input == null)",
+    "definitions": [],
+    "end_line": 10,
+    "line": 10,
+    "name": "parenthesized_expression:10",
+    "scope": 13,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "input"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "binary_expression",
+    "calls": [],
+    "content_preview": "input == null",
+    "definitions": [],
+    "end_line": 10,
+    "line": 10,
+    "name": "binary_expression:10",
+    "scope": 13,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "input"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "{ return \"\"; }",
+    "definitions": [],
+    "end_line": 12,
+    "line": 10,
+    "name": "block:10",
+    "scope": 13,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return \"\";",
+    "definitions": [],
+    "end_line": 11,
+    "line": 11,
+    "name": "return_statement:11",
+    "scope": 17,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 11,
+    "line": 11,
+    "name": "return:11",
+    "scope": 17,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [
+     "trim"
+    ],
+    "content_preview": "return input.trim();",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "return_statement:13",
+    "scope": 12,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "input",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "return:13",
+    "scope": 12,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "method_invocation",
+    "calls": [
+     "trim"
+    ],
+    "content_preview": "input.trim()",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "call:trim:13",
+    "scope": 12,
+    "statement_type": "call",
+    "symbol_name": "trim",
+    "symbol_type": null,
+    "uses": [
+     "input",
+     "trim"
+    ],
+    "visibility": null
+   }
+  ],
+  "supported": true
+ },
+ "python": {
+  "language": "python",
+  "statements": [
+   {
+    "ast_kind": "module",
+    "calls": [
+     "SampleService",
+     "_private_helper",
+     "len",
+     "path.strip",
+     "print",
+     "results.append",
+     "service.process",
+     "str",
+     "text.ljust",
+     "wrap"
+    ],
+    "content_preview": "import os def _private_helper(path: str) -> str: prefix = path.strip() wrapped = wrap(prefix, len(prefix)) return wrapped def wrap(text: str, width: int) -> str",
+    "definitions": [
+     "os"
+    ],
+    "end_line": 38,
+    "line": 1,
+    "name": "class_def:os:1",
+    "scope": -1,
+    "statement_type": "class_def",
+    "symbol_name": "os",
+    "symbol_type": null,
+    "uses": [
+     "SampleService",
+     "ValueError",
+     "__init__",
+     "_cache",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "items",
+     "len",
+     "list",
+     "ljust",
+     "main",
+     "name",
+     "padded",
+     "path",
+     "prefix",
+     "print",
+     "process",
+     "r",
+     "results",
+     "service",
+     "str",
+     "strip",
+     "text"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "function_definition",
+    "calls": [
+     "len",
+     "path.strip",
+     "wrap"
+    ],
+    "content_preview": "def _private_helper(path: str) -> str: prefix = path.strip() wrapped = wrap(prefix, len(prefix)) return wrapped",
+    "definitions": [
+     "_private_helper",
+     "path",
+     "str"
+    ],
+    "end_line": 7,
+    "line": 4,
+    "name": "function_def:_private_helper:4",
+    "scope": 0,
+    "statement_type": "function_def",
+    "symbol_name": "_private_helper",
+    "symbol_type": "function",
+    "uses": [
+     "len",
+     "prefix",
+     "strip",
+     "wrap",
+     "wrapped"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "len",
+     "path.strip",
+     "wrap"
+    ],
+    "content_preview": "prefix = path.strip() wrapped = wrap(prefix, len(prefix)) return wrapped",
+    "definitions": [],
+    "end_line": 7,
+    "line": 5,
+    "name": "block:5",
+    "scope": 1,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "len",
+     "path",
+     "prefix",
+     "strip",
+     "wrap",
+     "wrapped"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "path.strip"
+    ],
+    "content_preview": "prefix = path.strip()",
+    "definitions": [],
+    "end_line": 5,
+    "line": 5,
+    "name": "expression_statement:5",
+    "scope": 2,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "path",
+     "prefix",
+     "strip"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [
+     "path.strip"
+    ],
+    "content_preview": "prefix = path.strip()",
+    "definitions": [
+     "prefix"
+    ],
+    "end_line": 5,
+    "line": 5,
+    "name": "assignment:5",
+    "scope": 2,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "path",
+     "strip"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "path.strip"
+    ],
+    "content_preview": "path.strip()",
+    "definitions": [],
+    "end_line": 5,
+    "line": 5,
+    "name": "call:5",
+    "scope": 2,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "path",
+     "strip"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "len",
+     "wrap"
+    ],
+    "content_preview": "wrapped = wrap(prefix, len(prefix))",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "expression_statement:6",
+    "scope": 2,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "len",
+     "prefix",
+     "wrap",
+     "wrapped"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [
+     "len",
+     "wrap"
+    ],
+    "content_preview": "wrapped = wrap(prefix, len(prefix))",
+    "definitions": [
+     "wrapped"
+    ],
+    "end_line": 6,
+    "line": 6,
+    "name": "assignment:6",
+    "scope": 2,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "len",
+     "prefix",
+     "wrap"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "len",
+     "wrap"
+    ],
+    "content_preview": "wrap(prefix, len(prefix))",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "call:6",
+    "scope": 2,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "len",
+     "prefix",
+     "wrap"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "len"
+    ],
+    "content_preview": "len(prefix)",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "call:6",
+    "scope": 2,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "len",
+     "prefix"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return wrapped",
+    "definitions": [],
+    "end_line": 7,
+    "line": 7,
+    "name": "return_statement:7",
+    "scope": 2,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "wrapped"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 7,
+    "line": 7,
+    "name": "return:7",
+    "scope": 2,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "function_definition",
+    "calls": [
+     "text.ljust"
+    ],
+    "content_preview": "def wrap(text: str, width: int) -> str: padded = text.ljust(width) return padded",
+    "definitions": [
+     "str",
+     "text",
+     "width",
+     "wrap"
+    ],
+    "end_line": 12,
+    "line": 10,
+    "name": "function_def:wrap:10",
+    "scope": 0,
+    "statement_type": "function_def",
+    "symbol_name": "wrap",
+    "symbol_type": "function",
+    "uses": [
+     "ljust",
+     "padded"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "text.ljust"
+    ],
+    "content_preview": "padded = text.ljust(width) return padded",
+    "definitions": [],
+    "end_line": 12,
+    "line": 11,
+    "name": "block:11",
+    "scope": 12,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ljust",
+     "padded",
+     "text",
+     "width"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "text.ljust"
+    ],
+    "content_preview": "padded = text.ljust(width)",
+    "definitions": [],
+    "end_line": 11,
+    "line": 11,
+    "name": "expression_statement:11",
+    "scope": 13,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ljust",
+     "padded",
+     "text",
+     "width"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [
+     "text.ljust"
+    ],
+    "content_preview": "padded = text.ljust(width)",
+    "definitions": [
+     "padded"
+    ],
+    "end_line": 11,
+    "line": 11,
+    "name": "assignment:11",
+    "scope": 13,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ljust",
+     "text",
+     "width"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "text.ljust"
+    ],
+    "content_preview": "text.ljust(width)",
+    "definitions": [],
+    "end_line": 11,
+    "line": 11,
+    "name": "call:11",
+    "scope": 13,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ljust",
+     "text",
+     "width"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return padded",
+    "definitions": [],
+    "end_line": 12,
+    "line": 12,
+    "name": "return_statement:12",
+    "scope": 13,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "padded"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 12,
+    "line": 12,
+    "name": "return:12",
+    "scope": 13,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "class_definition",
+    "calls": [
+     "_private_helper",
+     "results.append",
+     "str"
+    ],
+    "content_preview": "class SampleService: \"\"\"Docstring with public word.\"\"\" def __init__(self, name: str) -> None: self.name = name self._cache = {} def process(self, items: list[st",
+    "definitions": [
+     "SampleService"
+    ],
+    "end_line": 31,
+    "line": 15,
+    "name": "class_def:SampleService:15",
+    "scope": 0,
+    "statement_type": "class_def",
+    "symbol_name": "SampleService",
+    "symbol_type": "class",
+    "uses": [
+     "ValueError",
+     "__init__",
+     "_cache",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "items",
+     "list",
+     "name",
+     "process",
+     "r",
+     "results",
+     "str"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "_private_helper",
+     "results.append",
+     "str"
+    ],
+    "content_preview": "\"\"\"Docstring with public word.\"\"\" def __init__(self, name: str) -> None: self.name = name self._cache = {} def process(self, items: list[str]) -> list[str]: res",
+    "definitions": [],
+    "end_line": 31,
+    "line": 16,
+    "name": "block:16",
+    "scope": 19,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ValueError",
+     "__init__",
+     "_cache",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "items",
+     "list",
+     "name",
+     "process",
+     "r",
+     "results",
+     "str"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "\"\"\"Docstring with public word.\"\"\"",
+    "definitions": [],
+    "end_line": 16,
+    "line": 16,
+    "name": "expression_statement:16",
+    "scope": 20,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "function_definition",
+    "calls": [],
+    "content_preview": "def __init__(self, name: str) -> None: self.name = name self._cache = {}",
+    "definitions": [
+     "__init__",
+     "name",
+     "str"
+    ],
+    "end_line": 20,
+    "line": 18,
+    "name": "function_def:__init__:18",
+    "scope": 20,
+    "statement_type": "function_def",
+    "symbol_name": "__init__",
+    "symbol_type": "function",
+    "uses": [
+     "_cache"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "self.name = name self._cache = {}",
+    "definitions": [],
+    "end_line": 20,
+    "line": 19,
+    "name": "block:19",
+    "scope": 22,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_cache",
+     "name"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "self.name = name",
+    "definitions": [],
+    "end_line": 19,
+    "line": 19,
+    "name": "expression_statement:19",
+    "scope": 23,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "name"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [],
+    "content_preview": "self.name = name",
+    "definitions": [
+     "name"
+    ],
+    "end_line": 19,
+    "line": 19,
+    "name": "assignment:19",
+    "scope": 23,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "self._cache = {}",
+    "definitions": [],
+    "end_line": 20,
+    "line": 20,
+    "name": "expression_statement:20",
+    "scope": 23,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_cache"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [],
+    "content_preview": "self._cache = {}",
+    "definitions": [
+     "_cache"
+    ],
+    "end_line": 20,
+    "line": 20,
+    "name": "assignment:20",
+    "scope": 23,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "function_definition",
+    "calls": [
+     "_private_helper",
+     "results.append",
+     "str"
+    ],
+    "content_preview": "def process(self, items: list[str]) -> list[str]: results = [] for item in items: if not item: continue try: results.append(self._private_helper(item)) except V",
+    "definitions": [
+     "items",
+     "list",
+     "process",
+     "str"
+    ],
+    "end_line": 31,
+    "line": 22,
+    "name": "function_def:process:22",
+    "scope": 20,
+    "statement_type": "function_def",
+    "symbol_name": "process",
+    "symbol_type": "function",
+    "uses": [
+     "ValueError",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "r",
+     "results"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "_private_helper",
+     "results.append",
+     "str"
+    ],
+    "content_preview": "results = [] for item in items: if not item: continue try: results.append(self._private_helper(item)) except ValueError as exc: results.append(str(exc)) return ",
+    "definitions": [],
+    "end_line": 31,
+    "line": 23,
+    "name": "block:23",
+    "scope": 28,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ValueError",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "items",
+     "r",
+     "results",
+     "str"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "results = []",
+    "definitions": [],
+    "end_line": 23,
+    "line": 23,
+    "name": "expression_statement:23",
+    "scope": 29,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [],
+    "content_preview": "results = []",
+    "definitions": [
+     "results"
+    ],
+    "end_line": 23,
+    "line": 23,
+    "name": "assignment:23",
+    "scope": 29,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for_statement",
+    "calls": [
+     "_private_helper",
+     "results.append",
+     "str"
+    ],
+    "content_preview": "for item in items: if not item: continue try: results.append(self._private_helper(item)) except ValueError as exc: results.append(str(exc))",
+    "definitions": [],
+    "end_line": 30,
+    "line": 24,
+    "name": "for_statement:24",
+    "scope": 29,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ValueError",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "items",
+     "results",
+     "str"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "for",
+    "calls": [],
+    "content_preview": "for",
+    "definitions": [],
+    "end_line": 24,
+    "line": 24,
+    "name": "for:24",
+    "scope": 32,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "_private_helper",
+     "results.append",
+     "str"
+    ],
+    "content_preview": "if not item: continue try: results.append(self._private_helper(item)) except ValueError as exc: results.append(str(exc))",
+    "definitions": [],
+    "end_line": 30,
+    "line": 25,
+    "name": "block:25",
+    "scope": 32,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ValueError",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "results",
+     "str"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "if_statement",
+    "calls": [],
+    "content_preview": "if not item: continue",
+    "definitions": [],
+    "end_line": 26,
+    "line": 25,
+    "name": "if_statement:25",
+    "scope": 34,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 25,
+    "line": 25,
+    "name": "if:25",
+    "scope": 35,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "continue",
+    "definitions": [],
+    "end_line": 26,
+    "line": 26,
+    "name": "block:26",
+    "scope": 35,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "try_statement",
+    "calls": [
+     "_private_helper",
+     "results.append",
+     "str"
+    ],
+    "content_preview": "try: results.append(self._private_helper(item)) except ValueError as exc: results.append(str(exc))",
+    "definitions": [],
+    "end_line": 30,
+    "line": 27,
+    "name": "try_statement:27",
+    "scope": 34,
+    "statement_type": "try",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ValueError",
+     "_private_helper",
+     "append",
+     "exc",
+     "item",
+     "results",
+     "str"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "try",
+    "calls": [],
+    "content_preview": "try",
+    "definitions": [],
+    "end_line": 27,
+    "line": 27,
+    "name": "try:27",
+    "scope": 38,
+    "statement_type": "try",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "_private_helper",
+     "results.append"
+    ],
+    "content_preview": "results.append(self._private_helper(item))",
+    "definitions": [],
+    "end_line": 28,
+    "line": 28,
+    "name": "block:28",
+    "scope": 38,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_private_helper",
+     "append",
+     "item",
+     "results"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "_private_helper",
+     "results.append"
+    ],
+    "content_preview": "results.append(self._private_helper(item))",
+    "definitions": [],
+    "end_line": 28,
+    "line": 28,
+    "name": "expression_statement:28",
+    "scope": 40,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_private_helper",
+     "append",
+     "item",
+     "results"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "_private_helper",
+     "results.append"
+    ],
+    "content_preview": "results.append(self._private_helper(item))",
+    "definitions": [],
+    "end_line": 28,
+    "line": 28,
+    "name": "call:28",
+    "scope": 40,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_private_helper",
+     "append",
+     "item",
+     "results"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "_private_helper"
+    ],
+    "content_preview": "self._private_helper(item)",
+    "definitions": [],
+    "end_line": 28,
+    "line": 28,
+    "name": "call:28",
+    "scope": 40,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "_private_helper",
+     "item"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "except_clause",
+    "calls": [
+     "results.append",
+     "str"
+    ],
+    "content_preview": "except ValueError as exc: results.append(str(exc))",
+    "definitions": [],
+    "end_line": 30,
+    "line": 29,
+    "name": "except_clause:29",
+    "scope": 38,
+    "statement_type": "catch",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ValueError",
+     "append",
+     "exc",
+     "results",
+     "str"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "results.append",
+     "str"
+    ],
+    "content_preview": "results.append(str(exc))",
+    "definitions": [],
+    "end_line": 30,
+    "line": 30,
+    "name": "block:30",
+    "scope": 44,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "append",
+     "exc",
+     "results",
+     "str"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "results.append",
+     "str"
+    ],
+    "content_preview": "results.append(str(exc))",
+    "definitions": [],
+    "end_line": 30,
+    "line": 30,
+    "name": "expression_statement:30",
+    "scope": 45,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "append",
+     "exc",
+     "results",
+     "str"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "results.append",
+     "str"
+    ],
+    "content_preview": "results.append(str(exc))",
+    "definitions": [],
+    "end_line": 30,
+    "line": 30,
+    "name": "call:30",
+    "scope": 45,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "append",
+     "exc",
+     "results",
+     "str"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "str"
+    ],
+    "content_preview": "str(exc)",
+    "definitions": [],
+    "end_line": 30,
+    "line": 30,
+    "name": "call:30",
+    "scope": 45,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "exc",
+     "str"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return [r for r in results if r]",
+    "definitions": [],
+    "end_line": 31,
+    "line": 31,
+    "name": "return_statement:31",
+    "scope": 29,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "r",
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 31,
+    "line": 31,
+    "name": "return:31",
+    "scope": 29,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for",
+    "calls": [],
+    "content_preview": "for",
+    "definitions": [],
+    "end_line": 31,
+    "line": 31,
+    "name": "for:31",
+    "scope": 29,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 31,
+    "line": 31,
+    "name": "if:31",
+    "scope": 29,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "function_definition",
+    "calls": [
+     "SampleService",
+     "print",
+     "service.process"
+    ],
+    "content_preview": "def main() -> int: service = SampleService(\"demo\") print(service.process([\"a\", \"\", \"c\"])) return 0",
+    "definitions": [
+     "main"
+    ],
+    "end_line": 37,
+    "line": 34,
+    "name": "function_def:main:34",
+    "scope": 0,
+    "statement_type": "function_def",
+    "symbol_name": "main",
+    "symbol_type": "function",
+    "uses": [
+     "SampleService",
+     "print",
+     "process",
+     "service"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "SampleService",
+     "print",
+     "service.process"
+    ],
+    "content_preview": "service = SampleService(\"demo\") print(service.process([\"a\", \"\", \"c\"])) return 0",
+    "definitions": [],
+    "end_line": 37,
+    "line": 35,
+    "name": "block:35",
+    "scope": 53,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "SampleService",
+     "print",
+     "process",
+     "service"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "SampleService"
+    ],
+    "content_preview": "service = SampleService(\"demo\")",
+    "definitions": [],
+    "end_line": 35,
+    "line": 35,
+    "name": "expression_statement:35",
+    "scope": 54,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "SampleService",
+     "service"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [
+     "SampleService"
+    ],
+    "content_preview": "service = SampleService(\"demo\")",
+    "definitions": [
+     "service"
+    ],
+    "end_line": 35,
+    "line": 35,
+    "name": "assignment:35",
+    "scope": 54,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "SampleService"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "SampleService"
+    ],
+    "content_preview": "SampleService(\"demo\")",
+    "definitions": [],
+    "end_line": 35,
+    "line": 35,
+    "name": "call:35",
+    "scope": 54,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "SampleService"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "print",
+     "service.process"
+    ],
+    "content_preview": "print(service.process([\"a\", \"\", \"c\"]))",
+    "definitions": [],
+    "end_line": 36,
+    "line": 36,
+    "name": "expression_statement:36",
+    "scope": 54,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "print",
+     "process",
+     "service"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "print",
+     "service.process"
+    ],
+    "content_preview": "print(service.process([\"a\", \"\", \"c\"]))",
+    "definitions": [],
+    "end_line": 36,
+    "line": 36,
+    "name": "call:36",
+    "scope": 54,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "print",
+     "process",
+     "service"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "service.process"
+    ],
+    "content_preview": "service.process([\"a\", \"\", \"c\"])",
+    "definitions": [],
+    "end_line": 36,
+    "line": 36,
+    "name": "call:36",
+    "scope": 54,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "process",
+     "service"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return 0",
+    "definitions": [],
+    "end_line": 37,
+    "line": 37,
+    "name": "return_statement:37",
+    "scope": 54,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 37,
+    "line": 37,
+    "name": "return:37",
+    "scope": 54,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   }
+  ],
+  "supported": true
+ },
+ "ruby": {
+  "language": "ruby",
+  "statements": [
+   {
+    "ast_kind": "assignment",
+    "calls": [
+     "strip"
+    ],
+    "content_preview": "trimmed = path.strip",
+    "definitions": [
+     "trimmed"
+    ],
+    "end_line": 2,
+    "line": 2,
+    "name": "assignment:2",
+    "scope": -1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "path",
+     "strip"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "strip"
+    ],
+    "content_preview": "path.strip",
+    "definitions": [],
+    "end_line": 2,
+    "line": 2,
+    "name": "call:2",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "path",
+     "strip"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [
+     "length",
+     "wrap"
+    ],
+    "content_preview": "wrapped = wrap(trimmed, trimmed.length)",
+    "definitions": [
+     "wrapped"
+    ],
+    "end_line": 3,
+    "line": 3,
+    "name": "assignment:3",
+    "scope": -1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "length",
+     "trimmed",
+     "wrap"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "length",
+     "wrap"
+    ],
+    "content_preview": "wrap(trimmed, trimmed.length)",
+    "definitions": [],
+    "end_line": 3,
+    "line": 3,
+    "name": "call:3",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "length",
+     "trimmed",
+     "wrap"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "length"
+    ],
+    "content_preview": "trimmed.length",
+    "definitions": [],
+    "end_line": 3,
+    "line": 3,
+    "name": "call:3",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "length",
+     "trimmed"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [
+     "ljust"
+    ],
+    "content_preview": "padded = text.ljust(width)",
+    "definitions": [
+     "padded"
+    ],
+    "end_line": 8,
+    "line": 8,
+    "name": "assignment:8",
+    "scope": -1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ljust",
+     "text",
+     "width"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "ljust"
+    ],
+    "content_preview": "text.ljust(width)",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "call:8",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ljust",
+     "text",
+     "width"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [],
+    "content_preview": "@name = name",
+    "definitions": [],
+    "end_line": 14,
+    "line": 14,
+    "name": "assignment:14",
+    "scope": -1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "name"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [],
+    "content_preview": "@cache = {}",
+    "definitions": [],
+    "end_line": 15,
+    "line": 15,
+    "name": "assignment:15",
+    "scope": -1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "assignment",
+    "calls": [],
+    "content_preview": "results = []",
+    "definitions": [
+     "results"
+    ],
+    "end_line": 19,
+    "line": 19,
+    "name": "assignment:19",
+    "scope": -1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "each",
+     "empty?",
+     "public_helper",
+     "push",
+     "to_s"
+    ],
+    "content_preview": "items.each do |item| next if item.empty? begin results.push(public_helper(item)) rescue StandardError => e results.push(e.to_s) end end",
+    "definitions": [],
+    "end_line": 27,
+    "line": 20,
+    "name": "call:20",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "StandardError",
+     "e",
+     "each",
+     "empty?",
+     "item",
+     "items",
+     "public_helper",
+     "push",
+     "results",
+     "to_s"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 21,
+    "line": 21,
+    "name": "if:21",
+    "scope": -1,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "empty?"
+    ],
+    "content_preview": "item.empty?",
+    "definitions": [],
+    "end_line": 21,
+    "line": 21,
+    "name": "call:21",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "empty?",
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "public_helper",
+     "push"
+    ],
+    "content_preview": "results.push(public_helper(item))",
+    "definitions": [],
+    "end_line": 23,
+    "line": 23,
+    "name": "call:23",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item",
+     "public_helper",
+     "push",
+     "results"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "public_helper"
+    ],
+    "content_preview": "public_helper(item)",
+    "definitions": [],
+    "end_line": 23,
+    "line": 23,
+    "name": "call:23",
+    "scope": -1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item",
+     "public_helper"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "rescue",
+    "calls": [
+     "push",
+     "to_s"
+    ],
+    "content_preview": "rescue StandardError => e results.push(e.to_s)",
+    "definitions": [],
+    "end_line": 25,
+    "line": 24,
+    "name": "rescue:24",
+    "scope": -1,
+    "statement_type": "catch",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "StandardError",
+     "e",
+     "push",
+     "results",
+     "to_s"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "rescue",
+    "calls": [],
+    "content_preview": "rescue",
+    "definitions": [],
+    "end_line": 24,
+    "line": 24,
+    "name": "rescue:24",
+    "scope": 15,
+    "statement_type": "catch",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "push",
+     "to_s"
+    ],
+    "content_preview": "results.push(e.to_s)",
+    "definitions": [],
+    "end_line": 25,
+    "line": 25,
+    "name": "call:25",
+    "scope": 15,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "e",
+     "push",
+     "results",
+     "to_s"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call",
+    "calls": [
+     "to_s"
+    ],
+    "content_preview": "e.to_s",
+    "definitions": [],
+    "end_line": 25,
+    "line": 25,
+    "name": "call:25",
+    "scope": 15,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "e",
+     "to_s"
+    ],
+    "visibility": null
+   }
+  ],
+  "supported": true
+ },
+ "rust": {
+  "language": "rust",
+  "statements": [
+   {
+    "ast_kind": "function_item",
+    "calls": [
+     "String",
+     "ch.is_whitespace",
+     "input.trim",
+     "out.push",
+     "trimmed.chars"
+    ],
+    "content_preview": "pub fn public_fn(input: &str) -> String { let trimmed = input.trim(); let mut out = String::new(); for ch in trimmed.chars() { if ch.is_whitespace() { continue;",
+    "definitions": [
+     "input",
+     "public_fn"
+    ],
+    "end_line": 11,
+    "line": 1,
+    "name": "function_def:public_fn:1",
+    "scope": -1,
+    "statement_type": "function_def",
+    "symbol_name": "public_fn",
+    "symbol_type": "function",
+    "uses": [
+     "String",
+     "ch",
+     "chars",
+     "is_whitespace",
+     "out",
+     "push",
+     "trim",
+     "trimmed"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "String",
+     "ch.is_whitespace",
+     "input.trim",
+     "out.push",
+     "trimmed.chars"
+    ],
+    "content_preview": "{ let trimmed = input.trim(); let mut out = String::new(); for ch in trimmed.chars() { if ch.is_whitespace() { continue; } out.push(ch); } out }",
+    "definitions": [],
+    "end_line": 11,
+    "line": 1,
+    "name": "block:1",
+    "scope": 0,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "String",
+     "ch",
+     "chars",
+     "input",
+     "is_whitespace",
+     "out",
+     "push",
+     "trim",
+     "trimmed"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "let_declaration",
+    "calls": [
+     "input.trim"
+    ],
+    "content_preview": "let trimmed = input.trim();",
+    "definitions": [
+     "input",
+     "trim",
+     "trimmed"
+    ],
+    "end_line": 2,
+    "line": 2,
+    "name": "let_declaration:2",
+    "scope": 1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "input.trim"
+    ],
+    "content_preview": "input.trim()",
+    "definitions": [],
+    "end_line": 2,
+    "line": 2,
+    "name": "call_expression:2",
+    "scope": 1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "input",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "let_declaration",
+    "calls": [
+     "String"
+    ],
+    "content_preview": "let mut out = String::new();",
+    "definitions": [
+     "String",
+     "out"
+    ],
+    "end_line": 3,
+    "line": 3,
+    "name": "let_declaration:3",
+    "scope": 1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "String"
+    ],
+    "content_preview": "String::new()",
+    "definitions": [],
+    "end_line": 3,
+    "line": 3,
+    "name": "call_expression:3",
+    "scope": 1,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "String"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "ch.is_whitespace",
+     "out.push",
+     "trimmed.chars"
+    ],
+    "content_preview": "for ch in trimmed.chars() { if ch.is_whitespace() { continue; } out.push(ch); }",
+    "definitions": [],
+    "end_line": 9,
+    "line": 4,
+    "name": "expression_statement:4",
+    "scope": 1,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "chars",
+     "is_whitespace",
+     "out",
+     "push",
+     "trimmed"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for_expression",
+    "calls": [
+     "ch.is_whitespace",
+     "out.push",
+     "trimmed.chars"
+    ],
+    "content_preview": "for ch in trimmed.chars() { if ch.is_whitespace() { continue; } out.push(ch); }",
+    "definitions": [],
+    "end_line": 9,
+    "line": 4,
+    "name": "for_expression:4",
+    "scope": 1,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "chars",
+     "is_whitespace",
+     "out",
+     "push",
+     "trimmed"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for",
+    "calls": [],
+    "content_preview": "for",
+    "definitions": [],
+    "end_line": 4,
+    "line": 4,
+    "name": "for:4",
+    "scope": 7,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "trimmed.chars"
+    ],
+    "content_preview": "trimmed.chars()",
+    "definitions": [],
+    "end_line": 4,
+    "line": 4,
+    "name": "call_expression:4",
+    "scope": 7,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "chars",
+     "trimmed"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [
+     "ch.is_whitespace",
+     "out.push"
+    ],
+    "content_preview": "{ if ch.is_whitespace() { continue; } out.push(ch); }",
+    "definitions": [],
+    "end_line": 9,
+    "line": 4,
+    "name": "block:4",
+    "scope": 7,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "is_whitespace",
+     "out",
+     "push"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "ch.is_whitespace"
+    ],
+    "content_preview": "if ch.is_whitespace() { continue; }",
+    "definitions": [],
+    "end_line": 7,
+    "line": 5,
+    "name": "expression_statement:5",
+    "scope": 10,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "is_whitespace"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if_expression",
+    "calls": [
+     "ch.is_whitespace"
+    ],
+    "content_preview": "if ch.is_whitespace() { continue; }",
+    "definitions": [],
+    "end_line": 7,
+    "line": 5,
+    "name": "if_expression:5",
+    "scope": 10,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "is_whitespace"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 5,
+    "line": 5,
+    "name": "if:5",
+    "scope": 12,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "ch.is_whitespace"
+    ],
+    "content_preview": "ch.is_whitespace()",
+    "definitions": [],
+    "end_line": 5,
+    "line": 5,
+    "name": "call_expression:5",
+    "scope": 12,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "is_whitespace"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "{ continue; }",
+    "definitions": [],
+    "end_line": 7,
+    "line": 5,
+    "name": "block:5",
+    "scope": 12,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "continue;",
+    "definitions": [],
+    "end_line": 6,
+    "line": 6,
+    "name": "expression_statement:6",
+    "scope": 15,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "out.push"
+    ],
+    "content_preview": "out.push(ch);",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "expression_statement:8",
+    "scope": 10,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "out",
+     "push"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "out.push"
+    ],
+    "content_preview": "out.push(ch)",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "call_expression:8",
+    "scope": 10,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "ch",
+     "out",
+     "push"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "function_item",
+    "calls": [],
+    "content_preview": "fn private_helper(a: u32, b: u32) -> u32 { let sum = a + b; match sum { 0 => 0, n if n > 100 => 100, _ => sum, } }",
+    "definitions": [
+     "a",
+     "b",
+     "private_helper"
+    ],
+    "end_line": 20,
+    "line": 13,
+    "name": "function_def:private_helper:13",
+    "scope": -1,
+    "statement_type": "function_def",
+    "symbol_name": "private_helper",
+    "symbol_type": "function",
+    "uses": [
+     "n",
+     "sum"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "{ let sum = a + b; match sum { 0 => 0, n if n > 100 => 100, _ => sum, } }",
+    "definitions": [],
+    "end_line": 20,
+    "line": 13,
+    "name": "block:13",
+    "scope": 19,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "a",
+     "b",
+     "n",
+     "sum"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "let_declaration",
+    "calls": [],
+    "content_preview": "let sum = a + b;",
+    "definitions": [
+     "a",
+     "b",
+     "sum"
+    ],
+    "end_line": 14,
+    "line": 14,
+    "name": "let_declaration:14",
+    "scope": 20,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "binary_expression",
+    "calls": [],
+    "content_preview": "a + b",
+    "definitions": [],
+    "end_line": 14,
+    "line": 14,
+    "name": "binary_expression:14",
+    "scope": 20,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "a",
+     "b"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "match sum { 0 => 0, n if n > 100 => 100, _ => sum, }",
+    "definitions": [],
+    "end_line": 19,
+    "line": 15,
+    "name": "expression_statement:15",
+    "scope": 20,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "n",
+     "sum"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "match_expression",
+    "calls": [],
+    "content_preview": "match sum { 0 => 0, n if n > 100 => 100, _ => sum, }",
+    "definitions": [],
+    "end_line": 19,
+    "line": 15,
+    "name": "match_expression:15",
+    "scope": 20,
+    "statement_type": "switch",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "n",
+     "sum"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "match",
+    "calls": [],
+    "content_preview": "match",
+    "definitions": [],
+    "end_line": 15,
+    "line": 15,
+    "name": "match:15",
+    "scope": 24,
+    "statement_type": "switch",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "match_arm",
+    "calls": [],
+    "content_preview": "0 => 0,",
+    "definitions": [],
+    "end_line": 16,
+    "line": 16,
+    "name": "match_arm:16",
+    "scope": 24,
+    "statement_type": "case",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "match_arm",
+    "calls": [],
+    "content_preview": "n if n > 100 => 100,",
+    "definitions": [],
+    "end_line": 17,
+    "line": 17,
+    "name": "match_arm:17",
+    "scope": 24,
+    "statement_type": "case",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "n"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 17,
+    "line": 17,
+    "name": "if:17",
+    "scope": 27,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "binary_expression",
+    "calls": [],
+    "content_preview": "n > 100",
+    "definitions": [],
+    "end_line": 17,
+    "line": 17,
+    "name": "binary_expression:17",
+    "scope": 27,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "n"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "match_arm",
+    "calls": [],
+    "content_preview": "_ => sum,",
+    "definitions": [],
+    "end_line": 18,
+    "line": 18,
+    "name": "match_arm:18",
+    "scope": 24,
+    "statement_type": "case",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "sum"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "struct_item",
+    "calls": [],
+    "content_preview": "pub struct Counter { count: u64, }",
+    "definitions": [
+     "Counter"
+    ],
+    "end_line": 24,
+    "line": 22,
+    "name": "class_def:Counter:22",
+    "scope": -1,
+    "statement_type": "class_def",
+    "symbol_name": "Counter",
+    "symbol_type": "class",
+    "uses": [
+     "count"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "field_declaration",
+    "calls": [],
+    "content_preview": "count: u64",
+    "definitions": [
+     "count"
+    ],
+    "end_line": 23,
+    "line": 23,
+    "name": "assignment:count:23",
+    "scope": 31,
+    "statement_type": "assignment",
+    "symbol_name": "count",
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "impl_item",
+    "calls": [],
+    "content_preview": "impl Counter { pub fn new() -> Self { Counter { count: 0 } } pub fn increment(&mut self) -> u64 { self.count += 1; self.count } }",
+    "definitions": [
+     "Counter"
+    ],
+    "end_line": 35,
+    "line": 26,
+    "name": "class_def:Counter:26",
+    "scope": -1,
+    "statement_type": "class_def",
+    "symbol_name": "Counter",
+    "symbol_type": null,
+    "uses": [
+     "count",
+     "increment"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "declaration_list",
+    "calls": [],
+    "content_preview": "{ pub fn new() -> Self { Counter { count: 0 } } pub fn increment(&mut self) -> u64 { self.count += 1; self.count } }",
+    "definitions": [],
+    "end_line": 35,
+    "line": 26,
+    "name": "declaration_list:26",
+    "scope": 33,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "Counter",
+     "count",
+     "increment"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "function_item",
+    "calls": [],
+    "content_preview": "pub fn new() -> Self { Counter { count: 0 } }",
+    "definitions": [
+     "Counter"
+    ],
+    "end_line": 29,
+    "line": 27,
+    "name": "function_def:new:27",
+    "scope": 34,
+    "statement_type": "function_def",
+    "symbol_name": "new",
+    "symbol_type": "function",
+    "uses": [
+     "count"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "{ Counter { count: 0 } }",
+    "definitions": [],
+    "end_line": 29,
+    "line": 27,
+    "name": "block:27",
+    "scope": 35,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "Counter",
+     "count"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "function_item",
+    "calls": [],
+    "content_preview": "pub fn increment(&mut self) -> u64 { self.count += 1; self.count }",
+    "definitions": [
+     "increment"
+    ],
+    "end_line": 34,
+    "line": 31,
+    "name": "function_def:increment:31",
+    "scope": 34,
+    "statement_type": "function_def",
+    "symbol_name": "increment",
+    "symbol_type": "function",
+    "uses": [
+     "count"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "block",
+    "calls": [],
+    "content_preview": "{ self.count += 1; self.count }",
+    "definitions": [],
+    "end_line": 34,
+    "line": 31,
+    "name": "block:31",
+    "scope": 37,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "count"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [],
+    "content_preview": "self.count += 1;",
+    "definitions": [],
+    "end_line": 32,
+    "line": 32,
+    "name": "expression_statement:32",
+    "scope": 38,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "count"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "compound_assignment_expr",
+    "calls": [],
+    "content_preview": "self.count += 1",
+    "definitions": [
+     "count"
+    ],
+    "end_line": 32,
+    "line": 32,
+    "name": "compound_assignment_expr:32",
+    "scope": 38,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   }
+  ],
+  "supported": true
+ },
+ "typescript": {
+  "language": "typescript",
+  "statements": [
+   {
+    "ast_kind": "function_declaration",
+    "calls": [
+     "console.error",
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "function processItems(items: string[]): string[] { const results: string[] = []; for (const item of items) { if (!item) { continue; } try { results.push(item.tr",
+    "definitions": [
+     "items",
+     "processItems"
+    ],
+    "end_line": 14,
+    "line": 1,
+    "name": "function_def:processItems:1",
+    "scope": -1,
+    "statement_type": "function_def",
+    "symbol_name": "processItems",
+    "symbol_type": "function",
+    "uses": [
+     "console",
+     "error",
+     "item",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "statement_block",
+    "calls": [
+     "console.error",
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "{ const results: string[] = []; for (const item of items) { if (!item) { continue; } try { results.push(item.trim()); } catch (error) { console.error(error); } ",
+    "definitions": [],
+    "end_line": 14,
+    "line": 1,
+    "name": "statement_block:1",
+    "scope": 0,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error",
+     "item",
+     "items",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "lexical_declaration",
+    "calls": [],
+    "content_preview": "const results: string[] = [];",
+    "definitions": [],
+    "end_line": 2,
+    "line": 2,
+    "name": "lexical_declaration:2",
+    "scope": 1,
+    "statement_type": "assignment",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "variable_declarator",
+    "calls": [],
+    "content_preview": "results: string[] = []",
+    "definitions": [
+     "results"
+    ],
+    "end_line": 2,
+    "line": 2,
+    "name": "assignment:results:2",
+    "scope": 1,
+    "statement_type": "assignment",
+    "symbol_name": "results",
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for_in_statement",
+    "calls": [
+     "console.error",
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "for (const item of items) { if (!item) { continue; } try { results.push(item.trim()); } catch (error) { console.error(error); } }",
+    "definitions": [],
+    "end_line": 12,
+    "line": 3,
+    "name": "for_in_statement:3",
+    "scope": 1,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error",
+     "item",
+     "items",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "for",
+    "calls": [],
+    "content_preview": "for",
+    "definitions": [],
+    "end_line": 3,
+    "line": 3,
+    "name": "for:3",
+    "scope": 4,
+    "statement_type": "loop",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "statement_block",
+    "calls": [
+     "console.error",
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "{ if (!item) { continue; } try { results.push(item.trim()); } catch (error) { console.error(error); } }",
+    "definitions": [],
+    "end_line": 12,
+    "line": 3,
+    "name": "statement_block:3",
+    "scope": 4,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error",
+     "item",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if_statement",
+    "calls": [],
+    "content_preview": "if (!item) { continue; }",
+    "definitions": [],
+    "end_line": 6,
+    "line": 4,
+    "name": "if_statement:4",
+    "scope": 6,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "if",
+    "calls": [],
+    "content_preview": "if",
+    "definitions": [],
+    "end_line": 4,
+    "line": 4,
+    "name": "if:4",
+    "scope": 7,
+    "statement_type": "condition",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "parenthesized_expression",
+    "calls": [],
+    "content_preview": "(!item)",
+    "definitions": [],
+    "end_line": 4,
+    "line": 4,
+    "name": "parenthesized_expression:4",
+    "scope": 7,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "unary_expression",
+    "calls": [],
+    "content_preview": "!item",
+    "definitions": [],
+    "end_line": 4,
+    "line": 4,
+    "name": "unary_expression:4",
+    "scope": 7,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "statement_block",
+    "calls": [],
+    "content_preview": "{ continue; }",
+    "definitions": [],
+    "end_line": 6,
+    "line": 4,
+    "name": "statement_block:4",
+    "scope": 7,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "try_statement",
+    "calls": [
+     "console.error",
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "try { results.push(item.trim()); } catch (error) { console.error(error); }",
+    "definitions": [],
+    "end_line": 11,
+    "line": 7,
+    "name": "try_statement:7",
+    "scope": 6,
+    "statement_type": "try",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error",
+     "item",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "try",
+    "calls": [],
+    "content_preview": "try",
+    "definitions": [],
+    "end_line": 7,
+    "line": 7,
+    "name": "try:7",
+    "scope": 12,
+    "statement_type": "try",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "statement_block",
+    "calls": [
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "{ results.push(item.trim()); }",
+    "definitions": [],
+    "end_line": 9,
+    "line": 7,
+    "name": "statement_block:7",
+    "scope": 12,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "results.push(item.trim());",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "expression_statement:8",
+    "scope": 14,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "item.trim",
+     "results.push"
+    ],
+    "content_preview": "results.push(item.trim())",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "call_expression:8",
+    "scope": 14,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item",
+     "push",
+     "results",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "item.trim"
+    ],
+    "content_preview": "item.trim()",
+    "definitions": [],
+    "end_line": 8,
+    "line": 8,
+    "name": "call_expression:8",
+    "scope": 14,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "item",
+     "trim"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "catch_clause",
+    "calls": [
+     "console.error"
+    ],
+    "content_preview": "catch (error) { console.error(error); }",
+    "definitions": [],
+    "end_line": 11,
+    "line": 9,
+    "name": "catch_clause:9",
+    "scope": 12,
+    "statement_type": "catch",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "statement_block",
+    "calls": [
+     "console.error"
+    ],
+    "content_preview": "{ console.error(error); }",
+    "definitions": [],
+    "end_line": 11,
+    "line": 9,
+    "name": "statement_block:9",
+    "scope": 18,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "console.error"
+    ],
+    "content_preview": "console.error(error);",
+    "definitions": [],
+    "end_line": 10,
+    "line": 10,
+    "name": "expression_statement:10",
+    "scope": 19,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "console.error"
+    ],
+    "content_preview": "console.error(error)",
+    "definitions": [],
+    "end_line": 10,
+    "line": 10,
+    "name": "call_expression:10",
+    "scope": 19,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "console",
+     "error"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [],
+    "content_preview": "return results;",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "return_statement:13",
+    "scope": 1,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "results"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 13,
+    "line": 13,
+    "name": "return:13",
+    "scope": 1,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "class_declaration",
+    "calls": [
+     "get",
+     "set"
+    ],
+    "content_preview": "class SampleService { private cache: Map<string, string> = new Map(); public get(key: string): string | undefined { return this.cache.get(key); } set(key: strin",
+    "definitions": [
+     "SampleService"
+    ],
+    "end_line": 26,
+    "line": 16,
+    "name": "class_def:SampleService:16",
+    "scope": -1,
+    "statement_type": "class_def",
+    "symbol_name": "SampleService",
+    "symbol_type": "class",
+    "uses": [
+     "Map",
+     "cache",
+     "get",
+     "key",
+     "set",
+     "value"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "class_body",
+    "calls": [
+     "get",
+     "set"
+    ],
+    "content_preview": "{ private cache: Map<string, string> = new Map(); public get(key: string): string | undefined { return this.cache.get(key); } set(key: string, value: string): v",
+    "definitions": [],
+    "end_line": 26,
+    "line": 16,
+    "name": "class_body:16",
+    "scope": 24,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "Map",
+     "cache",
+     "get",
+     "key",
+     "set",
+     "value"
+    ],
+    "visibility": "private"
+   },
+   {
+    "ast_kind": "method_definition",
+    "calls": [
+     "get"
+    ],
+    "content_preview": "public get(key: string): string | undefined { return this.cache.get(key); }",
+    "definitions": [
+     "get",
+     "key"
+    ],
+    "end_line": 21,
+    "line": 19,
+    "name": "function_def:get:19",
+    "scope": 25,
+    "statement_type": "function_def",
+    "symbol_name": "get",
+    "symbol_type": "function",
+    "uses": [
+     "cache"
+    ],
+    "visibility": "public"
+   },
+   {
+    "ast_kind": "statement_block",
+    "calls": [
+     "get"
+    ],
+    "content_preview": "{ return this.cache.get(key); }",
+    "definitions": [],
+    "end_line": 21,
+    "line": 19,
+    "name": "statement_block:19",
+    "scope": 26,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "cache",
+     "get",
+     "key"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return_statement",
+    "calls": [
+     "get"
+    ],
+    "content_preview": "return this.cache.get(key);",
+    "definitions": [],
+    "end_line": 20,
+    "line": 20,
+    "name": "return_statement:20",
+    "scope": 27,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "cache",
+     "get",
+     "key"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "return",
+    "calls": [],
+    "content_preview": "return",
+    "definitions": [],
+    "end_line": 20,
+    "line": 20,
+    "name": "return:20",
+    "scope": 27,
+    "statement_type": "return",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "get"
+    ],
+    "content_preview": "this.cache.get(key)",
+    "definitions": [],
+    "end_line": 20,
+    "line": 20,
+    "name": "call_expression:20",
+    "scope": 27,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "cache",
+     "get",
+     "key"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "method_definition",
+    "calls": [
+     "set"
+    ],
+    "content_preview": "set(key: string, value: string): void { this.cache.set(key, value); }",
+    "definitions": [
+     "key",
+     "set",
+     "value"
+    ],
+    "end_line": 25,
+    "line": 23,
+    "name": "function_def:set:23",
+    "scope": 25,
+    "statement_type": "function_def",
+    "symbol_name": "set",
+    "symbol_type": "function",
+    "uses": [
+     "cache"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "statement_block",
+    "calls": [
+     "set"
+    ],
+    "content_preview": "{ this.cache.set(key, value); }",
+    "definitions": [],
+    "end_line": 25,
+    "line": 23,
+    "name": "statement_block:23",
+    "scope": 31,
+    "statement_type": "block",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "cache",
+     "key",
+     "set",
+     "value"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "expression_statement",
+    "calls": [
+     "set"
+    ],
+    "content_preview": "this.cache.set(key, value);",
+    "definitions": [],
+    "end_line": 24,
+    "line": 24,
+    "name": "expression_statement:24",
+    "scope": 32,
+    "statement_type": "expression",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "cache",
+     "key",
+     "set",
+     "value"
+    ],
+    "visibility": null
+   },
+   {
+    "ast_kind": "call_expression",
+    "calls": [
+     "set"
+    ],
+    "content_preview": "this.cache.set(key, value)",
+    "definitions": [],
+    "end_line": 24,
+    "line": 24,
+    "name": "call_expression:24",
+    "scope": 32,
+    "statement_type": "call",
+    "symbol_name": null,
+    "symbol_type": null,
+    "uses": [
+     "cache",
+     "key",
+     "set",
+     "value"
+    ],
+    "visibility": null
+   }
+  ],
+  "supported": true
+ }
+}
