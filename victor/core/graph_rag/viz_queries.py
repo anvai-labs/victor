@@ -97,7 +97,10 @@ def package_graph(db_path, top_packages: int = 12) -> Dict[str, List[Dict[str, A
     # drown under python's coupling and never appear — the monorepo's other
     # languages look unharvested when the graph has them all along.
     packages: List[str] = []
-    tree_of = lambda pkg: pkg.split("/", 1)[0]
+
+    def tree_of(pkg: str) -> str:
+        return pkg.split("/", 1)[0]
+
     best_of_tree: Dict[str, str] = {}
     seen_trees = set()
     tree_order: List[str] = []
