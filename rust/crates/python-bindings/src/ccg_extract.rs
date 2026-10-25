@@ -165,7 +165,7 @@ fn statement_id(file_path: &str, start_line: i64, end_line: i64, node_type: &str
         .to_string()
 }
 
-fn language_for(language: &str) -> Option<tree_sitter::Language> {
+pub(crate) fn language_for(language: &str) -> Option<tree_sitter::Language> {
     match language {
         "python" => Some(tree_sitter_python::LANGUAGE.into()),
         "javascript" => Some(tree_sitter_javascript::LANGUAGE.into()),

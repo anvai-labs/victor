@@ -1,5 +1,21 @@
 {
  "go": {
+  "hints": [
+   [
+    219,
+    281,
+    "function_declaration",
+    "main",
+    "function"
+   ],
+   [
+    28,
+    217,
+    "function_declaration",
+    "publicFn",
+    "function"
+   ]
+  ],
   "language": "go",
   "statements": [
    {
@@ -543,6 +559,29 @@
   "supported": true
  },
  "java": {
+  "hints": [
+   [
+    0,
+    277,
+    "class_declaration",
+    "Sample",
+    "class"
+   ],
+   [
+    139,
+    275,
+    "method_declaration",
+    "format",
+    "function"
+   ],
+   [
+    54,
+    133,
+    "method_declaration",
+    "increment",
+    "function"
+   ]
+  ],
   "language": "java",
   "statements": [
    {
@@ -961,6 +1000,50 @@
   "supported": true
  },
  "python": {
+  "hints": [
+   [
+    12,
+    135,
+    "function_definition",
+    "_private_helper",
+    "function"
+   ],
+   [
+    138,
+    226,
+    "function_definition",
+    "wrap",
+    "function"
+   ],
+   [
+    229,
+    730,
+    "class_definition",
+    "SampleService",
+    "class"
+   ],
+   [
+    293,
+    381,
+    "function_definition",
+    "__init__",
+    "function"
+   ],
+   [
+    387,
+    730,
+    "function_definition",
+    "process",
+    "function"
+   ],
+   [
+    733,
+    843,
+    "function_definition",
+    "main",
+    "function"
+   ]
+  ],
   "language": "python",
   "statements": [
    {
@@ -2320,6 +2403,43 @@
   "supported": true
  },
  "ruby": {
+  "hints": [
+   [
+    108,
+    112,
+    "identifier",
+    "wrap",
+    "function"
+   ],
+   [
+    175,
+    188,
+    "constant",
+    "SampleService",
+    "class"
+   ],
+   [
+    195,
+    205,
+    "identifier",
+    "initialize",
+    "function"
+   ],
+   [
+    258,
+    265,
+    "identifier",
+    "process",
+    "function"
+   ],
+   [
+    4,
+    17,
+    "identifier",
+    "public_helper",
+    "function"
+   ]
+  ],
   "language": "ruby",
   "statements": [
    {
@@ -2719,6 +2839,43 @@
   "supported": true
  },
  "rust": {
+  "hints": [
+   [
+    0,
+    240,
+    "function_item",
+    "public_fn",
+    "function"
+   ],
+   [
+    242,
+    392,
+    "function_item",
+    "private_helper",
+    "function"
+   ],
+   [
+    394,
+    432,
+    "struct_item",
+    "Counter",
+    "class"
+   ],
+   [
+    453,
+    510,
+    "function_item",
+    "new",
+    "function"
+   ],
+   [
+    516,
+    602,
+    "function_item",
+    "increment",
+    "function"
+   ]
+  ],
   "language": "rust",
   "statements": [
    {
@@ -3519,6 +3676,36 @@
   "supported": true
  },
  "typescript": {
+  "hints": [
+   [
+    283,
+    520,
+    "class_declaration",
+    "SampleService",
+    "class"
+   ],
+   [
+    358,
+    439,
+    "method_definition",
+    "get",
+    "function"
+   ],
+   [
+    443,
+    518,
+    "method_definition",
+    "set",
+    "function"
+   ],
+   [
+    7,
+    281,
+    "function_declaration",
+    "processItems",
+    "function"
+   ]
+  ],
   "language": "typescript",
   "statements": [
    {

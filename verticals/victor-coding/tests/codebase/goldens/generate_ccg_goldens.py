@@ -45,6 +45,27 @@ SAMPLES: dict[str, str] = {
 }
 
 
+def _hint_records(language: str, file_name: str, builder) -> list[list]:
+    """The raw symbol-hint set for a sample, as data.
+
+    Hints ride the native batch as inputs (phase 1 computes them Python-side,
+    ~2.7 ms); the differential needs the exact (start_byte, end_byte,
+    node_type) -> (name, symbol_type) mapping the live walk consumed.
+    """
+    import tree_sitter
+
+    plugin = builder._get_plugin(language)  # noqa: SLF001 - same package family
+    parser_language = builder._parser_language_for_plugin(plugin, language, Path(file_name))
+    parser = builder._get_parser(parser_language)
+    source = (GOLDENS / "samples" / file_name).read_bytes()
+    tree = parser.parse(source)
+    hints = builder._extract_symbol_hints(tree, parser, plugin)  # noqa: SLF001
+    return [
+        [start_byte, end_byte, node_type, hint.name, hint.symbol_type]
+        for (start_byte, end_byte, node_type), hint in sorted(hints.items(), key=repr)
+    ]
+
+
 def build_golden(language: str, file_name: str) -> dict:
     builder = PluginBackedCCGBuilder()
     if not builder.supports_language(language):
@@ -61,6 +82,47 @@ def build_golden(language: str, file_name: str) -> dict:
         "language": language,
         "supported": True,
         "statements": [statement_signature(node, scope_index) for node in nodes],
+        "hints": _hint_records(language, file_name, builder),
+    }
+
+
+def export_tables() -> dict:
+    """The language-syntax tables as data — the native engine's parameters.
+
+    Single source of truth stays this package; the JSON snapshot lets the
+    root-side differential drive the native function without any
+    root-to-vertical import (the companion test asserts freshness).
+    """
+    import victor_coding.codebase.ccg_builder as m
+
+    def_fields = (
+        "left",
+        "lhs",
+        "name",
+        "pattern",
+        "declarator",
+        "declarators",
+        "target",
+        "key",
+        "value",
+    )
+    name_fields = ("name", "declarator", "declarators", "type", "path")
+    param_fields = ("parameters", "parameter", "arguments")
+    call_fields = ("function", "method", "name", "command")
+    return {
+        "classify": dict(sorted(m.NODE_TYPE_TO_STATEMENT_TYPE.items())),
+        "identifier_types": sorted(m.IDENTIFIER_NODE_TYPES),
+        "skip_descent": sorted(m.SKIP_IDENTIFIER_DESCENT_TYPES),
+        "scope_types": sorted(m.SCOPE_STATEMENT_TYPES),
+        "definition_types": sorted(m.DEFINITION_STATEMENT_TYPES),
+        "keywords": sorted(m.BROAD_KEYWORDS),
+        "function_def": m.STATEMENT_FUNCTION_DEF,
+        "class_def": m.STATEMENT_CLASS_DEF,
+        "call_type": m.STATEMENT_CALL,
+        "def_fields": list(def_fields),
+        "name_fields": list(name_fields),
+        "param_fields": list(param_fields),
+        "call_fields": list(call_fields),
     }
 
 
@@ -74,7 +136,10 @@ def main() -> int:
     (GOLDENS / "ccg_plugin_goldens.json").write_text(
         json.dumps(goldens, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
-    print(f"wrote {GOLDENS / 'ccg_plugin_goldens.json'}")
+    (GOLDENS / "plugin_tables.json").write_text(
+        json.dumps(export_tables(), indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {GOLDENS / 'ccg_plugin_goldens.json'} + plugin_tables.json")
     return 0
 
 
