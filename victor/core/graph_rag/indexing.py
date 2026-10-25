@@ -1870,7 +1870,10 @@ class GraphIndexingPipeline:
             try:
                 from victor.core.indexing import CodeContextGraphBuilder
 
-                self._thread_local.ccg_builder = CodeContextGraphBuilder(self.graph_store)
+                self._thread_local.ccg_builder = CodeContextGraphBuilder(
+                    self.graph_store,
+                    builder_resolution=getattr(self.config, "ccg_builder", "auto"),
+                )
             except ImportError:
                 self._thread_local.ccg_builder = None
         return self._thread_local.ccg_builder
