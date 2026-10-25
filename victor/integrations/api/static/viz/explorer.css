@@ -25,6 +25,11 @@ main { flex: 1; display: flex; min-height: 0; }
 #flow-form select, #flow-form button { padding: 6px 8px; }
 #flow-badges { font-size: 12px; color: #92400e; }
 #flow-candidates .result-link { cursor: pointer; }
-#flow-diagram { flex: 1; overflow: auto; padding: 12px; background: #fff; }
-#flow-diagram svg { max-width: none; height: auto; }
+/* Flex-center with margin:auto so the diagram centers when smaller than
+   the panel AND scrolls from edge-to-edge when larger (the pre-fix panel
+   rendered top-left at natural size, leaving a dead bottom third). */
+#flow-diagram { flex: 1; overflow: auto; padding: 12px; background: #fff;
+  display: flex; }
+#flow-diagram svg { max-width: none; height: auto; margin: auto; }
+#flow-diagram pre, #flow-diagram .hint { margin: auto; }
 .flow-action { margin-top: 8px; width: 100%; }

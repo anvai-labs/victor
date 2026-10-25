@@ -82,7 +82,13 @@ async function loadPackage(top = 12) {
   try {
     const els = await fetchElements(`/api/graph/package?top=${top}`);
     cy.json({ elements: els });
-    cy.layout({ name: "concentric", concentric: (n) => n.data("degree") || 0, levelWidth: 2 }).run();
+    cy.layout({
+      name: "concentric",
+      // Degree spans 0..~87k on this repo — raw values blow the concentric
+      // rings far off-screen; log-scale keeps the ordering readable.
+      concentric: (n) => Math.log10(1 + (n.data("degree") || 0)),
+      levelWidth: () => 2,
+    }).run();
     showHint("Click a package to zoom into its modules.");
   } catch (e) { showHint(`Error: ${e.message}`); }
 }
@@ -117,6 +123,11 @@ let flowRenderSeq = 0;
 function candidateRow(c) {
   const el = document.createElement("div");
   el.className = "field result-link";
+  el.setAttribute("role", "button");
+  el.setAttribute("tabindex", "0");
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); }
+  });
   const where = c.line == null ? esc(c.file) : `${esc(c.file)}:${esc(c.line)}`;
   el.innerHTML = `<strong>${esc(c.type)} · ${where}</strong>${esc(c.name)}`;
   el.addEventListener("click", () => {
@@ -250,11 +261,14 @@ document.getElementById("search-form").addEventListener("submit", async (e) => {
     const body = await res.json();
     const items = (body.results || []).map((r) => {
       const d = r.data;
-      return `<div class="field result-link" data-module="${esc(d.file)}">` +
+      return `<div class="field result-link" role="button" tabindex="0" data-module="${esc(d.file)}">` +
         `<strong>${esc(d.kind)} · ${esc(d.file)}:${esc(d.line)}</strong>${esc(d.label)}</div>`;
     }).join("");
     inspectorBody.innerHTML = items || '<p class="hint">No symbols matched.</p>';
     inspectorBody.querySelectorAll(".result-link").forEach((el) => {
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); }
+      });
       el.addEventListener("click", () => {
         const mod = el.dataset.module;
         const pkg = mod.split("/").slice(0, 2).join("/");
