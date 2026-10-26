@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # PyO3 for Python bindings
-pyo3 = { version = "0.29", features = [] }
+pyo3 = { version = "0.30", features = [] }
 
 # Regex for pattern matching (faster than Python's re module)
 regex = "1.10"
