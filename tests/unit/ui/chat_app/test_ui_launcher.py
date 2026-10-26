@@ -30,9 +30,10 @@ def _capture_launch(monkeypatch, **launch_kwargs):
 
     monkeypatch.setattr(uimod, "_chainlit_available", lambda: True)
 
-    def fake_call(cmd, env=None):
+    def fake_call(cmd, env=None, cwd=None):
         captured["cmd"] = cmd
         captured["env"] = env
+        captured["cwd"] = cwd
         return 0
 
     monkeypatch.setattr(uimod.subprocess, "call", fake_call)
@@ -55,6 +56,21 @@ def test_profile_is_passed_through_env(monkeypatch):
 def test_no_profile_env_when_unset(monkeypatch):
     captured = _capture_launch(monkeypatch, profile=None)
     assert uimod._PROFILE_ENV not in captured["env"]
+
+
+def test_repo_root_chained_when_branded_welcome_exists(monkeypatch):
+    """The shipped chainlit.md pins ONLY Chainlit's APP_ROOT — never the cwd.
+
+    cwd is the embedded agent's project context (.victor/project.db, relative
+    tool paths); repointing it would silently run the agent against this repo.
+    """
+    captured = _capture_launch(monkeypatch, profile=None)
+    repo_root = uimod._APP_PATH.parents[3]
+    assert captured["cwd"] is None, "launcher must not change the process cwd"
+    if (repo_root / "chainlit.md").is_file():
+        assert captured["env"].get("CHAINLIT_APP_ROOT") == str(repo_root)
+    else:  # installed package: nothing to pin, launch unchanged
+        assert "CHAINLIT_APP_ROOT" not in captured["env"]
 
 
 def test_missing_chainlit_exits_with_hint(monkeypatch):
