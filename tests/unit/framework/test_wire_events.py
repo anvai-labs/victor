@@ -214,3 +214,28 @@ class TestStreamWireEvents:
         )
         wires = await _collect(client)
         assert [w["event"] for w in wires] == ["content", "stream_end"]
+
+
+class TestAwaitingApprovalSerialization:
+    """FEP-0029 durable pauses must be visible on the wire (VAS-10/VAS-14)."""
+
+    def test_awaiting_approval_serializes_with_run_id(self):
+        event = SimpleNamespace(
+            event_type="awaiting_approval",
+            content="needs approval",
+            metadata={"run_id": "run-7", "approval_request": {"tool_name": "bash"}},
+        )
+        wire = to_wire_event(event)
+        assert wire is not None
+        assert wire["event"] == "awaiting_approval"
+        assert wire["content"] == "needs approval"
+        assert wire["run_id"] == "run-7"
+        assert wire["approval_request"] == {"tool_name": "bash"}
+
+    def test_awaiting_approval_minimal_has_defaults(self):
+        event = SimpleNamespace(event_type="awaiting_approval", content=None, metadata={})
+        wire = to_wire_event(event)
+        assert wire["event"] == "awaiting_approval"
+        assert wire["content"] == "paused for approval"
+        assert "run_id" not in wire
+        assert "approval_request" not in wire

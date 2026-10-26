@@ -106,6 +106,13 @@ def _launch(
 
     profile_note = f" (profile: {profile})" if profile else ""
     console.print(f"[green]Starting Victor chat UI[/green]{profile_note} on http://{host}:{port}")
+    # Pin ONLY Chainlit's app root (welcome/config resolution) when running from a
+    # repo checkout with the shipped chainlit.md. The process cwd stays untouched:
+    # the embedded agent resolves its project (.victor/project.db, relative tool
+    # paths) from cwd, and repointing it would silently run against this repo.
+    repo_root = _APP_PATH.parents[3]  # victor/ui/chat_app/x.py -> repo root
+    if (repo_root / "chainlit.md").is_file():
+        env.setdefault("CHAINLIT_APP_ROOT", str(repo_root))
     raise typer.Exit(code=subprocess.call(cmd, env=env))
 
 

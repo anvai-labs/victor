@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from victor.core.context import bind_attribution
+from victor.framework.wire_events import stream_sse
 from victor.integrations.api.fastapi_server import (
     ChatRequest,
     ChatResponse,
@@ -175,6 +176,48 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     "request_id": request_id,
                 }
                 yield f"data: {json.dumps(error_event)}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Victor-Request-Id": request_id,
+            },
+        )
+
+    @router.post("/chat/wire-stream", tags=["Chat"])
+    async def chat_wire_stream(request: ChatRequest, http_request: Request) -> StreamingResponse:
+        """Streaming chat endpoint emitting the **v1 wire event contract** as SSE.
+
+        Unlike :meth:`chat_stream` (whose ``type: content|tool_call`` payloads are a
+        lossy legacy shape), this endpoint frames :mod:`victor.framework.wire_events`
+        verbatim — the same cross-surface schema the TUI wire timeline consumes — so
+        remote UIs get reasoning deltas, tool results, member lanes and terminal
+        ``stream_end`` semantics with full fidelity (VAS-10/VAS-14 seam). Authentication
+        and the FEP-0020 attribution join mirror ``chat_stream``.
+        """
+        client_id = await server._verify_api_key(http_request)
+        if not request.messages:
+            raise HTTPException(status_code=400, detail="No messages provided")
+
+        request_id = _new_chat_request_id()
+
+        async def event_generator() -> AsyncIterator[str]:
+            try:
+                client = await server._get_victor_client()
+                yield (f'data: {json.dumps({"event": "request", "request_id": request_id})}\n\n')
+                with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
+                    async for sse_record in stream_sse(client, request.messages[-1].content):
+                        yield sse_record
+            except Exception as e:
+                logger.exception("Wire-stream chat error")
+                error_event = {"event": "error", "message": str(e), "request_id": request_id}
+                yield f"data: {json.dumps(error_event)}\n\n"
+                # The wire contract terminates EVERY stream with exactly one
+                # stream_end — including failure paths (never truncate silently).
+                yield f'data: {json.dumps({"event": "stream_end"})}\n\n'
 
         return StreamingResponse(
             event_generator(),

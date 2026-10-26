@@ -282,6 +282,7 @@ docs/archive/sessions/*.md
 # Chainlit web chat UI auto-generated files (victor ui)
 .chainlit/
 chainlit.md
+!/chainlit.md
 .files/
 
 # ProximaDB embedded server stray logs

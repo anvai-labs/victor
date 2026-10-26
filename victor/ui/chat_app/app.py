@@ -41,8 +41,10 @@ from victor.ui.chat_app.event_mapping import (
     RenderKind,
     history_messages,
     map_event,
+    map_wire_event,
     provider_switch_hint,
 )
+from victor.ui.chat_app.remote_client import RemoteChatClient
 from victor.ui.rendering.markdown_presenters import (
     tool_call_summary,
     tool_result_markdown,
@@ -116,6 +118,9 @@ def _session_config(
     """
     if not isinstance(approval, bool):
         raise ValueError("Tool approval must be a boolean")
+    if (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip():
+        # Remote mode has no mid-stream approval channel yet; never half-arm it.
+        approval = False
     return SessionConfig.from_cli_flags(
         agent_profile=profile or None,
         provider=provider or None,
@@ -143,8 +148,18 @@ def _current_config() -> SessionConfig:
     return config
 
 
-def _configured_client(config: SessionConfig) -> VictorClient:
-    """Apply the same approval handler to initial and replacement clients."""
+def _configured_client(config: SessionConfig) -> VictorClient | RemoteChatClient:
+    """Apply the same approval handler to initial and replacement clients.
+
+    Remote mode (``VICTOR_UI_REMOTE_URL``) builds the HTTP transport instead and
+    cannot host in-process approval prompts, so risky-tool approval is disabled for
+    the session (VAS-14 "remote mode uses API"; the durable FEP-0029 flow is the
+    follow-up that restores approvals remotely).
+    """
+    remote_url = (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip()
+    if remote_url:
+        client = RemoteChatClient(remote_url, os.environ.get("VICTOR_UI_REMOTE_API_KEY") or None)
+        return client
     client = VictorClient(config)
     client.set_approval_handler(chainlit_approval_handler)
     return client
@@ -195,12 +210,29 @@ def _profile_names() -> list[str]:
         return ["default"]
 
 
-async def _send_settings(client: VictorClient) -> None:
-    """Render the ChatSettings panel (provider / profile / model / approval)."""
+async def _provider_options(client: VictorClient | RemoteChatClient) -> list[str]:
+    """List providers across transports (embedded is sync, remote is async)."""
+    if getattr(client, "is_remote", False):
+        return await client.get_available_providers()
     try:
-        providers = client.get_available_providers()
+        return client.get_available_providers()
     except Exception:
-        providers = []
+        return []
+
+
+async def _send_settings(client: VictorClient) -> None:
+    """Render the ChatSettings panel (provider / profile / model / approval).
+
+    Remote mode: the overrides live on the serving instance, so the panel would
+    be theater — say so once instead of offering controls that never apply.
+    """
+    if getattr(client, "is_remote", False):
+        await cl.Message(
+            content="⚙️ Remote mode — provider, profile and model are set on the "
+            "serving instance (`victor serve`); restart it there to change them."
+        ).send()
+        return
+    providers = await _provider_options(client)
     config = _current_config()
     current_provider = config.provider_override.provider or _PROFILE_DEFAULT
     if current_provider and current_provider not in providers:
@@ -343,6 +375,11 @@ async def on_settings_update(settings: dict) -> None:
     """Rebuild the session's VictorClient from the ChatSettings panel selections."""
     async with _session_lock():
         _require_open_session()
+        if (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip():
+            # Defense-in-depth: remote mode sends no settings panel, so this
+            # cannot fire today — but never claim overrides were applied when
+            # they would not reach the serving instance.
+            return
         current = _current_config()
         provider = settings.get("provider", current.provider_override.provider)
         profile = settings.get("profile", current.agent_profile)
@@ -484,10 +521,13 @@ async def _run_turn(client: VictorClient, content: str) -> None:
             await current_msg.send()
         await current_msg.stream_token(text)
 
+    # Remote mode yields v1 wire dicts; embedded mode yields client stream events.
+    # Both feed the same RenderAction contract, so every branch below is shared.
+    mapper = map_wire_event if getattr(client, "is_remote", False) else map_event
     try:
         async with aclosing(client.stream(content)) as stream:
             async for event in stream:
-                action = map_event(event)
+                action = mapper(event)
 
                 if action.kind is RenderKind.TOKEN:
                     await _clear_thinking()
@@ -546,6 +586,24 @@ async def _run_turn(client: VictorClient, content: str) -> None:
                     await _clear_thinking()
                     await _emit_text(f"\n\n⚠️ {action.text}")
 
+                elif action.kind is RenderKind.MEMBER_START:
+                    await _clear_thinking()
+                    lane = f"🤖 **{action.member_id or 'member'}** — {action.text}".rstrip(" —")
+                    await cl.Message(content=lane).send()
+
+                elif action.kind is RenderKind.MEMBER_END:
+                    await _clear_thinking()
+                    status = "✅" if action.success else "❌"
+                    lane = f"{status} **{action.member_id or 'member'}** — {action.text}".rstrip(
+                        " —"
+                    )
+                    await cl.Message(content=lane).send()
+
+                elif action.kind is RenderKind.MEMBER_AWAITING:
+                    await _clear_thinking()
+                    lane = f"⏸ **{action.member_id or 'member'}** — {action.text}".rstrip(" —")
+                    await cl.Message(content=lane).send()
+
     except Exception as exc:  # surface failures in-chat with a recovery path
         logger.exception("Victor chat turn failed")
         await _clear_thinking()
@@ -556,7 +614,7 @@ async def _run_turn(client: VictorClient, content: str) -> None:
         )
         body = f"⚠️ {friendly}"
         try:
-            hint = provider_switch_hint(client.provider_name, client.get_available_providers())
+            hint = provider_switch_hint(client.provider_name, await _provider_options(client))
         except Exception:  # provider listing is best-effort
             hint = ""
         if hint:

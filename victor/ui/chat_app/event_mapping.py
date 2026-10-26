@@ -283,6 +283,19 @@ def map_wire_event(wire: Any) -> RenderAction:
             member_id=wire.get("member_id"),
         )
 
+    if event == "awaiting_approval":
+        # FEP-0029 single-agent durable pause on the wire: same paused lane the
+        # embedded app renders, labelled "agent", with the resume run_id shown.
+        approval = wire.get("approval_request") or {}
+        title = str(approval.get("title") or approval.get("tool_name") or "paused for approval")
+        run_id = wire.get("run_id")
+        detail = f"{title} · run {run_id}" if run_id else title
+        return RenderAction(
+            RenderKind.MEMBER_AWAITING,
+            text=detail,
+            member_id="agent",
+        )
+
     return RenderAction(RenderKind.IGNORE)  # stream_end + future additive types
 
 

@@ -215,6 +215,25 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
                 member_wire["level"] = "warning"
             return member_wire
 
+    if event_type == "awaiting_approval":
+        # FEP-0029 durable pause: without this branch a single-agent ASK pause
+        # ended the wire stream as a bare stream_end — invisible to remote UIs.
+        metadata = getattr(event, "metadata", None) or {}
+        approval = metadata.get("approval_request")
+        pause: Dict[str, Any] = {
+            "v": WIRE_VERSION,
+            "event": "awaiting_approval",
+            "content": _json_safe(
+                getattr(event, "content", None) or "paused for approval", max_chars=2_048
+            ),
+        }
+        if isinstance(approval, dict):
+            pause["approval_request"] = _json_safe(approval, max_chars=4_096)
+        run_id = metadata.get("run_id")
+        if run_id:
+            pause["run_id"] = run_id
+        return pause
+
     return None  # outside the v1 contract (tool_progress, stage_change, ...)
 
 
