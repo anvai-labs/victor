@@ -666,3 +666,27 @@ def test_ffi_surface_endpoint(client):
     assert res.status_code == 200
     body = res.json()
     assert "callsites" in body
+
+
+# --- Deployment diagram (ADR-033 UML families) ------------------------------
+
+
+def test_deployment_diagram_returns_topology(db_path):
+    """The deployment diagram composes on the existing graph data: surface
+    presence counts, the dependency topology, and a mermaid flowchart."""
+    result = viz_queries.deployment_diagram(db_path)
+    assert "surfaces" in result
+    assert "topology" in result
+    assert "mermaid" in result
+    assert result["mermaid"].startswith("flowchart LR")
+    assert "subgraph" in result["mermaid"]
+    # The topology connects surfaces
+    assert len(result["topology"]) >= 10
+
+
+def test_deployment_endpoint(client):
+    res = client.get("/api/graph/deployment")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["mermaid"].startswith("flowchart LR")
+    assert isinstance(body["surfaces"], dict)

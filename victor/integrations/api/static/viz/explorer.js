@@ -297,6 +297,33 @@ async function loadClass(module) {
 
 let flowRenderSeq = 0;
 
+async function renderDeployment() {
+  // The deployment diagram needs no symbol — it's the architecture view.
+  document.getElementById("flow-symbol").value = "";
+  document.getElementById("flow-badges").textContent = "";
+  document.getElementById("flow-candidates").innerHTML = "";
+  const diagram = document.getElementById("flow-diagram");
+  diagram.innerHTML = '<p class="hint">Rendering deployment topology…</p>';
+  try {
+    const res = await fetch("/api/graph/deployment");
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    const body = await res.json();
+    const surfaceCount = Object.keys(body.surfaces || {}).length;
+    document.getElementById("flow-badges").textContent =
+      `${surfaceCount} surfaces in the graph`;
+    if (window.mermaid) {
+      window.mermaid.initialize({ startOnLoad: false });
+      const { svg } = await window.mermaid.render(`deploy-svg-${++flowRenderSeq}`, body.mermaid);
+      diagram.innerHTML = svg;
+    } else {
+      diagram.innerHTML = '<p class="hint">mermaid unavailable — showing source.</p>' +
+        `<pre>${esc(body.mermaid)}</pre>`;
+    }
+  } catch (e) {
+    diagram.innerHTML = `<p class="hint">Error: ${esc(e.message)}</p>`;
+  }
+}
+
 function candidateRow(c) {
   const el = document.createElement("div");
   el.className = "field result-link";
@@ -351,14 +378,16 @@ async function renderFlow() {
   if (!symbol) return;
   diagram.innerHTML = '<p class="hint">Tracing call flow…</p>';
   const type = document.getElementById("flow-type").value;
+  if (type === "deployment") return renderDeployment();
   const params = new URLSearchParams({ symbol });
   if (type === "flow") {
     params.set("depth", document.getElementById("flow-depth").value);
     params.set("granularity", document.getElementById("flow-granularity").value);
   }
   if (state.flowNodeId) params.set("node_id", state.flowNodeId);
+  const endpoint = { flow: "flow", class: "classdiagram" }[type] || "classdiagram";
   try {
-    const res = await fetch(`/api/graph/${type === "flow" ? "flow" : "classdiagram"}?${params}`);
+    const res = await fetch(`/api/graph/${endpoint}?${params}`);
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail || res.statusText);
     if (body.candidates) {
