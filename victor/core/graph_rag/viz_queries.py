@@ -33,7 +33,11 @@ import sqlite3
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from victor.core.graph_rag.visualize import _file_edge_weights, _package_of
+from victor.core.graph_rag.visualize import (
+    FFI_IPC_BOUNDARIES,
+    _file_edge_weights,
+    _package_of,
+)
 
 _EDGE_TYPES = ("CALLS", "REFERENCES")
 # Statement nodes are CCG machinery (97% of upserts, FTS-skipped): the
@@ -155,6 +159,14 @@ def package_graph(db_path, top_packages: int = 12) -> Dict[str, List[Dict[str, A
         seen_trees.add(tree)
         capacity -= 1
     top = set(packages)
+    # FFI/IPC boundary endpoints: both sides must render for the boundary
+    # edge to appear — pull in missing endpoints before partner pull-in.
+    for boundary in FFI_IPC_BOUNDARIES:
+        for endpoint in (boundary["from"], boundary["to"]):
+            if endpoint not in top and capacity > fill_budget:
+                packages.append(endpoint)
+                top.add(endpoint)
+                capacity -= 1
     # Partner pull-in BEFORE weight fill: a cross-edge with exactly ONE
     # endpoint selected dangles (rust crates couple cross-crate; one tree
     # rep hides the rest). Grow along real coupling first — weight fill
@@ -208,6 +220,26 @@ def package_graph(db_path, top_packages: int = 12) -> Dict[str, List[Dict[str, A
             degree[src] += weight
             degree[dst] += weight
             edges[(src, dst, "coupling")] = _edge_entry(src, dst, "coupling", weight)
+    # Cross-language FFI/IPC boundaries: declarative architectural edges
+    # (the per-language graphs cannot see across the bridge). Weight from
+    # each boundary's weight_query against the graph.
+    for boundary in FFI_IPC_BOUNDARIES:
+        bsrc, bdst = boundary["from"], boundary["to"]
+        if bsrc in top and bdst in top:
+            try:
+                bconn = _connect(db_path)
+                try:
+                    weight = max(1, bconn.execute(boundary["weight_query"]).fetchone()[0])
+                finally:
+                    bconn.close()
+            except Exception:
+                weight = 1
+            edges[(bsrc, bdst, boundary["kind"])] = _edge_entry(
+                bsrc, bdst, boundary["kind"], weight
+            )
+            degree[bsrc] += weight
+            degree[bdst] += weight
+
     conn = _connect(db_path)
     try:
         internal_all = _internal_activity_packages(conn, exclude=set())
