@@ -48,6 +48,35 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 # Top-level tree -> package path depth (see _package_of).
 _PACKAGE_DEPTH = {"rust": 3}
 
+# Cross-language boundaries the per-language graphs cannot see across.
+# Architectural facts of the monorepo: the python side imports or calls
+# the non-python side through a bridge the language-local harvesters do
+# not join. Drawn as explicit dashed edges at package level.
+FFI_IPC_BOUNDARIES: tuple = (
+    {
+        "from": "victor/native",
+        "to": "rust/crates/python-bindings",
+        "kind": "FFI",
+        "weight_query": (
+            "SELECT COUNT(DISTINCT s.file) FROM graph_edge e "
+            "JOIN graph_node s ON s.node_id = e.src "
+            "JOIN graph_node d ON d.node_id = e.dst "
+            "WHERE e.type = 'IMPORTS' AND d.file LIKE 'victor/native/%'"
+        ),
+    },
+    {
+        "from": "vscode-victor/src",
+        "to": "victor/integrations/api",
+        "kind": "IPC",
+        "weight_query": (
+            "SELECT COUNT(*) FROM graph_node "
+            "WHERE file LIKE 'vscode-victor/%' "
+            "AND (name LIKE '%api%' OR name LIKE '%endpoint%' "
+            "OR name LIKE '%route%' OR name LIKE '%fetch%')"
+        ),
+    },
+)
+
 
 def _package_of(file_path: str) -> Optional[str]:
     """Map a repo-relative file to its package (first two components for

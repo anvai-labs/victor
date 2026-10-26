@@ -46,6 +46,12 @@ const cy = cytoscape({
       width: "mapData(weight, 1, 500, 1, 6)", "line-color": "#94a3b8",
       "target-arrow-shape": "triangle", "arrow-scale": 0.6, "curve-style": "bezier",
     }},
+    { selector: 'edge[kind = "FFI"], edge[kind = "IPC"]', style: {
+      "line-style": "dashed", "line-color": "#d97706",
+      label: "data(kind)", "font-size": "9px", color: "#92400e",
+      "text-background-color": "#fffbeb", "text-background-opacity": 1,
+      "text-background-padding": 2,
+    }},
     { selector: "node:selected", style: { "border-color": "#2563eb", "border-width": 3 } },
   ],
   layout: { name: "grid" },

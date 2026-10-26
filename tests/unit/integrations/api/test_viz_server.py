@@ -546,3 +546,62 @@ def test_internal_activity_packages_ranks_unrepresented(tmp_path):
     names = [p for p, _ in ranked]
     assert any(p.startswith("vscode-victor") for p in names)
     assert any(p.startswith("rust/crates") for p in names)
+
+
+# --- FFI/IPC boundaries (cross-language architecture edges) ----------------
+
+
+def _seed_boundary(tmp_path: Path) -> Path:
+    """Minimal monorepo with both boundary shapes: the python wrapper
+    (`victor/native`) importing from the rust crate's PyO3 surface, and
+    the vscode-like extension referencing API route names."""
+    import asyncio
+
+    from victor.storage.graph.protocol import GraphEdge, GraphNode
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    def node(node_id, name, file, type_, line=1):
+        return GraphNode(
+            node_id=node_id,
+            type=type_,
+            name=name,
+            file=file,
+            line=line,
+            end_line=line + 1,
+            lang="python",
+        )
+
+    nodes = [
+        node("w", "wrapper", "victor/native/wrapper.py", "function"),
+        node("c", "rust_entry", "rust/crates/python-bindings/src/lib.rs", "function"),
+        node("e", "vs_ext", "vscode-victor/src/extension.ts", "function"),
+        node("r", "api_route", "victor/integrations/api/routes.py", "function"),
+        node("i", "importer", "victor/core/consumer.py", "function"),
+    ]
+    # vscode symbol whose name references api (drives the IPC weight)
+    nodes.append(node("api_ref", "fetch_api_endpoint", "vscode-victor/src/api.ts", "function"))
+    edges = [
+        # importer -> wrapper (IMPORTS edge drives the FFI weight)
+        GraphEdge(src="i", dst="w", type="IMPORTS"),
+    ]
+    store = SqliteGraphStore(tmp_path)
+    asyncio.run(store.initialize())
+    asyncio.run(store.upsert_nodes(nodes))
+    asyncio.run(store.upsert_edges(edges))
+    asyncio.run(store.close())
+    return tmp_path / ".victor" / "project.db"
+
+
+def test_ffi_ipc_boundaries_render_as_dashed_edges(db_path, tmp_path):
+    """FFI (python→rust via PyO3) and IPC (vscode→HTTP API) appear as
+    explicit cross-language edges — the per-language graphs cannot see
+    across these bridges; the package view states them architecturally."""
+    poly = _seed_boundary(tmp_path)
+    result = viz_queries.package_graph(poly, top_packages=4)
+    kinds = {e["data"]["kind"] for e in result["edges"]}
+    assert "FFI" in kinds, f"FFI edge missing; kinds: {kinds}"
+    assert "IPC" in kinds, f"IPC edge missing; kinds: {kinds}"
+    ffi = next(e["data"] for e in result["edges"] if e["data"]["kind"] == "FFI")
+    assert ffi["source"] == "victor/native"
+    assert ffi["target"] == "rust/crates/python-bindings"
+    assert ffi["weight"] >= 1
