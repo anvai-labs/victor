@@ -170,6 +170,10 @@ pub(crate) fn language_for(language: &str) -> Option<tree_sitter::Language> {
         "python" => Some(tree_sitter_python::LANGUAGE.into()),
         "javascript" => Some(tree_sitter_javascript::LANGUAGE.into()),
         "typescript" | "tsx" => Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
+        "rust" => Some(tree_sitter_rust::LANGUAGE.into()),
+        "go" => Some(tree_sitter_go::LANGUAGE.into()),
+        "java" => Some(tree_sitter_java::LANGUAGE.into()),
+        "ruby" => Some(tree_sitter_ruby::LANGUAGE.into()),
         _ => None,
     }
 }
@@ -1139,7 +1143,9 @@ mod tests {
 
     #[test]
     fn unsupported_language_is_an_error_not_a_guess() {
-        let grammar = language_for("go");
+        // Go is now a SUPPORTED grammar; the unsupported set shrinks as
+        // crates land. Pick something genuinely absent.
+        let grammar = language_for("cobol");
         assert!(grammar.is_none());
     }
 

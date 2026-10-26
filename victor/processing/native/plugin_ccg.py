@@ -39,7 +39,11 @@ from victor.processing.native._base import _NATIVE_AVAILABLE, _native
 
 # Same grammar set as the builtin engine slice; the plugin tables make the
 # WALK language-agnostic — only the parser is per-language.
-PLUGIN_NATIVE_LANGUAGES = frozenset({"python", "javascript", "typescript", "tsx"})
+# Same grammar set as the builtin engine slice; the plugin tables make the
+# WALK language-agnostic — only the parser is per-language.
+PLUGIN_NATIVE_LANGUAGES = frozenset(
+    {"python", "javascript", "typescript", "tsx", "rust", "go", "java", "ruby"}
+)
 
 HintRecord = Tuple[int, int, str, str, Optional[str]]
 PluginFile = Tuple[str, str, bytes]  # (language, path, source)
