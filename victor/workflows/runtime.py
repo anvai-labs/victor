@@ -466,8 +466,11 @@ class WorkflowRuntime:
             if hasattr(node, "node_type"):
                 if node.node_type == WorkflowNodeType.HITL:
                     return True
-            # Check if it's a HITLNode instance
-            if node.__class__.__name__ == "HITLNode":
+            # Check if it's a HITLNode instance (isinstance, not a
+            # name-string check)
+            from victor.workflows.hitl import HITLNode
+
+            if isinstance(node, HITLNode):
                 return True
         return False
 

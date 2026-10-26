@@ -336,7 +336,7 @@ class TestDiContainerIntegration:
 
 @pytest.mark.integration
 @pytest.mark.workflows
-class TestErrorHandling:
+class TestCompilerExecutorErrorHandling:
     """Test error handling in compiler and executor."""
 
     @pytest.mark.asyncio

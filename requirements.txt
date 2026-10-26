@@ -16,7 +16,7 @@ annotated-doc==0.0.5
     # via typer
 annotated-types==0.8.0
     # via pydantic
-anthropic==1.14.0
+anthropic==1.15.0
     # via victor-ai (pyproject.toml)
 anyio==4.15.1
     # via
@@ -31,7 +31,7 @@ attrs==26.1.0
     #   referencing
 beautifulsoup4==4.15.0
     # via victor-ai (pyproject.toml)
-cachetools==7.2.1
+cachetools==7.2.3
     # via victor-ai (pyproject.toml)
 certifi==2026.10.19
     # via
@@ -91,7 +91,7 @@ multidict==6.9.1
     # via
     #   aiohttp
     #   yarl
-openai==3.31.0
+openai==3.35.1
     # via victor-ai (pyproject.toml)
 orjson==3.13.0
     # via victor-ai (pyproject.toml)
@@ -144,7 +144,7 @@ rpds-py==2026.9.1
     # via
     #   jsonschema
     #   referencing
-sandhi-gateway==0.14.0
+sandhi-gateway==0.14.1
     # via victor-ai (pyproject.toml)
 shellingham==1.5.4
     # via typer

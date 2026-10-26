@@ -248,10 +248,19 @@ class ScipPythonProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
+        environment_json: Optional[Path] = None,
     ) -> Union[Path, DumpSkipped, None]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        argv = [tool, "index", "--project-name", "victor-harvest", "--output", str(output_path)]
+        if environment_json is not None:
+            # ADR-032 harvest constraint: skip Pyright's whole-environment
+            # enumeration (the measured 2,980 s / ~130 GB-read hot spot on
+            # shared conda envs) by handing it exactly the distributions
+            # the codebase imports. The file is schema-validated by its
+            # builder; a failed build omits this flag (unconstrained run).
+            argv += ["--environment", str(environment_json)]
         return _run_dump(
-            [tool, "index", "--project-name", "victor-harvest", "--output", str(output_path)],
+            argv,
             cwd=root,
             output_path=output_path,
             timeout_seconds=timeout_seconds,

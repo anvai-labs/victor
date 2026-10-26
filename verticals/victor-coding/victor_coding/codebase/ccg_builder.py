@@ -442,6 +442,44 @@ BROAD_KEYWORDS = {
 }
 
 
+def native_tables() -> Dict[str, Any]:
+    """The language-syntax tables as data — the native engine's parameters.
+
+    Single source of truth: this module owns language-syntax knowledge; the
+    native plugin walk (``extract_plugin_statements_batch`` in the root
+    crate, injected into :class:`PluginBackedCCGBuilder` by the runtime
+    consult site) consumes exactly this shape. The golden generator exports
+    the same structure to ``plugin_tables.json`` for the root-side
+    differential (which reads it as pure data — no root-to-vertical
+    import).
+    """
+    return {
+        "classify": dict(NODE_TYPE_TO_STATEMENT_TYPE),
+        "identifier_types": set(IDENTIFIER_NODE_TYPES),
+        "skip_descent": set(SKIP_IDENTIFIER_DESCENT_TYPES),
+        "scope_types": set(SCOPE_STATEMENT_TYPES),
+        "definition_types": set(DEFINITION_STATEMENT_TYPES),
+        "keywords": set(BROAD_KEYWORDS),
+        "function_def": STATEMENT_FUNCTION_DEF,
+        "class_def": STATEMENT_CLASS_DEF,
+        "call_type": STATEMENT_CALL,
+        "def_fields": [
+            "left",
+            "lhs",
+            "name",
+            "pattern",
+            "declarator",
+            "declarators",
+            "target",
+            "key",
+            "value",
+        ],
+        "name_fields": ["name", "declarator", "declarators", "type", "path"],
+        "param_fields": ["parameters", "parameter", "arguments"],
+        "call_fields": ["function", "method", "name", "command"],
+    }
+
+
 @dataclass(frozen=True)
 class SymbolHint:
     """Symbol metadata extracted from a plugin tree-sitter query."""
@@ -488,6 +526,13 @@ class PluginBackedCCGBuilder:
             self._ensure_discovered()
         self._parsers: Dict[str, Any] = {}
         self._supported_language_cache: Optional[Set[str]] = None
+        # Native statement-walk extractor, injected by the runtime consult
+        # site (root CodeContextGraphBuilder) — a callable
+        # (files, tables, hints_by_file) -> records | None. Duck-typed on
+        # purpose: no cross-package import in either direction; an absent
+        # or declining extractor keeps this builder's own Python walk (the
+        # typed reference implementation and fallback).
+        self._native_extractor: Optional[Any] = None
 
     @property
     def supported_languages(self) -> List[str]:
@@ -568,18 +613,35 @@ class PluginBackedCCGBuilder:
         records: List[StatementRecord] = []
         canonical_language = plugin.config.name
 
-        self._walk_statements(
-            tree.root_node,
-            file_path=path,
-            source_bytes=source_bytes,
-            source_lines=source_lines,
-            language=canonical_language,
-            parser_language=parser_language,
-            plugin=plugin,
-            symbol_hints=symbol_hints,
-            graph_nodes=graph_nodes,
-            records=records,
+        native_statements = self._try_native_statements(
+            path, parser_language, source_bytes, symbol_hints
         )
+        if native_statements is not None:
+            # Native walk (Option B phase 2): the same statement set and
+            # enrichment, assembled into GraphNodes by THIS builder — the
+            # edge algorithms and metadata assembly stay right here.
+            self._records_from_native(
+                native_statements,
+                path=path,
+                plugin=plugin,
+                parser_language=parser_language,
+                language=canonical_language,
+                graph_nodes=graph_nodes,
+                records=records,
+            )
+        else:
+            self._walk_statements(
+                tree.root_node,
+                file_path=path,
+                source_bytes=source_bytes,
+                source_lines=source_lines,
+                language=canonical_language,
+                parser_language=parser_language,
+                plugin=plugin,
+                symbol_hints=symbol_hints,
+                graph_nodes=graph_nodes,
+                records=records,
+            )
 
         _, GraphEdge, EdgeType = _get_graph_types()
         graph_edges = []
@@ -644,6 +706,102 @@ class PluginBackedCCGBuilder:
         parser = get_parser(parser_language)
         self._parsers[parser_language] = parser
         return parser
+
+    def _try_native_statements(
+        self,
+        path: Path,
+        parser_language: str,
+        source_bytes: bytes,
+        symbol_hints: Dict[Tuple[int, int, str], SymbolHint],
+    ) -> Optional[List[Any]]:
+        """Native statement records for this file, or None (Python walk).
+
+        The extractor is injected by the runtime consult site; when absent,
+        unsupported (no native grammar), or failing, this returns None and
+        the caller keeps the reference Python walk — decline, never break.
+        """
+        extractor = self._native_extractor
+        if extractor is None:
+            return None
+        hints = [
+            (start, end, node_type, hint.name, hint.symbol_type)
+            for (start, end, node_type), hint in symbol_hints.items()
+        ]
+        try:
+            results = extractor(
+                [(parser_language, str(path), source_bytes)],
+                native_tables(),
+                [hints],
+            )
+        except Exception:  # bounded failure semantics — walk instead
+            return None
+        if not results:
+            return None
+        return results[0] or None
+
+    def _records_from_native(
+        self,
+        native_statements: List[Any],
+        *,
+        path: Path,
+        plugin: LanguagePlugin,
+        parser_language: str,
+        language: str,
+        graph_nodes: List[Any],
+        records: List[StatementRecord],
+    ) -> None:
+        """Assemble GraphNodes + StatementRecords from native records.
+
+        Metadata assembly mirrors the Python walk exactly (including the
+        25-item enrichment caps and the 160-char preview cap — the native
+        records carry full sets; capping is this layer's job).
+        """
+        GraphNode, _, _ = _get_graph_types()
+        for record in native_statements:
+            definitions = set(record.definitions)
+            identifiers = definitions | set(record.uses)
+            metadata: Dict[str, Any] = {
+                "node_type": record.node_type,
+                "content_preview": record.content_preview[:160],
+                "source": "victor-coding-language-plugin",
+                "language_plugin": plugin.config.name,
+                "language_display_name": plugin.config.display_name,
+                "tree_sitter_language": parser_language,
+                "definitions": sorted(definitions)[:25],
+                "uses": sorted(record.uses)[:25],
+            }
+            if record.symbol_type:
+                metadata["symbol_type"] = record.symbol_type
+            if record.symbol_name:
+                metadata["symbol_name"] = record.symbol_name
+            if record.calls:
+                metadata["calls"] = sorted(record.calls)[:25]
+
+            graph_node = GraphNode(
+                node_id=record.node_id,
+                type="statement",
+                name=record.name,
+                file=str(path),
+                line=record.start_line,
+                end_line=record.end_line,
+                lang=language,
+                ast_kind=record.node_type,
+                scope_id=record.scope_id or None,
+                statement_type=record.statement_type,
+                visibility=record.visibility,
+                metadata=metadata,
+            )
+            graph_nodes.append(graph_node)
+            records.append(
+                StatementRecord(
+                    graph_node=graph_node,
+                    ast_node=None,  # never read after the walk
+                    statement_type=record.statement_type,
+                    identifiers=identifiers,
+                    definitions=definitions,
+                    calls=set(record.calls),
+                )
+            )
 
     def _extract_symbol_hints(
         self,
@@ -823,14 +981,22 @@ class PluginBackedCCGBuilder:
             records_by_scope.setdefault(record.graph_node.scope_id, []).append(record)
 
         for scoped_records in records_by_scope.values():
-            ordered = sorted(
-                scoped_records,
-                key=lambda record: (
-                    record.graph_node.line or 0,
-                    record.graph_node.end_line or 0,
-                    record.graph_node.node_id,
-                ),
-            )
+            # Same-line statements (expression/assignment/call at one line)
+            # tie-break by walk order -- tree-sitter children are in source
+            # order, so this is the true textual order and, unlike the
+            # path-derived node_id, identical for identical content indexed
+            # from any directory. Matches _build_ddg_edges.
+            ordered = [
+                record
+                for _, record in sorted(
+                    enumerate(scoped_records),
+                    key=lambda pair: (
+                        pair[1].graph_node.line or 0,
+                        pair[1].graph_node.end_line or 0,
+                        pair[0],
+                    ),
+                )
+            ]
             for current, next_record in zip(ordered, ordered[1:], strict=False):
                 if current.graph_node.node_id == next_record.graph_node.node_id:
                     continue
@@ -900,14 +1066,23 @@ class PluginBackedCCGBuilder:
     ):
         edges = []
         latest_definition: Dict[str, StatementRecord] = {}
-        ordered = sorted(
-            records,
-            key=lambda record: (
-                record.graph_node.line or 0,
-                record.graph_node.end_line or 0,
-                record.graph_node.node_id,
-            ),
-        )
+        # Order must be path-independent: node_id embeds the file path, and
+        # using it as the tie-breaker made byte-identical source indexed from
+        # two directories produce different DDG graphs (measured: 3333 vs
+        # 3331 edges on the boundary corpus) -- same-line statements resolved
+        # latest_definition differently. Walk order (tree-sitter source
+        # order) breaks ties, matching _build_cfg_edges.
+        ordered = [
+            record
+            for _, record in sorted(
+                enumerate(records),
+                key=lambda pair: (
+                    pair[1].graph_node.line or 0,
+                    pair[1].graph_node.end_line or 0,
+                    pair[0],
+                ),
+            )
+        ]
 
         for record in ordered:
             uses = record.identifiers - record.definitions

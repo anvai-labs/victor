@@ -400,6 +400,14 @@ def test_selector_changes_select_its_own_regressions():
                 "tests/unit/agent/services/test_turn_execution_runtime.py",
             ],
         ),
+        (
+            "victor/providers/context_windows.py",
+            [
+                "tests/unit/providers/test_context_window.py",
+                "tests/unit/providers/test_google_provider_ext.py",
+                "tests/unit/providers/test_zai_provider_ext.py",
+            ],
+        ),
     ],
 )
 def test_source_maps_to_its_descriptive_regression_suites(source, owners):

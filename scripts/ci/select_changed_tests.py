@@ -521,8 +521,19 @@ RELATED_TESTS = {
         "tests/unit/providers/test_openai_compat_coverage.py",
         "tests/unit/providers/test_openai_compat.py",
     ),
+    # Shared context-window lookup tables: the singular-named mirror suite
+    # owns the tables and lookup(); the provider ext suites pin each
+    # provider's context_window() resolution against those tables.
+    "victor/providers/context_windows.py": (
+        "tests/unit/providers/test_context_window.py",
+        "tests/unit/providers/test_zai_provider_ext.py",
+        "tests/unit/providers/test_google_provider_ext.py",
+    ),
     **dict.fromkeys(
         (
+            "victor/core/graph_rag/viz_queries.py",
+            "victor/integrations/api/viz_server.py",
+            "victor/integrations/api/routes/viz_routes.py",
             "victor/core/graph_rag/indexing.py",
             "victor/core/graph_rag/codegraph_repository.py",
             "victor/core/graph_rag/retrieval.py",
@@ -536,6 +547,7 @@ RELATED_TESTS = {
             "victor/core/graph_rag/_scip/scip_pb2.py",
         ),
         (
+            "tests/unit/integrations/api/test_viz_server.py",
             "tests/unit/core/graph_rag/test_scope_binding_integration.py",
             "tests/unit/core/graph_rag/test_precise_index.py",
             "tests/unit/core/graph_rag/test_precise_providers.py",
@@ -700,6 +712,11 @@ RELATED_TESTS = {
             "tests/unit/providers/test_sandhi_openai_compat_policy.py",
             "tests/unit/providers/test_provider_stream_aclosing.py",
         ),
+    ),
+    # The timeout-slot inventory is pinned in one place, not per-provider.
+    "victor/providers/timeout_profile.py": (
+        "tests/unit/providers/test_failure_taxonomy.py",
+        "tests/unit/providers/test_stream_setup_config.py",
     ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",

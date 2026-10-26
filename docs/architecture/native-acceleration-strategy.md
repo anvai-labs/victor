@@ -142,6 +142,140 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    750-line file), massively redundant and precisely the Python-side cost the native path
    removes. Remaining engine phase: codegraph symbol extraction (`victor-codegraph`).
 
+   **Boundary measurement + resolution knob (2026-10-24, #1500-series):** the
+   plugin-vs-native delta measured precisely on precise_providers.py — the
+   victor-coding plugin graph is a DIFFERENT SHAPE, not a superset: 1161 vs
+   754 statement nodes (plugin emits `block` bodies, +400 nodes incl.
+   148 blocks/96 conditions/113 returns), per-node metadata enrichment
+   (definitions/uses/language provenance), and fundamentally different
+   CDG/DDG algorithms (plugin CDG 255 vs native 30,119 edges from
+   reachability domination; plugin DDG 2,025 vs native 568 from the
+   double-recursion semantics). Full-parity porting was scoped out at the
+   B1 gate per the recorded fallback. Landed instead:
+   `search.graph.ccg_builder = auto|native|plugin|builtin` (default auto =
+   plugin-first, the richer graph — never a silent flip), threaded from
+   GraphIndexConfig into every per-thread CodeContextGraphBuilder;
+   `native` buys the 81x engine at the measured shape trade. The full
+   merge (native absorbs plugin semantics) remains the documented
+   follow-up with this delta table as its evidence base.
+
+   **Plugin-builder phase profile + the boundary decision sharpened (2026-10-25).**
+   A phase-level wall-clock profile of the enhanced builder
+   (`scripts/benchmark_ccg_builder_phases.py`, boundary corpus,
+   1161 nodes/3321 edges) — six instrumented call sites per file, NOT
+   per-call wrappers: walk **40.5 ms (79%)**, edges 4.5 ms, hints 2.5 ms,
+   dedupe 2.4 ms, parse 2.2 ms. The identifier/call extractors the
+   instrumented profile had put at "58%" cost **~4 ms** in wall time —
+   cProfile's per-call overhead on 2.8M calls fabricated the share. A
+   memoized single-pass extraction was built, proven byte-identical
+   (6 files, 11k nodes incl. metadata), measured **perf-neutral**
+   (54-59 ms both ways), and removed per the complete-only-if-improved
+   gate; per-node interpreter steps (~50k tree nodes) are the walk's
+   floor, so no Python-side reordering of the builder buys more than a
+   few ms. **Decision: Option B — route the plugin builder through the
+   native statement walk** (extend `extract_statements_batch` with the
+   plugin's emission classes: block bodies, conditions, returns, plus
+   per-statement definitions/uses/calls/preview; differential parity on
+   shape AND metadata per language; then the plugin consumes native
+   records and keeps its CDG/DDG/dedupe in Python, ~10 ms/file combined).
+   Projected file cost ~15 ms vs ~51 ms today with the graph shape
+   preserved exactly. The parity oracle is the golden corpus at
+   `verticals/victor-coding/tests/codebase/goldens/` (six languages,
+   statement shape + enrichment, path-normalized) — the native port's
+   differential test reads the same samples/goldens as pure data, so
+   semantics stay owned by victor-coding and no root→vertical import
+   appears. Symbol hints stay Python-side in the first phase (~2.7 ms);
+   they ride into the native batch as data.
+
+   **Option B phase 1 LANDED (2026-10-25):** ``extract_plugin_statements_batch``
+   in the root crate — a table-driven walk (classification/identifier/scope
+   tables + hints passed as data; the engine stays language-agnostic) with
+   per-statement enrichment (definitions/uses/calls, preview, visibility,
+   symbol hints, keyword filtering, the ``pieces[-3:]`` qualified-name
+   rule). Golden parity: python AND typescript reproduce all 63/35
+   statements field-for-field on the first differential run; languages
+   without a native grammar decline (None), never guess. Measured on the
+   boundary corpus: native walk+parse **15.7 ms** vs Python walk 36.8 +
+   parse 2.3 — a 2.5x slice gain, not the builtin's 81x: the port
+   FAITHFULLY reproduces the plugin's per-statement subtree re-walks
+   (~410k node visits at native speed). The next engine increment is the
+   bottom-up single-pass memo IN RUST (the Python memo was perf-neutral
+   because interpreter overhead dominated; in Rust one post-order pass
+   replaces the re-walks, projected ~2-4 ms walk, ~10 ms/file end-to-end)
+   — re-validated against the same goldens. Not yet wired into the
+   consult path; phase 2 flips ``PluginBackedCCGBuilder`` onto it behind
+   the builder-resolution knob.
+
+   **Single-pass memo LANDED (same date):** one post-order pass memoizes
+   per-node (identifiers, calls) keyed by ``Node::id``, replacing the
+   faithful per-statement subtree re-walks; misses (nodes under skip
+   subtrees) fall back to the recursive walk so the memo is exact, never
+   approximate. Golden parity unchanged. Measured boundary corpus:
+   walk+parse **15.7 -> ~10 ms** (39.1 Python -> 10 native = 3.9x on the
+   slice; the remaining ~9 ms is parse + memo build + emission — sha256
+   ids, previews, string building for 1161 records). End-to-end lands at
+   phase 2 (hints 4.8 Python + walk 10 native + edges/dedupe ~7 Python).
+
+   **Phase 2 LANDED — the consult-path flip (2026-10-25):** the runtime
+   consult site injects the native extractor into the enhanced builder as
+   a duck-typed attribute (``_native_extractor``; no cross-package import
+   in either direction — the builder passes its OWN tables via
+   ``native_tables()``; an absent, declining, or failing extractor simply
+   keeps the Python walk, which stays the typed reference
+   implementation). The builder's edge algorithms and metadata assembly
+   never moved. Two parity-level fixes surfaced by the end-to-end
+   differential: Rust returned 25-capped enrichment lists while the
+   Python StatementRecord carries full sets (DDG edges on >25-identifier
+   statements would have diverged — the cap belongs to the metadata
+   layer; Rust now returns full sorted sets), and preview capping sliced
+   CODEPOINTS in Python but BYTES in Rust (160 chars vs 158 on multibyte
+   docstrings). After both: **the boundary corpus is fully identical
+   end-to-end** — 1161 nodes, 3321 edges, every metadata field — with
+   python and typescript samples likewise. Measured: **69.7 -> 46.1
+   ms/file through ``build_ccg_for_file`` with the default auto
+   resolution (1.5x)**; the remaining delta vs the ~22 ms projection is
+   Python-side GraphNode assembly per statement plus the double parse
+   (py-tree-sitter for hints, Rust for the walk). The ``plugin`` knob
+   value remains the forced-Python-walk escape hatch.
+
+   **Codegraph symbol extraction, phases 0-1 (2026-10-25).** The recorded
+   "remaining engine phase" is now measured precisely
+   (`scripts/benchmark_codegraph_phases.py`, wall-clock only). Repo mix:
+   4,950 source files, **96.5% python** (stdlib-ast path), 99 ts, 37
+   rust. Per-file: python 44.3 ms (59.4 with refs), ts 52.5/85.8, rust
+   13.8/30.9; the parse() wrapper and repository binding are innocent
+   (~1 ms and small). Phase 1 (pure-Python, output-identical —
+   differential-pinned on 6 real files x refs on/off): one-pass
+   post-order cyclomatic precompute replacing per-symbol subtree
+   re-walks; ``_params`` unpar sed once (was twice per function);
+   ``_calls_owned_by`` once per function (was twice under
+   emit_references); resolver class-namespace set precompute (was
+   O(R*C*S)); per-grammar Parser cache; repository binding via the
+   existing ``by_path`` index (was a linear scan per relation x
+   binding). Result: **python 37.8 ms (-15%), +refs 46.0 (-22%)**;
+   rust/ts ~-10%. Extrapolated index impact ~4.5% of the ~1,412 s parse
+   busy — the halving gate is NOT met, and the measured remainder is
+   DISTRIBUTED visitor cost (~19 ms/file: per-symbol source slicing,
+   lexical-binding/reference walks, unparse, dataclass assembly) with no
+   single algorithmic defect left. Phase 3 (native tree-sitter walk for
+   the symbol path) is therefore justified BY MEASUREMENT, with the
+   python stdlib-ast parity trap noted in the plan. Measurement trap
+   recorded: victor-codegraph's ``__editable__`` finder intercepts
+   BEFORE sys.path, so worktree benchmarks silently measure develop
+   twice — the /tmp/tier3-shim sitecustomize now evicts all
+   ``__editable___victor`` finders.
+
+   **Reproducibility defect found and fixed while measuring (same date):**
+   the enhanced builder's CFG and DDG ordered records by the path-derived
+   `node_id`, so byte-identical source indexed from two directories
+   produced different graphs (3333 vs 3331 vs 3321 edges on the boundary
+   corpus — same-line statements chained in hash order). Both sorts now
+   tie-break by walk order (tree-sitter source order); graphs are
+   path-independent (pinned by a regression test; three directories,
+   identical edge signatures). Graphs built before the fix may differ by
+   a few same-line CFG/DDG edges — reindex reconciles (derived,
+   rebuildable state by design).
+
    **End-to-end re-measure with phases 1-2 active (2026-10-24) — two findings that
    reshape the remaining work:**
    - **The victor-coding enhanced CCG builder shadows the native path for the dominant
@@ -167,6 +301,38 @@ platform support, and deployment dependencies conflict with predictable CLI and 
      single `_IndexingStreamPipeline._commit_batch` of ~20 realistic files and attribute
      the batch wall time to those components; only then choose the fix (batched JSON
      serialization, hoisted lookups, or precomputed ordering).
+
+### Harvest environment constraint (2026-10-25, landed)
+
+The python tier-3 harvest ran **2,980 s** (half the full-index wall clock):
+scip-python's embedded Pyright resolves imports against the RUNNING
+interpreter's environment — 17 GB of site-packages on a shared conda env,
+~130 GB of reads with WAL writeback thrashing the page cache.
+
+victor now derives the environment from the CODEBASE and hands
+scip-python `--environment` (schema verified against the installed
+bundle: `[{name, version, files}]` — providing it skips Pyright's
+whole-environment enumeration): an AST import scan (the tree-parse basis
+of the earlier passes; ~7 s, 138 third-party roots) mapped to installed
+distributions plus dependency closure (264 of 762), case-canonicalized,
+round-trip validated; any failure declines to the unconstrained run.
+**Reflection is part of the contract**: the builder logs direct-vs-closure
+provenance and unmapped roots; every fresh constrained dump is compared
+against the previous baseline dump (external packages via
+`Index.external_symbols` + occurrence counts), and a real coverage
+regression triggers ONE unconstrained re-dump — never a silent
+degradation.
+
+Measured: harvest **2,980 s → ~8.5 min (~5.8×)**; dump size within
+0.002%; occurrences 2,885,017 → 2,885,269 (+0.009%); zero packages lost
+vs baseline. Operational notes: the production node heap (16 GB) is
+still required — the constraint shrinks the search universe, not
+Pyright's working set; and the repo carries a stale `build/` tree that
+scip-python indexes as project files (6,789 total) — deletion candidate.
+Other languages surveyed, NOT applicable: scip-typescript is
+tsconfig-bounded, scip-clang compilation-database-bounded, rust-analyzer
+cargo-workspace-bounded, java maven/gradle — the interpreter-mediated
+environment walk is python-specific.
 
 ## Primary references
 

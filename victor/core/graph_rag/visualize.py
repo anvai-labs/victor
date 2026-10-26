@@ -45,15 +45,61 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+# Top-level tree -> package path depth (see _package_of).
+_PACKAGE_DEPTH = {"rust": 3}
+
+# Cross-language boundaries the per-language graphs cannot see across.
+# Architectural facts of the monorepo: the python side imports or calls
+# the non-python side through a bridge the language-local harvesters do
+# not join. Drawn as explicit dashed edges at package level.
+FFI_IPC_BOUNDARIES: tuple = (
+    {
+        "from": "victor/native",
+        "to": "rust/crates/python-bindings",
+        "kind": "FFI",
+        "weight_query": (
+            # Statement-level callsites: CCG statement uses ∩ rust function
+            # names — the honest FFI traffic count (802 on this repo vs 22
+            # for the import-only count).
+            "SELECT COUNT(*) FROM graph_node s "
+            "JOIN graph_node r ON r.file LIKE 'rust/crates/python-bindings/src/%' "
+            "AND r.type = 'function' "
+            "WHERE s.statement_type IS NOT NULL "
+            "AND s.file LIKE 'victor/native/%' "
+            "AND s.metadata LIKE '%uses%' "
+            "AND EXISTS (SELECT 1 FROM json_each(json_extract(s.metadata, '$.uses')) "
+            "WHERE json_each.value = r.name)"
+        ),
+    },
+    {
+        "from": "vscode-victor/src",
+        "to": "victor/integrations/api",
+        "kind": "IPC",
+        "weight_query": (
+            "SELECT COUNT(*) FROM graph_node "
+            "WHERE file LIKE 'vscode-victor/%' "
+            "AND (name LIKE '%api%' OR name LIKE '%endpoint%' "
+            "OR name LIKE '%route%' OR name LIKE '%fetch%')"
+        ),
+    },
+)
+
+
 def _package_of(file_path: str) -> Optional[str]:
     """Map a repo-relative file to its package (first two components for
     first-party trees, else the top directory)."""
     parts = file_path.split("/")
-    if (
-        parts[0] in ("victor", "verticals", "victor-contracts", "victor-codegraph")
-        and len(parts) > 2
-    ):
-        return "/".join(parts[:2])
+    # Per-tree package depth: the unit that makes coupling VISIBLE. A flat
+    # depth folded whole trees into one package (rust/, vscode-victor/) —
+    # every internal edge became self-coupling and vanished from the
+    # cross-package view, making those trees look unharvested when the
+    # graph had them all along. Rust's unit is the CRATE (depth 3);
+    # vscode-victor is one extension (depth 2, admitted by activity below);
+    # everything else defaults to two levels (also de-duplicates labels
+    # like tests vs tests/unit).
+    depth = _PACKAGE_DEPTH.get(parts[0], 2)
+    if len(parts) > depth:
+        return "/".join(parts[:depth])
     if len(parts) > 1:
         return parts[0]
     return None

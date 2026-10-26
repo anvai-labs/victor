@@ -62,6 +62,7 @@ def test_cache_cost_model(google_provider):
 def test_context_window_lookup(google_provider):
     # Unknown model falls back to the Gemini default (positive int).
     assert google_provider.context_window("gemini-unknown") > 0
+    assert google_provider.context_window("gemini-2.5-pro") == 1_048_576
 
 
 def test_initialization_resolves_api_key():

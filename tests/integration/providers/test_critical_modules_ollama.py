@@ -715,7 +715,7 @@ Refactor the main.py file to:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestOllamaErrorHandling:
     """Tests for error handling scenarios."""
 
     @requires_ollama()

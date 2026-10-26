@@ -121,6 +121,8 @@ class ProjectedRelationEdge:
     discarded at the bare-3-tuple boundary — the ADR-032 provenance model. The
     ``use`` payload (use-kind for REFERENCES) is the tier-3.5 enrichment
     schema: SCIP harvesting can later upgrade precision without re-harvesting.
+    ``call_line`` is the 1-based first-use site (ADR-033 flow diagrams); it is
+    ordering metadata only — never identity.
     """
 
     src: str
@@ -129,6 +131,7 @@ class ProjectedRelationEdge:
     provenance: str | None = None
     confidence: float | None = None
     use: str | None = None
+    call_line: int | None = None
 
 
 @dataclass(frozen=True)
@@ -221,6 +224,11 @@ def project_resolved_relations(
                 provenance=getattr(relation, "provenance", None),
                 confidence=getattr(relation, "confidence", None),
                 use=getattr(relation, "context", None),
+                call_line=(
+                    relation.call_site.start_line
+                    if getattr(relation, "call_site", None) is not None
+                    else None
+                ),
             )
         )
         if edge_type == "CALLS":

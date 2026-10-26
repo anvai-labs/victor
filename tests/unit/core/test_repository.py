@@ -46,7 +46,7 @@ from victor.core.repository import (
 
 
 @dataclass
-class User(Entity):
+class SampleUser(Entity):
     """Test user entity."""
 
     name: str = ""
@@ -163,59 +163,59 @@ class TestSpecification:
 
     def test_attribute_specification_eq(self):
         """Test equality specification."""
-        spec = AttributeSpecification[User]("name", "Alice")
-        user1 = User(name="Alice")
-        user2 = User(name="Bob")
+        spec = AttributeSpecification[SampleUser]("name", "Alice")
+        user1 = SampleUser(name="Alice")
+        user2 = SampleUser(name="Bob")
 
         assert spec.is_satisfied_by(user1) is True
         assert spec.is_satisfied_by(user2) is False
 
     def test_attribute_specification_ne(self):
         """Test not equal specification."""
-        spec = AttributeSpecification[User]("name", "Alice", "ne")
-        user1 = User(name="Alice")
-        user2 = User(name="Bob")
+        spec = AttributeSpecification[SampleUser]("name", "Alice", "ne")
+        user1 = SampleUser(name="Alice")
+        user2 = SampleUser(name="Bob")
 
         assert spec.is_satisfied_by(user1) is False
         assert spec.is_satisfied_by(user2) is True
 
     def test_attribute_specification_gt(self):
         """Test greater than specification."""
-        spec = AttributeSpecification[User]("age", 18, "gt")
-        user1 = User(age=25)
-        user2 = User(age=15)
+        spec = AttributeSpecification[SampleUser]("age", 18, "gt")
+        user1 = SampleUser(age=25)
+        user2 = SampleUser(age=15)
 
         assert spec.is_satisfied_by(user1) is True
         assert spec.is_satisfied_by(user2) is False
 
     def test_attribute_specification_in(self):
         """Test in specification."""
-        spec = AttributeSpecification[User]("name", ["Alice", "Bob"], "in")
-        user1 = User(name="Alice")
-        user2 = User(name="Charlie")
+        spec = AttributeSpecification[SampleUser]("name", ["Alice", "Bob"], "in")
+        user1 = SampleUser(name="Alice")
+        user2 = SampleUser(name="Charlie")
 
         assert spec.is_satisfied_by(user1) is True
         assert spec.is_satisfied_by(user2) is False
 
     def test_attribute_specification_contains(self):
         """Test contains specification."""
-        spec = AttributeSpecification[User]("email", "@example.com", "contains")
-        user1 = User(email="alice@example.com")
-        user2 = User(email="alice@other.com")
+        spec = AttributeSpecification[SampleUser]("email", "@example.com", "contains")
+        user1 = SampleUser(email="alice@example.com")
+        user2 = SampleUser(email="alice@other.com")
 
         assert spec.is_satisfied_by(user1) is True
         assert spec.is_satisfied_by(user2) is False
 
     def test_and_specification(self):
         """Test AND combination."""
-        spec1 = AttributeSpecification[User]("active", True)
-        spec2 = AttributeSpecification[User]("age", 18, "gte")
+        spec1 = AttributeSpecification[SampleUser]("active", True)
+        spec2 = AttributeSpecification[SampleUser]("age", 18, "gte")
 
         combined = spec1 & spec2
 
-        user1 = User(active=True, age=25)
-        user2 = User(active=False, age=25)
-        user3 = User(active=True, age=15)
+        user1 = SampleUser(active=True, age=25)
+        user2 = SampleUser(active=False, age=25)
+        user3 = SampleUser(active=True, age=15)
 
         assert combined.is_satisfied_by(user1) is True
         assert combined.is_satisfied_by(user2) is False
@@ -223,14 +223,14 @@ class TestSpecification:
 
     def test_or_specification(self):
         """Test OR combination."""
-        spec1 = AttributeSpecification[User]("name", "Alice")
-        spec2 = AttributeSpecification[User]("name", "Bob")
+        spec1 = AttributeSpecification[SampleUser]("name", "Alice")
+        spec2 = AttributeSpecification[SampleUser]("name", "Bob")
 
         combined = spec1 | spec2
 
-        user1 = User(name="Alice")
-        user2 = User(name="Bob")
-        user3 = User(name="Charlie")
+        user1 = SampleUser(name="Alice")
+        user2 = SampleUser(name="Bob")
+        user3 = SampleUser(name="Charlie")
 
         assert combined.is_satisfied_by(user1) is True
         assert combined.is_satisfied_by(user2) is True
@@ -238,11 +238,11 @@ class TestSpecification:
 
     def test_not_specification(self):
         """Test NOT specification."""
-        spec = AttributeSpecification[User]("active", True)
+        spec = AttributeSpecification[SampleUser]("active", True)
         negated = ~spec
 
-        user1 = User(active=True)
-        user2 = User(active=False)
+        user1 = SampleUser(active=True)
+        user2 = SampleUser(active=False)
 
         assert negated.is_satisfied_by(user1) is False
         assert negated.is_satisfied_by(user2) is True
@@ -250,15 +250,15 @@ class TestSpecification:
     def test_complex_specification(self):
         """Test complex specification combination."""
         # (active AND age >= 18) OR (name == "Admin")
-        active_adult = AttributeSpecification[User]("active", True) & AttributeSpecification[User](
-            "age", 18, "gte"
-        )
-        admin = AttributeSpecification[User]("name", "Admin")
+        active_adult = AttributeSpecification[SampleUser]("active", True) & AttributeSpecification[
+            SampleUser
+        ]("age", 18, "gte")
+        admin = AttributeSpecification[SampleUser]("name", "Admin")
         combined = active_adult | admin
 
-        user1 = User(name="Alice", active=True, age=25)  # matches
-        user2 = User(name="Admin", active=False, age=10)  # matches (admin)
-        user3 = User(name="Bob", active=False, age=25)  # no match
+        user1 = SampleUser(name="Alice", active=True, age=25)  # matches
+        user2 = SampleUser(name="Admin", active=False, age=10)  # matches (admin)
+        user3 = SampleUser(name="Bob", active=False, age=25)  # no match
 
         assert combined.is_satisfied_by(user1) is True
         assert combined.is_satisfied_by(user2) is True
@@ -266,7 +266,7 @@ class TestSpecification:
 
     def test_to_query(self):
         """Test specification to query conversion."""
-        spec = AttributeSpecification[User]("age", 18, "gte")
+        spec = AttributeSpecification[SampleUser]("age", 18, "gte")
         query = spec.to_query()
 
         assert query == {"age": {"$gte": 18}}
@@ -283,8 +283,8 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_add_and_get(self):
         """Test adding and retrieving entity."""
-        repo = InMemoryRepository[User]()
-        user = User(id="user-1", name="Alice", email="alice@example.com")
+        repo = InMemoryRepository[SampleUser]()
+        user = SampleUser(id="user-1", name="Alice", email="alice@example.com")
 
         await repo.add(user)
         retrieved = await repo.get("user-1")
@@ -296,18 +296,18 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_add_duplicate_raises(self):
         """Test adding duplicate entity raises error."""
-        repo = InMemoryRepository[User]()
-        user = User(id="user-1", name="Alice")
+        repo = InMemoryRepository[SampleUser]()
+        user = SampleUser(id="user-1", name="Alice")
 
         await repo.add(user)
 
         with pytest.raises(EntityExistsError):
-            await repo.add(User(id="user-1", name="Bob"))
+            await repo.add(SampleUser(id="user-1", name="Bob"))
 
     @pytest.mark.asyncio
     async def test_get_nonexistent(self):
         """Test getting nonexistent entity returns None."""
-        repo = InMemoryRepository[User]()
+        repo = InMemoryRepository[SampleUser]()
 
         result = await repo.get("nonexistent")
 
@@ -316,8 +316,8 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_update(self):
         """Test updating entity."""
-        repo = InMemoryRepository[User]()
-        user = User(id="user-1", name="Alice")
+        repo = InMemoryRepository[SampleUser]()
+        user = SampleUser(id="user-1", name="Alice")
         await repo.add(user)
 
         user.name = "Alice Smith"
@@ -330,8 +330,8 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_update_nonexistent_raises(self):
         """Test updating nonexistent entity raises error."""
-        repo = InMemoryRepository[User]()
-        user = User(id="nonexistent", name="Alice")
+        repo = InMemoryRepository[SampleUser]()
+        user = SampleUser(id="nonexistent", name="Alice")
 
         with pytest.raises(EntityNotFoundError):
             await repo.update(user)
@@ -339,8 +339,8 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_update_version_conflict(self):
         """Test version conflict detection."""
-        repo = InMemoryRepository[User]()
-        user1 = User(id="user-1", name="Alice")
+        repo = InMemoryRepository[SampleUser]()
+        user1 = SampleUser(id="user-1", name="Alice")
         await repo.add(user1)
 
         # Get a reference and update it (this increments version to 2)
@@ -349,15 +349,15 @@ class TestInMemoryRepository:
         await repo.update(user2)  # version becomes 2
 
         # Create a new entity with same ID but old version (simulating stale data)
-        stale_user = User(id="user-1", name="Alice Stale", version=1)
+        stale_user = SampleUser(id="user-1", name="Alice Stale", version=1)
         with pytest.raises(ConcurrencyError):
             await repo.update(stale_user)  # has version 1, store has version 2
 
     @pytest.mark.asyncio
     async def test_delete(self):
         """Test deleting entity."""
-        repo = InMemoryRepository[User]()
-        user = User(id="user-1", name="Alice")
+        repo = InMemoryRepository[SampleUser]()
+        user = SampleUser(id="user-1", name="Alice")
         await repo.add(user)
 
         await repo.delete("user-1")
@@ -367,7 +367,7 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_delete_nonexistent_raises(self):
         """Test deleting nonexistent entity raises error."""
-        repo = InMemoryRepository[User]()
+        repo = InMemoryRepository[SampleUser]()
 
         with pytest.raises(EntityNotFoundError):
             await repo.delete("nonexistent")
@@ -375,10 +375,10 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_list(self):
         """Test listing entities."""
-        repo = InMemoryRepository[User]()
-        await repo.add(User(id="1", name="Alice"))
-        await repo.add(User(id="2", name="Bob"))
-        await repo.add(User(id="3", name="Charlie"))
+        repo = InMemoryRepository[SampleUser]()
+        await repo.add(SampleUser(id="1", name="Alice"))
+        await repo.add(SampleUser(id="2", name="Bob"))
+        await repo.add(SampleUser(id="3", name="Charlie"))
 
         users = await repo.list()
 
@@ -387,12 +387,12 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_list_with_specification(self):
         """Test listing with filter."""
-        repo = InMemoryRepository[User]()
-        await repo.add(User(id="1", name="Alice", active=True))
-        await repo.add(User(id="2", name="Bob", active=False))
-        await repo.add(User(id="3", name="Charlie", active=True))
+        repo = InMemoryRepository[SampleUser]()
+        await repo.add(SampleUser(id="1", name="Alice", active=True))
+        await repo.add(SampleUser(id="2", name="Bob", active=False))
+        await repo.add(SampleUser(id="3", name="Charlie", active=True))
 
-        spec = AttributeSpecification[User]("active", True)
+        spec = AttributeSpecification[SampleUser]("active", True)
         users = await repo.list(spec)
 
         assert len(users) == 2
@@ -401,9 +401,9 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_list_with_pagination(self):
         """Test listing with limit and offset."""
-        repo = InMemoryRepository[User]()
+        repo = InMemoryRepository[SampleUser]()
         for i in range(10):
-            await repo.add(User(id=str(i), name=f"User {i}"))
+            await repo.add(SampleUser(id=str(i), name=f"SampleUser {i}"))
 
         page1 = await repo.list(limit=3, offset=0)
         page2 = await repo.list(limit=3, offset=3)
@@ -414,9 +414,9 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_count(self):
         """Test counting entities."""
-        repo = InMemoryRepository[User]()
-        await repo.add(User(id="1", name="Alice"))
-        await repo.add(User(id="2", name="Bob"))
+        repo = InMemoryRepository[SampleUser]()
+        await repo.add(SampleUser(id="1", name="Alice"))
+        await repo.add(SampleUser(id="2", name="Bob"))
 
         count = await repo.count()
 
@@ -425,12 +425,12 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_count_with_specification(self):
         """Test counting with filter."""
-        repo = InMemoryRepository[User]()
-        await repo.add(User(id="1", active=True))
-        await repo.add(User(id="2", active=False))
-        await repo.add(User(id="3", active=True))
+        repo = InMemoryRepository[SampleUser]()
+        await repo.add(SampleUser(id="1", active=True))
+        await repo.add(SampleUser(id="2", active=False))
+        await repo.add(SampleUser(id="3", active=True))
 
-        spec = AttributeSpecification[User]("active", True)
+        spec = AttributeSpecification[SampleUser]("active", True)
         count = await repo.count(spec)
 
         assert count == 2
@@ -438,8 +438,8 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_exists(self):
         """Test existence check."""
-        repo = InMemoryRepository[User]()
-        await repo.add(User(id="user-1", name="Alice"))
+        repo = InMemoryRepository[SampleUser]()
+        await repo.add(SampleUser(id="user-1", name="Alice"))
 
         assert await repo.exists("user-1") is True
         assert await repo.exists("user-2") is False
@@ -447,8 +447,8 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_get_or_raise(self):
         """Test get_or_raise method."""
-        repo = InMemoryRepository[User]()
-        await repo.add(User(id="user-1", name="Alice"))
+        repo = InMemoryRepository[SampleUser]()
+        await repo.add(SampleUser(id="user-1", name="Alice"))
 
         user = await repo.get_or_raise("user-1")
         assert user.name == "Alice"
@@ -459,11 +459,11 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_add_many(self):
         """Test adding multiple entities."""
-        repo = InMemoryRepository[User]()
+        repo = InMemoryRepository[SampleUser]()
         users = [
-            User(id="1", name="Alice"),
-            User(id="2", name="Bob"),
-            User(id="3", name="Charlie"),
+            SampleUser(id="1", name="Alice"),
+            SampleUser(id="2", name="Bob"),
+            SampleUser(id="3", name="Charlie"),
         ]
 
         await repo.add_many(users)
@@ -473,8 +473,8 @@ class TestInMemoryRepository:
     @pytest.mark.asyncio
     async def test_delete_many(self):
         """Test deleting multiple entities."""
-        repo = InMemoryRepository[User]()
-        await repo.add_many([User(id=str(i)) for i in range(5)])
+        repo = InMemoryRepository[SampleUser]()
+        await repo.add_many([SampleUser(id=str(i)) for i in range(5)])
 
         await repo.delete_many(["0", "1", "2"])
 
@@ -494,9 +494,9 @@ class TestSQLiteRepository:
         """Test adding and retrieving entity."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
-            repo = SQLiteRepository[User](db_path, "users", User)
+            repo = SQLiteRepository[SampleUser](db_path, "users", SampleUser)
 
-            user = User(id="user-1", name="Alice", email="alice@example.com")
+            user = SampleUser(id="user-1", name="Alice", email="alice@example.com")
             await repo.add(user)
 
             retrieved = await repo.get("user-1")
@@ -510,11 +510,11 @@ class TestSQLiteRepository:
             db_path = Path(tmpdir) / "test.db"
 
             # Write with first instance
-            repo1 = SQLiteRepository[User](db_path, "users", User)
-            await repo1.add(User(id="user-1", name="Alice"))
+            repo1 = SQLiteRepository[SampleUser](db_path, "users", SampleUser)
+            await repo1.add(SampleUser(id="user-1", name="Alice"))
 
             # Read with second instance
-            repo2 = SQLiteRepository[User](db_path, "users", User)
+            repo2 = SQLiteRepository[SampleUser](db_path, "users", SampleUser)
             retrieved = await repo2.get("user-1")
 
             assert retrieved is not None
@@ -525,9 +525,9 @@ class TestSQLiteRepository:
         """Test optimistic concurrency control."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
-            repo = SQLiteRepository[User](db_path, "users", User)
+            repo = SQLiteRepository[SampleUser](db_path, "users", SampleUser)
 
-            user = User(id="user-1", name="Alice")
+            user = SampleUser(id="user-1", name="Alice")
             await repo.add(user)
 
             # Update normally
@@ -535,7 +535,7 @@ class TestSQLiteRepository:
             await repo.update(user)
 
             # Try to update with old version
-            stale = User(id="user-1", name="Stale", version=1)
+            stale = SampleUser(id="user-1", name="Stale", version=1)
             with pytest.raises(ConcurrencyError):
                 await repo.update(stale)
 
@@ -544,12 +544,12 @@ class TestSQLiteRepository:
         """Test listing with filter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
-            repo = SQLiteRepository[User](db_path, "users", User)
+            repo = SQLiteRepository[SampleUser](db_path, "users", SampleUser)
 
-            await repo.add(User(id="1", name="Alice", active=True))
-            await repo.add(User(id="2", name="Bob", active=False))
+            await repo.add(SampleUser(id="1", name="Alice", active=True))
+            await repo.add(SampleUser(id="2", name="Bob", active=False))
 
-            spec = AttributeSpecification[User]("active", True)
+            spec = AttributeSpecification[SampleUser]("active", True)
             users = await repo.list(spec)
 
             assert len(users) == 1
@@ -560,10 +560,10 @@ class TestSQLiteRepository:
         """Test counting."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
-            repo = SQLiteRepository[User](db_path, "users", User)
+            repo = SQLiteRepository[SampleUser](db_path, "users", SampleUser)
 
-            await repo.add(User(id="1"))
-            await repo.add(User(id="2"))
+            await repo.add(SampleUser(id="1"))
+            await repo.add(SampleUser(id="2"))
 
             assert await repo.count() == 2
 
@@ -581,10 +581,10 @@ class TestCachedRepository:
         """Test get uses cache and avoids redundant lookups."""
         # Track how many times the underlying get is called
         call_count = 0
-        inner = InMemoryRepository[User]()
+        inner = InMemoryRepository[SampleUser]()
 
         # Add user directly to inner repo (not through cache)
-        user = User(id="user-1", name="Alice")
+        user = SampleUser(id="user-1", name="Alice")
         await inner.add(user)
 
         # Wrap get to count calls
@@ -614,10 +614,10 @@ class TestCachedRepository:
     @pytest.mark.asyncio
     async def test_update_invalidates_cache(self):
         """Test update refreshes cache."""
-        inner = InMemoryRepository[User]()
+        inner = InMemoryRepository[SampleUser]()
         repo = CachedRepository(inner)
 
-        user = User(id="user-1", name="Alice")
+        user = SampleUser(id="user-1", name="Alice")
         await repo.add(user)
 
         # Cache it
@@ -634,10 +634,10 @@ class TestCachedRepository:
     @pytest.mark.asyncio
     async def test_delete_removes_from_cache(self):
         """Test delete removes from cache."""
-        inner = InMemoryRepository[User]()
+        inner = InMemoryRepository[SampleUser]()
         repo = CachedRepository(inner)
 
-        user = User(id="user-1", name="Alice")
+        user = SampleUser(id="user-1", name="Alice")
         await repo.add(user)
         await repo.get("user-1")  # Cache it
 
@@ -647,10 +647,10 @@ class TestCachedRepository:
 
     def test_clear_cache(self):
         """Test clearing cache."""
-        inner = InMemoryRepository[User]()
+        inner = InMemoryRepository[SampleUser]()
         repo = CachedRepository(inner)
 
-        repo._cache["test"] = (User(), 0)
+        repo._cache["test"] = (SampleUser(), 0)
         repo.clear_cache()
 
         assert len(repo._cache) == 0
@@ -667,9 +667,9 @@ class TestReadOnlyRepository:
     @pytest.mark.asyncio
     async def test_read_operations(self):
         """Test read operations work."""
-        inner = InMemoryRepository[User]()
-        await inner.add(User(id="user-1", name="Alice"))
-        await inner.add(User(id="user-2", name="Bob"))
+        inner = InMemoryRepository[SampleUser]()
+        await inner.add(SampleUser(id="user-1", name="Alice"))
+        await inner.add(SampleUser(id="user-2", name="Bob"))
 
         repo = ReadOnlyRepository(inner)
 
@@ -682,7 +682,7 @@ class TestReadOnlyRepository:
     @pytest.mark.asyncio
     async def test_no_write_operations(self):
         """Test no write methods available."""
-        inner = InMemoryRepository[User]()
+        inner = InMemoryRepository[SampleUser]()
         repo = ReadOnlyRepository(inner)
 
         # These methods should not exist
@@ -701,7 +701,7 @@ class TestFactory:
 
     def test_create_memory_repository(self):
         """Test creating memory repository."""
-        repo = create_repository(User, "memory")
+        repo = create_repository(SampleUser, "memory")
 
         assert isinstance(repo, InMemoryRepository)
 
@@ -709,24 +709,24 @@ class TestFactory:
         """Test creating SQLite repository."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
-            repo = create_repository(User, "sqlite", db_path=db_path, table_name="users")
+            repo = create_repository(SampleUser, "sqlite", db_path=db_path, table_name="users")
 
             assert isinstance(repo, SQLiteRepository)
 
     def test_create_unknown_backend_raises(self):
         """Test unknown backend raises error."""
         with pytest.raises(ValueError):
-            create_repository(User, "unknown")
+            create_repository(SampleUser, "unknown")
 
     @pytest.mark.asyncio
     async def test_create_cached_repository(self):
         """Test creating cached repository."""
-        inner = InMemoryRepository[User]()
+        inner = InMemoryRepository[SampleUser]()
         repo = create_cached_repository(inner, cache_ttl=60)
 
         assert isinstance(repo, CachedRepository)
 
-        user = User(id="user-1", name="Alice")
+        user = SampleUser(id="user-1", name="Alice")
         await repo.add(user)
         result = await repo.get("user-1")
 

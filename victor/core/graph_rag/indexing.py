@@ -218,6 +218,11 @@ def _binding_metadata(relation: Any) -> Dict[str, Any]:
         metadata["confidence"] = confidence
     if use is not None:
         metadata["use"] = use
+    call_site = getattr(relation, "call_site", None)
+    if call_site is not None and getattr(call_site, "start_line", None):
+        # ADR-033: 1-based first-use site — ordering metadata for flow
+        # diagrams, never identity. Absent on older graphs (pre-flow reindex).
+        metadata["call_line"] = call_site.start_line
     return metadata
 
 
@@ -456,7 +461,7 @@ class GraphIndexingPipeline:
         # inferred -- the resolver uses this to drop method calls with no
         # inferable type (name-only fallback would bind them to unrelated
         # user-defined methods with the same leaf name).
-        self._pending_call_records: List[Tuple[str, str, Optional[str], bool]] = []
+        self._pending_call_records: List[Tuple[str, str, Optional[str], bool, Optional[int]]] = []
         # Buffered non-CALLS structural relationships (INHERITS / IMPLEMENTS /
         # COMPOSITION) emitted by language handlers. Source is always a
         # class-like symbol in the current file so it resolves immediately
@@ -944,17 +949,52 @@ class GraphIndexingPipeline:
                 reused = (
                     precise_cache.load_cached(root, provider.name, cache_key) if cache_key else None
                 )
+                constrained = False
                 if reused is not None:
                     dump_path = reused
                 else:
                     dump_path, tmp_path = precise_cache.atomic_dump_path(root, provider.name)
+                    # ADR-032 harvest constraint (python): Pyright's
+                    # whole-environment enumeration is the measured hot spot
+                    # (2,980 s / ~130 GB reads on a shared conda env). Hand
+                    # scip-python exactly the distributions the codebase
+                    # imports; the builder declines (None) on any failure.
+                    environment_json = None
+                    if "python" in provider.languages:
+                        from victor.core.graph_rag.harvest_environment import (
+                            build_python_environment,
+                        )
+
+                        environment_json = await asyncio.to_thread(
+                            build_python_environment,
+                            root,
+                            dump_path.parent / "harvest-environment.json",
+                        )
+                        constrained = environment_json is not None
+                    dump_kwargs = {"environment_json": environment_json} if constrained else {}
                     dumped = await asyncio.to_thread(
                         provider.dump,
                         tool,
                         root,
                         tmp_path,
                         timeout_seconds=timeout_seconds,
+                        **dump_kwargs,
                     )
+                    if constrained and dumped is not None and not isinstance(dumped, DumpSkipped):
+                        # Dynamic reflection: compare resolved external
+                        # packages against the previous (baseline) dump. A
+                        # real coverage regression re-dumps unconstrained —
+                        # never a silent degradation of the compile-level
+                        # harvest.
+                        dumped = await self._reflect_or_redump(
+                            provider,
+                            tool,
+                            root,
+                            dump_path,
+                            tmp_path,
+                            dumped,
+                            timeout_seconds=timeout_seconds,
+                        )
                     if isinstance(dumped, DumpSkipped):
                         # Project marker absent — a setup gap, not a toolchain
                         # or dump failure (the honest taxonomy's third state).
@@ -986,6 +1026,7 @@ class GraphIndexingPipeline:
                 outcomes[provider.name] = (
                     f"ok:{len(harvest.edges)} edges ({harvest.accounting})"
                     + (" [cached dump]" if reused is not None else "")
+                    + (" [constrained env]" if constrained else "")
                 )
                 merged_edges.extend(harvest.edges)
                 merged_resolved += harvest.resolved
@@ -1118,6 +1159,7 @@ class GraphIndexingPipeline:
                         ("provenance", edge.provenance),
                         ("confidence", edge.confidence),
                         ("use", edge.use),
+                        ("call_line", edge.call_line),
                     )
                     if value is not None
                 },
@@ -1261,15 +1303,20 @@ class GraphIndexingPipeline:
         method_calls_dropped = 0
         for record in self._pending_call_records:
             # Tolerate legacy tuple shapes for callers that haven't migrated.
-            if len(record) == 4:
+            if len(record) >= 5:
+                caller_id, callee_name, receiver_type, is_method_call, call_line = record[:5]
+            elif len(record) == 4:
                 caller_id, callee_name, receiver_type, is_method_call = record
+                call_line = None
             elif len(record) == 3:
                 caller_id, callee_name, receiver_type = record
                 is_method_call = receiver_type is not None
+                call_line = None
             else:
                 caller_id, callee_name = record  # type: ignore[misc]
                 receiver_type = None
                 is_method_call = False
+                call_line = None
 
             # Receiver-typed lookup. When receiver_type is set, the plugin has
             # told us the call targets a specific impl T::method. A hit binds
@@ -1283,7 +1330,14 @@ class GraphIndexingPipeline:
                     for callee_id in typed_candidates:
                         if callee_id == caller_id:
                             continue
-                        edges.append(GraphEdge(src=caller_id, dst=callee_id, type=EdgeType.CALLS))
+                        edges.append(
+                            GraphEdge(
+                                src=caller_id,
+                                dst=callee_id,
+                                type=EdgeType.CALLS,
+                                metadata={"call_line": call_line} if call_line else {},
+                            )
+                        )
                 else:
                     receiver_typed_unresolved += 1
                 continue
@@ -1322,7 +1376,14 @@ class GraphIndexingPipeline:
             for callee_id in candidates:
                 if callee_id == caller_id:
                     continue
-                edges.append(GraphEdge(src=caller_id, dst=callee_id, type=EdgeType.CALLS))
+                edges.append(
+                    GraphEdge(
+                        src=caller_id,
+                        dst=callee_id,
+                        type=EdgeType.CALLS,
+                        metadata={"call_line": call_line} if call_line else {},
+                    )
+                )
 
         if edges:
             async with self._graph_store_write_batch():
@@ -1870,7 +1931,10 @@ class GraphIndexingPipeline:
             try:
                 from victor.core.indexing import CodeContextGraphBuilder
 
-                self._thread_local.ccg_builder = CodeContextGraphBuilder(self.graph_store)
+                self._thread_local.ccg_builder = CodeContextGraphBuilder(
+                    self.graph_store,
+                    builder_resolution=getattr(self.config, "ccg_builder", "auto"),
+                )
             except ImportError:
                 self._thread_local.ccg_builder = None
         return self._thread_local.ccg_builder
@@ -2095,6 +2159,71 @@ class GraphIndexingPipeline:
         # appear on a smaller line than their children in source.
         nodes.sort(key=lambda n: (n.line if n.line is not None else 0, n.name or ""))
         return nodes
+
+    async def _reflect_or_redump(
+        self,
+        provider: Any,
+        tool: str,
+        root: Path,
+        baseline_path: Path,
+        tmp_path: Path,
+        dumped: Any,
+        *,
+        timeout_seconds: int,
+    ) -> Any:
+        """Compare the constrained dump against the previous baseline dump.
+
+        Reflection, not intent: coverage is judged by the dumps' own
+        resolved external-package sets. A package the baseline resolved
+        that the constrained run lost triggers ONE unconstrained re-dump
+        (the safe dynamic fallback); reflection is logged either way.
+        """
+        from victor.core.graph_rag.harvest_environment import reflect_harvest
+        from victor.core.graph_rag.precise_index import _read_index
+        from victor.core.graph_rag.precise_providers import DumpSkipped
+
+        try:
+            baseline = (
+                _read_index(baseline_path)
+                if baseline_path is not None and baseline_path.exists()
+                else None
+            )
+            constrained_index = _read_index(tmp_path)
+            if baseline is None or constrained_index is None:
+                logger.info("harvest reflection skipped (no readable baseline or reader)")
+                return dumped
+            reflection = reflect_harvest(baseline, constrained_index)
+            missing = reflection["missing_vs_baseline"]
+            logger.info(
+                "harvest reflection: %d baseline packages -> %d constrained; "
+                "occurrences %d -> %d; missing: %s; newly resolved: %s",
+                reflection["baseline_packages"],
+                reflection["constrained_packages"],
+                reflection["baseline_occurrences"],
+                reflection["constrained_occurrences"],
+                ", ".join(missing[:8]) or "none",
+                ", ".join(reflection["newly_resolved"][:8]) or "none",
+            )
+            if missing:
+                logger.warning(
+                    "harvest constraint lost %d baseline-resolved packages "
+                    "(%s...) — re-dumping unconstrained",
+                    len(missing),
+                    missing[0],
+                )
+                redumped = await asyncio.to_thread(
+                    provider.dump,
+                    tool,
+                    root,
+                    tmp_path,
+                    timeout_seconds=timeout_seconds,
+                )
+                if redumped is not None and not isinstance(redumped, DumpSkipped):
+                    return redumped
+            return dumped
+        except Exception as exc:  # reflection must never break the harvest
+            logger.debug("harvest reflection failed: %s", exc)
+            return dumped
 
     def _parse_file_sync(self, file_path: Path) -> ParseResult:
         """Read + tree-sitter parse + symbol extraction + CCG building.
@@ -3055,6 +3184,11 @@ class GraphIndexingPipeline:
                                     relation.target_ref.name,
                                     None,
                                     bool(relation.target_ref.qualifier),
+                                    (
+                                        relation.call_site.start_line
+                                        if relation.call_site is not None
+                                        else None
+                                    ),
                                 )
                             )
                     elif relation.relation_type.name == "REFERENCES":
@@ -3168,7 +3302,13 @@ class GraphIndexingPipeline:
                 is_method_call = getattr(call, "is_method_call", False)
                 for caller_id in name_to_ids.get(call.caller_name, []):
                     self._pending_call_records.append(
-                        (caller_id, call.callee_name, receiver_type, is_method_call)
+                        (
+                            caller_id,
+                            call.callee_name,
+                            receiver_type,
+                            is_method_call,
+                            getattr(call, "call_line", None),
+                        )
                     )
                     buffered += 1
 

@@ -519,7 +519,7 @@ class TestExportAction:
 # =============================================================================
 
 
-class TestErrorHandling:
+class TestAuditToolErrorHandling:
     """Tests for error handling."""
 
     @pytest.mark.asyncio

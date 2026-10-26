@@ -27,7 +27,7 @@ from victor.providers.routing_config import SmartRoutingConfig, RoutingProfile
 from victor.providers.base import BaseProvider, CompletionResponse, Message, StreamChunk
 
 
-class MockProvider(BaseProvider):
+class SmartRoutingMockProvider(BaseProvider):
     """Mock provider for testing."""
 
     def __init__(self, name: str):
@@ -94,9 +94,9 @@ def reset_feature_flag():
 def mock_providers():
     """Create mock providers for testing."""
     return [
-        MockProvider(name="ollama"),
-        MockProvider(name="anthropic"),
-        MockProvider(name="openai"),
+        SmartRoutingMockProvider(name="ollama"),
+        SmartRoutingMockProvider(name="anthropic"),
+        SmartRoutingMockProvider(name="openai"),
     ]
 
 

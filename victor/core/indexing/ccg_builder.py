@@ -156,13 +156,18 @@ class CodeContextGraphBuilder:
         self,
         graph_store: Optional[GraphStoreProtocol] = None,
         language: str = "python",
+        builder_resolution: str = "auto",
     ) -> None:
         """Initialize the CCG builder.
 
         Args:
             graph_store: Optional graph store for persistence
             language: Programming language (must be in SUPPORTED_CCG_LANGUAGES)
+            builder_resolution: "auto" (plugin-first, the richer graph),
+                "native" (the Rust engine first — an explicit performance
+                trade; see search.graph.ccg_builder), "plugin", "builtin"
         """
+        self._builder_resolution = str(builder_resolution).strip().lower() or "auto"
         self.graph_store = graph_store
         self.language = language.lower()
         self._tree_sitter_parser: Optional[Any] = None
@@ -210,6 +215,28 @@ class CodeContextGraphBuilder:
         supports_language = getattr(builder, "supports_language", None)
         return not callable(supports_language) or bool(supports_language(language))
 
+    def _inject_native_plugin_walk(self, enhanced_builder: Any) -> None:
+        """Give the enhanced builder the native plugin-walk extractor.
+
+        Option B phase 2: the enhanced builder's Python statement walk (the
+        measured hot core — ~37 ms/file of per-node interpreter work) is
+        served by the native table-driven walk when its language has a
+        grammar. Duck-typed injection, deliberately: the vertical owns all
+        language-syntax knowledge (it passes its own tables to the
+        extractor) and no cross-package import appears in either
+        direction. An absent extension, unsupported language, or FFI
+        failure makes the extractor decline (None) and the builder keeps
+        its Python walk — the typed reference implementation and fallback.
+        """
+        if getattr(enhanced_builder, "_native_extractor", None) is not None:
+            return
+        try:
+            from victor.processing.native.plugin_ccg import extract_plugin_statements
+
+            enhanced_builder._native_extractor = extract_plugin_statements
+        except Exception:  # pragma: no cover - extension entirely optional
+            logger.debug("native plugin-walk extractor unavailable; Python walk stays")
+
     def _resolve_enhanced_builder(self, language: str) -> Optional[Any]:
         """Resolve an enhanced builder for the current file language.
 
@@ -249,11 +276,22 @@ class CodeContextGraphBuilder:
         """
         lang = (language or self._detect_language(file_path)).lower()
 
-        # Delegate to enhanced builder if available for this file's actual language.
-        enhanced_builder = self._resolve_enhanced_builder(lang)
+        # Builder resolution (ADR-033-adjacent boundary knob, 2026-10-24):
+        # "auto" keeps the historical plugin-first order (the victor-coding
+        # enhanced builder yields the richer graph — 400 extra statement
+        # nodes incl. blocks + per-node metadata; measured divergence from
+        # the native engine is recorded in native-acceleration-strategy).
+        # "native" flips to the 81x Rust engine first (plugin fallback);
+        # "plugin"/"builtin" force a leg. The plugin path is a DIFFERENT
+        # graph, not a superset — CDG/DDG algorithms differ — so native-
+        # first is an explicit performance trade, never a silent default.
+        resolution = self._builder_resolution
+
+        enhanced_builder = None if resolution == "native" else self._resolve_enhanced_builder(lang)
         if enhanced_builder:
             try:
                 if self._enhanced_builder_supports_language(enhanced_builder, lang):
+                    self._inject_native_plugin_walk(enhanced_builder)
                     return await enhanced_builder.build_ccg_for_file(file_path, lang)
             except Exception as e:
                 logger.warning(f"Enhanced CCG builder failed: {e}, falling back to built-in")

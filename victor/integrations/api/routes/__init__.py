@@ -76,6 +76,7 @@ from victor.integrations.api.routes.websocket_routes import (
 from victor.integrations.api.routes.observability_routes import (
     router as observability_router,
 )
+from victor.integrations.api.routes.viz_routes import create_router as create_viz_router
 
 _ROUTER_FACTORIES = [
     create_system_router,
@@ -96,6 +97,7 @@ _ROUTER_FACTORIES = [
     create_mcp_router,
     create_lsp_router,
     create_websocket_router,
+    create_viz_router,
 ]
 
 # Direct routers (not factory functions)

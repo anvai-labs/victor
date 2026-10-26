@@ -79,23 +79,15 @@ class OrchestratorProtocol(Protocol):
 
     Breaks chain: orchestrator → code_correction_middleware → evaluation → agent_adapter → orchestrator
 
-    Note: Method names match AgentOrchestrator's actual interface for structural typing.
+    DELIBERATELY MINIMAL: only the surface the concrete AgentOrchestrator
+    demonstrably carries as class attributes (TD-033 finding, 2026-10-24:
+    the previous protocol was aspirational — ``model``, ``provider_name``
+    and ``tool_budget`` are dynamic getattr surfaces on the orchestrator,
+    absent as class attributes, so runtime ``isinstance`` checks REJECTED
+    the real class). Consumers needing those fields use ``getattr`` with
+    defaults, as the orchestrator's own call sites do. Grow the protocol
+    only alongside verified class-level surface.
     """
-
-    @property
-    def model(self) -> str:
-        """Current model identifier."""
-        ...
-
-    @property
-    def provider_name(self) -> str:
-        """Current provider name."""
-        ...
-
-    @property
-    def tool_budget(self) -> int:
-        """Maximum allowed tool calls for session."""
-        ...
 
     @property
     def tool_calls_used(self) -> int:

@@ -129,13 +129,12 @@ def _resolve_across_files(
                 if binding.name == "*" or raw_path[0] != binding.name:
                     continue
                 target_path = (*binding.path, *raw_path[1:])
-                candidates.extend(
-                    candidate
-                    for candidate in symbols
-                    if candidate.location.file_path == binding.file
-                    and not candidate.metadata.get("rust_conditional")
-                    and (*candidate.scope_chain, candidate.simple_name) == target_path
-                )
+                # by_path already indexes exactly (file, path); the linear
+                # scan over ALL repository symbols per relation x binding
+                # made the repository pass quadratic on rust-heavy repos.
+                for candidate in by_path.get((binding.file, target_path), ()):
+                    if not candidate.metadata.get("rust_conditional"):
+                        candidates.append(candidate)
             candidates = list({candidate.id: candidate for candidate in candidates}.values())
             if len(candidates) == 1:
                 out.append(
