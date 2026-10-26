@@ -58,10 +58,17 @@ FFI_IPC_BOUNDARIES: tuple = (
         "to": "rust/crates/python-bindings",
         "kind": "FFI",
         "weight_query": (
-            "SELECT COUNT(DISTINCT s.file) FROM graph_edge e "
-            "JOIN graph_node s ON s.node_id = e.src "
-            "JOIN graph_node d ON d.node_id = e.dst "
-            "WHERE e.type = 'IMPORTS' AND d.file LIKE 'victor/native/%'"
+            # Statement-level callsites: CCG statement uses ∩ rust function
+            # names — the honest FFI traffic count (802 on this repo vs 22
+            # for the import-only count).
+            "SELECT COUNT(*) FROM graph_node s "
+            "JOIN graph_node r ON r.file LIKE 'rust/crates/python-bindings/src/%' "
+            "AND r.type = 'function' "
+            "WHERE s.statement_type IS NOT NULL "
+            "AND s.file LIKE 'victor/native/%' "
+            "AND s.metadata LIKE '%uses%' "
+            "AND EXISTS (SELECT 1 FROM json_each(json_extract(s.metadata, '$.uses')) "
+            "WHERE json_each.value = r.name)"
         ),
     },
     {

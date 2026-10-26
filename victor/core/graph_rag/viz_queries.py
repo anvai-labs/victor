@@ -920,3 +920,63 @@ def _class_mermaid(entry, members, bases, subclasses, associates, members_total:
     for row in associates:
         lines.append(f"    {ident(entry)} --> {ident(row)} : uses")
     return "\n".join(lines) + "\n"
+
+
+def ffi_surface(db_path) -> Dict[str, Any]:
+    """The cross-language FFI callsite map: which python wrapper calls
+    which rust function through the PyO3 boundary.
+
+    Statement-level: CCG statement ``uses`` ∩ rust function names — the
+    identifier sets the enrichment pass already carries. Returns
+    ``{python_file: [rust_function, ...]}`` plus a per-function call
+    count. The consumer surfaces this in the inspector (a class diagram
+    associate list, a flow participant) — symbol-level REFERENCES edges
+    across the language boundary need import-name persistence first.
+    """
+    conn = _connect(db_path)
+    try:
+        rust_fns = {
+            row["name"]: {"file": row["file"], "line": row["line"]} for row in conn.execute("""
+                SELECT name, file, line FROM graph_node
+                WHERE file LIKE 'rust/crates/python-bindings/src/%' AND type = 'function'
+                """)
+        }
+        if not rust_fns:
+            return {"callsites": {}, "rust_functions": 0, "statements": 0}
+        callsites: Dict[str, List[Dict[str, Any]]] = {}
+        statement_count = 0
+        for row in conn.execute("""
+            SELECT name, file, line, metadata FROM graph_node
+            WHERE statement_type IS NOT NULL
+              AND metadata LIKE '%uses%'
+              AND (file LIKE 'victor/native/%' OR file LIKE 'victor/processing/native/%')
+            """):
+            try:
+                uses = set(json.loads(row["metadata"]).get("uses", []))
+            except (ValueError, TypeError):
+                continue
+            hits = uses & set(rust_fns)
+            if not hits:
+                continue
+            statement_count += 1
+            entry = callsites.setdefault(row["file"], [])
+            for fn_name in sorted(hits):
+                target = rust_fns[fn_name]
+                if not any(c["rust_function"] == fn_name for c in entry):
+                    entry.append(
+                        {
+                            "rust_function": fn_name,
+                            "rust_file": target["file"],
+                            "rust_line": target["line"],
+                            "callsite_line": row["line"],
+                        }
+                    )
+        return {
+            "callsites": callsites,
+            "rust_functions": len(
+                {c["rust_function"] for entries in callsites.values() for c in entries}
+            ),
+            "statements": statement_count,
+        }
+    finally:
+        conn.close()

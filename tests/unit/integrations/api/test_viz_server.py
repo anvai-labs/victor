@@ -605,3 +605,64 @@ def test_ffi_ipc_boundaries_render_as_dashed_edges(db_path, tmp_path):
     assert ffi["source"] == "victor/native"
     assert ffi["target"] == "rust/crates/python-bindings"
     assert ffi["weight"] >= 1
+
+
+# --- FFI surface (cross-language callsite map) ------------------------------
+
+
+def test_ffi_surface_maps_python_wrappers_to_rust_functions(db_path):
+    """The FFI callsite inventory: which python wrapper statements use
+    identifiers matching rust function names in the bindings crate."""
+    result = viz_queries.ffi_surface(db_path)
+    assert "callsites" in result and "rust_functions" in result
+    # The seeded store has no rust tree, so the map is empty but well-formed
+    assert result["rust_functions"] == 0
+
+
+def test_ffi_surface_finds_cross_language_callsites(tmp_path):
+    """A seeded FFI boundary: a wrapper statement whose uses include a
+    rust function name must appear in the surface map."""
+    import asyncio
+
+    from victor.storage.graph.protocol import GraphNode
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    nodes = [
+        GraphNode(
+            node_id="rfn",
+            type="function",
+            name="batch_extract_file_paths",
+            file="rust/crates/python-bindings/src/extractor.rs",
+            line=333,
+            end_line=334,
+            lang="rust",
+        ),
+        GraphNode(
+            node_id="stmt",
+            type="statement",
+            name="call:1",
+            file="victor/native/rust/extractor.py",
+            line=1,
+            end_line=2,
+            lang="python",
+            statement_type="call",
+            metadata={"uses": ["batch_extract_file_paths", "other_fn"]},
+        ),
+    ]
+    store = SqliteGraphStore(tmp_path)
+    asyncio.run(store.initialize())
+    asyncio.run(store.upsert_nodes(nodes))
+    asyncio.run(store.close())
+
+    result = viz_queries.ffi_surface(tmp_path / ".victor" / "project.db")
+    assert result["rust_functions"] == 1
+    assert "victor/native/rust/extractor.py" in result["callsites"]
+    calls = result["callsites"]["victor/native/rust/extractor.py"]
+    assert any(c["rust_function"] == "batch_extract_file_paths" for c in calls)
+
+
+def test_ffi_surface_endpoint(client):
+    res = client.get("/api/graph/ffi-surface")
+    assert res.status_code == 200
+    body = res.json()
+    assert "callsites" in body
