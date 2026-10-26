@@ -851,7 +851,13 @@ def _class_relatives(
 
 def _class_associates(conn: sqlite3.Connection, node_id: str, limit: int) -> List[Dict[str, Any]]:
     """Classes the focal class's methods call or reference (uses/creates),
-    aggregated to the target class, ranked by link count then name."""
+    aggregated to the target class, ranked by link count then name.
+
+    Also picks up CROSS-LANGUAGE FFI REFERENCES (#1526): when the focal
+    class's methods have REFERENCES edges to rust functions (through the
+    PyO3 boundary), the rust crate's class appears as an associate —
+    the class diagram gains cross-language visibility without any
+    schema change."""
     counts: Dict[str, int] = defaultdict(int)
     rows_by_id: Dict[str, Dict[str, Any]] = {}
     for row in conn.execute(
@@ -869,6 +875,30 @@ def _class_associates(conn: sqlite3.Connection, node_id: str, limit: int) -> Lis
     ):
         counts[row["node_id"]] += 1
         rows_by_id[row["node_id"]] = dict(row)
+    # Cross-language FFI: REFERENCES edges from the focal class's methods
+    # to rust function nodes — map to the rust crate's class node.
+    for row in conn.execute(
+        """
+        SELECT DISTINCT d.node_id, d.name, d.type AS dtype, d.file, d.line
+        FROM graph_edge e
+        JOIN graph_node s ON s.node_id = e.src
+        JOIN graph_node d ON d.node_id = e.dst
+        WHERE e.type = 'REFERENCES'
+          AND e.metadata LIKE '%FFI%'
+          AND s.parent_id = ?
+          AND d.type = 'function'
+        """,
+        (node_id,),
+    ):
+        # The rust function's crate: first 4 path components map to the
+        # crate-level package; use the function's own node for the
+        # associate entry (the diagram shows the rust function by name).
+        entry_key = row["node_id"]
+        if entry_key not in counts:
+            counts[entry_key] = 1
+            rows_by_id[entry_key] = dict(row)
+        else:
+            counts[entry_key] += 1
     ranked = sorted(counts, key=lambda nid: (-counts[nid], rows_by_id[nid]["name"], nid))[:limit]
     return [{**rows_by_id[nid], "links": counts[nid]} for nid in ranked]
 

@@ -105,3 +105,63 @@ async def test_ffi_references_metadata_shape(tmp_path):
     md = json.loads(edges[0][3])
     assert md["kind"] == "FFI"
     assert md["use"] == "batch_extract_file_paths"
+
+
+@pytest.mark.asyncio
+async def test_ffi_edges_appear_in_class_diagram(tmp_path):
+    """The class diagram consumes FFI REFERENCES edges: a wrapper class
+    with FFI-calling methods shows the rust function as an associate."""
+    from victor.core.graph_rag import viz_queries
+
+    # Seed: a class with a method that has an FFI REFERENCES edge to a rust fn
+    from victor.storage.graph.protocol import GraphEdge, GraphNode
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    nodes = [
+        GraphNode(
+            node_id="rust_fn",
+            type="function",
+            name="batch_extract",
+            file="rust/crates/python-bindings/src/extractor.rs",
+            line=10,
+            end_line=11,
+            lang="rust",
+        ),
+        GraphNode(
+            node_id="wrapper_cls",
+            type="class",
+            name="Wrapper",
+            file="victor/native/rust/wrapper.py",
+            line=1,
+            end_line=50,
+            lang="python",
+        ),
+        GraphNode(
+            node_id="wrapper_m",
+            type="method",
+            name="extract",
+            file="victor/native/rust/wrapper.py",
+            line=5,
+            end_line=20,
+            lang="python",
+            parent_id="wrapper_cls",
+        ),
+    ]
+    edges = [
+        GraphEdge(
+            src="wrapper_m",
+            dst="rust_fn",
+            type="REFERENCES",
+            metadata={"kind": "FFI", "use": "batch_extract"},
+        ),
+    ]
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    await store.upsert_nodes(nodes)
+    await store.upsert_edges(edges)
+    await store.close()
+
+    result = viz_queries.class_diagram(tmp_path / ".victor" / "project.db", "Wrapper")
+    assert result["entry"]["name"] == "Wrapper"
+    assoc_names = [a["name"] for a in result.get("associates", [])]
+    assert "batch_extract" in assoc_names, f"FFI associate missing; got {assoc_names}"
