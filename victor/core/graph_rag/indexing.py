@@ -853,12 +853,108 @@ class GraphIndexingPipeline:
         stats.persist_seconds = self._persist_busy_seconds
         stats.harvest_seconds = self._harvest_busy_seconds
 
+        # Cross-language FFI REFERENCES: link python wrapper functions to
+        # the rust functions they call through the PyO3 boundary (#1521).
+        await self._link_cross_language_ffi()
+
         logger.info(
             f"Indexing complete: {stats.files_processed} files, "
             f"{stats.nodes_created} nodes, {stats.edges_created} edges"
         )
 
         return stats
+
+    async def _link_cross_language_ffi(self) -> int:
+        """Create REFERENCES edges across the FFI boundary (#1521 follow-up).
+
+        The per-language graphs cannot see across the PyO3 bridge: python
+        statements carry rust function names in their CCG ``uses`` sets,
+        but no edge connects them. This pass walks each FFI-calling
+        statement's scope chain to its enclosing function/method and
+        links it to the matching rust function node — actual graph edges,
+        not query-time matching. Deduplicated per function-pair.
+        """
+        import json as _json
+
+        conn = self.graph_store._connect() if hasattr(self.graph_store, "_connect") else None
+        if conn is None:
+            return 0
+        try:
+            rust_fns = {row["name"]: row["node_id"] for row in conn.execute("""
+                    SELECT name, node_id FROM graph_node
+                    WHERE file LIKE 'rust/crates/python-bindings/src/%'
+                      AND type = 'function'
+                    """)}
+            if not rust_fns:
+                return 0
+            # Index wrapper functions/methods by (file, line range) for
+            # containment lookup: an FFI-calling statement at line L in
+            # file F belongs to the innermost function whose [line, end_line]
+            # contains L. Simpler and more robust than walking scope chains
+            # (scope_id links to CCG scope statements, not graph functions).
+            wrapper_fns: List[Dict] = list(conn.execute("""
+                    SELECT node_id, file, line, end_line FROM graph_node
+                    WHERE type IN ('function', 'method')
+                      AND (file LIKE 'victor/native/%' OR file LIKE 'victor/processing/native/%')
+                    ORDER BY line DESC
+                    """))
+
+            def _enclosing(file: str, stmt_line: int) -> Optional[str]:
+                best: Optional[str] = None
+                best_span = 10**9
+                for fn in wrapper_fns:
+                    if fn["file"] != file:
+                        continue
+                    if fn["line"] <= stmt_line <= fn["end_line"]:
+                        span = fn["end_line"] - fn["line"]
+                        if span < best_span:
+                            best_span = span
+                            best = fn["node_id"]
+                return best
+
+            edges_to_create = {}  # (src_id, dst_id) -> GraphEdge
+            _, GraphEdge = _get_graph_types()
+            from victor.storage.graph.edge_types import EdgeType
+
+            for row in conn.execute("""
+                SELECT node_id, file, line, metadata FROM graph_node
+                WHERE statement_type IS NOT NULL
+                  AND metadata LIKE '%uses%'
+                  AND (file LIKE 'victor/native/%' OR file LIKE 'victor/processing/native/%')
+                """):
+                try:
+                    uses = set(_json.loads(row["metadata"]).get("uses", []))
+                except (ValueError, TypeError):
+                    continue
+                hits = uses & set(rust_fns)
+                if not hits:
+                    continue
+                enclosing = _enclosing(row["file"], row["line"])
+                if enclosing is None:
+                    continue
+                for fn_name in hits:
+                    dst = rust_fns[fn_name]
+                    key = (enclosing, dst)
+                    if key not in edges_to_create:
+                        edges_to_create[key] = GraphEdge(
+                            src=enclosing,
+                            dst=dst,
+                            type=EdgeType.REFERENCES,
+                            metadata={"kind": "FFI", "use": fn_name},
+                        )
+            if edges_to_create:
+                await self.graph_store.upsert_edges(list(edges_to_create.values()))
+                logger.info(
+                    "cross-language FFI REFERENCES: %d edges (python wrapper → rust function)",
+                    len(edges_to_create),
+                )
+                return len(edges_to_create)
+            return 0
+        except Exception as exc:
+            logger.warning("FFI REFERENCES pass failed: %s", exc)
+            return 0
+        # NOTE: do NOT close the connection — _connect() returns the
+        # store's own managed connection; closing it breaks the store.
 
     async def _maintain_project_db_after_rebuild(self, root_path: Path) -> None:
         """Reclaim database space after a force rebuild (co-design review item 26a).
