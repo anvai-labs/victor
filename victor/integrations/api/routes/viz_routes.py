@@ -135,6 +135,11 @@ def create_router(server: Any) -> APIRouter:
             )
         return JSONResponse(result)
 
+    @router.get("/api/graph/ffi-surface")
+    async def ffi_surface() -> JSONResponse:
+        """The cross-language FFI callsite map (python wrapper → rust fn)."""
+        return JSONResponse(viz_queries.ffi_surface(require_db()))
+
     @router.get("/api/graph/flow")
     async def flow(
         symbol: str,
