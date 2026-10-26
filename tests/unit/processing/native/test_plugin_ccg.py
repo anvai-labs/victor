@@ -38,7 +38,13 @@ FILE_BY_LANGUAGE = {
 
 # Grammars present in the Rust crate today; the others are golden-pinned
 # Python-side until their crate lands (the builtin slice grew the same way).
-PARITY_LANGUAGES = [lang for lang in ("python", "typescript") if lang in PLUGIN_NATIVE_LANGUAGES]
+# All grammars in the crate now: python+typescript (engine phase 1) and
+# rust+go+java+ruby (this increment). The goldens pin them all.
+PARITY_LANGUAGES = [
+    lang
+    for lang in ("python", "typescript", "rust", "go", "java", "ruby")
+    if lang in PLUGIN_NATIVE_LANGUAGES
+]
 
 
 def _load_corpus():
@@ -103,17 +109,10 @@ def test_native_plugin_walk_matches_golden(language):
 
 
 def test_languages_without_grammar_return_none():
-    """rust/go/java/ruby have goldens but no native grammar yet: the
-    wrapper must decline (None), never guess."""
-    goldens, tables = _load_corpus()
-    for language in ("rust", "go", "java", "ruby"):
-        if not goldens.get(language, {}).get("supported"):
-            continue
-        sample = (GOLDENS_DIR / "samples" / FILE_BY_LANGUAGE.get(language, "")).read_bytes()
-        hints = [tuple(h) for h in goldens[language]["hints"]]
-        assert (
-            extract_plugin_statements([(language, "/x", sample)], tables, [hints]) is None
-        ), language
+    """Languages with goldens but NO native grammar must decline (None),
+    never guess. As grammars land this set shrinks — currently only
+    languages outside the plugin's CCG scope (e.g. sql, markdown)."""
+    assert extract_plugin_statements([("sql", "/x", b"SELECT 1")], _valid_tables(), [[]]) is None
 
 
 def test_malformed_tables_decline():
