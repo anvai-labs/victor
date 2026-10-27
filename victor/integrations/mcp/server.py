@@ -153,6 +153,34 @@ class MCPServer:
                         required=param.required,
                     )
                 )
+        elif isinstance(tool.parameters, dict):
+            # Fallback: dict-format parameters without properties key
+            # (edge case: malformed schema or legacy format)
+            properties = tool.parameters.get("properties", {})
+            required_set = set(tool.parameters.get("required", []))
+            for name, prop in properties.items():
+                if not isinstance(prop, dict):
+                    mcp_params.append(
+                        MCPParameter(
+                            name=name,
+                            type=MCPParameterType.STRING,
+                            description="",
+                            required=name in required_set,
+                        )
+                    )
+                    continue
+                prop_type = prop.get("type", "string")
+                if isinstance(prop_type, list):
+                    prop_type = prop_type[0] if prop_type else "string"
+                mcp_type = type_map.get(prop_type.lower(), MCPParameterType.STRING)
+                mcp_params.append(
+                    MCPParameter(
+                        name=name,
+                        type=mcp_type,
+                        description=prop.get("description", ""),
+                        required=name in required_set,
+                    )
+                )
 
         return MCPTool(
             name=tool.name,

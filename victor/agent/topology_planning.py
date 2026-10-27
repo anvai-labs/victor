@@ -15,7 +15,7 @@
 """Topology planning integration for the AgenticLoop (extracted).
 
 NOTE for tests: monkeypatch module-level functions in THIS module
-(victor.framework.topology_planning), not in agentic_loop.
+(victor.agent.topology_planning), not in agentic_loop.
 """
 
 from __future__ import annotations
