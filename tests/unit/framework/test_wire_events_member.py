@@ -58,7 +58,8 @@ def test_member_error_carries_failure_and_content() -> None:
 
 
 def test_member_types_are_additive_not_core() -> None:
-    # The base six-type contract is unchanged; member types are a separate additive set.
+    # Member types are a separate additive set, disjoint from the core contract
+    # (which grew to eight with UX-02 progress/milestone).
     assert MEMBER_WIRE_EVENT_TYPES == {
         "member_start",
         "member_completed",
