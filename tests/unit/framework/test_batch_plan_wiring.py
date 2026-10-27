@@ -125,3 +125,31 @@ class TestBatchPlanActDispatch:
         # it falls through to the normal path (which may error on
         # missing orchestrator — that's the expected non-batch behavior)
         assert "_batch_plan" not in state
+
+
+# --- Prompt guidance (FEP-0041 Phase 3c) ------------------------------------
+
+
+class TestBatchPlanPromptGuidance:
+    def test_guidance_method_exists(self):
+        """SystemPromptBuilder has the batch plan guidance method."""
+        from victor.agent.prompt_builder import SystemPromptBuilder
+
+        assert hasattr(SystemPromptBuilder, "_get_batch_plan_guidance")
+
+    def test_guidance_content(self):
+        """The guidance covers the format, refs, and when to batch."""
+        from victor.agent.prompt_builder import SystemPromptBuilder
+
+        builder = SystemPromptBuilder.__new__(SystemPromptBuilder)
+        text = builder._get_batch_plan_guidance()
+        assert "BATCH PLANNING" in text
+        assert "$step0.file_path" in text
+        assert "tool_name" in text
+        assert "stop_on_error" in text
+        assert "input_refs" in text
+        # Safety guidance
+        assert "human approval" in text
+        assert "do NOT batch" in text
+        # Format example
+        assert "read" in text and "search" in text
