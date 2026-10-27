@@ -179,6 +179,14 @@ class MCPToolCallResult(BaseModel):
     success: bool = Field(description="Whether the call succeeded")
     result: Any = Field(default=None, description="Tool result")
     error: Optional[str] = Field(default=None, description="Error message if failed")
+    images: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description=(
+            "Structured image artifacts from image content blocks "
+            "(mime_type + base64), bounded by the client; text surfaces "
+            "render placeholders, rich surfaces render the pixels."
+        ),
+    )
 
 
 class MCPResourceContent(BaseModel):

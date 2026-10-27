@@ -199,14 +199,20 @@ class MCPAdapterTool(BaseTool):
             )
         try:
             result = await self._registry.call_tool(self._mcp_tool.name, **kwargs)
+            metadata: Dict[str, Any] = {
+                "mcp_server": self._server_name,
+                "mcp_tool": self._mcp_tool.name,
+            }
+            if result.images:
+                # Structured artifact channel (additive convention): images ride
+                # ToolResult.metadata; text surfaces show placeholders, the web
+                # UI renders them inline. Nothing about the text result changes.
+                metadata["images"] = result.images
             return ToolResult(
                 success=result.success,
                 output=result.result if result.success else result.error,
                 error=result.error if not result.success else None,
-                metadata={
-                    "mcp_server": self._server_name,
-                    "mcp_tool": self._mcp_tool.name,
-                },
+                metadata=metadata,
             )
         except Exception as e:
             logger.warning("MCP tool %s execution failed: %s", self.name, e)

@@ -46,6 +46,7 @@ from victor.ui.chat_app.event_mapping import (
 )
 from victor.ui.chat_app.remote_client import RemoteChatClient
 from victor.ui.rendering.markdown_presenters import (
+    image_artifact_placeholder,
     tool_call_summary,
     tool_result_markdown,
     turn_cost_footer,
@@ -53,6 +54,18 @@ from victor.ui.rendering.markdown_presenters import (
 from victor.ui.rendering.utils import format_duration
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_image_bytes(image: dict) -> bytes:
+    """Decode an artifact's base64 payload; undecodable artifacts render empty."""
+    import base64
+    import binascii
+
+    try:
+        return base64.b64decode(str(image.get("b64", "")), validate=False)
+    except (binascii.Error, ValueError):
+        logger.warning("image artifact had undecodable base64 payload")
+        return b""
 
 
 def _format_follow_ups(suggestions: list[dict]) -> str:
@@ -578,9 +591,28 @@ async def _run_turn(client: VictorClient, content: str) -> None:
                         follow_ups = _format_follow_ups(action.follow_up_suggestions or [])
                         if follow_ups:
                             output = f"{output}{follow_ups}"
+                        if action.images:
+                            output = f"{output}\n\n{image_artifact_placeholder(action.images)}"
                         step.output = output
                         if not action.success:
                             step.is_error = True
+                    if action.images:
+                        # Structured artifact channel: the pixels follow the tool
+                        # step as inline images (terminal surfaces see the
+                        # placeholder line above instead).
+                        elements = [
+                            cl.Image(
+                                name=f"{tool_name}-{index + 1}",
+                                content=_decode_image_bytes(image),
+                                mime=str(image.get("mime_type", "image/png")),
+                            )
+                            for index, image in enumerate(action.images)
+                        ]
+                        await cl.Message(
+                            content=f"🖼️ **{tool_name}** produced {len(elements)} image "
+                            "artifact(s)",
+                            elements=elements,
+                        ).send()
 
                 elif action.kind is RenderKind.ERROR:
                     await _clear_thinking()

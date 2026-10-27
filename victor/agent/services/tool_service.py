@@ -372,6 +372,7 @@ def process_tool_results_with_context(
         retryable = getattr(call_result, "retryable", None)
         user_message = getattr(call_result, "user_message", None)
         tool_call_id = getattr(call_result, "tool_call_id", None)
+        images = getattr(call_result, "images", None)
 
         try:
             # Invalid tools without tool_call_id do not need a provider-visible response.
@@ -479,6 +480,7 @@ def process_tool_results_with_context(
                         # so the raw search hits are only recoverable here from `output`.
                         "result_items": _extract_result_items(output),
                         "follow_up_suggestions": follow_up_suggestions,
+                        "images": images,
                         "tool_diagnostics": tool_diagnostics,
                         "was_pruned": was_pruned,
                         "pruning_info": pruning_info,
