@@ -92,7 +92,7 @@ from victor.agent.turn_policy import (
 )
 from victor.agent.topology_contract import TopologyAction
 from victor.agent.topology_grounder import GroundedTopologyPlan, TopologyGrounder
-from victor.framework.topology_planning import TopologyPlanningMixin
+from victor.agent.topology_planning import TopologyPlanningMixin
 from victor.agent.topology_selector import TopologySelector
 from victor.agent.topology_telemetry import (
     build_topology_telemetry_event,

@@ -76,6 +76,33 @@ class TestBatchExecutionRuntime:
         assert not result.all_succeeded
         assert len(pipeline.calls) == 3  # all three ran
 
+    def test_post_failure_ref_resolution_passes_none(self):
+        """When stop_on_error=False and a step fails, downstream refs get None.
+
+        A failed step appends None to prior_outputs. A downstream step with
+        $stepN.key where step N failed receives None as the input value (not
+        a clear "dependency failed" error). This pins the current behavior:
+        the tool gets a confusing type error, but execution continues.
+        """
+        pipeline = _MockPipeline(fail_on={"step1"})
+        runtime = BatchExecutionRuntime(pipeline)
+        plan = BatchPlan(
+            steps=[
+                BatchStep(tool_name="step0", inputs={"data": "initial"}),
+                BatchStep(tool_name="step1"),  # fails
+                BatchStep(
+                    tool_name="step2",
+                    input_refs={"input": "$step1.some_key"},  # refs failed step
+                ),
+            ],
+            stop_on_error=False,
+        )
+        result = asyncio.run(runtime.execute(plan))
+        assert not result.all_succeeded
+        assert len(pipeline.calls) == 3  # all three attempted
+        # step2 received None (from failed step1) as input
+        assert pipeline.calls[2] == ("step2", {"input": None})
+
     def test_data_flow_chain(self):
         pipeline = _MockPipeline(
             {
