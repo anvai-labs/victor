@@ -247,7 +247,7 @@ jobs:
 
           coverage_files = sorted(Path("coverage-parts").glob(".coverage.*"))
           result_files = sorted(Path("test-results").glob("test-results-py3.12-shard*.json"))
-          expected = 12
+          expected = 6
           if len(coverage_files) != expected or len(result_files) != expected:
               raise SystemExit(
                   f"expected {expected} coverage and result shards; "
