@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from victor.framework.batch_plan import (
+from victor.core.batch_plan import (
     BatchPlan,
     BatchResult,
     BatchStepResult,

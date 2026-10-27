@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from victor.agent.services.batch_execution_runtime import BatchExecutionRuntime
-from victor.framework.batch_plan import BatchPlan, BatchStep
+from victor.core.batch_plan import BatchPlan, BatchStep
 
 
 class _MockPipeline:
