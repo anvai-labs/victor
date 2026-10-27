@@ -190,7 +190,9 @@ def _apply_agent_mode(mode: str | None) -> None:
     inside the config (equality round-trip), so switch on the EFFECTIVE mode:
     reverting the panel to 'build' must switch the controller back. A switch
     failure degrades loudly to the log, never aborts client construction
-    (mirrors the CLI's warn-and-continue).
+    (mirrors the CLI's warn-and-continue). Like the CLI, the controller is
+    process-global: concurrent browser sessions in one process would share it
+    (accepted for the single-user loopback deployment UX-02 qualifies).
     """
     effective = (mode or "build").strip().lower()
     try:

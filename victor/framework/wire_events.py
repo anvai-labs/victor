@@ -78,7 +78,7 @@ WIRE_EVENT_TYPES = frozenset(
 
 # Additive team-member lifecycle events (ADR-023 / FEP-0028 pillar 3). Emitted only during
 # multi-agent team turns; consumers that don't render lanes ignore them. Kept separate from
-# the core set so the base single-agent contract stays exactly six types.
+# the core set (eight types since UX-02 admitted progress/milestone).
 from victor.framework.member_event_sink import (
     MEMBER_THROTTLED,
     MEMBER_SPOKE,

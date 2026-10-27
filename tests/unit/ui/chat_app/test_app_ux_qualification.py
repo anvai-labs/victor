@@ -17,7 +17,7 @@
 ``chainlit`` is faked via ``sys.modules`` (sibling-suite pattern). These pin the
 three UI facts the audit called out: plan progress reaches the browser as ONE
 updating status line, a failed terminal outcome renders a durable summary card,
-and the settings panel now owns explicit mode/reasoning/planning controls.
+and the settings panel now owns explicit mode/reasoning controls.
 """
 
 from __future__ import annotations
