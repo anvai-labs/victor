@@ -2608,6 +2608,43 @@ class AgenticLoop(TopologyPlanningMixin):
                 )
             )
 
+    async def _execute_batch_plan(self, batch_plan: Any, state: Dict[str, Any]) -> Any:
+        """Execute a FEP-0041 batch plan: sequential tool calls, one turn.
+
+        Delegates to BatchExecutionRuntime (agent services layer) which
+        calls the ToolPipeline for each step. Returns a BatchResult
+        that EVALUATE can inspect: step_results, all_succeeded, error.
+        """
+        from victor.agent.services.batch_execution_runtime import BatchExecutionRuntime
+
+        tool_pipeline = self._resolve_tool_pipeline()
+        if tool_pipeline is None:
+            logger.warning("FEP-0041: no tool pipeline available; batch plan skipped")
+            state.pop("_batch_plan", None)
+            return None
+
+        runtime = BatchExecutionRuntime(tool_pipeline)
+        context = {"query": state.get("query", ""), "session_id": state.get("session_id")}
+        result = await runtime.execute(batch_plan, context)
+        state.pop("_batch_plan", None)  # one-shot: don't re-execute
+        logger.info(
+            "FEP-0041: batch executed — %d/%d steps succeeded",
+            sum(1 for r in result.step_results if r.success),
+            len(batch_plan.steps),
+        )
+        return result
+
+    def _resolve_tool_pipeline(self) -> Any:
+        """Find the ToolPipeline from the orchestrator (or None)."""
+        orchestrator = getattr(self, "orchestrator", None)
+        if orchestrator is None:
+            return None
+        for attr in ("tool_pipeline", "_tool_pipeline", "pipeline"):
+            pipeline = getattr(orchestrator, attr, None)
+            if pipeline is not None and hasattr(pipeline, "_execute_single_call"):
+                return pipeline
+        return None
+
     async def _act(
         self,
         plan: Any,
@@ -2623,6 +2660,13 @@ class AgenticLoop(TopologyPlanningMixin):
             TurnResult when using turn_executor, or Any from fallbacks.
         """
         query = state.get("query", "")
+
+        # FEP-0041: batch plan dispatch — if the PLAN step emitted a
+        # batch plan, execute all steps directly (no LLM round-trips
+        # between calls). EVALUATE sees the BatchResult after.
+        batch_plan = state.get("_batch_plan")
+        if batch_plan is not None:
+            return await self._execute_batch_plan(batch_plan, state)
 
         # PRIMARY: Use turn_executor for single-turn (no nested loop)
         if self.turn_executor is not None:
