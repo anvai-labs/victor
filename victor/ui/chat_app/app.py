@@ -124,15 +124,20 @@ def _session_config(
     model: str | None = None,
     approval: bool = True,
     mode: str | None = None,
-    show_reasoning: bool = False,
-    planning: bool = False,
+    show_reasoning: bool = True,
 ) -> SessionConfig:
     """Build a SessionConfig from chat controls — shared by startup and ChatSettings updates.
 
     Tool approval gating is coupled to the toggle: when off, ``ask_on_tools`` is emptied so no
     tool prompts fire. Empty provider/model/profile fall back to the active defaults.
-    ``mode`` selects agent behavior ('build' | 'plan' | 'explore'); UX-02 explicit
-    mode controls.
+    ``mode`` selects agent behavior ('build' | 'plan' | 'explore') and is applied to
+    the runtime by :func:`_apply_agent_mode` when the client is built; UX-02
+    explicit mode controls. ``show_reasoning`` defaults ON to preserve the
+    always-render reasoning behavior and gates the THINKING render in
+    :func:`_run_turn`. (A "structured planning" switch is deliberately absent:
+    ``SessionConfig.planning_enabled`` has no consumer on the streaming chat
+    path — the CLI session runner owns it — and a config knob nobody reads is
+    control theater.)
     """
     if not isinstance(approval, bool):
         raise ValueError("Tool approval must be a boolean")
@@ -157,7 +162,6 @@ def _session_config(
         ask_fallback="deny",
         mode=normalized_mode,
         show_reasoning=show_reasoning,
-        planning_enabled=planning or None,
     )
 
 
@@ -177,18 +181,44 @@ def _current_config() -> SessionConfig:
     return config
 
 
+def _apply_agent_mode(mode: str | None) -> None:
+    """Switch the process agent mode to match the panel selection.
+
+    UX-02 mode controls: ``SessionConfig.mode`` has no runtime reader — the
+    canonical seam is the mode-controller switch the CLI session runner drives
+    (``FrameworkSessionRunner.apply_agent_mode``). 'build' normalizes to None
+    inside the config (equality round-trip), so switch on the EFFECTIVE mode:
+    reverting the panel to 'build' must switch the controller back. A switch
+    failure degrades loudly to the log, never aborts client construction
+    (mirrors the CLI's warn-and-continue).
+    """
+    effective = (mode or "build").strip().lower()
+    try:
+        from victor.core.mode_controller import AgentMode, get_mode_controller
+
+        controller = get_mode_controller()
+        if getattr(controller, "current_mode", None) == effective:
+            return
+        controller.switch_mode(AgentMode(effective))
+    except Exception:
+        logger.warning("agent mode switch to %r failed; staying in current mode", effective)
+
+
 def _configured_client(config: SessionConfig) -> VictorClient | RemoteChatClient:
     """Apply the same approval handler to initial and replacement clients.
 
     Remote mode (``VICTOR_UI_REMOTE_URL``) builds the HTTP transport instead and
     cannot host in-process approval prompts, so risky-tool approval is disabled for
     the session (VAS-14 "remote mode uses API"; the durable FEP-0029 flow is the
-    follow-up that restores approvals remotely).
+    follow-up that restores approvals remotely). Mode is applied only on the
+    embedded branch — remote mode has no server-side mode channel yet, the same
+    accepted no-op class as the approval toggle there.
     """
     remote_url = (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip()
     if remote_url:
         client = RemoteChatClient(remote_url, os.environ.get("VICTOR_UI_REMOTE_API_KEY") or None)
         return client
+    _apply_agent_mode(config.mode)
     client = VictorClient(config)
     client.set_approval_handler(chainlit_approval_handler)
     return client
@@ -299,11 +329,6 @@ async def _send_settings(client: VictorClient) -> None:
                 id="show_reasoning",
                 label="Show reasoning",
                 initial=config.show_reasoning,
-            ),
-            Switch(
-                id="planning",
-                label="Structured planning",
-                initial=bool(config.planning_enabled),
             ),
         ]
     ).send()
@@ -437,7 +462,6 @@ async def on_settings_update(settings: dict) -> None:
             approval=settings.get("tool_approval", current.tool_approval.enabled),
             mode=settings.get("mode", current.mode or "build"),
             show_reasoning=bool(settings.get("show_reasoning", current.show_reasoning)),
-            planning=bool(settings.get("planning", bool(current.planning_enabled))),
         )
         if config == current:
             return
@@ -508,6 +532,9 @@ async def _on_retry_turn(action: "cl.Action") -> None:
 
 async def _run_turn(client: VictorClient, content: str) -> None:
     """Stream a Victor turn, rendering tokens, reasoning, and tool calls."""
+    # UX-02 show-reasoning control: default ON (the pre-control behavior was to
+    # always render reasoning); OFF collapses THINKING events entirely.
+    show_reasoning = bool(getattr(_current_config(), "show_reasoning", True))
     # P1.4 first-token feedback: a transient "Thinking…" message so the user never stares at
     # a blank bubble; removed the instant any real output (token/reasoning/tool) arrives.
     thinking = cl.Message(content="🔄 _Thinking…_")
@@ -614,6 +641,8 @@ async def _run_turn(client: VictorClient, content: str) -> None:
 
                 elif action.kind is RenderKind.THINKING:
                     await _clear_thinking()
+                    if not show_reasoning:
+                        continue
                     if action.text:
                         reasoning_text += action.text
                         if reasoning_step is None:

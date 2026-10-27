@@ -42,7 +42,7 @@ def _event(event_type: str, **kwargs) -> SimpleNamespace:
 
 
 class TestToWireEvent:
-    def test_all_six_contract_types_serialize(self):
+    def test_all_contract_types_serialize(self):
         wires = [
             to_wire_event(_event("thinking", content="hmm")),
             to_wire_event(_event("tool_call", tool_name="read", arguments={"path": "a.py"})),
@@ -50,6 +50,8 @@ class TestToWireEvent:
             to_wire_event(_event("content", content="hello")),
             to_wire_event(_event("error", content="boom")),
             to_wire_event(_event("stream_end")),
+            to_wire_event(_event("progress", content="50% complete")),
+            to_wire_event(_event("milestone", content="step 2 of 7")),
         ]
         assert all(w is not None for w in wires)
         assert {w["event"] for w in wires} == WIRE_EVENT_TYPES
@@ -61,8 +63,51 @@ class TestToWireEvent:
         assert wire["success"] is False
 
     def test_out_of_contract_types_return_none(self):
-        for event_type in ("tool_progress", "stage_change", "milestone", "custom", ""):
+        for event_type in ("tool_progress", "stage_change", "custom", ""):
             assert to_wire_event(_event(event_type, content="x")) is None
+
+    def test_production_chain_delivers_progress_and_milestones(self):
+        """The REAL wire path: factory -> _to_stream_event -> to_wire_event.
+
+        Independent review round 2: the wire branch read only ``event.milestone``,
+        but its production caller (``stream_wire_events`` -> ``client.stream()``)
+        feeds ``_StreamEvent`` objects whose text is composed onto ``content`` —
+        canonical milestone/progress events were silently dropped for remote UIs
+        (the UX-02 symptom the branch exists to fix).
+        """
+        from victor.framework.client import _to_stream_event
+        from victor.framework.events import milestone_event, progress_event
+
+        milestone = to_wire_event(_to_stream_event(milestone_event("step 2 of 7", metadata={})))
+        progress = to_wire_event(_to_stream_event(progress_event(0.5)))
+
+        assert milestone == {"v": WIRE_VERSION, "event": "milestone", "content": "step 2 of 7"}
+        assert progress == {"v": WIRE_VERSION, "event": "progress", "content": "50% complete"}
+
+    def test_thinking_status_is_not_duplicated(self):
+        """The streaming handler mirrors the status string into BOTH the milestone
+        text and ``metadata["status"]`` — composition must not render it twice."""
+        raw = to_wire_event(
+            _event(
+                "milestone",
+                milestone="🧠 Thinking...",
+                metadata={"status": "🧠 Thinking..."},
+            )
+        )
+        composed = to_wire_event(_event("milestone", content="🧠 Thinking..."))
+        assert raw["content"] == "🧠 Thinking..."
+        assert composed["content"] == "🧠 Thinking..."
+
+    def test_error_and_failed_end_texts_match_for_long_errors(self):
+        """The chat UI dedupes the inline error against the terminal OUTCOME card
+        by string equality; the wire error message and the failing stream_end
+        error must truncate IDENTICALLY or long errors render twice remotely."""
+        long_error = "x" * 5_000
+        error_wire = to_wire_event(_event("error", content=long_error))
+        end_wire = to_wire_event(
+            _event("stream_end", metadata={"error": long_error}, success=False)
+        )
+        assert error_wire["message"] == end_wire["error"]
 
     def test_empty_content_events_are_dropped(self):
         assert to_wire_event(_event("content", content="")) is None

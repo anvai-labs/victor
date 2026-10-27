@@ -208,6 +208,20 @@ class TestProgressAndOutcomeMapping:
         assert progress.kind is RenderKind.PROGRESS and progress.text == "50% complete"
         assert progress.metadata["milestone"] is False
 
+    def test_real_thinking_milestone_is_not_duplicated(self):
+        """The streaming handler mirrors the status string into BOTH the milestone
+        text and ``metadata['status']`` — composition must not render it twice."""
+        from victor.framework.client import _to_stream_event
+        from victor.framework.events import milestone_event
+
+        action = map_event(
+            _to_stream_event(
+                milestone_event("🧠 Thinking...", metadata={"status": "🧠 Thinking..."})
+            )
+        )
+        assert action.kind is RenderKind.PROGRESS
+        assert action.text == "🧠 Thinking..."
+
 
 class TestTurnRendering:
     async def test_progress_updates_one_status_line_and_clears_it(self, app_module):
@@ -254,21 +268,21 @@ class TestTurnRendering:
 
 
 class TestModeControls:
-    def test_session_config_accepts_mode_reasoning_planning(self, app_module, monkeypatch):
+    def test_session_config_accepts_mode_and_reasoning(self, app_module, monkeypatch):
         module, _ = app_module
         monkeypatch.delenv("VICTOR_UI_REMOTE_URL", raising=False)
-        config = module._session_config("default", mode="plan", show_reasoning=True, planning=True)
+        config = module._session_config("default", mode="plan", show_reasoning=True)
         assert config.mode == "plan"
         assert config.show_reasoning is True
-        assert config.planning_enabled is True
 
     def test_session_config_defaults_preserve_unset_behavior(self, app_module, monkeypatch):
         module, _ = app_module
         monkeypatch.delenv("VICTOR_UI_REMOTE_URL", raising=False)
         config = module._session_config("default")
         assert config.mode is None
-        assert config.show_reasoning is False
-        assert config.planning_enabled is None
+        # show_reasoning defaults ON: the pre-control behavior was to always
+        # render reasoning, and a new switch must not silently change it.
+        assert config.show_reasoning is True
 
     def test_explicit_build_round_trips_equal_to_default(self, app_module, monkeypatch):
         """Panel 'build' must equal the unset default or unchanged-confirm rebuilds."""
@@ -294,4 +308,82 @@ class TestModeControls:
 
         assert SETTINGS_PANELS, "the settings panel must be sent"
         ids = {getattr(w, "id", None) for w in SETTINGS_PANELS[-1]}
-        assert {"mode", "show_reasoning", "planning", "tool_approval"} <= ids
+        assert {"mode", "show_reasoning", "tool_approval"} <= ids
+        # Negative pin: a 'structured planning' switch was removed —
+        # SessionConfig.planning_enabled has no consumer on the chat path.
+        assert "planning" not in ids
+
+
+class TestModeApplication:
+    """UX-02 round-2 review: a config knob with no runtime reader is control
+    theater — the panel's mode MUST reach the mode controller."""
+
+    def test_apply_agent_mode_switches_and_reverts(self, app_module):
+        from victor.core.mode_controller import AgentMode, get_mode_controller
+
+        module, _ = app_module
+        controller = get_mode_controller()
+        original = getattr(controller, "current_mode", AgentMode.BUILD)
+        try:
+            module._apply_agent_mode("plan")
+            assert controller.current_mode == AgentMode.PLAN
+            # Panel reverted to 'build' (config normalizes to None): the
+            # EFFECTIVE mode must switch the controller back, not no-op.
+            module._apply_agent_mode(None)
+            assert controller.current_mode == AgentMode.BUILD
+        finally:
+            controller.switch_mode(original)
+
+    def test_configured_client_applies_mode_embedded(self, app_module, monkeypatch):
+        module, _ = app_module
+        monkeypatch.delenv("VICTOR_UI_REMOTE_URL", raising=False)
+        from victor.core.mode_controller import AgentMode, get_mode_controller
+
+        controller = get_mode_controller()
+        original = getattr(controller, "current_mode", AgentMode.BUILD)
+        try:
+            config = module._session_config("default", mode="plan")
+            module._configured_client(config)
+            assert controller.current_mode == AgentMode.PLAN
+        finally:
+            controller.switch_mode(original)
+
+
+class TestReasoningGate:
+    """UX-02 show-reasoning control: ON by default (preserves the always-render
+    behavior); OFF collapses THINKING events entirely."""
+
+    async def test_reasoning_rendered_by_default(self, app_module):
+        module, fake_cl = app_module
+        client = _TurnClient(
+            [
+                SimpleNamespace(event_type="thinking", content="because", metadata={}),
+                SimpleNamespace(event_type="content", content="answer", metadata={}),
+            ]
+        )
+        fake_cl.user_session.set(module._CLIENT_KEY, client)
+        fake_cl.user_session.set(module._CONFIG_KEY, module._session_config("default"))
+
+        await module._run_turn(client, "go")
+
+        reasoning = [s for s in _FakeStep.created if s.name == "reasoning"]
+        assert reasoning and "because" in str(reasoning[0].output)
+
+    async def test_reasoning_hidden_when_disabled(self, app_module, monkeypatch):
+        module, fake_cl = app_module
+        monkeypatch.delenv("VICTOR_UI_REMOTE_URL", raising=False)
+        client = _TurnClient(
+            [
+                SimpleNamespace(event_type="thinking", content="secret thoughts", metadata={}),
+                SimpleNamespace(event_type="content", content="answer", metadata={}),
+            ]
+        )
+        fake_cl.user_session.set(module._CLIENT_KEY, client)
+        fake_cl.user_session.set(
+            module._CONFIG_KEY, module._session_config("default", show_reasoning=False)
+        )
+
+        await module._run_turn(client, "go")
+
+        reasoning = [s for s in _FakeStep.created if s.name == "reasoning"]
+        assert not reasoning, "show_reasoning=False must collapse THINKING events"

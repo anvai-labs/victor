@@ -253,7 +253,9 @@ def _to_stream_event(event: Any) -> _StreamEvent:
             fraction = getattr(event, "progress", None)
             text = f"{int(fraction * 100)}% complete" if isinstance(fraction, (int, float)) else ""
         status = event_metadata.get("status") or event_metadata.get("message")
-        if status:
+        # The thinking producer puts the SAME string on both the milestone text
+        # and metadata["status"]; compose only when they differ (no "x · x").
+        if status and str(status) != text:
             text = f"{text} · {status}" if text else str(status)
         return _StreamEvent(
             event.type,
