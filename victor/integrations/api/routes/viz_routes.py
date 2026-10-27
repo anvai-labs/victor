@@ -135,6 +135,11 @@ def create_router(server: Any) -> APIRouter:
             )
         return JSONResponse(result)
 
+    @router.get("/api/graph/deployment")
+    async def deployment() -> JSONResponse:
+        """Victor's deployment topology (ADR-033 UML families)."""
+        return JSONResponse(viz_queries.deployment_diagram(require_db()))
+
     @router.get("/api/graph/ffi-surface")
     async def ffi_surface() -> JSONResponse:
         """The cross-language FFI callsite map (python wrapper → rust fn)."""

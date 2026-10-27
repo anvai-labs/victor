@@ -133,7 +133,7 @@ def test_changed_file_gate_defers_only_main_promotion_and_protected_merge_to_ful
     assert not test.get("continue-on-error")
     matrix = test["strategy"]["matrix"]
     assert matrix["python-version"] == ["3.12", "3.13"]
-    assert matrix["shard"] == list(range(1, 13))
+    assert matrix["shard"] == list(range(1, 7))  # 6 shards (resized from 12 in #1531)
 
 
 @pytest.fixture

@@ -653,59 +653,79 @@ def _rust_cfg_attributes(node, src: bytes) -> list[str]:
 
 
 def _javascript_bound_names(node, src: bytes) -> list[str]:
-    """Record parameter and assignment shadowing in enclosing lexical scopes."""
+    """Record parameter and assignment shadowing in enclosing lexical scopes.
+
+    MEMOIZED PER ANCESTOR LEVEL: the original walk visited every ancestor
+    function/program for every symbol — N top-level symbols each walk the
+    program's entire subtree = O(n²). Each ancestor LEVEL's walk result
+    is computed once (keyed by the ancestor's byte range) and shared by
+    all symbols under it.
+    """
     names: set[str] = set()
     value = node.child_by_field_name("value")
     ancestor = value if value is not None and value.type in _FUNC_NODES else node
     while ancestor is not None:
         if ancestor.type in _FUNC_NODES or ancestor.type == "program":
-            stack = list(ancestor.named_children)
-            parameter = (
-                ancestor.child_by_field_name("parameter")
-                if ancestor.type == "arrow_function"
-                else None
-            )
-            if parameter is not None:
-                names.add(_text(parameter, src))
-            while stack:
-                item = stack.pop()
-                if (
-                    item.type in _FUNC_NODES and _name_of(item, src) is not None
-                ) or item.type in _CLASS_NODES:
-                    continue
-                field = None
-                if item.type == "arrow_function":
-                    field = item.child_by_field_name("parameter")
-                elif item.type == "catch_clause":
-                    field = item.child_by_field_name("parameter")
-                elif item.type in {"required_parameter", "optional_parameter"}:
-                    field = item.child_by_field_name("pattern")
-                elif item.type in {"assignment_expression", "augmented_assignment_expression"}:
-                    field = item.child_by_field_name("left")
-                elif item.type == "variable_declarator":
-                    value = item.child_by_field_name("value")
-                    owner = item.parent
-                    while owner is not None and owner.type not in _FUNC_NODES:
-                        owner = owner.parent
-                    if value is None or value.type not in _FUNC_NODES or owner is not None:
-                        field = item.child_by_field_name("name")
-                elif (
-                    item.parent is not None
-                    and item.parent.type == "formal_parameters"
-                    and item.type == "identifier"
-                ):
-                    field = item
-                if field is not None:
-                    pending = [field]
-                    while pending:
-                        part = pending.pop()
-                        if part.type in {"identifier", "shorthand_property_identifier_pattern"}:
-                            names.add(_text(part, src))
-                        elif part.type != "member_expression":
-                            pending.extend(part.named_children)
-                stack.extend(item.named_children)
+            memo_key = (ancestor.start_byte, ancestor.end_byte)
+            level_names = _JS_BOUND_LEVEL_MEMO.get(memo_key)
+            if level_names is None:
+                level_names = _javascript_walk_level(ancestor, src)
+                _JS_BOUND_LEVEL_MEMO[memo_key] = level_names
+            names.update(level_names)
         ancestor = ancestor.parent
     return sorted(names)
+
+
+_JS_BOUND_LEVEL_MEMO: dict[tuple[int, int], set[str]] = {}
+
+
+def _javascript_walk_level(ancestor, src: bytes) -> set[str]:
+    """Walk ONE ancestor level's named children for bound names."""
+    names: set[str] = set()
+    stack = list(ancestor.named_children)
+    parameter = (
+        ancestor.child_by_field_name("parameter") if ancestor.type == "arrow_function" else None
+    )
+    if parameter is not None:
+        names.add(_text(parameter, src))
+    while stack:
+        item = stack.pop()
+        if (
+            item.type in _FUNC_NODES and _name_of(item, src) is not None
+        ) or item.type in _CLASS_NODES:
+            continue
+        field = None
+        if item.type == "arrow_function":
+            field = item.child_by_field_name("parameter")
+        elif item.type == "catch_clause":
+            field = item.child_by_field_name("parameter")
+        elif item.type in {"required_parameter", "optional_parameter"}:
+            field = item.child_by_field_name("pattern")
+        elif item.type in {"assignment_expression", "augmented_assignment_expression"}:
+            field = item.child_by_field_name("left")
+        elif item.type == "variable_declarator":
+            value = item.child_by_field_name("value")
+            owner = item.parent
+            while owner is not None and owner.type not in _FUNC_NODES:
+                owner = owner.parent
+            if value is None or value.type not in _FUNC_NODES or owner is not None:
+                field = item.child_by_field_name("name")
+        elif (
+            item.parent is not None
+            and item.parent.type == "formal_parameters"
+            and item.type == "identifier"
+        ):
+            field = item
+        if field is not None:
+            pending = [field]
+            while pending:
+                part = pending.pop()
+                if part.type in {"identifier", "shorthand_property_identifier_pattern"}:
+                    names.add(_text(part, src))
+                elif part.type != "member_expression":
+                    pending.extend(part.named_children)
+        stack.extend(item.named_children)
+    return names
 
 
 def _javascript_conditional(node) -> bool:
@@ -824,6 +844,7 @@ def parse_treesitter(
     relations for identifier uses owned by each symbol (``scope_binding``); the
     default preserves the pre-tier-2.5 output.
     """
+    _JS_BOUND_LEVEL_MEMO.clear()
 
     grammar = TREE_SITTER_GRAMMAR.get(language)
     if grammar is None:

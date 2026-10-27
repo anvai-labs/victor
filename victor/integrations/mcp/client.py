@@ -52,6 +52,11 @@ from victor.integrations.mcp.protocol import (
 
 logger = logging.getLogger(__name__)
 
+# Structured image artifacts from MCP image content blocks: bounded so a
+# chatty tool cannot balloon agent state (4 images, ~2 MiB base64 each).
+_MAX_RESULT_IMAGES = 4
+_MAX_IMAGE_B64_CHARS = 2 * 1024 * 1024
+
 
 class MCPClient:
     """MCP client that connects to external MCP servers.
@@ -395,14 +400,35 @@ class MCPClient:
             # {"content": [{"type": "text", "text": "..."}], "isError": false}
             content_blocks = result_data.get("content", [])
             text_parts = []
+            images: list[dict[str, str]] = []
+            dropped_images = 0
             for block in content_blocks:
                 if isinstance(block, dict) and block.get("type") == "text":
                     text_parts.append(block.get("text", ""))
                 elif isinstance(block, dict) and block.get("type") == "image":
-                    # Handle image content blocks
+                    # Keep the bytes for rich surfaces (bounded); text consumers
+                    # still see a placeholder line in the combined result.
+                    b64 = str(block.get("data", "") or "")
+                    if (
+                        b64
+                        and len(images) < _MAX_RESULT_IMAGES
+                        and len(b64) <= _MAX_IMAGE_B64_CHARS
+                    ):
+                        images.append(
+                            {"mime_type": str(block.get("mimeType", "image/png")), "b64": b64}
+                        )
+                    elif b64:
+                        dropped_images += 1
+                    else:
+                        text_parts.append("[image block without data]")
                     text_parts.append(f"[image: {block.get('mimeType', 'image')}]")
                 elif isinstance(block, str):
                     text_parts.append(block)
+            if dropped_images:
+                text_parts.append(
+                    f"[{dropped_images} image(s) dropped: over the "
+                    f"{_MAX_RESULT_IMAGES}-image / {_MAX_IMAGE_B64_CHARS // 1024}KiB artifact bound]"
+                )
             combined_result = "\n".join(text_parts) if text_parts else str(result_data)
             is_error = result_data.get("isError", False)
             return MCPToolCallResult(
@@ -410,6 +436,7 @@ class MCPClient:
                 success=not is_error,
                 result=combined_result,
                 error=combined_result if is_error else None,
+                images=images,
             )
         elif response and "error" in response:
             error = response["error"]

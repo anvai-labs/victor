@@ -718,6 +718,11 @@ RELATED_TESTS = {
         "tests/unit/providers/test_failure_taxonomy.py",
         "tests/unit/providers/test_stream_setup_config.py",
     ),
+    # Chat routes: the wire-stream contract and the auth/attribution seam.
+    "victor/integrations/api/routes/chat_routes.py": (
+        "tests/unit/integrations/api/test_fastapi_chat_wire_stream.py",
+        "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
+    ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",
         "tests/unit/protocols/test_protocol_adapters.py",

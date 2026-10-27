@@ -116,6 +116,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _tool_result_images(result: "ToolResult") -> Optional[List[Dict[str, str]]]:
+    """Extract bounded structured image artifacts from a successful ToolResult."""
+    metadata = getattr(result, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    images = metadata.get("images")
+    if isinstance(images, list) and images:
+        return [img for img in images if isinstance(img, dict)]
+    return None
+
+
 class ToolExecutionResult:
     """Result of a tool execution attempt.
 
@@ -141,6 +152,7 @@ class ToolExecutionResult:
         preview_lines: int = 3,
         was_pruned: bool = False,
         pruning_info: Any = None,
+        images: Optional[List[Dict[str, str]]] = None,
     ):
         """Initialize tool execution result.
 
@@ -173,6 +185,9 @@ class ToolExecutionResult:
         self.truncation_info: Any = None
         # New fields for preview support
         self.original_result = original_result if original_result is not None else result
+        # Structured image artifacts (additive channel): carried separately so
+        # they never mix into the LLM-visible result text.
+        self.images: List[Dict[str, str]] = list(images) if images else []
         self.preview_lines = preview_lines
         self.was_pruned = was_pruned
         self.pruning_info = pruning_info
@@ -911,7 +926,7 @@ class ToolExecutor:
             return result
 
         # Execute with retry
-        result, success, error, retries, error_info = await self._execute_with_retry(
+        result, success, error, retries, error_info, tool_images = await self._execute_with_retry(
             tool, normalized_args, exec_context
         )
         recovered_execution = None
@@ -1045,6 +1060,8 @@ class ToolExecutor:
             preview_lines=3,  # Will be overridden by formatter settings
             was_pruned=False,
             pruning_info=None,
+            # Structured image artifacts ride the result channel, not the text.
+            images=tool_images,
         )
         exec_result.truncation_info = truncation_info
         return exec_result
@@ -1177,7 +1194,7 @@ class ToolExecutor:
         tool: BaseTool,
         arguments: Dict[str, Any],
         context: Dict[str, Any],
-    ) -> Tuple[Any, bool, Optional[str], int, Optional[ErrorInfo]]:
+    ) -> Tuple[Any, bool, Optional[str], int, Optional[ErrorInfo], Optional[List[Dict[str, str]]]]:
         """Execute a tool with retry logic from unified BaseRetryStrategy.
 
         Uses the configured retry strategy for exponential backoff and
@@ -1190,8 +1207,9 @@ class ToolExecutor:
             context: Context to pass to the tool
 
         Returns:
-            Tuple of (result, success, error_message, retry_count, error_info)
-            error_info is only populated on failure for structured error tracking
+            Tuple of (result, success, error_message, retry_count, error_info, images)
+            error_info is only populated on failure for structured error tracking;
+            images carries structured image artifacts on success (None otherwise).
         """
         from victor.agent.action_observation import ActionStateError
 
@@ -1259,6 +1277,7 @@ class ToolExecutor:
                             None,
                             retry_context.attempt - 1,
                             None,
+                            _tool_result_images(result),
                         )
                     else:
                         # Don't retry if tool explicitly returned failure
@@ -1282,11 +1301,12 @@ class ToolExecutor:
                             error,
                             retry_context.attempt - 1,
                             error_info,
+                            None,
                         )
                 else:
                     # Raw result (for tools that don't return ToolResult)
                     self.retry_strategy.on_success(retry_context)
-                    return result, True, None, retry_context.attempt - 1, None
+                    return result, True, None, retry_context.attempt - 1, None, None
 
             except ActionStateError as exc:
                 last_error_info = self.error_handler.handle(exc, context={"tool": tool.name})
@@ -1297,6 +1317,7 @@ class ToolExecutor:
                     last_error_info.to_user_message(),
                     retry_context.attempt - 1,
                     last_error_info,
+                    None,
                 )
 
             except asyncio.TimeoutError as e:
@@ -1322,6 +1343,7 @@ class ToolExecutor:
                         last_error_info.to_user_message(),
                         retry_context.attempt - 1,
                         last_error_info,
+                        None,
                     )
                 if self.retry_strategy.should_retry(retry_context):
                     self.retry_strategy.on_retry(retry_context)
@@ -1337,6 +1359,7 @@ class ToolExecutor:
                         str(timeout_error),
                         retry_context.attempt - 1,
                         last_error_info,
+                        None,
                     )
 
             except (
@@ -1373,6 +1396,7 @@ class ToolExecutor:
                         last_error_info.to_user_message(),
                         retry_context.attempt - 1,
                         last_error_info,
+                        None,
                     )
                 logger.warning(
                     "[%s] Tool %s failed (attempt %d/%d): %s",
@@ -1402,6 +1426,7 @@ class ToolExecutor:
                         error_msg,
                         retry_context.attempt - 1,
                         last_error_info,
+                        None,
                     )
 
             except Exception as e:
@@ -1419,6 +1444,7 @@ class ToolExecutor:
                     last_error_info.to_user_message(),
                     retry_context.attempt - 1,
                     last_error_info,
+                    None,
                 )
 
     def _track_error_category(self, category: ErrorCategory) -> None:
@@ -1511,10 +1537,8 @@ class ToolExecutor:
             recovered_path,
         )
 
-        result, success, recovered_error, retries, error_info = await self._execute_with_retry(
-            tool,
-            recovered_args,
-            context,
+        result, success, recovered_error, retries, error_info, _ = await self._execute_with_retry(
+            tool, recovered_args, context
         )
         if success and isinstance(result, str):
             result = (

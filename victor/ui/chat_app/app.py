@@ -41,9 +41,12 @@ from victor.ui.chat_app.event_mapping import (
     RenderKind,
     history_messages,
     map_event,
+    map_wire_event,
     provider_switch_hint,
 )
+from victor.ui.chat_app.remote_client import RemoteChatClient
 from victor.ui.rendering.markdown_presenters import (
+    image_artifact_placeholder,
     tool_call_summary,
     tool_result_markdown,
     turn_cost_footer,
@@ -51,6 +54,18 @@ from victor.ui.rendering.markdown_presenters import (
 from victor.ui.rendering.utils import format_duration
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_image_bytes(image: dict) -> bytes:
+    """Decode an artifact's base64 payload; undecodable artifacts render empty."""
+    import base64
+    import binascii
+
+    try:
+        return base64.b64decode(str(image.get("b64", "")), validate=False)
+    except (binascii.Error, ValueError):
+        logger.warning("image artifact had undecodable base64 payload")
+        return b""
 
 
 def _format_follow_ups(suggestions: list[dict]) -> str:
@@ -108,14 +123,35 @@ def _session_config(
     provider: str | None = None,
     model: str | None = None,
     approval: bool = True,
+    mode: str | None = None,
+    show_reasoning: bool = True,
 ) -> SessionConfig:
     """Build a SessionConfig from chat controls — shared by startup and ChatSettings updates.
 
     Tool approval gating is coupled to the toggle: when off, ``ask_on_tools`` is emptied so no
     tool prompts fire. Empty provider/model/profile fall back to the active defaults.
+    ``mode`` selects agent behavior ('build' | 'plan' | 'explore') and is applied to
+    the runtime by :func:`_apply_agent_mode` when the client is built; UX-02
+    explicit mode controls. ``show_reasoning`` defaults ON to preserve the
+    always-render reasoning behavior and gates the THINKING render in
+    :func:`_run_turn`. (A "structured planning" switch is deliberately absent:
+    ``SessionConfig.planning_enabled`` has no consumer on the streaming chat
+    path — the CLI session runner owns it — and a config knob nobody reads is
+    control theater.)
     """
     if not isinstance(approval, bool):
         raise ValueError("Tool approval must be a boolean")
+    if (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip():
+        # Remote mode has no mid-stream approval channel yet; never half-arm it.
+        approval = False
+    normalized_mode = (mode or "").strip().lower() or None
+    if normalized_mode not in (None, "build", "plan", "explore"):
+        raise ValueError(f"Unknown mode: {mode!r}")
+    if normalized_mode == "build":
+        # 'build' IS the default behavior: an explicit 'build' from the panel
+        # must round-trip equal to the unset default, or confirming unchanged
+        # settings would rebuild the client (#1348 regression class).
+        normalized_mode = None
     return SessionConfig.from_cli_flags(
         agent_profile=profile or None,
         provider=provider or None,
@@ -124,6 +160,8 @@ def _session_config(
         tool_approval_enabled=approval,
         ask_on_tools=_ASK_ON_TOOLS if approval else [],
         ask_fallback="deny",
+        mode=normalized_mode,
+        show_reasoning=show_reasoning,
     )
 
 
@@ -143,8 +181,46 @@ def _current_config() -> SessionConfig:
     return config
 
 
-def _configured_client(config: SessionConfig) -> VictorClient:
-    """Apply the same approval handler to initial and replacement clients."""
+def _apply_agent_mode(mode: str | None) -> None:
+    """Switch the process agent mode to match the panel selection.
+
+    UX-02 mode controls: ``SessionConfig.mode`` has no runtime reader — the
+    canonical seam is the mode-controller switch the CLI session runner drives
+    (``FrameworkSessionRunner.apply_agent_mode``). 'build' normalizes to None
+    inside the config (equality round-trip), so switch on the EFFECTIVE mode:
+    reverting the panel to 'build' must switch the controller back. A switch
+    failure degrades loudly to the log, never aborts client construction
+    (mirrors the CLI's warn-and-continue). Like the CLI, the controller is
+    process-global: concurrent browser sessions in one process would share it
+    (accepted for the single-user loopback deployment UX-02 qualifies).
+    """
+    effective = (mode or "build").strip().lower()
+    try:
+        from victor.core.mode_controller import AgentMode, get_mode_controller
+
+        controller = get_mode_controller()
+        if getattr(controller, "current_mode", None) == effective:
+            return
+        controller.switch_mode(AgentMode(effective))
+    except Exception:
+        logger.warning("agent mode switch to %r failed; staying in current mode", effective)
+
+
+def _configured_client(config: SessionConfig) -> VictorClient | RemoteChatClient:
+    """Apply the same approval handler to initial and replacement clients.
+
+    Remote mode (``VICTOR_UI_REMOTE_URL``) builds the HTTP transport instead and
+    cannot host in-process approval prompts, so risky-tool approval is disabled for
+    the session (VAS-14 "remote mode uses API"; the durable FEP-0029 flow is the
+    follow-up that restores approvals remotely). Mode is applied only on the
+    embedded branch — remote mode has no server-side mode channel yet, the same
+    accepted no-op class as the approval toggle there.
+    """
+    remote_url = (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip()
+    if remote_url:
+        client = RemoteChatClient(remote_url, os.environ.get("VICTOR_UI_REMOTE_API_KEY") or None)
+        return client
+    _apply_agent_mode(config.mode)
     client = VictorClient(config)
     client.set_approval_handler(chainlit_approval_handler)
     return client
@@ -195,12 +271,29 @@ def _profile_names() -> list[str]:
         return ["default"]
 
 
-async def _send_settings(client: VictorClient) -> None:
-    """Render the ChatSettings panel (provider / profile / model / approval)."""
+async def _provider_options(client: VictorClient | RemoteChatClient) -> list[str]:
+    """List providers across transports (embedded is sync, remote is async)."""
+    if getattr(client, "is_remote", False):
+        return await client.get_available_providers()
     try:
-        providers = client.get_available_providers()
+        return client.get_available_providers()
     except Exception:
-        providers = []
+        return []
+
+
+async def _send_settings(client: VictorClient) -> None:
+    """Render the ChatSettings panel (provider / profile / model / approval).
+
+    Remote mode: the overrides live on the serving instance, so the panel would
+    be theater — say so once instead of offering controls that never apply.
+    """
+    if getattr(client, "is_remote", False):
+        await cl.Message(
+            content="⚙️ Remote mode — provider, profile and model are set on the "
+            "serving instance (`victor serve`); restart it there to change them."
+        ).send()
+        return
+    providers = await _provider_options(client)
     config = _current_config()
     current_provider = config.provider_override.provider or _PROFILE_DEFAULT
     if current_provider and current_provider not in providers:
@@ -227,6 +320,17 @@ async def _send_settings(client: VictorClient) -> None:
                 id="tool_approval",
                 label="Require approval for risky tools",
                 initial=config.tool_approval.enabled,
+            ),
+            Select(
+                id="mode",
+                label="Agent mode",
+                values=["build", "plan", "explore"],
+                initial_value=config.mode or "build",
+            ),
+            Switch(
+                id="show_reasoning",
+                label="Show reasoning",
+                initial=config.show_reasoning,
             ),
         ]
     ).send()
@@ -343,6 +447,11 @@ async def on_settings_update(settings: dict) -> None:
     """Rebuild the session's VictorClient from the ChatSettings panel selections."""
     async with _session_lock():
         _require_open_session()
+        if (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip():
+            # Defense-in-depth: remote mode sends no settings panel, so this
+            # cannot fire today — but never claim overrides were applied when
+            # they would not reach the serving instance.
+            return
         current = _current_config()
         provider = settings.get("provider", current.provider_override.provider)
         profile = settings.get("profile", current.agent_profile)
@@ -353,6 +462,8 @@ async def on_settings_update(settings: dict) -> None:
             provider=None if provider == _PROFILE_DEFAULT else provider,
             model=settings.get("model", current.provider_override.model),
             approval=settings.get("tool_approval", current.tool_approval.enabled),
+            mode=settings.get("mode", current.mode or "build"),
+            show_reasoning=bool(settings.get("show_reasoning", current.show_reasoning)),
         )
         if config == current:
             return
@@ -423,6 +534,9 @@ async def _on_retry_turn(action: "cl.Action") -> None:
 
 async def _run_turn(client: VictorClient, content: str) -> None:
     """Stream a Victor turn, rendering tokens, reasoning, and tool calls."""
+    # UX-02 show-reasoning control: default ON (the pre-control behavior was to
+    # always render reasoning); OFF collapses THINKING events entirely.
+    show_reasoning = bool(getattr(_current_config(), "show_reasoning", True))
     # P1.4 first-token feedback: a transient "Thinking…" message so the user never stares at
     # a blank bubble; removed the instant any real output (token/reasoning/tool) arrives.
     thinking = cl.Message(content="🔄 _Thinking…_")
@@ -437,6 +551,36 @@ async def _run_turn(client: VictorClient, content: str) -> None:
             except Exception:
                 logger.debug("thinking placeholder removal failed", exc_info=True)
 
+    # UX-02 plan/progress delivery: one status line that UPDATES in place for
+    # progress/milestone events (the browser previously showed nothing while
+    # the server console logged plan progress). Removed at turn end.
+    progress_msg: cl.Message | None = None
+
+    async def _show_progress(text: str, milestone: bool) -> None:
+        nonlocal progress_msg
+        if not text:
+            return
+        body = f"🎯 {text}" if milestone else f"⏳ {text}"
+        try:
+            if progress_msg is None:
+                progress_msg = cl.Message(content=body)
+                await progress_msg.send()
+            else:
+                progress_msg.content = body
+                await progress_msg.update()
+        except Exception:
+            # A status line must never abort a healthy in-flight turn.
+            logger.debug("progress status render failed", exc_info=True)
+
+    async def _clear_progress() -> None:
+        nonlocal progress_msg
+        if progress_msg is not None:
+            try:
+                await progress_msg.remove()
+            except Exception:
+                logger.debug("progress status removal failed", exc_info=True)
+            progress_msg = None
+
     # Natural per-iteration flow (terminal-like): instead of one long message with all tool
     # steps piling at the end, stream each iteration's text into its OWN message segment and
     # group that iteration's tool calls under one collapsible parent step between segments —
@@ -447,6 +591,7 @@ async def _run_turn(client: VictorClient, content: str) -> None:
     pending: dict[str, dict] = {}  # call_id -> {tool_name, arguments}
     reasoning_step: cl.Step | None = None
     reasoning_text = ""
+    last_error_text: str | None = None
 
     async def _finalize_text() -> None:
         nonlocal current_msg
@@ -484,10 +629,13 @@ async def _run_turn(client: VictorClient, content: str) -> None:
             await current_msg.send()
         await current_msg.stream_token(text)
 
+    # Remote mode yields v1 wire dicts; embedded mode yields client stream events.
+    # Both feed the same RenderAction contract, so every branch below is shared.
+    mapper = map_wire_event if getattr(client, "is_remote", False) else map_event
     try:
         async with aclosing(client.stream(content)) as stream:
             async for event in stream:
-                action = map_event(event)
+                action = mapper(event)
 
                 if action.kind is RenderKind.TOKEN:
                     await _clear_thinking()
@@ -495,6 +643,8 @@ async def _run_turn(client: VictorClient, content: str) -> None:
 
                 elif action.kind is RenderKind.THINKING:
                     await _clear_thinking()
+                    if not show_reasoning:
+                        continue
                     if action.text:
                         reasoning_text += action.text
                         if reasoning_step is None:
@@ -538,13 +688,69 @@ async def _run_turn(client: VictorClient, content: str) -> None:
                         follow_ups = _format_follow_ups(action.follow_up_suggestions or [])
                         if follow_ups:
                             output = f"{output}{follow_ups}"
+                        if action.images:
+                            output = f"{output}\n\n{image_artifact_placeholder(action.images)}"
                         step.output = output
                         if not action.success:
                             step.is_error = True
+                    if action.images:
+                        # Structured artifact channel: the pixels follow the tool
+                        # step as inline images (terminal surfaces see the
+                        # placeholder line above instead).
+                        elements = [
+                            cl.Image(
+                                name=f"{tool_name}-{index + 1}",
+                                content=_decode_image_bytes(image),
+                                mime=str(image.get("mime_type", "image/png")),
+                            )
+                            for index, image in enumerate(action.images)
+                        ]
+                        await cl.Message(
+                            content=f"🖼️ **{tool_name}** produced {len(elements)} image "
+                            "artifact(s)",
+                            elements=elements,
+                        ).send()
 
                 elif action.kind is RenderKind.ERROR:
                     await _clear_thinking()
+                    last_error_text = str(action.text)
                     await _emit_text(f"\n\n⚠️ {action.text}")
+
+                elif action.kind is RenderKind.PROGRESS:
+                    await _clear_thinking()
+                    await _show_progress(action.text, bool(action.metadata.get("milestone")))
+
+                elif action.kind is RenderKind.OUTCOME:
+                    # UX-02 failed terminal-outcome rendering: the turn is OVER
+                    # and did not succeed — say so, durably. The pipeline emits
+                    # an error event BEFORE a failing stream_end; dedupe the
+                    # already-rendered inline text instead of printing it twice.
+                    await _clear_thinking()
+                    await _clear_progress()
+                    await _finalize_text()
+                    if action.text == last_error_text:
+                        body = "⚠️ **Turn ended** — see the error above."
+                    else:
+                        body = f"⚠️ **Turn ended** — {action.text}"
+                    await cl.Message(content=body).send()
+
+                elif action.kind is RenderKind.MEMBER_START:
+                    await _clear_thinking()
+                    lane = f"🤖 **{action.member_id or 'member'}** — {action.text}".rstrip(" —")
+                    await cl.Message(content=lane).send()
+
+                elif action.kind is RenderKind.MEMBER_END:
+                    await _clear_thinking()
+                    status = "✅" if action.success else "❌"
+                    lane = f"{status} **{action.member_id or 'member'}** — {action.text}".rstrip(
+                        " —"
+                    )
+                    await cl.Message(content=lane).send()
+
+                elif action.kind is RenderKind.MEMBER_AWAITING:
+                    await _clear_thinking()
+                    lane = f"⏸ **{action.member_id or 'member'}** — {action.text}".rstrip(" —")
+                    await cl.Message(content=lane).send()
 
     except Exception as exc:  # surface failures in-chat with a recovery path
         logger.exception("Victor chat turn failed")
@@ -556,7 +762,7 @@ async def _run_turn(client: VictorClient, content: str) -> None:
         )
         body = f"⚠️ {friendly}"
         try:
-            hint = provider_switch_hint(client.provider_name, client.get_available_providers())
+            hint = provider_switch_hint(client.provider_name, await _provider_options(client))
         except Exception:  # provider listing is best-effort
             hint = ""
         if hint:
@@ -567,6 +773,7 @@ async def _run_turn(client: VictorClient, content: str) -> None:
         ).send()
     finally:
         await _clear_thinking()
+        await _clear_progress()
         await _close_tool_group()
         if reasoning_step is not None:
             try:

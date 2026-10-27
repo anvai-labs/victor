@@ -28,6 +28,10 @@ Wire shape (``v`` is the contract version; additive-only within a version):
     {"v": 1, "event": "content",     "content": "..."}
     {"v": 1, "event": "error",       "message": "..."}
     {"v": 1, "event": "stream_end"}
+    {"v": 1, "event": "stream_end", "error": "...", "success": false}   # UX-02: failure keys,
+                                                                   # present only on a failed end
+    {"v": 1, "event": "progress",   "content": "50% complete · indexing"}  # UX-02 status line
+    {"v": 1, "event": "milestone",  "content": "step 2 of 7"}             # UX-02 plan milestone
     {"v": 1, "event": "member_start","member_id": "m1", "index": 0,
              "formation": "sequential"}                          # ADR-023 team lanes
     {"v": 1, "event": "member_completed", "member_id": "m1", "success": true,
@@ -36,8 +40,11 @@ Wire shape (``v`` is the contract version; additive-only within a version):
 Design notes:
 - ``to_wire_event`` returns ``None`` for event types outside the v1 contract
   (tool_progress, stage_change, …) — they can be admitted additively later.
-- ``TOOL_ERROR`` maps onto ``tool_result`` with ``success: false`` — the wire
-  contract's six types stay closed while losing no fidelity.
+- ``TOOL_ERROR`` maps onto ``tool_result`` with ``success: false`` — tool
+  fidelity stays closed over the tool_call/tool_result pair.
+- ``progress``/``milestone`` (UX-02) and the ``stream_end`` failure keys were
+  admitted additively within v1 — consumers must already tolerate new event
+  kinds and new optional keys (FEP-0039 forward-compatibility rule).
 - Tool results are made JSON-safe and size-bounded: UIs render previews;
   full results belong to the conversation, not the event stream.
 - ``tool_result.result`` is always the human-readable output string, never the
@@ -55,13 +62,23 @@ from typing import Any, AsyncIterator, Dict, Optional
 WIRE_VERSION = 1
 
 # The v1 contract core: these event types cross the wire on every surface.
+# progress/milestone joined additively for UX-02 plan/progress delivery.
 WIRE_EVENT_TYPES = frozenset(
-    {"thinking", "tool_call", "tool_result", "content", "error", "stream_end"}
+    {
+        "thinking",
+        "tool_call",
+        "tool_result",
+        "content",
+        "error",
+        "stream_end",
+        "progress",
+        "milestone",
+    }
 )
 
 # Additive team-member lifecycle events (ADR-023 / FEP-0028 pillar 3). Emitted only during
 # multi-agent team turns; consumers that don't render lanes ignore them. Kept separate from
-# the core set so the base single-agent contract stays exactly six types.
+# the core set (eight types since UX-02 admitted progress/milestone).
 from victor.framework.member_event_sink import (
     MEMBER_THROTTLED,
     MEMBER_SPOKE,
@@ -165,14 +182,53 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
         return wire
 
     if event_type == "error":
+        # Bounded to the SAME cap as the failing stream_end's ``error`` below:
+        # the chat UI dedupes the inline error against the terminal card by
+        # string equality — asymmetric truncation would print long errors twice.
         return {
             "v": WIRE_VERSION,
             "event": "error",
-            "message": str(getattr(event, "content", None) or "unknown error"),
+            "message": _json_safe(
+                str(getattr(event, "content", None) or "unknown error"), max_chars=1_024
+            ),
         }
 
     if event_type == "stream_end":
-        return {"v": WIRE_VERSION, "event": "stream_end"}
+        # UX-02 failed terminal outcomes on remote UIs: carry the error (bounded)
+        # so a failed turn is visible beyond the embedded app; clean ends stay bare.
+        metadata = getattr(event, "metadata", None) or {}
+        error = metadata.get("error") or metadata.get("agentic_loop_error")
+        wire_end: Dict[str, Any] = {"v": WIRE_VERSION, "event": "stream_end"}
+        if error:
+            wire_end["error"] = _json_safe(str(error), max_chars=1_024)
+        if getattr(event, "success", True) is False:
+            wire_end["success"] = False
+        return wire_end
+
+    if event_type in ("progress", "milestone"):
+        # UX-02 plan/progress delivery on remote UIs. The PRODUCTION path
+        # (stream_wire_events -> client.stream) feeds _StreamEvents whose text
+        # is already composed onto ``content`` by ``_to_stream_event``; reading
+        # only ``event.milestone`` dropped every canonical factory event (that
+        # attribute exists solely on the raw events direct callers hand us).
+        # ``content`` is final when present — never recompose it.
+        text = str(getattr(event, "content", "") or "")
+        if not text:
+            text = str(getattr(event, "milestone", "") or "")
+            if not text and event_type == "progress":
+                fraction = getattr(event, "progress", None)
+                text = (
+                    f"{int(fraction * 100)}% complete" if isinstance(fraction, (int, float)) else ""
+                )
+            metadata = getattr(event, "metadata", None) or {}
+            status = metadata.get("status") or metadata.get("message")
+            # Same-string guard as the client composer: the thinking producer
+            # mirrors the milestone text in metadata["status"].
+            if status and str(status) != text:
+                text = f"{text} · {status}" if text else str(status)
+        if not text:
+            return None
+        return {"v": WIRE_VERSION, "event": event_type, "content": _json_safe(text, max_chars=512)}
 
     if event_type == "custom":
         # Team member lifecycle events (ADR-023) are the only CUSTOM sub-types admitted
@@ -214,6 +270,25 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
                 member_wire["concurrency_limit"] = metadata.get("concurrency_limit")
                 member_wire["level"] = "warning"
             return member_wire
+
+    if event_type == "awaiting_approval":
+        # FEP-0029 durable pause: without this branch a single-agent ASK pause
+        # ended the wire stream as a bare stream_end — invisible to remote UIs.
+        metadata = getattr(event, "metadata", None) or {}
+        approval = metadata.get("approval_request")
+        pause: Dict[str, Any] = {
+            "v": WIRE_VERSION,
+            "event": "awaiting_approval",
+            "content": _json_safe(
+                getattr(event, "content", None) or "paused for approval", max_chars=2_048
+            ),
+        }
+        if isinstance(approval, dict):
+            pause["approval_request"] = _json_safe(approval, max_chars=4_096)
+        run_id = metadata.get("run_id")
+        if run_id:
+            pause["run_id"] = run_id
+        return pause
 
     return None  # outside the v1 contract (tool_progress, stage_change, ...)
 

@@ -97,31 +97,54 @@ class MCPServer:
     def _tool_to_mcp(self, tool: BaseTool) -> MCPTool:
         """Convert Victor tool to MCP tool definition.
 
-        Args:
-            tool: Victor tool
-
-        Returns:
-            MCP tool definition
+        Delegates to ``tool.to_json_schema()`` — the ONE schema source
+        (Code Mode assessment: schema consolidation). Falls back to
+        ``tool.parameters`` directly for the legacy List[ToolParameter]
+        format that to_json_schema may not fully convert.
         """
+        type_map = {
+            "string": MCPParameterType.STRING,
+            "number": MCPParameterType.NUMBER,
+            "integer": MCPParameterType.NUMBER,
+            "boolean": MCPParameterType.BOOLEAN,
+            "object": MCPParameterType.OBJECT,
+            "array": MCPParameterType.ARRAY,
+        }
+
+        schema = tool.to_json_schema()
+        func = schema.get("function", schema)
+        params_schema = func.get("parameters", {})
+
         mcp_params = []
-
-        # Handle both formats: List[ToolParameter] and Dict (JSON Schema)
-        tool_params = tool.parameters
-
-        if isinstance(tool_params, list):
-            # New format: List[ToolParameter]
-            for param in tool_params:
-                type_map = {
-                    "string": MCPParameterType.STRING,
-                    "number": MCPParameterType.NUMBER,
-                    "integer": MCPParameterType.NUMBER,
-                    "boolean": MCPParameterType.BOOLEAN,
-                    "object": MCPParameterType.OBJECT,
-                    "array": MCPParameterType.ARRAY,
-                }
-
+        if isinstance(params_schema, dict) and params_schema.get("properties"):
+            properties = params_schema.get("properties", {})
+            required_set = set(params_schema.get("required", []))
+            for name, prop in properties.items():
+                if not isinstance(prop, dict):
+                    mcp_params.append(
+                        MCPParameter(
+                            name=name,
+                            type=MCPParameterType.STRING,
+                            description="",
+                            required=name in required_set,
+                        )
+                    )
+                    continue
+                prop_type = prop.get("type", "string")
+                if isinstance(prop_type, list):
+                    prop_type = prop_type[0] if prop_type else "string"
+                mcp_type = type_map.get(prop_type.lower(), MCPParameterType.STRING)
+                mcp_params.append(
+                    MCPParameter(
+                        name=name,
+                        type=mcp_type,
+                        description=prop.get("description", ""),
+                        required=name in required_set,
+                    )
+                )
+        elif isinstance(tool.parameters, list):
+            for param in tool.parameters:
                 mcp_type = type_map.get(param.type.lower(), MCPParameterType.STRING)
-
                 mcp_params.append(
                     MCPParameter(
                         name=param.name,
@@ -131,43 +154,9 @@ class MCPServer:
                     )
                 )
 
-        elif isinstance(tool_params, dict):
-            # Old format: JSON Schema dict
-            properties = tool_params.get("properties", {})
-            required_list = tool_params.get("required", [])
-
-            for param_name, param_def in properties.items():
-                type_map = {
-                    "string": MCPParameterType.STRING,
-                    "number": MCPParameterType.NUMBER,
-                    "integer": MCPParameterType.NUMBER,
-                    "boolean": MCPParameterType.BOOLEAN,
-                    "object": MCPParameterType.OBJECT,
-                    "array": MCPParameterType.ARRAY,
-                }
-
-                # Legacy export cannot represent boolean schemas or union types.
-                # Retain its existing string fallback without crashing discovery.
-                param_def = param_def if isinstance(param_def, dict) else {}
-                param_type = param_def.get("type", "string")
-                mcp_type = (
-                    type_map.get(param_type.lower(), MCPParameterType.STRING)
-                    if isinstance(param_type, str)
-                    else MCPParameterType.STRING
-                )
-
-                mcp_params.append(
-                    MCPParameter(
-                        name=param_name,
-                        type=mcp_type,
-                        description=param_def.get("description", ""),
-                        required=param_name in required_list,
-                    )
-                )
-
         return MCPTool(
             name=tool.name,
-            description=tool.description,
+            description=func.get("description", tool.description),
             parameters=mcp_params,
         )
 

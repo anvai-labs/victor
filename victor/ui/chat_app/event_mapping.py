@@ -50,7 +50,9 @@ class RenderKind(str, Enum):
     MEMBER_END = "member_end"  # a team member finished (member_id + success) -> lane marker
     MEMBER_AWAITING = "member_awaiting"  # a team member paused awaiting approval (ADR-023 2b)
     ERROR = "error"  # surface an error to the user
-    IGNORE = "ignore"  # lifecycle/no-op events (stream_start, stream_end, ...)
+    PROGRESS = "progress"  # agent progress/milestone status -> one updating status line
+    OUTCOME = "outcome"  # terminal turn outcome (success/failed/stopped) -> summary card
+    IGNORE = "ignore"  # lifecycle/no-op events (stream_start, clean stream_end, ...)
 
 
 @dataclass
@@ -66,6 +68,9 @@ class RenderAction:
     was_pruned: bool = False
     follow_up_suggestions: Optional[list[dict[str, Any]]] = None
     member_id: Optional[str] = None  # set for MEMBER_START/MEMBER_END lane markers (ADR-023)
+    # Structured image artifacts from the tool result (mime_type + base64);
+    # text surfaces render placeholders, rich surfaces render the pixels.
+    images: Optional[list[dict[str, str]]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -146,6 +151,7 @@ def map_event(event: Any) -> RenderAction:
         # Prefer the full output for direct display; the bare ``result`` is a CLI
         # "/expand" placeholder, so it is the last resort behind the real output.
         text = payload.get("original_result") or content or payload.get("result") or ""
+        images = payload.get("images")
         return RenderAction(
             RenderKind.TOOL_END,
             text=str(text),
@@ -155,6 +161,7 @@ def map_event(event: Any) -> RenderAction:
             elapsed=float(payload.get("elapsed", 0.0) or 0.0),
             was_pruned=bool(payload.get("was_pruned", False)),
             follow_up_suggestions=payload.get("follow_up_suggestions") or None,
+            images=[img for img in images if isinstance(img, dict)] if images else None,
             metadata={"arguments": payload.get("arguments", {})},
         )
 
@@ -163,6 +170,36 @@ def map_event(event: Any) -> RenderAction:
             RenderKind.ERROR,
             text=content or str(metadata.get("error", "Unknown streaming error")),
         )
+
+    if event_type in ("progress", "milestone"):
+        # UX-02: plan/progress must reach the browser, not just the server
+        # console. One updating status line per turn; milestone adds weight.
+        text = content or str(
+            metadata.get("message") or metadata.get("label") or metadata.get("stage") or ""
+        )
+        return RenderAction(
+            RenderKind.PROGRESS,
+            # Producer text may be model-derived: single-line, un-bolded so
+            # stray asterisks cannot break the status card.
+            text=" ".join(str(text).split()),
+            metadata={**metadata, "milestone": event_type == "milestone"},
+        )
+
+    if event_type == "stream_end":
+        # UX-02 failed terminal-outcome rendering: a turn that ends without
+        # success must be visible as a terminal state, not silent cleanup.
+        # Failure arrives as metadata['error'] / agentic_loop_error, or an
+        # explicit success=False; user stops cancel the stream (no event).
+        error = metadata.get("error") or metadata.get("agentic_loop_error")
+        failed = bool(error) or getattr(event, "success", True) is False
+        if failed:
+            return RenderAction(
+                RenderKind.OUTCOME,
+                text=str(error or "turn failed"),
+                success=False,
+                metadata=metadata,
+            )
+        return RenderAction(RenderKind.IGNORE)
 
     if event_type == "awaiting_approval":
         # FEP-0029: a single-agent turn durably paused on a policy ASK. Render it on the SAME paused
@@ -281,6 +318,37 @@ def map_wire_event(wire: Any) -> RenderAction:
             RenderKind.MEMBER_AWAITING,
             text=str(wire.get("content", "") or ""),
             member_id=wire.get("member_id"),
+        )
+
+    if event in ("progress", "milestone"):
+        return RenderAction(
+            RenderKind.PROGRESS,
+            text=str(wire.get("content", "") or ""),
+            metadata={"milestone": event == "milestone"},
+        )
+
+    if event == "stream_end":
+        error = wire.get("error")
+        failed = bool(error) or wire.get("success") is False
+        if failed:
+            return RenderAction(
+                RenderKind.OUTCOME,
+                text=str(error or "turn failed"),
+                success=False,
+            )
+        return RenderAction(RenderKind.IGNORE)
+
+    if event == "awaiting_approval":
+        # FEP-0029 single-agent durable pause on the wire: same paused lane the
+        # embedded app renders, labelled "agent", with the resume run_id shown.
+        approval = wire.get("approval_request") or {}
+        title = str(approval.get("title") or approval.get("tool_name") or "paused for approval")
+        run_id = wire.get("run_id")
+        detail = f"{title} · run {run_id}" if run_id else title
+        return RenderAction(
+            RenderKind.MEMBER_AWAITING,
+            text=detail,
+            member_id="agent",
         )
 
     return RenderAction(RenderKind.IGNORE)  # stream_end + future additive types
