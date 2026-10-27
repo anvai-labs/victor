@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from victor.framework.batch_plan import (
+from victor.core.batch_plan import (
     BatchPlan,
     BatchResult,
     BatchStep,
