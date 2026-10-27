@@ -66,6 +66,9 @@ class RenderAction:
     was_pruned: bool = False
     follow_up_suggestions: Optional[list[dict[str, Any]]] = None
     member_id: Optional[str] = None  # set for MEMBER_START/MEMBER_END lane markers (ADR-023)
+    # Structured image artifacts from the tool result (mime_type + base64);
+    # text surfaces render placeholders, rich surfaces render the pixels.
+    images: Optional[list[dict[str, str]]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -146,6 +149,7 @@ def map_event(event: Any) -> RenderAction:
         # Prefer the full output for direct display; the bare ``result`` is a CLI
         # "/expand" placeholder, so it is the last resort behind the real output.
         text = payload.get("original_result") or content or payload.get("result") or ""
+        images = payload.get("images")
         return RenderAction(
             RenderKind.TOOL_END,
             text=str(text),
@@ -155,6 +159,7 @@ def map_event(event: Any) -> RenderAction:
             elapsed=float(payload.get("elapsed", 0.0) or 0.0),
             was_pruned=bool(payload.get("was_pruned", False)),
             follow_up_suggestions=payload.get("follow_up_suggestions") or None,
+            images=[img for img in images if isinstance(img, dict)] if images else None,
             metadata={"arguments": payload.get("arguments", {})},
         )
 

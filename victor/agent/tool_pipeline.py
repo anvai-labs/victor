@@ -321,6 +321,10 @@ class ToolCallResult:
     # Structured error information with traceback and metadata
     error_info: Optional["ErrorInfo"] = None
 
+    # Structured image artifacts from the tool's metadata (additive channel);
+    # None for tools that produce none. Never enters the LLM-visible result.
+    images: Optional[list] = None
+
 
 def _build_skip_result(
     *,
@@ -2800,6 +2804,7 @@ class ToolPipeline:
             user_message=call.steering_user_message,
             error_info=exec_result.error_info,  # Preserve structured error info
             retryable=False if blocks_tool_retry(exec_result) else None,
+            images=getattr(exec_result, "images", None) or None,
         )
 
         exec_result, call_result = await self._retry_low_signal_rewrite(

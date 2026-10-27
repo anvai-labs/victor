@@ -309,6 +309,7 @@ class StreamingChatHandler:
                     error=error_msg,
                     follow_up_suggestions=result.get("follow_up_suggestions"),
                     result=tool_output,  # Pass result for preview
+                    images=result.get("images"),
                 )
             )
 
@@ -1104,6 +1105,7 @@ class StreamingChatHandler:
         result: Any = None,  # Tool output for preview
         original_result: Any = None,  # Full tool output for expansion/debug
         tool_call_id: Optional[str] = None,
+        images: Optional[List[Dict[str, str]]] = None,
     ) -> StreamChunk:
         """Generate a StreamChunk for a tool result.
 
@@ -1115,6 +1117,8 @@ class StreamingChatHandler:
             error: Optional error message if failed
             follow_up_suggestions: Optional follow-up suggestions
             result: Tool output (for preview display)
+            images: Structured image artifacts (mime_type + base64); carried on
+                the metadata, never inside the text result.
 
         Returns:
             StreamChunk with tool_result metadata
@@ -1133,6 +1137,8 @@ class StreamingChatHandler:
             metadata["tool_result"]["error"] = error
         if follow_up_suggestions:
             metadata["tool_result"]["follow_up_suggestions"] = follow_up_suggestions
+        if images:
+            metadata["tool_result"]["images"] = images
         if was_pruned:
             metadata["tool_result"]["was_pruned"] = True
         if result is not None:
@@ -1282,6 +1288,7 @@ class StreamingChatHandler:
                 # CLI still shows the placeholder inline and uses this only for /expand.
                 original_result=full_tool_output,
                 tool_call_id=result.get("tool_call_id"),
+                images=result.get("images"),
             )
         )
 

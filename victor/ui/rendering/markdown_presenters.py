@@ -68,6 +68,21 @@ def preview_to_markdown(preview: RenderedPreview) -> str:
     return "\n\n".join(parts)
 
 
+def image_artifact_placeholder(images: Optional[list[dict[str, Any]]]) -> str:
+    """One summary line for structured image artifacts (text-only surfaces).
+
+    Rich surfaces (the web UI) render the pixels; the terminal and markdown
+    exports show what was produced so the artifact is never invisible.
+    """
+    if not images:
+        return ""
+    kinds = ", ".join(
+        f"{img.get('mime_type', 'image')} {max(len(str(img.get('b64', ''))) * 3 // 4 // 1024, 1)}KB"
+        for img in images
+    )
+    return f"🖼️ image artifact ({kinds})"
+
+
 def tool_result_markdown(
     tool_name: str,
     arguments: Optional[Dict[str, Any]],

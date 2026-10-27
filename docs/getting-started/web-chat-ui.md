@@ -78,3 +78,22 @@ would not unify authorization, approvals or recovery. The
 [consolidation plan](../architecture/victor-agent-service-plan.md#web-chat-and-api-hosting-consolidation)
 tracks a single optional host with shared service ownership and remote API parity.
 Direct embedded Python usage remains supported.
+
+## Browser automation in chat (agentbrowser)
+
+Victor drives interactive browsers through the MCP client path. Enable the
+agentbrowser MCP server and its tool surface (`browser_create`, `observe`,
+`act`, `browser_screenshot`, …) becomes available to every chat surface —
+TUI, CLI and the web UI alike — with screenshots rendered **inline**:
+
+```yaml
+# ~/.victor/mcp.yaml — servers is a LIST; command is a LIST of argv tokens
+servers:
+  - name: agentbrowser
+    command: ["agentbrowser", "serve", "--stdio"]
+```
+
+Screenshots return as structured image artifacts: text surfaces print a
+placeholder line (`🖼️ image/png 63KB`), and the web UI attaches the decoded
+image directly after the tool step. Artifacts are bounded (4 images, ~1.5 MiB
+of pixels each per call) so a chatty tool cannot balloon the session.
