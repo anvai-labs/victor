@@ -1151,6 +1151,9 @@ class AgenticLoop(TopologyPlanningMixin):
                     plan = await _loop_guards.run(lambda: self._plan(perception, state))
                     iteration.plan = plan
                     state["plan"] = plan
+                    # FEP-0041: detect a batch plan (sequential tool-call
+                    # chain) and store the parsed form for the ACT step.
+                    self._maybe_parse_batch_plan(state, plan)
                 state["perception"] = perception.to_dict()
 
                 # DETECT PHASE (for phase-aware context management)
@@ -2515,6 +2518,29 @@ class AgenticLoop(TopologyPlanningMixin):
             "task_type": state.get("task_type", "unknown"),
             "perception": perception.to_dict(),
         }
+
+    def _maybe_parse_batch_plan(self, state: Dict[str, Any], plan: Any) -> None:
+        """Detect and parse a batch plan from the PLAN step output.
+
+        FEP-0041: when the plan is a dict with a 'steps' key, parse it
+        into a BatchPlan and store it as state["_batch_plan"]. The ACT
+        step checks for this and dispatches to BatchExecutionRuntime
+        instead of the single-call executor.
+        """
+        if not isinstance(plan, dict):
+            return
+        from victor.core.batch_plan import parse_batch_plan
+
+        batch = parse_batch_plan(plan)
+        if batch is not None:
+            state["_batch_plan"] = batch
+            logger.info(
+                "FEP-0041: batch plan detected (%d steps, rationale=%r)",
+                len(batch.steps),
+                batch.rationale[:60] if batch.rationale else "",
+            )
+        else:
+            state.pop("_batch_plan", None)
 
     async def _plan(
         self,
