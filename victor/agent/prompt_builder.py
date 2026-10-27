@@ -599,6 +599,36 @@ class SystemPromptBuilder:
         """Get current mode-specific guidance from the live runtime."""
         return self.mode_prompt_addition.strip()
 
+    def _get_batch_plan_guidance(self) -> str:
+        """FEP-0041: guidance for emitting batch plans.
+
+        When the task requires a well-defined sequential chain of tool
+        calls (e.g., read -> search -> edit), emit a batch plan instead
+        of one action at a time. The batch executes without LLM
+        round-trips between steps, saving tokens and latency.
+        """
+        return (
+            "BATCH PLANNING (FEP-0041):\n"
+            "When the task is a well-defined sequential chain of tool calls,\n"
+            "emit a batch plan instead of a single action. Format:\n\n"
+            "```json\n"
+            "{\n"
+            '  "steps": [\n'
+            '    {"tool_name": "read", "inputs": {"file_path": "src/a.py"}},\n'
+            '    {"tool_name": "search", "input_refs": {"file_path": "$step0.file_path"},\n'
+            '     "inputs": {"query": "TODO"}}\n'
+            "  ],\n"
+            '  "rationale": "read then search the file",\n'
+            '  "stop_on_error": true\n'
+            "}\n"
+            "```\n\n"
+            "Rules:\n"
+            "1. Use $stepN.key to reference a prior step's output (e.g., $step0.file_path).\n"
+            "2. Only batch when the chain is deterministic (no LLM decisions between steps).\n"
+            "3. If any step might need human approval, do NOT batch — emit single actions.\n"
+            "4. Prefer single actions for exploratory or creative tasks.\n\n"
+        )
+
     def _get_tool_constraint_section(self) -> str:
         """Get tool constraint section listing available tools."""
         normalized_tools = sorted(
