@@ -242,6 +242,24 @@ def _to_stream_event(event: Any) -> _StreamEvent:
                 metadata=dict(event_metadata),
                 member_id=getattr(event, "member_id", None),
             )
+    if event.type in (EventType.PROGRESS, EventType.MILESTONE):
+        # Progress surfaces (UX-02): the milestone factory puts its text on
+        # ``event.milestone`` (content stays empty) and progress carries a
+        # 0..1 float — without this branch both fell to the raw_event fallback
+        # and every UI saw an empty status line.
+        event_metadata = dict(getattr(event, "metadata", {}) or {})
+        text = str(getattr(event, "milestone", "") or "")
+        if not text and event.type == EventType.PROGRESS:
+            fraction = getattr(event, "progress", None)
+            text = f"{int(fraction * 100)}% complete" if isinstance(fraction, (int, float)) else ""
+        status = event_metadata.get("status") or event_metadata.get("message")
+        if status:
+            text = f"{text} · {status}" if text else str(status)
+        return _StreamEvent(
+            event.type,
+            content=text,
+            metadata=event_metadata,
+        )
     return _StreamEvent(
         event.type,
         content=getattr(event, "content", None),

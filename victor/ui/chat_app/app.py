@@ -123,17 +123,30 @@ def _session_config(
     provider: str | None = None,
     model: str | None = None,
     approval: bool = True,
+    mode: str | None = None,
+    show_reasoning: bool = False,
+    planning: bool = False,
 ) -> SessionConfig:
     """Build a SessionConfig from chat controls — shared by startup and ChatSettings updates.
 
     Tool approval gating is coupled to the toggle: when off, ``ask_on_tools`` is emptied so no
     tool prompts fire. Empty provider/model/profile fall back to the active defaults.
+    ``mode`` selects agent behavior ('build' | 'plan' | 'explore'); UX-02 explicit
+    mode controls.
     """
     if not isinstance(approval, bool):
         raise ValueError("Tool approval must be a boolean")
     if (os.environ.get("VICTOR_UI_REMOTE_URL") or "").strip():
         # Remote mode has no mid-stream approval channel yet; never half-arm it.
         approval = False
+    normalized_mode = (mode or "").strip().lower() or None
+    if normalized_mode not in (None, "build", "plan", "explore"):
+        raise ValueError(f"Unknown mode: {mode!r}")
+    if normalized_mode == "build":
+        # 'build' IS the default behavior: an explicit 'build' from the panel
+        # must round-trip equal to the unset default, or confirming unchanged
+        # settings would rebuild the client (#1348 regression class).
+        normalized_mode = None
     return SessionConfig.from_cli_flags(
         agent_profile=profile or None,
         provider=provider or None,
@@ -142,6 +155,9 @@ def _session_config(
         tool_approval_enabled=approval,
         ask_on_tools=_ASK_ON_TOOLS if approval else [],
         ask_fallback="deny",
+        mode=normalized_mode,
+        show_reasoning=show_reasoning,
+        planning_enabled=planning or None,
     )
 
 
@@ -273,6 +289,22 @@ async def _send_settings(client: VictorClient) -> None:
                 label="Require approval for risky tools",
                 initial=config.tool_approval.enabled,
             ),
+            Select(
+                id="mode",
+                label="Agent mode",
+                values=["build", "plan", "explore"],
+                initial_value=config.mode or "build",
+            ),
+            Switch(
+                id="show_reasoning",
+                label="Show reasoning",
+                initial=config.show_reasoning,
+            ),
+            Switch(
+                id="planning",
+                label="Structured planning",
+                initial=bool(config.planning_enabled),
+            ),
         ]
     ).send()
 
@@ -403,6 +435,9 @@ async def on_settings_update(settings: dict) -> None:
             provider=None if provider == _PROFILE_DEFAULT else provider,
             model=settings.get("model", current.provider_override.model),
             approval=settings.get("tool_approval", current.tool_approval.enabled),
+            mode=settings.get("mode", current.mode or "build"),
+            show_reasoning=bool(settings.get("show_reasoning", current.show_reasoning)),
+            planning=bool(settings.get("planning", bool(current.planning_enabled))),
         )
         if config == current:
             return
@@ -487,6 +522,36 @@ async def _run_turn(client: VictorClient, content: str) -> None:
             except Exception:
                 logger.debug("thinking placeholder removal failed", exc_info=True)
 
+    # UX-02 plan/progress delivery: one status line that UPDATES in place for
+    # progress/milestone events (the browser previously showed nothing while
+    # the server console logged plan progress). Removed at turn end.
+    progress_msg: cl.Message | None = None
+
+    async def _show_progress(text: str, milestone: bool) -> None:
+        nonlocal progress_msg
+        if not text:
+            return
+        body = f"🎯 {text}" if milestone else f"⏳ {text}"
+        try:
+            if progress_msg is None:
+                progress_msg = cl.Message(content=body)
+                await progress_msg.send()
+            else:
+                progress_msg.content = body
+                await progress_msg.update()
+        except Exception:
+            # A status line must never abort a healthy in-flight turn.
+            logger.debug("progress status render failed", exc_info=True)
+
+    async def _clear_progress() -> None:
+        nonlocal progress_msg
+        if progress_msg is not None:
+            try:
+                await progress_msg.remove()
+            except Exception:
+                logger.debug("progress status removal failed", exc_info=True)
+            progress_msg = None
+
     # Natural per-iteration flow (terminal-like): instead of one long message with all tool
     # steps piling at the end, stream each iteration's text into its OWN message segment and
     # group that iteration's tool calls under one collapsible parent step between segments —
@@ -497,6 +562,7 @@ async def _run_turn(client: VictorClient, content: str) -> None:
     pending: dict[str, dict] = {}  # call_id -> {tool_name, arguments}
     reasoning_step: cl.Step | None = None
     reasoning_text = ""
+    last_error_text: str | None = None
 
     async def _finalize_text() -> None:
         nonlocal current_msg
@@ -616,7 +682,26 @@ async def _run_turn(client: VictorClient, content: str) -> None:
 
                 elif action.kind is RenderKind.ERROR:
                     await _clear_thinking()
+                    last_error_text = str(action.text)
                     await _emit_text(f"\n\n⚠️ {action.text}")
+
+                elif action.kind is RenderKind.PROGRESS:
+                    await _clear_thinking()
+                    await _show_progress(action.text, bool(action.metadata.get("milestone")))
+
+                elif action.kind is RenderKind.OUTCOME:
+                    # UX-02 failed terminal-outcome rendering: the turn is OVER
+                    # and did not succeed — say so, durably. The pipeline emits
+                    # an error event BEFORE a failing stream_end; dedupe the
+                    # already-rendered inline text instead of printing it twice.
+                    await _clear_thinking()
+                    await _clear_progress()
+                    await _finalize_text()
+                    if action.text == last_error_text:
+                        body = "⚠️ **Turn ended** — see the error above."
+                    else:
+                        body = f"⚠️ **Turn ended** — {action.text}"
+                    await cl.Message(content=body).send()
 
                 elif action.kind is RenderKind.MEMBER_START:
                     await _clear_thinking()
@@ -657,6 +742,7 @@ async def _run_turn(client: VictorClient, content: str) -> None:
         ).send()
     finally:
         await _clear_thinking()
+        await _clear_progress()
         await _close_tool_group()
         if reasoning_step is not None:
             try:

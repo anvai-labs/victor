@@ -172,7 +172,35 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
         }
 
     if event_type == "stream_end":
-        return {"v": WIRE_VERSION, "event": "stream_end"}
+        # UX-02 failed terminal outcomes on remote UIs: carry the error (bounded)
+        # so a failed turn is visible beyond the embedded app; clean ends stay bare.
+        metadata = getattr(event, "metadata", None) or {}
+        error = metadata.get("error") or metadata.get("agentic_loop_error")
+        wire_end: Dict[str, Any] = {"v": WIRE_VERSION, "event": "stream_end"}
+        if error:
+            wire_end["error"] = _json_safe(str(error), max_chars=1_024)
+        if getattr(event, "success", True) is False:
+            wire_end["success"] = False
+        return wire_end
+
+    if event_type in ("progress", "milestone"):
+        # UX-02 plan/progress delivery on remote UIs: the milestone factory puts
+        # its text on ``event.milestone``; without this branch the wire dropped
+        # the event entirely (server console saw progress, browsers did not).
+        text = str(getattr(event, "milestone", "") or "")
+        if not text and event_type == "progress":
+            fraction = getattr(event, "progress", None)
+            text = f"{int(fraction * 100)}% complete" if isinstance(fraction, (int, float)) else ""
+        status = (
+            metadata.get("status") or metadata.get("message")
+            if (metadata := getattr(event, "metadata", None) or {})
+            else None
+        )
+        if status:
+            text = f"{text} · {status}" if text else str(status)
+        if not text:
+            return None
+        return {"v": WIRE_VERSION, "event": event_type, "content": _json_safe(text, max_chars=512)}
 
     if event_type == "custom":
         # Team member lifecycle events (ADR-023) are the only CUSTOM sub-types admitted
