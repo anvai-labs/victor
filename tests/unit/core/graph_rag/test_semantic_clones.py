@@ -73,3 +73,88 @@ class TestFindCloneFamilies:
         fams = find_clone_families(records, mat, threshold=0.9)
         assert len(fams) == 2
         assert fams[0].similarity >= fams[1].similarity
+
+
+class TestScopePredicateAndHelpers:
+    def test_predicate_default_shape(self):
+        from victor.core.graph_rag.semantic_clones import TEST_PATH_MARKERS, _scope_predicate
+
+        pred = _scope_predicate(None, include_tests=False)
+        assert "symbol_name NOT LIKE '%:%'" in pred
+        for marker in TEST_PATH_MARKERS:
+            assert f"file_path NOT LIKE '%{marker}%'" in pred
+
+    def test_predicate_scope_and_tests(self):
+        from victor.core.graph_rag.semantic_clones import _scope_predicate
+
+        pred = _scope_predicate("victor/agent/", include_tests=True)
+        assert "file_path LIKE 'victor/agent/%'" in pred
+        assert "NOT LIKE '%/tests/%'" not in pred
+
+    def test_predicate_escapes_quotes(self):
+        from victor.core.graph_rag.semantic_clones import _esc, _scope_predicate
+
+        assert _esc("it's") == "it''s"
+        assert "it''s" in _scope_predicate("it's/", True)
+
+    def test_in_scope_rules(self):
+        from victor.core.graph_rag.semantic_clones import _in_scope
+
+        assert _in_scope("victor/core/x.py", None, False)
+        # markers carry a leading slash — root-level test dirs (no parent
+        # segment) are NOT excluded; pin that as the documented behavior
+        assert _in_scope("tests/unit/x.py", None, False)
+        assert not _in_scope("pkg/tests/unit/x.py", None, False)
+        assert _in_scope("victor/agent/x.py", "victor/agent/", False)
+        assert not _in_scope("victor/core/x.py", "victor/agent/", False)
+        assert not _in_scope("pkg/tests/x.py", None, False)
+        assert not _in_scope("pkg/goldens/x.py", None, False)
+
+    def test_family_files_property(self):
+        from victor.core.graph_rag.semantic_clones import CloneFamily, SymbolRecord
+
+        fam = CloneFamily(
+            similarity=1.0,
+            members=[
+                SymbolRecord("b", "z.py", "n", "semantic", 1),
+                SymbolRecord("a", "a.py", "n", "semantic", 2),
+                SymbolRecord("c", "a.py", "m", "semantic", 3),
+            ],
+        )
+        assert fam.files == ["a.py", "z.py"]
+
+    def test_load_missing_store_raises(self, tmp_path):
+        from victor.core.graph_rag.semantic_clones import load_embedding_symbols
+
+        with pytest.raises(FileNotFoundError):
+            load_embedding_symbols(tmp_path)
+
+
+def test_progress_callback_and_union_find():
+    import numpy as np
+
+    from victor.core.graph_rag.semantic_clones import (
+        SymbolRecord,
+        find_clone_families,
+        make_union_find,
+    )
+
+    records = [
+        SymbolRecord("0", "a.py", "s0", "semantic", 0),
+        SymbolRecord("1", "b.py", "s1", "semantic", 1),
+        SymbolRecord("2", "c.py", "s2", "semantic", 2),
+        SymbolRecord("3", "d.py", "s3", "semantic", 3),
+    ]
+    base = np.zeros((4, 4), dtype=np.float32)
+    base[[0, 1], 0] = 1.0  # pair A aligned
+    base[[2, 3], 1] = 1.0  # pair B aligned
+    calls = []
+    fams = find_clone_families(
+        records, base, threshold=0.9, progress=lambda d, t: calls.append((d, t))
+    )
+    assert len(fams) == 2
+    assert calls and calls[-1][0] <= calls[-1][1]
+
+    find, union = make_union_find(4)
+    union(0, 1)
+    assert find(0) == find(1) != find(2)

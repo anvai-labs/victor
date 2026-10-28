@@ -68,3 +68,43 @@ def test_renders_families_from_the_loader(tmp_path: Path):
     assert result.exit_code == 0
     assert "run_check" in result.output
     assert "pkg/a.py" in result.output and "pkg/b.py" in result.output
+
+
+def test_json_output_shape(tmp_path: Path):
+    import numpy as np
+
+    from victor.core.graph_rag.semantic_clones import SymbolRecord
+
+    records = [
+        SymbolRecord("1", "pkg/a.py", "run_check", "semantic", 10),
+        SymbolRecord("2", "pkg/b.py", "run_check", "semantic", 20),
+    ]
+    mat = np.array([[1.0, 0.0], [1.0, 0.001]], dtype=np.float32)
+    mat /= np.linalg.norm(mat, axis=1, keepdims=True)
+    with patch(
+        "victor.core.graph_rag.semantic_clones.load_embedding_symbols",
+        return_value=(records, mat),
+    ):
+        result = _invoke("--path", str(tmp_path), "--json")
+    assert result.exit_code == 0
+    assert '"symbols_indexed": 2' in result.output
+    assert '"similarity"' in result.output
+
+
+def test_no_families_message(tmp_path: Path):
+    import numpy as np
+
+    from victor.core.graph_rag.semantic_clones import SymbolRecord
+
+    records = [
+        SymbolRecord("1", "pkg/a.py", "one", "semantic", 1),
+        SymbolRecord("2", "pkg/b.py", "two", "semantic", 2),
+    ]
+    mat = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)  # orthogonal
+    with patch(
+        "victor.core.graph_rag.semantic_clones.load_embedding_symbols",
+        return_value=(records, mat),
+    ):
+        result = _invoke("--path", str(tmp_path), "--threshold", "0.99")
+    assert result.exit_code == 0
+    assert "No semantic near-duplicates" in result.output

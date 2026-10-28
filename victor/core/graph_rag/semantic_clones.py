@@ -53,6 +53,26 @@ def _in_scope(file_path: str, scope: Optional[str], include_tests: bool) -> bool
     return True
 
 
+def _esc(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def _scope_predicate(scope: Optional[str], include_tests: bool) -> str:
+    """SQL WHERE for the store query: degenerate-name + scope + test filters.
+
+    Pushed into LanceDB — a whole-repo store holds ~1M rows and
+    materializing them client-side to filter costs minutes and gigabytes
+    the pushdown avoids.
+    """
+    conds = ["symbol_name NOT LIKE '%:%'"]  # degenerate statement names
+    if scope:
+        conds.append(f"file_path LIKE '{_esc(scope)}%'")
+    if not include_tests:
+        for marker in TEST_PATH_MARKERS:
+            conds.append(f"file_path NOT LIKE '%{_esc(marker)}%'")
+    return " AND ".join(conds)
+
+
 def load_embedding_symbols(
     project_root,
     scope: Optional[str] = None,
@@ -78,17 +98,7 @@ def load_embedding_symbols(
     # Push scope/degenerate filtering into the store query — a whole-repo
     # store holds ~1M rows and materializing them client-side to filter
     # costs minutes and gigabytes the pushdown avoids.
-    def _esc(value: str) -> str:
-        return value.replace("'", "''")
-
-    conds = ["symbol_name NOT LIKE '%:%'"]  # degenerate statement names
-    if scope:
-        conds.append(f"file_path LIKE '{_esc(scope)}%'")
-    if not include_tests:
-        for marker in TEST_PATH_MARKERS:
-            conds.append(f"file_path NOT LIKE '%{_esc(marker)}%'")
-    query = table.search().where(" AND ".join(conds)).limit(2_000_000)
-    rows = query.to_list()
+    rows = table.search().where(_scope_predicate(scope, include_tests)).limit(2_000_000).to_list()
     if not rows:
         raise FileNotFoundError(store_dir)
 
