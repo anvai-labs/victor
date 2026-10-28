@@ -59,6 +59,15 @@ from victor_contracts import (
     PersonaTemplate,
     PersonaTraits as FrameworkPersonaTraits,
 )
+from victor_contracts.verticals import (
+    RegistrationPolicy,
+    ScaleRule,
+    TraitSpec,
+    VerticalPersona,
+    VerticalTraits,
+    make_persona_helpers,
+    register_vertical_personas,
+)
 from victor_contracts import PersonaRegistryProtocol, get_default_persona_registry
 
 
@@ -161,236 +170,96 @@ class ResearchDecisionStyle(str, Enum):
     ITERATIVE = "iterative"  # Refine hypotheses based on findings
 
 
-@dataclass
-class ResearchPersonaTraits:
-    """Research-specific behavioral traits for a persona.
-
-    This class provides research-specific trait extensions that complement
-    the framework's PersonaTraits. Use this when you need research-specific
-    attributes like source_rigor and citation_style.
-
-    Attributes:
-        communication_style: Primary communication approach (research-specific enum)
-        decision_style: How decisions are made during research
-        source_rigor: 0.0-1.0 scale of source scrutiny (1.0 = extremely rigorous)
-        breadth_preference: 0.0-1.0 scale (0=deep dive, 1=broad survey)
-        citation_detail: 0.0-1.0 scale of citation thoroughness
-        skepticism: 0.0-1.0 scale of trust in sources (0=trusting, 1=highly skeptical)
-        collaboration_preference: 0.0-1.0 scale (0=solo, 1=collaborative)
-        verbosity: 0.0-1.0 scale of output detail
-    """
-
-    communication_style: ResearchCommunicationStyle = ResearchCommunicationStyle.ANALYTICAL
-    decision_style: ResearchDecisionStyle = ResearchDecisionStyle.EVIDENCE_BASED
-    source_rigor: float = 0.7
-    breadth_preference: float = 0.5
-    citation_detail: float = 0.6
-    skepticism: float = 0.5
-    collaboration_preference: float = 0.7
-    verbosity: float = 0.5
-
-    def to_prompt_hints(self) -> str:
-        """Convert traits to prompt hints.
-
-        Returns:
-            String of behavioral hints for prompt injection
-        """
-        hints = []
-
-        # Communication style hints
-        style_hints = {
-            ResearchCommunicationStyle.ANALYTICAL: "Support all conclusions with evidence and data.",
-            ResearchCommunicationStyle.DETAILED: "Provide thorough explanations with proper citations.",
-            ResearchCommunicationStyle.CONCISE: "Keep responses brief and focused on key findings.",
-            ResearchCommunicationStyle.ACADEMIC: "Use scholarly tone with rigorous citation practices.",
-            ResearchCommunicationStyle.JOURNALISTIC: "Maintain objectivity and verify all claims.",
-            ResearchCommunicationStyle.PEDAGOGICAL: "Explain concepts clearly for broad understanding.",
-            ResearchCommunicationStyle.STRATEGIC: "Focus on actionable insights and business implications.",
-        }
-        hints.append(style_hints.get(self.communication_style, ""))
-
-        # Decision style hints
-        if self.decision_style == ResearchDecisionStyle.EVIDENCE_BASED:
-            hints.append("Base all conclusions on empirical evidence.")
-        elif self.decision_style == ResearchDecisionStyle.METHODOLOGICAL:
-            hints.append("Follow established research protocols and methods.")
-        elif self.decision_style == ResearchDecisionStyle.SKEPTICAL:
-            hints.append("Question assumptions and verify claims rigorously.")
-        elif self.decision_style == ResearchDecisionStyle.COMPREHENSIVE:
-            hints.append("Conduct exhaustive research leaving no stone unturned.")
-        elif self.decision_style == ResearchDecisionStyle.PRAGMATIC:
-            hints.append("Balance thoroughness with practical time constraints.")
-        elif self.decision_style == ResearchDecisionStyle.ITERATIVE:
-            hints.append("Refine hypotheses and approaches based on findings.")
-
-        # Source rigor
-        if self.source_rigor > 0.8:
-            hints.append("Scrutinize sources for credibility, bias, and reliability.")
-        elif self.source_rigor < 0.3:
-            hints.append("Focus on gathering information from diverse sources.")
-
-        # Breadth vs depth
-        if self.breadth_preference > 0.7:
-            hints.append("Survey broadly across multiple sources and perspectives.")
-        elif self.breadth_preference < 0.3:
-            hints.append("Conduct deep dives into specialized sources.")
-
-        # Citation detail
-        if self.citation_detail > 0.7:
-            hints.append("Provide detailed citations with full attribution.")
-        elif self.citation_detail < 0.3:
-            hints.append("Summarize key sources without exhaustive citation.")
-
-        # Skepticism
-        if self.skepticism > 0.7:
-            hints.append("Maintain high skepticism and verify all claims.")
-        elif self.skepticism < 0.3:
-            hints.append("Trust credible sources and focus on synthesis.")
-
-        return " ".join(h for h in hints if h)
-
-    def to_framework_traits(
-        self,
-        name: str,
-        role: str,
-        description: str,
-        strengths: Optional[List[str]] = None,
-        preferred_tools: Optional[List[str]] = None,
-    ) -> FrameworkPersonaTraits:
-        """Convert to framework PersonaTraits.
-
-        Creates a framework-compatible PersonaTraits instance from
-        the research-specific traits.
-
-        Args:
-            name: Display name for the persona
-            role: Role identifier
-            description: Description of the persona
-            strengths: Optional list of strengths
-            preferred_tools: Optional list of preferred tools
-
-        Returns:
-            FrameworkPersonaTraits instance
-        """
-        return FrameworkPersonaTraits(
-            name=name,
-            role=role,
-            description=description,
-            communication_style=self.communication_style.to_framework_style(),
-            expertise_level=ExpertiseLevel.EXPERT,
-            verbosity=self.verbosity,
-            strengths=strengths or [],
-            preferred_tools=preferred_tools or [],
-            risk_tolerance=1.0 - self.skepticism,  # Map skepticism to risk tolerance
-            creativity=self.breadth_preference,  # Map breadth to creativity
-            custom_traits={
-                "decision_style": self.decision_style.value,
-                "source_rigor": self.source_rigor,
-                "citation_detail": self.citation_detail,
-                "collaboration_preference": self.collaboration_preference,
-            },
-        )
+_TRAIT_SPEC = TraitSpec(
+    communication_enum=ResearchCommunicationStyle,
+    decision_enum=ResearchDecisionStyle,
+    style_hints={
+        ResearchCommunicationStyle.ANALYTICAL: "Support all conclusions with evidence and data.",
+        ResearchCommunicationStyle.DETAILED: "Provide thorough explanations with proper citations.",
+        ResearchCommunicationStyle.CONCISE: "Keep responses brief and focused on key findings.",
+        ResearchCommunicationStyle.ACADEMIC: "Use scholarly tone with rigorous citation practices.",
+        ResearchCommunicationStyle.JOURNALISTIC: "Maintain objectivity and verify all claims.",
+        ResearchCommunicationStyle.PEDAGOGICAL: "Explain concepts clearly for broad understanding.",
+        ResearchCommunicationStyle.STRATEGIC: "Focus on actionable insights and business implications.",
+    },
+    decision_hints={
+        ResearchDecisionStyle.EVIDENCE_BASED: "Base all conclusions on empirical evidence.",
+        ResearchDecisionStyle.METHODOLOGICAL: "Follow established research protocols and methods.",
+        ResearchDecisionStyle.SKEPTICAL: "Question assumptions and verify claims rigorously.",
+        ResearchDecisionStyle.COMPREHENSIVE: "Conduct exhaustive research leaving no stone unturned.",
+        ResearchDecisionStyle.PRAGMATIC: "Balance thoroughness with practical time constraints.",
+        ResearchDecisionStyle.ITERATIVE: "Refine hypotheses and approaches based on findings.",
+    },
+    scale_rules=(
+        ScaleRule(
+            "source_rigor",
+            low_below=0.3,
+            low_hint="Focus on gathering information from diverse sources.",
+            high_above=0.8,
+            high_hint="Scrutinize sources for credibility, bias, and reliability.",
+        ),
+        ScaleRule(
+            "breadth_preference",
+            low_below=0.3,
+            low_hint="Conduct deep dives into specialized sources.",
+            high_above=0.7,
+            high_hint="Survey broadly across multiple sources and perspectives.",
+        ),
+        ScaleRule(
+            "citation_detail",
+            low_below=0.3,
+            low_hint="Summarize key sources without exhaustive citation.",
+            high_above=0.7,
+            high_hint="Provide detailed citations with full attribution.",
+        ),
+        ScaleRule(
+            "skepticism",
+            low_below=0.3,
+            low_hint="Trust credible sources and focus on synthesis.",
+            high_above=0.7,
+            high_hint="Maintain high skepticism and verify all claims.",
+        ),
+    ),
+    defaults={
+        "communication_style": "ANALYTICAL",
+        "decision_style": "EVIDENCE_BASED",
+        "source_rigor": 0.7,
+        "breadth_preference": 0.5,
+        "citation_detail": 0.6,
+        "skepticism": 0.5,
+        "collaboration_preference": 0.7,
+        "verbosity": 0.5,
+    },
+    framework_mapping=lambda traits: (
+        {
+            "verbosity": traits["verbosity"],
+            "risk_tolerance": 1.0 - traits["skepticism"],
+            "creativity": traits["breadth_preference"],
+        },
+        {
+            "decision_style": traits["decision_style"].value,
+            "source_rigor": traits["source_rigor"],
+            "citation_detail": traits["citation_detail"],
+            "skepticism": traits["skepticism"],
+            "collaboration_preference": traits["collaboration_preference"],
+        },
+    ),
+)
 
 
-# Backward compatibility alias
+class ResearchPersonaTraits(VerticalTraits):
+    """Research behavioral traits (shared algorithm, declarative schema)."""
+
+    spec = _TRAIT_SPEC
+
+
+# Backward compatibility alias (the persona table constructs this name)
 PersonaTraits = ResearchPersonaTraits
 
 
 @dataclass
-class ResearchPersona:
-    """Complete persona definition for a research role.
-
-    This combines expertise areas, personality traits, and
-    role-specific guidance into a comprehensive persona.
-
-    Attributes:
-        name: Display name for the persona
-        role: Base role (researcher, analyst, verifier, writer, specialist)
-        expertise: Primary areas of expertise
-        secondary_expertise: Secondary/supporting expertise
-        traits: Behavioral traits
-        strengths: Key strengths in bullet points
-        approach: How this persona approaches work
-        communication_patterns: Typical communication patterns
-        working_style: Description of working approach
-    """
-
-    name: str
-    role: str
-    expertise: List[ResearchExpertiseCategory]
-    secondary_expertise: List[ResearchExpertiseCategory] = field(default_factory=list)
-    traits: PersonaTraits = field(default_factory=PersonaTraits)
-    strengths: List[str] = field(default_factory=list)
-    approach: str = ""
-    communication_patterns: List[str] = field(default_factory=list)
-    working_style: str = ""
-
-    def get_expertise_list(self) -> List[str]:
-        """Get combined expertise as string list.
-
-        Returns:
-            List of expertise category values
-        """
-        all_expertise = self.expertise + self.secondary_expertise
-        return [e.value for e in all_expertise]
-
-    def generate_backstory(self) -> str:
-        """Generate a rich backstory from persona attributes.
-
-        Returns:
-            Multi-sentence backstory for agent context
-        """
-        parts = []
-
-        # Name and role intro
-        parts.append(f"You are {self.name}, a skilled {self.role}.")
-
-        # Expertise
-        if self.expertise:
-            primary = ", ".join(e.value.replace("_", " ") for e in self.expertise[:3])
-            parts.append(f"Your expertise lies in {primary}.")
-
-        # Strengths
-        if self.strengths:
-            strengths_text = "; ".join(self.strengths[:3])
-            parts.append(f"Your key strengths: {strengths_text}.")
-
-        # Approach
-        if self.approach:
-            parts.append(self.approach)
-
-        # Working style
-        if self.working_style:
-            parts.append(self.working_style)
-
-        # Trait hints
-        trait_hints = self.traits.to_prompt_hints()
-        if trait_hints:
-            parts.append(trait_hints)
-
-        return " ".join(parts)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert persona to dictionary.
-
-        Returns:
-            Dictionary representation
-        """
-        return {
-            "name": self.name,
-            "role": self.role,
-            "expertise": self.get_expertise_list(),
-            "strengths": self.strengths,
-            "approach": self.approach,
-            "communication_style": self.traits.communication_style.value,
-            "decision_style": self.traits.decision_style.value,
-            "backstory": self.generate_backstory(),
-        }
-
-
-# =============================================================================
-# Pre-defined Research Personas
-# =============================================================================
+class ResearchPersona(VerticalPersona):
+    """Complete persona definition for a research role (kernel-backed)."""
 
 
 RESEARCH_PERSONAS: Dict[str, ResearchPersona] = {
@@ -667,190 +536,33 @@ RESEARCH_PERSONAS: Dict[str, ResearchPersona] = {
 # =============================================================================
 
 
-def get_persona(name: str) -> Optional[ResearchPersona]:
-    """Get a persona by name.
-
-    Args:
-        name: Persona name (e.g., 'web_researcher')
-
-    Returns:
-        ResearchPersona if found, None otherwise
-    """
-    return RESEARCH_PERSONAS.get(name)
+(
+    get_persona,
+    get_personas_for_role,
+    get_persona_by_expertise,
+    apply_persona_to_spec,
+    list_personas,
+) = make_persona_helpers(RESEARCH_PERSONAS)
 
 
-def get_personas_for_role(role: str) -> List[ResearchPersona]:
-    """Get all personas for a specific role.
-
-    Args:
-        role: Role name (researcher, analyst, verifier, writer, specialist)
-
-    Returns:
-        List of personas matching the role
-    """
-    return [p for p in RESEARCH_PERSONAS.values() if p.role == role]
-
-
-def get_persona_by_expertise(
-    expertise: ResearchExpertiseCategory,
-) -> List[ResearchPersona]:
-    """Get personas that have a specific expertise.
-
-    Args:
-        expertise: Expertise category to search for
-
-    Returns:
-        List of personas with that expertise
-    """
-    return [
-        p
-        for p in RESEARCH_PERSONAS.values()
-        if expertise in p.expertise or expertise in p.secondary_expertise
-    ]
-
-
-def apply_persona_to_spec(
-    spec: Any,  # TeamMemberSpec
-    persona_name: str,
-) -> Any:
-    """Apply persona attributes to a TeamMemberSpec.
-
-    Enhances the spec with persona's expertise, personality traits,
-    and generated backstory.
-
-    Args:
-        spec: TeamMemberSpec to enhance
-        persona_name: Name of persona to apply
-
-    Returns:
-        Enhanced TeamMemberSpec (same object, modified in place)
-    """
-    persona = get_persona(persona_name)
-    if persona is None:
-        return spec
-
-    # Add expertise from persona
-    if not spec.expertise:
-        spec.expertise = persona.get_expertise_list()
-    else:
-        # Merge expertise
-        existing = set(spec.expertise)
-        for e in persona.get_expertise_list():
-            if e not in existing:
-                spec.expertise.append(e)
-
-    # Generate backstory if not set
-    if not spec.backstory:
-        spec.backstory = persona.generate_backstory()
-    else:
-        # Append persona hints
-        trait_hints = persona.traits.to_prompt_hints()
-        if trait_hints:
-            spec.backstory = f"{spec.backstory} {trait_hints}"
-
-    # Set personality from traits
-    if not spec.personality:
-        spec.personality = (
-            f"{persona.traits.communication_style.value} and "
-            f"{persona.traits.decision_style.value}"
-        )
-
-    return spec
-
-
-def list_personas() -> List[str]:
-    """List all available persona names.
-
-    Returns:
-        List of persona names
-    """
-    return list(RESEARCH_PERSONAS.keys())
-
-
-__all__ = [
-    # Framework types (re-exported for convenience)
-    "FrameworkPersonaTraits",
-    "FrameworkCommunicationStyle",
-    "ExpertiseLevel",
-    "PersonaTemplate",
-    # Research-specific types
-    "ResearchExpertiseCategory",
-    "ResearchCommunicationStyle",
-    "ResearchDecisionStyle",
-    "ResearchPersonaTraits",
-    "PersonaTraits",  # Backward compatibility alias for ResearchPersonaTraits
-    "ResearchPersona",
-    # Pre-defined personas
-    "RESEARCH_PERSONAS",
-    # Helper functions
-    "get_persona",
-    "get_personas_for_role",
-    "get_persona_by_expertise",
-    "apply_persona_to_spec",
-    "list_personas",
-]
-
-
-# =============================================================================
-# Persona Registration with FrameworkPersonaProvider
-# =============================================================================
+_REGISTRATION_POLICY = RegistrationPolicy(
+    vertical="research",
+    category_by_role={
+        "researcher": "research",
+        "analyst": "research",
+        "verifier": "review",
+        "writer": "execution",
+        "specialist": "review",
+    },
+    tag_policy="expertise_role",
+)
 
 
 def _register_research_personas(
     provider: PersonaRegistryProtocol | None = None,
 ) -> None:
-    """Register all research personas with FrameworkPersonaProvider.
-
-    This function is called at module import time to automatically register
-    all research personas with the framework's central persona registry.
-    """
-    try:
-        provider = provider or get_default_persona_registry()
-        if provider is None:
-            return
-
-        # Register each persona with version 1.0.0
-        for persona_key, persona in RESEARCH_PERSONAS.items():
-            # Convert to framework traits
-            framework_traits = persona.traits.to_framework_traits(
-                name=persona.name,
-                role=persona.role,
-                description=persona.approach,
-                strengths=persona.strengths,
-                preferred_tools=[],  # Tools configured separately
-            )
-
-            # Determine category based on role
-            category_mapping = {
-                "researcher": "research",
-                "analyst": "research",
-                "verifier": "review",
-                "writer": "execution",
-                "specialist": "review",
-            }
-            category = category_mapping.get(persona.role, "other")
-
-            # Generate tags from expertise
-            tags = persona.get_expertise_list()
-            tags.append(persona.role)
-
-            # Register with provider
-            provider.register_persona(
-                name=persona_key,
-                version="1.0.0",
-                persona=framework_traits,
-                category=category,
-                description=persona.approach,
-                tags=tags,
-                vertical="research",
-            )
-
-    except Exception as e:
-        # Log but don't fail module import
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Failed to register research personas with framework: {e}")
+    """Register all research personas with the framework persona provider."""
+    register_vertical_personas(RESEARCH_PERSONAS, _REGISTRATION_POLICY, provider)
 
 
 # Auto-register on import
