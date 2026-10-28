@@ -37,7 +37,7 @@ def make_tool_provider(name: str, tools: Sequence[str], doc: str = "") -> type:
     """A ToolProvider whose ``get_tools`` returns a copy of ``tools``."""
     tool_list = list(tools)
 
-    def get_tools(self) -> List[str]:
+    def get_tools(self: Any) -> List[str]:
         return list(tool_list)
 
     return type(
@@ -61,7 +61,7 @@ def make_stage_tool_strategy(
     stage_map = {stage: list(tools) for stage, tools in stage_tools.items()}
     default = list(fallback)
 
-    def get_tools_for_stage(self, stage: str, task_type: str) -> List[str]:
+    def get_tools_for_stage(self: Any, stage: str, task_type: str) -> List[str]:
         return stage_map.get(stage, list(default))
 
     return type(
@@ -92,18 +92,18 @@ def make_pattern_safety_provider(
     extension instances instead.
     """
 
-    def get_extensions(self) -> List[Any]:
+    def get_extensions(self: Any) -> List[Any]:
         if extensions is not None:
             return list(extensions)
         return [self] if include_self else []
 
-    def get_bash_patterns(self) -> List[Any]:
+    def get_bash_patterns(self: Any) -> List[Any]:
         return list(dangerous_patterns)
 
-    def get_file_patterns(self) -> List[Any]:
+    def get_file_patterns(self: Any) -> List[Any]:
         return list(file_patterns)
 
-    def get_tool_restrictions(self) -> Dict[str, List[str]]:
+    def get_tool_restrictions(self: Any) -> Dict[str, List[str]]:
         return {tool: list(args) for tool, args in tool_restrictions.items()}
 
     return type(
@@ -127,13 +127,13 @@ def make_prompt_provider(
 ) -> type:
     """A PromptProvider over static sections and task-type hints."""
 
-    def get_system_prompt_sections(self) -> Dict[str, str]:
+    def get_system_prompt_sections(self: Any) -> Dict[str, str]:
         return dict(sections)
 
-    def get_task_type_hints(self) -> Dict[str, Any]:
+    def get_task_type_hints(self: Any) -> Dict[str, Any]:
         return dict(task_type_hints)
 
-    def get_prompt_contributors(self) -> List[Any]:
+    def get_prompt_contributors(self: Any) -> List[Any]:
         return []
 
     return type(
@@ -152,13 +152,13 @@ def make_workflow_provider(name: str, workflows: Dict[str, Any], doc: str = "") 
     """A WorkflowProvider over a static workflow spec dict."""
     spec = dict(workflows)
 
-    def get_workflows(self) -> Dict[str, Any]:
+    def get_workflows(self: Any) -> Dict[str, Any]:
         return dict(spec)
 
-    def get_workflow(self, workflow_name: str) -> Optional[Any]:
+    def get_workflow(self: Any, workflow_name: str) -> Optional[Any]:
         return spec.get(workflow_name)
 
-    def list_workflows(self) -> List[str]:
+    def list_workflows(self: Any) -> List[str]:
         return list(spec.keys())
 
     return type(

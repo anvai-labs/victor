@@ -186,7 +186,7 @@ class MockPluginContext:
 class MockToolResult:
     """Mock tool result for handler tests (duck-typed ToolResult)."""
 
-    def __init__(self, success: bool = True, output: Any = None, error: str = None):
+    def __init__(self, success: bool = True, output: Any = None, error: Optional[str] = None):
         self.success = success
         self.output = output
         self.error = error
@@ -198,8 +198,8 @@ class MockComputeNode:
     def __init__(
         self,
         node_id: str = "test_node",
-        input_mapping: Dict[str, Any] = None,
-        output_key: str = None,
+        input_mapping: Optional[Dict[str, Any]] = None,
+        output_key: Optional[str] = None,
     ):
         self.id = node_id
         self.input_mapping = input_mapping or {}
@@ -209,7 +209,7 @@ class MockComputeNode:
 class MockWorkflowContext:
     """Mock workflow context for handler tests."""
 
-    def __init__(self, data: Dict[str, Any] = None):
+    def __init__(self, data: Optional[Dict[str, Any]] = None):
         self._data = data or {}
 
     def get(self, key: str, default: Any = None) -> Any:
