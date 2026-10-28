@@ -74,21 +74,30 @@ def load_embedding_symbols(
     if not os.path.isdir(store_dir):
         raise FileNotFoundError(store_dir)
     table = lancedb.connect(store_dir).open_table("embeddings")
-    # search().limit() without a query vector returns the full table scan; the
-    # pyarrow path avoids the optional 'lance' dependency.
-    rows = table.search().limit(2_000_000).to_list()
+
+    # Push scope/degenerate filtering into the store query — a whole-repo
+    # store holds ~1M rows and materializing them client-side to filter
+    # costs minutes and gigabytes the pushdown avoids.
+    def _esc(value: str) -> str:
+        return value.replace("'", "''")
+
+    conds = ["symbol_name NOT LIKE '%:%'"]  # degenerate statement names
+    if scope:
+        conds.append(f"file_path LIKE '{_esc(scope)}%'")
+    if not include_tests:
+        for marker in TEST_PATH_MARKERS:
+            conds.append(f"file_path NOT LIKE '%{_esc(marker)}%'")
+    query = table.search().where(" AND ".join(conds)).limit(2_000_000)
+    rows = query.to_list()
     if not rows:
         raise FileNotFoundError(store_dir)
 
+    # Safety net: the pushdown covers the common shapes; keep the exact
+    # client-side predicate for anything the SQL LIKEs miss.
     kept = [
         r
         for r in rows
-        if _in_scope(r["file_path"], scope, include_tests)
-        # Statement-level nodes embed with degenerate name-only text
-        # ("<type>:<line>") — every one lands near-identical in vector space
-        # and drowns the scan in 1.000-similarity junk families. Real symbol
-        # names never contain ':'.
-        and ":" not in r["symbol_name"]
+        if _in_scope(r["file_path"], scope, include_tests) and ":" not in r["symbol_name"]
     ]
     if not kept:
         raise FileNotFoundError(store_dir)
