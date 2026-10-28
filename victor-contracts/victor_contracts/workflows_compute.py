@@ -73,8 +73,14 @@ class ComputeStep:
         *,
         status: ExecutorNodeStatus = ExecutorNodeStatus.COMPLETED,
         tool_calls_used: int = 1,
+        error: Optional[str] = None,
     ) -> NodeResult:
-        """Store ``output`` under the step's output key and build the result."""
+        """Store ``output`` under the step's output key and build the result.
+
+        ``error`` is for the dict-shaped result pattern where a handler
+        completes with BOTH a payload and a domain error field (e.g. MLOps:
+        ``{"success": False, "error": ...}`` with FAILED status).
+        """
         self._context.set(self._output_key, output)
         return NodeResult(
             node_id=self._node.id,
@@ -82,6 +88,7 @@ class ComputeStep:
             output=output,
             duration_seconds=self.elapsed,
             tool_calls_used=tool_calls_used,
+            error=error,
         )
 
     def fail(self, error: str) -> NodeResult:

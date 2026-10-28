@@ -52,6 +52,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from victor_contracts import ComputeStep
 from victor_contracts.workflows import (
     ComputeHandlerRegistrar,
     ExecutorNodeStatus,
@@ -94,7 +95,7 @@ class ContainerOpsHandler:
         context: "WorkflowContext",
         tool_registry: "ToolRegistry",
     ) -> "NodeResult":
-        start_time = time.time()
+        step = ComputeStep(node, context)
 
         operation = node.input_mapping.get("operation", "build")
         dockerfile = node.input_mapping.get("dockerfile", "Dockerfile")
@@ -113,12 +114,7 @@ class ContainerOpsHandler:
             container_id = node.input_mapping.get("container_id", "")
             cmd = f"{self.runtime} stop {container_id}"
         else:
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=f"Unknown operation: {operation}",
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(f"Unknown operation: {operation}")
 
         try:
             result = await tool_registry.execute("shell", command=cmd)
@@ -129,25 +125,14 @@ class ContainerOpsHandler:
                 "output": result.output,
             }
 
-            output_key = node.output_key or node.id
-            context.set(output_key, output)
-
-            return NodeResult(
-                node_id=node.id,
+            return step.complete(
+                output,
                 status=(
                     ExecutorNodeStatus.COMPLETED if result.success else ExecutorNodeStatus.FAILED
                 ),
-                output=output,
-                duration_seconds=time.time() - start_time,
-                tool_calls_used=1,
             )
         except Exception as e:
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=str(e),
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(str(e))
 
 
 @dataclass
@@ -175,7 +160,7 @@ class TerraformHandler:
         context: "WorkflowContext",
         tool_registry: "ToolRegistry",
     ) -> "NodeResult":
-        start_time = time.time()
+        step = ComputeStep(node, context)
 
         operation = node.input_mapping.get("operation", "plan")
         workspace = node.input_mapping.get("workspace")
@@ -203,12 +188,7 @@ class TerraformHandler:
             if auto_approve:
                 cmd += " -auto-approve"
         else:
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=f"Unknown operation: {operation}",
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(f"Unknown operation: {operation}")
 
         try:
             result = await tool_registry.execute("shell", command=cmd)
@@ -221,25 +201,14 @@ class TerraformHandler:
                 "output": result.output,
             }
 
-            output_key = node.output_key or node.id
-            context.set(output_key, output)
-
-            return NodeResult(
-                node_id=node.id,
+            return step.complete(
+                output,
                 status=(
                     ExecutorNodeStatus.COMPLETED if result.success else ExecutorNodeStatus.FAILED
                 ),
-                output=output,
-                duration_seconds=time.time() - start_time,
-                tool_calls_used=tool_calls,
             )
         except Exception as e:
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=str(e),
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(str(e))
 
 
 @dataclass
@@ -289,7 +258,7 @@ class MLOpsHandler:
         context: "WorkflowContext",
         tool_registry: "ToolRegistry",
     ) -> "NodeResult":
-        start_time = time.time()
+        step = ComputeStep(node, context)
 
         operation = node.input_mapping.get("operation", "register")
         model_name = node.input_mapping.get("model_name")
@@ -314,29 +283,19 @@ class MLOpsHandler:
                 port=port,
             )
 
-            output_key = node.output_key or node.id
-            context.set(output_key, result)
-
-            return NodeResult(
-                node_id=node.id,
+            return step.complete(
+                result,
                 status=(
                     ExecutorNodeStatus.COMPLETED
                     if result.get("success")
                     else ExecutorNodeStatus.FAILED
                 ),
-                output=result,
-                duration_seconds=time.time() - start_time,
                 error=result.get("error"),
             )
 
         except Exception as e:
             logger.exception(f"MLOps operation failed: {e}")
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=str(e),
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(str(e))
 
     async def _run_mlops(
         self,
