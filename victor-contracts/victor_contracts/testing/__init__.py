@@ -186,10 +186,18 @@ def _extract_dynamic_import_module(node: ast.Call) -> str | None:
     return None
 
 
-from victor_contracts.testing.fixtures import MockPluginContext  # noqa: E402
+from victor_contracts.testing.fixtures import (  # noqa: E402
+    MockComputeNode,
+    MockPluginContext,
+    MockToolResult,
+    MockWorkflowContext,
+)
 
 __all__ = [
     "assert_valid_vertical",
     "assert_import_boundaries",
+    "MockComputeNode",
     "MockPluginContext",
+    "MockToolResult",
+    "MockWorkflowContext",
 ]

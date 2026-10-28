@@ -11,6 +11,10 @@ Usage::
         ctx = MockPluginContext()
         my_plugin.register(ctx)
         assert "my_tool" in ctx.registered_tools
+
+Also ships the workflow-handler test mocks (``MockToolResult``,
+``MockComputeNode``, ``MockWorkflowContext``) that vertical test suites
+need to exercise compute handlers without victor-ai installed.
 """
 
 from __future__ import annotations
@@ -177,3 +181,39 @@ class MockPluginContext:
     def set_service(self, service_type: Type[Any], instance: Any) -> None:
         """Pre-register a service for testing."""
         self._services[service_type] = instance
+
+
+class MockToolResult:
+    """Mock tool result for handler tests (duck-typed ToolResult)."""
+
+    def __init__(self, success: bool = True, output: Any = None, error: Optional[str] = None):
+        self.success = success
+        self.output = output
+        self.error = error
+
+
+class MockComputeNode:
+    """Mock compute node for handler tests."""
+
+    def __init__(
+        self,
+        node_id: str = "test_node",
+        input_mapping: Optional[Dict[str, Any]] = None,
+        output_key: Optional[str] = None,
+    ):
+        self.id = node_id
+        self.input_mapping = input_mapping or {}
+        self.output_key = output_key
+
+
+class MockWorkflowContext:
+    """Mock workflow context for handler tests."""
+
+    def __init__(self, data: Optional[Dict[str, Any]] = None):
+        self._data = data or {}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        self._data[key] = value

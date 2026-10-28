@@ -38,6 +38,7 @@ from victor_contracts import (
     ConversationStats,
     TurnType,
 )
+from victor_contracts.verticals import VerticalConversationManager
 
 logger = logging.getLogger(__name__)
 
@@ -133,30 +134,8 @@ class CodingContext:
         logger.debug(f"Recorded git operation: {operation} on {target}")
 
 
-class EnhancedCodingConversationManager:
-    """Enhanced conversation manager for coding using ConversationCoordinator.
-
-    Provides:
-    - Standard conversation tracking via ConversationCoordinator
-    - Coding-specific context tracking (files, tests, git ops)
-    - Automatic summarization of coding work
-    - Code-focused conversation history
-
-    Example:
-        manager = EnhancedCodingConversationManager()
-
-        # Add a user message
-        manager.add_message("user", "Help me fix the bug in auth.py", TurnType.USER)
-
-        # Track file operations
-        manager.track_file_edit("src/auth.py")
-
-        # Track test runs
-        manager.track_test_run("test_auth.py", passed=True)
-
-        # Get conversation summary
-        summary = manager.get_coding_summary()
-    """
+class EnhancedCodingConversationManager(VerticalConversationManager):
+    """Coordinator-backed conversation manager with the coding context."""
 
     def __init__(
         self,
@@ -165,87 +144,25 @@ class EnhancedCodingConversationManager:
         enable_deduplication: bool = True,
         enable_statistics: bool = True,
     ):
-        """Initialize the enhanced conversation manager.
-
-        Args:
-            max_history_turns: Maximum turns to keep in history
-            summarization_threshold: Turns before triggering summarization
-            enable_deduplication: Whether to enable message deduplication
-            enable_statistics: Whether to track conversation statistics
-        """
-        self._conversation_coordinator = ConversationCoordinator(
+        super().__init__(
+            CodingContext,
+            "coding_context",
+            "coding",
             max_history_turns=max_history_turns,
             summarization_threshold=summarization_threshold,
             enable_deduplication=enable_deduplication,
             enable_statistics=enable_statistics,
         )
 
-        self._coding_context = CodingContext()
-
-        logger.info(
-            f"EnhancedCodingConversationManager initialized with " f"max_turns={max_history_turns}"
-        )
-
-    # =========================================================================
-    # Message Management (delegates to ConversationCoordinator)
-    # =========================================================================
-
-    def add_message(
-        self,
-        role: str,
-        content: str,
-        turn_type: TurnType,
-        metadata: Optional[Dict[str, Any]] = None,
-        tool_calls: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
-        """Add a message to the conversation.
-
-        Args:
-            role: Message role (user, assistant, system)
-            content: Message content
-            turn_type: Type of turn
-            metadata: Optional metadata
-            tool_calls: Optional tool calls made in this turn
-
-        Returns:
-            Turn ID for the added message
-        """
-        return self._conversation_coordinator.add_message(
-            role, content, turn_type, metadata, tool_calls
-        )
-
-    def get_history(
-        self,
-        max_turns: Optional[int] = None,
-        include_system: bool = True,
-        include_tool: bool = True,
-    ) -> List[Dict[str, Any]]:
-        """Get conversation history.
-
-        Args:
-            max_turns: Maximum number of turns to return
-            include_system: Whether to include system messages
-            include_tool: Whether to include tool messages
-
-        Returns:
-            List of message dictionaries
-        """
-        return self._conversation_coordinator.get_history(max_turns, include_system, include_tool)
-
     def clear_history(self, keep_summaries: bool = True) -> None:
-        """Clear conversation history.
-
-        Args:
-            keep_summaries: Whether to keep conversation summaries
-        """
-        self._conversation_coordinator.clear_history(keep_summaries)
+        """Clear history; a full clear also resets the coding context."""
+        super().clear_history(keep_summaries)
         if not keep_summaries:
-            self._coding_context = CodingContext()
+            self._context = CodingContext()
         logger.info("Conversation history cleared")
 
-    # =========================================================================
-    # Coding-Specific Context Tracking
-    # =========================================================================
+    def get_coding_context(self) -> CodingContext:
+        return self.get_context()
 
     def track_file_edit(self, file_path: str, edit_type: str = "edit") -> None:
         """Track a file edit operation.
@@ -254,7 +171,7 @@ class EnhancedCodingConversationManager:
             file_path: Path to the file
             edit_type: Type of edit (edit, create, delete)
         """
-        self._coding_context.add_file_edit(file_path, edit_type)
+        self._context.add_file_edit(file_path, edit_type)
 
     def track_file_read(self, file_path: str) -> None:
         """Track a file read operation.
@@ -262,7 +179,7 @@ class EnhancedCodingConversationManager:
         Args:
             file_path: Path to the file
         """
-        self._coding_context.add_file_read(file_path)
+        self._context.add_file_read(file_path)
 
     def track_test_run(
         self, test_name: str, passed: bool, duration: Optional[float] = None
@@ -274,7 +191,7 @@ class EnhancedCodingConversationManager:
             passed: Whether the test passed
             duration: Optional duration in seconds
         """
-        self._coding_context.add_test_run(test_name, passed, duration)
+        self._context.add_test_run(test_name, passed, duration)
 
     def track_git_operation(self, operation: str, target: Optional[str] = None) -> None:
         """Track a git operation.
@@ -283,27 +200,11 @@ class EnhancedCodingConversationManager:
             operation: Git operation (commit, push, pull, etc.)
             target: Optional target (branch, file, etc.)
         """
-        self._coding_context.add_git_operation(operation, target)
+        self._context.add_git_operation(operation, target)
 
     # =========================================================================
     # Summarization
     # =========================================================================
-
-    def needs_summarization(self) -> bool:
-        """Check if conversation needs summarization.
-
-        Returns:
-            True if summarization is recommended
-        """
-        return self._conversation_coordinator.needs_summarization()
-
-    def add_summary(self, summary: str) -> None:
-        """Add a conversation summary.
-
-        Args:
-            summary: Summary text
-        """
-        self._conversation_coordinator.add_summary(summary)
 
     def get_coding_summary(self) -> str:
         """Get a coding-focused conversation summary.
@@ -313,7 +214,7 @@ class EnhancedCodingConversationManager:
         """
         parts = []
 
-        ctx = self._coding_context
+        ctx = self._context
 
         # Files edited
         if ctx.files_edited:
@@ -351,44 +252,6 @@ class EnhancedCodingConversationManager:
     # =========================================================================
     # Statistics and Observability
     # =========================================================================
-
-    def get_stats(self) -> ConversationStats:
-        """Get conversation statistics.
-
-        Returns:
-            ConversationStats object
-        """
-        return self._conversation_coordinator.get_stats()
-
-    def get_coding_context(self) -> CodingContext:
-        """Get the coding context.
-
-        Returns:
-            CodingContext object
-        """
-        return self._coding_context
-
-    def get_observability_data(self) -> Dict[str, Any]:
-        """Get observability data for dashboard integration.
-
-        Returns:
-            Dictionary with observability data
-        """
-        conv_obs = self._conversation_coordinator.get_observability_data()
-
-        return {
-            **conv_obs,
-            "coding_context": self._coding_context.to_dict(),
-            "vertical": "coding",
-        }
-
-    def get_conversation_coordinator(self) -> ConversationCoordinator:
-        """Get the underlying ConversationCoordinator.
-
-        Returns:
-            ConversationCoordinator instance
-        """
-        return self._conversation_coordinator
 
 
 __all__ = [

@@ -20,11 +20,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from victor.framework.extensions import (
-    ConversationCoordinator,
-    ConversationStats,
-    TurnType,
-)
+from victor_contracts import TurnType
+from victor_contracts.verticals import VerticalConversationManager
 
 logger = logging.getLogger(__name__)
 
@@ -47,25 +44,26 @@ class RAGContext:
         }
 
 
-class EnhancedRAGConversationManager:
-    """Enhanced conversation manager for RAG."""
+class EnhancedRAGConversationManager(VerticalConversationManager):
+    """Coordinator-backed conversation manager with the rag context."""
 
-    def __init__(
-        self,
-        max_history_turns: int = 50,
-        summarization_threshold: int = 40,
-    ):
-        self._conversation_coordinator = ConversationCoordinator(
-            max_history_turns=max_history_turns,
-            summarization_threshold=summarization_threshold,
+    def __init__(self, **kwargs) -> None:
+        super().__init__(
+            RAGContext,
+            "rag_context",
+            "rag",
+            **kwargs,
         )
-        self._context = RAGContext()
 
     def add_message(self, role: str, content: str, turn_type: TurnType, **kwargs) -> str:
-        return self._conversation_coordinator.add_message(role, content, turn_type)
+        """Backward-compatible kwargs passthrough over the kernel signature."""
+        return super().add_message(role, content, turn_type, **kwargs)
 
     def get_history(self, **kwargs) -> List[Dict[str, Any]]:
-        return self._conversation_coordinator.get_history()
+        return super().get_history(**kwargs)
+
+    def get_rag_context(self) -> RAGContext:
+        return self.get_context()
 
     def track_document(self, document: str) -> None:
         if document not in self._context.documents_indexed:
@@ -86,13 +84,6 @@ class EnhancedRAGConversationManager:
             parts.append("## Queries Performed")
             parts.append(f"Total: {len(self._context.queries_performed)}")
         return "\n".join(parts)
-
-    def get_observability_data(self) -> Dict[str, Any]:
-        obs = self._conversation_coordinator.get_observability_data()
-        return {**obs, "rag_context": self._context.to_dict(), "vertical": "rag"}
-
-    def get_stats(self) -> ConversationStats:
-        return self._conversation_coordinator.get_stats()
 
 
 __all__ = ["RAGContext", "EnhancedRAGConversationManager"]
