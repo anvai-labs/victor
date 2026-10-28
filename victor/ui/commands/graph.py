@@ -1678,11 +1678,20 @@ def graph_similar(
     try:
         records, mat = load_embedding_symbols(root, scope=scope, include_tests=include_tests)
     except FileNotFoundError:
-        console.print(
-            "[yellow]No embedding store found at "
-            f"{root / '.victor' / 'embeddings'}[/yellow]\n"
-            "Generate one first: [cyan]victor graph index --embeddings[/cyan]"
-        )
+        if (root / ".victor" / "embeddings").is_dir():
+            detail = (
+                f"No embedded symbols under scope [cyan]{scope}[/cyan] "
+                "(the index may not have reached that tree yet)"
+                if scope
+                else "The embedding store is present but empty"
+            )
+        else:
+            detail = (
+                "No embedding store found at "
+                f"{root / '.victor' / 'embeddings'} — generate one first: "
+                "[cyan]victor graph index --embeddings[/cyan]"
+            )
+        console.print(f"[yellow]{detail}[/yellow]")
         raise typer.Exit(1)
 
     with console.status("[dim]scanning…[/dim]") as status:
