@@ -17,45 +17,10 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+from victor_contracts.testing import MockComputeNode, MockToolResult, MockWorkflowContext
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-
-class MockToolResult:
-    """Mock tool result for testing."""
-
-    def __init__(self, success: bool = True, output: Any = None, error: str = None):
-        self.success = success
-        self.output = output
-        self.error = error
-
-
-class MockComputeNode:
-    """Mock compute node for testing."""
-
-    def __init__(
-        self,
-        node_id: str = "test_node",
-        input_mapping: Dict[str, Any] = None,
-        output_key: str = None,
-    ):
-        self.id = node_id
-        self.input_mapping = input_mapping or {}
-        self.output_key = output_key
-
-
-class MockWorkflowContext:
-    """Mock workflow context for testing."""
-
-    def __init__(self, data: Dict[str, Any] = None):
-        self._data = data or {}
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
-
-    def set(self, key: str, value: Any) -> None:
-        self._data[key] = value
 
 
 class TestWebScraperHandler:
