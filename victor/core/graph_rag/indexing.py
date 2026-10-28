@@ -3735,17 +3735,25 @@ class GraphIndexingPipeline:
             # Staleness filter: fingerprint of the text that would be embedded.
             candidates = []
             versions: Dict[str, str] = {}
+            # Effective source hashes: the write path's canonical stamp when
+            # present, else derived from the embed text (self-healing — the
+            # derived hash is written back via evidence so mixed-graph nodes
+            # become canonically hashed after one embed pass).
+            effective_source_hashes: Dict[str, str] = {}
             for node in nodes:
                 if node.metadata.get("embedding_excluded"):
                     continue
+                text = GraphAwareEmbedder.node_text(node)
+                if not text or text == node.name:
+                    # name-only text (statement-level nodes) carries no
+                    # semantic signal — 100Ks of near-identical vectors
+                    continue
                 source_hash = node.metadata.get("source_hash")
                 if not isinstance(source_hash, str) or not re.fullmatch(
-                    r"[0-9a-f]{64}", source_hash
+                    r"[0-9a-f]{64}", source_hash or ""
                 ):
-                    raise ValueError("canonical source hash unavailable; rebuild in a fresh index")
-                text = GraphAwareEmbedder.node_text(node)
-                if not text:
-                    continue
+                    source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                effective_source_hashes[node.node_id] = source_hash
                 cv = hashlib.blake2b(text.encode("utf-8"), digest_size=8).hexdigest()
                 meta = node.metadata or {}
                 if (
@@ -3775,7 +3783,8 @@ class GraphIndexingPipeline:
                     "embedding_input_hash": hashlib.sha256(
                         GraphAwareEmbedder.node_text(n).encode("utf-8")
                     ).hexdigest(),
-                    "embedding_source_hash": n.metadata.get("source_hash"),
+                    "embedding_source_hash": effective_source_hashes[n.node_id],
+                    "source_hash": effective_source_hashes[n.node_id],
                 }
                 for n in candidates
             }
