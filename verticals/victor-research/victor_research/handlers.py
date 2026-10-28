@@ -47,6 +47,8 @@ from victor_contracts.workflows import (
     NodeResult,
     register_compute_handlers,
 )
+from victor_contracts import ComputeStep
+from victor_contracts.workflows_compute import make_handler_registrar
 
 if TYPE_CHECKING:
     from victor_contracts.verticals.protocols.tools import (
@@ -82,7 +84,7 @@ class WebScraperHandler:
         context: "WorkflowContext",
         tool_registry: "ToolRegistry",
     ) -> "NodeResult":
-        start_time = time.time()
+        step = ComputeStep(node, context)
 
         url = node.input_mapping.get("url", "")
         if isinstance(url, str) and url.startswith("$ctx."):
@@ -96,33 +98,19 @@ class WebScraperHandler:
                 url=url,
                 selectors=selectors,
             )
-
-            output = {
-                "url": url,
-                "success": result.success,
-                "data": result.output if result.success else None,
-                "error": result.error if not result.success else None,
-            }
-
-            output_key = node.output_key or node.id
-            context.set(output_key, output)
-
-            return NodeResult(
-                node_id=node.id,
+            return step.complete(
+                {
+                    "url": url,
+                    "success": result.success,
+                    "data": result.output if result.success else None,
+                    "error": result.error if not result.success else None,
+                },
                 status=(
                     ExecutorNodeStatus.COMPLETED if result.success else ExecutorNodeStatus.FAILED
                 ),
-                output=output,
-                duration_seconds=time.time() - start_time,
-                tool_calls_used=1,
             )
         except Exception as e:
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=str(e),
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(str(e))
 
 
 @dataclass
@@ -147,7 +135,7 @@ class CitationFormatterHandler:
         context: "WorkflowContext",
         tool_registry: "ToolRegistry",
     ) -> "NodeResult":
-        start_time = time.time()
+        step = ComputeStep(node, context)
 
         refs_key = node.input_mapping.get("references")
         references = context.get(refs_key) if refs_key else []
@@ -157,28 +145,11 @@ class CitationFormatterHandler:
             ref_list = references if isinstance(references, list) else [references]
             formatted = [self._format_citation(ref, style) for ref in ref_list]
 
-            output = {
-                "style": style,
-                "count": len(formatted),
-                "citations": formatted,
-            }
-
-            output_key = node.output_key or node.id
-            context.set(output_key, output)
-
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.COMPLETED,
-                output=output,
-                duration_seconds=time.time() - start_time,
+            return step.complete(
+                {"style": style, "count": len(formatted), "citations": formatted},
             )
         except Exception as e:
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=str(e),
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(str(e))
 
     def _format_citation(self, ref: Dict[str, Any], style: str) -> str:
         """Format a single citation."""
@@ -211,15 +182,7 @@ HANDLERS = {
 }
 
 
-def register_handlers(
-    registrar: Optional[ComputeHandlerRegistrar] = None,
-):
-    """Register Research handlers through an explicit host-side registrar."""
-    registered = register_compute_handlers(registrar, HANDLERS)
-    if registrar is not None:
-        for name in HANDLERS:
-            logger.debug(f"Registered Research handler: {name}")
-    return registered
+register_handlers = make_handler_registrar("Research", HANDLERS)
 
 
 __all__ = [

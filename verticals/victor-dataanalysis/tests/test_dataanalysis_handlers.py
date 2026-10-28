@@ -848,3 +848,33 @@ class TestNewHandlersInRegistry:
         assert "PyCaretHandler" in handlers.__all__
         assert "AutoSklearnHandler" in handlers.__all__
         assert "RLTrainingHandler" in handlers.__all__
+
+
+class TestRegistrationNeverMutatesTheGlobalRegistry:
+    """Dedup F5: registration is host-side-registrar only.
+
+    The legacy dataanalysis/rag loops mutated the GLOBAL
+    register_compute_handler registry at import/call time, polluting across
+    tests and sessions. The unified factory must never touch it.
+    """
+
+    def test_register_handlers_never_touches_the_global_path(self):
+        """The legacy loop called register_compute_handler, which lazily
+        redirects into the victor HOST runtime — unavailable in isolated
+        vertical installs and polluting globally when present. The unified
+        factory must never import that path."""
+        import sys
+
+        from victor_dataanalysis.handlers import HANDLERS, register_handlers
+
+        sys.modules.pop("victor_contracts.workflow_executor_runtime", None)
+        result = register_handlers()
+        assert "victor_contracts.workflow_executor_runtime" not in sys.modules
+        assert result == HANDLERS  # no-registrar call returns the table
+
+    def test_register_handlers_signature_keeps_registrar_param(self):
+        import inspect
+
+        from victor_dataanalysis.handlers import register_handlers
+
+        assert "registrar" in inspect.signature(register_handlers).parameters

@@ -46,6 +46,8 @@ if TYPE_CHECKING:
     from victor_contracts.workflow_runtime import ComputeNode
     from victor_contracts.workflow_runtime import NodeResult, WorkflowContext
 
+from victor_contracts.workflows_compute import make_handler_registrar
+
 logger = logging.getLogger(__name__)
 
 
@@ -240,13 +242,7 @@ HANDLERS = {
 }
 
 
-def register_handlers() -> None:
-    """Register RAG handlers with the workflow executor."""
-    from victor_contracts.workflow_runtime import register_compute_handler
-
-    for name, handler in HANDLERS.items():
-        register_compute_handler(name, handler)
-        logger.debug(f"Registered RAG handler: {name}")
+register_handlers = make_handler_registrar("Rag", HANDLERS)
 
 
 __all__ = [
