@@ -60,6 +60,15 @@ from victor_contracts import (
     PersonaTraits as FrameworkPersonaTraits,
 )
 from victor_contracts import PersonaRegistryProtocol, get_default_persona_registry
+from victor_contracts.verticals import (
+    RegistrationPolicy,
+    ScaleRule,
+    TraitSpec,
+    VerticalPersona,
+    VerticalTraits,
+    make_persona_helpers,
+    register_vertical_personas,
+)
 
 
 class ExpertiseCategory(str, Enum):
@@ -146,114 +155,67 @@ class DecisionStyle(str, Enum):
     ITERATIVE = "iterative"  # Start simple, improve
 
 
-@dataclass
-class CodingPersonaTraits:
-    """Coding-specific behavioral traits for a persona.
+_TRAIT_SPEC = TraitSpec(
+    communication_enum=CommunicationStyle,
+    decision_enum=DecisionStyle,
+    style_hints={
+        CommunicationStyle.CONCISE: "Keep responses brief and focused.",
+        CommunicationStyle.DETAILED: "Provide thorough explanations.",
+        CommunicationStyle.SOCRATIC: "Ask clarifying questions when appropriate.",
+        CommunicationStyle.ASSERTIVE: "Be direct and confident in recommendations.",
+        CommunicationStyle.COLLABORATIVE: "Seek input and build on others' ideas.",
+        CommunicationStyle.ANALYTICAL: "Support conclusions with data and evidence.",
+        CommunicationStyle.SUPPORTIVE: "Encourage and acknowledge good approaches.",
+    },
+    decision_hints={
+        DecisionStyle.CONSERVATIVE: "Prefer proven, well-tested approaches.",
+        DecisionStyle.PROGRESSIVE: "Consider modern solutions and best practices.",
+        DecisionStyle.PERFECTIONIST: "Maintain high quality standards.",
+        DecisionStyle.ITERATIVE: "Start simple and iterate to improve.",
+    },
+    scale_rules=(
+        ScaleRule(
+            "attention_to_detail",
+            low_below=0.3,
+            low_hint="Focus on the big picture over minor details.",
+            high_above=0.8,
+            high_hint="Pay close attention to edge cases and details.",
+        ),
+        ScaleRule(
+            "risk_tolerance",
+            low_below=0.3,
+            low_hint="Avoid risky changes without thorough testing.",
+            high_above=0.7,
+            high_hint="Don't be afraid to try unconventional solutions.",
+        ),
+    ),
+    defaults=dict(
+        communication_style="COLLABORATIVE",
+        decision_style="PRAGMATIC",
+        attention_to_detail=0.7,
+        risk_tolerance=0.5,
+        collaboration_preference=0.7,
+        verbosity=0.5,
+    ),
+    framework_mapping=lambda traits: (
+        dict(
+            verbosity=traits["verbosity"],
+            risk_tolerance=traits["risk_tolerance"],
+            creativity=1.0 - traits["attention_to_detail"],
+        ),
+        dict(
+            decision_style=traits["decision_style"].value,
+            attention_to_detail=traits["attention_to_detail"],
+            collaboration_preference=traits["collaboration_preference"],
+        ),
+    ),
+)
 
-    This class provides coding-specific trait extensions that complement
-    the framework's PersonaTraits. Use this when you need coding-specific
-    attributes like decision_style and attention_to_detail.
 
-    Attributes:
-        communication_style: Primary communication approach (coding-specific enum)
-        decision_style: How decisions are made
-        attention_to_detail: 0.0-1.0 scale of thoroughness
-        risk_tolerance: 0.0-1.0 scale of risk acceptance
-        collaboration_preference: 0.0-1.0 scale (0=solo, 1=collaborative)
-        verbosity: 0.0-1.0 scale of output detail
-    """
+class CodingPersonaTraits(VerticalTraits):
+    """Coding behavioral traits (shared algorithm, declarative schema)."""
 
-    communication_style: CommunicationStyle = CommunicationStyle.COLLABORATIVE
-    decision_style: DecisionStyle = DecisionStyle.PRAGMATIC
-    attention_to_detail: float = 0.7
-    risk_tolerance: float = 0.5
-    collaboration_preference: float = 0.7
-    verbosity: float = 0.5
-
-    def to_prompt_hints(self) -> str:
-        """Convert traits to prompt hints.
-
-        Returns:
-            String of behavioral hints for prompt injection
-        """
-        hints = []
-
-        # Communication style hints
-        style_hints = {
-            CommunicationStyle.CONCISE: "Keep responses brief and focused.",
-            CommunicationStyle.DETAILED: "Provide thorough explanations.",
-            CommunicationStyle.SOCRATIC: "Ask clarifying questions when appropriate.",
-            CommunicationStyle.ASSERTIVE: "Be direct and confident in recommendations.",
-            CommunicationStyle.COLLABORATIVE: "Seek input and build on others' ideas.",
-            CommunicationStyle.ANALYTICAL: "Support conclusions with data and evidence.",
-            CommunicationStyle.SUPPORTIVE: "Encourage and acknowledge good approaches.",
-        }
-        hints.append(style_hints.get(self.communication_style, ""))
-
-        # Decision style hints
-        if self.decision_style == DecisionStyle.CONSERVATIVE:
-            hints.append("Prefer proven, well-tested approaches.")
-        elif self.decision_style == DecisionStyle.PROGRESSIVE:
-            hints.append("Consider modern solutions and best practices.")
-        elif self.decision_style == DecisionStyle.PERFECTIONIST:
-            hints.append("Maintain high quality standards.")
-        elif self.decision_style == DecisionStyle.ITERATIVE:
-            hints.append("Start simple and iterate to improve.")
-
-        # Detail level
-        if self.attention_to_detail > 0.8:
-            hints.append("Pay close attention to edge cases and details.")
-        elif self.attention_to_detail < 0.3:
-            hints.append("Focus on the big picture over minor details.")
-
-        # Risk tolerance
-        if self.risk_tolerance < 0.3:
-            hints.append("Avoid risky changes without thorough testing.")
-        elif self.risk_tolerance > 0.7:
-            hints.append("Don't be afraid to try unconventional solutions.")
-
-        return " ".join(h for h in hints if h)
-
-    def to_framework_traits(
-        self,
-        name: str,
-        role: str,
-        description: str,
-        strengths: Optional[List[str]] = None,
-        preferred_tools: Optional[List[str]] = None,
-    ) -> FrameworkPersonaTraits:
-        """Convert to framework PersonaTraits.
-
-        Creates a framework-compatible PersonaTraits instance from
-        the coding-specific traits.
-
-        Args:
-            name: Display name for the persona
-            role: Role identifier
-            description: Description of the persona
-            strengths: Optional list of strengths
-            preferred_tools: Optional list of preferred tools
-
-        Returns:
-            FrameworkPersonaTraits instance
-        """
-        return FrameworkPersonaTraits(
-            name=name,
-            role=role,
-            description=description,
-            communication_style=self.communication_style.to_framework_style(),
-            expertise_level=ExpertiseLevel.EXPERT,
-            verbosity=self.verbosity,
-            strengths=strengths or [],
-            preferred_tools=preferred_tools or [],
-            risk_tolerance=self.risk_tolerance,
-            creativity=1.0 - self.attention_to_detail,  # Map attention to creativity
-            custom_traits={
-                "decision_style": self.decision_style.value,
-                "attention_to_detail": self.attention_to_detail,
-                "collaboration_preference": self.collaboration_preference,
-            },
-        )
+    spec = _TRAIT_SPEC
 
 
 # Backward compatibility alias
@@ -261,95 +223,8 @@ PersonaTraits = CodingPersonaTraits
 
 
 @dataclass
-class CodingPersona:
-    """Complete persona definition for a coding role.
-
-    This combines expertise areas, personality traits, and
-    role-specific guidance into a comprehensive persona.
-
-    Attributes:
-        name: Display name for the persona
-        role: Base role (researcher, planner, executor, reviewer)
-        expertise: Primary areas of expertise
-        secondary_expertise: Secondary/supporting expertise
-        traits: Behavioral traits
-        strengths: Key strengths in bullet points
-        approach: How this persona approaches work
-        communication_patterns: Typical communication patterns
-        working_style: Description of working approach
-    """
-
-    name: str
-    role: str
-    expertise: List[ExpertiseCategory]
-    secondary_expertise: List[ExpertiseCategory] = field(default_factory=list)
-    traits: PersonaTraits = field(default_factory=PersonaTraits)
-    strengths: List[str] = field(default_factory=list)
-    approach: str = ""
-    communication_patterns: List[str] = field(default_factory=list)
-    working_style: str = ""
-
-    def get_expertise_list(self) -> List[str]:
-        """Get combined expertise as string list.
-
-        Returns:
-            List of expertise category values
-        """
-        all_expertise = self.expertise + self.secondary_expertise
-        return [e.value for e in all_expertise]
-
-    def generate_backstory(self) -> str:
-        """Generate a rich backstory from persona attributes.
-
-        Returns:
-            Multi-sentence backstory for agent context
-        """
-        parts = []
-
-        # Name and role intro
-        parts.append(f"You are {self.name}, a skilled {self.role}.")
-
-        # Expertise
-        if self.expertise:
-            primary = ", ".join(e.value.replace("_", " ") for e in self.expertise[:3])
-            parts.append(f"Your expertise lies in {primary}.")
-
-        # Strengths
-        if self.strengths:
-            strengths_text = "; ".join(self.strengths[:3])
-            parts.append(f"Your key strengths: {strengths_text}.")
-
-        # Approach
-        if self.approach:
-            parts.append(self.approach)
-
-        # Working style
-        if self.working_style:
-            parts.append(self.working_style)
-
-        # Trait hints
-        trait_hints = self.traits.to_prompt_hints()
-        if trait_hints:
-            parts.append(trait_hints)
-
-        return " ".join(parts)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert persona to dictionary.
-
-        Returns:
-            Dictionary representation
-        """
-        return {
-            "name": self.name,
-            "role": self.role,
-            "expertise": self.get_expertise_list(),
-            "strengths": self.strengths,
-            "approach": self.approach,
-            "communication_style": self.traits.communication_style.value,
-            "decision_style": self.traits.decision_style.value,
-            "backstory": self.generate_backstory(),
-        }
+class CodingPersona(VerticalPersona):
+    """Complete persona definition for a coding role (kernel-backed)."""
 
 
 # =============================================================================
@@ -639,124 +514,18 @@ CODING_PERSONAS: Dict[str, CodingPersona] = {
 # =============================================================================
 
 
-def get_persona(name: str) -> Optional[CodingPersona]:
-    """Get a persona by name.
-
-    Args:
-        name: Persona name (e.g., 'code_archaeologist')
-
-    Returns:
-        CodingPersona if found, None otherwise
-    """
-    return CODING_PERSONAS.get(name)
+(
+    get_persona,
+    get_personas_for_role,
+    get_persona_by_expertise,
+    apply_persona_to_spec,
+    list_personas,
+) = make_persona_helpers(CODING_PERSONAS)
 
 
-def get_personas_for_role(role: str) -> List[CodingPersona]:
-    """Get all personas for a specific role.
-
-    Args:
-        role: Role name (researcher, planner, executor, reviewer)
-
-    Returns:
-        List of personas matching the role
-    """
-    return [p for p in CODING_PERSONAS.values() if p.role == role]
-
-
-def get_persona_by_expertise(expertise: ExpertiseCategory) -> List[CodingPersona]:
-    """Get personas that have a specific expertise.
-
-    Args:
-        expertise: Expertise category to search for
-
-    Returns:
-        List of personas with that expertise
-    """
-    return [
-        p
-        for p in CODING_PERSONAS.values()
-        if expertise in p.expertise or expertise in p.secondary_expertise
-    ]
-
-
-def apply_persona_to_spec(
-    spec: Any,  # TeamMemberSpec
-    persona_name: str,
-) -> Any:
-    """Apply persona attributes to a TeamMemberSpec.
-
-    Enhances the spec with persona's expertise, personality traits,
-    and generated backstory.
-
-    Args:
-        spec: TeamMemberSpec to enhance
-        persona_name: Name of persona to apply
-
-    Returns:
-        Enhanced TeamMemberSpec (same object, modified in place)
-    """
-    persona = get_persona(persona_name)
-    if persona is None:
-        return spec
-
-    # Add expertise from persona
-    if not spec.expertise:
-        spec.expertise = persona.get_expertise_list()
-    else:
-        # Merge expertise
-        existing = set(spec.expertise)
-        for e in persona.get_expertise_list():
-            if e not in existing:
-                spec.expertise.append(e)
-
-    # Generate backstory if not set
-    if not spec.backstory:
-        spec.backstory = persona.generate_backstory()
-    else:
-        # Append persona hints
-        trait_hints = persona.traits.to_prompt_hints()
-        if trait_hints:
-            spec.backstory = f"{spec.backstory} {trait_hints}"
-
-    # Set personality from traits
-    if not spec.personality:
-        spec.personality = (
-            f"{persona.traits.communication_style.value} and "
-            f"{persona.traits.decision_style.value}"
-        )
-
-    return spec
-
-
-def list_personas() -> List[str]:
-    """List all available persona names.
-
-    Returns:
-        List of persona names
-    """
-    return list(CODING_PERSONAS.keys())
-
-
-# =============================================================================
-# Framework Registration
-# =============================================================================
-
-
-def _register_personas_with_framework(
-    provider: PersonaRegistryProtocol | None = None,
-) -> None:
-    """Register all coding personas with FrameworkPersonaProvider.
-
-    This function is called at module import time to automatically register
-    all coding personas with the framework-level persona provider, enabling
-    cross-vertical persona discovery and reuse.
-    """
-    provider = provider or get_default_persona_registry()
-    if provider is None:
-        return
-
-    # Category mappings based on persona roles and expertise
-    category_mappings = {
+_REGISTRATION_POLICY = RegistrationPolicy(
+    vertical="coding",
+    categories={
         "code_archaeologist": "research",
         "security_auditor": "review",
         "architect": "planning",
@@ -765,10 +534,8 @@ def _register_personas_with_framework(
         "debugger": "execution",
         "quality_guardian": "review",
         "test_specialist": "review",
-    }
-
-    # Tag mappings for persona discovery
-    tag_mappings = {
+    },
+    tags={
         "code_archaeologist": [
             "code-analysis",
             "legacy-code",
@@ -788,34 +555,15 @@ def _register_personas_with_framework(
         "debugger": ["debugging", "troubleshooting", "root-cause"],
         "quality_guardian": ["code-review", "quality", "testing"],
         "test_specialist": ["testing", "tdd", "coverage", "quality"],
-    }
+    },
+)
 
-    # Register each persona
-    for persona_id, persona in CODING_PERSONAS.items():
-        # Convert CodingPersona to FrameworkPersonaTraits
-        framework_traits = persona.traits.to_framework_traits(
-            name=persona.name,
-            role=persona.role,
-            description=persona.approach,
-            strengths=persona.strengths,
-            preferred_tools=persona.get_expertise_list(),
-        )
 
-        # Get category and tags
-        category = category_mappings.get(persona_id, "other")
-        tags = tag_mappings.get(persona_id, [])
-
-        # Register with framework
-        provider.register_persona(
-            name=persona_id,
-            version="1.0.0",
-            persona=framework_traits,
-            category=category,
-            description=f"{persona.name} - {persona.role}",
-            tags=tags,
-            author="victor",
-            vertical="coding",
-        )
+def _register_personas_with_framework(
+    provider: PersonaRegistryProtocol | None = None,
+) -> None:
+    """Register all coding personas with the framework persona provider."""
+    register_vertical_personas(CODING_PERSONAS, _REGISTRATION_POLICY, provider)
 
 
 # Auto-register on import
