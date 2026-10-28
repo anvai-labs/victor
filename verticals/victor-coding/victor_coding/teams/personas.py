@@ -189,25 +189,25 @@ _TRAIT_SPEC = TraitSpec(
             high_hint="Don't be afraid to try unconventional solutions.",
         ),
     ),
-    defaults=dict(
-        communication_style="COLLABORATIVE",
-        decision_style="PRAGMATIC",
-        attention_to_detail=0.7,
-        risk_tolerance=0.5,
-        collaboration_preference=0.7,
-        verbosity=0.5,
-    ),
+    defaults={
+        "communication_style": "COLLABORATIVE",
+        "decision_style": "PRAGMATIC",
+        "attention_to_detail": 0.7,
+        "risk_tolerance": 0.5,
+        "collaboration_preference": 0.7,
+        "verbosity": 0.5,
+    },
     framework_mapping=lambda traits: (
-        dict(
-            verbosity=traits["verbosity"],
-            risk_tolerance=traits["risk_tolerance"],
-            creativity=1.0 - traits["attention_to_detail"],
-        ),
-        dict(
-            decision_style=traits["decision_style"].value,
-            attention_to_detail=traits["attention_to_detail"],
-            collaboration_preference=traits["collaboration_preference"],
-        ),
+        {
+            "verbosity": traits["verbosity"],
+            "risk_tolerance": traits["risk_tolerance"],
+            "creativity": 1.0 - traits["attention_to_detail"],
+        },
+        {
+            "decision_style": traits["decision_style"].value,
+            "attention_to_detail": traits["attention_to_detail"],
+            "collaboration_preference": traits["collaboration_preference"],
+        },
     ),
 )
 

@@ -61,7 +61,9 @@ class TraitSpec:
     decision_hints: Dict[Any, str]
     scale_rules: Tuple[ScaleRule, ...] = ()
     defaults: Dict[str, Any] = field(default_factory=dict)
-    framework_mapping: Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    framework_mapping: Optional[
+        Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Dict[str, Any]]]
+    ] = None
 
 
 class VerticalTraits:
@@ -72,8 +74,9 @@ class VerticalTraits:
 
     def __init__(self, **overrides: Any) -> None:
         base = dict(self.spec.defaults)
+
         # enum defaults arrive as member names
-        def _resolve(enum_cls, raw):
+        def _resolve(enum_cls: Any, raw: str) -> Any:
             # Enum classes are subscriptable by member name; the smoke-test
             # fakes are not — fall back to getattr lookup.
             try:
@@ -86,9 +89,7 @@ class VerticalTraits:
                 self.spec.communication_enum, base["communication_style"]
             )
         if isinstance(base.get("decision_style"), str):
-            base["decision_style"] = _resolve(
-                self.spec.decision_enum, base["decision_style"]
-            )
+            base["decision_style"] = _resolve(self.spec.decision_enum, base["decision_style"])
         for k, v in overrides.items():
             if k not in base and k not in ("communication_style", "decision_style"):
                 raise TypeError(f"unknown trait {k!r} for {type(self).__name__}")
@@ -97,6 +98,14 @@ class VerticalTraits:
 
     def __eq__(self, other: Any) -> bool:
         return type(self) is type(other) and self.__dict__ == other.__dict__
+
+    def __getattr__(self, name: str) -> Any:
+        # Trait fields are schema-defined (TraitSpec.defaults) — attribute
+        # access is dynamic by design; __init__ populates __dict__.
+        try:
+            return self.__dict__[name]
+        except KeyError:
+            raise AttributeError(name) from None
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"{type(self).__name__}({self.__dict__})"
@@ -134,6 +143,7 @@ class VerticalTraits:
 
         if framework_traits_cls is None:
             from victor_contracts import PersonaTraits as framework_traits_cls
+        assert self.spec.framework_mapping is not None
         extra, custom = self.spec.framework_mapping(self.__dict__)
         return framework_traits_cls(
             name=name,
@@ -205,8 +215,13 @@ class VerticalPersona:
 
 def make_persona_helpers(
     personas: Dict[str, VerticalPersona],
-    persona_type: Type[VerticalPersona] = VerticalPersona,
-):
+) -> Tuple[
+    Callable[[str], Optional[VerticalPersona]],
+    Callable[[str], List[VerticalPersona]],
+    Callable[[Any], List[VerticalPersona]],
+    Callable[[Any, str], Any],
+    Callable[[], List[str]],
+]:
     """Build the five lookup helpers over a vertical's persona table."""
 
     def get_persona(name: str) -> Optional[VerticalPersona]:
@@ -249,7 +264,13 @@ def make_persona_helpers(
     def list_personas() -> List[str]:
         return list(personas.keys())
 
-    return get_persona, get_personas_for_role, get_persona_by_expertise, apply_persona_to_spec, list_personas
+    return (
+        get_persona,
+        get_personas_for_role,
+        get_persona_by_expertise,
+        apply_persona_to_spec,
+        list_personas,
+    )
 
 
 @dataclass(frozen=True)
@@ -283,7 +304,7 @@ def register_vertical_personas(
     personas: Dict[str, VerticalPersona],
     policy: RegistrationPolicy,
     provider: Any = None,
-):
+) -> Optional[int]:
     """Register a vertical's personas per the policy. Returns the provider's
     registration result count when the provider returns one."""
     if provider is None:
@@ -318,9 +339,7 @@ def register_vertical_personas(
             description=persona.approach,
             strengths=persona.strengths,
             preferred_tools=(
-                persona.get_expertise_list()
-                if policy.preferred_tools == "expertise"
-                else []
+                persona.get_expertise_list() if policy.preferred_tools == "expertise" else []
             ),
         )
         provider.register_persona(

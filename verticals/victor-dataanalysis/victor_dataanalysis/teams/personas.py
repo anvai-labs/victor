@@ -215,25 +215,25 @@ _TRAIT_SPEC = TraitSpec(
             high_hint="Don't be afraid to try novel approaches.",
         ),
     ),
-    defaults=dict(
-        communication_style="COLLABORATIVE",
-        decision_style="PRAGMATIC",
-        quantitative_focus=0.8,
-        risk_tolerance=0.5,
-        visualization_preference=0.6,
-        verbosity=0.5,
-    ),
+    defaults={
+        "communication_style": "COLLABORATIVE",
+        "decision_style": "PRAGMATIC",
+        "quantitative_focus": 0.8,
+        "risk_tolerance": 0.5,
+        "visualization_preference": 0.6,
+        "verbosity": 0.5,
+    },
     framework_mapping=lambda traits: (
-        dict(
-            verbosity=traits["verbosity"],
-            risk_tolerance=traits["risk_tolerance"],
-            creativity=1.0 - traits["quantitative_focus"],
-        ),
-        dict(
-            decision_style=traits["decision_style"].value,
-            quantitative_focus=traits["quantitative_focus"],
-            visualization_preference=traits["visualization_preference"],
-        ),
+        {
+            "verbosity": traits["verbosity"],
+            "risk_tolerance": traits["risk_tolerance"],
+            "creativity": 1.0 - traits["quantitative_focus"],
+        },
+        {
+            "decision_style": traits["decision_style"].value,
+            "quantitative_focus": traits["quantitative_focus"],
+            "visualization_preference": traits["visualization_preference"],
+        },
     ),
 )
 

@@ -199,25 +199,25 @@ _TRAIT_SPEC = TraitSpec(
             high_hint="Embrace modern approaches with proper monitoring.",
         ),
     ),
-    defaults=dict(
-        communication_style="PRAGMATIC",
-        decision_style="AUTOMATION_FIRST",
-        automation_focus=0.8,
-        risk_tolerance=0.4,
-        collaboration_preference=0.7,
-        verbosity=0.5,
-    ),
+    defaults={
+        "communication_style": "PRAGMATIC",
+        "decision_style": "AUTOMATION_FIRST",
+        "automation_focus": 0.8,
+        "risk_tolerance": 0.4,
+        "collaboration_preference": 0.7,
+        "verbosity": 0.5,
+    },
     framework_mapping=lambda traits: (
-        dict(
-            verbosity=traits["verbosity"],
-            risk_tolerance=traits["risk_tolerance"],
-            creativity=0.5,
-        ),
-        dict(
-            decision_style=traits["decision_style"].value,
-            automation_focus=traits["automation_focus"],
-            collaboration_preference=traits["collaboration_preference"],
-        ),
+        {
+            "verbosity": traits["verbosity"],
+            "risk_tolerance": traits["risk_tolerance"],
+            "creativity": 0.5,
+        },
+        {
+            "decision_style": traits["decision_style"].value,
+            "automation_focus": traits["automation_focus"],
+            "collaboration_preference": traits["collaboration_preference"],
+        },
     ),
 )
 

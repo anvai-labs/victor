@@ -220,29 +220,29 @@ _TRAIT_SPEC = TraitSpec(
             high_hint="Maintain high skepticism and verify all claims.",
         ),
     ),
-    defaults=dict(
-        communication_style="ANALYTICAL",
-        decision_style="EVIDENCE_BASED",
-        source_rigor=0.7,
-        breadth_preference=0.5,
-        citation_detail=0.6,
-        skepticism=0.5,
-        collaboration_preference=0.7,
-        verbosity=0.5,
-    ),
+    defaults={
+        "communication_style": "ANALYTICAL",
+        "decision_style": "EVIDENCE_BASED",
+        "source_rigor": 0.7,
+        "breadth_preference": 0.5,
+        "citation_detail": 0.6,
+        "skepticism": 0.5,
+        "collaboration_preference": 0.7,
+        "verbosity": 0.5,
+    },
     framework_mapping=lambda traits: (
-        dict(
-            verbosity=traits["verbosity"],
-            risk_tolerance=1.0 - traits["skepticism"],
-            creativity=traits["breadth_preference"],
-        ),
-        dict(
-            decision_style=traits["decision_style"].value,
-            source_rigor=traits["source_rigor"],
-            citation_detail=traits["citation_detail"],
-            skepticism=traits["skepticism"],
-            collaboration_preference=traits["collaboration_preference"],
-        ),
+        {
+            "verbosity": traits["verbosity"],
+            "risk_tolerance": 1.0 - traits["skepticism"],
+            "creativity": traits["breadth_preference"],
+        },
+        {
+            "decision_style": traits["decision_style"].value,
+            "source_rigor": traits["source_rigor"],
+            "citation_detail": traits["citation_detail"],
+            "skepticism": traits["skepticism"],
+            "collaboration_preference": traits["collaboration_preference"],
+        },
     ),
 )
 
