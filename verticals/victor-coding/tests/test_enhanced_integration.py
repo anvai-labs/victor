@@ -300,7 +300,7 @@ class TestEnhancedCodingConversationManager:
         manager = EnhancedCodingConversationManager()
 
         assert manager._conversation_coordinator is not None
-        assert isinstance(manager._coding_context, CodingContext)
+        assert isinstance(manager.get_coding_context(), CodingContext)
 
     def test_add_message(self):
         """Test adding a message."""
