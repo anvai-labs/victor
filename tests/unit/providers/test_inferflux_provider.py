@@ -27,18 +27,19 @@ def test_inferflux_is_thin_typed_policy(provider: InferfluxProvider) -> None:
 
 def test_model_policy_lineup_and_prefix_routes(provider: InferfluxProvider) -> None:
     # Model ids are operator config server-side; the YAML tier pins the
-    # production R9700 store lineup (served by inferflux's
-    # config/server.rocm.qwen3coder30b.yaml). The 32768 windows mirror the
-    # serving pool's per-sequence context (n_ctx 65536 / 2 sequences).
+    # production aiserver1 lineup (qwen3-coder-30b on the R9700 at n_ctx
+    # 98304 / 4 sequences with q8_0 KV; gpt-oss-20b on the RTX 4000 Ada at
+    # n_ctx 65536 / 4). The windows mirror each pool's per-sequence context.
     required = {"description", "context_window", "max_output", "supports_tools"}
     assert all(required <= metadata.keys() for metadata in INFERFLUX_MODELS.values())
+    assert set(INFERFLUX_MODELS) == {"qwen3-coder-30b", "gpt-oss-20b"}
     assert provider.get_default_model() == "qwen3-coder-30b"
     assert INFERFLUX_MODELS["qwen3-coder-30b"]["supports_tools"] is True
-    assert provider.context_window("qwen3-coder-30b") == 32768
-    assert provider.context_window("gpt-oss-20b") == 32768
+    assert provider.context_window("qwen3-coder-30b") == 24576
+    assert provider.context_window("gpt-oss-20b") == 16384
     # Unknown operator id: the prefix routes (then the default) catch it, so
     # budgeting still matches whatever the server actually loads.
-    assert provider.context_window("granite-8b") == 32768
+    assert provider.context_window("granite-8b") == 24576
 
 
 def test_cache_policy_reports_no_split(provider: InferfluxProvider) -> None:
