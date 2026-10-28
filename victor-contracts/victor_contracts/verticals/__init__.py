@@ -61,6 +61,13 @@ from victor_contracts.verticals.protocols import (
     PersonaProviderProtocol,
 )
 from victor_contracts.verticals.safety_kernel import CoordinatorSafetyExtension
+from victor_contracts.verticals.provider_kernel import (
+    make_pattern_safety_provider,
+    make_prompt_provider,
+    make_stage_tool_strategy,
+    make_tool_provider,
+    make_workflow_provider,
+)
 from victor_contracts.verticals.protocols.promoted_types import (
     MiddlewarePriority,
     MiddlewareResult,
@@ -113,6 +120,11 @@ __all__ = [
     # Promoted protocols
     "MiddlewareProtocol",
     "CoordinatorSafetyExtension",
+    "make_pattern_safety_provider",
+    "make_prompt_provider",
+    "make_stage_tool_strategy",
+    "make_tool_provider",
+    "make_workflow_provider",
     "SafetyExtensionProtocol",
     "PromptContributorProtocol",
     "ModeConfigProviderProtocol",
