@@ -61,6 +61,15 @@ from victor_contracts.verticals.protocols import (
     PersonaProviderProtocol,
 )
 from victor_contracts.verticals.conversation_kernel import VerticalConversationManager
+from victor_contracts.verticals.persona_kernel import (
+    RegistrationPolicy,
+    ScaleRule,
+    TraitSpec,
+    VerticalPersona,
+    VerticalTraits,
+    make_persona_helpers,
+    register_vertical_personas,
+)
 from victor_contracts.verticals.safety_kernel import CoordinatorSafetyExtension
 from victor_contracts.verticals.provider_kernel import (
     make_pattern_safety_provider,
@@ -121,6 +130,13 @@ __all__ = [
     # Promoted protocols
     "MiddlewareProtocol",
     "CoordinatorSafetyExtension",
+    "RegistrationPolicy",
+    "ScaleRule",
+    "TraitSpec",
+    "VerticalPersona",
+    "VerticalTraits",
+    "make_persona_helpers",
+    "register_vertical_personas",
     "VerticalConversationManager",
     "make_pattern_safety_provider",
     "make_prompt_provider",
