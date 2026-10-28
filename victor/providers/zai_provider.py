@@ -76,10 +76,25 @@ class ZAIProvider(SandhiOpenAICompatPolicy):
         thinking: bool = False,
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        effort = kwargs.get("reasoning_effort")
+        if (
+            effort is not None
+            and self.supports_reasoning_effort(model)
+            and effort not in ("low", "high", "max")
+        ):
+            raise ValueError("GLM-5.3 reasoning_effort must be low, high or max")
         params: Dict[str, Any] = {"temperature": temperature, "max_tokens": max_tokens}
         if thinking:
             params["thinking"] = {"type": "enabled"}
         return params
+
+    def supports_reasoning_effort(self, model: Optional[str] = None) -> bool:
+        """Keep GLM-5.3's explicit effort instead of its provider default of max.
+
+        Z.ai documents low/high/max for GLM-5.3. Other model families keep
+        their existing capability policy until their effort contract is qualified.
+        """
+        return self._clean_model_name(model or self.get_default_model()) == "glm-5.3"
 
     def _extract_response_metadata(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         reasoning = message.get("reasoning_content")
