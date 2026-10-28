@@ -76,7 +76,7 @@ def make_stage_tool_strategy(
 
 def make_pattern_safety_provider(
     name: str,
-    dangerous_patterns: Sequence[str],
+    dangerous_patterns: Sequence[Any],
     tool_restrictions: Dict[str, List[str]],
     *,
     file_patterns: Sequence[str] = (),

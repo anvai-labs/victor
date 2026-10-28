@@ -70,6 +70,8 @@ except ImportError:
         def list_workflows(self) -> List[str]: ...
 
 
+from victor_contracts.verticals import make_tool_provider
+
 # Try to import existing victor-coding implementations (may not exist in older versions)
 try:
     from victor_coding.safety import CodingSafetyExtension
@@ -101,50 +103,46 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class CodingToolProvider(ToolProvider):
-    """Tool provider for coding vertical.
+CODING_TOOLS = [
+    # Core filesystem tools
+    "read",
+    "write",
+    "edit",
+    "search",
+    "grep",
+    "ls",
+    "find",
+    "tree",
+    # Git tools
+    "git_status",
+    "git_diff",
+    "git_log",
+    "git_blame",
+    "git_show",
+    "git_branch",
+    # Code analysis
+    "symbol",
+    "code_search",
+    "ast_inspect",
+    "lint",
+    "format",
+    # Testing
+    "test",
+    "test_coverage",
+    # Execution
+    "shell",
+    "run_python",
+    # Documentation
+    "doc_gen",
+    # Refactoring
+    "rename",
+    "extract",
+    "inline",
+]
 
-    Provides the list of tools available to the coding assistant.
-    """
-
-    def get_tools(self) -> List[str]:
-        """Return list of tool names for coding vertical."""
-        return [
-            # Core filesystem tools
-            "read",
-            "write",
-            "edit",
-            "search",
-            "grep",
-            "ls",
-            "find",
-            "tree",
-            # Git tools
-            "git_status",
-            "git_diff",
-            "git_log",
-            "git_blame",
-            "git_show",
-            "git_branch",
-            # Code analysis
-            "symbol",
-            "code_search",
-            "ast_inspect",
-            "lint",
-            "format",
-            # Testing
-            "test",
-            "test_coverage",
-            # Execution
-            "shell",
-            "run_python",
-            # Documentation
-            "doc_gen",
-            # Refactoring
-            "rename",
-            "extract",
-            "inline",
-        ]
+CodingToolProvider = make_tool_provider(
+    "CodingToolProvider", CODING_TOOLS, "Tool provider for the coding vertical."
+)
 
 
 class CodingToolSelectionStrategy(ToolSelectionStrategy):
