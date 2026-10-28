@@ -32,9 +32,15 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from victor_contracts import SafetyAction, SafetyCategory, SafetyCoordinator, SafetyRule
-from victor_contracts.verticals import SafetyExtensionProtocol, SafetyPattern
+from victor_contracts.verticals import CoordinatorSafetyExtension
 
 logger = logging.getLogger(__name__)
+from victor_contracts.safety_patterns import (
+    BUILD_DEPLOY_PATTERNS,
+    GIT_PATTERNS,
+    PACKAGE_MANAGER_PATTERNS,
+    SENSITIVE_FILE_PATTERNS,
+)
 
 
 class CodingSafetyRules:
@@ -218,164 +224,22 @@ class CodingSafetyRules:
         return rules
 
 
-class EnhancedCodingSafetyExtension(SafetyExtensionProtocol):
-    """Enhanced safety extension using SafetyCoordinator.
+class EnhancedCodingSafetyExtension(CoordinatorSafetyExtension):
+    """Enhanced coding safety extension (shared coordinator kernel)."""
 
-    This class provides the SafetyExtensionProtocol interface while
-    delegating to the framework's SafetyCoordinator for actual
-    safety checking.
-
-    Example:
-        extension = EnhancedCodingSafetyExtension()
-
-        # Check if an operation is safe
-        result = extension.check_operation("git", ["push", "--force", "origin", "main"])
-        if not result.is_safe:
-            print(f"Blocked: {result.block_reason}")
-    """
-
-    def __init__(
-        self,
-        strict_mode: bool = False,
-        enable_custom_rules: bool = True,
-    ):
-        """Initialize the enhanced safety extension.
-
-        Args:
-            strict_mode: If True, treat warnings as blocks
-            enable_custom_rules: If True, enable custom coding-specific rules
-        """
-        self._strict_mode = strict_mode
-        self._enable_custom_rules = enable_custom_rules
-
-        # Create SafetyCoordinator with coding-specific rules
-        self._coordinator = SafetyCoordinator(
+    def __init__(self, strict_mode: bool = False, enable_custom_rules: bool = True):
+        super().__init__(
+            "coding",
+            CodingSafetyRules.get_all_rules(),
             strict_mode=strict_mode,
-            enable_default_rules=True,
+            enable_custom_rules=enable_custom_rules,
+            bash_patterns=[*GIT_PATTERNS, *PACKAGE_MANAGER_PATTERNS, *BUILD_DEPLOY_PATTERNS],
+            file_patterns=list(SENSITIVE_FILE_PATTERNS),
+            tool_restrictions={
+                "git": ["push --force origin main", "push --force origin master"],
+                "shell": ["rm -rf /", "format", "fdisk"],
+            },
         )
-
-        # Register coding-specific rules
-        if enable_custom_rules:
-            for rule in CodingSafetyRules.get_all_rules():
-                self._coordinator.register_rule(rule)
-
-        logger.info(
-            f"EnhancedCodingSafetyExtension initialized with "
-            f"{len(self._coordinator.list_rules())} safety rules"
-        )
-
-    def check_operation(
-        self,
-        tool_name: str,
-        args: List[str],
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Any:
-        """Check if an operation is safe.
-
-        Args:
-            tool_name: Name of the tool being called
-            args: Arguments to the tool
-            context: Optional context for the check
-
-        Returns:
-            SafetyCheckResult from the coordinator
-        """
-        return self._coordinator.check_safety(tool_name, args, context)
-
-    def is_operation_safe(
-        self,
-        tool_name: str,
-        args: List[str],
-        context: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """Quick check if an operation is safe.
-
-        Args:
-            tool_name: Name of the tool
-            args: Tool arguments
-            context: Optional context
-
-        Returns:
-            True if operation is safe, False otherwise
-        """
-        return self._coordinator.is_operation_safe(tool_name, args, context)
-
-    def get_bash_patterns(self) -> List[SafetyPattern]:
-        """Get coding-specific bash command patterns.
-
-        Returns:
-            List of safety patterns for dangerous bash commands
-        """
-        # Return patterns compatible with legacy safety system
-        from victor_contracts.safety_patterns import (
-            BUILD_DEPLOY_PATTERNS,
-            GIT_PATTERNS,
-            PACKAGE_MANAGER_PATTERNS,
-        )
-
-        patterns: List[SafetyPattern] = []
-        if self._enable_custom_rules:
-            patterns.extend(GIT_PATTERNS)
-            patterns.extend(PACKAGE_MANAGER_PATTERNS)
-            patterns.extend(BUILD_DEPLOY_PATTERNS)
-        return patterns
-
-    def get_file_patterns(self) -> List[SafetyPattern]:
-        """Get coding-specific file operation patterns.
-
-        Returns:
-            List of safety patterns for file operations
-        """
-        from victor_contracts.safety_patterns import SENSITIVE_FILE_PATTERNS
-
-        return SENSITIVE_FILE_PATTERNS if self._enable_custom_rules else []
-
-    def get_tool_restrictions(self) -> Dict[str, List[str]]:
-        """Get tool-specific argument restrictions.
-
-        Returns:
-            Dictionary mapping tool names to restricted arguments
-        """
-        return {
-            "git": ["push --force origin main", "push --force origin master"],
-            "shell": ["rm -rf /", "format", "fdisk"],
-        }
-
-    def get_coordinator(self) -> SafetyCoordinator:
-        """Get the underlying SafetyCoordinator.
-
-        Returns:
-            SafetyCoordinator instance
-        """
-        return self._coordinator
-
-    def add_custom_rule(self, rule: SafetyRule) -> None:
-        """Add a custom safety rule.
-
-        Args:
-            rule: Safety rule to add
-        """
-        self._coordinator.register_rule(rule)
-        logger.debug(f"Added custom safety rule: {rule.rule_id}")
-
-    def remove_rule(self, rule_id: str) -> bool:
-        """Remove a safety rule.
-
-        Args:
-            rule_id: ID of the rule to remove
-
-        Returns:
-            True if rule was removed, False if not found
-        """
-        return self._coordinator.unregister_rule(rule_id)
-
-    def get_safety_stats(self) -> Dict[str, Any]:
-        """Get safety statistics.
-
-        Returns:
-            Dictionary with safety statistics
-        """
-        return self._coordinator.get_stats_dict()
 
 
 __all__ = [

@@ -60,6 +60,7 @@ from victor_contracts.verticals.protocols import (
     ChainProviderProtocol,
     PersonaProviderProtocol,
 )
+from victor_contracts.verticals.safety_kernel import CoordinatorSafetyExtension
 from victor_contracts.verticals.protocols.promoted_types import (
     MiddlewarePriority,
     MiddlewareResult,
@@ -111,6 +112,7 @@ __all__ = [
     "TaskTypeHint",
     # Promoted protocols
     "MiddlewareProtocol",
+    "CoordinatorSafetyExtension",
     "SafetyExtensionProtocol",
     "PromptContributorProtocol",
     "ModeConfigProviderProtocol",

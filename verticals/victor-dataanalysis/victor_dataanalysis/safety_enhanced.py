@@ -25,7 +25,7 @@ from victor.framework.extensions import (
     SafetyCoordinator,
     SafetyRule,
 )
-from victor.framework.extensions import SafetyExtensionProtocol, SafetyPattern
+from victor_contracts.verticals import CoordinatorSafetyExtension
 
 logger = logging.getLogger(__name__)
 
@@ -66,39 +66,16 @@ class DataAnalysisSafetyRules:
         ]
 
 
-class EnhancedDataAnalysisSafetyExtension(SafetyExtensionProtocol):
-    """Enhanced safety extension for DataAnalysis."""
+class EnhancedDataAnalysisSafetyExtension(CoordinatorSafetyExtension):
+    """Enhanced dataanalysis safety extension (shared coordinator kernel)."""
 
-    def __init__(self, strict_mode: bool = False):
-        self._coordinator = SafetyCoordinator(strict_mode=strict_mode)
-        for rule in DataAnalysisSafetyRules.get_all_rules():
-            self._coordinator.register_rule(rule)
-        logger.info("EnhancedDataAnalysisSafetyExtension initialized")
-
-    def check_operation(
-        self, tool_name: str, args: List[str], context: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        return self._coordinator.check_safety(tool_name, args, context)
-
-    def is_operation_safe(
-        self, tool_name: str, args: List[str], context: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        return self._coordinator.is_operation_safe(tool_name, args, context)
-
-    def get_bash_patterns(self) -> List[SafetyPattern]:
-        return []
-
-    def get_file_patterns(self) -> List[SafetyPattern]:
-        return []
-
-    def get_tool_restrictions(self) -> Dict[str, List[str]]:
-        return {}
-
-    def get_coordinator(self) -> SafetyCoordinator:
-        return self._coordinator
-
-    def get_safety_stats(self) -> Dict[str, Any]:
-        return self._coordinator.get_stats_dict()
+    def __init__(self, strict_mode: bool = False, enable_custom_rules: bool = True):
+        super().__init__(
+            "dataanalysis",
+            DataAnalysisSafetyRules.get_all_rules(),
+            strict_mode=strict_mode,
+            enable_custom_rules=enable_custom_rules,
+        )
 
 
 __all__ = ["DataAnalysisSafetyRules", "EnhancedDataAnalysisSafetyExtension"]
