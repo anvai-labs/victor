@@ -252,3 +252,57 @@ async def test_models_from_sandhi_reads_real_catalog_when_available():
     # The curated Anthropic lineup admitted in sandhi-providers catalog.rs.
     assert "claude-fable-5" in ids
     assert "claude-opus-4-8" in ids
+
+
+class TestBuildRequestParamsFiltersNonBodyFields:
+    """The provider must never leak internal orchestration kwargs into the wire body.
+
+    Sandhi's strict policy gate (InputFormat::Messages allowlist) 503s
+    non-spec body fields — this is the exact failure that blocked the Qwen
+    coding-plan route. Internal state (topology/execution) is also not third-
+    party-API material regardless of gate strictness.
+    """
+
+    def _params(self, provider, **kwargs):
+        msg = SimpleNamespace(role="user", content="hi", images=None)
+        return provider._build_request_params(
+            model="m", messages=[msg], max_tokens=8, temperature=0.2, **kwargs
+        )
+
+    def test_internal_orchestration_kwargs_are_dropped(self, anthropic_provider):
+        params = self._params(
+            anthropic_provider,
+            execution_mode="escalated_single_agent",
+            topology_action="escalate",
+            topology_kind="plan",
+            topology_metadata={"x": 1},
+        )
+        for leaked in (
+            "execution_mode",
+            "topology_action",
+            "topology_kind",
+            "topology_metadata",
+        ):
+            assert leaked not in params, leaked
+
+    def test_spec_kwargs_are_kept(self, anthropic_provider):
+        params = self._params(
+            anthropic_provider,
+            top_p=0.9,
+            top_k=40,
+            stop_sequences=["\n"],
+            stream=True,
+            thinking={"type": "enabled", "budget_tokens": 512},
+            metadata={"user_id": "u1"},
+        )
+        assert params["top_p"] == 0.9
+        assert params["top_k"] == 40
+        assert params["stop_sequences"] == ["\n"]
+        assert params["stream"] is True
+        assert params["thinking"]["type"] == "enabled"
+        assert params["metadata"]["user_id"] == "u1"
+
+    def test_arbitrary_unknown_kwargs_are_dropped(self, anthropic_provider):
+        params = self._params(anthropic_provider, surprise_field="x", top_p=0.5)
+        assert "surprise_field" not in params
+        assert params["top_p"] == 0.5
