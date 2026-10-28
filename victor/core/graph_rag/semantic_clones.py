@@ -120,6 +120,29 @@ def load_embedding_symbols(
 BLOCK_ROWS = 4096
 
 
+def make_union_find(n: int):
+    """Tiny path-halving union-find over ``range(n)``.
+
+    Shared with ``victor.native.python.graph_algo`` — one implementation,
+    two callers (the native copy chose the opposite union root; component
+    results are identical either way, so the shared form is safe).
+    """
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    return find, union
+
+
 def find_clone_families(
     records: List[SymbolRecord],
     mat: Any,
@@ -161,18 +184,7 @@ def find_clone_families(
         if progress is not None:
             progress(min(b0 + BLOCK_ROWS, n), n)
 
-    parent = list(range(n))
-
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a: int, b: int) -> None:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[rb] = ra
+    find, union = make_union_find(n)
 
     for i, j in pairs:
         union(i, j)
