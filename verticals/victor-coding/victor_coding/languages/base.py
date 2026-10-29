@@ -29,6 +29,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
+    Iterable,
     List,
     Optional,
     Protocol,
@@ -609,17 +610,64 @@ class BaseLanguagePlugin(ABC):
         """Default: no linter."""
         return None
 
+    #: ``metadata["language"]`` reported by :meth:`detect_calls_edges`;
+    #: ``None`` means ``self.config.name``.
+    _call_edge_language: Optional[str] = None
+
     def detect_calls_edges(
         self,
         tree: "Tree",
         source_code: str,
         file_path: Path,
     ) -> EdgeDetectionResult:
-        """Default implementation: no edge detection.
+        """Detect CALLS edges via the ``_find_call_nodes`` / ``_extract_callee_name`` hooks.
 
-        Override in subclasses to provide language-specific call graph detection.
+        Template method: every call site yielded by :meth:`_find_call_nodes`
+        becomes a :class:`CallEdge` when both the enclosing caller name and
+        the callee name (from :meth:`_extract_callee_name`) are non-empty.
+        The default hooks yield nothing, so plugins without call support
+        report no edges.
+
+        Args:
+            tree: Parsed tree-sitter tree
+            source_code: Raw source code text
+            file_path: Path to source file
+
+        Returns:
+            EdgeDetectionResult with detected calls
         """
-        return EdgeDetectionResult(calls=[], metadata={"language": self.config.name})
+        calls: List[CallEdge] = []
+        for call_node, caller_name, caller_line in self._find_call_nodes(tree.root_node):
+            callee_name = self._extract_callee_name(call_node)
+            if callee_name and caller_name:
+                calls.append(
+                    CallEdge(
+                        caller_name=caller_name,
+                        callee_name=callee_name,
+                        caller_line=caller_line,
+                    )
+                )
+
+        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
+
+        return EdgeDetectionResult(
+            calls=calls,
+            metadata={
+                "language": self._call_edge_language or self.config.name,
+                "file": str(file_path),
+            },
+        )
+
+    def _find_call_nodes(self, root: "Node") -> Iterable[Tuple["Node", str, Optional[int]]]:
+        """Yield ``(call_node, caller_name, caller_line)`` for each call site.
+
+        Default: no call sites. Override to enable call-edge detection.
+        """
+        return ()
+
+    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
+        """Return the called symbol's name for ``call_node``, or ``None``."""
+        return None
 
 
 @dataclass
