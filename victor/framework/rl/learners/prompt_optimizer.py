@@ -64,6 +64,20 @@ from victor.framework.rl.learners.trace_analysis import (
     classify_trace_zone,
 )
 
+# Trace analysis was extracted to trace_analysis.py. These relocated names stay
+# importable from here (back-compat contract pinned by
+# test_trace_analysis.TestReExportBackCompat); new code imports trace_analysis.
+from victor.framework.rl.learners.trace_analysis import (
+    FAILURE_HINTS as FAILURE_HINTS,
+    FAILURE_TO_CAPABILITY as FAILURE_TO_CAPABILITY,
+    CapabilityGap as CapabilityGap,
+    ToolCallTrace as ToolCallTrace,
+    analyze_capability_gaps as analyze_capability_gaps,
+    format_failing_exemplars as format_failing_exemplars,
+    get_failure_hint as get_failure_hint,
+    score_trace_quality as score_trace_quality,
+)
+
 # The prompt-candidate data model was extracted to candidate.py. Re-exported
 # here so existing ``from ...prompt_optimizer import PromptCandidate`` works.
 from victor.framework.rl.learners.candidate import (

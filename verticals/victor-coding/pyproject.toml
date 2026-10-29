@@ -158,6 +158,11 @@ target-version = [
 ]
 
 [tool.ruff]
+extend-exclude = [
+    # Parser input corpus for the golden tests: data, not code. Editing it
+    # shifts the pinned line numbers.
+    "tests/codebase/goldens/samples",
+]
 line-length = 100
 target-version = "py312"
 

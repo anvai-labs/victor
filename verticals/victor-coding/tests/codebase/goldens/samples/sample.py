@@ -1,3 +1,6 @@
+import os
+
+
 def _private_helper(path: str) -> str:
     prefix = path.strip()
     wrapped = wrap(prefix, len(prefix))
