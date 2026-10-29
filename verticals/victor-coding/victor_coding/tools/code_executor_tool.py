@@ -38,12 +38,9 @@ The lifecycle is designed so sandbox containers cannot accumulate:
 import io
 import logging
 import os
-import socket
 import tarfile
 import threading
-import time
 import weakref
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -92,13 +89,21 @@ except ImportError:
 
 from victor.tools.base import AccessMode, DangerLevel, Priority
 from victor.tools.decorators import tool
+from victor.tools.sandbox_ownership import (
+    OWNER_HOST_LABEL as OWNER_HOST_LABEL,
+    OWNER_PID_LABEL as OWNER_PID_LABEL,
+    OWNER_START_LABEL as OWNER_START_LABEL,
+    created_age_seconds,
+    host_identity as host_identity,
+    owner_alive as owner_alive,
+    owner_gone,
+    owner_labels,
+    process_start_marker as process_start_marker,
+)
 
 # Labels identifying Victor sandbox containers and their owner
 SANDBOX_CONTAINER_LABEL = "victor.sandbox"
 SANDBOX_CONTAINER_VALUE = "code-executor"
-OWNER_HOST_LABEL = "victor.owner.host"
-OWNER_PID_LABEL = "victor.owner.pid"
-OWNER_START_LABEL = "victor.owner.start"
 IDLE_TTL_LABEL = "victor.idle_ttl"
 
 DEFAULT_IMAGE = "python:3.11-slim"
@@ -119,41 +124,6 @@ def _connect_timeout() -> float:
         return float(os.getenv("VICTOR_CODE_EXEC_START_TIMEOUT", "5.0"))
     except ValueError:
         return 5.0
-
-
-def host_identity() -> str:
-    """Identity of this kernel boot; owners on other hosts are never reaped."""
-    try:
-        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    except OSError:
-        return socket.gethostname()
-
-
-def process_start_marker(pid: int) -> str:
-    """Kernel start time of ``pid`` (distinguishes a reused PID); "" if unknown."""
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return ""
-    # comm (field 2) may contain spaces and parens: split after the last ')'.
-    fields = stat.rsplit(")", 1)[1].split()
-    return fields[19] if len(fields) > 19 else ""  # field 22: starttime
-
-
-def owner_alive(pid: int, start: str) -> bool:
-    """True unless ``pid`` is provably gone or now belongs to another process."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass  # exists, owned by another user
-    except OSError:
-        return True  # cannot tell: never reap on doubt
-    current = process_start_marker(pid)
-    return not (start and current and current != start)
 
 
 def watchdog_command(idle_ttl_seconds: int) -> List[str]:
@@ -179,14 +149,7 @@ def _remove_container(container: Any) -> None:
 
 
 def _age_seconds(container: Any) -> float:
-    created = (getattr(container, "attrs", None) or {}).get("Created", "")
-    try:
-        # Docker reports nanoseconds; fromisoformat accepts at most microseconds.
-        head, _, frac = created.rstrip("Z").partition(".")
-        stamp = datetime.fromisoformat(f"{head}.{(frac + '000000')[:6]}+00:00")
-    except ValueError:
-        return 0.0
-    return time.time() - stamp.timestamp()
+    return created_age_seconds((getattr(container, "attrs", None) or {}).get("Created", ""))
 
 
 def _is_legacy_sandbox(container: Any) -> bool:
@@ -230,25 +193,16 @@ def find_orphaned_sandboxes(
         logger.debug("Sandbox reaper could not list containers: %s", exc)
         return []
 
-    me = host_identity()
     orphans: List[Any] = []
     for container in containers:
-        labels = getattr(container, "labels", None) or {}
-        host = labels.get(OWNER_HOST_LABEL)
-        if host is None:
+        gone = owner_gone(getattr(container, "labels", None) or {})
+        if gone is None:
             if not include_legacy or not _is_legacy_sandbox(container):
                 continue
             if _age_seconds(container) < legacy_min_age_seconds:
                 continue
-        elif host != me:
+        elif not gone:
             continue
-        else:
-            try:
-                pid = int(labels.get(OWNER_PID_LABEL, "0"))
-            except ValueError:
-                pid = 0
-            if owner_alive(pid, labels.get(OWNER_START_LABEL, "")):
-                continue
         orphans.append(container)
     return orphans
 
@@ -368,12 +322,9 @@ class CodeSandbox:
     # -- Container lifecycle -------------------------------------------------
 
     def _labels(self) -> Dict[str, str]:
-        pid = os.getpid()
         return {
             SANDBOX_CONTAINER_LABEL: SANDBOX_CONTAINER_VALUE,
-            OWNER_HOST_LABEL: host_identity(),
-            OWNER_PID_LABEL: str(pid),
-            OWNER_START_LABEL: process_start_marker(pid),
+            **owner_labels(),
             IDLE_TTL_LABEL: str(self.idle_ttl_seconds),
         }
 

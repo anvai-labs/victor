@@ -23,11 +23,13 @@ host path — see :class:`DockerUnavailable`.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
+from victor.tools.sandbox_ownership import created_age_seconds, owner_gone, owner_labels
 from victor.workflows.isolation import IsolationConfig, ResourceLimits
 from victor.workflows.sandbox_executor import (
     SANDBOX_CONTAINER_LABEL,
@@ -40,6 +42,44 @@ logger = logging.getLogger(__name__)
 # ``victor.sandbox``; value distinguishes eval from workflow sandboxes).
 EVAL_CONTAINER_LABEL_VALUE = "eval"
 
+# Eval containers created before owner labels existed carry none; the sweep
+# removes those only once they are older than any eval run could still be.
+LEGACY_EVAL_MIN_AGE_SECONDS = 24 * 3600
+
+
+async def _orphaned_eval_containers() -> list[str]:
+    """Ids of eval containers whose owning process is provably gone.
+
+    Owner-labelled containers qualify only when their owner on this host is
+    dead (a concurrent benchmark run's live containers are never selected);
+    unlabeled legacy containers qualify once older than
+    :data:`LEGACY_EVAL_MIN_AGE_SECONDS`.
+    """
+    rc, out, _ = await _run_cmd(
+        [
+            "docker",
+            "ps",
+            "-aq",
+            "--filter",
+            f"label={SANDBOX_CONTAINER_LABEL}={EVAL_CONTAINER_LABEL_VALUE}",
+        ],
+        timeout=30,
+    )
+    ids = [line.strip() for line in out.decode().splitlines() if line.strip()] if rc == 0 else []
+    if not ids:
+        return []
+    rc, out, _ = await _run_cmd(["docker", "inspect", *ids], timeout=60)
+    if rc != 0:
+        return []
+    orphans: list[str] = []
+    for info in json.loads(out.decode() or "[]"):
+        gone = owner_gone((info.get("Config") or {}).get("Labels") or {})
+        if gone is None:
+            gone = created_age_seconds(info.get("Created", "")) >= LEGACY_EVAL_MIN_AGE_SECONDS
+        if gone:
+            orphans.append(info["Id"][:12])
+    return orphans
+
 
 async def cleanup_stale_sandbox_containers() -> int:
     """Remove orphaned victor sandbox containers from prior crashed runs.
@@ -51,7 +91,8 @@ async def cleanup_stale_sandbox_containers() -> int:
     Called at benchmark START. Two sweeps, each scoped to what it can prove is
     orphaned:
 
-    - ``victor.sandbox=eval`` containers (eval runs own one per task).
+    - ``victor.sandbox=eval`` containers (eval runs own one per task) whose
+      owning process is gone; a concurrent run's live containers are kept.
     - code-executor sandboxes via the coding vertical's owner-aware reaper,
       which removes only containers whose owning process is gone. Sweeping the
       whole ``victor.sandbox`` label key here used to remove the LIVE sandbox
@@ -61,19 +102,7 @@ async def cleanup_stale_sandbox_containers() -> int:
     """
     removed = 0
     try:
-        rc, out, _ = await _run_cmd(
-            [
-                "docker",
-                "ps",
-                "-aq",
-                "--filter",
-                f"label={SANDBOX_CONTAINER_LABEL}={EVAL_CONTAINER_LABEL_VALUE}",
-            ],
-            timeout=30,
-        )
-        ids = (
-            [line.strip() for line in out.decode().splitlines() if line.strip()] if rc == 0 else []
-        )
+        ids = await _orphaned_eval_containers()
         if ids:
             rc, _, _ = await _run_cmd(["docker", "rm", "-f", *ids], timeout=120)
             if rc == 0:
@@ -329,6 +358,8 @@ class EvalContainer:
             label_value=self.label_value,
             workspace_mount=EVAL_WORKSPACE_MOUNT,
         )
+        for key, value in owner_labels().items():
+            create_cmd += ["--label", f"{key}={value}"]
         create_cmd += [self.image, "sleep", "infinity"]
 
         rc, out, err = await self._run(create_cmd, timeout=120)
