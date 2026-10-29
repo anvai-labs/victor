@@ -1024,114 +1024,131 @@ class GraphIndexingPipeline:
             outcomes: dict[str, str] = {}
             providers = providers_for_files(list(nodes_by_file))
             for provider in providers.values():
-                tool = provider.detect(tool_hint)
-                if tool is None:
-                    outcomes[provider.name] = "toolchain-absent"
-                    logger.info(
-                        "precise-index: %s toolchain absent; %s skipped",
-                        provider.name,
-                        "/".join(sorted(provider.languages)),
-                    )
-                    continue
-                timeout_seconds = config_timeout or provider.default_timeout_seconds
-                file_hashes = precise_cache.slice_manifest_for_extensions(
-                    manifest, extensions_for_provider(provider.name)
-                )
-                cache_key = (
-                    precise_cache.dump_cache_key(provider.name, tool, file_hashes)
-                    if manifest is not None
-                    else None
-                )
-                reused = (
-                    precise_cache.load_cached(root, provider.name, cache_key) if cache_key else None
-                )
-                constrained = False
-                if reused is not None:
-                    dump_path = reused
-                else:
-                    dump_path, tmp_path = precise_cache.atomic_dump_path(root, provider.name)
-                    # ADR-032 harvest constraint (python): Pyright's
-                    # whole-environment enumeration is the measured hot spot
-                    # (2,980 s / ~130 GB reads on a shared conda env). Hand
-                    # scip-python exactly the distributions the codebase
-                    # imports; the builder declines (None) on any failure.
-                    environment_json = None
-                    if "python" in provider.languages:
-                        from victor.core.graph_rag.harvest_environment import (
-                            build_python_environment,
+                try:
+                    tool = provider.detect(tool_hint)
+                    if tool is None:
+                        outcomes[provider.name] = "toolchain-absent"
+                        logger.info(
+                            "precise-index: %s toolchain absent; %s skipped",
+                            provider.name,
+                            "/".join(sorted(provider.languages)),
                         )
+                        continue
+                    timeout_seconds = config_timeout or provider.default_timeout_seconds
+                    file_hashes = precise_cache.slice_manifest_for_extensions(
+                        manifest, extensions_for_provider(provider.name)
+                    )
+                    cache_key = (
+                        precise_cache.dump_cache_key(provider.name, tool, file_hashes)
+                        if manifest is not None
+                        else None
+                    )
+                    reused = (
+                        precise_cache.load_cached(root, provider.name, cache_key)
+                        if cache_key
+                        else None
+                    )
+                    constrained = False
+                    if reused is not None:
+                        dump_path = reused
+                    else:
+                        dump_path, tmp_path = precise_cache.atomic_dump_path(root, provider.name)
+                        # ADR-032 harvest constraint (python): Pyright's
+                        # whole-environment enumeration is the measured hot spot
+                        # (2,980 s / ~130 GB reads on a shared conda env). Hand
+                        # scip-python exactly the distributions the codebase
+                        # imports; the builder declines (None) on any failure.
+                        environment_json = None
+                        if "python" in provider.languages:
+                            from victor.core.graph_rag.harvest_environment import (
+                                build_python_environment,
+                            )
 
-                        environment_json = await asyncio.to_thread(
-                            build_python_environment,
-                            root,
-                            dump_path.parent / "harvest-environment.json",
-                        )
-                        constrained = environment_json is not None
-                    dump_kwargs = {"environment_json": environment_json} if constrained else {}
-                    dumped = await asyncio.to_thread(
-                        provider.dump,
-                        tool,
-                        root,
-                        tmp_path,
-                        timeout_seconds=timeout_seconds,
-                        **dump_kwargs,
-                    )
-                    if constrained and dumped is not None and not isinstance(dumped, DumpSkipped):
-                        # Dynamic reflection: compare resolved external
-                        # packages against the previous (baseline) dump. A
-                        # real coverage regression re-dumps unconstrained —
-                        # never a silent degradation of the compile-level
-                        # harvest.
-                        dumped = await self._reflect_or_redump(
-                            provider,
+                            environment_json = await asyncio.to_thread(
+                                build_python_environment,
+                                root,
+                                dump_path.parent / "harvest-environment.json",
+                            )
+                            constrained = environment_json is not None
+                        dump_kwargs = {"environment_json": environment_json} if constrained else {}
+                        dumped = await asyncio.to_thread(
+                            provider.dump,
                             tool,
                             root,
-                            dump_path,
                             tmp_path,
-                            dumped,
                             timeout_seconds=timeout_seconds,
+                            **dump_kwargs,
                         )
-                    if isinstance(dumped, DumpSkipped):
-                        # Project marker absent — a setup gap, not a toolchain
-                        # or dump failure (the honest taxonomy's third state).
-                        outcomes[provider.name] = dumped.reason
-                        continue
-                    if dumped is None:
-                        outcomes[provider.name] = "dump-failed"
-                        continue
-                    import os
+                        if (
+                            constrained
+                            and dumped is not None
+                            and not isinstance(dumped, DumpSkipped)
+                        ):
+                            # Dynamic reflection: compare resolved external
+                            # packages against the previous (baseline) dump. A
+                            # real coverage regression re-dumps unconstrained —
+                            # never a silent degradation of the compile-level
+                            # harvest.
+                            dumped = await self._reflect_or_redump(
+                                provider,
+                                tool,
+                                root,
+                                dump_path,
+                                tmp_path,
+                                dumped,
+                                timeout_seconds=timeout_seconds,
+                            )
+                        if isinstance(dumped, DumpSkipped):
+                            # Project marker absent — a setup gap, not a toolchain
+                            # or dump failure (the honest taxonomy's third state).
+                            outcomes[provider.name] = dumped.reason
+                            continue
+                        if dumped is None:
+                            outcomes[provider.name] = "dump-failed"
+                            continue
+                        import os
 
-                    os.replace(tmp_path, dump_path)
-                    if cache_key:
-                        try:
-                            precise_cache.store(root, provider.name, dump_path, cache_key)
-                        except (OSError, ValueError) as exc:
-                            # Cache bookkeeping is best-effort: the artifact
-                            # itself is valid for THIS harvest; only future
-                            # reuse is forgone.
-                            logger.warning("precise-index cache store skipped: %s", exc)
-                harvest = await asyncio.to_thread(
-                    harvest_precise_edges,
-                    dump_path,
-                    nodes_by_file,
-                    symbol_parts=provider.symbol_parts,
-                )
-                if harvest.skipped_reason:
-                    outcomes[provider.name] = harvest.skipped_reason
-                    continue
-                outcomes[provider.name] = (
-                    f"ok:{len(harvest.edges)} edges ({harvest.accounting})"
-                    + (" [cached dump]" if reused is not None else "")
-                    + (" [constrained env]" if constrained else "")
-                )
-                merged_edges.extend(harvest.edges)
-                merged_resolved += harvest.resolved
-                merged_unjoined += harvest.unjoined
-                merged_defs_unjoined += harvest.definitions_unjoined
-                merged_refs_unjoined += harvest.references_unjoined
-                merged_refs_ownerless += harvest.references_ownerless
-                merged_oodocs += harvest.out_of_corpus_documents
-                merged_ooocc += harvest.out_of_corpus_occurrences
+                        os.replace(tmp_path, dump_path)
+                        if cache_key:
+                            try:
+                                precise_cache.store(root, provider.name, dump_path, cache_key)
+                            except (OSError, ValueError) as exc:
+                                # Cache bookkeeping is best-effort: the artifact
+                                # itself is valid for THIS harvest; only future
+                                # reuse is forgone.
+                                logger.warning("precise-index cache store skipped: %s", exc)
+                    harvest = await asyncio.to_thread(
+                        harvest_precise_edges,
+                        dump_path,
+                        nodes_by_file,
+                        symbol_parts=provider.symbol_parts,
+                    )
+                    if harvest.skipped_reason:
+                        outcomes[provider.name] = harvest.skipped_reason
+                        continue
+                    outcomes[provider.name] = (
+                        f"ok:{len(harvest.edges)} edges ({harvest.accounting})"
+                        + (" [cached dump]" if reused is not None else "")
+                        + (" [constrained env]" if constrained else "")
+                    )
+                    merged_edges.extend(harvest.edges)
+                    merged_resolved += harvest.resolved
+                    merged_unjoined += harvest.unjoined
+                    merged_defs_unjoined += harvest.definitions_unjoined
+                    merged_refs_unjoined += harvest.references_unjoined
+                    merged_refs_ownerless += harvest.references_ownerless
+                    merged_oodocs += harvest.out_of_corpus_documents
+                    merged_ooocc += harvest.out_of_corpus_occurrences
+                except Exception as exc:
+                    # A broken optional producer must not discard prior compiler
+                    # evidence or prevent unrelated languages from being indexed.
+                    # Cancellation (BaseException) still propagates normally.
+                    outcomes[provider.name] = f"error:{type(exc).__name__}"
+                    logger.warning(
+                        "precise-index: %s failed (%s); continuing other providers",
+                        provider.name,
+                        type(exc).__name__,
+                    )
             if not providers:
                 return PreciseHarvest(
                     skipped_reason="no-indexable-languages", per_language=outcomes
