@@ -654,8 +654,10 @@ class ScipJavaProvider:
             return DumpSkipped("no-jvm-build")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         command = [tool, "index", f"--output={output_path}"]
-        if not any((root / marker).exists() for marker in self._AUTOMATIC_BUILD_MARKERS):
+        if any((root / marker).exists() for marker in self._BAZEL_BUILD_MARKERS):
             # Modern Bazel roots can have MODULE.bazel without WORKSPACE.
+            # Supply its required aspect input even in mixed-build roots; the
+            # indexer's Gradle/Maven integrations ignore this Bazel-only option.
             command.append(f"--bazel-scip-java-binary={Path(tool).resolve()}")
         return _run_dump(
             command,

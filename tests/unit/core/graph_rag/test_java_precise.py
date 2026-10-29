@@ -160,6 +160,20 @@ def test_supported_build_markers_and_bazel_indexer_path(tmp_path, monkeypatch, m
     assert (f"--bazel-scip-java-binary={Path(tool).resolve()}" in captured[0]) == bazel
 
 
+@pytest.mark.parametrize("other_marker", ["pom.xml", "gradlew", "settings.gradle.kts"])
+def test_mixed_build_roots_keep_required_bazel_aspect_input(tmp_path, monkeypatch, other_marker):
+    captured = []
+    monkeypatch.setattr(
+        "victor.core.graph_rag.precise_providers._run_dump",
+        lambda cmd, **kwargs: captured.append(cmd),
+    )
+    (tmp_path / "MODULE.bazel").touch()
+    (tmp_path / other_marker).touch()
+    tool = str(tmp_path / "bin/scip-java")
+    JV.dump(tool, tmp_path, tmp_path / "out.scip", timeout_seconds=1)
+    assert f"--bazel-scip-java-binary={Path(tool).resolve()}" in captured[0]
+
+
 @pytest.mark.parametrize("marker", ["build.sbt", "MILL_VERSION", "build.xml"])
 def test_unsupported_builds_skip_before_execution(tmp_path, monkeypatch, marker):
     def no_execution(*args, **kwargs):
