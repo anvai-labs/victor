@@ -28,7 +28,6 @@ Sprint 2: Mode Controller Unification
 
 import logging
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
 from victor.framework.rl.base import (
@@ -39,26 +38,13 @@ from victor.framework.rl.base import (
 )
 from victor.framework.rl.migration import RLTableMigrator
 from victor.core.schema import Tables
+from victor.core.mode_controller import EXTENDED_MODE_TRANSITIONS, ExtendedAgentMode
 
 logger = logging.getLogger(__name__)
 
 
-class RLAgentMode(Enum):
-    """Extended agent operation modes for RL-based mode transitions.
-
-    This is an extension of the base AgentMode (victor.agent.mode_controller.AgentMode)
-    with additional modes (REVIEW, COMPLETE) for reinforcement learning state tracking.
-
-    Renamed from AgentMode to be semantically distinct:
-    - AgentMode (victor.agent.mode_controller): Base 3 modes (BUILD, PLAN, EXPLORE)
-    - RLAgentMode: Extended 5 modes for RL state machine
-    """
-
-    EXPLORE = "explore"
-    PLAN = "plan"
-    BUILD = "build"
-    REVIEW = "review"
-    COMPLETE = "complete"
+# The five-mode state machine is defined once, in core.
+RLAgentMode = ExtendedAgentMode
 
 
 # Backward compatibility alias
@@ -92,14 +78,8 @@ class ModeTransitionLearner(BaseLearner):
     # Minimum samples before confident recommendation
     MIN_SAMPLES_FOR_CONFIDENCE = 10
 
-    # Valid mode transitions
-    VALID_TRANSITIONS = {
-        AgentMode.EXPLORE: [AgentMode.PLAN, AgentMode.BUILD, AgentMode.COMPLETE],
-        AgentMode.PLAN: [AgentMode.BUILD, AgentMode.EXPLORE, AgentMode.COMPLETE],
-        AgentMode.BUILD: [AgentMode.REVIEW, AgentMode.EXPLORE, AgentMode.COMPLETE],
-        AgentMode.REVIEW: [AgentMode.BUILD, AgentMode.COMPLETE],
-        AgentMode.COMPLETE: [],
-    }
+    # Valid mode transitions (shared definition)
+    VALID_TRANSITIONS = EXTENDED_MODE_TRANSITIONS
 
     def __init__(
         self,

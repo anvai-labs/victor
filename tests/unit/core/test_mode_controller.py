@@ -112,3 +112,29 @@ class TestAccessor:
                 assert mc.get_mode_controller() is custom
         finally:
             mc.reset_mode_controller()
+
+
+class TestExtendedAgentModeSingleDefinition:
+    """RL learning and adaptive control share one five-mode state machine."""
+
+    def test_both_layers_alias_the_core_definition(self):
+        from victor.agent.adaptive_mode_controller import AdaptiveAgentMode, AdaptiveModeController
+        from victor.core.mode_controller import EXTENDED_MODE_TRANSITIONS, ExtendedAgentMode
+        from victor.framework.rl.learners.mode_transition import ModeTransitionLearner, RLAgentMode
+
+        assert RLAgentMode is ExtendedAgentMode
+        assert AdaptiveAgentMode is ExtendedAgentMode
+        assert ModeTransitionLearner.VALID_TRANSITIONS is EXTENDED_MODE_TRANSITIONS
+        assert AdaptiveModeController.VALID_TRANSITIONS is EXTENDED_MODE_TRANSITIONS
+
+    def test_state_machine_is_unchanged(self):
+        from victor.core.mode_controller import EXTENDED_MODE_TRANSITIONS, ExtendedAgentMode as M
+
+        assert [m.value for m in M] == ["explore", "plan", "build", "review", "complete"]
+        assert EXTENDED_MODE_TRANSITIONS == {
+            M.EXPLORE: [M.PLAN, M.BUILD, M.COMPLETE],
+            M.PLAN: [M.BUILD, M.EXPLORE, M.COMPLETE],
+            M.BUILD: [M.REVIEW, M.EXPLORE, M.COMPLETE],
+            M.REVIEW: [M.BUILD, M.COMPLETE],
+            M.COMPLETE: [],
+        }
