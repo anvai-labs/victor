@@ -29,12 +29,10 @@ Critical modules tested:
 7. Complex Workflows - Multi-step operations
 """
 
-import asyncio
 import socket
 import tempfile
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from typing import List
 
 import pytest
 

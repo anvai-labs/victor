@@ -22,11 +22,9 @@ from unittest.mock import Mock
 
 from victor.framework.completion_scorer import (
     CompletionScorer,
-    CompletionScore,
     CompletionSignal,
     TaskType,
 )
-from victor.framework.perception_integration import RequirementType, Requirement
 
 # =============================================================================
 # Test Fixtures

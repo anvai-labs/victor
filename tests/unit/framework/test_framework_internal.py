@@ -14,7 +14,7 @@ import httpx
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from victor.framework._internal import (
     apply_system_prompt,

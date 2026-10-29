@@ -5,8 +5,6 @@
 
 """Tests for EventSeverity enum — Wave Q."""
 
-import pytest
-
 from victor.framework.events import EventType, EventSeverity
 
 

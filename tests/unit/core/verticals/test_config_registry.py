@@ -287,7 +287,6 @@ class TestConfigRegistryIntegration:
     def test_manifest_decorator_registers_config(self):
         """Test that @register_vertical decorator registers behavior config."""
         from victor.core.verticals.registration import register_vertical
-        from victor_contracts.verticals.manifest import ExtensionType
 
         @register_vertical(
             name="integration_test",

@@ -14,8 +14,6 @@
 
 """Tests for configuration validation."""
 
-import pytest
-
 from victor.config.validation import (
     ConfigValidationResult,
     ConfigValidator,

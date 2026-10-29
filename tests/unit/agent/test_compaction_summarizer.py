@@ -14,8 +14,6 @@
 
 """Tests for compaction summarizer strategies."""
 
-import pytest
-
 from victor.agent.compaction_summarizer import (
     KeywordCompactionSummarizer,
     LedgerAwareCompactionSummarizer,

@@ -18,8 +18,7 @@ Tests the consolidated validate_tool_calls method that handles both
 single and batch validation with a single canonical API.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 
 class TestToolServiceValidationConsolidation:

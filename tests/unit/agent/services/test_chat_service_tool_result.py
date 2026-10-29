@@ -18,7 +18,7 @@ Tests the correct propagation of tool_call_id per OpenAI API spec.
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, call
+from unittest.mock import MagicMock, AsyncMock
 from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 from victor.tools.base import ToolResult
 

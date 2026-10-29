@@ -9,7 +9,7 @@ survives a timeout/byte-cap kill instead of being discarded.
 import asyncio
 import os
 import sys
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 

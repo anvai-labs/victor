@@ -7,7 +7,7 @@ coordinator's checkpoint/pause/event hooks. These tests mirror the SEQUENTIAL du
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Tuple
 
 from victor.coordination.formations.base import TeamContext
 from victor.coordination.formations.pipeline import PipelineFormation

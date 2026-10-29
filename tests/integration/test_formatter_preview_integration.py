@@ -1,7 +1,5 @@
 """Integration tests for formatter-aware preview strategies."""
 
-import pytest
-
 from victor.ui.rendering.formatter_aware_preview import (
     _TestPreviewStrategyEnhanced,
     _SearchPreviewStrategyEnhanced,

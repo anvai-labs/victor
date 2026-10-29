@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from victor.core.graph_rag.precise_index import (
-    PreciseHarvest,
     detect_precise_tool,
     join_occurrences,
     python_symbol_to_parts,
@@ -623,7 +622,6 @@ def test_kind_map_matches_vendored_enum():
 async def test_real_harvest_method_downgrades_without_toolchain(tmp_path, monkeypatch):
     pytest.importorskip("victor_codegraph")
     from victor.core.graph_rag.config import GraphIndexConfig
-    from victor.core.graph_rag import precise_index
     from victor.core.graph_rag.indexing import GraphIndexingPipeline
     from victor.storage.graph.sqlite_store import SqliteGraphStore
 

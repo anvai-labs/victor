@@ -15,7 +15,6 @@
 """pytest configuration and fixtures."""
 
 import asyncio
-import sys
 
 import pytest
 

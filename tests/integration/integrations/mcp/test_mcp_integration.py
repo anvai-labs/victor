@@ -24,10 +24,7 @@ These tests use the actual MCP registry implementation with mocked clients
 to avoid requiring actual MCP servers to be running.
 """
 
-import json
-from pathlib import Path
-from typing import List
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,8 +32,8 @@ import pytest
 def _check_mcp_available():
     """Check if MCP module is available."""
     try:
-        from victor.integrations.mcp.registry import MCPRegistry
-        from victor.integrations.mcp.client import MCPClient
+        from victor.integrations.mcp.registry import MCPRegistry  # noqa: F401
+        from victor.integrations.mcp.client import MCPClient  # noqa: F401
 
         return True
     except ImportError:
@@ -55,9 +52,9 @@ from victor.integrations.mcp.registry import (  # noqa: E402
     MCPRegistry,
     MCPServerConfig,
     ServerStatus,
-    ServerEntry,
+    ServerEntry,  # noqa: F401
 )
-from victor.integrations.mcp.client import MCPClient  # noqa: E402
+from victor.integrations.mcp.client import MCPClient  # noqa: E402, F401
 from victor.integrations.mcp.protocol import MCPTool, MCPResource  # noqa: E402
 
 

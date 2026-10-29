@@ -19,9 +19,7 @@ fallback, plus graceful absence handling.
 """
 
 from types import SimpleNamespace
-from unittest.mock import patch
 
-import pytest
 
 from victor.tools.unified import _vertical_resolver as resolver
 from victor.tools.unified._vertical_resolver import (

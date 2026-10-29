@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import inspect
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import pytest
 import typer

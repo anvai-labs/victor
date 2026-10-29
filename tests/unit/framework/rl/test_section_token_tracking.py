@@ -4,7 +4,6 @@ Verifies that ExecutionTrace tracks per-section token counts and
 ParetoEntry includes token_count for efficiency-aware dominance.
 """
 
-import pytest
 from victor.framework.rl.learners.prompt_optimizer import ExecutionTrace
 from victor.framework.rl.pareto import ParetoEntry, ParetoFrontier
 

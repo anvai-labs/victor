@@ -15,7 +15,6 @@
 """Tests for victor.providers.resolution module."""
 
 import os
-import sys
 from unittest.mock import patch, MagicMock
 
 import pytest

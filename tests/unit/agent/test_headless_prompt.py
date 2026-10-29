@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
 from victor.agent.prompt_builder import SystemPromptBuilder
 from victor.agent.prompt_section_texts import HEADLESS_MODE_GUIDANCE
 

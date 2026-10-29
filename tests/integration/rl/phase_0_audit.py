@@ -17,16 +17,12 @@ Covers:
   - Part 6: No-duplication guard assertions
 """
 
-import asyncio
 import time
-from datetime import datetime
-from typing import List
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from victor.agent.usage_analytics import UsageAnalytics
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import RLOutcome
 from victor.framework.rl.coordinator import get_rl_coordinator
 
 # ---------------------------------------------------------------------------
@@ -321,7 +317,7 @@ class TestToolPredictorIntegration:
     def test_cooccurrence_tracker_importable(self):
         """CooccurrenceTracker must be importable."""
         from victor.agent.planning.cooccurrence_tracker import (
-            CooccurrenceTracker,
+            CooccurrenceTracker,  # noqa: F401
         )  # noqa: F401
 
     def test_tool_predictor_has_predict_tools(self):

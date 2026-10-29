@@ -6,7 +6,6 @@ import pytest
 
 from victor.agent.conversation.controller import ConversationController
 from victor.core.completion_markers import SUMMARY_MARKER
-from victor.providers.base import Message
 
 
 @pytest.fixture

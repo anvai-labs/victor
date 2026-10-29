@@ -1,9 +1,6 @@
 """Tests for semantic context deduplication (DCE-inspired)."""
 
-from unittest.mock import MagicMock
 from dataclasses import dataclass
-
-import pytest
 
 
 @dataclass

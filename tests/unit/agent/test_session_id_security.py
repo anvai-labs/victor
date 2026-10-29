@@ -30,7 +30,6 @@ class TestServerSessionSecretAutoGeneration:
 
     def test_explicit_secret_is_preserved(self):
         """An explicitly supplied SecretStr must not be overwritten."""
-        from victor.config.settings import Settings
         from victor.config.groups.server_config import ServerSettings
 
         server = ServerSettings(server_session_secret=SecretStr("custom"))

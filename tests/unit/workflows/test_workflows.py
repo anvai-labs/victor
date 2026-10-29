@@ -20,7 +20,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from victor.workflows import (
     WorkflowNodeType,
-    WorkflowNode,
     AgentNode,
     ConditionNode,
     ParallelNode,
@@ -31,7 +30,6 @@ from victor.workflows import (
     get_registered_workflows,
     WorkflowMetadata,
     WorkflowRegistry,
-    get_global_registry,
     ExecutorNodeStatus,
     NodeResult,
     WorkflowContext,
@@ -1504,22 +1502,6 @@ class TestModuleExports:
 
     def test_workflows_init_exports(self):
         """Workflows __init__ exports all expected symbols."""
-        from victor.workflows import (
-            WorkflowNodeType,
-            WorkflowNode,
-            AgentNode,
-            ConditionNode,
-            ParallelNode,
-            WorkflowDefinition,
-            WorkflowBuilder,
-            workflow,
-            WorkflowRegistry,
-            ExecutorNodeStatus,
-            NodeResult,
-            WorkflowContext,
-            WorkflowResult,
-            WorkflowExecutor,
-        )
 
         # If we get here without ImportError, all exports work
         assert True

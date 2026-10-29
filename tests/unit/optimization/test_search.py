@@ -15,7 +15,7 @@
 """Unit tests for search algorithms."""
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 
 from victor.optimization.search import (
     HillClimbingOptimizer,

@@ -15,10 +15,9 @@
 """Tests for victor doctor command."""
 
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from victor.ui.commands.doctor import (
     Severity,

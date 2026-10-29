@@ -3,8 +3,6 @@
 Tests the full integration between tools, formatters, and preview strategies.
 """
 
-import pytest
-
 from victor.tools.formatters import (
     format_test_results,
     format_search_results,

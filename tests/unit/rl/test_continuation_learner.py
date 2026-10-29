@@ -1,6 +1,5 @@
 """Unit tests for continuation prompt RL learner (framework-based)."""
 
-import tempfile
 from pathlib import Path
 
 import pytest

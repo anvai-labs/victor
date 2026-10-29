@@ -3,7 +3,6 @@
 """Tests for evaluation workspace abstractions."""
 
 from pathlib import Path
-import pytest
 
 from victor.evaluation.workspace import (
     SWEBenchWorkspace,

@@ -24,9 +24,7 @@ Migration strategy:
 4. Remove recovery_compat.py
 """
 
-import asyncio
-from unittest.mock import Mock, AsyncMock, MagicMock
-from typing import Any, Dict, List, Optional
+from unittest.mock import Mock, AsyncMock
 
 import pytest
 

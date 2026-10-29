@@ -11,14 +11,11 @@ and warn about unsatisfiable contracts without breaking registration.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 
-import pytest
 
 from victor.framework.step_handlers import (
     BaseStepHandler,
     StepHandlerRegistry,
-    ToolStepHandler,
 )
 
 

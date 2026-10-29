@@ -1,7 +1,5 @@
 """Tests for BudgetController."""
 
-import pytest
-
 from victor.tools.budget_controller import BudgetController
 
 

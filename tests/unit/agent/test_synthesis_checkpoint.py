@@ -494,7 +494,6 @@ class TestUnifiedTaskTrackerCheckpoint:
 
     def test_checkpoint_without_tracker(self):
         """Test checkpoint returns no-synthesis when UnifiedTaskTracker not available."""
-        from unittest.mock import MagicMock
 
         checkpoint = UnifiedTaskTrackerCheckpoint()
         history = [{"tool": "read"}, {"tool": "grep"}]

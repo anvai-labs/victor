@@ -14,7 +14,6 @@
 
 """Tests for GraphManager."""
 
-import asyncio
 import tempfile
 import time
 from pathlib import Path

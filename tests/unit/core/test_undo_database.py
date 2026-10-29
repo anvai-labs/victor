@@ -18,8 +18,6 @@ The undo store lives in its own SQLite file so its per-edit writes never contend
 with the graph indexer's continuous writes to ``project.db``.
 """
 
-from pathlib import Path
-
 import pytest
 
 from victor.core.undo_database import (

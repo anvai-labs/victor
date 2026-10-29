@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import time
 
-import pytest
 
 from victor.processing.graph_profiler import (
     GraphProfiler,

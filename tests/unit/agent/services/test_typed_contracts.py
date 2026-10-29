@@ -12,8 +12,6 @@ from pathlib import Path
 import subprocess
 import sys
 
-from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -276,12 +274,8 @@ class TestOrchestratorRuntimeProtocol:
 
     def test_resolve_orchestrator_return_annotation_is_protocol(self):
         """_resolve_orchestrator() should declare OrchestratorRuntimeProtocol return type."""
-        import inspect
 
         from victor.agent.services.turn_execution_runtime import TurnExecutor
-        from victor.agent.services.protocols.chat_runtime import (
-            OrchestratorRuntimeProtocol,
-        )
 
         hints = {}
         try:

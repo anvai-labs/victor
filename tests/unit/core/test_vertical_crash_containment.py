@@ -1,7 +1,6 @@
 """TDD tests for crash containment in vertical hook calls."""
 
 import logging
-import pytest
 
 from victor.core.verticals.base import VerticalBase
 

@@ -18,8 +18,6 @@ This test verifies that structural analysis tasks are correctly classified
 to prevent the legacy tool budget truncation issue.
 """
 
-import pytest
-
 from victor.agent.unified_classifier import UnifiedTaskClassifier, ClassifierTaskType
 
 

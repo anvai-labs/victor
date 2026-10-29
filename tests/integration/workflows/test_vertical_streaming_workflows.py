@@ -29,8 +29,6 @@ Verticals tested:
 """
 
 import pytest
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
 

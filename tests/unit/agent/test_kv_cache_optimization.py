@@ -10,7 +10,7 @@ Verifies that:
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
@@ -1025,7 +1025,6 @@ class TestWarmUpIntegration:
         orch = MagicMock()
         orch.warm_up_kv_cache = MagicMock(return_value=None)
         # Make it async
-        import asyncio
 
         async def mock_warm_up():
             pass

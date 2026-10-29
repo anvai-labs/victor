@@ -196,7 +196,6 @@ class TestFallbackPreservation:
     def test_wheel_without_bpe_symbol_falls_through_to_tiktoken(self, monkeypatch):
         """A stale wheel that predates BpeTokenizer must leave count_tokens
         on the tiktoken path (still exact), not the heuristic."""
-        import builtins
 
         encoder = _get_tiktoken_encoder()
         if encoder is None:

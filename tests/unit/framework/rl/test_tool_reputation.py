@@ -1,8 +1,6 @@
 """Tests for ToolReputationTracker — online mid-turn credit feedback."""
 
-import pytest
-
-from victor.framework.rl.tool_reputation import ToolReputationTracker, ToolRecord
+from victor.framework.rl.tool_reputation import ToolReputationTracker
 
 
 class TestToolReputationTracker:

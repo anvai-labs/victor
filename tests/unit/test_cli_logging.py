@@ -2,7 +2,6 @@
 """Test CLI logging control functionality."""
 
 import os
-import logging
 import pytest
 from typer.testing import CliRunner
 from unittest.mock import patch, AsyncMock, MagicMock

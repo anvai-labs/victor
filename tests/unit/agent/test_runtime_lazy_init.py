@@ -19,7 +19,7 @@ component initialization until first access, ensuring faster startup.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from victor.framework import Agent
 

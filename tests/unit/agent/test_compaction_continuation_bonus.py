@@ -8,11 +8,9 @@
 TDD approach: Tests written first, then implementation.
 """
 
-import pytest
 from victor.agent.compaction_continuation_bonus import (
     CompactionContinuationBonus,
     CompactionBonusConfig,
-    get_compaction_bonus,
 )
 
 

@@ -24,7 +24,6 @@ These tests verify the compiled graph caching infrastructure including:
 
 import pytest
 from typing import TypedDict, List
-from unittest.mock import MagicMock, patch
 
 from victor.framework.graph_cache import (
     CompiledGraphCache,

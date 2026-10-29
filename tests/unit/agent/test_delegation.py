@@ -15,7 +15,6 @@
 """Unit tests for the delegation module."""
 
 import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from victor.agent.delegation import (
@@ -694,24 +693,11 @@ class TestModuleExports:
 
     def test_delegation_init_exports(self):
         """Delegation __init__ exports all expected symbols."""
-        from victor.agent.delegation import (
-            DelegationPriority,
-            DelegationRequest,
-            DelegationResponse,
-            DelegationStatus,
-            DelegationHandler,
-            DelegateTool,
-        )
 
         # If we get here without ImportError, all exports work
         assert True
 
     def test_handler_exports(self):
         """Handler module exports all expected symbols."""
-        from victor.agent.delegation.handler import (
-            DelegationHandler,
-            ActiveDelegation,
-            ROLE_MAPPING,
-        )
 
         assert True

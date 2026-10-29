@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from victor.storage.retrieval.gateway import (
     RetrievalGateway,
     RetrievalMode,
     RetrievalRequest,
-    RetrievedItem,
 )
 
 

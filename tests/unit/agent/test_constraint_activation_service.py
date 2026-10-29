@@ -1,7 +1,5 @@
 """Tests for ConstraintActivationService."""
 
-import pytest
-
 from victor.agent.constraint_activation_service import (
     ConstraintActivationService,
     ActivationResult,

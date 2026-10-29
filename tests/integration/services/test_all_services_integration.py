@@ -20,7 +20,6 @@ interacting correctly.
 
 import pytest
 from unittest.mock import Mock, MagicMock, AsyncMock
-from typing import Dict, Any
 
 
 class TestServiceIntegration:

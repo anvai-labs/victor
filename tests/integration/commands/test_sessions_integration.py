@@ -18,12 +18,10 @@ from __future__ import annotations
 
 import pytest
 import re
-from pathlib import Path
-import tempfile
 import shutil
 
 from victor.agent.conversation.store import ConversationStore
-from victor.agent.conversation.types import ConversationMessage, MessageRole
+from victor.agent.conversation.types import MessageRole
 from victor.config.settings import get_project_paths
 
 

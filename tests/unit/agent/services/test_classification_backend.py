@@ -8,7 +8,6 @@ defers to the legacy ``USE_TIERED_CLASSIFICATION`` flag (prior behavior); explic
 
 import types
 
-import pytest
 
 from victor.agent.services.classification_backend import (
     ClassificationBackend,

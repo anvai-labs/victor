@@ -22,7 +22,6 @@ from victor.tools.teams_tool import (
     is_teams_configured,
     _get_teams_access_token,
     _get_headers,
-    HTTPX_AVAILABLE,
 )
 
 

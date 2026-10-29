@@ -15,12 +15,9 @@
 """Tests for ObservationModelLearner - learns P(agent_message | task_outcome)."""
 
 import sqlite3
-from unittest.mock import MagicMock
 
-import pytest
 
 from victor.framework.rl.learners.observation_model import ObservationModelLearner
-from victor.framework.rl.base import RLOutcome
 
 
 class TestObservationModelLearnerInit:

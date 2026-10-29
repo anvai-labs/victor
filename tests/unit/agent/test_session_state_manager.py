@@ -25,8 +25,6 @@ Tests the session state management functionality including:
 - Session summary generation
 """
 
-import pytest
-
 from victor.agent.session_state_manager import (
     ExecutionState,
     SessionFlags,

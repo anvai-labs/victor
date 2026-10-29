@@ -11,9 +11,7 @@ Task-specific reminder templates provide context-aware continuation prompts
 after compaction, improving task continuity (from OpenDev research).
 """
 
-import pytest
 from victor.agent.context_reminder_templates import (
-    TaskReminderTemplates,
     get_reminder_for_task,
     get_post_compaction_reminder,
 )
@@ -116,7 +114,7 @@ class TestReminderIntegration:
         # This tests that we don't spam reminders
         # Frequency capping is handled by ReminderConfig.frequency
         # Here we just verify the config exists
-        from victor.agent.context_reminder import ReminderConfig, ReminderType
+        from victor.agent.context_reminder import ReminderConfig
 
         config = ReminderConfig(
             enabled=True,
@@ -148,7 +146,7 @@ class TestReminderIntegration:
 
     def test_reminder_priority_ordering(self):
         """Reminders should be prioritizable."""
-        from victor.agent.context_reminder import ReminderConfig, ReminderType
+        from victor.agent.context_reminder import ReminderConfig
 
         # Create configs with different priorities
         high_priority = ReminderConfig(frequency=1, priority=90)

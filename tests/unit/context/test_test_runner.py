@@ -5,12 +5,7 @@
 
 """Tests for framework test runner detection."""
 
-from pathlib import Path
-
-import pytest
-
 from victor.context.test_runner import (
-    TestRunnerConfig,
     detect_test_runner,
     _detect_django,
     _files_to_django_labels,

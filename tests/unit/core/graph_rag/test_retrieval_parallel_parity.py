@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 import pytest
 

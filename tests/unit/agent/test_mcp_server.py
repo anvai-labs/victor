@@ -648,7 +648,6 @@ class TestMCPServerAsyncStdio:
     async def test_write_response(self):
         """Test _write_response method."""
         import io
-        import asyncio
 
         server = MCPServer()
 
@@ -678,7 +677,6 @@ class TestMCPServerAsyncStdio:
     @pytest.mark.asyncio
     async def test_write_response_connection_error(self):
         """Test _write_response handles connection errors."""
-        import asyncio
 
         server = MCPServer()
 
@@ -697,7 +695,6 @@ class TestMCPServerAsyncStdio:
     @pytest.mark.asyncio
     async def test_write_response_broken_pipe(self):
         """Test _write_response handles broken pipe errors."""
-        import asyncio
 
         server = MCPServer()
 
@@ -824,7 +821,6 @@ class TestMCPServerStdioFallback:
     @pytest.mark.asyncio
     async def test_fallback_handles_eof(self):
         """Test fallback server handles EOF correctly."""
-        import asyncio
 
         server = MCPServer()
         server._running = True

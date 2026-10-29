@@ -24,11 +24,10 @@ import json
 import random
 import time
 from typing import List, Dict, Any
-from unittest.mock import AsyncMock
 
 import pytest
 
-from victor.core.events import InMemoryEventBackend, ObservabilityBus, MessagingEvent
+from victor.core.events import InMemoryEventBackend, ObservabilityBus
 from victor.integrations.api.event_bridge import (
     EventBridge,
     BridgeEvent,

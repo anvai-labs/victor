@@ -21,7 +21,6 @@ import pytest
 
 from victor.agent.performance_profiler import (
     PerformanceProfiler,
-    ProfileReport,
     Span,
     SpanStatus,
     get_profiler,

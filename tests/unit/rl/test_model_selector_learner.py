@@ -1,12 +1,11 @@
 """Unit tests for model selector RL learner."""
 
-import sqlite3
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from pathlib import Path
 from typing import Optional, Tuple
 
-from victor.framework.rl.base import RLOutcome, RLRecommendation
+from victor.framework.rl.base import RLOutcome
 from victor.framework.rl.coordinator import RLCoordinator
 from victor.framework.rl.learners.model_selector import (
     ModelSelectorLearner,

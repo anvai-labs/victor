@@ -25,9 +25,9 @@ Tests cover:
 import pytest
 from datetime import datetime, timezone
 from typing import List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from victor.storage.memory.unified import MemoryQuery, MemoryResult, MemoryType
+from victor.storage.memory.unified import MemoryQuery, MemoryType
 from victor.storage.memory.adapters import (
     EntityMemoryAdapter,
     ConversationMemoryAdapter,

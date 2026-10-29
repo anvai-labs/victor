@@ -23,7 +23,6 @@ These tests validate statistical properties:
 
 import sqlite3
 import math
-from pathlib import Path
 
 import numpy as np
 import pytest

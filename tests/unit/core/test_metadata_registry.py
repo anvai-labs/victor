@@ -21,9 +21,6 @@ Tests cover:
 - Text-based tool matching
 """
 
-import pytest
-from unittest.mock import MagicMock
-
 from victor.tools.metadata_registry import (
     ToolMetadataRegistry,
     ToolMetadataEntry,

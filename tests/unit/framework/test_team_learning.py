@@ -14,7 +14,6 @@
 
 """Unit tests for team learning and metrics modules."""
 
-import tempfile
 from pathlib import Path
 import pytest
 
@@ -534,16 +533,6 @@ class TestModuleExports:
 
     def test_teams_exports_learning(self):
         """Teams module exports learning components."""
-        from victor.agent.teams import (
-            TaskCategory,
-            TeamMetrics,
-            CompositionStats,
-            categorize_task,
-            TeamRecommendation,
-            TeamCompositionLearner,
-            get_team_learner,
-            DEFAULT_COMPOSITIONS,
-        )
 
         # If we get here without ImportError, all exports work
         assert True

@@ -18,7 +18,6 @@ import pytest
 
 from victor.core.tool_types import (
     EmptyToolDependencyProvider,
-    ToolDependencyProviderProtocol,
 )
 
 
@@ -182,9 +181,6 @@ class TestEmptyToolDependencyProviderFactoryIntegration:
 
     def test_factory_returns_empty_provider_for_missing_yaml(self, tmp_path, monkeypatch):
         """Factory should return EmptyToolDependencyProvider when YAML missing."""
-        from victor.core.tool_dependency_loader import (
-            create_vertical_tool_dependency_provider,
-        )
 
         # Monkeypatch the yaml_paths to point to non-existent file
         fake_yaml_path = tmp_path / "nonexistent.yaml"

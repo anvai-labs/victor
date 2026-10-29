@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 
 class TestToolTierRegistryPropagation:
     """Verify register_vertical_tools() propagates to ToolTierRegistry."""

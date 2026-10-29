@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from victor.evaluation.retrieval_baseline import (
-    RetrievalBaselineMetrics,
     RetrievalGoldenQuery,
     run_retrieval_baseline,
 )

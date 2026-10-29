@@ -150,8 +150,6 @@ class TestCoordinatorAdapter:
         # Create mock transition
         from victor.agent.coordinators.state_context import (
             TransitionBatch,
-            StateTransition,
-            TransitionType,
         )
 
         batch = TransitionBatch()

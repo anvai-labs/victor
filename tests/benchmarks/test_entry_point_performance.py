@@ -30,9 +30,6 @@ import pytest
 
 from victor.framework.entry_point_registry import (
     UnifiedEntryPointRegistry,
-    scan_all_entry_points,
-    get_entry_point,
-    get_entry_point_group,
 )
 
 
@@ -203,7 +200,6 @@ class TestEntryPointScalability:
     def test_memory_efficiency(self):
         """Test that registry doesn't leak memory."""
         import gc
-        import sys
 
         registry = UnifiedEntryPointRegistry()
 

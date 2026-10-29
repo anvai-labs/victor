@@ -18,8 +18,7 @@ These tests verify the capability provider framework for verticals.
 """
 
 import pytest
-from dataclasses import FrozenInstanceError
-from typing import Dict, List
+from typing import Dict
 
 from victor.framework.capabilities import BaseCapabilityProvider, CapabilityMetadata
 

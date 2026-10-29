@@ -22,7 +22,6 @@ from victor.workflows.definition import (
     AgentNode,
     ParallelNode,
     WorkflowDefinition,
-    WorkflowNodeType,
 )
 
 

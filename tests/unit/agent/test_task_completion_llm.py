@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor.agent.decisions.schemas import DecisionType, TaskCompletionDecision
 from victor.agent.services.protocols.decision_service import DecisionResult

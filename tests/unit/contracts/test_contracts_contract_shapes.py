@@ -25,9 +25,6 @@ Run with: pytest tests/unit/contracts/test_contracts_contract_shapes.py -v
 from __future__ import annotations
 
 import inspect
-from typing import get_type_hints
-
-import pytest
 
 
 class TestVerticalBaseContract:

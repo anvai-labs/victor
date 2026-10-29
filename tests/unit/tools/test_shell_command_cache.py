@@ -14,10 +14,8 @@
 
 """Tests for shell command cache."""
 
-import time
 from unittest.mock import patch
 
-import pytest
 
 from victor.tools.shell_command_cache import (
     ShellCommandCache,

@@ -19,14 +19,12 @@ Tests are written FIRST, then implementation follows.
 """
 
 import asyncio
-from typing import Any, Dict, List
+from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from victor.workflows.definition import (
-    AgentNode,
-    TransformNode,
     WorkflowBuilder,
     WorkflowDefinition,
 )

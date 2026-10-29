@@ -14,7 +14,6 @@
 
 """Unit tests for tool history context extraction utilities."""
 
-import pytest
 from victor.framework.enrichment.tool_history import (
     ToolHistoryExtractor,
     extract_tool_context,

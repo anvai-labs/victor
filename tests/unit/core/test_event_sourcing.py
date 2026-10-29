@@ -16,10 +16,10 @@
 
 import pytest
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, List
 
 from victor.core.event_sourcing import (
     Aggregate,
@@ -29,13 +29,10 @@ from victor.core.event_sourcing import (
     EventEnvelope,
     EventSourcedRepository,
     InMemoryEventStore,
-    Projection,
     SQLiteEventStore,
     TaskCompletedEvent,
-    TaskFailedEvent,
     TaskStartedEvent,
     ToolCalledEvent,
-    ToolResultEvent,
     StateChangedEvent,
 )
 

@@ -20,9 +20,8 @@ Tests the following fixes:
 3. Error logging captures HTTP status codes
 """
 
-import pytest
 import logging
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 
 from victor.providers.openai_compat import build_openai_messages
 from victor.providers.base import Message
@@ -202,7 +201,6 @@ class TestDeepSeekErrorHandling:
 
     def test_connection_error_classification(self):
         """Connection errors are properly classified."""
-        from victor.providers.base import ProviderConnectionError
 
         # Test the error classification by checking that ConnectionError
         # is considered a connection-like error

@@ -20,10 +20,7 @@ during a real conversation flow. (The ReferentialIntentResolver was proven
 redundant with a properly-ordered <SESSION_STATE> and removed — FEP-0023.)
 """
 
-import pytest
-
 from victor.agent.compaction_summarizer import (
-    KeywordCompactionSummarizer,
     LedgerAwareCompactionSummarizer,
 )
 from victor.agent.conversation.assembler import TurnBoundaryContextAssembler
@@ -32,7 +29,6 @@ from victor.agent.tool_result_deduplicator import ToolResultDeduplicator
 from victor.config.orchestrator_constants import (
     ContextAssemblerConfig,
     DeduplicationConfig,
-    SessionLedgerConfig,
 )
 from victor.providers.base import Message
 

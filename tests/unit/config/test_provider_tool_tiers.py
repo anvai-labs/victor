@@ -14,8 +14,6 @@
 
 """Unit tests for provider-specific tool tier assignments."""
 
-import pytest
-
 from victor.config.tool_tiers import (
     get_provider_category,
     get_provider_tool_tier,

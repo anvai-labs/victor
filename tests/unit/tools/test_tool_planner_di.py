@@ -18,11 +18,10 @@ Tests dependency injection container resolution and service lifetime.
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock
 
 from victor.agent.service_provider import OrchestratorServiceProvider
 from victor.agent.services.protocols import ToolPlanningRuntimeProtocol
-from victor.config.settings import Settings
 
 
 @pytest.fixture

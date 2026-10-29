@@ -14,8 +14,6 @@
 
 """Tests for Network formatter."""
 
-import pytest
-
 from victor.tools.formatters.network import NetworkFormatter
 from victor.tools.formatters.base import FormattedOutput
 

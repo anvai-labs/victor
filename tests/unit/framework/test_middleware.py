@@ -16,9 +16,7 @@
 
 import logging
 
-import pytest
 
-from victor.core.verticals.protocols import MiddlewareProtocol
 from victor.framework.middleware import (
     GitSafetyMiddleware,
     LoggingMiddleware,

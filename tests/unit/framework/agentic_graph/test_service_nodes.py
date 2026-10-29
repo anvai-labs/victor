@@ -15,7 +15,7 @@
 """Tests for service provider nodes (Phase 3 consolidation)."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.framework.agentic_graph.state import (
     create_initial_state,

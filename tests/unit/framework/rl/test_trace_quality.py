@@ -1,7 +1,6 @@
 """Tests for active trace quality filtering (MemReader-inspired)."""
 
 from unittest.mock import MagicMock
-import pytest
 
 
 class TestTraceQualityScoring:

@@ -552,7 +552,6 @@ class TestPhase4CompactionFrequency:
 
     def test_should_compact_above_threshold(self):
         """Test that compaction proceeds when utilization exceeds threshold."""
-        import time
 
         controller = ConversationController()
         controller.config.compaction_threshold = 0.85
@@ -609,7 +608,6 @@ class TestPhase4CompactionFrequency:
 
     def test_smart_compact_updates_last_compaction_time(self):
         """Test that smart_compact_history updates _last_compaction_time."""
-        import time
 
         controller = ConversationController()
         controller.config.compaction_threshold = 0.0  # Set to 0 to always trigger compaction

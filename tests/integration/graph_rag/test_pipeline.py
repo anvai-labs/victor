@@ -30,9 +30,8 @@ from victor.core.graph_rag import (
     MultiHopRetriever,
     RetrievalConfig,
     GraphAwarePromptBuilder,
-    PromptConfig,
 )
-from victor.storage.graph import create_graph_store, GraphNode, GraphEdge
+from victor.storage.graph import create_graph_store
 from victor.storage.graph.edge_types import EdgeType
 
 

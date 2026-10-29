@@ -23,13 +23,11 @@ Tests the core workflow generation functionality including:
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.workflows.generation.generator import (
     WorkflowGenerator,
     GenerationStrategy,
-    GenerationMetadata,
 )
 from victor.workflows.generation.requirements import (
     WorkflowRequirements,

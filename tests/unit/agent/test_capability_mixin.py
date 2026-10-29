@@ -19,7 +19,7 @@ discovery and invocation, replacing hasattr duck-typing.
 """
 
 import pytest
-from typing import Any, Dict, Optional, Set
+from typing import Any, Optional, Set
 
 from victor.framework.protocols import (
     CapabilityType,

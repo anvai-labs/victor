@@ -18,10 +18,8 @@ These tests verify that the IntelligentAgentPipeline integration hooks
 work correctly within the AgentOrchestrator.
 """
 
-import asyncio
 from dataclasses import dataclass
-from typing import Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

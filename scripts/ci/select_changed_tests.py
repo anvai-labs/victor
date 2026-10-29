@@ -1026,6 +1026,69 @@ def partition_import_only(
     return rest, import_only
 
 
+def only_drops_unused_test_imports(old_source: str | None, new_source: str | None) -> bool:
+    """:func:`only_removes_imports`, tightened for test modules.
+
+    In a test the import itself is sometimes the assertion, so two more
+    removals disqualify: one that empties a block (``with pytest.warns(...):
+    import x``, an import-probe ``try``, an importability test; ruff leaves a
+    ``pass`` behind) and one whose name a test still requests as a fixture
+    (a parameter or a ``usefixtures`` string), which fails at setup, not at
+    collection.
+    """
+    if not only_removes_imports(old_source, new_source):
+        return False
+    old_tree, new_tree = ast.parse(old_source or ""), ast.parse(new_source or "")
+
+    def passes(tree: ast.Module) -> int:
+        return sum(isinstance(n, ast.Pass) for n in ast.walk(tree))
+
+    if passes(new_tree) > passes(old_tree):
+        return False
+    removed = {
+        (asname or name).split(".")[0]
+        for _, name, asname in _import_set(old_tree) - _import_set(new_tree)
+    }
+    requested = set()
+    for node in ast.walk(new_tree):
+        if isinstance(node, ast.arg):
+            requested.add(node.arg)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            requested.add(node.value)
+    return not removed & requested
+
+
+def drop_import_only_tests(
+    changed: list[str],
+    read_base: Callable[[str], str | None] | None,
+    read_current: Callable[[str], str | None] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Split test modules whose diff only removes unused imports out of ``changed``.
+
+    Such a change cannot alter what any test asserts (see
+    :func:`only_drops_unused_test_imports`), so the module need not be run
+    here; the required full-suite collection check still imports it, and the
+    promotion battery runs it.
+    """
+    if read_base is None:
+        return list(changed), []
+    if read_current is None:
+        read_current = _read_working_tree
+    rest: list[str] = []
+    dropped: list[str] = []
+    for raw in changed:
+        path = raw.strip()
+        if (
+            path.startswith("tests/")
+            and path.endswith(".py")
+            and only_drops_unused_test_imports(read_base(path), read_current(path))
+        ):
+            dropped.append(path)
+        else:
+            rest.append(raw)
+    return rest, dropped
+
+
 def _read_working_tree(path: str) -> str | None:
     file = ROOT / path
     return file.read_text() if file.is_file() else None
@@ -1127,6 +1190,15 @@ if __name__ == "__main__":
         print(
             f"select_changed_tests: {len(import_only)} import-only source change(s) "
             "exempt from mirror tests (import-smoked instead)",
+            file=sys.stderr,
+        )
+    changed, import_only_tests = drop_import_only_tests(
+        changed, _git_reader(args.base) if args.base else None
+    )
+    if import_only_tests:
+        print(
+            f"select_changed_tests: {len(import_only_tests)} test module(s) only drop "
+            "unused imports; not run here (the collection check imports them)",
             file=sys.stderr,
         )
     try:

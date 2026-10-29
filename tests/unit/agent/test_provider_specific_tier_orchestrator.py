@@ -15,7 +15,7 @@
 """Unit tests for provider-specific tier integration in orchestrator."""
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 
 from victor.config.tool_tiers import get_provider_category, get_provider_tool_tier
 from victor.agent.orchestrator import AgentOrchestrator

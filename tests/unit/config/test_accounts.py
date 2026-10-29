@@ -14,20 +14,17 @@
 
 """Unit tests for the unified accounts configuration system."""
 
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
-import yaml
 
 from victor.config.accounts import (
     AccountManager,
     AuthConfig,
     ProviderAccount,
     VictorConfig,
-    ConfigDefaults,
     get_account_manager,
     reset_account_manager,
 )

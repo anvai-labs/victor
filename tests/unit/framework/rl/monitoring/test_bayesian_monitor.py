@@ -15,9 +15,7 @@
 """Tests for Bayesian orchestration monitoring."""
 
 import sqlite3
-from pathlib import Path
 
-import pytest
 
 from victor.framework.rl.monitoring.bayesian_monitor import (
     ASCIIChartRenderer,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import warnings
 
-import pytest
 
 from victor.framework.providers.protocol import (
     ProviderRegistry,

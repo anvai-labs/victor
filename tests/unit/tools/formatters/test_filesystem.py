@@ -14,8 +14,6 @@
 
 """Tests for FileSystem formatter."""
 
-import pytest
-
 from victor.tools.formatters.filesystem import FileSystemFormatter
 from victor.tools.formatters.base import FormattedOutput
 

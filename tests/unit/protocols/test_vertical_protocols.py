@@ -3,7 +3,6 @@
 Tests the protocol definitions and extension patterns for vertical-framework integration.
 """
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
 import pytest
@@ -21,8 +20,6 @@ from victor.core.verticals.protocols import (
     SafetyExtensionProtocol,
     PromptContributorProtocol,
     ModeConfigProviderProtocol,
-    ToolDependencyProviderProtocol,
-    # Composite
     VerticalExtensions,
 )
 
@@ -461,10 +458,6 @@ class TestVerticalRLProviderProtocol:
 
     def test_runtime_checkable(self):
         """Protocol should be runtime checkable."""
-        from victor.core.verticals.protocols import (
-            VerticalRLProviderProtocol,
-            RLConfigProviderProtocol,
-        )
 
         class MockRLConfigProvider:
             def get_rl_config(self) -> Dict[str, Any]:
@@ -508,10 +501,6 @@ class TestVerticalTeamProviderProtocol:
 
     def test_runtime_checkable(self):
         """Protocol should be runtime checkable."""
-        from victor.core.verticals.protocols import (
-            VerticalTeamProviderProtocol,
-            TeamSpecProviderProtocol,
-        )
 
         class MockTeamSpecProvider:
             def get_team_specs(self) -> Dict[str, Any]:
@@ -547,10 +536,6 @@ class TestVerticalWorkflowProviderProtocol:
 
     def test_runtime_checkable(self):
         """Protocol should be runtime checkable."""
-        from victor.core.verticals.protocols import (
-            VerticalWorkflowProviderProtocol,
-            WorkflowProviderProtocol,
-        )
 
         class MockWorkflowProvider:
             def get_workflows(self) -> Dict[str, Any]:

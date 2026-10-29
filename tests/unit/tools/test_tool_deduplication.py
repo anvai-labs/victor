@@ -1,7 +1,6 @@
 """Unit tests for tool call deduplication tracker."""
 
 import os
-import pytest
 import time
 
 from victor.agent.tool_call_tracker import (

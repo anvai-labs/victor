@@ -33,7 +33,7 @@ TDD Patterns Covered:
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -41,12 +41,9 @@ from victor.teams import (
     AgentMessage,
     UnifiedTeamCoordinator,
     ITeamCoordinator,
-    ITeamMember,
-    MemberResult,
     MessageType,
     TeamFormation,
     TeamMessageBus,
-    TeamResult,
     TeamSharedMemory,
     UnifiedTeamCoordinator,
     create_coordinator,

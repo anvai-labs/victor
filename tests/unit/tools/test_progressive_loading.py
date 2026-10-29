@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, AsyncMock
 
-import pytest
 
 from victor.tools.enums import CostTier
 

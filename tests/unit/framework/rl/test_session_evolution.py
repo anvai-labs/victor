@@ -1,8 +1,7 @@
 """Tests for session-end GEPA evolution (EvoTest-inspired)."""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import MagicMock
 
 
 class TestSessionEndEvolution:

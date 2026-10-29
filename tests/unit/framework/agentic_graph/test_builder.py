@@ -19,7 +19,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 from victor.framework.agentic_graph.state import (
     AgenticLoopStateModel,
-    create_initial_state,
 )
 from victor.framework.agentic_graph.builder import (
     AgenticLoopDependencies,

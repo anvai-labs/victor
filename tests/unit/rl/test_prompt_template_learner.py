@@ -19,7 +19,6 @@ Tests the Thompson Sampling based prompt template optimization.
 
 import sqlite3
 import pytest
-from unittest.mock import MagicMock
 
 from victor.framework.rl.learners.prompt_template import (
     PromptTemplateLearner,

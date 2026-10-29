@@ -14,8 +14,6 @@
 
 """Tests for Shell formatter."""
 
-import pytest
-
 from victor.tools.formatters.shell import ShellFormatter
 from victor.tools.formatters.base import FormattedOutput
 

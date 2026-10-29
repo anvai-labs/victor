@@ -12,9 +12,8 @@ Gating contract:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-import pytest
 
 from victor.config.settings import Settings
 from victor.config.tool_settings import ToolSettings

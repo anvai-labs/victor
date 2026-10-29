@@ -19,7 +19,7 @@ and CapabilityProviderProtocol are properly defined and runtime_checkable.
 """
 
 import pytest
-from typing import Dict, Any, Protocol, runtime_checkable
+from typing import Dict, Any
 
 
 class TestChainProviderProtocol:

@@ -23,7 +23,6 @@ from victor.workflows.graph import (
     LegacyWorkflowGraph,
     DuplicateNodeError,
     InvalidEdgeError,
-    GraphValidationError,
 )
 
 # Test fixtures

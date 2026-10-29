@@ -19,8 +19,7 @@ runtime subsystems must derive from configuration, not restate Ollama.
 """
 
 import asyncio
-import os
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
 from types import SimpleNamespace
 
 from victor.core.graph_rag.harvest_environment import (
@@ -150,7 +149,7 @@ def test_write_environment_json_declines_on_empty(tmp_path):
 
 
 def test_build_python_environment_end_to_end(tmp_path, monkeypatch):
-    import sys as sys_module
+    import sys as sys_module  # noqa: F401
 
     monkeypatch.setattr(
         "victor.core.graph_rag.harvest_environment.select_distributions",

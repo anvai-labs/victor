@@ -19,7 +19,7 @@ Write/publication failures after preflight are a separate acceptance boundary.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
 from typing import Any, List
 from contextlib import asynccontextmanager
@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from victor.core.graph_rag.config import GraphIndexConfig
-from victor.core.graph_rag.indexing import GraphIndexingPipeline, GraphIndexStats
+from victor.core.graph_rag.indexing import GraphIndexingPipeline
 
 
 class _RecordingGraphStore:

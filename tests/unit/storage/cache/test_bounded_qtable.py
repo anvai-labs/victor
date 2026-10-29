@@ -14,8 +14,6 @@
 
 """Unit tests for BoundedQTable."""
 
-import pytest
-
 from victor.storage.cache.rl_eviction_policy import BoundedQTable
 
 

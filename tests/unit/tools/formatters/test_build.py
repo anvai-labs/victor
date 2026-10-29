@@ -14,8 +14,6 @@
 
 """Tests for Build formatter."""
 
-import pytest
-
 from victor.tools.formatters.build import BuildFormatter
 from victor.tools.formatters.base import FormattedOutput
 

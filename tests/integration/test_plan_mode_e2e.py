@@ -19,7 +19,6 @@ persistence, and rendering integration.
 """
 
 import pytest
-import os
 import json
 import tempfile
 from pathlib import Path
@@ -27,11 +26,9 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from victor.agent.services.planning_runtime import (
     PlanningCoordinator,
     PlanningConfig,
-    PlanningMode,
 )
 from victor.framework.execution_checkpoint import ApprovalState
 from victor.agent.planning import ReadableTaskPlan, TaskComplexity
-from rich.console import Console
 
 
 class TestPlanModeApprovalFlow:

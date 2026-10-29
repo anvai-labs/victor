@@ -1,7 +1,6 @@
 """Tests for evolution display and stage prediction heuristic wiring."""
 
 from unittest.mock import MagicMock
-import pytest
 
 
 class TestEvolutionDisplay:

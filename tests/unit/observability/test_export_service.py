@@ -19,7 +19,7 @@ import json
 import csv
 from io import StringIO
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from victor.observability.export_service import ExportService, ExportServiceConfig
 from victor.core.events import MessagingEvent

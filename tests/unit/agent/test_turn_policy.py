@@ -13,7 +13,6 @@ from victor.agent.action_authorizer import ActionIntent
 from victor.agent.turn_policy import (
     FulfillmentCriteria,
     FulfillmentCriteriaBuilder,
-    NudgeDecision,
     NudgePolicy,
     NudgeType,
     SpinDetector,

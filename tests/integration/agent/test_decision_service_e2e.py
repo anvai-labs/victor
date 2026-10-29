@@ -13,7 +13,6 @@ import json
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from victor.agent.decisions.prompts import DECISION_PROMPTS
 from victor.agent.decisions.schemas import (
@@ -30,8 +29,7 @@ from victor.agent.services.decision_service import (
     LLMDecisionService,
     LLMDecisionServiceConfig,
 )
-from victor.agent.services.protocols.decision_service import DecisionResult
-from victor.agent.task_completion import CompletionConfidence, TaskCompletionDetector
+from victor.agent.task_completion import TaskCompletionDetector
 from victor.providers.base import Message
 
 

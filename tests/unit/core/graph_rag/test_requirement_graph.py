@@ -15,7 +15,7 @@
 """Tests for requirement graph module (PH5-001 to PH5-004)."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 

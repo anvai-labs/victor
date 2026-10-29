@@ -1,7 +1,5 @@
 """Tests for KeywordMatcher."""
 
-import pytest
-
 from victor.tools.keyword_matcher import KeywordMatcher
 
 

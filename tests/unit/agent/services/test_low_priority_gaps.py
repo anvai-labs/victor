@@ -22,8 +22,7 @@ Tests the 10 LOW priority methods added to achieve 100% feature parity:
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from typing import Dict, Any
+from unittest.mock import MagicMock, Mock
 
 # =============================================================================
 # ToolService Tests (2 methods)
@@ -35,7 +34,6 @@ class TestToolServiceArgumentNormalization:
 
     def test_set_argument_normalizer(self):
         """Test setting argument normalizer."""
-        from victor.agent.services.tool_service import ToolService
 
         # Create service
         service = _make_tool_service()
@@ -52,7 +50,6 @@ class TestToolServiceArgumentNormalization:
 
     def test_normalize_tool_arguments_with_normalizer(self):
         """Test argument normalization with normalizer set."""
-        from victor.agent.services.tool_service import ToolService
 
         # Create service
         service = _make_tool_service()
@@ -73,7 +70,6 @@ class TestToolServiceArgumentNormalization:
 
     def test_normalize_tool_arguments_without_normalizer(self):
         """Test argument normalization without normalizer (direct path)."""
-        from victor.agent.services.tool_service import ToolService
 
         # Create service
         service = _make_tool_service()
@@ -88,7 +84,6 @@ class TestToolServiceArgumentNormalization:
 
     def test_normalize_tool_arguments_with_error(self):
         """Test argument normalization when normalizer raises error."""
-        from victor.agent.services.tool_service import ToolService
 
         # Create service
         service = _make_tool_service()
@@ -147,7 +142,6 @@ class TestChatServiceContextMethods:
 
     def test_add_user_message_to_context(self):
         """Test adding user message to context."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service
         provider = Mock()
@@ -168,7 +162,6 @@ class TestChatServiceContextMethods:
 
     def test_add_user_message_to_context_without_context(self):
         """Test adding user message when context service unavailable."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service without context
         provider = Mock()
@@ -179,7 +172,6 @@ class TestChatServiceContextMethods:
 
     def test_add_user_message_to_context_with_error(self):
         """Test adding user message when context service raises error."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service with failing context
         provider = Mock()
@@ -192,7 +184,6 @@ class TestChatServiceContextMethods:
 
     def test_add_assistant_message_to_context(self):
         """Test adding assistant message to context."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service
         provider = Mock()
@@ -218,7 +209,6 @@ class TestChatServiceContextMethods:
 
     def test_add_assistant_message_to_context_without_tool_calls(self):
         """Test adding assistant message without tool calls."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service
         provider = Mock()
@@ -239,7 +229,6 @@ class TestChatServiceContextMethods:
 
     def test_add_tool_result_to_context(self):
         """Test adding tool result to context."""
-        from victor.agent.services.chat_service import ChatService
         from victor.tools.base import ToolResult
 
         # Create service
@@ -268,7 +257,6 @@ class TestChatServiceContextMethods:
 
     def test_add_tool_result_to_context_with_error(self):
         """Test adding tool result with error."""
-        from victor.agent.services.chat_service import ChatService
         from victor.tools.base import ToolResult
 
         # Create service
@@ -298,7 +286,6 @@ class TestChatServiceContextMethods:
 
     def test_handle_chat_error_with_recovery(self):
         """Test handling chat error with recovery service."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service with recovery
         provider = Mock()
@@ -321,7 +308,6 @@ class TestChatServiceContextMethods:
 
     def test_handle_chat_error_without_recovery(self):
         """Test handling chat error without recovery service."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service without recovery
         provider = Mock()
@@ -338,7 +324,6 @@ class TestChatServiceContextMethods:
 
     def test_normalize_tool_arguments_delegates_to_tool_service(self):
         """Test ChatService normalizes arguments via ToolService."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service with tool service
         provider = Mock()
@@ -357,7 +342,6 @@ class TestChatServiceContextMethods:
 
     def test_normalize_tool_arguments_without_tool_service(self):
         """Test ChatService normalizes arguments without tool service (direct)."""
-        from victor.agent.services.chat_service import ChatService
 
         # Create service without tool service
         provider = Mock()

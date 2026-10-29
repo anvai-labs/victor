@@ -5,7 +5,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor.providers.base import ToolDefinition
 from victor.tools.enums import SchemaLevel

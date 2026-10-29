@@ -26,7 +26,6 @@ from victor.agent.conversation.store import (
     ModelFamily,
     ModelSize,
     ContextSize,
-    ModelMetadata,
     parse_model_metadata,
     get_known_model_context,
     get_known_model_params,

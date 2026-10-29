@@ -20,7 +20,6 @@ from victor.core.mode_config import (
     ModeConfig,
     ModeConfigRegistry,
     ModeDefinition,
-    VerticalModeConfig,
     DEFAULT_MODES,
     DEFAULT_TASK_BUDGETS,
     get_mode_config,

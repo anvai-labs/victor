@@ -14,7 +14,6 @@
 
 """Unit tests for requirement extraction system."""
 
-import pytest
 from victor.workflows.generation.requirements import (
     TaskRequirement,
     FunctionalRequirements,
@@ -22,7 +21,6 @@ from victor.workflows.generation.requirements import (
     QualityRequirements,
     ContextRequirements,
     WorkflowRequirements,
-    BranchRequirement,
     Ambiguity,
 )
 from victor.workflows.generation.rule_extractor import RuleBasedExtractor

@@ -15,7 +15,7 @@
 """Tests for tool output formatter - achieving 70%+ coverage."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.agent.tool_output_formatter import (
     FormattingContext,

@@ -24,7 +24,7 @@ from typing import TypedDict
 
 import pytest
 
-from victor.framework.graph import StateGraph, END
+from victor.framework.graph import StateGraph
 
 # =============================================================================
 # Test Fixtures

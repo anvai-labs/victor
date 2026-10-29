@@ -1,10 +1,9 @@
 """Tests for LLM-powered compaction summarizer."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from victor.agent.compaction_summarizer import CompactionSummaryStrategy
 from victor.agent.llm_compaction_summarizer import LLMCompactionSummarizer
 from victor.providers.base import Message
 

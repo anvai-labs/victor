@@ -29,7 +29,7 @@ import pytest
 
 from victor.agent.action_authorizer import ActionIntent
 from victor.agent.turn_policy import SpinDetector, TurnDecision, TurnEvaluationController
-from victor.framework.agentic_loop import AgenticLoop, AgenticLoopConfig, StreamingTurnOutcome
+from victor.framework.agentic_loop import AgenticLoop, AgenticLoopConfig
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.providers.base import StreamChunk
 

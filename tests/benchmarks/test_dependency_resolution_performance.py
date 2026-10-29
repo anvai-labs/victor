@@ -30,8 +30,6 @@ import pytest
 
 from victor.core.verticals.dependency_graph import (
     ExtensionDependencyGraph,
-    DependencyNode,
-    DependencyCycleError,
 )
 
 

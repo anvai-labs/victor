@@ -17,7 +17,6 @@
 import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock
 
 from victor.protocols.grounding import (
     GroundingClaimType,

@@ -14,8 +14,6 @@
 
 """Tests for ToolResultDeduplicator."""
 
-import pytest
-
 from victor.agent.tool_result_deduplicator import ToolResultDeduplicator
 from victor.config.orchestrator_constants import DeduplicationConfig
 from victor.providers.base import Message
