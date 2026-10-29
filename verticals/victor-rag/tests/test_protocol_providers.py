@@ -36,7 +36,8 @@ class TestRAGToolProvider:
         assert isinstance(stages, list)
         # rag's fallback is its search pair — per-vertical fallback is data.
         assert strategy.get_tools_for_stage("unknown_stage", "any") == [
-            "semantic_search", "knowledge_query",
+            "semantic_search",
+            "knowledge_query",
         ]
 
 
