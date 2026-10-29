@@ -84,7 +84,8 @@ def test_settings_reach_the_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_unresponsive_docker_cannot_stall_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
     """The real CodeSandbox, with docker.from_env hanging like a closed Docker Desktop."""
-    import victor_coding.tools.code_executor_tool as cet
+    # The sharded unit battery installs core only; the vertical's own CI covers it.
+    cet = pytest.importorskip("victor_coding.tools.code_executor_tool")
 
     def _hang(**_kwargs: Any) -> Any:
         time.sleep(30)
