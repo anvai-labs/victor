@@ -32,15 +32,11 @@ These plugins support embedding-based indexing for:
 - Markdown/reStructuredText
 """
 
-import logging
-from pathlib import Path
 from typing import Any, List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
     BaseLanguagePlugin,
-    CallEdge,
     CommentStyle,
-    EdgeDetectionResult,
     LanguageCapabilities,
     LanguageConfig,
     QueryPattern,
@@ -48,9 +44,7 @@ from victor_coding.languages.base import (
 )
 
 if TYPE_CHECKING:
-    from tree_sitter import Node, Tree
-
-logger = logging.getLogger(__name__)
+    from tree_sitter import Node
 
 
 class CPlugin(BaseLanguagePlugin):
@@ -127,50 +121,7 @@ class CPlugin(BaseLanguagePlugin):
             ],
         )
 
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in C source code.
-
-        Finds function calls and method calls through pointers.
-        Handles C-specific features like function pointers and struct methods.
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-        call_nodes = self._find_call_nodes_c(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name_c(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "c",
-                "file": str(file_path),
-            },
-        )
-
-    def _find_call_nodes_c(
+    def _find_call_nodes(
         self,
         root: "Node",
     ) -> List[tuple["Node", str, Optional[int]]]:
@@ -252,7 +203,7 @@ class CPlugin(BaseLanguagePlugin):
 
         return None
 
-    def _extract_callee_name_c(self, call_node: "Node") -> Optional[str]:
+    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
         """Extract the name of the called function from a call node.
 
         Handles:
@@ -388,50 +339,7 @@ class KotlinPlugin(BaseLanguagePlugin):
             ],
         )
 
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in Kotlin source code.
-
-        Finds function calls, method calls, and property access chains.
-        Handles Kotlin-specific features like safe call operators and extension functions.
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-        call_nodes = self._find_call_nodes_kotlin(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name_kotlin(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "kotlin",
-                "file": str(file_path),
-            },
-        )
-
-    def _find_call_nodes_kotlin(
+    def _find_call_nodes(
         self,
         root: "Node",
     ) -> List[tuple["Node", str, Optional[int]]]:
@@ -504,7 +412,7 @@ class KotlinPlugin(BaseLanguagePlugin):
         traverse(root)
         return results
 
-    def _extract_callee_name_kotlin(self, call_node: "Node") -> Optional[str]:
+    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
         """Extract the name of the called function from a call node.
 
         Handles:
@@ -643,50 +551,7 @@ class CSharpPlugin(BaseLanguagePlugin):
             ],
         )
 
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in C# source code.
-
-        Finds method calls, constructor calls, and static method calls.
-        Handles C#-specific features like generics, extension methods, and LINQ.
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-        call_nodes = self._find_call_nodes_csharp(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name_csharp(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "csharp",
-                "file": str(file_path),
-            },
-        )
-
-    def _find_call_nodes_csharp(
+    def _find_call_nodes(
         self,
         root: "Node",
     ) -> List[tuple["Node", str, Optional[int]]]:
@@ -780,7 +645,7 @@ class CSharpPlugin(BaseLanguagePlugin):
         traverse(root)
         return results
 
-    def _extract_callee_name_csharp(self, call_node: "Node") -> Optional[str]:
+    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
         """Extract the name of the called method from a call node.
 
         Handles:
@@ -927,50 +792,7 @@ class RubyPlugin(BaseLanguagePlugin):
             ],
         )
 
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in Ruby source code.
-
-        Finds method calls, including blocks and dynamic calls.
-        Handles Ruby-specific features like safe navigation and singleton methods.
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-        call_nodes = self._find_call_nodes_ruby(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name_ruby(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "ruby",
-                "file": str(file_path),
-            },
-        )
-
-    def _find_call_nodes_ruby(
+    def _find_call_nodes(
         self,
         root: "Node",
     ) -> List[tuple["Node", str, Optional[int]]]:
@@ -1067,7 +889,7 @@ class RubyPlugin(BaseLanguagePlugin):
         traverse(root)
         return results
 
-    def _extract_callee_name_ruby(self, call_node: "Node") -> Optional[str]:
+    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
         """Extract the name of the called method from a call node.
 
         Handles:
@@ -1190,50 +1012,7 @@ class PhpPlugin(BaseLanguagePlugin):
             ],
         )
 
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in PHP source code.
-
-        Finds function calls, method calls, and constructor calls.
-        Handles PHP-specific features like static methods and namespaces.
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-        call_nodes = self._find_call_nodes_php(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name_php(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "php",
-                "file": str(file_path),
-            },
-        )
-
-    def _find_call_nodes_php(
+    def _find_call_nodes(
         self,
         root: "Node",
     ) -> List[tuple["Node", str, Optional[int]]]:
@@ -1348,7 +1127,7 @@ class PhpPlugin(BaseLanguagePlugin):
         traverse(root)
         return results
 
-    def _extract_callee_name_php(self, call_node: "Node") -> Optional[str]:
+    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
         """Extract the name of the called function from a call node.
 
         Handles:
@@ -1489,50 +1268,7 @@ class SwiftPlugin(BaseLanguagePlugin):
             ],
         )
 
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in Swift source code.
-
-        Finds function calls and method calls.
-        Handles Swift-specific features like optional chaining and protocol methods.
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-        call_nodes = self._find_call_nodes_swift(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name_swift(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "swift",
-                "file": str(file_path),
-            },
-        )
-
-    def _find_call_nodes_swift(
+    def _find_call_nodes(
         self,
         root: "Node",
     ) -> List[tuple["Node", str, Optional[int]]]:
@@ -1622,7 +1358,7 @@ class SwiftPlugin(BaseLanguagePlugin):
         traverse(root)
         return results
 
-    def _extract_callee_name_swift(self, call_node: "Node") -> Optional[str]:
+    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
         """Extract the name of the called function from a call node.
 
         Handles:
