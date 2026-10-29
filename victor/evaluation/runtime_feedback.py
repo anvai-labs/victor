@@ -291,6 +291,8 @@ def _normalized_scope_token(value: Any) -> Optional[str]:
 
 
 from victor.core.utils import clamp as _clamp
+from victor.core.utils import normalize_text_list as _coerce_text_list
+from victor.evaluation.summary_mapping import extract_value as _extract_value
 
 
 def _parse_timestamp(value: Any) -> Optional[datetime]:
@@ -1020,12 +1022,6 @@ def build_swe_bench_validated_session_feedback_payload(
     )
 
 
-def _extract_value(value: Any, key: str, default: Any = None) -> Any:
-    if isinstance(value, Mapping):
-        return value.get(key, default)
-    return getattr(value, key, default)
-
-
 def _extract_mapping(value: Any, key: str) -> dict[str, Any]:
     raw_value = _extract_value(value, key, {})
     return dict(raw_value) if isinstance(raw_value, Mapping) else {}
@@ -1047,16 +1043,6 @@ def _coerce_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _coerce_text_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple, set)):
-        items = value
-    else:
-        items = [value]
-    return [str(item).strip() for item in items if str(item).strip()]
 
 
 def _normalized_status(value: Any) -> str:

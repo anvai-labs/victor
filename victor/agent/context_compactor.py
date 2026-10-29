@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from victor.agent.decisions.support import DecisionSupportMixin
 from victor.config.orchestrator_constants import (
     COMPACTION_CONFIG,
     CONTEXT_LIMITS,
@@ -272,7 +273,7 @@ class TruncationResult:
     indicator: str = ""
 
 
-class ContextCompactor:
+class ContextCompactor(DecisionSupportMixin):
     """Proactive context compaction and optimization.
 
     Wraps ConversationController to add:
@@ -360,37 +361,6 @@ class ContextCompactor:
             f"adaptive_enabled: {self._adaptive_enabled}, "
             f"decision_service: {decision_service is not None or runtime_intelligence is not None})"
         )
-
-    def _has_decision_support(self) -> bool:
-        """Return whether compaction decisions can use the canonical runtime boundary."""
-        if self._runtime_intelligence is not None:
-            return True
-        return self._decision_service is not None
-
-    def _decide_sync(
-        self,
-        decision_type: Any,
-        context: Dict[str, Any],
-        *,
-        heuristic_result: Any = None,
-        heuristic_confidence: float = 0.0,
-    ) -> Optional[Any]:
-        """Delegate bounded compaction decisions via runtime intelligence when available."""
-        if self._runtime_intelligence is not None:
-            return self._runtime_intelligence.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        if self._decision_service is not None:
-            return self._decision_service.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        return None
 
     # ========================================================================
     # Tier-Based Provider Selection

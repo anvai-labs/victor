@@ -41,6 +41,8 @@ from typing import (
     runtime_checkable,
 )
 
+from victor.agent.decisions.support import DecisionSupportMixin
+
 if TYPE_CHECKING:
     from victor.agent.presentation import PresentationProtocol
 
@@ -227,7 +229,7 @@ class IThinkingDetector(Protocol):
         ...
 
 
-class ThinkingPatternDetector:
+class ThinkingPatternDetector(DecisionSupportMixin):
     """Detects repetitive thinking patterns to break loops.
 
     Features:
@@ -300,37 +302,6 @@ class ThinkingPatternDetector:
             self._presentation = create_presentation_adapter()
         else:
             self._presentation = presentation
-
-    def _has_decision_support(self) -> bool:
-        """Return whether LLM-backed loop detection is available."""
-        if self._runtime_intelligence is not None:
-            return True
-        return self._decision_service is not None
-
-    def _decide_sync(
-        self,
-        decision_type: Any,
-        context: Dict[str, Any],
-        *,
-        heuristic_result: Any = None,
-        heuristic_confidence: float = 0.0,
-    ) -> Optional[Any]:
-        """Route decisions through the canonical runtime-intelligence service when present."""
-        if self._runtime_intelligence is not None:
-            return self._runtime_intelligence.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        if self._decision_service is not None:
-            return self._decision_service.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        return None
 
     def _extract_keywords(self, text: str) -> Set[str]:
         """Extract significant keywords from thinking block.
