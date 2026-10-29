@@ -27,12 +27,16 @@ Sprint 2: Mode Controller Unification
 """
 
 import logging
-import math
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    sample_confidence,
+)
 from victor.framework.rl.migration import RLTableMigrator
 from victor.core.schema import Tables
 
@@ -402,12 +406,9 @@ class ModeTransitionLearner(BaseLearner):
 
         # Compute confidence based on visit count
         action_visits = self._visit_counts.get(state_key, {}).get(best_action, 0)
-        if action_visits < self.MIN_SAMPLES_FOR_CONFIDENCE:
-            confidence = 0.3 + 0.2 * (action_visits / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            is_baseline = True
-        else:
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-action_visits / 20)))
-            is_baseline = False
+        confidence, is_baseline = sample_confidence(
+            action_visits, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=20
+        )
 
         return RLRecommendation(
             value=best_action,

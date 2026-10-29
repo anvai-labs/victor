@@ -30,11 +30,15 @@ HIGH PRIORITY: Sprint 1 of RL Enhancement Plan
 
 from victor.core.json_utils import json_dumps
 import logging
-import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    sample_confidence,
+)
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -312,13 +316,14 @@ class ToolSelectorLearner(BaseLearner):
 
         # Compute confidence based on sample size
         if count < self.MIN_SAMPLES_FOR_CONFIDENCE:
-            confidence = 0.3 + 0.2 * (count / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            is_baseline = True
+            confidence, is_baseline = sample_confidence(
+                count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=50
+            )
             reason = f"Low confidence (n={count})"
         else:
-            # Confidence increases with samples, caps at 0.95
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 50)))
-            is_baseline = False
+            confidence, is_baseline = sample_confidence(
+                count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=50
+            )
 
             # Success rate for explanation
             success_count = self._tool_success_counts.get(tool_name, 0)
@@ -352,10 +357,7 @@ class ToolSelectorLearner(BaseLearner):
             count = self._tool_selection_counts.get(tool_name, 0)
 
             # Confidence based on sample size
-            if count < self.MIN_SAMPLES_FOR_CONFIDENCE:
-                confidence = 0.3 + 0.2 * (count / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            else:
-                confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 50)))
+            confidence, _ = sample_confidence(count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=50)
 
             rankings.append((tool_name, q_value, confidence))
 

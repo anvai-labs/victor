@@ -16,6 +16,7 @@
 
 from victor.core.json_utils import json_dumps, json_loads
 import logging
+import math
 import os
 import random
 import sqlite3
@@ -30,6 +31,26 @@ if TYPE_CHECKING:
     from victor.protocols.provider_adapter import IProviderAdapter
 
 logger = logging.getLogger(__name__)
+
+
+def saturating_confidence(samples: float, scale: float) -> float:
+    """Confidence that grows with evidence and saturates at 0.95.
+
+    The shared learner policy: 0.5 with no evidence, approaching 0.95 as
+    ``samples`` grows; ``scale`` sets how many samples count as "a lot".
+    """
+    return min(0.95, 0.5 + 0.45 * (1 - math.exp(-samples / scale)))
+
+
+def sample_confidence(samples: float, min_samples: float, scale: float) -> "tuple[float, bool]":
+    """``(confidence, is_baseline)`` with a low-confidence warm-up period.
+
+    Below ``min_samples`` the recommendation is a baseline whose confidence
+    ramps from 0.3 to 0.5; afterwards :func:`saturating_confidence` applies.
+    """
+    if samples < min_samples:
+        return 0.3 + 0.2 * (samples / min_samples), True
+    return saturating_confidence(samples, scale), False
 
 
 def resolve_rl_rng_seed(name: str) -> Optional[int]:

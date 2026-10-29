@@ -38,7 +38,12 @@ import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    sample_confidence,
+)
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -388,12 +393,9 @@ class QualityWeightLearner(BaseLearner):
 
         sample_count = self._sample_counts.get(task_type, 0)
 
-        if sample_count < self.MIN_SAMPLES_FOR_CONFIDENCE:
-            confidence = 0.3 + 0.2 * (sample_count / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            is_baseline = True
-        else:
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-sample_count / 30)))
-            is_baseline = False
+        confidence, is_baseline = sample_confidence(
+            sample_count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=30
+        )
 
         return RLRecommendation(
             value=dict(self._weights[task_type]),
