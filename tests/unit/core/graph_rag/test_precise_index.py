@@ -701,12 +701,12 @@ async def test_marker_absent_maps_to_named_outcome_not_dump_failed(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
-    """The provider loop's full taxonomy through the real pipeline: an ok
-    provider with edges, a dump-failed provider, and an absent one — merged
-    edges plus honest per-language accounting. Needs the vendored bindings
-    (the fake dump writes a real artifact); skips where protobuf is absent,
-    exactly like the other binding-dependent tests."""
+async def test_single_language_harvest_selects_only_matching_provider(tmp_path, monkeypatch):
+    """A Python-only corpus must never invoke unrelated producer adapters.
+
+    Full seven-provider dispatch and failure isolation are exercised separately
+    in test_precise_dispatch.py; this fixture qualifies single-language selection.
+    """
     pytest.importorskip("victor_codegraph")
     pytest.importorskip("google.protobuf")
     from victor.core.graph_rag import precise_providers
@@ -768,6 +768,7 @@ async def test_polyglot_harvest_loop_outcomes(tmp_path, monkeypatch):
         harvest = await pipeline._harvest_precise_index(tmp_path)
         # Only python nodes exist, so only scip-python runs; the loop still
         # exercises one ok outcome with a real edge.
+        assert set(harvest.per_language) == {"scip-python"}
         assert harvest.per_language["scip-python"].startswith("ok:1 edges (")
         assert "0 docs out-of-corpus" in harvest.per_language["scip-python"]
         assert harvest.skipped_reason is None
