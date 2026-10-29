@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Set
 
+from victor.agent.decisions.support import DecisionSupportMixin
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,7 +80,7 @@ class ToolCallSignature:
         return self.tool_name == other.tool_name and self.arguments_hash == other.arguments_hash
 
 
-class ToolErrorClassifier:
+class ToolErrorClassifier(DecisionSupportMixin):
     """Classifies tool execution errors for retry decisions.
 
     Tracks permanently failed tool calls to prevent retrying
@@ -201,37 +203,6 @@ class ToolErrorClassifier:
         self._failed_calls: Set[ToolCallSignature] = set()
         self._decision_service = decision_service
         self._runtime_intelligence = runtime_intelligence
-
-    def _has_decision_support(self) -> bool:
-        """Return whether low-confidence LLM decisions are available."""
-        if self._runtime_intelligence is not None:
-            return True
-        return self._decision_service is not None
-
-    def _decide_sync(
-        self,
-        decision_type: Any,
-        context: dict[str, Any],
-        *,
-        heuristic_result: Any = None,
-        heuristic_confidence: float = 0.0,
-    ) -> Any:
-        """Delegate to the canonical runtime-intelligence service when present."""
-        if self._runtime_intelligence is not None:
-            return self._runtime_intelligence.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        if self._decision_service is not None:
-            return self._decision_service.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        return None
 
     @lru_cache(maxsize=512)
     def classify(self, error_message: str) -> ErrorType:
