@@ -60,3 +60,19 @@ qualification for all seven toolchains. The separate
 selection, including generated-directory exclusions and a project `.gitignore`
 that excludes root `/site/` while retaining nested source. The full graph suite
 passes 618 tests; the complete repository collection resolves 36,528 tests.
+
+### Registered extension consistency
+
+C++ `.hh`/`.hxx` headers and Ruby `.rbi` interfaces were declared in the producer
+registry but absent from syntax language detection. Shared codegraph detection
+and the framework fallback now recognize these aliases. A registry-derived test
+runs real discovery and provider selection for every declared extension (nineteen
+currently), so a new provider cannot silently declare undiscoverable extensions.
+Separate parser fixtures extract real C++/Ruby symbols for the three aliases;
+unknown extensions remain excluded. These tests qualify discovery and parsing,
+not compiler execution for all aliases or languages. `.pyi` and `.cjs` have syntax
+support but are not currently declared precise extensions.
+
+Alias correction validation: 662 framework graph tests and 262 shared codegraph
+tests pass; 36,577 framework tests collect. Existing Ruby class-extraction gaps
+are unchanged; alias parsing matches canonical `.rb` method extraction.
