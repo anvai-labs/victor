@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.stream_handler import StreamMetrics
+from victor.core.metrics_mixin import AdhocMetricsMixin
 from victor.tools.base import CostTier
 
 if TYPE_CHECKING:
@@ -159,7 +160,7 @@ class MetricsCollectorConfig:
     analytics_enabled: bool = False
 
 
-class MetricsCollector:
+class MetricsCollector(AdhocMetricsMixin):
     """Centralized metrics collection for agent operations.
 
     Collects and aggregates metrics for:
@@ -209,32 +210,10 @@ class MetricsCollector:
         # Cost tracking
         self._cost_tracking = CostTracking()
 
-        # Ad-hoc metrics recorded via the MetricsCollectorProtocol adapter
-        # (``record_metric``). The typed ``record_*`` methods above cover the
-        # known agent metrics; this store backs generic, name/value observations.
-        self._adhoc_metrics: Dict[str, float] = {}
-
     # =========================================================================
-    # MetricsCollectorProtocol adapter (FEP-0014)
+    # MetricsCollectorProtocol adapter (FEP-0014); record_metric comes from
+    # AdhocMetricsMixin, the snapshot shape stays per collector.
     # =========================================================================
-
-    def record_metric(self, name: str, value: float, **tags: str) -> None:
-        """Record a single generic metric observation (protocol adapter).
-
-        Complements the typed ``record_*`` methods with a name/value surface so
-        this collector satisfies ``MetricsCollectorProtocol``. Stores the value
-        under ``name`` (tag-qualified when tags are supplied).
-
-        Args:
-            name: Metric name.
-            value: Numeric value to record.
-            **tags: Optional string-valued dimensional tags, appended to the key.
-        """
-        key = name
-        if tags:
-            tag_suffix = ",".join(f"{k}={v}" for k, v in sorted(tags.items()))
-            key = f"{name}{{{tag_suffix}}}"
-        self._adhoc_metrics[key] = float(value)
 
     def get_snapshot(self) -> Dict[str, Any]:
         """Return a point-in-time snapshot of collected metrics (protocol adapter).
