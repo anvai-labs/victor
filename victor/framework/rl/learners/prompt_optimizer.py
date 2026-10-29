@@ -2165,57 +2165,22 @@ class PromptOptimizerLearner(BaseLearner):
         traces: List[ExecutionTrace],
         provider: str,
     ) -> List[ExecutionTrace]:
-        """Keep only the traces that belong to the provider being evolved.
-
-        Candidates are persisted per ``(section, provider)``, but the trace pool
-        is the *global* ``~/.victor/logs/usage.jsonl`` — every project and every
-        provider the operator has ever run. Reflecting a ``moonshot`` candidate
-        over ZAI/Ollama/DeepSeek failures attributes another model's mistakes to
-        Moonshot's prompt.
-
-        Falls back to the unscoped pool when the provider's own traces are too
-        few to evolve from; a narrower-but-empty pool would just stall the loop,
-        and the caller logs the degraded provenance.
-        """
+        """Delegates to :func:`trace_collection.scope_traces_to_provider`."""
         return scope_traces_to_provider(traces, provider, MIN_TRACES_FOR_EVOLUTION)
 
     @staticmethod
     def _normalize_provider_label(raw: str) -> str:
-        """Map a runtime provider class name onto the candidate ``provider`` scope.
-
-        Candidates are stored under short scopes (``moonshot``, ``zai``,
-        ``ollama``); the JSONL logs the class name (``MoonshotProvider``,
-        ``SandhiOllamaProvider``, ``MoonshotCompatProvider``). Without this
-        mapping the two namespaces never meet.
-        """
+        """Delegates to :func:`trace_collection.normalize_provider_label`."""
         return normalize_provider_label(raw)
 
     @staticmethod
     def _absorb_run_kind(session: Dict[str, Any], event: Dict[str, Any]) -> None:
-        """Record the run kind the emitter stamped on this event.
-
-        Sits beside ``session_id`` on the event rather than inside ``data``,
-        because it describes the run rather than the thing that happened. First
-        non-empty value wins: a session does not change kind partway through.
-
-        Events written before the emitter tagged them carry nothing, and those
-        sessions stay ``unknown`` — deliberately, rather than being guessed from
-        prompt text, which is the inference that conflated delegate work with
-        benchmark runs in the first place.
-        """
+        """Delegates to :func:`trace_collection.absorb_run_kind`."""
         absorb_run_kind(session, event)
 
     @classmethod
     def _absorb_session_identity(cls, session: Dict[str, Any], data: Dict[str, Any]) -> None:
-        """Fill a session's provider/model from any event that carries them.
-
-        ``provider``/``model`` were initialised to ``""`` and never assigned, so
-        every collected trace reported ``provider="unknown"`` even though
-        ``session_start`` and ``stream_completed`` events carry the real values.
-        Evolution therefore reflected over a provider-blind trace pool while
-        labelling the resulting candidate with the *current* session's provider.
-        First non-empty value wins — a session does not change provider mid-run.
-        """
+        """Delegates to :func:`trace_collection.absorb_session_identity`."""
         absorb_session_identity(session, data)
 
     @staticmethod

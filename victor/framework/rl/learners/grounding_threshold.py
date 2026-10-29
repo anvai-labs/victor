@@ -130,30 +130,19 @@ class GroundingThresholdLearner(BaseLearner):
                 value = row_dict["param_value"]
                 if value is None:
                     continue
-                if key.startswith("alpha:"):
-                    rest = key[len("alpha:") :]
-                    # rest = "context_key:threshold"
-                    last_colon = rest.rfind(":")
-                    context_key = rest[:last_colon]
-                    threshold = float(rest[last_colon + 1 :])
-                    if context_key not in self._beta_params:
-                        self._beta_params[context_key] = {}
-                    existing = self._beta_params[context_key].get(
-                        threshold, (self.PRIOR_ALPHA, self.PRIOR_BETA)
-                    )
-                    self._beta_params[context_key][threshold] = (value, existing[1])
+                param, _, rest = key.partition(":")
+                if param not in ("alpha", "beta"):
+                    continue
+                # rest = "context_key:threshold" (the context key may contain ':')
+                context_key, _, threshold_text = rest.rpartition(":")
+                threshold = float(threshold_text)
+                params = self._beta_params.setdefault(context_key, {})
+                alpha, beta = params.get(threshold, (self.PRIOR_ALPHA, self.PRIOR_BETA))
+                if param == "alpha":
+                    params[threshold] = (value, beta)
                     self._total_decisions += row_dict.get("sample_count") or 0
-                elif key.startswith("beta:"):
-                    rest = key[len("beta:") :]
-                    last_colon = rest.rfind(":")
-                    context_key = rest[:last_colon]
-                    threshold = float(rest[last_colon + 1 :])
-                    if context_key not in self._beta_params:
-                        self._beta_params[context_key] = {}
-                    existing = self._beta_params[context_key].get(
-                        threshold, (self.PRIOR_ALPHA, self.PRIOR_BETA)
-                    )
-                    self._beta_params[context_key][threshold] = (existing[0], value)
+                else:
+                    params[threshold] = (alpha, value)
 
         except Exception as e:
             logger.debug(f"RL: Could not load Beta parameters: {e}")
