@@ -32,7 +32,6 @@ from victor.core.graph_rag import (
 from victor.core.indexing.ccg_builder import CodeContextGraphBuilder
 from victor.processing.graph_profiler import (
     GraphProfiler,
-    profile_graph_operation,
 )
 from victor.processing.graph_optimizations import (
     GraphOptimizer,

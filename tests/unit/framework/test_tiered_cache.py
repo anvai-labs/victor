@@ -18,11 +18,6 @@ Tests L1 (memory) and L2 (disk) caching, statistics,
 and specialized caches (ResponseCache, EmbeddingCache).
 """
 
-import tempfile
-import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from victor.storage.cache.config import CacheConfig

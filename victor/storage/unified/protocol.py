@@ -35,7 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple, TypeVar
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple
 
 # =============================================================================
 # UNIFIED ID SCHEME

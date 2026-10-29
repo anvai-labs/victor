@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from functools import lru_cache
 
 from victor.config.settings import get_project_paths
 

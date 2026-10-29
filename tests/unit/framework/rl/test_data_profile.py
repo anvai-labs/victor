@@ -1,7 +1,6 @@
 """Tests for data-aware instruction generation (MIPROv2-inspired)."""
 
 from unittest.mock import MagicMock
-import pytest
 
 
 class TestDataAwareProfile:

@@ -14,8 +14,6 @@
 
 """Tests for StageBuilder class in victor/core/vertical_types.py."""
 
-import pytest
-
 from victor.core.vertical_types import StageBuilder, StageDefinition
 from victor.tools.tool_names import ToolNames
 

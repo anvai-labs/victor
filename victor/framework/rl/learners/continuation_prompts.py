@@ -52,11 +52,7 @@ class ContinuationPromptLearner(BaseLearner):
         learning_rate: Adjustment rate (0.0-1.0)
     """
 
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(
-            self.name, RLTableMigrator.migrate_continuation_prompts
-        )
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_continuation_prompts)
 
     def record_outcome(self, outcome: RLOutcome) -> None:
         """Record continuation prompts outcome.
@@ -76,22 +72,14 @@ class ContinuationPromptLearner(BaseLearner):
         cursor = self.db.cursor()
 
         # Load existing stats from rl_task_stat
-        cursor.execute(
-            f"SELECT stat_key, stat_value FROM {Tables.RL_TASK_STAT}"
-            f" WHERE learner_id = ? AND task_type = ?",
-            (self.name, context_key),
-        )
-        row_map = {r["stat_key"]: r["stat_value"] for r in (dict(row) for row in cursor.fetchall())}
+        row_map = self._read_task_stats(context_key)
 
         # Load current_max_prompts from rl_param
-        cursor.execute(
-            f"SELECT param_value FROM {Tables.RL_PARAM}"
-            f" WHERE learner_id = ? AND param_key = 'current_max_prompts' AND context = ?",
-            (self.name, context_key),
-        )
-        param_row = cursor.fetchone()
+        stored_max_prompts = self._read_param("current_max_prompts", context_key)
         default_max = outcome.metadata.get("max_prompts_configured", 6)
-        current_max_prompts = int(param_row["param_value"]) if param_row else default_max
+        current_max_prompts = (
+            int(stored_max_prompts) if stored_max_prompts is not None else default_max
+        )
 
         total_sessions = int(row_map.get("total_sessions", 0))
         successful_sessions = int(row_map.get("successful_sessions", 0))
@@ -249,22 +237,11 @@ class ContinuationPromptLearner(BaseLearner):
         """
         context_key = self._get_context_key(provider, model, task_type)
 
-        cursor = self.db.cursor()
-        cursor.execute(
-            f"SELECT stat_key, stat_value FROM {Tables.RL_TASK_STAT}"
-            f" WHERE learner_id = ? AND task_type = ?",
-            (self.name, context_key),
-        )
-        row_map = {r["stat_key"]: r["stat_value"] for r in (dict(row) for row in cursor.fetchall())}
+        row_map = self._read_task_stats(context_key)
 
-        cursor.execute(
-            f"SELECT param_value FROM {Tables.RL_PARAM}"
-            f" WHERE learner_id = ? AND param_key = 'current_max_prompts' AND context = ?",
-            (self.name, context_key),
-        )
-        param_row = cursor.fetchone()
+        stored_max_prompts = self._read_param("current_max_prompts", context_key)
 
-        if not row_map and param_row is None:
+        if not row_map and stored_max_prompts is None:
             return None
 
         total_sessions = int(row_map.get("total_sessions", 0))
@@ -273,7 +250,7 @@ class ContinuationPromptLearner(BaseLearner):
 
         stuck_loop_count = int(row_map.get("stuck_loop_count", 0))
         successful_sessions = int(row_map.get("successful_sessions", 0))
-        current_max_prompts = int(param_row["param_value"]) if param_row else 6
+        current_max_prompts = int(stored_max_prompts) if stored_max_prompts is not None else 6
 
         confidence = min(1.0, total_sessions / 20.0)
         stuck_rate = stuck_loop_count / total_sessions

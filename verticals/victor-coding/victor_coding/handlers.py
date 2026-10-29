@@ -35,16 +35,12 @@ Usage:
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List
 
-from victor_contracts.workflows import (
-    ComputeHandlerRegistrar,
-    ExecutorNodeStatus,
-    NodeResult,
-    register_compute_handlers,
-)
+from victor_contracts import ComputeStep
+from victor_contracts.workflows import ExecutorNodeStatus, NodeResult
+from victor_contracts.workflows_compute import make_handler_registrar
 
 if TYPE_CHECKING:
     from victor_contracts.verticals.protocols.tools import (
@@ -78,7 +74,7 @@ class CodeValidationHandler:
         context: "WorkflowContext",
         tool_registry: "ToolRegistry",
     ) -> "NodeResult":
-        start_time = time.time()
+        step = ComputeStep(node, context)
         tool_calls = 0
 
         files = node.input_mapping.get("files", [])
@@ -97,16 +93,8 @@ class CodeValidationHandler:
             if not check_result.get("passed", False):
                 all_passed = False
 
-        output = {"checks": results, "all_passed": all_passed}
-        output_key = node.output_key or node.id
-        context.set(output_key, output)
-
-        return NodeResult(
-            node_id=node.id,
-            status=ExecutorNodeStatus.COMPLETED,
-            output=output,
-            duration_seconds=time.time() - start_time,
-            tool_calls_used=tool_calls,
+        return step.complete(
+            {"checks": results, "all_passed": all_passed}, tool_calls_used=tool_calls
         )
 
     async def _run_check(
@@ -160,7 +148,7 @@ class TestRunnerHandler:
         context: "WorkflowContext",
         tool_registry: "ToolRegistry",
     ) -> "NodeResult":
-        start_time = time.time()
+        step = ComputeStep(node, context)
 
         test_path = node.input_mapping.get("test_path", "tests/")
         framework = node.input_mapping.get("framework", "pytest")
@@ -177,32 +165,14 @@ class TestRunnerHandler:
 
         try:
             result = await tool_registry.execute("shell", command=cmd)
-
-            output = {
-                "framework": framework,
-                "passed": result.success,
-                "output": result.output,
-            }
-
-            output_key = node.output_key or node.id
-            context.set(output_key, output)
-
-            return NodeResult(
-                node_id=node.id,
+            return step.complete(
+                {"framework": framework, "passed": result.success, "output": result.output},
                 status=(
                     ExecutorNodeStatus.COMPLETED if result.success else ExecutorNodeStatus.FAILED
                 ),
-                output=output,
-                duration_seconds=time.time() - start_time,
-                tool_calls_used=1,
             )
         except Exception as e:
-            return NodeResult(
-                node_id=node.id,
-                status=ExecutorNodeStatus.FAILED,
-                error=str(e),
-                duration_seconds=time.time() - start_time,
-            )
+            return step.fail(str(e))
 
 
 HANDLERS = {
@@ -211,15 +181,7 @@ HANDLERS = {
 }
 
 
-def register_handlers(
-    registrar: Optional[ComputeHandlerRegistrar] = None,
-):
-    """Register Coding handlers through an explicit host-side registrar."""
-    registered = register_compute_handlers(registrar, HANDLERS)
-    if registrar is not None:
-        for name in HANDLERS:
-            logger.debug(f"Registered Coding handler: {name}")
-    return registered
+register_handlers = make_handler_registrar("Coding", HANDLERS)
 
 
 __all__ = [

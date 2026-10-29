@@ -36,18 +36,14 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 from urllib.parse import urlparse
 
 from victor.workflows.services.definition import (
-    HealthCheckConfig,
     ServiceConfig,
     ServiceHandle,
-    ServiceHealthError,
-    ServiceStartError,
     ServiceState,
 )
 from victor.workflows.services.providers.base import BaseServiceProvider

@@ -120,7 +120,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import hashlib
 import inspect
@@ -128,7 +127,6 @@ import logging
 from victor.core.json_utils import json_dumps, json_loads
 import threading
 import time
-import warnings
 import weakref
 from dataclasses import dataclass, field
 from enum import Enum
@@ -167,10 +165,6 @@ if TYPE_CHECKING:
     from victor.core.verticals.base import VerticalBase
     from victor.framework.vertical_cache_policy import VerticalIntegrationCachePolicy
 
-from victor.framework.capability_runtime import (
-    check_capability as _check_capability,
-    invoke_capability as _invoke_capability,
-)
 from victor.framework.framework_integration_registry_service import (
     resolve_framework_integration_registry_service,
 )

@@ -12,8 +12,7 @@ Tests cover:
 """
 
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, Mock
-from pathlib import Path
+from unittest.mock import MagicMock
 
 import asyncio
 import pytest

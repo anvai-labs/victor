@@ -31,9 +31,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from victor_contracts import ConversationCoordinator, ConversationStats, TurnType
+from victor_contracts.verticals import VerticalConversationManager
 
 logger = logging.getLogger(__name__)
 
@@ -151,28 +151,8 @@ class ResearchContext:
         logger.debug(f"Recorded finding: {finding}")
 
 
-class EnhancedResearchConversationManager:
-    """Enhanced conversation manager for Research using ConversationCoordinator.
-
-    Provides:
-    - Standard conversation tracking via ConversationCoordinator
-    - Research-specific context tracking (questions, hypotheses, experiments, findings)
-    - Automatic summarization of research work
-    - Research-focused conversation history
-
-    Example:
-        manager = EnhancedResearchConversationManager()
-
-        # Add a user message
-        manager.add_message("user", "What's the relationship between X and Y?", TurnType.USER)
-
-        # Track research elements
-        manager.track_research_question("How does X affect Y?")
-        manager.track_experiment("Regression analysis of X vs Y", "Significant correlation found")
-
-        # Get conversation summary
-        summary = manager.get_research_summary()
-    """
+class EnhancedResearchConversationManager(VerticalConversationManager):
+    """Coordinator-backed conversation manager with the research context."""
 
     def __init__(
         self,
@@ -181,88 +161,18 @@ class EnhancedResearchConversationManager:
         enable_deduplication: bool = True,
         enable_statistics: bool = True,
     ):
-        """Initialize the enhanced conversation manager.
-
-        Args:
-            max_history_turns: Maximum turns to keep in history
-            summarization_threshold: Turns before triggering summarization
-            enable_deduplication: Whether to enable message deduplication
-            enable_statistics: Whether to track conversation statistics
-        """
-        self._conversation_coordinator = ConversationCoordinator(
+        super().__init__(
+            ResearchContext,
+            "research_context",
+            "research",
             max_history_turns=max_history_turns,
             summarization_threshold=summarization_threshold,
             enable_deduplication=enable_deduplication,
             enable_statistics=enable_statistics,
         )
 
-        self._research_context = ResearchContext()
-
-        logger.info(
-            f"EnhancedResearchConversationManager initialized with "
-            f"max_turns={max_history_turns}"
-        )
-
-    # =========================================================================
-    # Message Management (delegates to ConversationCoordinator)
-    # =========================================================================
-
-    def add_message(
-        self,
-        role: str,
-        content: str,
-        turn_type: TurnType,
-        metadata: Optional[Dict[str, Any]] = None,
-        tool_calls: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
-        """Add a message to the conversation.
-
-        Args:
-            role: Message role (user, assistant, system)
-            content: Message content
-            turn_type: Type of turn
-            metadata: Optional metadata
-            tool_calls: Optional tool calls made in this turn
-
-        Returns:
-            Turn ID for the added message
-        """
-        return self._conversation_coordinator.add_message(
-            role, content, turn_type, metadata, tool_calls
-        )
-
-    def get_history(
-        self,
-        max_turns: Optional[int] = None,
-        include_system: bool = True,
-        include_tool: bool = True,
-    ) -> List[Dict[str, Any]]:
-        """Get conversation history.
-
-        Args:
-            max_turns: Maximum number of turns to return
-            include_system: Whether to include system messages
-            include_tool: Whether to include tool messages
-
-        Returns:
-            List of message dictionaries
-        """
-        return self._conversation_coordinator.get_history(max_turns, include_system, include_tool)
-
-    def clear_history(self, keep_summaries: bool = True) -> None:
-        """Clear conversation history.
-
-        Args:
-            keep_summaries: Whether to keep conversation summaries
-        """
-        self._conversation_coordinator.clear_history(keep_summaries)
-        if not keep_summaries:
-            self._research_context = ResearchContext()
-        logger.info("Conversation history cleared")
-
-    # =========================================================================
-    # Research-Specific Context Tracking
-    # =========================================================================
+    def get_research_context(self) -> ResearchContext:
+        return self.get_context()
 
     def track_research_question(self, question: str) -> None:
         """Track a research question.
@@ -270,7 +180,7 @@ class EnhancedResearchConversationManager:
         Args:
             question: Research question being explored
         """
-        self._research_context.add_research_question(question)
+        self._context.add_research_question(question)
 
     def track_hypothesis(self, hypothesis: str, status: str = "untested") -> None:
         """Track a hypothesis.
@@ -279,7 +189,7 @@ class EnhancedResearchConversationManager:
             hypothesis: Hypothesis statement
             status: Status (untested, testing, confirmed, rejected)
         """
-        self._research_context.add_hypothesis(hypothesis, status)
+        self._context.add_hypothesis(hypothesis, status)
 
     def track_data_source(self, source: str, source_type: str) -> None:
         """Track a data source.
@@ -288,7 +198,7 @@ class EnhancedResearchConversationManager:
             source: Data source identifier
             source_type: Type (paper, dataset, web, api, etc.)
         """
-        self._research_context.add_data_source(source, source_type)
+        self._context.add_data_source(source, source_type)
 
     def track_experiment(self, experiment: str, result: str) -> None:
         """Track an experiment.
@@ -297,7 +207,7 @@ class EnhancedResearchConversationManager:
             experiment: Experiment description
             result: Result or outcome
         """
-        self._research_context.add_experiment(experiment, result)
+        self._context.add_experiment(experiment, result)
 
     def track_finding(self, finding: str, category: str = "general") -> None:
         """Track a finding.
@@ -306,27 +216,11 @@ class EnhancedResearchConversationManager:
             finding: Key finding or insight
             category: Category
         """
-        self._research_context.add_finding(finding, category)
+        self._context.add_finding(finding, category)
 
     # =========================================================================
     # Summarization
     # =========================================================================
-
-    def needs_summarization(self) -> bool:
-        """Check if conversation needs summarization.
-
-        Returns:
-            True if summarization is recommended
-        """
-        return self._conversation_coordinator.needs_summarization()
-
-    def add_summary(self, summary: str) -> None:
-        """Add a conversation summary.
-
-        Args:
-            summary: Summary text
-        """
-        self._conversation_coordinator.add_summary(summary)
 
     def get_research_summary(self) -> str:
         """Get a research-focused conversation summary.
@@ -336,7 +230,7 @@ class EnhancedResearchConversationManager:
         """
         parts = []
 
-        ctx = self._research_context
+        ctx = self._context
 
         # Research questions
         if ctx.research_questions:
@@ -387,44 +281,6 @@ class EnhancedResearchConversationManager:
     # =========================================================================
     # Statistics and Observability
     # =========================================================================
-
-    def get_stats(self) -> ConversationStats:
-        """Get conversation statistics.
-
-        Returns:
-            ConversationStats object
-        """
-        return self._conversation_coordinator.get_stats()
-
-    def get_research_context(self) -> ResearchContext:
-        """Get the research context.
-
-        Returns:
-            ResearchContext object
-        """
-        return self._research_context
-
-    def get_observability_data(self) -> Dict[str, Any]:
-        """Get observability data for dashboard integration.
-
-        Returns:
-            Dictionary with observability data
-        """
-        conv_obs = self._conversation_coordinator.get_observability_data()
-
-        return {
-            **conv_obs,
-            "research_context": self._research_context.to_dict(),
-            "vertical": "research",
-        }
-
-    def get_conversation_coordinator(self) -> ConversationCoordinator:
-        """Get the underlying ConversationCoordinator.
-
-        Returns:
-            ConversationCoordinator instance
-        """
-        return self._conversation_coordinator
 
 
 __all__ = [

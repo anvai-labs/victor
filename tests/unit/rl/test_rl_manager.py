@@ -5,8 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from victor.framework.rl import (
     analyze_prompt_rollout_experiment,
-    analyze_prompt_rollout_experiment_async,
-    apply_prompt_rollout_recommendation,
     apply_prompt_rollout_recommendation_async,
     process_prompt_candidate_evaluation_suite,
     process_prompt_candidate_evaluation_suite_async,

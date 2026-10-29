@@ -38,61 +38,22 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Set, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+
+from victor_contracts.verticals.protocols.promoted_types import (
+    ToolSelectionContext as ToolSelectionContext,
+    ToolSelectionResult as ToolSelectionResult,
+)
 
 # =============================================================================
 # Tool Selection Data Types
 # =============================================================================
 
 
-@dataclass
-class VerticalToolSelectionContext:
-    """Vertical-specific context for tool selection decisions.
-
-    Renamed from ToolSelectionContext to be semantically distinct:
-    - VerticalToolSelectionContext (here): Vertical-specific selection context
-    - AgentToolSelectionContext (victor.agent.protocols): Basic agent-level context
-    - CrossVerticalToolSelectionContext (victor.tools.selection.protocol): Extended cross-vertical
-
-    Attributes:
-        task_type: Detected task type (e.g., "edit", "debug", "refactor")
-        user_message: The user's message/query
-        conversation_stage: Current conversation stage
-        available_tools: Set of currently available tool names
-        recent_tools: List of recently used tools (for context)
-        metadata: Additional context metadata
-    """
-
-    task_type: str
-    user_message: str
-    conversation_stage: str = "exploration"
-    available_tools: Set[str] = field(default_factory=set)
-    recent_tools: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-# Backward compatibility alias
-ToolSelectionContext = VerticalToolSelectionContext
-
-
-@dataclass
-class ToolSelectionResult:
-    """Result of vertical-specific tool selection.
-
-    Attributes:
-        priority_tools: Tools to prioritize (ordered by priority)
-        excluded_tools: Tools to exclude from selection
-        tool_weights: Custom weights for tool scoring (0.0-1.0)
-        budget_override: Optional budget override for this selection
-        reasoning: Optional explanation for selection decisions
-    """
-
-    priority_tools: List[str] = field(default_factory=list)
-    excluded_tools: Set[str] = field(default_factory=set)
-    tool_weights: Dict[str, float] = field(default_factory=dict)
-    budget_override: Optional[int] = None
-    reasoning: Optional[str] = None
+# The selection data types are defined once, in the SDK (promoted from here).
+# The vertical-specific name is kept as an alias; ToolSelectionContext is the
+# SDK's own name for the same type.
+VerticalToolSelectionContext = ToolSelectionContext
 
 
 # =============================================================================

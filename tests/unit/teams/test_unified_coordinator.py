@@ -24,7 +24,6 @@ import pytest
 
 from victor.teams import (
     AgentMessage,
-    ITeamCoordinator,
     MemberResult,
     MessageType,
     TeamConfig,
@@ -34,7 +33,7 @@ from victor.teams import (
     UnifiedTeamCoordinator,
     create_coordinator,
 )
-from victor.protocols.team import IDelegateFollowUpCoordinator, ITeamMember
+from victor.protocols.team import IDelegateFollowUpCoordinator
 from victor.teams.worktree_runtime import WorktreeRuntimeError
 
 

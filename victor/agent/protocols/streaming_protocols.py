@@ -4,15 +4,10 @@ from __future__ import annotations
 
 from typing import (
     Any,
-    AsyncIterator,
-    Dict,
-    List,
     Optional,
     Protocol,
     runtime_checkable,
 )
-
-from dataclasses import dataclass, field
 
 __all__ = [
     "StreamingControllerProtocol",

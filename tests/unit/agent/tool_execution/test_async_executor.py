@@ -21,7 +21,6 @@ import pytest
 
 from victor.agent.tool_execution.async_executor import (
     AsyncToolExecutor,
-    ExecutionResult,
     ExecutionConfig,
 )
 from victor.agent.tool_execution.categorization import (

@@ -16,14 +16,12 @@ as a cohesive system.
 import asyncio
 import pytest
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 # Entity Memory imports
 from victor.storage.memory import (
     EntityMemory,
-    EntityMemoryConfig,
     EntityGraph,
     Entity,
     EntityType,
@@ -37,8 +35,6 @@ from victor.storage.memory import (
 from victor.agent.specs import (
     AgentSpec,
     AgentCapabilities,
-    AgentConstraints,
-    ModelPreference,
     Pipeline,
     Parallel,
     researcher_agent,
@@ -53,7 +49,6 @@ from victor.workflows.hitl import (
     HITLNodeType,
     HITLFallback,
     HITLStatus,
-    HITLRequest,
     HITLResponse,
     HITLNode,
     HITLExecutor,

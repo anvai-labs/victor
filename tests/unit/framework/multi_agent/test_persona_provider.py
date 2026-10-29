@@ -20,8 +20,6 @@ registration, and retrieval mechanisms.
 
 import pytest
 import threading
-import time
-from typing import Dict
 
 from victor.framework.multi_agent.persona_provider import (
     FrameworkPersonaProvider,

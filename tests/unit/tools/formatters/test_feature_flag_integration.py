@@ -14,8 +14,6 @@
 
 """Tests for feature flag integration with Rich formatter system."""
 
-import pytest
-
 from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager
 from victor.tools.formatters import format_test_results, format_search_results
 

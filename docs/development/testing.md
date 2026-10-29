@@ -150,26 +150,31 @@ This fixture:
 - Clears all API key environment variables
 - Mocks `get_api_key()` to return `None`
 
-### Docker Mocking
+### Docker and the code-execution sandbox
 
-Prevents Docker startup in unit tests:
+Unit tests need no Docker mocking for orchestrators: the code-execution
+sandbox (`victor_coding.tools.code_executor_tool.CodeSandbox`) is acquired
+lazily, so building an orchestrator starts no container. A container exists
+only after a test actually calls `execute()`/`put_files()`, and it is removed
+by `dispose()`, by garbage collection, and on its own after the idle TTL.
+
+`tests/conftest.py` enforces this: at session end each pytest process
+(including every xdist worker) lists the sandbox containers it owns, removes
+them, and **fails the run** if there were any. A test that uses a real sandbox
+should release it:
 
 ```python
-def test_with_mock_docker(mock_code_execution_manager):
-    """Test without actually starting Docker."""
-    # CodeSandbox is mocked
-    # mock_instance.docker_available = False
-    pass
-
-def test_with_mock_client(mock_docker_client):
-    """Test with mocked Docker client."""
-    # docker.from_env() returns a mock
-    pass
+def test_runs_code():
+    sandbox = CodeSandbox()
+    try:
+        assert sandbox.execute("print(1)")["exit_code"] == 0
+    finally:
+        sandbox.dispose()
 ```
 
-The `auto_mock_docker_for_orchestrator` fixture automatically mocks Docker for tests that:
-- Have "orchestrator" in the test name
-- Are in specific test paths (tool_selection, integration, etc.)
+Tests of the sandbox itself mock the docker module
+(`verticals/victor-coding/tests/tools/test_code_executor_tool.py`); real-daemon
+behaviour lives in `tests/integration/infra/test_code_sandbox_lifecycle.py`.
 
 ### Workflow Fixtures
 

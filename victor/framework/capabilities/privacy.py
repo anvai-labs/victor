@@ -45,7 +45,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from victor.framework.capabilities.base import (
     BaseCapabilityProvider,
@@ -57,9 +57,6 @@ from victor.framework.capability_config_helpers import (
     load_capability_config,
     store_capability_config,
 )
-
-if TYPE_CHECKING:
-    from victor.core.protocols import OrchestratorProtocol as AgentOrchestrator
 
 logger = logging.getLogger(__name__)
 

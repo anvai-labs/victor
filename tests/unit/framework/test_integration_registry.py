@@ -1,7 +1,5 @@
 """Tests for IntegrationPlanRegistry."""
 
-import pytest
-
 from victor.framework.integration_registry import IntegrationPlanRegistry
 
 

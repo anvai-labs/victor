@@ -24,7 +24,6 @@ Tests verify that:
 """
 
 import pytest
-from typing import Dict, Any, List, Optional
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
 

@@ -23,8 +23,6 @@ Target hot paths from graph analysis (indexer.py has 218 degree centrality):
 3. batch_is_stdlib_modules() - Batch version for efficiency
 """
 
-import pytest
-
 from victor.native.protocols import AstIndexerProtocol
 
 

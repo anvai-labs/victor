@@ -16,7 +16,6 @@
 
 import sqlite3
 
-import pytest
 
 from victor.framework.rl.learners.correlation_tracker import CorrelationTracker
 

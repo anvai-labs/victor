@@ -47,7 +47,7 @@ import csv
 import io
 from victor.core.json_utils import json_dumps
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from victor.agent.format_strategies import FormatStrategyFactory, ToolOutputFormat
 

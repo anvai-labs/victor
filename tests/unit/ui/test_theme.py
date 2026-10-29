@@ -14,7 +14,6 @@
 
 """Tests for theme system and terminal capability detection (Phase 5)."""
 
-import pytest
 from unittest.mock import patch
 
 from victor.ui.theme import (

@@ -72,7 +72,6 @@ from typing import (
 logger = logging.getLogger(__name__)
 
 # Import RL types
-from victor.framework.rl.base import RLOutcome
 
 if TYPE_CHECKING:
     try:
@@ -1274,15 +1273,12 @@ class LLMCriticCreditAssigner(BaseCreditAssigner[ActionMetadata]):
         if not self._provider_name:
             return None
         try:
-            from importlib import import_module
+            from victor.providers.registry import get_provider_registry
 
-            from victor.providers.sandhi_transport import resolve_transport_class
-
-            mod = import_module(f"victor.providers.{self._provider_name}_provider")
-            native_cls = getattr(mod, f"{self._provider_name.title()}Provider")
-            # Sandhi owns transport: resolve the typed variant so chat()/stream()
-            # run via the FFI binding rather than the (removed) raw wire path.
-            self._provider = resolve_transport_class(self._provider_name, native_cls, {})()
+            # The registry maps the name to its class (OpenAIProvider, ZAIProvider,
+            # ...) and resolves the Sandhi transport variant. Deriving the class
+            # from ``name.title()`` only worked for ollama and anthropic.
+            self._provider = get_provider_registry().create(self._provider_name)
             return self._provider
         except Exception as e:
             logger.debug(

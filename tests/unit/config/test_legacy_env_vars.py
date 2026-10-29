@@ -1,8 +1,5 @@
 """Test legacy environment variable mapping."""
 
-import os
-import pytest
-
 
 class TestLegacyEnvironmentVariables:
     """Test that legacy flat environment variables work correctly."""

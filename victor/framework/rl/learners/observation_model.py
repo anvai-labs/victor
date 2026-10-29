@@ -22,7 +22,6 @@ Based on: "Position: agentic AI orchestration should be Bayes-consistent"
 """
 
 import logging
-import random
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -38,6 +37,39 @@ PRIOR_BETA = 1.0
 MESSAGE_CATEGORIES = ["affirm", "deny", "uncertain", "error"]
 
 
+_KEYWORD_CATEGORIES = (
+    # Checked in order: error first, and deny BEFORE affirm ("won't work").
+    ("error", ("error", "failed", "exception", "crash", "broken")),
+    (
+        "uncertain",
+        (
+            "maybe",
+            "possibly",
+            "might",
+            "uncertain",
+            "not sure",
+            "could be",
+            "probably",
+            "likely",
+        ),
+    ),
+    (
+        "deny",
+        ("no", "wrong", "incorrect", "bad", "fail", "doesn't", "won't", "can't", "not work"),
+    ),
+    ("affirm", ("yes", "correct", "right", "good", "success", "works")),
+)
+
+
+def _keyword_category(message: str) -> Optional[str]:
+    """First category whose keywords appear in ``message``; None if none do."""
+    message_lower = message.lower()
+    for category, keywords in _KEYWORD_CATEGORIES:
+        if any(keyword in message_lower for keyword in keywords):
+            return category
+    return None
+
+
 def categorize_message(message: str, outcome: str, confidence: float) -> str:
     """Categorize agent message for likelihood modeling.
 
@@ -49,49 +81,10 @@ def categorize_message(message: str, outcome: str, confidence: float) -> str:
     Returns:
         Category: "affirm", "deny", "uncertain", or "error"
     """
-    message_lower = message.lower()
-
-    # Check for error indicators (highest priority)
-    error_keywords = ["error", "failed", "exception", "crash", "broken"]
-    if any(keyword in message_lower for keyword in error_keywords):
-        return "error"
-
-    # Check for uncertainty indicators
-    uncertain_keywords = [
-        "maybe",
-        "possibly",
-        "might",
-        "uncertain",
-        "not sure",
-        "could be",
-        "probably",
-        "likely",
-    ]
-    if any(keyword in message_lower for keyword in uncertain_keywords):
-        return "uncertain"
-
-    # Check for negative/denying indicators (agent predicts failure)
-    # Check deny BEFORE affirm to handle "won't work" correctly
-    deny_keywords = [
-        "no",
-        "wrong",
-        "incorrect",
-        "bad",
-        "fail",
-        "doesn't",
-        "won't",
-        "can't",
-        "not work",
-    ]
-    if any(keyword in message_lower for keyword in deny_keywords):
-        return "deny"
-
-    # Check for positive/affirming indicators (agent predicts success)
-    affirm_keywords = ["yes", "correct", "right", "good", "success", "works"]
-    if any(keyword in message_lower for keyword in affirm_keywords):
-        return "affirm"
-
-    # If no clear keywords, use confidence as fallback
+    category = _keyword_category(message)
+    if category is not None:
+        return category
+    # No clear keywords: use the agent's confidence as the signal
     if confidence > 0.7:
         return "affirm"
     elif confidence < 0.3:
@@ -289,50 +282,8 @@ class ObservationModelLearner(BaseLearner):
         Returns:
             Category: "affirm", "deny", "uncertain", or "error"
         """
-        message_lower = message.lower()
-
-        # Check for error indicators (highest priority)
-        error_keywords = ["error", "failed", "exception", "crash", "broken"]
-        if any(keyword in message_lower for keyword in error_keywords):
-            return "error"
-
-        # Check for uncertainty indicators
-        uncertain_keywords = [
-            "maybe",
-            "possibly",
-            "might",
-            "uncertain",
-            "not sure",
-            "could be",
-            "probably",
-            "likely",
-        ]
-        if any(keyword in message_lower for keyword in uncertain_keywords):
-            return "uncertain"
-
-        # Check for negative/denying indicators (agent predicts failure)
-        # Check deny BEFORE affirm to handle "won't work" correctly
-        deny_keywords = [
-            "no",
-            "wrong",
-            "incorrect",
-            "bad",
-            "fail",
-            "doesn't",
-            "won't",
-            "can't",
-            "not work",
-        ]
-        if any(keyword in message_lower for keyword in deny_keywords):
-            return "deny"
-
-        # Check for positive/affirming indicators (agent predicts success)
-        affirm_keywords = ["yes", "correct", "right", "good", "success", "works"]
-        if any(keyword in message_lower for keyword in affirm_keywords):
-            return "affirm"
-
         # Default to uncertain if no clear signal
-        return "uncertain"
+        return _keyword_category(message) or "uncertain"
 
     def _get_parameters(self, agent_id: str, outcome: str, category: str) -> Dict[str, float]:
         """Get Beta parameters for (agent, outcome, category).

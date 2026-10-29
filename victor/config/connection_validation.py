@@ -29,9 +29,9 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from victor.config.accounts import ProviderAccount, AuthConfig
+from victor.config.accounts import ProviderAccount
 
 logger = logging.getLogger(__name__)
 
@@ -570,7 +570,6 @@ def ping_provider(provider: str, endpoint: Optional[str] = None) -> ConnectionVa
     Returns:
         ConnectionValidationResult with status
     """
-    import time
 
     from victor.config.accounts import ProviderAccount, AuthConfig
 

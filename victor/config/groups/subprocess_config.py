@@ -34,6 +34,10 @@ class SubprocessSettings(BaseModel):
     code_executor_network_disabled: bool = True
     code_executor_memory_limit: Optional[str] = "512m"
     code_executor_cpu_shares: Optional[int] = 256
+    code_executor_image: str = "python:3.11-slim"
+    # Seconds without use after which the sandbox container removes itself
+    # (bounds any leak, including a SIGKILLed owner).
+    code_executor_idle_ttl_seconds: int = Field(default=900, ge=10)
 
     # Subprocess resource limits (POSIX rlimit for tool subprocesses)
     # When enabled, applies memory/CPU/FD limits via preexec_fn.

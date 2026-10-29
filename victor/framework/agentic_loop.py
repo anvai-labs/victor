@@ -90,8 +90,7 @@ from victor.agent.turn_policy import (
     TurnEvaluationController,
     TurnObservation,
 )
-from victor.agent.topology_contract import TopologyAction
-from victor.agent.topology_grounder import GroundedTopologyPlan, TopologyGrounder
+from victor.agent.topology_grounder import TopologyGrounder
 from victor.agent.topology_planning import TopologyPlanningMixin
 from victor.agent.topology_selector import TopologySelector
 from victor.agent.topology_telemetry import (
@@ -102,15 +101,13 @@ from victor.core.shared_types import TaskPhase
 from victor.framework.evaluation_nodes import (
     EvaluationDecision,
     EvaluationResult,
-    create_agentic_loop_graph,
 )
 from victor.framework import response_classification
 from victor.framework.fulfillment import FulfillmentDetector, TaskType
 from victor.framework.perception_integration import Perception, PerceptionIntegration
 from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.framework.capabilities.task_hints import TaskTypeHintCapabilityProvider
-from victor.agent.paradigm_router import ParadigmRouter, get_paradigm_router
-from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
+from victor.agent.paradigm_router import get_paradigm_router
 from victor.framework.enhanced_completion_evaluation import EnhancedCompletionEvaluator
 from victor.providers.base import StreamChunk
 
@@ -190,8 +187,6 @@ if TYPE_CHECKING:
         TurnResult,
     )
     from victor.storage.memory.unified import UnifiedMemoryCoordinator
-    from victor.agent.services.planning_runtime import PlanningCoordinator
-    from victor.framework.agent import Agent
     from victor.framework.verification import VerificationResult
 
 
@@ -2488,7 +2483,6 @@ class AgenticLoop(TopologyPlanningMixin):
             Number of unique papers found
         """
         import re
-        from collections import defaultdict
 
         papers = set()
 
@@ -2526,9 +2520,20 @@ class AgenticLoop(TopologyPlanningMixin):
         into a BatchPlan and store it as state["_batch_plan"]. The ACT
         step checks for this and dispatches to BatchExecutionRuntime
         instead of the single-call executor.
+
+        The PLAN step normally returns a CompletionResponse (or a plain
+        string): a batch plan arrives as JSON in the content — bare or in
+        a ```json fence. Structured extraction runs before the dict check;
+        anything that doesn't yield a steps-bearing dict falls through to
+        the normal plan path.
         """
         if not isinstance(plan, dict):
-            return
+            candidate = self._extract_batch_plan_candidate(plan)
+            if candidate is None:
+                # A subsequent non-batch plan clears any stale detection.
+                state.pop("_batch_plan", None)
+                return
+            plan = candidate
         from victor.core.batch_plan import parse_batch_plan
 
         batch = parse_batch_plan(plan)
@@ -2541,6 +2546,37 @@ class AgenticLoop(TopologyPlanningMixin):
             )
         else:
             state.pop("_batch_plan", None)
+
+    @staticmethod
+    def _extract_batch_plan_candidate(plan: Any) -> Optional[Dict[str, Any]]:
+        """Extract a dict-shaped plan candidate from a non-dict PLAN output.
+
+        Handles the production shapes: ``CompletionResponse``-like objects
+        (``.content`` text) and plain strings. Strips a leading ```json
+        fence, parses JSON, and returns the dict only when it looks like a
+        plan — anything else returns ``None`` so callers fall through.
+        """
+        import json
+
+        if isinstance(plan, str):
+            text = plan
+        else:
+            text = getattr(plan, "content", None)
+            if not isinstance(text, str):
+                return None
+        text = text.strip()
+        if text.startswith("```"):
+            # Drop the opening fence line and a trailing fence.
+            lines = text.splitlines()
+            if len(lines) >= 2:
+                text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if isinstance(data, dict) and "steps" in data:
+            return data
+        return None
 
     async def _plan(
         self,
@@ -2670,7 +2706,6 @@ class AgenticLoop(TopologyPlanningMixin):
 
         # PRIMARY: Use turn_executor for single-turn (no nested loop)
         if self.turn_executor is not None:
-            from victor.agent.services.turn_execution_runtime import TurnResult
 
             task_classification = state.get("_task_classification")
             is_qa = state.get("_is_qa_task", False)

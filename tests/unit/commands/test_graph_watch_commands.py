@@ -15,7 +15,6 @@
 import os
 import time
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 from rich.console import Console

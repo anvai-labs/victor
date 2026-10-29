@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from victor.framework.agentic_loop import AgenticLoop
 from victor.agent.topology_planning import TopologyPlanningMixin
@@ -30,8 +29,8 @@ class TestTopologyPlanningMixin:
         assert module.logger.name == "victor.agent.topology_planning"
 
     def test_telemetry_functions_importable(self):
-        """The mixin module carries the telemetry functions (tests patch here)."""
-        import victor.agent.topology_planning as module
+        """Topology telemetry lives in topology_telemetry (the mixin does not call it)."""
+        import victor.agent.topology_telemetry as module
 
-        assert hasattr(module, "emit_topology_telemetry_event")
-        assert hasattr(module, "build_topology_telemetry_event")
+        assert callable(module.emit_topology_telemetry_event)
+        assert callable(module.build_topology_telemetry_event)

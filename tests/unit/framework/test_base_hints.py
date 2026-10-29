@@ -1,7 +1,5 @@
 """Tests for base task hints (WS-5)."""
 
-import pytest
-
 from victor.core.vertical_types import TaskTypeHint
 from victor.framework.prompts.base_hints import BaseTaskHints, COMMON_HINTS
 

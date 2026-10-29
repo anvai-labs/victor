@@ -18,26 +18,22 @@ This module provides the main ABTestManager class for creating, managing,
 and analyzing A/B experiments.
 """
 
-import asyncio
 import sqlite3
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 from victor.experiments.ab_testing.models import (
     AllocationStrategy,
-    AggregatedMetrics,
     ExperimentConfig,
     ExperimentResult,
     ExperimentStatus,
-    ExperimentVariant,
     ExecutionMetrics,
     VariantResult,
 )
 from victor.experiments.ab_testing.allocator import (
     StickyAllocator,
-    TrafficAllocator,
     create_allocator,
 )
 from victor.experiments.ab_testing.paths import get_default_ab_test_db_path

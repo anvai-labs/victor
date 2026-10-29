@@ -26,16 +26,14 @@ including:
 import asyncio
 import time
 from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
 from victor.workflows import (
     WorkflowBuilder,
-    WorkflowDefinition,
     WorkflowExecutor,
-    WorkflowResult,
     ExecutorNodeStatus,
     load_workflow_from_yaml,
 )

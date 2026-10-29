@@ -48,7 +48,6 @@ from victor.core.protocol_support import IncompatibleVersionError
 from victor.framework.protocols import (
     CapabilityType,
     OrchestratorCapability,
-    CapabilityRegistryProtocol,
 )
 
 logger = logging.getLogger(__name__)

@@ -27,7 +27,6 @@ from victor.storage.graph.protocol import (
     GraphEdge,
     GraphNode,
     GraphQueryResult,
-    GraphStoreProtocol,
     GraphTraversalDirection,
     RequirementNode,
     Subgraph,

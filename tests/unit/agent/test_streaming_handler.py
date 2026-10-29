@@ -16,7 +16,7 @@
 
 import time
 import pytest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from victor.agent.streaming.context import StreamingChatContext
 from victor.agent.streaming.handler import StreamingChatHandler

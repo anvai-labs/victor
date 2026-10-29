@@ -12,9 +12,8 @@ Contract under test:
 2. Victor keeps tool policy deterministic; Sandhi owns final wire serialization.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import List
 
-import pytest
 
 from victor.providers.base import Message, ToolDefinition
 from victor.providers.deepseek_provider import DeepSeekProvider

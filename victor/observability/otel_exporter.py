@@ -49,10 +49,9 @@ import logging
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Callable, Dict, Iterator, List, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from victor.core.events import MessagingEvent, ObservabilityBus, get_observability_bus
+from victor.core.events import MessagingEvent
 from victor.observability.exporters import BaseExporter
 
 logger = logging.getLogger(__name__)
@@ -60,7 +59,7 @@ logger = logging.getLogger(__name__)
 # Check for OpenTelemetry availability
 _OTEL_AVAILABLE = False
 try:
-    from opentelemetry import trace, context as otel_context
+    from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import (
         BatchSpanProcessor,
@@ -68,10 +67,7 @@ try:
         SimpleSpanProcessor,
     )
     from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-    from opentelemetry.trace import Status, StatusCode, Span
-    from opentelemetry.trace.propagation.tracecontext import (
-        TraceContextTextMapPropagator,
-    )
+    from opentelemetry.trace import Status, StatusCode
 
     _OTEL_AVAILABLE = True
 except ImportError:

@@ -14,7 +14,6 @@
 
 """Unit tests for search term extraction utilities."""
 
-import pytest
 from victor.framework.enrichment.search_terms import (
     QUESTION_WORDS,
     SEARCH_TERM_PATTERNS,

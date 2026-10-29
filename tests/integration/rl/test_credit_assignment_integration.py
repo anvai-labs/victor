@@ -23,7 +23,7 @@ StateGraph workflows including:
 - Multi-agent coordination
 """
 
-from typing import Dict, Any
+from typing import Dict
 
 import pytest
 
@@ -31,12 +31,9 @@ from victor.framework.graph import StateGraph, END
 from victor.framework.rl.credit_assignment import (
     CreditGranularity,
     CreditMethodology,
-    ActionMetadata,
 )
 from victor.framework.rl.credit_graph_integration import (
     CreditTracer,
-    Transition,
-    ExecutionTrace,
     CreditAwareGraph,
     CompiledCreditAwareGraph,
     create_credit_aware_workflow,
@@ -315,7 +312,6 @@ class TestCreditAssignmentWorkflows:
     @pytest.mark.asyncio
     async def test_simple_workflow_credit_assignment(self):
         """Test credit assignment on simple linear workflow."""
-        from victor.framework.graph import CompiledGraph
 
         graph = StateGraph(SimpleState)
 

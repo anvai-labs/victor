@@ -13,6 +13,45 @@ This document provides comprehensive API documentation for Victor's LLM provider
 
 ---
 
+## Explicit OpenAI response-schema projection
+
+OpenAI strict structured output accepts a [JSON Schema subset](https://developers.openai.com/api/docs/guides/structured-outputs).
+`victor.providers.openai_schema.prepare_openai_response_schema` provides an
+explicit, limited projection for a caller that retains local validation. It
+removes `uniqueItems` only from wire schema nodes and adds missing primitive
+`enum`/`const` type annotations. Original constraints, property names and literal
+data remain intact in the canonical schema. Providers never apply this helper
+implicitly, and it does not change tool schemas or retry failed requests.
+
+```python
+import json
+
+from victor.providers.openai_schema import prepare_openai_response_schema
+
+contract = prepare_openai_response_schema(canonical_schema)
+response = await provider.chat(
+    messages,
+    model=model,
+    response_format={
+        "type": "json_schema",
+        "json_schema": {"name": "artifact", "strict": True, "schema": contract.wire_schema},
+    },
+)
+content = json.loads(response.content)
+contract.validate(content)  # Required before accepting or using the artifact.
+```
+
+After a stream, validate the complete JSON before accepting it; individual text
+chunks are provisional. `canonical_schema`/`wire_schema` return independent
+copies; SHA-256 properties and `local_constraint_paths` support caller receipts.
+Duplicate array elements still fail canonical validation. The helper requires a
+bounded Draft 2020-12 object root, finite JSON values and local references without `$id`
+rebasing. It does not translate arbitrary JSON Schema features; other endpoint
+restrictions may still cause rejection. No remote schema resolution is enabled.
+Completed responses containing NaN, infinity, tuples or non-string object keys
+are rejected even when a permissive Python JSON parser or schema validator would
+otherwise accept them. Other schema dialects are refused explicitly.
+
 ## BaseProvider Interface
 
 All LLM providers in Victor inherit from `BaseProvider`, which defines the core contract for interacting with language models.

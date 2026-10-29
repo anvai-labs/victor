@@ -14,8 +14,6 @@
 
 """Tests for provider-specific tool output format integration."""
 
-import pytest
-
 from victor.agent.tool_output_formatter import (
     ToolOutputFormatter,
     FormattingContext,
@@ -23,8 +21,6 @@ from victor.agent.tool_output_formatter import (
 )
 from victor.agent.format_strategies import (
     ToolOutputFormat,
-    PLAIN_FORMAT,
-    XML_FORMAT,
 )
 from victor.providers.openai_provider import OpenAIProvider
 from victor.providers.ollama_provider import OllamaProvider

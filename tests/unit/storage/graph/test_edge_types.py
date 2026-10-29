@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from victor.storage.graph.edge_types import (
     EdgeType,

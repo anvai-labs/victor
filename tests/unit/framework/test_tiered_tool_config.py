@@ -20,8 +20,7 @@ the canonical get_tiered_tool_config() API.
 Workstream D: OpenAI Codex feedback fixes.
 """
 
-import pytest
-from typing import Dict, List, Optional, Set
+from typing import Optional
 from unittest.mock import MagicMock
 
 from victor.core.vertical_types import TieredToolConfig

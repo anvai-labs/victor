@@ -340,7 +340,7 @@ class TestSampleSizeCalculations:
         analyzer = StatisticalAnalyzer()
 
         try:
-            from statsmodels.stats.power import tt_ind_solve_power
+            from statsmodels.stats.power import tt_ind_solve_power  # noqa: F401
 
             # Medium effect size
             n = analyzer.calculate_sample_size(effect_size=0.5, alpha=0.05, power=0.8)
@@ -359,7 +359,7 @@ class TestSampleSizeCalculations:
         analyzer = StatisticalAnalyzer()
 
         try:
-            from statsmodels.stats.power import tt_ind_solve_power
+            from statsmodels.stats.power import tt_ind_solve_power  # noqa: F401
 
             # With 100 samples per variant
             mde = analyzer.minimum_detectable_effect(sample_size=100, alpha=0.05, power=0.8)

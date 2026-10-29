@@ -1124,6 +1124,8 @@ class SandhiTypedProviderMixin:
         )
         calls: Dict[int, Dict[str, Any]] = {}
         finish_reason: Optional[str] = None
+        reported_model: Optional[str] = None
+        response_id: Optional[str] = None
         usage: Optional[Dict[str, int | bool]] = None
         usage_diagnostics: Optional[Dict[str, Any]] = None
         try:
@@ -1168,9 +1170,10 @@ class SandhiTypedProviderMixin:
                         usage = usage_dict_from_neutral(neutral, None, slug=self._sandhi_slug())
                         usage_diagnostics = incoming or None
                 elif kind == "response_start":
-                    # Deliberately ignored (TD-0008 consumer-decision row): victor
-                    # derives model/id from the request and final chunk.
-                    continue
+                    # Preserve the typed provider claim separately from the
+                    # requested alias; callers must not infer model identity.
+                    reported_model = event.get("model")
+                    response_id = event.get("id")
                 elif kind == "tool_call_end":
                     # Deliberately ignored: call boundaries are tracked by the
                     # indexed accumulation above; the terminal chunk assembles them.
@@ -1202,7 +1205,14 @@ class SandhiTypedProviderMixin:
                 stop_reason=finish_reason or "stop",
                 is_final=True,
                 usage=usage,
-                metadata={"sandhi_usage": usage_diagnostics} if usage_diagnostics else None,
+                metadata={
+                    **({"sandhi_usage": usage_diagnostics} if usage_diagnostics else {}),
+                    "sandhi_stream": {
+                        "model": reported_model,
+                        "response_id": response_id,
+                        "finish_observed": finish_reason is not None,
+                    },
+                },
             )
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit, GeneratorExit):
             raise

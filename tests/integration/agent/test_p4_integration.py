@@ -9,7 +9,6 @@ This module tests the integration of:
 These tests verify that all components work together correctly.
 """
 
-import asyncio
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch, MagicMock

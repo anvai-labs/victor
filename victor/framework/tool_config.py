@@ -14,7 +14,7 @@ Phase 7.5: Externalize tool configuration from _internal.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -24,7 +24,6 @@ from typing import (
     Optional,
     Protocol,
     Set,
-    Tuple,
     Union,
     runtime_checkable,
 )
@@ -37,7 +36,10 @@ if TYPE_CHECKING:
 from victor.framework.tools import ToolCategory, get_category_registry
 
 # Import capability helpers for protocol-based access
-from victor.framework.vertical_integration import _check_capability, _invoke_capability
+from victor.framework.capability_runtime import (
+    check_capability as _check_capability,
+    invoke_capability as _invoke_capability,
+)
 
 # =============================================================================
 # Protocols
@@ -199,7 +201,6 @@ class ToolConfigurator:
         Returns:
             Configuration result
         """
-        from victor.framework.tools import ToolSet
 
         enabled_tools = set(toolset.get_tool_names())
         return self._apply_tools(orchestrator, enabled_tools, ToolConfigMode.REPLACE)

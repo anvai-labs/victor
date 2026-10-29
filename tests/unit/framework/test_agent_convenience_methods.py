@@ -15,11 +15,9 @@
 """Tests for Agent convenience methods (run_oneshot, run_interactive)."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.framework.agent import Agent
-from victor.framework.events import EventType, AgentExecutionEvent
 from victor.framework.task import TaskResult
 
 

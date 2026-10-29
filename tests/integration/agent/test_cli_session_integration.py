@@ -15,7 +15,6 @@ Test Approach:
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
@@ -374,7 +373,6 @@ class TestCLIModeSwitching:
     @pytest.mark.integration
     async def test_invalid_mode_switch_handling(self, session_config):
         """Test graceful handling of invalid mode switch."""
-        from victor.agent.mode_controller import AgentMode
 
         handler = InteractiveSessionHandler()
 

@@ -27,34 +27,24 @@ Sprint 2: Mode Controller Unification
 """
 
 import logging
-import math
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    sample_confidence,
+)
 from victor.framework.rl.migration import RLTableMigrator
 from victor.core.schema import Tables
+from victor.core.mode_controller import EXTENDED_MODE_TRANSITIONS, ExtendedAgentMode
 
 logger = logging.getLogger(__name__)
 
 
-class RLAgentMode(Enum):
-    """Extended agent operation modes for RL-based mode transitions.
-
-    This is an extension of the base AgentMode (victor.agent.mode_controller.AgentMode)
-    with additional modes (REVIEW, COMPLETE) for reinforcement learning state tracking.
-
-    Renamed from AgentMode to be semantically distinct:
-    - AgentMode (victor.agent.mode_controller): Base 3 modes (BUILD, PLAN, EXPLORE)
-    - RLAgentMode: Extended 5 modes for RL state machine
-    """
-
-    EXPLORE = "explore"
-    PLAN = "plan"
-    BUILD = "build"
-    REVIEW = "review"
-    COMPLETE = "complete"
+# The five-mode state machine is defined once, in core.
+RLAgentMode = ExtendedAgentMode
 
 
 # Backward compatibility alias
@@ -75,6 +65,8 @@ class ModeTransitionLearner(BaseLearner):
         epsilon: Exploration rate, default 0.1
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_mode_transition)
+
     # Default Q-value for unseen state-action pairs
     DEFAULT_Q_VALUE = 0.0
 
@@ -86,14 +78,8 @@ class ModeTransitionLearner(BaseLearner):
     # Minimum samples before confident recommendation
     MIN_SAMPLES_FOR_CONFIDENCE = 10
 
-    # Valid mode transitions
-    VALID_TRANSITIONS = {
-        AgentMode.EXPLORE: [AgentMode.PLAN, AgentMode.BUILD, AgentMode.COMPLETE],
-        AgentMode.PLAN: [AgentMode.BUILD, AgentMode.EXPLORE, AgentMode.COMPLETE],
-        AgentMode.BUILD: [AgentMode.REVIEW, AgentMode.EXPLORE, AgentMode.COMPLETE],
-        AgentMode.REVIEW: [AgentMode.BUILD, AgentMode.COMPLETE],
-        AgentMode.COMPLETE: [],
-    }
+    # Valid mode transitions (shared definition)
+    VALID_TRANSITIONS = EXTENDED_MODE_TRANSITIONS
 
     def __init__(
         self,
@@ -127,10 +113,6 @@ class ModeTransitionLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy private tables into unified RL schema (idempotent)."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_mode_transition)
 
     def _load_state(self) -> None:
         """Load state from unified rl_q_value and rl_task_stat tables."""
@@ -385,7 +367,6 @@ class ModeTransitionLearner(BaseLearner):
         total_visits = sum(self._visit_counts.get(state_key, {}).values())
 
         # Epsilon-greedy: explore or exploit
-        import random
 
         if self._rng.random() < self.epsilon:
             # Exploration: random action
@@ -405,12 +386,9 @@ class ModeTransitionLearner(BaseLearner):
 
         # Compute confidence based on visit count
         action_visits = self._visit_counts.get(state_key, {}).get(best_action, 0)
-        if action_visits < self.MIN_SAMPLES_FOR_CONFIDENCE:
-            confidence = 0.3 + 0.2 * (action_visits / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            is_baseline = True
-        else:
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-action_visits / 20)))
-            is_baseline = False
+        confidence, is_baseline = sample_confidence(
+            action_visits, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=20
+        )
 
         return RLRecommendation(
             value=best_action,

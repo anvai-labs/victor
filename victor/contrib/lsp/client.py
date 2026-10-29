@@ -41,7 +41,6 @@ from typing import Any, List, Optional
 
 from victor.framework.vertical_protocols import (
     CompletionItem,
-    CompletionItemKind,
     Diagnostic,
     HoverInfo,
     LanguageServerProtocol,

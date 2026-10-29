@@ -7,7 +7,6 @@ and select the simplest one for testing.
 import json
 import socket
 from typing import List, Optional
-from pathlib import Path
 
 
 def get_ollama_models() -> List[str]:

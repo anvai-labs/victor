@@ -21,11 +21,10 @@ from __future__ import annotations
 
 import asyncio
 import pytest
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from victor.workflows.executors.compute import ComputeNodeExecutor
-from victor.workflows.definition import ComputeNode, TaskConstraints
+from victor.workflows.definition import TaskConstraints
 from victor.workflows.context import WorkflowContext
 
 # =============================================================================

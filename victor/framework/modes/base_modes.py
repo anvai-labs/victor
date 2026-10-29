@@ -7,7 +7,6 @@ Verticals override get_vertical_modes() to add domain-specific modes.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass

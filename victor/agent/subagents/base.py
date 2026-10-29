@@ -53,8 +53,7 @@ import asyncio
 import logging
 import re
 import time
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -75,7 +74,6 @@ if TYPE_CHECKING:
     from victor.agent.presentation import PresentationProtocol
     from victor.agent.orchestrator import AgentOrchestrator
     from victor.agent.services.context_lifecycle_service import ContextLifecycleService
-    from victor.core.container import ServiceContainer
     from victor.agent.hitl import ApprovalHandler, ApprovalRequest
     from victor.providers.base import StreamChunk
     from victor.teams.types import AgentMessage

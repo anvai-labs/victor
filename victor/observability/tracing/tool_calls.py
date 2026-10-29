@@ -49,8 +49,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from victor.core.events import MessagingEvent, ObservabilityBus, get_observability_bus
-
 logger = logging.getLogger(__name__)
 
 

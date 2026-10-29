@@ -22,7 +22,7 @@ from victor.state.managers import (
     TeamStateManager,
     WorkflowStateManager,
 )
-from victor.state.protocols import IStateManager, IStateObserver, StateScope
+from victor.state.protocols import IStateManager, StateScope
 
 # =============================================================================
 # Mock Observer for Testing

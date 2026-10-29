@@ -39,13 +39,13 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Callable, Dict, FrozenSet, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from victor.tools.base import AccessMode, BaseTool
+    from victor.tools.base import AccessMode
 
 logger = logging.getLogger(__name__)
 

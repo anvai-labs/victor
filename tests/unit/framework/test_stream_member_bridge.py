@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any, AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List
 
 from victor.framework._internal import stream_with_events
 from victor.framework.events import EventType

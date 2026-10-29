@@ -29,12 +29,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Optional
-
-if TYPE_CHECKING:
-    from victor.config.settings import Settings
-    from victor.core.container import ServiceContainer
-    from victor.state.global_state_manager import GlobalStateManager
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +352,6 @@ class RuntimeExecutionContext:
         Returns the number of hooks that executed successfully.
         Logs but does not raise on individual hook failures.
         """
-        import asyncio
         import inspect
 
         success_count = 0

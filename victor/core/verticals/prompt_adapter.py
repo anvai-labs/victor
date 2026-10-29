@@ -49,9 +49,6 @@ from typing import (
     Dict,
     List,
     Optional,
-    Protocol,
-    Union,
-    runtime_checkable,
 )
 
 from victor.core.verticals.protocols import (

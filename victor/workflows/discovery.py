@@ -40,12 +40,9 @@ import inspect
 import logging
 import pkgutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Type
+from typing import List, Optional, Type
 
 from victor.workflows.base import BaseWorkflow, WorkflowRegistry
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

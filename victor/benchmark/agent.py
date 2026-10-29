@@ -415,7 +415,6 @@ class BenchmarkAgent:
             ExecutionTrace with metrics and generated code
         """
         from victor.benchmark.workflows import BenchmarkWorkflowProvider
-        from victor.workflows.streaming import WorkflowEventType
 
         trace = ExecutionTrace(task_id=task.task_id, start_time=time.time())
         self._current_trace = trace

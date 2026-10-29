@@ -12,8 +12,6 @@ Tests cover:
 - Statistics and reset
 """
 
-import time
-
 import pytest
 
 from victor.agent.planning.cooccurrence_tracker import (

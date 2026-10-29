@@ -20,13 +20,10 @@ for deriving reward signals from session behavior.
 
 import time
 import pytest
-from unittest.mock import MagicMock
 
 from victor.framework.rl.implicit_feedback import (
     ImplicitFeedback,
     ImplicitFeedbackCollector,
-    SessionContext,
-    ToolExecution,
 )
 
 

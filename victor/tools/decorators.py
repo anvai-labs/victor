@@ -19,7 +19,6 @@ import dataclasses
 import inspect
 import logging
 import types
-import warnings
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Set, Union, get_origin, get_args
 
@@ -688,7 +687,6 @@ def _create_tool_class(
         Returns:
             Sanitized schema using only standard JSON Schema types
         """
-        import hashlib
 
         sanitized = schema.copy()
 

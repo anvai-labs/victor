@@ -30,11 +30,15 @@ HIGH PRIORITY: Sprint 1 of RL Enhancement Plan
 
 from victor.core.json_utils import json_dumps
 import logging
-import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    sample_confidence,
+)
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -56,6 +60,8 @@ class ToolSelectorLearner(BaseLearner):
         epsilon: Exploration rate (0.1 = conservative)
         min_samples: Minimum samples before confident recommendation
     """
+
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_tool_selector)
 
     # Default tool Q-value (optimistic for exploration)
     DEFAULT_Q_VALUE = 0.5
@@ -106,10 +112,6 @@ class ToolSelectorLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_tool_selector)
 
     def _load_state(self) -> None:
         """Load state from database."""
@@ -314,13 +316,14 @@ class ToolSelectorLearner(BaseLearner):
 
         # Compute confidence based on sample size
         if count < self.MIN_SAMPLES_FOR_CONFIDENCE:
-            confidence = 0.3 + 0.2 * (count / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            is_baseline = True
+            confidence, is_baseline = sample_confidence(
+                count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=50
+            )
             reason = f"Low confidence (n={count})"
         else:
-            # Confidence increases with samples, caps at 0.95
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 50)))
-            is_baseline = False
+            confidence, is_baseline = sample_confidence(
+                count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=50
+            )
 
             # Success rate for explanation
             success_count = self._tool_success_counts.get(tool_name, 0)
@@ -354,10 +357,7 @@ class ToolSelectorLearner(BaseLearner):
             count = self._tool_selection_counts.get(tool_name, 0)
 
             # Confidence based on sample size
-            if count < self.MIN_SAMPLES_FOR_CONFIDENCE:
-                confidence = 0.3 + 0.2 * (count / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            else:
-                confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 50)))
+            confidence, _ = sample_confidence(count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=50)
 
             rankings.append((tool_name, q_value, confidence))
 
@@ -371,7 +371,6 @@ class ToolSelectorLearner(BaseLearner):
         Returns:
             True if should explore, False if should exploit
         """
-        import random
 
         return self._rng.random() < self.epsilon
 

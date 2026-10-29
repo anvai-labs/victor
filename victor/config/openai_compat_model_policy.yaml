@@ -454,49 +454,27 @@ providers:
     # trio; it keeps the prompt pipeline's prefixes stable so inferflux's
     # session-handle KV reuse (sandhi ADR-0008 D3) pays off.
     cache: {supported: false, kv_prefix_caching: true}
-    # 32768 = the serving pool's per-sequence context (n_ctx 65536 / 2 sequences)
-    # on the R9700; a single prompt beyond this fails the server's prefill guard.
-    default_context_window: 32768
+    # 24576 = the serving pool's per-sequence context (n_ctx 98304 / 4
+    # sequences, q8_0 KV) on the R9700; gpt-oss-20b runs its own CUDA pool
+    # (n_ctx 65536 / 4 = 16384). A prompt beyond these fails the server's
+    # prefill guard.
+    default_context_window: 24576
     context_window_routes:
-      - {model_prefix: qwen, tokens: 32768}
-      - {model_prefix: gpt-oss, tokens: 32768}
-      - {model_prefix: lfm, tokens: 32768}
-      - {model_prefix: mistral, tokens: 32768}
-      - {model_prefix: llama, tokens: 32768}
+      - {model_prefix: qwen, tokens: 24576}
+      - {model_prefix: gpt-oss, tokens: 16384}
+      - {model_prefix: lfm, tokens: 24576}
+      - {model_prefix: mistral, tokens: 24576}
+      - {model_prefix: llama, tokens: 24576}
     models:
       qwen3-coder-30b:
         description: Qwen3-Coder-30B-A3B Instruct (MoE, 3.3B active) - primary coding model
-        context_window: 32768
+        context_window: 24576
         max_output: 8192
         supports_tools: true
         supports_thinking: false
-      qwen3-30b:
-        description: Qwen3-30B-A3B Instruct 2507 (MoE) - general purpose
-        context_window: 32768
-        max_output: 8192
-        supports_tools: true
-        supports_thinking: false
-      qwen3-14b:
-        description: Qwen3-14B (hybrid <think> model)
-        context_window: 32768
-        max_output: 8192
-        supports_tools: true
-        supports_thinking: true
       gpt-oss-20b:
         description: gpt-oss-20b (native MXFP4, harmony channels)
-        context_window: 32768
-        max_output: 8192
-        supports_tools: true
-        supports_thinking: true
-      qwen2.5-coder-14b:
-        description: Qwen2.5-Coder-14B Instruct (dense)
-        context_window: 32768
-        max_output: 8192
-        supports_tools: true
-        supports_thinking: false
-      lfm2.5-8b:
-        description: LFM2.5-8B-A1B (MoE, <think> format)
-        context_window: 32768
+        context_window: 16384
         max_output: 8192
         supports_tools: true
         supports_thinking: true

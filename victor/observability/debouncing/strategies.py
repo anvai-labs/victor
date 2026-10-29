@@ -24,10 +24,9 @@ Strategies can be plugged in to customize debouncing behavior based on:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Protocol, Optional
+from typing import Any, Dict, Protocol
 
 
 class WindowType(Enum):

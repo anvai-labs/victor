@@ -470,7 +470,12 @@ class VerticalContractAuditor:
         return None
 
     def _extract_dynamic_import_module(self, node: ast.AST) -> str | None:
-        """Return the module path from supported dynamic import calls."""
+        """Return the module path from supported dynamic import calls.
+
+        Mirrors ``victor_contracts.testing._extract_dynamic_import_module`` on
+        purpose: this module must stay stdlib-only because the Vertical Contract
+        Boundaries CI job loads it by file path with nothing installed.
+        """
 
         if not isinstance(node, ast.Call):
             return None

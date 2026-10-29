@@ -39,7 +39,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from victor.framework.protocols import (
     FrameworkOrchestratorProtocol as OrchestratorProtocol,

@@ -29,13 +29,12 @@ Design:
 """
 
 import logging
-import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import BaseLearner, RLRecommendation
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -108,6 +107,8 @@ class ContextPruningLearner(BaseLearner):
         discount_factor: Future reward discount (gamma), default 0.90
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_context_pruning)
+
     # Q-learning parameters
     DEFAULT_LEARNING_RATE = 0.15
     DEFAULT_DISCOUNT_FACTOR = 0.90
@@ -141,10 +142,6 @@ class ContextPruningLearner(BaseLearner):
         """
         super().__init__(name, db_connection, learning_rate, provider_adapter)
         self.discount_factor = discount_factor
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_context_pruning)
 
     def _compute_reward(self, outcome: Any) -> float:
         """Compute reward from a standard RLOutcome.
@@ -247,7 +244,6 @@ class ContextPruningLearner(BaseLearner):
             }
 
         # Thompson Sampling: sample from Beta distribution for each action
-        import random
 
         best_action = None
         best_sample = -float("inf")

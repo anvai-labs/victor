@@ -80,6 +80,22 @@ _ANTHROPIC_STATIC_MODELS: List[Dict[str, Any]] = [
 
 
 class AnthropicProvider(BaseProvider):
+
+    # The only kwargs admitted into the Messages API body (beyond the
+    # explicitly-built model/messages/max_tokens/temperature/system/tools).
+    _ANTHROPIC_BODY_PARAMS = frozenset(
+        {
+            "top_p",
+            "top_k",
+            "stop_sequences",
+            "stream",
+            "metadata",
+            "thinking",
+            "tool_choice",
+            "service_tier",
+        }
+    )
+
     """Provider for Anthropic Claude models."""
 
     # Cloud provider timeout
@@ -299,8 +315,16 @@ class AnthropicProvider(BaseProvider):
             "messages": conversation_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            **kwargs,
         }
+        # Spec-strict body: internal orchestration kwargs (execution_mode,
+        # topology_*) must never reach a third-party wire body — strict
+        # gateways (sandhi's policy allowlist) reject non-spec fields, and
+        # provider bodies are not an internal control channel anyway.
+        for key, value in kwargs.items():
+            if key in self._ANTHROPIC_BODY_PARAMS:
+                request_params[key] = value
+            else:
+                logger.debug("dropping non-spec anthropic body kwarg %r", key)
 
         if system_message:
             # Content block format with cache_control for prefix caching. Anthropic

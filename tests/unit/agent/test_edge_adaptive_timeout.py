@@ -1,6 +1,5 @@
 """TDD tests for edge model adaptive timeouts and cache optimization."""
 
-import pytest
 from victor.agent.edge_model import EdgeModelConfig
 
 

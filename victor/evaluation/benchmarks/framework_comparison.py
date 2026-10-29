@@ -35,9 +35,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from victor.evaluation.protocol import (
     BenchmarkType,
-    EvaluationConfig,
     EvaluationResult,
-    LeaderboardEntry,
     get_benchmark_catalog,
     get_benchmark_metadata,
     normalize_benchmark_name,

@@ -19,10 +19,8 @@ for better testability and separation of concerns.
 """
 
 import logging
-import time
 from typing import (
     Any,
-    AsyncIterator,
     Callable,
     Dict,
     List,
@@ -53,7 +51,6 @@ from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 
 if TYPE_CHECKING:
     from victor.agent.orchestrator import AgentOrchestrator
-    from victor.agent.presentation import PresentationProtocol
     from victor.config.settings import Settings
 
 logger = logging.getLogger(__name__)

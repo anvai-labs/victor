@@ -25,7 +25,7 @@ Design Pattern: Protocol-based dependency inversion
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Protocol, Set, runtime_checkable
+from typing import Any, Dict, Optional, Protocol, Set, runtime_checkable
 
 
 @runtime_checkable

@@ -19,7 +19,6 @@ from pathlib import Path
 
 from victor.experiments import (
     ArtifactManager,
-    Artifact,
     ArtifactType,
     SQLiteStorage,
     Experiment,

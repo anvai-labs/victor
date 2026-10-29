@@ -17,8 +17,7 @@
 import pytest
 import warnings
 from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.framework.tool_dependency_deprecation import (
     DeprecatedConstantDescriptor,

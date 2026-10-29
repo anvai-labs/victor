@@ -52,15 +52,13 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Dict, Optional, Set, TYPE_CHECKING
 
 from cachetools import TTLCache  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from victor_contracts.workflows import NodeResult
     from victor.workflows.definition import (
-        ConditionNode,
-        TransformNode,
         WorkflowDefinition,
         WorkflowNode,
     )

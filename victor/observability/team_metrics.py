@@ -53,8 +53,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from victor.core.constants import DEFAULT_VERTICAL
 
 logger = logging.getLogger(__name__)

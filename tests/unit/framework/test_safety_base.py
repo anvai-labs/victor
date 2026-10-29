@@ -1,12 +1,8 @@
 """Tests for base safety patterns (WS-5)."""
 
-import pytest
-
 from victor.framework.safety.base_patterns import (
     BaseSafetyExtension,
     COMMON_PATTERNS,
-    DESTRUCTIVE_FILE_PATTERNS,
-    GIT_SAFETY_PATTERNS,
 )
 from victor.security.safety.types import SafetyPattern
 

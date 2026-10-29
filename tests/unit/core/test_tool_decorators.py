@@ -17,7 +17,6 @@
 from enum import Enum
 import pytest
 from typing import Dict, Any, Optional
-from unittest.mock import patch
 import logging
 
 from victor.tools.decorators import (
@@ -25,7 +24,6 @@ from victor.tools.decorators import (
     _create_tool_class,
     resolve_tool_name,
     set_legacy_name_warnings,
-    _WARN_ON_LEGACY_NAMES,
 )
 from victor.tools.base import BaseTool, CostTier, ToolResult
 

@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.19.0"
+version = "0.20.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -51,7 +51,7 @@ classifiers = [
 
 dependencies = [
     # Core
-    "victor-contracts>=0.10.0,<1.0",  # Contract protocol definitions (independent semver)
+    "victor-contracts>=0.11.0,<1.0",  # Contract protocol definitions (independent semver)
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
@@ -201,7 +201,7 @@ dev = [
     # Fuzzy matching for robust classification
     "Levenshtein>=0.25.1",  # Fast C implementation for typo tolerance
     # Testing
-    "pytest>=8.0",
+    "pytest>=8.0,<9.2",  # pytest 9.2 (2026-10-27) removed Function._nodeid, which pytest-benchmark reads in fixture setup (verticals CI _nodeid AttributeErrors)
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
     "pytest-mock>=3.12",
@@ -272,7 +272,7 @@ ci = [
     "pyarrow>=14.0",
 
     # Core test dependencies
-    "pytest>=8.0",
+    "pytest>=8.0,<9.2",  # pytest 9.2 (2026-10-27) removed Function._nodeid, which pytest-benchmark reads in fixture setup (verticals CI _nodeid AttributeErrors)
     "pytest-asyncio>=0.23",
     "cryptography>=42.0",  # runtime-generated certificates in TLS-probe tests
     "pytest-cov>=4.1",
@@ -562,7 +562,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.19.0",
+    "victor-native>=0.20.0",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
@@ -811,7 +811,6 @@ select = [
 ignore = [
     "E501",  # line too long (handled by formatter)
     "E402",  # module level import not at top of file (sometimes necessary)
-    "F401",  # unused imports (often intentional re-exports)
     "F811",  # redefined while unused (type imports shadowing runtime)
     "B007",  # loop control variable not used within loop body
     "B008",  # do not perform function calls in argument defaults
@@ -827,6 +826,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__.py
+"victor/framework/_api.py" = ["F401"]  # public-API re-export hub; __all__ is computed (PUBLIC_API_NAMES)
 "tests/**/*.py" = [
     "B017",  # assert blind exception (common in test assertions)
     "B018",  # useless expression (for test assertions)

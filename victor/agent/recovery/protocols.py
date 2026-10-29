@@ -36,7 +36,6 @@ Contract-based design ensures:
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto

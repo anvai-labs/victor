@@ -22,7 +22,6 @@ Tests cover:
 """
 
 import json
-import pytest
 
 from victor.processing.response_parser import (
     extract_content_from_response,
@@ -249,7 +248,7 @@ class TestParseProviderResponse:
 
     def test_parse_with_schema_validation_failure(self):
         """Test parsing with schema that doesn't match."""
-        from pydantic import BaseModel, ValidationError
+        from pydantic import BaseModel
 
         class StrictSchema(BaseModel):
             name: str

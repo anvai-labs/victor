@@ -30,12 +30,9 @@ try:
     from textual.app import ComposeResult
     from textual.binding import Binding
     from textual.containers import Container, Horizontal, Vertical
-    from textual.message import Message
     from textual.reactive import reactive
     from textual.widgets import (
         Button,
-        Footer,
-        Header,
         Input,
         Label,
         ListItem,

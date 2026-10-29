@@ -14,17 +14,13 @@
 
 """TDD tests for OAuthTokenManager — provider OAuth authentication."""
 
-import os
 import json
 import stat
 import pytest
-import yaml
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from victor.providers.oauth_manager import (
-    OAuthProviderConfig,
     OAuthTokenManager,
     OAUTH_PROVIDERS,
 )

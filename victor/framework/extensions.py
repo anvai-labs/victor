@@ -31,8 +31,6 @@ Usage:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 __all__ = [
     # Safety coordination
     "SafetyCoordinator",  # noqa: F822

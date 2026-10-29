@@ -35,7 +35,6 @@ from victor.storage.graph.protocol import (
 )
 
 if TYPE_CHECKING:
-    from victor.core.database import ProjectDatabaseManager
     from victor.storage.graph.sqlite_publication import GraphReplacement
 
 logger = logging.getLogger(__name__)

@@ -39,12 +39,10 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
-from functools import lru_cache
 
 from victor.tools.verification.protocols import (
     ClaimIssue,
     DocumentationReference,
-    VerificationContext,
 )
 
 logger = logging.getLogger(__name__)

@@ -89,8 +89,7 @@ Migration Example:
 
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from victor.tools.metadata_registry import (
     get_tools_by_stage as registry_get_tools_by_stage,
@@ -574,7 +573,6 @@ class ConversationStateMachine:
         Args:
             intent: ActionIntent enum value (WRITE_ALLOWED, READ_ONLY, DISPLAY_ONLY, etc.)
         """
-        from victor.agent.action_authorizer import ActionIntent
 
         self._action_intent = intent
         logger.debug(f"ActionIntent updated: {intent.value if intent else None}")

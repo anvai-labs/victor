@@ -5,8 +5,6 @@
 
 """Tests for WorkflowExecutionResult error typing — Wave S."""
 
-import pytest
-
 from victor.framework.workflow_engine import (
     WorkflowExecutionResult,
     WorkflowErrorType,

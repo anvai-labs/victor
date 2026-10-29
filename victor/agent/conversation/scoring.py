@@ -29,9 +29,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Callable, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, model_validator
 
@@ -41,9 +40,6 @@ from victor.agent.conversation.types import (
     MessageSource,
 )
 from victor.core.shared_types import TaskPhase
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

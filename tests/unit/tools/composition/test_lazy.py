@@ -15,7 +15,6 @@
 """Tests for lazy tool composition utilities."""
 
 from typing import Any, Dict
-from unittest.mock import MagicMock
 
 import pytest
 

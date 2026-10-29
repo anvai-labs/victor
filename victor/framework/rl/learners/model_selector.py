@@ -33,11 +33,15 @@ from victor.core.json_utils import json_dumps, json_loads
 from json import JSONDecodeError
 import logging
 import math
-import random
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    saturating_confidence,
+)
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -70,6 +74,8 @@ class ModelSelectorLearner(BaseLearner):
         ucb_c: UCB exploration constant
         strategy: Selection strategy
     """
+
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_model_selector)
 
     # Mock/test providers to exclude from Q-table
     MOCK_PROVIDERS = frozenset({"mock", "mock_provider", "dummy", "dummy-stream", "test"})
@@ -127,10 +133,6 @@ class ModelSelectorLearner(BaseLearner):
         # Load state from database
         self._load_state()
         self.load_threshold_observations()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_model_selector)
 
     def _load_state(self) -> None:
         """Load state from database."""
@@ -375,7 +377,7 @@ class ModelSelectorLearner(BaseLearner):
 
         q_value = self._get_q_value(selected, task_type)
         count = self._selection_counts.get(selected, 0)
-        confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 20)))
+        confidence = saturating_confidence(count, scale=20)
 
         return RLRecommendation(
             value=selected,
@@ -494,7 +496,7 @@ class ModelSelectorLearner(BaseLearner):
                 ucb_score = q_value + self.ucb_c * math.sqrt(log_total / count)
 
             # Confidence
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 20)))
+            confidence = saturating_confidence(count, scale=20)
 
             rankings.append(
                 {

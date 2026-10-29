@@ -60,6 +60,24 @@ from victor_contracts.verticals.protocols import (
     ChainProviderProtocol,
     PersonaProviderProtocol,
 )
+from victor_contracts.verticals.conversation_kernel import VerticalConversationManager
+from victor_contracts.verticals.persona_kernel import (
+    RegistrationPolicy,
+    ScaleRule,
+    TraitSpec,
+    VerticalPersona,
+    VerticalTraits,
+    make_persona_helpers,
+    register_vertical_personas,
+)
+from victor_contracts.verticals.safety_kernel import CoordinatorSafetyExtension
+from victor_contracts.verticals.provider_kernel import (
+    make_pattern_safety_provider,
+    make_prompt_provider,
+    make_stage_tool_strategy,
+    make_tool_provider,
+    make_workflow_provider,
+)
 from victor_contracts.verticals.protocols.promoted_types import (
     MiddlewarePriority,
     MiddlewareResult,
@@ -111,6 +129,20 @@ __all__ = [
     "TaskTypeHint",
     # Promoted protocols
     "MiddlewareProtocol",
+    "CoordinatorSafetyExtension",
+    "RegistrationPolicy",
+    "ScaleRule",
+    "TraitSpec",
+    "VerticalPersona",
+    "VerticalTraits",
+    "make_persona_helpers",
+    "register_vertical_personas",
+    "VerticalConversationManager",
+    "make_pattern_safety_provider",
+    "make_prompt_provider",
+    "make_stage_tool_strategy",
+    "make_tool_provider",
+    "make_workflow_provider",
     "SafetyExtensionProtocol",
     "PromptContributorProtocol",
     "ModeConfigProviderProtocol",

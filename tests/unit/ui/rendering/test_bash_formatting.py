@@ -18,8 +18,6 @@ These tests verify the Phase 3 console transcript improvements that add
 bash CLI-like syntax for tool execution display.
 """
 
-import pytest
-
 from victor.ui.rendering.utils import (
     format_tool_args_bash_style,
     format_bash_command_invocation,

@@ -32,22 +32,18 @@ import hashlib
 import logging
 import sys
 import time
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Dict, Optional
 
 from victor.protocols.query_enhancement import (
     EnhancedQuery,
     EnhancementContext,
     EnhancementTechnique,
-    IQueryEnhancementStrategy,
     QueryEnhancementConfig,
 )
 from victor.core.query_enhancement.registry import (
     QueryEnhancementRegistry,
     get_default_registry,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

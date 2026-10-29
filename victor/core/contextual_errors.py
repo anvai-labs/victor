@@ -36,7 +36,6 @@ Example:
 from __future__ import annotations
 
 import os
-import sys
 from typing import Any
 
 from victor.core.errors import VictorError, ErrorCategory
@@ -502,7 +501,6 @@ def format_exception_for_user(
             ProviderConnectionError,
             ProviderAuthError,
             ProviderNotFoundError,
-            ToolError,
             ToolExecutionError,
             ValidationError,
         )

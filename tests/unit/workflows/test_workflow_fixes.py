@@ -23,9 +23,6 @@ Issue Reference: /Users/vijaysingh/.claude/plans/workflow-test-issues.md
 from __future__ import annotations
 
 import pytest
-from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch
 
 from victor.core.loop_thresholds import (
     DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD,
@@ -506,8 +503,6 @@ class TestWorkflowFixesIntegration:
         """Test that edit normalization works in actual tool context."""
         from victor.tools.file_editor_tool import (
             normalize_edit_operations,
-            EDIT_PARAMETER_ALIASES,
-            EDIT_TYPE_ALIASES,
         )
 
         # Simulate what DeepSeek might send

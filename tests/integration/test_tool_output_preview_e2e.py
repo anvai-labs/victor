@@ -1,9 +1,9 @@
 """End-to-end test for tool output preview."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-from victor.config.tool_settings import ToolSettings, get_tool_settings
+from victor.config.tool_settings import ToolSettings
 from victor.ui.output_formatter import OutputFormatter
 from victor.ui.rendering.live_renderer import LiveDisplayRenderer
 from rich.console import Console

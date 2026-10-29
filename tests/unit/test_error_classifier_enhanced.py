@@ -23,7 +23,6 @@ Tests verify:
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.agent.decisions.schemas import (
     DecisionType,

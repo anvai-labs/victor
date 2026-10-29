@@ -19,11 +19,9 @@ redirected to test-specific log file instead.
 """
 
 import os
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from victor.config.settings import get_project_paths
 

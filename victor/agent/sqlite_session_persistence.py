@@ -48,10 +48,7 @@ import logging
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-
-if TYPE_CHECKING:
-    pass  # Reserved for future type imports
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

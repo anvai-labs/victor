@@ -48,9 +48,9 @@ Note:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
 # Import framework types for base functionality
 from victor_contracts import (
@@ -59,7 +59,16 @@ from victor_contracts import (
     PersonaTemplate,
     PersonaTraits as FrameworkPersonaTraits,
 )
-from victor_contracts import PersonaRegistryProtocol, get_default_persona_registry
+from victor_contracts.verticals import (
+    RegistrationPolicy,
+    ScaleRule,
+    TraitSpec,
+    VerticalPersona,
+    VerticalTraits,
+    make_persona_helpers,
+    register_vertical_personas,
+)
+from victor_contracts import PersonaRegistryProtocol
 
 FrameworkPersonaProvider = PersonaRegistryProtocol
 
@@ -156,216 +165,76 @@ class DevOpsDecisionStyle(str, Enum):
     ITERATIVE = "iterative"  # Gradual improvement approach
 
 
-@dataclass
-class DevOpsPersonaTraits:
-    """DevOps-specific behavioral traits for a persona.
-
-    This class provides DevOps-specific trait extensions that complement
-    the framework's PersonaTraits. Use this when you need DevOps-specific
-    attributes like automation_focus and operational_mindset.
-
-    Attributes:
-        communication_style: Primary communication approach (DevOps-specific enum)
-        decision_style: How decisions are made
-        automation_focus: 0.0-1.0 scale of automation preference
-        risk_tolerance: 0.0-1.0 scale of risk acceptance
-        collaboration_preference: 0.0-1.0 scale (0=solo, 1=collaborative)
-        verbosity: 0.0-1.0 scale of output detail
-    """
-
-    communication_style: DevOpsCommunicationStyle = DevOpsCommunicationStyle.PRAGMATIC
-    decision_style: DevOpsDecisionStyle = DevOpsDecisionStyle.AUTOMATION_FIRST
-    automation_focus: float = 0.8
-    risk_tolerance: float = 0.4
-    collaboration_preference: float = 0.7
-    verbosity: float = 0.5
-
-    def to_prompt_hints(self) -> str:
-        """Convert traits to prompt hints.
-
-        Returns:
-            String of behavioral hints for prompt injection
-        """
-        hints = []
-
-        # Communication style hints
-        style_hints = {
-            DevOpsCommunicationStyle.PRAGMATIC: "Focus on practical, actionable solutions.",
-            DevOpsCommunicationStyle.OPERATIONAL: "Provide systematic, process-oriented guidance.",
-            DevOpsCommunicationStyle.COLLABORATIVE: "Consider cross-team impacts and dependencies.",
-            DevOpsCommunicationStyle.DIRECT: "Be concise and action-oriented.",
-            DevOpsCommunicationStyle.ANALYTICAL: "Support decisions with metrics and data.",
-            DevOpsCommunicationStyle.DOCUMENTATION_FOCUSED: "Emphasize runbooks and documentation.",
-        }
-        hints.append(style_hints.get(self.communication_style, ""))
-
-        # Decision style hints
-        if self.decision_style == DevOpsDecisionStyle.AUTOMATION_FIRST:
-            hints.append("Always prefer automated solutions over manual processes.")
-        elif self.decision_style == DevOpsDecisionStyle.STABILITY_FOCUSED:
-            hints.append("Prioritize system stability and reliability.")
-        elif self.decision_style == DevOpsDecisionStyle.COST_OPTIMIZED:
-            hints.append("Balance performance with cost efficiency.")
-        elif self.decision_style == DevOpsDecisionStyle.SECURITY_FIRST:
-            hints.append("Security considerations come first.")
-        elif self.decision_style == DevOpsDecisionStyle.ITERATIVE:
-            hints.append("Start with minimal viable solution and iterate.")
-
-        # Automation focus
-        if self.automation_focus > 0.8:
-            hints.append("Automate everything that can be automated.")
-        elif self.automation_focus < 0.3:
-            hints.append("Manual processes are acceptable when automation is complex.")
-
-        # Risk tolerance
-        if self.risk_tolerance < 0.3:
-            hints.append("Avoid risky changes without thorough testing and rollback plans.")
-        elif self.risk_tolerance > 0.7:
-            hints.append("Embrace modern approaches with proper monitoring.")
-
-        return " ".join(h for h in hints if h)
-
-    def to_framework_traits(
-        self,
-        name: str,
-        role: str,
-        description: str,
-        strengths: Optional[List[str]] = None,
-        preferred_tools: Optional[List[str]] = None,
-    ) -> FrameworkPersonaTraits:
-        """Convert to framework PersonaTraits.
-
-        Creates a framework-compatible PersonaTraits instance from
-        the DevOps-specific traits.
-
-        Args:
-            name: Display name for the persona
-            role: Role identifier
-            description: Description of the persona
-            strengths: Optional list of strengths
-            preferred_tools: Optional list of preferred tools
-
-        Returns:
-            FrameworkPersonaTraits instance
-        """
-        return FrameworkPersonaTraits(
-            name=name,
-            role=role,
-            description=description,
-            communication_style=self.communication_style.to_framework_style(),
-            expertise_level=ExpertiseLevel.EXPERT,
-            verbosity=self.verbosity,
-            strengths=strengths or [],
-            preferred_tools=preferred_tools or [],
-            risk_tolerance=self.risk_tolerance,
-            creativity=0.5,  # Moderate creativity for DevOps
-            custom_traits={
-                "decision_style": self.decision_style.value,
-                "automation_focus": self.automation_focus,
-                "collaboration_preference": self.collaboration_preference,
-            },
-        )
+_TRAIT_SPEC = TraitSpec(
+    communication_enum=DevOpsCommunicationStyle,
+    decision_enum=DevOpsDecisionStyle,
+    style_hints={
+        DevOpsCommunicationStyle.PRAGMATIC: "Focus on practical, actionable solutions.",
+        DevOpsCommunicationStyle.OPERATIONAL: "Provide systematic, process-oriented guidance.",
+        DevOpsCommunicationStyle.COLLABORATIVE: "Consider cross-team impacts and dependencies.",
+        DevOpsCommunicationStyle.DIRECT: "Be concise and action-oriented.",
+        DevOpsCommunicationStyle.ANALYTICAL: "Support decisions with metrics and data.",
+        DevOpsCommunicationStyle.DOCUMENTATION_FOCUSED: "Emphasize runbooks and documentation.",
+    },
+    decision_hints={
+        DevOpsDecisionStyle.AUTOMATION_FIRST: "Always prefer automated solutions over manual processes.",
+        DevOpsDecisionStyle.STABILITY_FOCUSED: "Prioritize system stability and reliability.",
+        DevOpsDecisionStyle.COST_OPTIMIZED: "Balance performance with cost efficiency.",
+        DevOpsDecisionStyle.SECURITY_FIRST: "Security considerations come first.",
+        DevOpsDecisionStyle.ITERATIVE: "Start with minimal viable solution and iterate.",
+    },
+    scale_rules=(
+        ScaleRule(
+            "automation_focus",
+            low_below=0.3,
+            low_hint="Manual processes are acceptable when automation is complex.",
+            high_above=0.8,
+            high_hint="Automate everything that can be automated.",
+        ),
+        ScaleRule(
+            "risk_tolerance",
+            low_below=0.3,
+            low_hint="Avoid risky changes without thorough testing and rollback plans.",
+            high_above=0.7,
+            high_hint="Embrace modern approaches with proper monitoring.",
+        ),
+    ),
+    defaults={
+        "communication_style": "PRAGMATIC",
+        "decision_style": "AUTOMATION_FIRST",
+        "automation_focus": 0.8,
+        "risk_tolerance": 0.4,
+        "collaboration_preference": 0.7,
+        "verbosity": 0.5,
+    },
+    framework_mapping=lambda traits: (
+        {
+            "verbosity": traits["verbosity"],
+            "risk_tolerance": traits["risk_tolerance"],
+            "creativity": 0.5,
+        },
+        {
+            "decision_style": traits["decision_style"].value,
+            "automation_focus": traits["automation_focus"],
+            "collaboration_preference": traits["collaboration_preference"],
+        },
+    ),
+)
 
 
-# Backward compatibility alias
+class DevOpsPersonaTraits(VerticalTraits):
+    """DevOps behavioral traits (shared algorithm, declarative schema)."""
+
+    spec = _TRAIT_SPEC
+
+
+# Backward compatibility alias (the persona table constructs this name)
 PersonaTraits = DevOpsPersonaTraits
 
 
 @dataclass
-class DevOpsPersona:
-    """Complete persona definition for a DevOps role.
-
-    This combines expertise areas, personality traits, and
-    role-specific guidance into a comprehensive persona.
-
-    Attributes:
-        name: Display name for the persona
-        role: Base role (architect, engineer, specialist, etc.)
-        expertise: Primary areas of expertise
-        secondary_expertise: Secondary/supporting expertise
-        traits: Behavioral traits
-        strengths: Key strengths in bullet points
-        approach: How this persona approaches work
-        communication_patterns: Typical communication patterns
-        working_style: Description of working approach
-    """
-
-    name: str
-    role: str
-    expertise: List[DevOpsExpertiseCategory]
-    secondary_expertise: List[DevOpsExpertiseCategory] = field(default_factory=list)
-    traits: PersonaTraits = field(default_factory=PersonaTraits)
-    strengths: List[str] = field(default_factory=list)
-    approach: str = ""
-    communication_patterns: List[str] = field(default_factory=list)
-    working_style: str = ""
-
-    def get_expertise_list(self) -> List[str]:
-        """Get combined expertise as string list.
-
-        Returns:
-            List of expertise category values
-        """
-        all_expertise = self.expertise + self.secondary_expertise
-        return [e.value for e in all_expertise]
-
-    def generate_backstory(self) -> str:
-        """Generate a rich backstory from persona attributes.
-
-        Returns:
-            Multi-sentence backstory for agent context
-        """
-        parts = []
-
-        # Name and role intro
-        parts.append(f"You are {self.name}, a skilled {self.role}.")
-
-        # Expertise
-        if self.expertise:
-            primary = ", ".join(e.value.replace("_", " ") for e in self.expertise[:3])
-            parts.append(f"Your expertise lies in {primary}.")
-
-        # Strengths
-        if self.strengths:
-            strengths_text = "; ".join(self.strengths[:3])
-            parts.append(f"Your key strengths: {strengths_text}.")
-
-        # Approach
-        if self.approach:
-            parts.append(self.approach)
-
-        # Working style
-        if self.working_style:
-            parts.append(self.working_style)
-
-        # Trait hints
-        trait_hints = self.traits.to_prompt_hints()
-        if trait_hints:
-            parts.append(trait_hints)
-
-        return " ".join(parts)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert persona to dictionary.
-
-        Returns:
-            Dictionary representation
-        """
-        return {
-            "name": self.name,
-            "role": self.role,
-            "expertise": self.get_expertise_list(),
-            "strengths": self.strengths,
-            "approach": self.approach,
-            "communication_style": self.traits.communication_style.value,
-            "decision_style": self.traits.decision_style.value,
-            "backstory": self.generate_backstory(),
-        }
-
-
-# =============================================================================
-# Pre-defined DevOps Personas
-# =============================================================================
+class DevOpsPersona(VerticalPersona):
+    """Complete persona definition for a DevOps role (kernel-backed)."""
 
 
 DEVOPS_PERSONAS: Dict[str, DevOpsPersona] = {
@@ -619,165 +488,36 @@ DEVOPS_PERSONAS: Dict[str, DevOpsPersona] = {
 # =============================================================================
 
 
-def get_persona(name: str) -> Optional[DevOpsPersona]:
-    """Get a persona by name.
-
-    Args:
-        name: Persona name (e.g., 'infrastructure_architect')
-
-    Returns:
-        DevOpsPersona if found, None otherwise
-    """
-    return DEVOPS_PERSONAS.get(name)
+(
+    get_persona,
+    get_personas_for_role,
+    get_persona_by_expertise,
+    apply_persona_to_spec,
+    list_personas,
+) = make_persona_helpers(DEVOPS_PERSONAS)
 
 
-def get_personas_for_role(role: str) -> List[DevOpsPersona]:
-    """Get all personas for a specific role.
-
-    Args:
-        role: Role name (architect, engineer, specialist)
-
-    Returns:
-        List of personas matching the role
-    """
-    return [p for p in DEVOPS_PERSONAS.values() if p.role == role]
-
-
-def get_persona_by_expertise(expertise: DevOpsExpertiseCategory) -> List[DevOpsPersona]:
-    """Get personas that have a specific expertise.
-
-    Args:
-        expertise: Expertise category to search for
-
-    Returns:
-        List of personas with that expertise
-    """
-    return [
-        p
-        for p in DEVOPS_PERSONAS.values()
-        if expertise in p.expertise or expertise in p.secondary_expertise
-    ]
-
-
-def apply_persona_to_spec(
-    spec: Any,  # TeamMemberSpec
-    persona_name: str,
-) -> Any:
-    """Apply persona attributes to a TeamMemberSpec.
-
-    Enhances the spec with persona's expertise, personality traits,
-    and generated backstory.
-
-    Args:
-        spec: TeamMemberSpec to enhance
-        persona_name: Name of persona to apply
-
-    Returns:
-        Enhanced TeamMemberSpec (same object, modified in place)
-    """
-    persona = get_persona(persona_name)
-    if persona is None:
-        return spec
-
-    # Add expertise from persona
-    if not spec.expertise:
-        spec.expertise = persona.get_expertise_list()
-    else:
-        # Merge expertise
-        existing = set(spec.expertise)
-        for e in persona.get_expertise_list():
-            if e not in existing:
-                spec.expertise.append(e)
-
-    # Generate backstory if not set
-    if not spec.backstory:
-        spec.backstory = persona.generate_backstory()
-    else:
-        # Append persona hints
-        trait_hints = persona.traits.to_prompt_hints()
-        if trait_hints:
-            spec.backstory = f"{spec.backstory} {trait_hints}"
-
-    # Set personality from traits
-    if not spec.personality:
-        spec.personality = (
-            f"{persona.traits.communication_style.value} and "
-            f"{persona.traits.decision_style.value}"
-        )
-
-    return spec
-
-
-def list_personas() -> List[str]:
-    """List all available persona names.
-
-    Returns:
-        List of persona names
-    """
-    return list(DEVOPS_PERSONAS.keys())
-
-
-# =============================================================================
-# Persona Registration with Framework
-# =============================================================================
-
-
-def _register_personas_with_framework(
-    provider: PersonaRegistryProtocol | None = None,
-) -> None:
-    """Register all DevOps personas with FrameworkPersonaProvider.
-
-    This function is called at module import time to automatically
-    register all DevOps personas with the framework's persona registry.
-
-    Each persona is registered with:
-    - Version 1.0.0
-    - Appropriate category (planning, execution, review, research)
-    - DevOps-specific tags
-    - vertical="devops"
-    """
-    provider = provider or get_default_persona_registry()
-    if provider is None:
-        return
-
-    # Category mapping for DevOps personas
-    category_mapping = {
+_REGISTRATION_POLICY = RegistrationPolicy(
+    vertical="devops",
+    categories={
         "infrastructure_architect": "planning",
         "ci_cd_engineer": "execution",
         "security_specialist": "review",
         "monitoring_expert": "review",
         "container_specialist": "execution",
         "configuration_manager": "execution",
-    }
+    },
+    tag_policy="top3_expertise_role_vertical",
+    preferred_tools="none",
+    version="1.0.0",
+)
 
-    for persona_name, persona in DEVOPS_PERSONAS.items():
-        # Convert DevOps persona to framework traits
-        framework_traits = persona.traits.to_framework_traits(
-            name=persona.name,
-            role=persona.role,
-            description=persona.approach,
-            strengths=persona.strengths,
-            preferred_tools=[],  # Tools are context-dependent
-        )
 
-        # Determine category
-        category = category_mapping.get(persona_name, "other")
-
-        # Generate tags
-        tags = persona.get_expertise_list()[:3]  # Top 3 expertise areas as tags
-        tags.append(persona.role)
-        tags.append("devops")
-
-        # Register with framework
-        provider.register_persona(
-            name=persona_name,
-            version="1.0.0",
-            persona=framework_traits,
-            category=category,
-            description=persona.approach,
-            tags=tags,
-            vertical="devops",
-        )
+def _register_personas_with_framework(
+    provider: PersonaRegistryProtocol | None = None,
+) -> None:
+    """Register all DevOps personas with the framework persona provider."""
+    register_vertical_personas(DEVOPS_PERSONAS, _REGISTRATION_POLICY, provider)
 
 
 # Auto-register on import

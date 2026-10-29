@@ -149,6 +149,18 @@ class BetaDistribution:
             self.beta += 1.0
 
 
+def _update_beta(
+    posteriors: Dict[Any, BetaDistribution], posterior_key: Any, is_alpha: bool, value: float
+) -> None:
+    """Set the alpha or beta of one stored posterior, keeping the other parameter."""
+    existing = posteriors.get(posterior_key, BetaDistribution())
+    posteriors[posterior_key] = (
+        BetaDistribution(alpha=value, beta=existing.beta)
+        if is_alpha
+        else BetaDistribution(alpha=existing.alpha, beta=value)
+    )
+
+
 class PromptTemplateLearner(BaseLearner):
     """Learn optimal prompt templates per context.
 
@@ -160,6 +172,8 @@ class PromptTemplateLearner(BaseLearner):
         db: SQLite database connection
         exploration_rate: Additional exploration probability
     """
+
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_prompt_template)
 
     # Default templates for different task types
     DEFAULT_TEMPLATES: Dict[str, PromptTemplate] = {
@@ -250,22 +264,10 @@ class PromptTemplateLearner(BaseLearner):
         # Load state from database
         self._load_state()
 
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_prompt_template)
-
     def _load_state(self) -> None:
         """Load state from database."""
-        cursor = self.db.cursor()
-
         try:
-            cursor.execute(
-                f"SELECT param_key, param_value, context, sample_count FROM {Tables.RL_PARAM}"
-                f" WHERE learner_id = ?",
-                (self.name,),
-            )
-            for row in cursor.fetchall():
-                row_dict = dict(row)
+            for row_dict in self._read_params():
                 key = row_dict["param_key"]
                 value = row_dict["param_value"]
                 ctx = row_dict["context"] or ""
@@ -283,15 +285,7 @@ class PromptTemplateLearner(BaseLearner):
                         continue
                     task_type, provider = ctx[:sep], ctx[sep + 1 :]
                     posterior_key = (task_type, provider, style_val)
-                    existing = self._style_posteriors.get(posterior_key, BetaDistribution())
-                    if is_alpha:
-                        self._style_posteriors[posterior_key] = BetaDistribution(
-                            alpha=value, beta=existing.beta
-                        )
-                    else:
-                        self._style_posteriors[posterior_key] = BetaDistribution(
-                            alpha=existing.alpha, beta=value
-                        )
+                    _update_beta(self._style_posteriors, posterior_key, is_alpha, value)
                     context_key = (task_type, provider)
                     self._sample_counts[context_key] = max(
                         self._sample_counts.get(context_key, 0), sample_count
@@ -306,15 +300,7 @@ class PromptTemplateLearner(BaseLearner):
                         continue
                     task_type, provider = ctx[:sep], ctx[sep + 1 :]
                     posterior_key = (task_type, provider, elem_val)
-                    existing = self._element_posteriors.get(posterior_key, BetaDistribution())
-                    if is_alpha:
-                        self._element_posteriors[posterior_key] = BetaDistribution(
-                            alpha=value, beta=existing.beta
-                        )
-                    else:
-                        self._element_posteriors[posterior_key] = BetaDistribution(
-                            alpha=existing.alpha, beta=value
-                        )
+                    _update_beta(self._element_posteriors, posterior_key, is_alpha, value)
 
                 # Enrichment posteriors: "enrichment_alpha:{type}", context="vertical:task_type"
                 elif key.startswith("enrichment_alpha:") or key.startswith("enrichment_beta:"):
@@ -326,15 +312,7 @@ class PromptTemplateLearner(BaseLearner):
                     vertical = ctx[:sep] if sep >= 0 else ctx
                     task_type_part = ctx[sep + 1 :] if sep >= 0 else ""
                     posterior_key = (vertical, enr_type, task_type_part)
-                    existing = self._enrichment_posteriors.get(posterior_key, BetaDistribution())
-                    if is_alpha:
-                        self._enrichment_posteriors[posterior_key] = BetaDistribution(
-                            alpha=value, beta=existing.beta
-                        )
-                    else:
-                        self._enrichment_posteriors[posterior_key] = BetaDistribution(
-                            alpha=existing.alpha, beta=value
-                        )
+                    _update_beta(self._enrichment_posteriors, posterior_key, is_alpha, value)
                     context_key2 = (vertical, enr_type)
                     self._enrichment_sample_counts[context_key2] = max(
                         self._enrichment_sample_counts.get(context_key2, 0),

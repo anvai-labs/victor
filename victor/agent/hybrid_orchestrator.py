@@ -16,7 +16,7 @@
 
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from victor.agent.complexity_detector import (
     ComplexityAnalysis,
@@ -208,7 +208,6 @@ class HybridOrchestrationRouter:
 
         try:
             # Create belief state
-            from victor.agent.bayesian_task_analysis import BayesianTaskAnalysis
             from victor.agent.task_analyzer import TaskComplexity
 
             # Map complexity level to TaskComplexity

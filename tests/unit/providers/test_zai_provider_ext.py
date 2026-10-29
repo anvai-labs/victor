@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Z.AI model-policy tests; wire behavior is covered in Sandhi."""
 
+import pytest
+
 from victor.providers.sandhi_openai_compat_policy import SandhiOpenAICompatPolicy
 from victor.providers.base import Message
 from victor.providers.zai_provider import ZAI_MODELS, ZAIProvider
+from victor.providers.sandhi_transport import _typed_request_from_openai_payload
 
 
 def test_zai_is_thin_typed_policy_without_python_http_client() -> None:
@@ -56,3 +59,69 @@ def test_compatibility_parser_keeps_reasoning_content() -> None:
         "glm-4.6",
     )
     assert response.metadata == {"reasoning_content": "Step 1"}
+
+
+@pytest.mark.parametrize("model", ["glm-5.3", "glm-5.3:coding", "glm-5.3:china-coding"])
+@pytest.mark.parametrize("effort", ["low", "high", "max"])
+def test_glm53_reasoning_effort_reaches_request_payload(model: str, effort: str) -> None:
+    provider = ZAIProvider(api_key="test-key")
+    assert provider.supports_reasoning_effort(model)
+    payload = provider._build_request_payload(
+        [Message(role="user", content="hi")],
+        model,
+        0.2,
+        64,
+        None,
+        False,
+        reasoning_effort=effort,
+    )
+    assert payload["reasoning_effort"] == effort
+    assert payload["max_tokens"] == 64
+    assert "tools" not in payload
+    request = _typed_request_from_openai_payload(payload)
+    assert request["reasoning_effort"] == effort
+    assert request["max_output_tokens"] == 64
+
+
+@pytest.mark.parametrize("model", ["glm-5.2", "glm-4.7", "glm-unknown", "glm-5.3-unknown"])
+def test_unqualified_models_do_not_inherit_glm53_effort_support(model: str) -> None:
+    provider = ZAIProvider(api_key="test-key")
+    assert not provider.supports_reasoning_effort(model)
+    payload = provider._build_request_payload(
+        [Message(role="user", content="hi")],
+        model,
+        0.2,
+        64,
+        None,
+        False,
+        reasoning_effort="low",
+    )
+    assert "reasoning_effort" not in payload
+
+
+@pytest.mark.parametrize("effort", ["medium", "none", "ultra", "invalid", 1, [], {}])
+def test_glm53_rejects_unsupported_effort_before_transport(effort: object) -> None:
+    provider = ZAIProvider(api_key="test-key")
+    with pytest.raises(ValueError, match="GLM-5.3 reasoning_effort"):
+        provider._build_request_payload(
+            [Message(role="user", content="hi")],
+            "glm-5.3",
+            0.2,
+            64,
+            None,
+            False,
+            reasoning_effort=effort,
+        )
+
+
+def test_glm53_omitted_effort_preserves_provider_default() -> None:
+    provider = ZAIProvider(api_key="test-key")
+    payload = provider._build_request_payload(
+        [Message(role="user", content="hi")],
+        "glm-5.3",
+        0.2,
+        64,
+        None,
+        False,
+    )
+    assert "reasoning_effort" not in payload

@@ -53,10 +53,8 @@ from victor.core.json_utils import json_dumps, json_loads
 import threading
 import time
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from victor.core.events.protocols import (
     BackendConfig,
@@ -65,7 +63,6 @@ from victor.core.events.protocols import (
     MessagingEvent,
     EventHandler,
     EventPublishError,
-    IEventBackend,
     SubscriptionHandle,
 )
 

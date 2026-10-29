@@ -24,7 +24,7 @@ be stripped when running tools in isolation. Used by:
 from __future__ import annotations
 
 import os
-from typing import Dict, Optional, Set
+from typing import Dict, Optional
 
 # Environment variables that contain secrets or credentials.
 # These are stripped from child process environments in sandbox mode.

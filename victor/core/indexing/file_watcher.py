@@ -521,7 +521,6 @@ class FileWatcherRegistry:
         Returns:
             FileWatcherService instance (cached or new)
         """
-        import os
 
         root = root.resolve()
         root_str = str(root)

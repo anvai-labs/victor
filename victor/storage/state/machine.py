@@ -49,7 +49,6 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from victor.storage.state.protocols import (
     StateObserverProtocol,
-    StateProtocol,
     StageDetectorProtocol,
     TransitionValidatorProtocol,
 )

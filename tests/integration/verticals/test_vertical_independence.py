@@ -19,7 +19,6 @@ This validates the framework-vertical decoupling architecture.
 """
 
 import sys
-from unittest.mock import patch, MagicMock
 
 import pytest
 

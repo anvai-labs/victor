@@ -22,6 +22,8 @@ class SecuritySettings(BaseModel):
     code_executor_network_disabled: bool = True
     code_executor_memory_limit: Optional[str] = "512m"
     code_executor_cpu_shares: Optional[int] = 256
+    code_executor_image: str = "python:3.11-slim"
+    code_executor_idle_ttl_seconds: int = 900
     write_approval_mode: str = "risky_only"
     headless_mode: bool = False
     dry_run_mode: bool = False

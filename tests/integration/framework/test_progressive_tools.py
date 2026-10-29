@@ -19,11 +19,9 @@ and progressive parameter escalation behavior.
 """
 
 import pytest
-from typing import Any, Dict
 
 from victor.tools.progressive_registry import (
     ProgressiveToolsRegistry,
-    ProgressiveToolConfig,
     get_progressive_registry,
 )
 

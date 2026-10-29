@@ -49,9 +49,9 @@ Note:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
 # Import framework types for base functionality
 from victor_contracts.multi_agent import (
@@ -59,6 +59,15 @@ from victor_contracts.multi_agent import (
     ExpertiseLevel,
     PersonaTemplate,
     PersonaTraits as FrameworkPersonaTraits,
+)
+from victor_contracts.verticals import (
+    RegistrationPolicy,
+    ScaleRule,
+    TraitSpec,
+    VerticalPersona,
+    VerticalTraits,
+    make_persona_helpers,
+    register_vertical_personas,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,222 +172,85 @@ class DecisionStyle(str, Enum):
     DATA_DRIVEN = "data_driven"  # Let data decide
 
 
-@dataclass
-class DataAnalysisPersonaTraits:
-    """Data analysis-specific behavioral traits for a persona.
-
-    This class provides data analysis-specific trait extensions that complement
-    the framework's PersonaTraits. Use this when you need data-specific
-    attributes like decision_style and quantitative_focus.
-
-    Attributes:
-        communication_style: Primary communication approach (data-specific enum)
-        decision_style: How decisions are made
-        quantitative_focus: 0.0-1.0 scale of quantitative vs qualitative approach
-        risk_tolerance: 0.0-1.0 scale of risk acceptance
-        visualization_preference: 0.0-1.0 scale of preference for visual communication
-        verbosity: 0.0-1.0 scale of output detail
-    """
-
-    communication_style: CommunicationStyle = CommunicationStyle.COLLABORATIVE
-    decision_style: DecisionStyle = DecisionStyle.PRAGMATIC
-    quantitative_focus: float = 0.8
-    risk_tolerance: float = 0.5
-    visualization_preference: float = 0.6
-    verbosity: float = 0.5
-
-    def to_prompt_hints(self) -> str:
-        """Convert traits to prompt hints.
-
-        Returns:
-            String of behavioral hints for prompt injection
-        """
-        hints = []
-
-        # Communication style hints
-        style_hints = {
-            CommunicationStyle.CONCISE: "Keep responses brief and focused.",
-            CommunicationStyle.DETAILED: "Provide thorough explanations.",
-            CommunicationStyle.VISUAL: "Use charts and visual examples when possible.",
-            CommunicationStyle.ANALYTICAL: "Support conclusions with data and statistics.",
-            CommunicationStyle.EDUCATIONAL: "Explain concepts and reasoning clearly.",
-            CommunicationStyle.EXECUTIVE: "Focus on insights and business impact.",
-            CommunicationStyle.COLLABORATIVE: "Seek input and build on others' ideas.",
-            CommunicationStyle.METHODOLOGICAL: "Follow systematic, documented processes.",
-        }
-        hints.append(style_hints.get(self.communication_style, ""))
-
-        # Decision style hints
-        if self.decision_style == DecisionStyle.RIGOROUS:
-            hints.append("Maintain high statistical standards and proper methodology.")
-        elif self.decision_style == DecisionStyle.PRAGMATIC:
-            hints.append("Balance rigor with practical considerations.")
-        elif self.decision_style == DecisionStyle.EXPERIMENTAL:
-            hints.append("Try multiple approaches and compare results.")
-        elif self.decision_style == DecisionStyle.CONSERVATIVE:
-            hints.append("Prefer proven, well-established methods.")
-        elif self.decision_style == DecisionStyle.DATA_DRIVEN:
-            hints.append("Let empirical evidence guide decisions.")
-
-        # Quantitative focus
-        if self.quantitative_focus > 0.8:
-            hints.append("Prefer quantitative evidence over qualitative anecdotes.")
-        elif self.quantitative_focus < 0.3:
-            hints.append("Balance quantitative metrics with qualitative insights.")
-
-        # Visualization preference
-        if self.visualization_preference > 0.7:
-            hints.append("Use visualizations to communicate findings effectively.")
-
-        # Risk tolerance
-        if self.risk_tolerance < 0.3:
-            hints.append("Avoid risky assumptions without validation.")
-        elif self.risk_tolerance > 0.7:
-            hints.append("Don't be afraid to try novel approaches.")
-
-        return " ".join(h for h in hints if h)
-
-    def to_framework_traits(
-        self,
-        name: str,
-        role: str,
-        description: str,
-        strengths: Optional[List[str]] = None,
-        preferred_tools: Optional[List[str]] = None,
-    ) -> FrameworkPersonaTraits:
-        """Convert to framework PersonaTraits.
-
-        Creates a framework-compatible PersonaTraits instance from
-        the data analysis-specific traits.
-
-        Args:
-            name: Display name for the persona
-            role: Role identifier
-            description: Description of the persona
-            strengths: Optional list of strengths
-            preferred_tools: Optional list of preferred tools
-
-        Returns:
-            FrameworkPersonaTraits instance
-        """
-        return FrameworkPersonaTraits(
-            name=name,
-            role=role,
-            description=description,
-            communication_style=self.communication_style.to_framework_style(),
-            expertise_level=ExpertiseLevel.EXPERT,
-            verbosity=self.verbosity,
-            strengths=strengths or [],
-            preferred_tools=preferred_tools or [],
-            risk_tolerance=self.risk_tolerance,
-            creativity=1.0 - self.quantitative_focus,  # Map quantitative to creativity
-            custom_traits={
-                "decision_style": self.decision_style.value,
-                "quantitative_focus": self.quantitative_focus,
-                "visualization_preference": self.visualization_preference,
-            },
-        )
+_TRAIT_SPEC = TraitSpec(
+    communication_enum=CommunicationStyle,
+    decision_enum=DecisionStyle,
+    style_hints={
+        CommunicationStyle.CONCISE: "Keep responses brief and focused.",
+        CommunicationStyle.DETAILED: "Provide thorough explanations.",
+        CommunicationStyle.VISUAL: "Use charts and visual examples when possible.",
+        CommunicationStyle.ANALYTICAL: "Support conclusions with data and statistics.",
+        CommunicationStyle.EDUCATIONAL: "Explain concepts and reasoning clearly.",
+        CommunicationStyle.EXECUTIVE: "Focus on insights and business impact.",
+        CommunicationStyle.COLLABORATIVE: "Seek input and build on others' ideas.",
+        CommunicationStyle.METHODOLOGICAL: "Follow systematic, documented processes.",
+    },
+    decision_hints={
+        DecisionStyle.RIGOROUS: "Maintain high statistical standards and proper methodology.",
+        DecisionStyle.PRAGMATIC: "Balance rigor with practical considerations.",
+        DecisionStyle.EXPERIMENTAL: "Try multiple approaches and compare results.",
+        DecisionStyle.CONSERVATIVE: "Prefer proven, well-established methods.",
+        DecisionStyle.DATA_DRIVEN: "Let empirical evidence guide decisions.",
+    },
+    scale_rules=(
+        ScaleRule(
+            "quantitative_focus",
+            low_below=0.3,
+            low_hint="Balance quantitative metrics with qualitative insights.",
+            high_above=0.8,
+            high_hint="Prefer quantitative evidence over qualitative anecdotes.",
+        ),
+        ScaleRule(
+            "visualization_preference",
+            low_below=-1.0,
+            low_hint="",
+            high_above=0.7,
+            high_hint="Use visualizations to communicate findings effectively.",
+        ),
+        ScaleRule(
+            "risk_tolerance",
+            low_below=0.3,
+            low_hint="Avoid risky assumptions without validation.",
+            high_above=0.7,
+            high_hint="Don't be afraid to try novel approaches.",
+        ),
+    ),
+    defaults={
+        "communication_style": "COLLABORATIVE",
+        "decision_style": "PRAGMATIC",
+        "quantitative_focus": 0.8,
+        "risk_tolerance": 0.5,
+        "visualization_preference": 0.6,
+        "verbosity": 0.5,
+    },
+    framework_mapping=lambda traits: (
+        {
+            "verbosity": traits["verbosity"],
+            "risk_tolerance": traits["risk_tolerance"],
+            "creativity": 1.0 - traits["quantitative_focus"],
+        },
+        {
+            "decision_style": traits["decision_style"].value,
+            "quantitative_focus": traits["quantitative_focus"],
+            "visualization_preference": traits["visualization_preference"],
+        },
+    ),
+)
 
 
-# Backward compatibility alias
+class DataAnalysisPersonaTraits(VerticalTraits):
+    """Data-analysis behavioral traits (shared algorithm, declarative schema)."""
+
+    spec = _TRAIT_SPEC
+
+
+# Backward compatibility alias (the persona table constructs this name)
 PersonaTraits = DataAnalysisPersonaTraits
 
 
 @dataclass
-class DataAnalysisPersona:
-    """Complete persona definition for a data analysis role.
-
-    This combines expertise areas, personality traits, and
-    role-specific guidance into a comprehensive persona.
-
-    Attributes:
-        name: Display name for the persona
-        role: Base role (data_engineer, statistician, ml_engineer, etc.)
-        expertise: Primary areas of expertise
-        secondary_expertise: Secondary/supporting expertise
-        traits: Behavioral traits
-        strengths: Key strengths in bullet points
-        approach: How this persona approaches work
-        communication_patterns: Typical communication patterns
-        working_style: Description of working approach
-    """
-
-    name: str
-    role: str
-    expertise: List[ExpertiseCategory]
-    secondary_expertise: List[ExpertiseCategory] = field(default_factory=list)
-    traits: PersonaTraits = field(default_factory=PersonaTraits)
-    strengths: List[str] = field(default_factory=list)
-    approach: str = ""
-    communication_patterns: List[str] = field(default_factory=list)
-    working_style: str = ""
-
-    def get_expertise_list(self) -> List[str]:
-        """Get combined expertise as string list.
-
-        Returns:
-            List of expertise category values
-        """
-        all_expertise = self.expertise + self.secondary_expertise
-        return [e.value for e in all_expertise]
-
-    def generate_backstory(self) -> str:
-        """Generate a rich backstory from persona attributes.
-
-        Returns:
-            Multi-sentence backstory for agent context
-        """
-        parts = []
-
-        # Name and role intro
-        parts.append(f"You are {self.name}, a skilled {self.role}.")
-
-        # Expertise
-        if self.expertise:
-            primary = ", ".join(e.value.replace("_", " ") for e in self.expertise[:3])
-            parts.append(f"Your expertise lies in {primary}.")
-
-        # Strengths
-        if self.strengths:
-            strengths_text = "; ".join(self.strengths[:3])
-            parts.append(f"Your key strengths: {strengths_text}.")
-
-        # Approach
-        if self.approach:
-            parts.append(self.approach)
-
-        # Working style
-        if self.working_style:
-            parts.append(self.working_style)
-
-        # Trait hints
-        trait_hints = self.traits.to_prompt_hints()
-        if trait_hints:
-            parts.append(trait_hints)
-
-        return " ".join(parts)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert persona to dictionary.
-
-        Returns:
-            Dictionary representation
-        """
-        return {
-            "name": self.name,
-            "role": self.role,
-            "expertise": self.get_expertise_list(),
-            "strengths": self.strengths,
-            "approach": self.approach,
-            "communication_style": self.traits.communication_style.value,
-            "decision_style": self.traits.decision_style.value,
-            "backstory": self.generate_backstory(),
-        }
-
-
-# =============================================================================
-# Pre-defined Data Analysis Personas
-# =============================================================================
+class DataAnalysisPersona(VerticalPersona):
+    """Complete persona definition for a data-analysis role (kernel-backed)."""
 
 
 DATA_ANALYSIS_PERSONAS: Dict[str, DataAnalysisPersona] = {
@@ -642,166 +514,40 @@ DATA_ANALYSIS_PERSONAS: Dict[str, DataAnalysisPersona] = {
 # =============================================================================
 
 
-def get_persona(name: str) -> Optional[DataAnalysisPersona]:
-    """Get a persona by name.
-
-    Args:
-        name: Persona name (e.g., 'data_engineer')
-
-    Returns:
-        DataAnalysisPersona if found, None otherwise
-    """
-    return DATA_ANALYSIS_PERSONAS.get(name)
+(
+    get_persona,
+    get_personas_for_role,
+    get_persona_by_expertise,
+    apply_persona_to_spec,
+    list_personas,
+) = make_persona_helpers(DATA_ANALYSIS_PERSONAS)
 
 
-def get_personas_for_role(role: str) -> List[DataAnalysisPersona]:
-    """Get all personas for a specific role.
-
-    Args:
-        role: Role name (data_engineer, statistician, ml_engineer, etc.)
-
-    Returns:
-        List of personas matching the role
-    """
-    return [p for p in DATA_ANALYSIS_PERSONAS.values() if p.role == role]
-
-
-def get_persona_by_expertise(expertise: ExpertiseCategory) -> List[DataAnalysisPersona]:
-    """Get personas that have a specific expertise.
-
-    Args:
-        expertise: Expertise category to search for
-
-    Returns:
-        List of personas with that expertise
-    """
-    return [
-        p
-        for p in DATA_ANALYSIS_PERSONAS.values()
-        if expertise in p.expertise or expertise in p.secondary_expertise
-    ]
-
-
-def apply_persona_to_spec(
-    spec: Any,  # TeamMemberSpec
-    persona_name: str,
-) -> Any:
-    """Apply persona attributes to a TeamMemberSpec.
-
-    Enhances the spec with persona's expertise, personality traits,
-    and generated backstory.
-
-    Args:
-        spec: TeamMemberSpec to enhance
-        persona_name: Name of persona to apply
-
-    Returns:
-        Enhanced TeamMemberSpec (same object, modified in place)
-    """
-    persona = get_persona(persona_name)
-    if persona is None:
-        return spec
-
-    # Add expertise from persona
-    if not spec.expertise:
-        spec.expertise = persona.get_expertise_list()
-    else:
-        # Merge expertise
-        existing = set(spec.expertise)
-        for e in persona.get_expertise_list():
-            if e not in existing:
-                spec.expertise.append(e)
-
-    # Generate backstory if not set
-    if not spec.backstory:
-        spec.backstory = persona.generate_backstory()
-    else:
-        # Append persona hints
-        trait_hints = persona.traits.to_prompt_hints()
-        if trait_hints:
-            spec.backstory = f"{spec.backstory} {trait_hints}"
-
-    # Set personality from traits
-    if not spec.personality:
-        spec.personality = (
-            f"{persona.traits.communication_style.value} and "
-            f"{persona.traits.decision_style.value}"
-        )
-
-    return spec
-
-
-def list_personas() -> List[str]:
-    """List all available persona names.
-
-    Returns:
-        List of persona names
-    """
-    return list(DATA_ANALYSIS_PERSONAS.keys())
-
-
-# =============================================================================
-# Persona Registration with Framework
-# =============================================================================
+_REGISTRATION_POLICY = RegistrationPolicy(
+    vertical="dataanalysis",
+    category_by_role={
+        "data_engineer": "execution",
+        "statistician": "research",
+        "ml_engineer": "execution",
+        "visualization_specialist": "execution",
+        "data_quality_analyst": "review",
+        "business_analyst": "planning",
+    },
+    tag_policy="expertise",
+    provider_getter="runtime",
+    auto_register=False,
+)
 
 
 def register_data_analysis_personas() -> int:
-    """Register all data analysis personas with the FrameworkPersonaProvider.
+    """Register data-analysis personas with the runtime persona provider."""
+    from victor_contracts import get_runtime_persona_provider
 
-    This function is called during vertical integration to register personas
-    with the global persona provider, enabling cross-vertical persona discovery.
-
-    Returns:
-        Number of personas registered.
-    """
-    try:
-        from victor_contracts.multi_agent import (
-            get_runtime_persona_provider as get_persona_provider,
-        )
-
-        provider = get_persona_provider()
-        count = 0
-
-        # Category mapping based on role focus
-        category_mapping = {
-            "data_engineer": "execution",
-            "statistician": "research",
-            "ml_engineer": "execution",
-            "visualization_specialist": "execution",
-            "data_quality_analyst": "review",
-            "business_analyst": "planning",
-        }
-
-        for persona_name, persona in DATA_ANALYSIS_PERSONAS.items():
-            # Convert to framework traits
-            framework_traits = persona.traits.to_framework_traits(
-                name=persona.name,
-                role=persona.role,
-                description=persona.approach,
-                strengths=persona.strengths,
-            )
-
-            # Get category
-            category = category_mapping.get(persona.role, "other")
-
-            # Register with provider
-            provider.register_persona(
-                name=persona_name,
-                version="1.0.0",
-                persona=framework_traits,
-                category=category,
-                description=persona.approach,
-                tags=persona.get_expertise_list(),
-                vertical="dataanalysis",
-            )
-            count += 1
-
-        logger.debug(f"Registered {count} data analysis personas with framework")
-        return count
-
-    except Exception as e:
-        logger.warning(f"Failed to register data analysis personas: {e}")
+    provider = get_runtime_persona_provider()
+    if provider is None:
         return 0
+    result = register_vertical_personas(DATA_ANALYSIS_PERSONAS, _REGISTRATION_POLICY, provider)
+    return result if isinstance(result, int) else len(DATA_ANALYSIS_PERSONAS)
 
 
 __all__ = [

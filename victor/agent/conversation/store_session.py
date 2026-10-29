@@ -17,7 +17,6 @@
 from __future__ import annotations
 import logging
 import sqlite3
-import uuid
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING

@@ -41,13 +41,12 @@ from __future__ import annotations
 
 from victor.core.json_utils import json_dumps, json_loads
 import logging
-import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from victor.agent.planning.base import ExecutionPlan, PlanStep, StepStatus, StepType
+from victor.agent.planning.base import ExecutionPlan
 
 logger = logging.getLogger(__name__)
 

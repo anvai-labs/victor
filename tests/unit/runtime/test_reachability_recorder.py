@@ -17,7 +17,6 @@ import pytest
 
 from victor.core.container import ServiceContainer, ServiceLifetime
 from victor.runtime.reachability import (
-    ReachabilityRecorder,
     activate,
     current_recorder,
     is_env_armed,

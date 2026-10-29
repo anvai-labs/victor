@@ -41,7 +41,7 @@ runtime = [
     "victor-ai>=0.7.0,<1.0",
 ]
 dev = [
-    "pytest>=8.0",
+    "pytest>=8.0,<9.2",  # pytest 9.2 (2026-10-27) removed Function._nodeid, which pytest-benchmark reads in fixture setup (verticals CI _nodeid AttributeErrors)
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.0",
@@ -110,7 +110,6 @@ select = ["E", "W", "F", "B", "C4"]
 ignore = [
     "E501",  # line too long (handled by formatter)
     "E402",  # module level import not at top of file (sometimes necessary)
-    "F401",  # unused imports (often intentional re-exports)
     "F811",  # redefined while unused (type imports shadowing runtime)
     "B007",  # loop control variable not used within loop body
     "B008",  # do not perform function calls in argument defaults

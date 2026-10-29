@@ -5,12 +5,11 @@
 
 """Tests for GEPA v2 service, tier manager, and strategy adapter."""
 
-from collections import deque
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from victor.config.gepa_settings import GEPAModelSpec, GEPASettings
+from victor.config.gepa_settings import GEPASettings
 from victor.framework.rl.gepa_service import GEPAService
 from victor.framework.rl.gepa_tier_manager import GEPATierManager
 
@@ -143,10 +142,8 @@ class TestGEPATierManager:
 class TestGEPAStrategyAdapter:
     def test_format_traces_as_asi_with_details(self):
         from victor.framework.rl.gepa_strategy_adapter import GEPAServiceStrategy
-        from victor.framework.rl.learners.prompt_optimizer import (
-            ExecutionTrace,
-            ToolCallTrace,
-        )
+        from victor.framework.rl.learners.prompt_optimizer import ExecutionTrace
+        from victor.framework.rl.learners.trace_analysis import ToolCallTrace
 
         mock_mgr = MagicMock()
         adapter = GEPAServiceStrategy(mock_mgr)

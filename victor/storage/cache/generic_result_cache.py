@@ -40,7 +40,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, Type, Callable
+from typing import Any, Dict, List, Optional, Set
 from pathlib import Path
 
 from victor.storage.cache.tiered_cache import TieredCache

@@ -33,11 +33,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from victor_contracts import (
-    ConversationCoordinator,
-    ConversationStats,
-    TurnType,
-)
+from victor_contracts.verticals import VerticalConversationManager
 
 logger = logging.getLogger(__name__)
 
@@ -173,27 +169,8 @@ class DevOpsContext:
         logger.debug(f"Recorded pipeline run: {pipeline} (status={status})")
 
 
-class EnhancedDevOpsConversationManager:
-    """Enhanced conversation manager for DevOps using ConversationCoordinator.
-
-    Provides:
-    - Standard conversation tracking via ConversationCoordinator
-    - DevOps-specific context tracking (deployments, infrastructure, containers)
-    - Automatic summarization of DevOps work
-    - Operations-focused conversation history
-
-    Example:
-        manager = EnhancedDevOpsConversationManager()
-
-        # Add a user message
-        manager.add_message("user", "Deploy the new version to staging", TurnType.USER)
-
-        # Track deployment
-        manager.track_deployment("my-service", "staging", "success", "v1.2.3")
-
-        # Get conversation summary
-        summary = manager.get_devops_summary()
-    """
+class EnhancedDevOpsConversationManager(VerticalConversationManager):
+    """Coordinator-backed conversation manager with the devops context."""
 
     def __init__(
         self,
@@ -202,87 +179,18 @@ class EnhancedDevOpsConversationManager:
         enable_deduplication: bool = True,
         enable_statistics: bool = True,
     ):
-        """Initialize the enhanced conversation manager.
-
-        Args:
-            max_history_turns: Maximum turns to keep in history
-            summarization_threshold: Turns before triggering summarization
-            enable_deduplication: Whether to enable message deduplication
-            enable_statistics: Whether to track conversation statistics
-        """
-        self._conversation_coordinator = ConversationCoordinator(
+        super().__init__(
+            DevOpsContext,
+            "devops_context",
+            "devops",
             max_history_turns=max_history_turns,
             summarization_threshold=summarization_threshold,
             enable_deduplication=enable_deduplication,
             enable_statistics=enable_statistics,
         )
 
-        self._devops_context = DevOpsContext()
-
-        logger.info(
-            f"EnhancedDevOpsConversationManager initialized with " f"max_turns={max_history_turns}"
-        )
-
-    # =========================================================================
-    # Message Management (delegates to ConversationCoordinator)
-    # =========================================================================
-
-    def add_message(
-        self,
-        role: str,
-        content: str,
-        turn_type: TurnType,
-        metadata: Optional[Dict[str, Any]] = None,
-        tool_calls: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
-        """Add a message to the conversation.
-
-        Args:
-            role: Message role (user, assistant, system)
-            content: Message content
-            turn_type: Type of turn
-            metadata: Optional metadata
-            tool_calls: Optional tool calls made in this turn
-
-        Returns:
-            Turn ID for the added message
-        """
-        return self._conversation_coordinator.add_message(
-            role, content, turn_type, metadata, tool_calls
-        )
-
-    def get_history(
-        self,
-        max_turns: Optional[int] = None,
-        include_system: bool = True,
-        include_tool: bool = True,
-    ) -> List[Dict[str, Any]]:
-        """Get conversation history.
-
-        Args:
-            max_turns: Maximum number of turns to return
-            include_system: Whether to include system messages
-            include_tool: Whether to include tool messages
-
-        Returns:
-            List of message dictionaries
-        """
-        return self._conversation_coordinator.get_history(max_turns, include_system, include_tool)
-
-    def clear_history(self, keep_summaries: bool = True) -> None:
-        """Clear conversation history.
-
-        Args:
-            keep_summaries: Whether to keep conversation summaries
-        """
-        self._conversation_coordinator.clear_history(keep_summaries)
-        if not keep_summaries:
-            self._devops_context = DevOpsContext()
-        logger.info("Conversation history cleared")
-
-    # =========================================================================
-    # DevOps-Specific Context Tracking
-    # =========================================================================
+    def get_devops_context(self) -> DevOpsContext:
+        return self.get_context()
 
     def track_deployment(
         self,
@@ -299,7 +207,7 @@ class EnhancedDevOpsConversationManager:
             status: Deployment status
             version: Optional version deployed
         """
-        self._devops_context.add_deployment(service, environment, status, version)
+        self._context.add_deployment(service, environment, status, version)
 
     def track_infrastructure_change(
         self,
@@ -314,7 +222,7 @@ class EnhancedDevOpsConversationManager:
             resource: Resource affected
             tool: Tool used (terraform, kubectl, docker, etc.)
         """
-        self._devops_context.add_infrastructure_change(change_type, resource, tool)
+        self._context.add_infrastructure_change(change_type, resource, tool)
 
     def track_container_operation(
         self,
@@ -329,7 +237,7 @@ class EnhancedDevOpsConversationManager:
             container_type: Type (docker, kubernetes, etc.)
             resource_id: Optional resource ID
         """
-        self._devops_context.add_container_operation(operation, container_type, resource_id)
+        self._context.add_container_operation(operation, container_type, resource_id)
 
     def track_pipeline_run(
         self,
@@ -344,7 +252,7 @@ class EnhancedDevOpsConversationManager:
             status: Run status
             duration: Optional duration in seconds
         """
-        self._devops_context.add_pipeline_run(pipeline, status, duration)
+        self._context.add_pipeline_run(pipeline, status, duration)
 
     # =========================================================================
     # Summarization
@@ -374,7 +282,7 @@ class EnhancedDevOpsConversationManager:
         """
         parts = []
 
-        ctx = self._devops_context
+        ctx = self._context
 
         # Deployments
         if ctx.deployments:
@@ -418,48 +326,6 @@ class EnhancedDevOpsConversationManager:
         parts.append(f"- Tool calls: {stats.tool_calls}")
 
         return "\n".join(parts)
-
-    # =========================================================================
-    # Statistics and Observability
-    # =========================================================================
-
-    def get_stats(self) -> ConversationStats:
-        """Get conversation statistics.
-
-        Returns:
-            ConversationStats object
-        """
-        return self._conversation_coordinator.get_stats()
-
-    def get_devops_context(self) -> DevOpsContext:
-        """Get the DevOps context.
-
-        Returns:
-            DevOpsContext object
-        """
-        return self._devops_context
-
-    def get_observability_data(self) -> Dict[str, Any]:
-        """Get observability data for dashboard integration.
-
-        Returns:
-            Dictionary with observability data
-        """
-        conv_obs = self._conversation_coordinator.get_observability_data()
-
-        return {
-            **conv_obs,
-            "devops_context": self._devops_context.to_dict(),
-            "vertical": "devops",
-        }
-
-    def get_conversation_coordinator(self) -> ConversationCoordinator:
-        """Get the underlying ConversationCoordinator.
-
-        Returns:
-            ConversationCoordinator instance
-        """
-        return self._conversation_coordinator
 
 
 __all__ = [

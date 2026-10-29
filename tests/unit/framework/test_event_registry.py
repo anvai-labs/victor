@@ -5,8 +5,6 @@
 
 """Tests for EventErrorDetails TypedDict — Wave L."""
 
-import pytest
-
 from victor.framework.event_registry import EventErrorDetails
 
 

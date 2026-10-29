@@ -799,6 +799,19 @@ class SystemPromptBuilder:
                     )
                 )
 
+        # FEP-0041: batch plan format guidance — only when tools are
+        # available (the format is meaningless on no-tool turns).
+        if tool_constraint and "batch_planning" in sections_to_include:
+            document.upsert(
+                PromptBlock(
+                    name="batch_planning",
+                    content=self._get_batch_plan_guidance(),
+                    priority=55,
+                    header="",
+                    kind="tooling",
+                )
+            )
+
         if "completion" in sections_to_include:
             document.upsert(
                 PromptBlock(
@@ -900,6 +913,7 @@ class SystemPromptBuilder:
             "task_guidance",
             "tool_constraint",
             "contextual_guidance",
+            "batch_planning",
         }
         all_sections = baseline_sections | optional_sections
 
@@ -946,6 +960,7 @@ class SystemPromptBuilder:
                 "mode_guidance",
                 "task_guidance",
                 "tool_constraint",
+                "batch_planning",
             }
             if self.concise_mode:
                 reduced.add("concise_mode")

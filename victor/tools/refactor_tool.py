@@ -30,7 +30,6 @@ import logging
 
 from victor.tools.base import AccessMode, CostTier, DangerLevel, Priority
 from victor.tools.decorators import tool
-from victor.tools.formatters import format_refactor_operations
 
 logger = logging.getLogger(__name__)
 

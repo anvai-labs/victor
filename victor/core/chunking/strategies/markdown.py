@@ -16,9 +16,9 @@
 
 import logging
 import re
-from typing import List, Tuple
+from typing import List
 
-from victor.core.chunking.base import Chunk, ChunkingConfig, ChunkingStrategy
+from victor.core.chunking.base import Chunk, ChunkingStrategy
 
 logger = logging.getLogger(__name__)
 

@@ -15,9 +15,9 @@
 """Text chunking strategy with sentence boundary awareness."""
 
 import re
-from typing import List, Optional
+from typing import List
 
-from victor.core.chunking.base import Chunk, ChunkingConfig, ChunkingStrategy
+from victor.core.chunking.base import Chunk, ChunkingStrategy
 
 
 class TextChunkingStrategy(ChunkingStrategy):

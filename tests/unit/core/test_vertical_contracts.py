@@ -6,10 +6,10 @@ protocol conformance, stage graph connectivity, and config fields.
 """
 
 import pytest
-from typing import Any, Dict, List, Optional, Set, Type
+from typing import List
 
 from victor.core.verticals.base import VerticalBase, VerticalConfig
-from victor.core.vertical_types import StageDefinition, TieredToolConfig
+from victor.core.vertical_types import TieredToolConfig
 
 
 @pytest.fixture

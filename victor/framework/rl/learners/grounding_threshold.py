@@ -37,7 +37,6 @@ Sprint 3: Cache & Grounding Learners
 
 import logging
 import math
-import random
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
@@ -59,6 +58,8 @@ class GroundingThresholdLearner(BaseLearner):
         db: SQLite database connection
         learning_rate: Update rate for parameters, default 0.1
     """
+
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_grounding_threshold)
 
     # Discretized threshold levels
     THRESHOLD_LEVELS = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
@@ -112,53 +113,30 @@ class GroundingThresholdLearner(BaseLearner):
         # Load state from database
         self._load_state()
 
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(
-            self.name, RLTableMigrator.migrate_grounding_threshold
-        )
-
     def _load_state(self) -> None:
         """Load state from database."""
         cursor = self.db.cursor()
 
         try:
             # Load Beta parameters from rl_param: param_key = "alpha:{ctx}:{thresh}" / "beta:{ctx}:{thresh}"
-            cursor.execute(
-                f"SELECT param_key, param_value, sample_count FROM {Tables.RL_PARAM}"
-                f" WHERE learner_id = ?",
-                (self.name,),
-            )
-            for row in cursor.fetchall():
-                row_dict = dict(row)
+            for row_dict in self._read_params():
                 key = row_dict["param_key"]
                 value = row_dict["param_value"]
                 if value is None:
                     continue
-                if key.startswith("alpha:"):
-                    rest = key[len("alpha:") :]
-                    # rest = "context_key:threshold"
-                    last_colon = rest.rfind(":")
-                    context_key = rest[:last_colon]
-                    threshold = float(rest[last_colon + 1 :])
-                    if context_key not in self._beta_params:
-                        self._beta_params[context_key] = {}
-                    existing = self._beta_params[context_key].get(
-                        threshold, (self.PRIOR_ALPHA, self.PRIOR_BETA)
-                    )
-                    self._beta_params[context_key][threshold] = (value, existing[1])
+                param, _, rest = key.partition(":")
+                if param not in ("alpha", "beta"):
+                    continue
+                # rest = "context_key:threshold" (the context key may contain ':')
+                context_key, _, threshold_text = rest.rpartition(":")
+                threshold = float(threshold_text)
+                params = self._beta_params.setdefault(context_key, {})
+                alpha, beta = params.get(threshold, (self.PRIOR_ALPHA, self.PRIOR_BETA))
+                if param == "alpha":
+                    params[threshold] = (value, beta)
                     self._total_decisions += row_dict.get("sample_count") or 0
-                elif key.startswith("beta:"):
-                    rest = key[len("beta:") :]
-                    last_colon = rest.rfind(":")
-                    context_key = rest[:last_colon]
-                    threshold = float(rest[last_colon + 1 :])
-                    if context_key not in self._beta_params:
-                        self._beta_params[context_key] = {}
-                    existing = self._beta_params[context_key].get(
-                        threshold, (self.PRIOR_ALPHA, self.PRIOR_BETA)
-                    )
-                    self._beta_params[context_key][threshold] = (existing[0], value)
+                else:
+                    params[threshold] = (alpha, value)
 
         except Exception as e:
             logger.debug(f"RL: Could not load Beta parameters: {e}")
@@ -479,13 +457,7 @@ class GroundingThresholdLearner(BaseLearner):
         Returns:
             Dictionary with fp_rate, fn_rate, precision, recall
         """
-        cursor = self.db.cursor()
-        cursor.execute(
-            f"SELECT stat_key, stat_value FROM {Tables.RL_TASK_STAT}"
-            f" WHERE learner_id = ? AND task_type = ?",
-            (self.name, provider),
-        )
-        counts = {dict(r)["stat_key"]: int(dict(r)["stat_value"]) for r in cursor.fetchall()}
+        counts = {key: int(value) for key, value in self._read_task_stats(provider).items()}
 
         if not counts:
             return {"fp_rate": 0.0, "fn_rate": 0.0, "precision": 0.0, "recall": 0.0}

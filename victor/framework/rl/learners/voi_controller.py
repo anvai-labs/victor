@@ -225,7 +225,6 @@ class VoIController(BaseLearner):
             was_beneficial: Whether the query was beneficial
             metadata: Optional additional metadata
         """
-        import json
 
         metadata_json = json_dumps(metadata) if metadata else None
 

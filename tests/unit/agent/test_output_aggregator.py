@@ -18,7 +18,6 @@ Covers GAP Phase 3: Output aggregation and completion detection.
 """
 
 import pytest
-import time
 from unittest.mock import MagicMock
 
 from victor.agent.output_aggregator import (

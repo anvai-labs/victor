@@ -6,10 +6,8 @@ Tests task-specific fulfillment detection strategies for agentic loops.
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor.framework.fulfillment import (
     AnalysisFulfillment,
@@ -651,13 +649,10 @@ class TestFulfillmentConfigWeights:
 
     def test_default_weights_produce_same_behavior(self):
         """FulfillmentConfig() defaults must reproduce legacy hardcoded behavior."""
-        import asyncio
         from victor.framework.fulfillment import (
             FulfillmentConfig,
             FulfillmentDetector,
-            TaskType,
         )
-        from unittest.mock import patch
 
         config = FulfillmentConfig()
         detector = FulfillmentDetector(config=config)
@@ -672,7 +667,6 @@ class TestFulfillmentConfigWeights:
         from victor.framework.fulfillment import (
             CodeGenerationFulfillment,
             FulfillmentConfig,
-            FulfillmentStatus,
         )
 
         strategy = CodeGenerationFulfillment()

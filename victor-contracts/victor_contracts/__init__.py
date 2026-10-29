@@ -171,6 +171,7 @@ from victor_contracts.workflows import (
     WorkflowContextProtocol,
     register_compute_handlers,
 )
+from victor_contracts.workflows_compute import ComputeStep, make_handler_registrar  # noqa: E402
 from victor_contracts.core.plugins import PluginContext, VictorPlugin
 from victor_contracts.registries import (
     PersonaRegistryProtocol,

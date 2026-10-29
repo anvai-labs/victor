@@ -27,7 +27,6 @@ from victor.agent.coordinators.safety_state_passed import SafetyStatePassedCoord
 from victor.agent.coordinators.system_prompt_state_passed import (
     SystemPromptStatePassedCoordinator,
 )
-from victor.agent.runtime.provider_runtime import LazyRuntimeProxy
 from victor.agent.orchestrator import AgentOrchestrator
 from victor.config.settings import Settings
 
@@ -56,10 +55,7 @@ def orchestrator_settings():
 @pytest.fixture
 def orchestrator(mock_provider, orchestrator_settings):
     """Create an orchestrator for testing."""
-    with (
-        patch("victor.agent.orchestrator.UsageLogger"),
-        patch("victor.core.bootstrap_services.bootstrap_new_services"),
-    ):
+    with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
         return AgentOrchestrator(
             settings=orchestrator_settings,
             provider=mock_provider,

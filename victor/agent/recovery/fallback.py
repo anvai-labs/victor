@@ -37,8 +37,6 @@ from victor.core.circuit_breaker import CircuitState
 
 from victor.agent.recovery.protocols import (
     FailureType,
-    ModelFallbackPolicy,
-    RecoveryContext,
 )
 
 logger = logging.getLogger(__name__)

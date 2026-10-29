@@ -50,7 +50,7 @@ Known Circular Import Chains (documented for future developers):
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Generic, List, Optional, Type, TypeVar, overload
 
 logger = logging.getLogger(__name__)

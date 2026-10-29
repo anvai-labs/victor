@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -403,7 +403,7 @@ class TestCodeContextGraphBuilder:
         """Test that enhanced builder from capability registry is used."""
         from victor.core.capability_registry import CapabilityRegistry, CapabilityStatus
         from victor.framework.vertical_protocols import CCGBuilderProtocol
-        from victor.storage.graph.protocol import GraphNode, GraphEdge
+        from victor.storage.graph.protocol import GraphNode
         import tempfile
 
         # Create a mock enhanced builder

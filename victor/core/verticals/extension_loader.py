@@ -89,7 +89,7 @@ import importlib.util
 import logging
 import threading
 import time
-from abc import ABC, abstractmethod
+from abc import ABC
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
@@ -100,13 +100,10 @@ from typing import (
     List,
     Optional,
     Set,
-    Type,
 )
 
 from victor.core.verticals.extension_cache_manager import ExtensionCacheManager
 from victor.core.verticals.extension_module_resolver import ExtensionModuleResolver
-from victor.core.verticals.import_resolver import vertical_runtime_module_candidates
-from victor.core.verticals.vertical_metadata import VerticalMetadata
 
 if TYPE_CHECKING:
     from victor.core.verticals.protocols import VerticalExtensions
@@ -137,7 +134,7 @@ def _build_team_spec_provider_from_definition(definition: Any) -> Optional[Any]:
         return None
 
     from victor.framework.team_schema import TeamSpec
-    from victor.framework.teams import TeamMemberSpec
+    from victor_contracts.team_schema import TeamMemberSpec
     from victor.teams.types import MemoryConfig, TeamAgentCategory, TeamFormation
 
     @dataclass(frozen=True)

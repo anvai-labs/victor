@@ -6,6 +6,7 @@ These mirror the Rust implementations in rust/src/graph_algo.rs.
 from __future__ import annotations
 
 from collections import deque
+from victor.core.graph_rag.semantic_clones import make_union_find
 
 
 def pagerank(
@@ -132,18 +133,7 @@ def connected_components(adjacency: dict[str, list[str]]) -> list[list[str]]:
     node_idx = {n: i for i, n in enumerate(all_nodes_list)}
     n = len(all_nodes_list)
 
-    parent = list(range(n))
-
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a: int, b: int) -> None:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
+    find, union = make_union_find(n)
 
     for src, neighbors in adjacency.items():
         si = node_idx[src]

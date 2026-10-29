@@ -12,11 +12,7 @@ API calls within a session, enabling provider-level prefix caching
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-from victor.providers.base import Message
+from unittest.mock import MagicMock
 
 
 class TestSessionLockedTools:
@@ -156,7 +152,6 @@ class TestSystemPromptFreeze:
         orch._system_prompt_frozen = True
 
         # The method should return early without rebuilding
-        from victor.agent.orchestrator import AgentOrchestrator
 
         original_prompt = "Original system prompt"
         orch._system_prompt = original_prompt

@@ -53,11 +53,7 @@ class SemanticThresholdLearner(BaseLearner):
         learning_rate: Adjustment rate (0.0-1.0)
     """
 
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(
-            self.name, RLTableMigrator.migrate_semantic_threshold
-        )
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_semantic_threshold)
 
     def _load_context_stats(self, cursor: sqlite3.Cursor, context_key: str) -> dict:
         """Load all stat_keys for a context_key from rl_task_stat."""

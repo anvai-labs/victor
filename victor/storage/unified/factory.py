@@ -25,7 +25,7 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from victor.storage.unified.protocol import UnifiedSymbolStoreProtocol
 

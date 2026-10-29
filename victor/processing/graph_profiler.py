@@ -39,7 +39,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 

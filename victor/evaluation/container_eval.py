@@ -23,11 +23,13 @@ host path — see :class:`DockerUnavailable`.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
+from victor.tools.sandbox_ownership import created_age_seconds, owner_gone, owner_labels
 from victor.workflows.isolation import IsolationConfig, ResourceLimits
 from victor.workflows.sandbox_executor import (
     SANDBOX_CONTAINER_LABEL,
@@ -40,49 +42,85 @@ logger = logging.getLogger(__name__)
 # ``victor.sandbox``; value distinguishes eval from workflow sandboxes).
 EVAL_CONTAINER_LABEL_VALUE = "eval"
 
+# Eval containers created before owner labels existed carry none; the sweep
+# removes those only once they are older than any eval run could still be.
+LEGACY_EVAL_MIN_AGE_SECONDS = 24 * 3600
+
+
+async def _orphaned_eval_containers() -> list[str]:
+    """Ids of eval containers whose owning process is provably gone.
+
+    Owner-labelled containers qualify only when their owner on this host is
+    dead (a concurrent benchmark run's live containers are never selected);
+    unlabeled legacy containers qualify once older than
+    :data:`LEGACY_EVAL_MIN_AGE_SECONDS`.
+    """
+    rc, out, _ = await _run_cmd(
+        [
+            "docker",
+            "ps",
+            "-aq",
+            "--filter",
+            f"label={SANDBOX_CONTAINER_LABEL}={EVAL_CONTAINER_LABEL_VALUE}",
+        ],
+        timeout=30,
+    )
+    ids = [line.strip() for line in out.decode().splitlines() if line.strip()] if rc == 0 else []
+    if not ids:
+        return []
+    rc, out, _ = await _run_cmd(["docker", "inspect", *ids], timeout=60)
+    if rc != 0:
+        return []
+    orphans: list[str] = []
+    for info in json.loads(out.decode() or "[]"):
+        gone = owner_gone((info.get("Config") or {}).get("Labels") or {})
+        if gone is None:
+            gone = created_age_seconds(info.get("Created", "")) >= LEGACY_EVAL_MIN_AGE_SECONDS
+        if gone:
+            orphans.append(info["Id"][:12])
+    return orphans
+
 
 async def cleanup_stale_sandbox_containers() -> int:
     """Remove orphaned victor sandbox containers from prior crashed runs.
 
     If a benchmark process dies (SIGHUP, crash, OOM, manual kill) mid-task, the
-    ``finally``-block teardown doesn't run — ``EvalContainer.stop()`` for the
-    eval sandbox, and likewise the code-executor sandbox's own cleanup — so that
-    container stays alive. Over many crashed runs these accumulate and can
-    exhaust Docker resources (disk, memory, the daemon's container limit).
+    ``finally``-block teardown doesn't run, so its container stays alive. Over
+    many crashed runs these accumulate and can exhaust Docker resources.
 
-    Call this at benchmark START to sweep every orphan under the
-    ``victor.sandbox`` label, both ``=eval`` and ``=code-executor`` values: any
-    sandbox container still alive at a fresh run start is by definition an
-    orphan (a live run holds its own container reference). Filtering by the
-    label KEY — not a single value — is what lets one sweep reclaim both
-    subsystems' leaks (an eval-only filter passed a 3,456-container / ~14 GB
-    code-executor pileup by).
+    Called at benchmark START. Two sweeps, each scoped to what it can prove is
+    orphaned:
+
+    - ``victor.sandbox=eval`` containers (eval runs own one per task) whose
+      owning process is gone; a concurrent run's live containers are kept.
+    - code-executor sandboxes via the coding vertical's owner-aware reaper,
+      which removes only containers whose owning process is gone. Sweeping the
+      whole ``victor.sandbox`` label key here used to remove the LIVE sandbox
+      of any concurrent chat session or run.
 
     Returns the number of containers removed.
     """
+    removed = 0
     try:
-        rc, out, _ = await _run_cmd(
-            [
-                "docker",
-                "ps",
-                "-aq",
-                "--filter",
-                f"label={SANDBOX_CONTAINER_LABEL}",
-            ],
-            timeout=30,
-        )
-        if rc != 0:
-            return 0
-        ids = [line.strip() for line in out.decode().splitlines() if line.strip()]
-        if not ids:
-            return 0
-        rc, _, _ = await _run_cmd(["docker", "rm", "-f", *ids], timeout=120)
-        if rc == 0:
-            logger.info("Cleaned up %d stale sandbox container(s) at startup", len(ids))
-            return len(ids)
+        ids = await _orphaned_eval_containers()
+        if ids:
+            rc, _, _ = await _run_cmd(["docker", "rm", "-f", *ids], timeout=120)
+            if rc == 0:
+                removed += len(ids)
     except Exception as exc:
-        logger.debug("Stale container cleanup failed (non-fatal): %s", exc)
-    return 0
+        logger.debug("Stale eval container cleanup failed (non-fatal): %s", exc)
+
+    try:
+        from victor.core.utils.capability_loader import load_code_executor_module
+
+        reaper = load_code_executor_module().reap_orphaned_sandboxes
+        removed += len(await asyncio.to_thread(reaper))
+    except Exception as exc:  # victor-coding absent or Docker down: nothing to reap
+        logger.debug("Code-executor orphan reap skipped: %s", exc)
+
+    if removed:
+        logger.info("Cleaned up %d stale sandbox container(s) at startup", removed)
+    return removed
 
 
 # Where the task's cached repo is mounted inside the container.
@@ -320,6 +358,8 @@ class EvalContainer:
             label_value=self.label_value,
             workspace_mount=EVAL_WORKSPACE_MOUNT,
         )
+        for key, value in owner_labels().items():
+            create_cmd += ["--label", f"{key}={value}"]
         create_cmd += [self.image, "sleep", "infinity"]
 
         rc, out, err = await self._run(create_cmd, timeout=120)

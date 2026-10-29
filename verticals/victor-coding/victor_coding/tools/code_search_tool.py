@@ -20,7 +20,6 @@ from victor_contracts.search_runtime import (
     build_codebase_index_manifest,
     enable_structural_codebase_embeddings,
     enrich_code_search_results,
-    extract_skeleton,
     has_compatible_codebase_index_manifest,
     has_persisted_codebase_index_data,
     rerank_code_search_results,
@@ -32,7 +31,6 @@ from victor.tools.decorators import tool
 from victor.tools.formatters import format_search_results
 
 if TYPE_CHECKING:
-    from victor.tools.cache_manager import CacheNamespace
 
     # File watching types
     from victor_contracts.indexing_runtime import FileChangeEvent

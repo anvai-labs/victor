@@ -15,7 +15,6 @@ from victor.agent.conversation.types import (
     MessageSource,
 )
 from victor.agent.conversation.scoring import (
-    CONTROLLER_WEIGHTS,
     ScoringWeights,
     score_messages,
 )

@@ -26,7 +26,6 @@ paths while the process is under pytest. Real manipulation is still
 detected and now logged at the correct severity.
 """
 
-import os
 from pathlib import Path
 from unittest.mock import patch
 

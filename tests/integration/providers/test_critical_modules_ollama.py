@@ -29,12 +29,10 @@ Critical modules tested:
 7. Complex Workflows - Multi-step operations
 """
 
-import asyncio
 import socket
 import tempfile
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from typing import List
 
 import pytest
 
@@ -320,7 +318,7 @@ class TestBudgetManagement:
     @pytest.mark.asyncio
     async def test_budget_state_creation(self):
         """Test budget state creation."""
-        from victor.agent.budget_manager import BudgetState
+        from victor.agent.budget import BudgetState
 
         state = BudgetState(
             current=5,

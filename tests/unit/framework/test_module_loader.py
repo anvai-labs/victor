@@ -21,16 +21,12 @@ Tests cover:
 - CachedEntryPoints: Serialization, expiration
 """
 
-import asyncio
 import json
 import sys
-import tempfile
-import threading
 import time
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 

@@ -19,7 +19,6 @@ consolidates duplicate prompt construction logic.
 """
 
 import importlib
-from typing import Dict
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -40,7 +39,6 @@ from victor.framework.prompt_sections import (
     GROUNDING_RULES_MINIMAL,
     GROUNDING_RULES_EXTENDED,
     CODING_IDENTITY,
-    CODING_GUIDELINES,
     DATA_ANALYSIS_GROUNDING,
     DEVOPS_IDENTITY,
     DEVOPS_GROUNDING,

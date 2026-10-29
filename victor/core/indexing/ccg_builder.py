@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from victor.storage.graph.protocol import GraphEdge, GraphNode, GraphStoreProtocol
+    from victor.storage.graph.protocol import GraphNode, GraphStoreProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +196,7 @@ class CodeContextGraphBuilder:
         """
         try:
             from victor.core.capability_registry import CapabilityRegistry
-            from victor.framework.vertical_protocols import CCGBuilderProtocol
+            from victor_contracts.verticals.protocols.storage import CCGBuilderProtocol
 
             registry = CapabilityRegistry.get_instance()
             provider = registry.get(CCGBuilderProtocol)

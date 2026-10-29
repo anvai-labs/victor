@@ -13,7 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 import victor.ui.commands.review as review_cli
-from victor.framework.review import APPROVE, REQUEST_CHANGES, REVIEW_INCOMPLETE, ReviewVerdict
+from victor.framework.review import APPROVE, REQUEST_CHANGES, ReviewVerdict
 from victor.ui.commands.review import (
     _default_reviewers,
     _parse_reviewers,
@@ -43,7 +43,6 @@ class TestParseReviewers:
 
 class TestDefaultReviewers:
     def test_explicit_provider_and_model_win(self):
-        from victor.config.settings import load_settings
 
         specs = _default_reviewers("anthropic", "claude-x")
         assert [(s.provider, s.model) for s in specs] == [("anthropic", "claude-x")]

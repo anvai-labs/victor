@@ -37,7 +37,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 

@@ -47,7 +47,7 @@ import ast
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 

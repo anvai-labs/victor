@@ -542,3 +542,170 @@ def test_agentic_graph_executor_selects_actual_owner_not_unrelated_executors():
         "tests/unit/agent/services/test_turn_execution_runtime.py",
         "tests/unit/providers/test_gateway_policy_resilience.py",
     }
+
+
+# --- import-only changes (unused-import removal sweeps) ---------------------
+
+only_removes_imports = _mod.only_removes_imports
+partition_import_only = _mod.partition_import_only
+
+_BASE = '''\
+import os
+import sys
+from typing import TYPE_CHECKING, Dict, List
+
+if TYPE_CHECKING:
+    from x import Y
+
+try:
+    import tomllib
+except ImportError:
+    pass
+
+
+def f(a: List[int]) -> int:
+    """Doc."""
+    return len(a) + len(os.sep)
+'''
+
+
+def test_removing_unused_imports_is_import_only():
+    new = _BASE.replace("import sys\n", "").replace(", Dict", "")
+    assert only_removes_imports(_BASE, new)
+
+
+def test_dropping_emptied_type_checking_and_probe_blocks_is_import_only():
+    new = _BASE.replace("if TYPE_CHECKING:\n    from x import Y\n\n", "")
+    new = new.replace("try:\n    import tomllib\nexcept ImportError:\n    pass\n\n", "")
+    new = new.replace("TYPE_CHECKING, ", "")
+    assert only_removes_imports(_BASE, new)
+
+
+def test_reformatting_and_noqa_comments_are_import_only():
+    new = _BASE.replace("import os\n", "import os  # noqa: F401 - probe\n")
+    assert only_removes_imports(_BASE, new)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda s: s.replace("import os\n", "import os\nimport json\n"),  # adds an import
+        lambda s: s.replace("from x import Y", "from z import Y"),  # repoints an import
+        lambda s: s.replace("len(a) + len(os.sep)", "len(a)"),  # logic change
+        lambda s: s.replace('"""Doc."""', '"""Changed."""'),  # docstring is code-visible
+        lambda s: s.replace("except ImportError:\n    pass", "except ImportError:\n    raise"),
+    ],
+)
+def test_anything_beyond_import_removal_is_not_import_only(mutate):
+    assert not only_removes_imports(_BASE, mutate(_BASE))
+
+
+def test_new_or_unparsable_files_are_not_import_only():
+    assert not only_removes_imports(None, _BASE)
+    assert not only_removes_imports(_BASE, "def broken(:\n")
+
+
+def test_partition_moves_import_only_core_sources_out_of_selection():
+    bases = {"victor/a.py": _BASE, "victor/b.py": _BASE}
+    current = {
+        "victor/a.py": _BASE.replace("import sys\n", ""),  # import-only
+        "victor/b.py": _BASE.replace("len(a) + len(os.sep)", "0"),  # real change
+    }
+    changed = ["victor/a.py", "victor/b.py", "tests/unit/test_x.py", "docs/x.md"]
+    rest, import_only = partition_import_only(
+        changed, read_base=bases.get, read_current=current.get
+    )
+    assert import_only == ["victor/a.py"]
+    assert rest == ["victor/b.py", "tests/unit/test_x.py", "docs/x.md"]
+
+
+def test_partition_without_base_reader_is_a_no_op():
+    changed = ["victor/a.py"]
+    assert partition_import_only(changed, read_base=None) == (changed, [])
+
+
+def test_import_only_source_without_mirror_no_longer_blocks_selection():
+    # victor/agent/argument_sanitizer.py has no mirror test; an import-only edit
+    # to it must not raise, while a real edit still does.
+    rest, import_only = partition_import_only(
+        ["victor/agent/argument_sanitizer.py"],
+        read_base=lambda p: _BASE,
+        read_current=lambda p: _BASE.replace("import sys\n", ""),
+    )
+    assert import_only == ["victor/agent/argument_sanitizer.py"]
+    assert select(rest) == []
+    with pytest.raises(_mod.SelectionError):
+        select(["victor/agent/argument_sanitizer.py"])
+
+
+# --- import-only test modules ---------------------------------------------
+
+only_drops_unused_test_imports = _mod.only_drops_unused_test_imports
+drop_import_only_tests = _mod.drop_import_only_tests
+
+_TEST_BASE = """\
+import os
+import pytest
+from helpers import tmp_repo
+from unittest.mock import patch
+
+
+def test_a(tmp_repo):
+    assert os.sep
+
+
+def test_warns():
+    with pytest.warns(DeprecationWarning):
+        from pkg import Old
+
+
+def test_probe():
+    try:
+        import optional_dep
+    except ImportError:
+        pytest.skip("absent")
+"""
+
+
+def test_dropping_an_unused_test_import_is_exempt():
+    assert only_drops_unused_test_imports(
+        _TEST_BASE, _TEST_BASE.replace("from unittest.mock import patch\n", "")
+    )
+
+
+def test_emptying_a_warns_block_is_not_exempt():
+    # The import inside pytest.warns IS the assertion; ruff leaves `pass`.
+    new = _TEST_BASE.replace("        from pkg import Old\n", "        pass\n")
+    assert only_removes_imports(_TEST_BASE, new)  # the source rule alone would accept it
+    assert not only_drops_unused_test_imports(_TEST_BASE, new)
+
+
+def test_emptying_an_import_probe_is_not_exempt():
+    new = _TEST_BASE.replace("        import optional_dep\n", "        pass\n")
+    assert not only_drops_unused_test_imports(_TEST_BASE, new)
+
+
+def test_removing_a_requested_fixture_is_not_exempt():
+    # `tmp_repo` looks unused to ruff but test_a requests it as a fixture.
+    new = _TEST_BASE.replace("from helpers import tmp_repo\n", "")
+    assert not only_drops_unused_test_imports(_TEST_BASE, new)
+    usefix = _TEST_BASE + '\n\n@pytest.mark.usefixtures("patch")\ndef test_b():\n    pass\n'
+    assert not only_drops_unused_test_imports(
+        usefix, usefix.replace("from unittest.mock import patch\n", "")
+    )
+
+
+def test_real_test_change_is_not_exempt():
+    assert not only_drops_unused_test_imports(_TEST_BASE, _TEST_BASE.replace("os.sep", "0"))
+    assert not only_drops_unused_test_imports(None, _TEST_BASE)
+
+
+def test_drop_import_only_tests_partitions_tests_only():
+    cleaned = _TEST_BASE.replace("from unittest.mock import patch\n", "")
+    bases = {"tests/unit/test_x.py": _TEST_BASE, "victor/a.py": _TEST_BASE}
+    current = {"tests/unit/test_x.py": cleaned, "victor/a.py": cleaned}
+    changed = ["tests/unit/test_x.py", "victor/a.py", "docs/x.md"]
+    rest, dropped = drop_import_only_tests(changed, read_base=bases.get, read_current=current.get)
+    assert dropped == ["tests/unit/test_x.py"]
+    assert rest == ["victor/a.py", "docs/x.md"]
+    assert drop_import_only_tests(changed, read_base=None) == (changed, [])

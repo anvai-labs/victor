@@ -20,11 +20,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from victor.framework.extensions import (
-    ConversationCoordinator,
-    ConversationStats,
-    TurnType,
-)
+from victor_contracts import TurnType
+from victor_contracts.verticals import VerticalConversationManager
 
 logger = logging.getLogger(__name__)
 
@@ -47,25 +44,26 @@ class DataAnalysisContext:
         }
 
 
-class EnhancedDataAnalysisConversationManager:
-    """Enhanced conversation manager for DataAnalysis."""
+class EnhancedDataAnalysisConversationManager(VerticalConversationManager):
+    """Coordinator-backed conversation manager with the dataanalysis context."""
 
-    def __init__(
-        self,
-        max_history_turns: int = 50,
-        summarization_threshold: int = 40,
-    ):
-        self._conversation_coordinator = ConversationCoordinator(
-            max_history_turns=max_history_turns,
-            summarization_threshold=summarization_threshold,
+    def __init__(self, **kwargs) -> None:
+        super().__init__(
+            DataAnalysisContext,
+            "dataanalysis_context",
+            "dataanalysis",
+            **kwargs,
         )
-        self._context = DataAnalysisContext()
 
     def add_message(self, role: str, content: str, turn_type: TurnType, **kwargs) -> str:
-        return self._conversation_coordinator.add_message(role, content, turn_type)
+        """Backward-compatible kwargs passthrough over the kernel signature."""
+        return super().add_message(role, content, turn_type, **kwargs)
 
     def get_history(self, **kwargs) -> List[Dict[str, Any]]:
-        return self._conversation_coordinator.get_history()
+        return super().get_history(**kwargs)
+
+    def get_dataanalysis_context(self) -> DataAnalysisContext:
+        return self.get_context()
 
     def track_dataset(self, dataset: str) -> None:
         if dataset not in self._context.datasets_loaded:
@@ -88,17 +86,6 @@ class EnhancedDataAnalysisConversationManager:
             for insight in self._context.insights_found:
                 parts.append(f"- {insight}")
         return "\n".join(parts)
-
-    def get_observability_data(self) -> Dict[str, Any]:
-        obs = self._conversation_coordinator.get_observability_data()
-        return {
-            **obs,
-            "dataanalysis_context": self._context.to_dict(),
-            "vertical": "dataanalysis",
-        }
-
-    def get_stats(self) -> ConversationStats:
-        return self._conversation_coordinator.get_stats()
 
 
 __all__ = ["DataAnalysisContext", "EnhancedDataAnalysisConversationManager"]

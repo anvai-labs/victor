@@ -18,7 +18,7 @@ from victor.core.json_utils import json_dumps, json_loads
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from victor.framework.rl.learners.prompt_optimizer import get_failure_hint
+from victor.framework.rl.learners.trace_analysis import get_failure_hint
 from victor.framework.rl.prompt_hygiene import evaluate_prompt_candidate
 
 logger = logging.getLogger(__name__)

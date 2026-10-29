@@ -23,15 +23,12 @@ Part of CRITICAL-001: Monolithic Orchestrator decomposition.
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any, Callable, Dict, Optional, Tuple, TYPE_CHECKING
 
 from victor.config.tool_selection_access import is_semantic_tool_selection_enabled
-from victor.providers.provider_kinds import LOCAL_CLASS_PROVIDERS
 from victor.agent.coordinators.factory_support import (
     create_coordination_advisor_runtime as build_coordination_advisor_runtime,
     create_coordination_state_passed_coordinator as build_coordination_state_passed_coordinator,
-    create_exploration_coordinator as build_exploration_coordinator,
     create_exploration_state_passed_coordinator as build_exploration_state_passed_coordinator,
     create_safety_state_passed_coordinator as build_safety_state_passed_coordinator,
     create_system_prompt_state_passed_coordinator as build_system_prompt_state_passed_coordinator,
@@ -39,12 +36,6 @@ from victor.agent.coordinators.factory_support import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from victor.config.settings import Settings
-    from victor.providers.base import BaseProvider
-    from victor.agent.tool_calling import (
-        BaseToolCallingAdapter,
-        ToolCallingCapabilities,
-    )
     from victor.agent.conversation.controller import ConversationController
     from victor.agent.context_compactor import ContextCompactor
     from victor.agent.recovery import RecoveryHandler

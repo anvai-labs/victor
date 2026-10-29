@@ -14,7 +14,6 @@
 
 """Integration tests for file watcher initialization and cleanup."""
 
-import asyncio
 import tempfile
 import time
 from datetime import datetime

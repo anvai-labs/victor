@@ -19,7 +19,6 @@ TeamSpec creation, and multi-agent team composition.
 """
 
 import pytest
-from typing import List
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
 

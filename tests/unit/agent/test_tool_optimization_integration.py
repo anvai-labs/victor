@@ -14,13 +14,8 @@ Tests cover the 6 optimization features end-to-end:
 
 from __future__ import annotations
 
-import asyncio
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from victor.providers.base import ToolDefinition
 
@@ -195,7 +190,6 @@ class TestTokenBudgetEnforcement:
     def test_demotes_compact_to_stub(self):
         from victor.agent.tool_selection import (
             _enforce_token_budget,
-            _estimate_tool_tokens,
         )
 
         tools = [
@@ -455,7 +449,6 @@ class TestCrossTurnDedup:
         from victor.agent.tool_pipeline import (
             ToolPipeline,
             ToolPipelineConfig,
-            ToolCallResult,
         )
 
         mock_registry = MagicMock()

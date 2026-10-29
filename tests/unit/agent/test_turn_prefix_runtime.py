@@ -13,7 +13,6 @@ import importlib.util
 from pathlib import Path
 
 from victor.agent.conversation.history_metadata import (
-    build_internal_history_metadata,
     is_hidden_from_interactive_history,
     is_user_turn,
 )

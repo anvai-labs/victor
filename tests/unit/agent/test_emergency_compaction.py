@@ -14,7 +14,7 @@ while preserving user intent.
 
 import pytest
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from victor.agent.emergency_compaction import (
     EmergencyCompactionConfig,
@@ -306,7 +306,6 @@ class TestEmergencyCompactionSafety:
 
     def test_logs_emergency_compaction_event(self):
         """Emergency compaction should log an event."""
-        import logging
         from unittest.mock import patch
 
         messages = [MockMessage("system", "System"), MockMessage("user", "User")]

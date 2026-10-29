@@ -13,7 +13,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from victor.agent.conversation.history_metadata import build_internal_history_metadata
 from victor.agent.paradigm_router import get_paradigm_router
@@ -32,7 +32,6 @@ from victor.agent.services.chat_runtime_services import (
 from victor.agent.unified_task_tracker import TrackerTaskType
 from victor.core.loop_thresholds import DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
 from victor.core.errors import (
-    ProviderAuthError,
     ProviderPolicyError,
     ProviderConnectionError,
     ProviderRateLimitError,
@@ -44,7 +43,7 @@ from victor.agent.request_scope_heuristics import (
 )
 from victor.framework.topology_runtime import prepare_topology_runtime_contract
 from victor.core.task.protocols import TaskComplexity
-from victor.core.provider_messages import Message, StreamChunk
+from victor.core.provider_messages import StreamChunk
 from victor.providers.openai_compat import consume_last_tool_message_cleanup_stats
 
 if TYPE_CHECKING:

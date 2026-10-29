@@ -22,7 +22,7 @@ This module provides the foundational classes for chunking documents:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Optional, Protocol
 
 
 @dataclass

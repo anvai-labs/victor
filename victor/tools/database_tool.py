@@ -31,15 +31,12 @@ Features:
 """
 
 import sqlite3
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 from victor.tools.base import AccessMode, DangerLevel, Priority
 from victor.tools.decorators import tool
 from victor.tools.formatters import format_database_results
-
-if TYPE_CHECKING:
-    from victor.tools.cache_manager import CacheNamespace
 
 # Constants
 _DEFAULT_ALLOW_MODIFICATIONS: bool = False

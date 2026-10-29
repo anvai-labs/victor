@@ -32,16 +32,11 @@ from __future__ import annotations
 from victor.core.errors import ProviderPolicyError
 
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional
 
 from victor.framework.agentic_graph._state_utils import normalize_state_argument
 from victor.framework.agentic_graph.state import AgenticLoopStateModel
 from victor.framework.evaluation_nodes import EvaluationDecision
-
-if TYPE_CHECKING:
-    from victor.framework.evaluation_nodes import EnhancedCompletionEvaluator
-    from victor.framework.fulfillment import FulfillmentDetector
-    from victor.agent.services.turn_execution_runtime import TurnExecutor
 
 logger = logging.getLogger(__name__)
 

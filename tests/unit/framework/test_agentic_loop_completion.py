@@ -18,7 +18,6 @@ Tests the _is_complete_response() and _is_continuation_request() methods
 that detect when an LLM response indicates task completion.
 """
 
-import pytest
 from victor.framework.agentic_loop import AgenticLoop
 
 

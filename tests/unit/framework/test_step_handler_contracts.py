@@ -1,7 +1,5 @@
 """Tests for capability contract wiring on step handlers."""
 
-import pytest
-
 
 class TestStepHandlerContracts:
 

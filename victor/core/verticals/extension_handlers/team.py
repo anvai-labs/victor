@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import importlib
 from typing import Any, Dict, Optional, Type
 
 from victor.core.verticals.extension_handlers.base import (

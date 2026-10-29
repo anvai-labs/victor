@@ -69,6 +69,8 @@ if TYPE_CHECKING:
     from victor_contracts.workflow_runtime import ComputeNode
     from victor_contracts.workflow_runtime import NodeResult, WorkflowContext
 
+from victor_contracts.workflows_compute import make_handler_registrar
+
 logger = logging.getLogger(__name__)
 
 
@@ -401,32 +403,15 @@ class PyCaretHandler:
         """Synchronous PyCaret execution."""
         try:
             if task == "classification":
-                from pycaret.classification import (
-                    setup,
-                    compare_models,
-                    pull,
-                    get_config,
-                    finalize_model,
-                )
+                from pycaret.classification import setup, compare_models, pull, finalize_model
 
                 default_sort = "Accuracy"
             elif task == "regression":
-                from pycaret.regression import (
-                    setup,
-                    compare_models,
-                    pull,
-                    get_config,
-                    finalize_model,
-                )
+                from pycaret.regression import setup, compare_models, pull, finalize_model
 
                 default_sort = "R2"
             elif task == "clustering":
-                from pycaret.clustering import (
-                    setup,
-                    create_model,
-                    pull,
-                    get_config,
-                )
+                from pycaret.clustering import setup, create_model, pull
 
                 # Clustering doesn't use compare_models the same way
                 setup(data, session_id=42, verbose=False, html=False)
@@ -438,12 +423,7 @@ class PyCaretHandler:
                     "model": str(model),
                 }
             elif task == "anomaly":
-                from pycaret.anomaly import (
-                    setup,
-                    create_model,
-                    pull,
-                    get_config,
-                )
+                from pycaret.anomaly import setup, create_model, pull
 
                 setup(data, session_id=42, verbose=False, html=False)
                 model = create_model("iforest")
@@ -951,13 +931,7 @@ HANDLERS = {
 }
 
 
-def register_handlers() -> None:
-    """Register DataAnalysis handlers with the workflow executor."""
-    from victor_contracts.workflow_runtime import register_compute_handler
-
-    for name, handler in HANDLERS.items():
-        register_compute_handler(name, handler)
-        logger.debug(f"Registered DataAnalysis handler: {name}")
+register_handlers = make_handler_registrar("Dataanalysis", HANDLERS)
 
 
 __all__ = [

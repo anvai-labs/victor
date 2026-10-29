@@ -352,7 +352,11 @@ async def test_profile_guard_precedes_parse_and_force_deletion(store_and_root, m
 
 
 @pytest.mark.asyncio
-async def test_unversioned_source_cannot_claim_semantic_provenance(store_and_root, monkeypatch):
+async def test_unversioned_source_gets_derived_hash_and_embeds(store_and_root, monkeypatch):
+    """Mixed-graph behavior (2026-10-28 fix): a node whose write path stamped
+    no source_hash no longer fails the pass — its hash is DERIVED from the
+    embed text and written back via evidence (self-healing), so the node
+    embeds and subsequent runs see a canonical hash."""
     store, root = store_and_root
     node = _node("n1", "a.py", "alpha")
     node.metadata = {}
@@ -361,8 +365,10 @@ async def test_unversioned_source_cannot_claim_semantic_provenance(store_and_roo
     provider.index_embedded_documents = AsyncMock()
     _patch_embedding_stack(monkeypatch, provider)
     stats = await _pipeline(store, root)._generate_embeddings()
-    assert stats.error_count == 1
-    provider.index_embedded_documents.assert_not_awaited()
+    assert stats.error_count == 0
+    refreshed = (await store.get_all_nodes())[0]
+    assert refreshed.metadata["source_hash"]
+    assert refreshed.metadata["embedding_source_hash"] == refreshed.metadata["source_hash"]
 
 
 async def test_collection_guard_precedes_force_deletion(store_and_root, monkeypatch):

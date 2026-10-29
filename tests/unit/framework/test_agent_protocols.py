@@ -18,10 +18,8 @@ These tests follow TDD - written before implementation.
 They verify the agent protocols that enable CrewAI-style multi-agent orchestration.
 """
 
-import pytest
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any, Dict, Optional, Set
 
 # =============================================================================
 # AgentCapability Enum Tests
@@ -232,7 +230,6 @@ class TestIAgentRoleProtocol:
 
     def test_role_protocol_is_runtime_checkable(self):
         """IAgentRole should be runtime checkable."""
-        from typing import runtime_checkable
 
         from victor.framework.agent_protocols import IAgentRole
 
@@ -517,8 +514,6 @@ class TestProtocolImplementationCompliance:
         from victor.framework.agent_protocols import (
             AgentCapability,
             AgentMessage,
-            IAgentPersona,
-            IAgentRole,
             ITeamMember,
             MessageType,
         )

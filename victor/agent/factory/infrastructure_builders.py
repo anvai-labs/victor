@@ -24,11 +24,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from victor.config.settings import Settings
-    from victor.providers.base import BaseProvider
     from victor.agent.tool_calling import ToolCallingCapabilities
     from victor.agent.metrics_collector import MetricsCollector
     from victor.agent.usage_analytics import UsageAnalytics
@@ -39,9 +37,7 @@ if TYPE_CHECKING:
     from victor.agent.session_ledger import SessionLedger
     from victor.agent.compaction_summarizer import LedgerAwareCompactionSummarizer
     from victor.agent.compaction_hierarchy import HierarchicalCompactionManager
-    from victor.agent.conversation.controller import ConversationController
     from victor.observability.integration import ObservabilityIntegration
-    from victor.observability.tracing import ExecutionTracer, ToolCallTracer
     from victor.observability.analytics.logger import UsageLogger
     from victor.observability.analytics.streaming_metrics import (
         StreamingMetricsCollector,
@@ -49,7 +45,6 @@ if TYPE_CHECKING:
     from victor.storage.checkpoints import ConversationCheckpointManager
     from victor.agent.orchestrator_integration import IntegrationConfig
     from victor.agent.presentation.protocols import PresentationProtocol
-    from victor.agent.protocols.infrastructure_protocols import DebugLoggerProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +391,6 @@ class InfrastructureBuildersMixin:
             Tuple of (observed_files, executed_tools, failed_tool_signatures,
                      tool_capability_warned)
         """
-        from typing import List
 
         observed_files: List[str] = []
         executed_tools: List[str] = []

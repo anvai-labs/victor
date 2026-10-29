@@ -39,12 +39,10 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from victor.tools.verification.protocols import (
     ClaimIssue,
-    FalsePositiveResult,
 )
 
 logger = logging.getLogger(__name__)

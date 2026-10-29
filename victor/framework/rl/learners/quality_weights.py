@@ -38,7 +38,12 @@ import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    sample_confidence,
+)
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -79,6 +84,8 @@ class QualityWeightLearner(BaseLearner):
         learning_rate: Weight update rate (default 0.05)
         momentum: Momentum factor for smoother updates (default 0.9)
     """
+
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_quality_weights)
 
     # Default weights (matching ResponseQualityScorer.DEFAULT_WEIGHTS)
     DEFAULT_WEIGHTS = {
@@ -137,22 +144,10 @@ class QualityWeightLearner(BaseLearner):
         # Load state from database
         self._load_state()
 
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_quality_weights)
-
     def _load_state(self) -> None:
         """Load state from database."""
-        cursor = self.db.cursor()
-
         try:
-            cursor.execute(
-                f"SELECT param_key, param_value, context, sample_count FROM {Tables.RL_PARAM}"
-                f" WHERE learner_id = ?",
-                (self.name,),
-            )
-            for row in cursor.fetchall():
-                row_dict = dict(row)
+            for row_dict in self._read_params():
                 key = row_dict["param_key"]
                 task_type = row_dict["context"] or ""
                 value = row_dict["param_value"]
@@ -390,12 +385,9 @@ class QualityWeightLearner(BaseLearner):
 
         sample_count = self._sample_counts.get(task_type, 0)
 
-        if sample_count < self.MIN_SAMPLES_FOR_CONFIDENCE:
-            confidence = 0.3 + 0.2 * (sample_count / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            is_baseline = True
-        else:
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-sample_count / 30)))
-            is_baseline = False
+        confidence, is_baseline = sample_confidence(
+            sample_count, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=30
+        )
 
         return RLRecommendation(
             value=dict(self._weights[task_type]),

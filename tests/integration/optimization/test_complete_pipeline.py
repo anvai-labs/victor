@@ -25,10 +25,8 @@ demonstrating all 7 components working together:
 7. Dynamic Threshold Tuning
 """
 
-import pytest
-
-from victor.tools.output_pruner import get_output_pruner, PruningInfo
-from victor.framework.agentic_loop import PlanningGate, AgenticLoop
+from victor.tools.output_pruner import get_output_pruner
+from victor.framework.agentic_loop import PlanningGate
 from victor.agent.paradigm_router import (
     ParadigmRouter,
     ProcessingParadigm,

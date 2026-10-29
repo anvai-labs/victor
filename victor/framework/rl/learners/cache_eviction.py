@@ -26,12 +26,16 @@ Sprint 3: Cache & Grounding Learners
 """
 
 import logging
-import math
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    sample_confidence,
+)
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -97,6 +101,8 @@ class CacheEvictionLearner(BaseLearner):
         epsilon: Exploration rate, default 0.1
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_cache_eviction)
+
     # Default Q-value for unseen state-action pairs
     DEFAULT_Q_VALUE = 0.0
 
@@ -151,10 +157,6 @@ class CacheEvictionLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_cache_eviction)
 
     def _load_state(self) -> None:
         """Load state from database."""
@@ -389,7 +391,6 @@ class CacheEvictionLearner(BaseLearner):
         total_visits = sum(self._visit_counts.get(state_key, {}).values())
 
         # Epsilon-greedy selection
-        import random
 
         if self._rng.random() < self.epsilon:
             action = self._rng.choice(self.ACTIONS)
@@ -407,12 +408,9 @@ class CacheEvictionLearner(BaseLearner):
 
         # Compute confidence
         action_visits = self._visit_counts.get(state_key, {}).get(best_action, 0)
-        if action_visits < self.MIN_SAMPLES_FOR_CONFIDENCE:
-            confidence = 0.3 + 0.2 * (action_visits / self.MIN_SAMPLES_FOR_CONFIDENCE)
-            is_baseline = True
-        else:
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-action_visits / 20)))
-            is_baseline = False
+        confidence, is_baseline = sample_confidence(
+            action_visits, self.MIN_SAMPLES_FOR_CONFIDENCE, scale=20
+        )
 
         return RLRecommendation(
             value=best_action,

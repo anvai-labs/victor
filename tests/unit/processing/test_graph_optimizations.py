@@ -16,9 +16,6 @@
 
 from __future__ import annotations
 
-import time
-
-import pytest
 
 from victor.processing.graph_optimizations import (
     GraphOperationCache,

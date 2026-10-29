@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, Optional, Type, Union
+from typing import TYPE_CHECKING, Optional, Type, Union
 
 from victor.framework.vertical_service import apply_vertical_configuration
 from victor.core.verticals.adapters import ensure_runtime_vertical

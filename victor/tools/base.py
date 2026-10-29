@@ -27,12 +27,17 @@ from pydantic import BaseModel, Field
 
 # Import enums from separate module
 from victor.tools.enums import (
-    AccessMode,
     CostTier,
-    DangerLevel,
-    ExecutionCategory,
-    Priority,
     SchemaLevel,
+)
+
+# Public tool-authoring surface: tools and verticals import these from
+# victor.tools.base (explicit re-export).
+from victor.tools.enums import (
+    AccessMode as AccessMode,
+    DangerLevel as DangerLevel,
+    ExecutionCategory as ExecutionCategory,
+    Priority as Priority,
 )
 
 # Import metadata classes from separate module

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.agent.continuation_contract import (
     ContinuationActionType,
@@ -17,7 +16,6 @@ from victor.agent.loop_evaluation import (
     LoopContext,
     LoopDecision,
 )
-from victor.framework.evaluation_nodes import EvaluationDecision
 
 # =============================================================================
 # Helpers

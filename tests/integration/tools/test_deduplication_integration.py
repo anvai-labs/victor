@@ -2,7 +2,6 @@
 
 from typing import Any, Dict, Optional
 
-import pytest
 
 from victor.tools.deduplication import (
     DeduplicationConfig,
@@ -10,7 +9,7 @@ from victor.tools.deduplication import (
     ToolSource,
 )
 from victor.tools.registry import ToolRegistry
-from victor.tools.base import BaseTool, CostTier, ToolResult, Priority
+from victor.tools.base import BaseTool, CostTier, ToolResult
 
 
 class MockNativeTool(BaseTool):

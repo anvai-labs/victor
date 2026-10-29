@@ -398,7 +398,6 @@ async def _impact_async(
     Returns:
         True if successful
     """
-    from victor.storage.graph.edge_types import EdgeType
 
     root_path = Path(path).resolve()
 
@@ -473,23 +472,11 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
     and when even that leaves multiple candidates, prints them so the user
     can disambiguate with the file:line form instead of a bare refusal.
     """
-    from victor.storage.graph.edge_types import EdgeType
+    from victor.core.graph_rag.target_resolution import resolve_explicit_target
 
-    exact = await graph_store.get_node_by_id(target)
-    if exact is not None:
-        return exact.node_id
-
-    # Check if file:line format
-    if ":" in target:
-        file_path, line_str = target.rsplit(":", 1)
-        try:
-            line = int(line_str)
-            nodes = await graph_store.get_nodes_by_file(file_path)
-            for node in nodes:
-                if node.line and node.line <= line <= (node.end_line or line):
-                    return node.node_id
-        except ValueError:
-            pass
+    handled, identifier = await resolve_explicit_target(target, graph_store)
+    if handled:
+        return identifier
 
     # Search by name
     nodes = await graph_store.find_nodes(name=target)
@@ -1638,3 +1625,127 @@ def graph_init_context(
         console.print(f"[green]✓ Complete in {elapsed:.1f}s[/green]")
     else:
         raise typer.Exit(1)
+
+
+@graph_app.command("similar")
+def graph_similar(
+    path: str = typer.Option(".", "--path", "-p", help="Path to codebase root"),
+    threshold: float = typer.Option(
+        0.90, "--threshold", "-t", min=0.5, max=1.0, help="Cosine similarity threshold"
+    ),
+    top_k: Optional[int] = typer.Option(
+        None,
+        "--neighbors",
+        "-k",
+        min=1,
+        help="Cap neighbours kept per symbol (default: every match above the threshold)",
+    ),
+    limit: int = typer.Option(20, "--limit", "-l", min=1, max=200, help="Max families to show"),
+    same_file: bool = typer.Option(
+        False, "--same-file", help="Include same-file near-duplicates (default: cross-file only)"
+    ),
+    scope: Optional[str] = typer.Option(
+        None, "--scope", help="Limit the scan to a file-path prefix (e.g. victor/ or verticals/)"
+    ),
+    include_tests: bool = typer.Option(
+        False, "--include-tests", help="Scan test trees too (default: source files only)"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+):
+    """Find semantic near-duplicate symbol families (evolved copies).
+
+    Reads the embedding store produced by ``victor graph index --embeddings``
+    and reports symbol families whose docstrings/signatures are semantically
+    near-identical ACROSS files — the duplicates exact-token tools (jscpd)
+    cannot see because the copies drifted. Complements the duplication
+    ratchet; read-only.
+    """
+    from victor.core.graph_rag.semantic_clones import (
+        TooManyPairsError,
+        find_clone_families,
+        load_embedding_symbols,
+    )
+
+    root = Path(os.path.abspath(path))
+    try:
+        records, mat = load_embedding_symbols(root, scope=scope, include_tests=include_tests)
+    except FileNotFoundError:
+        if (root / ".victor" / "embeddings").is_dir():
+            detail = (
+                f"No embedded symbols under scope [cyan]{scope}[/cyan] "
+                "(the index may not have reached that tree yet)"
+                if scope
+                else "The embedding store is present but empty"
+            )
+        else:
+            detail = (
+                "No embedding store found at "
+                f"{root / '.victor' / 'embeddings'} — generate one first: "
+                "[cyan]victor graph index --embeddings[/cyan]"
+            )
+        console.print(f"[yellow]{detail}[/yellow]")
+        raise typer.Exit(1)
+
+    try:
+        with console.status("[dim]scanning…[/dim]") as status:
+            families = find_clone_families(
+                records,
+                mat,
+                threshold=threshold,
+                top_k=top_k,
+                include_same_file=same_file,
+                progress=lambda done, total: status.update(
+                    status=f"[dim]scanning… {done}/{total} symbols[/dim]"
+                ),
+            )
+    except TooManyPairsError as exc:
+        console.print(
+            f"[yellow]{exc}[/yellow]\n"
+            "Try [cyan]--threshold 0.85[/cyan] or higher, or cap with [cyan]--neighbors 3[/cyan]."
+        )
+        raise typer.Exit(1)
+
+    if as_json:
+        import json as _json
+
+        console.print_json(
+            _json.dumps(
+                {
+                    "symbols_indexed": len(records),
+                    "threshold": threshold,
+                    "families": [
+                        {
+                            "similarity": round(f.similarity, 4),
+                            "files": f.files,
+                            "members": [
+                                {
+                                    "file": m.file_path,
+                                    "symbol": m.symbol_name,
+                                    "kind": m.kind,
+                                    "line": m.line_number,
+                                }
+                                for m in f.members
+                            ],
+                        }
+                        for f in families[:limit]
+                    ],
+                }
+            )
+        )
+        return
+
+    console.print(
+        f"[bold]{len(records)}[/bold] symbols · threshold "
+        f"[bold]{threshold}[/bold] · [bold]{len(families)}[/bold] cross-file families\n"
+    )
+    if not families:
+        console.print("[green]No semantic near-duplicates above threshold.[/green]")
+        return
+
+    for fam in families[:limit]:
+        console.print(f"[bold]── family[/bold] (similarity {fam.similarity:.3f})")
+        for m in fam.members[:6]:
+            rel = m.file_path
+            console.print(f"   [cyan]{rel}[/cyan]:{m.line_number} [white]{m.symbol_name}[/white]")
+        if len(fam.members) > 6:
+            console.print(f"   … +{len(fam.members) - 6} more")

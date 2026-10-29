@@ -21,7 +21,7 @@ optimal collaboration patterns for specific tasks.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from victor.framework.patterns.types import (
     CollaborationPattern,

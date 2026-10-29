@@ -14,8 +14,6 @@
 
 """Tests for the consolidated registry base implementation."""
 
-import pytest
-
 from victor.core.registry import BaseRegistry, IRegistry
 
 

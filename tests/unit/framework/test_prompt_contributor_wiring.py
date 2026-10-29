@@ -19,15 +19,13 @@ but was not wired into step handlers (dead code). These tests verify the
 adapter is properly integrated.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from typing import Dict, List, Any
 
-from victor.agent.vertical_context import VerticalContext, create_vertical_context
+from victor.agent.vertical_context import create_vertical_context
 from victor.core.verticals.prompt_adapter import (
     PromptContributorAdapter,
     CompositePromptContributor,
-    create_prompt_adapter,
 )
 from victor.core.verticals.protocols import TaskTypeHint
 from victor.core.verticals.protocols.prompt_provider import PromptSectionContribution

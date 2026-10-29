@@ -61,40 +61,25 @@ Usage:
     )
 """
 
-import hashlib
 from victor.core.json_utils import json_dumps
 import logging
 import math
 import random
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from victor.config.orchestrator_constants import BUDGET_LIMITS
 from victor.core.schema import Tables
+from victor.core.mode_controller import EXTENDED_MODE_TRANSITIONS, ExtendedAgentMode
 
 logger = logging.getLogger(__name__)
 
 
-class AdaptiveAgentMode(Enum):
-    """Extended agent operation modes for adaptive mode control.
-
-    This is an extension of the base AgentMode (victor.agent.mode_controller.AgentMode)
-    with additional modes (REVIEW, COMPLETE) for adaptive behavior tracking.
-
-    Renamed from AgentMode to be semantically distinct:
-    - AgentMode (victor.agent.mode_controller): Base 3 modes (BUILD, PLAN, EXPLORE)
-    - AdaptiveAgentMode: Extended 5 modes for adaptive control
-    - RLAgentMode: Extended 5 modes for RL state machine
-    """
-
-    EXPLORE = "explore"  # Understanding codebase
-    PLAN = "plan"  # Creating implementation plan
-    BUILD = "build"  # Writing/modifying code
-    REVIEW = "review"  # Reviewing changes
-    COMPLETE = "complete"  # Task finished
+# The five-mode state machine is defined once, in core.
+AdaptiveAgentMode = ExtendedAgentMode
 
 
 # Backward compatibility alias
@@ -493,14 +478,8 @@ class AdaptiveModeController:
     - Continuation decisions
     """
 
-    # Valid mode transitions
-    VALID_TRANSITIONS = {
-        AgentMode.EXPLORE: [AgentMode.PLAN, AgentMode.BUILD, AgentMode.COMPLETE],
-        AgentMode.PLAN: [AgentMode.BUILD, AgentMode.EXPLORE, AgentMode.COMPLETE],
-        AgentMode.BUILD: [AgentMode.REVIEW, AgentMode.EXPLORE, AgentMode.COMPLETE],
-        AgentMode.REVIEW: [AgentMode.BUILD, AgentMode.COMPLETE],
-        AgentMode.COMPLETE: [],
-    }
+    # Valid mode transitions (shared definition)
+    VALID_TRANSITIONS = EXTENDED_MODE_TRANSITIONS
 
     # Default tool budgets by task type.
     #

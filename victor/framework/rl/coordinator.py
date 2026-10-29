@@ -65,6 +65,43 @@ def _correlation_for_outcome(outcome: Any) -> tuple:
         return (None, None)
 
 
+def _insert_outcome_row(cursor: Any, learner_name: str, outcome: Any, repo_id: Any) -> None:
+    """Insert one ``rl_outcome`` row; the single writer for every record path.
+
+    The direct path and both batch writers used to build this row separately
+    and had drifted: the batch paths dropped the user-feedback columns, and the
+    direct path dropped ``turn_id`` and bypassed the live request context.
+    """
+    meta = outcome.metadata or {}
+    helpful = meta.get("helpful")
+    cursor.execute(
+        f"""
+        INSERT INTO {Tables.RL_OUTCOME} (
+            learner_id, provider, model, task_type, vertical,
+            repo_id, success, quality_score, metadata,
+            feedback_source, user_feedback, helpful, correction,
+            session_id, turn_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            learner_name,  # Maps to learner_id column
+            outcome.provider,
+            outcome.model,
+            outcome.task_type,
+            outcome.vertical or "general",
+            repo_id,
+            1 if outcome.success else 0,
+            outcome.quality_score,
+            outcome.to_dict()["metadata"],
+            meta.get("feedback_source"),
+            meta.get("user_feedback"),
+            1 if helpful is True else (0 if helpful is False else None),
+            meta.get("correction"),
+            *_correlation_for_outcome(outcome),
+        ),
+    )
+
+
 @dataclass
 class PromptCandidateSuiteWorkflowResult:
     """Result of processing a prompt-candidate benchmark suite."""
@@ -277,7 +314,6 @@ class AsyncWriterQueue:
         Returns:
             Number of outcomes written
         """
-        from datetime import datetime as dt
 
         db = self.coordinator.db
         cursor = db.cursor()
@@ -293,28 +329,7 @@ class AsyncWriterQueue:
                     learner.record_outcome(outcome)
 
                 # Record in shared outcomes table
-                from victor.core.schema import Tables
-
-                cursor.execute(
-                    f"""
-                    INSERT INTO {Tables.RL_OUTCOME} (
-                        learner_id, provider, model, task_type, vertical,
-                        repo_id, success, quality_score, metadata, session_id, turn_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        learner_name,  # Maps to learner_id column
-                        outcome.provider,
-                        outcome.model,
-                        outcome.task_type,
-                        outcome.vertical or "general",
-                        self.coordinator._repo_id,
-                        1 if outcome.success else 0,
-                        outcome.quality_score,
-                        outcome.to_dict()["metadata"],
-                        *_correlation_for_outcome(outcome),
-                    ),
-                )
+                _insert_outcome_row(cursor, learner_name, outcome, self.coordinator._repo_id)
                 count += 1
 
             # Single commit for all outcomes
@@ -445,26 +460,7 @@ class BatchedOutcomeWriter:
                     learner.record_outcome(outcome)
 
                 # Record in shared outcomes table
-                cursor.execute(
-                    f"""
-                    INSERT INTO {Tables.RL_OUTCOME} (
-                        learner_id, provider, model, task_type, vertical,
-                        repo_id, success, quality_score, metadata, session_id, turn_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        learner_name,  # Maps to learner_id column
-                        outcome.provider,
-                        outcome.model,
-                        outcome.task_type,
-                        outcome.vertical or "general",
-                        self.coordinator._repo_id,
-                        1 if outcome.success else 0,
-                        outcome.quality_score,
-                        outcome.to_dict()["metadata"],
-                        *_correlation_for_outcome(outcome),
-                    ),
-                )
+                _insert_outcome_row(cursor, learner_name, outcome, self.coordinator._repo_id)
 
             # Single commit for all outcomes
             db.commit()
@@ -1137,38 +1133,8 @@ class RLCoordinator:
             # Record in learner-specific tables
             learner.record_outcome(outcome)
 
-            # Record in shared outcomes table with repo_id and Phase 1 columns
-            meta = outcome.metadata or {}
-            cursor = self.db.cursor()
-            cursor.execute(
-                f"""
-                INSERT INTO {Tables.RL_OUTCOME} (
-                    learner_id, provider, model, task_type, vertical,
-                    repo_id, success, quality_score, metadata,
-                    feedback_source, user_feedback, helpful, correction, session_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    learner_name,
-                    outcome.provider,
-                    outcome.model,
-                    outcome.task_type,
-                    outcome.vertical or "general",
-                    self._repo_id,
-                    1 if outcome.success else 0,
-                    outcome.quality_score,
-                    outcome.to_dict()["metadata"],
-                    meta.get("feedback_source"),
-                    meta.get("user_feedback"),
-                    (
-                        1
-                        if meta.get("helpful") is True
-                        else (0 if meta.get("helpful") is False else None)
-                    ),
-                    meta.get("correction"),
-                    meta.get("session_id"),
-                ),
-            )
+            # Record in shared outcomes table
+            _insert_outcome_row(self.db.cursor(), learner_name, outcome, self._repo_id)
             self.db.commit()
 
             # Also record telemetry metric
@@ -1205,7 +1171,6 @@ class RLCoordinator:
         """
         try:
             self._ensure_db_connection()
-            import json
 
             cursor = self.db.cursor()
             cursor.execute(

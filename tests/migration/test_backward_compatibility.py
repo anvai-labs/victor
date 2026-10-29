@@ -32,7 +32,6 @@ import pytest
 
 from victor.core.verticals.vertical_metadata import (
     VerticalMetadata,
-    VerticalNamingPattern,
 )
 from victor_contracts.verticals import VerticalBase
 

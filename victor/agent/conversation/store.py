@@ -40,21 +40,17 @@ Usage:
 """
 
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 import asyncio
 import logging
 import os
-import re
 import sqlite3
 import time
 
 from victor.core.async_utils import run_sync
 from victor.core.json_utils import json_dumps, json_loads
-from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 import uuid
 
 if TYPE_CHECKING:
@@ -69,13 +65,12 @@ _SQLITE_WRITE_RETRY_DELAYS = (0.05, 0.15, 0.35)
 # Canonical enums from conversation/types.py
 from victor.agent.conversation.types import (
     ConversationMessage,
-    MESSAGE_SOURCE_METADATA_KEY,
     MessagePriority,
     MessageRole,
     MessageSource,
 )
 from victor.agent.runtime.context import AgentRuntimeContext
-from victor.agent.services.context_service import ContextService, ContextServiceConfig
+from victor.agent.services.context_service import ContextService
 
 # ML metadata extracted to victor/agent/ml_metadata.py
 from victor.agent.ml_metadata import (  # noqa: F401

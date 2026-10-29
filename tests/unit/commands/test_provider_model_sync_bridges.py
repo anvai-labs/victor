@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import inspect
-import json
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 from pathlib import Path
 
 import pytest
 import typer
-import click
 
 import victor.ui.commands.ab_testing as ab_testing_cmd
 import victor.ui.commands.benchmark as benchmark_cmd

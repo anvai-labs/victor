@@ -1,7 +1,6 @@
 """Tests for Codex-verified plugin/vertical architecture fixes."""
 
-from unittest.mock import MagicMock, AsyncMock, patch
-from dataclasses import dataclass
+from unittest.mock import MagicMock
 import pytest
 
 # =====================================================================

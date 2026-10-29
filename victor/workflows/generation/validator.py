@@ -42,11 +42,8 @@ Example:
             print(f"  {error.location}: {error.message}")
 """
 
-import copy
 import logging
-import re
-from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from victor.workflows.generation.requirements import RequirementValidationResult
@@ -1440,7 +1437,6 @@ class RequirementValidator:
         # Import here to avoid circular dependency
         from victor.workflows.generation.requirements import (
             RequirementValidationResult,
-            RequirementValidationError,
         )
 
         errors = []

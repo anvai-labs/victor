@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from victor.agent.services.exploration_runtime import (
     ExplorationCoordinator,
@@ -23,7 +23,6 @@ from victor.agent.coordinators.state_context import (
     CoordinatorResult,
     ContextSnapshot,
     TransitionBatch,
-    TransitionType,
 )
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,5 @@
 """Unit tests for DockerFormatter."""
 
-import pytest
-
 from victor.tools.formatters.docker import DockerFormatter
 
 

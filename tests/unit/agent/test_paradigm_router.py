@@ -16,7 +16,6 @@
 
 import importlib
 
-import pytest
 
 from victor.agent.paradigm_router import (
     ParadigmRouter,

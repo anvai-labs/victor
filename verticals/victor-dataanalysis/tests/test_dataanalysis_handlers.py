@@ -16,46 +16,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from victor_contracts.testing import MockComputeNode, MockToolResult, MockWorkflowContext
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-
-class MockToolResult:
-    """Mock tool result for testing."""
-
-    def __init__(self, success: bool = True, output: Any = None, error: str = None):
-        self.success = success
-        self.output = output
-        self.error = error
-
-
-class MockComputeNode:
-    """Mock compute node for testing."""
-
-    def __init__(
-        self,
-        node_id: str = "test_node",
-        input_mapping: Dict[str, Any] = None,
-        output_key: str = None,
-    ):
-        self.id = node_id
-        self.input_mapping = input_mapping or {}
-        self.output_key = output_key
-
-
-class MockWorkflowContext:
-    """Mock workflow context for testing."""
-
-    def __init__(self, data: Dict[str, Any] = None):
-        self._data = data or {}
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
-
-    def set(self, key: str, value: Any) -> None:
-        self._data[key] = value
 
 
 class TestStatsComputeHandler:
@@ -883,3 +847,33 @@ class TestNewHandlersInRegistry:
         assert "PyCaretHandler" in handlers.__all__
         assert "AutoSklearnHandler" in handlers.__all__
         assert "RLTrainingHandler" in handlers.__all__
+
+
+class TestRegistrationNeverMutatesTheGlobalRegistry:
+    """Dedup F5: registration is host-side-registrar only.
+
+    The legacy dataanalysis/rag loops mutated the GLOBAL
+    register_compute_handler registry at import/call time, polluting across
+    tests and sessions. The unified factory must never touch it.
+    """
+
+    def test_register_handlers_never_touches_the_global_path(self):
+        """The legacy loop called register_compute_handler, which lazily
+        redirects into the victor HOST runtime — unavailable in isolated
+        vertical installs and polluting globally when present. The unified
+        factory must never import that path."""
+        import sys
+
+        from victor_dataanalysis.handlers import HANDLERS, register_handlers
+
+        sys.modules.pop("victor_contracts.workflow_executor_runtime", None)
+        result = register_handlers()
+        assert "victor_contracts.workflow_executor_runtime" not in sys.modules
+        assert result == HANDLERS  # no-registrar call returns the table
+
+    def test_register_handlers_signature_keeps_registrar_param(self):
+        import inspect
+
+        from victor_dataanalysis.handlers import register_handlers
+
+        assert "registrar" in inspect.signature(register_handlers).parameters

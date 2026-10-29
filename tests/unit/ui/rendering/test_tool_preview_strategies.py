@@ -6,7 +6,6 @@ of the strategy, independent of implementation details.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock
 
 from victor.ui.rendering.tool_preview import (

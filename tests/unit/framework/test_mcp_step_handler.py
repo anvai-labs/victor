@@ -6,8 +6,6 @@
 from unittest.mock import MagicMock
 from typing import Dict, Any, List, Optional
 
-import pytest
-
 
 class FakeMcpProvider:
     """Fake vertical implementing McpProvider protocol."""

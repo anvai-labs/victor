@@ -48,12 +48,11 @@ from __future__ import annotations
 import logging
 import time
 import threading
-import warnings
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from victor.core.verticals.composition import CapabilityComposer
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import (
     Any,
@@ -62,7 +61,6 @@ from typing import (
     Iterable,
     List,
     Optional,
-    Set,
     Type,
     TYPE_CHECKING,
 )
@@ -90,7 +88,6 @@ from victor.core.verticals.workflow_provider import VerticalWorkflowProvider
 # Re-export for backward compatibility
 from victor.core.vertical_types import (
     StageDefinition,
-    StageBuilder,
 )
 
 # Framework capabilities loaded lazily in _get_stage_capability() and
@@ -100,9 +97,6 @@ from victor.core.vertical_types import (
 from victor.core.verticals.protocols.stages import (
     validate_stage_contract,
 )
-
-if TYPE_CHECKING:
-    from victor.core.verticals.protocols import VerticalExtensions
 
 logger = logging.getLogger(__name__)
 
@@ -552,7 +546,7 @@ class VerticalBase(
 
         # Convert framework stage dicts to StageDefinition objects
         # This maintains backward compatibility while using framework capabilities
-        from victor.core.vertical_types import normalize_stage_definition
+        from victor_contracts.core.types import normalize_stage_definition
 
         stages = {}
         for stage_name, stage_def in framework_stages.items():

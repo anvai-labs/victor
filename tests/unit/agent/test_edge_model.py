@@ -14,11 +14,8 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
-from typing import List
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.agent.edge_model import (
     EdgeModelConfig,

@@ -14,7 +14,7 @@ from victor.ml.parity_gate import (  # noqa: E402
     ship_verdict,
     train_test_split_by_type,
 )
-from victor.ml.trainer import train_model  # noqa: E402
+from victor.ml.trainer import train_model  # noqa: E402, F401
 
 _PASS = [
     "all parser tests pass and the fix is verified",

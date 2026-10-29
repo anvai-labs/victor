@@ -22,7 +22,6 @@ import pytest
 from unittest import mock
 
 from victor.tools.registration.strategies.base import (
-    ToolRegistrationStrategy,
     FunctionDecoratorStrategy,
     BaseToolSubclassStrategy,
     MCPDictStrategy,

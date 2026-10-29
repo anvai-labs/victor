@@ -32,8 +32,6 @@ This test scans actual installed packages to detect import violations.
 
 import ast
 import importlib
-import os
-import sys
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 

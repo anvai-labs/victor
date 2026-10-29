@@ -24,7 +24,7 @@ try:
     )
 except ImportError:
     # SDK doesn't have tool_dependencies yet — provide stubs
-    from typing import Any, Dict, List, Optional
+    from typing import Any, List
 
     class BaseToolDependencyProvider:  # type: ignore[no-redef]
         """Stub — install updated victor-contracts for full implementation."""

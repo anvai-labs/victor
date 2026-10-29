@@ -110,7 +110,6 @@ def _warm_start_experience_store(store: Any, limit: int = 2000) -> None:
     R2 canonical ``reward_from_signals`` so it matches the live feed exactly.
     """
     try:
-        import json
 
         from victor.core.database import get_database
         from victor.framework.rl.reward import reward_from_signals

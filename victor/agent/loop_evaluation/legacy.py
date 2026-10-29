@@ -11,16 +11,13 @@ This backend is the default when ``USE_STATEGRAPH_AGENTIC_LOOP`` is OFF.
 from __future__ import annotations
 
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from victor.agent.loop_evaluation.protocol import (
     LoopContext,
     LoopDecision,
     LoopEvaluator,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

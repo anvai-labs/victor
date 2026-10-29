@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
 from victor.agent.conversation.assembler import TurnBoundaryContextAssembler
 from victor.agent.conversation.history_metadata import (

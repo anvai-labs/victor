@@ -474,6 +474,8 @@ context:
 | `code_executor_network_disabled` | `True` | Disable network in sandbox |
 | `code_executor_memory_limit` | `512m` | Memory limit |
 | `code_executor_cpu_shares` | `256` | CPU shares |
+| `code_executor_image` | `python:3.11-slim` | Sandbox image (needs `sh`, `stat`, `date`, `timeout`) |
+| `code_executor_idle_ttl_seconds` | `900` | Idle seconds after which the sandbox container removes itself (min 10) |
 
 ---
 

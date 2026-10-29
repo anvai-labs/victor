@@ -67,7 +67,6 @@ Usage:
     stats = pipeline.get_stats()
 """
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass, field

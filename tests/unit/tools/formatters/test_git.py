@@ -1,7 +1,5 @@
 """Unit tests for GitFormatter."""
 
-import pytest
-
 from victor.tools.formatters.git import GitFormatter
 
 

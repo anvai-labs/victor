@@ -21,12 +21,10 @@ Uses a small model (Qwen/Qwen2.5-Coder-1.5B-Instruct) for faster testing.
 """
 
 import pytest
-from httpx import ConnectError, HTTPError
 import httpx
 import subprocess
 import time
 import os
-import signal
 import sys
 import platform
 
@@ -71,7 +69,7 @@ def vllm_server():
 
     # Check if vllm is installed
     try:
-        import vllm
+        import vllm  # noqa: F401
 
         vllm_available = True
     except ImportError:

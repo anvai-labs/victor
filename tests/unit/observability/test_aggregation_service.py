@@ -16,7 +16,7 @@
 
 import pytest
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from victor.observability.aggregation_service import (
     AggregationService,

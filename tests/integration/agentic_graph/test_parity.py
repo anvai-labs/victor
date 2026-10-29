@@ -19,7 +19,7 @@ equivalent results to the legacy while loop implementation.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.core.feature_flags import FeatureFlag, is_feature_enabled
 from victor.framework.agentic_loop import AgenticLoop

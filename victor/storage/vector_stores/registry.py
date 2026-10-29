@@ -17,7 +17,7 @@
 import hashlib
 import logging
 import threading
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Type
 
 from victor.storage.vector_stores.base import BaseEmbeddingProvider, EmbeddingConfig
 

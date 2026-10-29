@@ -37,18 +37,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import Awaitable, Callable
 
 from victor.core.async_utils import run_sync, run_sync_in_thread
 from victor.core.events.protocols import (
-    EventHandler,
     MessagingEvent,
     IEventBackend,
     SubscriptionHandle,
 )
-
-if TYPE_CHECKING:
-    from victor.core.events import ObservabilityBus
 
 logger = logging.getLogger(__name__)
 

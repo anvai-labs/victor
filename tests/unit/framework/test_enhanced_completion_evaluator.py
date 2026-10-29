@@ -26,7 +26,7 @@ from victor.framework.enhanced_completion_evaluation import (
 from victor.framework.evaluation_nodes import EvaluationDecision
 from victor.framework.fulfillment import FulfillmentDetector
 from victor.framework.perception_integration import RequirementType, Requirement
-from victor.framework.completion_scorer import CompletionScore, TaskType
+from victor.framework.completion_scorer import CompletionScore
 from victor.framework.completion_scorer import CompletionSignal
 from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.agent.turn_policy import SpinState

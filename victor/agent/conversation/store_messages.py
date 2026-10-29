@@ -18,10 +18,9 @@ from __future__ import annotations
 import logging
 import sqlite3
 import uuid
-import json
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from victor.agent.conversation.store import ConversationStore
@@ -36,7 +35,7 @@ from victor.agent.conversation.types import (
 from victor.agent.conversation.session_model import ConversationSession
 from victor.agent.runtime.context import AgentRuntimeContext
 from victor.agent.services.context_service import ContextService, ContextServiceConfig
-from victor.core.json_utils import json_dumps, json_loads
+from victor.core.json_utils import json_dumps
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 
 logger = logging.getLogger(__name__)

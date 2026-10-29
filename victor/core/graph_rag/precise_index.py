@@ -42,9 +42,7 @@ Contract (mirrors the tier-2.5 capability-probe posture):
 from __future__ import annotations
 
 import logging
-import os
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional

@@ -40,11 +40,10 @@ logger = logging.getLogger(__name__)
 
 from victor.agent.config import (
     FrameworkCompatibleAgentConfig,
-    UnifiedAgentConfig,
     normalize_agent_config,
 )
-from victor.core.errors import AgentError, CancellationError, ProviderError
-from victor.framework.events import AgentExecutionEvent, EventType
+from victor.core.errors import AgentError, ProviderError
+from victor.framework.events import AgentExecutionEvent
 from victor.framework.message_execution import execute_message, stream_message_events
 from victor.framework.state import State, StateObserver
 from victor.framework.task import TaskResult
@@ -258,7 +257,6 @@ class Agent:
         """
         from victor.config.settings import load_settings
         from victor.framework.agent_factory import AgentFactory, InitializationError
-        from victor.framework.session_config import SessionConfig
 
         # Load settings (or use config overrides). fresh=True: mutated below
         # (workspace/config/session overlays) — must not disturb the shared
@@ -1525,6 +1523,5 @@ class ChatSession:
         Returns:
             The underlying AgentSession instance
         """
-        from victor.framework.agent_components import AgentSession
 
         return self._delegate

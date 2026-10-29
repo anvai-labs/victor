@@ -1,7 +1,5 @@
 """TDD tests for enabling parallel pipeline execution by default."""
 
-import pytest
-
 
 class TestParallelDefaultEnabled:
 

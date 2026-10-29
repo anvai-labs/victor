@@ -29,10 +29,10 @@ Integration Point:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List
 
-from victor_contracts import SafetyAction, SafetyCategory, SafetyCoordinator, SafetyRule
-from victor_contracts.verticals import SafetyExtensionProtocol, SafetyPattern
+from victor_contracts import SafetyAction, SafetyCategory, SafetyRule
+from victor_contracts.verticals import CoordinatorSafetyExtension
 
 logger = logging.getLogger(__name__)
 
@@ -198,150 +198,20 @@ class ResearchSafetyRules:
         return rules
 
 
-class EnhancedResearchSafetyExtension(SafetyExtensionProtocol):
-    """Enhanced safety extension for Research using SafetyCoordinator.
+class EnhancedResearchSafetyExtension(CoordinatorSafetyExtension):
+    """Enhanced research safety extension (shared coordinator kernel)."""
 
-    This class provides the SafetyExtensionProtocol interface while
-    delegating to the framework's SafetyCoordinator for actual
-    safety checking.
-
-    Example:
-        extension = EnhancedResearchSafetyExtension()
-
-        # Check if an operation is safe
-        result = extension.check_operation("web", ["scrape", "--bulk", "target"])
-        if not result.is_safe:
-            print(f"Warning: {result.confirmation_prompt}")
-    """
-
-    def __init__(
-        self,
-        strict_mode: bool = False,
-        enable_custom_rules: bool = True,
-    ):
-        """Initialize the enhanced safety extension.
-
-        Args:
-            strict_mode: If True, treat warnings as blocks
-            enable_custom_rules: If True, enable custom research-specific rules
-        """
-        self._strict_mode = strict_mode
-        self._enable_custom_rules = enable_custom_rules
-
-        # Create SafetyCoordinator with research-specific rules
-        self._coordinator = SafetyCoordinator(
+    def __init__(self, strict_mode: bool = False, enable_custom_rules: bool = True):
+        super().__init__(
+            "research",
+            ResearchSafetyRules.get_all_rules(),
             strict_mode=strict_mode,
-            enable_default_rules=True,
+            enable_custom_rules=enable_custom_rules,
+            tool_restrictions={
+                "web": ["scrape --bulk", "crawl --all"],
+                "shell": ["rm -rf results/*", "delete experiments/*"],
+            },
         )
-
-        # Register research-specific rules
-        if enable_custom_rules:
-            for rule in ResearchSafetyRules.get_all_rules():
-                self._coordinator.register_rule(rule)
-
-        logger.info(
-            f"EnhancedResearchSafetyExtension initialized with "
-            f"{len(self._coordinator.list_rules())} safety rules"
-        )
-
-    def check_operation(
-        self,
-        tool_name: str,
-        args: List[str],
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Any:
-        """Check if an operation is safe.
-
-        Args:
-            tool_name: Name of the tool being called
-            args: Arguments to the tool
-            context: Optional context for the check
-
-        Returns:
-            SafetyCheckResult from the coordinator
-        """
-        return self._coordinator.check_safety(tool_name, args, context)
-
-    def is_operation_safe(
-        self,
-        tool_name: str,
-        args: List[str],
-        context: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """Quick check if an operation is safe.
-
-        Args:
-            tool_name: Name of the tool
-            args: Tool arguments
-            context: Optional context
-
-        Returns:
-            True if operation is safe, False otherwise
-        """
-        return self._coordinator.is_operation_safe(tool_name, args, context)
-
-    def get_bash_patterns(self) -> List[SafetyPattern]:
-        """Get research-specific bash command patterns.
-
-        Returns:
-            List of safety patterns for dangerous bash commands
-        """
-        return []
-
-    def get_file_patterns(self) -> List[SafetyPattern]:
-        """Get research-specific file operation patterns.
-
-        Returns:
-            List of safety patterns for file operations
-        """
-        return []
-
-    def get_tool_restrictions(self) -> Dict[str, List[str]]:
-        """Get tool-specific argument restrictions.
-
-        Returns:
-            Dictionary mapping tool names to restricted arguments
-        """
-        return {
-            "web": ["scrape --bulk", "crawl --all"],
-            "shell": ["rm -rf results/*", "delete experiments/*"],
-        }
-
-    def get_coordinator(self) -> SafetyCoordinator:
-        """Get the underlying SafetyCoordinator.
-
-        Returns:
-            SafetyCoordinator instance
-        """
-        return self._coordinator
-
-    def add_custom_rule(self, rule: SafetyRule) -> None:
-        """Add a custom safety rule.
-
-        Args:
-            rule: Safety rule to add
-        """
-        self._coordinator.register_rule(rule)
-        logger.debug(f"Added custom safety rule: {rule.rule_id}")
-
-    def remove_rule(self, rule_id: str) -> bool:
-        """Remove a safety rule.
-
-        Args:
-            rule_id: ID of the rule to remove
-
-        Returns:
-            True if rule was removed, False if not found
-        """
-        return self._coordinator.unregister_rule(rule_id)
-
-    def get_safety_stats(self) -> Dict[str, Any]:
-        """Get safety statistics.
-
-        Returns:
-            Dictionary with safety statistics
-        """
-        return self._coordinator.get_stats_dict()
 
 
 __all__ = [

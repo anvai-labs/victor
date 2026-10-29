@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from victor.tools.base import BaseTool, CostTier, ToolResult
 from victor.agent.delegation.protocol import DelegationRequest

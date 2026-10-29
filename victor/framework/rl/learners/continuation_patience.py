@@ -53,11 +53,7 @@ class ContinuationPatienceLearner(BaseLearner):
         learning_rate: Adjustment rate (0.0-1.0)
     """
 
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(
-            self.name, RLTableMigrator.migrate_continuation_patience
-        )
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_continuation_patience)
 
     def record_outcome(self, outcome: RLOutcome) -> None:
         """Record continuation patience outcome.
@@ -77,25 +73,12 @@ class ContinuationPatienceLearner(BaseLearner):
         cursor = self.db.cursor()
 
         # Load existing stats from rl_task_stat
-        cursor.execute(
-            f"SELECT stat_key, stat_value FROM {Tables.RL_TASK_STAT}"
-            f" WHERE learner_id = ? AND task_type = ?",
-            (self.name, context_key),
-        )
-        row_map = {
-            row_dict["stat_key"]: row_dict["stat_value"]
-            for row_dict in (dict(r) for r in cursor.fetchall())
-        }
+        row_map = self._read_task_stats(context_key)
 
         # Load current_patience from rl_param
-        cursor.execute(
-            f"SELECT param_value FROM {Tables.RL_PARAM}"
-            f" WHERE learner_id = ? AND param_key = 'current_patience' AND context = ?",
-            (self.name, context_key),
-        )
-        patience_row = cursor.fetchone()
+        stored_patience = self._read_param("current_patience", context_key)
         baseline = self._get_provider_baseline("continuation_patience") or 3
-        current_patience = int(patience_row["param_value"]) if patience_row else baseline
+        current_patience = int(stored_patience) if stored_patience is not None else baseline
 
         total_sessions = int(row_map.get("total_sessions", 0))
         false_positives = int(row_map.get("false_positives", 0))
@@ -221,23 +204,11 @@ class ContinuationPatienceLearner(BaseLearner):
         """
         context_key = self._get_context_key(provider, model, task_type)
 
-        cursor = self.db.cursor()
+        row_map = self._read_task_stats(context_key)
 
-        cursor.execute(
-            f"SELECT stat_key, stat_value FROM {Tables.RL_TASK_STAT}"
-            f" WHERE learner_id = ? AND task_type = ?",
-            (self.name, context_key),
-        )
-        row_map = {r["stat_key"]: r["stat_value"] for r in (dict(row) for row in cursor.fetchall())}
+        stored_patience = self._read_param("current_patience", context_key)
 
-        cursor.execute(
-            f"SELECT param_value FROM {Tables.RL_PARAM}"
-            f" WHERE learner_id = ? AND param_key = 'current_patience' AND context = ?",
-            (self.name, context_key),
-        )
-        patience_row = cursor.fetchone()
-
-        if not row_map and patience_row is None:
+        if not row_map and stored_patience is None:
             baseline = self._get_provider_baseline("continuation_patience")
             if baseline is not None:
                 return RLRecommendation(
@@ -253,7 +224,9 @@ class ContinuationPatienceLearner(BaseLearner):
         false_positives = int(row_map.get("false_positives", 0))
         missed_stuck_loops = int(row_map.get("missed_stuck_loops", 0))
         baseline_patience = self._get_provider_baseline("continuation_patience") or 3
-        current_patience = int(patience_row["param_value"]) if patience_row else baseline_patience
+        current_patience = (
+            int(stored_patience) if stored_patience is not None else baseline_patience
+        )
 
         if total_sessions < 5:
             return RLRecommendation(

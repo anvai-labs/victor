@@ -35,17 +35,14 @@ Pattern:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 from victor.framework.agentic_graph._state_utils import normalize_state_argument
 from victor.framework.agentic_graph.state import AgenticLoopStateModel
 
 if TYPE_CHECKING:
     from victor.agent.coordinators.state_context import (
-        CoordinatorResult,
         ContextSnapshot,
-        StateTransition,
         TransitionBatch,
     )
 

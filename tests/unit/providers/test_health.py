@@ -15,9 +15,8 @@
 """Tests for victor.providers.health module."""
 
 import asyncio
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, MagicMock
 
-import pytest
 
 from victor.providers.health import (
     ProviderHealthChecker,

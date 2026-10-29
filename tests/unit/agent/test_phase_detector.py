@@ -11,10 +11,8 @@ Tests cover:
 
 import time
 
-import pytest
 
 from victor.agent.context_phase_detector import (
-    PhaseDetectionResult,
     PhaseDetectionStrategy,
     PhaseDetector,
     PhaseTransitionDetector,

@@ -22,12 +22,11 @@ Tests the integration between verticals and global registries:
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
-from typing import Dict, Any, Optional, List
+from unittest.mock import MagicMock
+from typing import Dict, Any, List
 
 from victor.core.verticals.base import VerticalBase
 from victor.core.verticals.import_resolver import import_module_with_fallback
-from victor.agent.vertical_context import VerticalContext
 
 
 def _load_vertical_attr(module_path: str, attr_name: str):

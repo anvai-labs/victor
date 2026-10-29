@@ -86,8 +86,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from victor.agent.services.turn_execution_runtime import TurnResult
-    from victor.framework.agentic_loop import SpinState
-    from victor.framework.fulfillment import FulfillmentDetector
     from victor.framework.perception_integration import Perception
 
 
@@ -183,7 +181,6 @@ class EnhancedCompletionEvaluator:
         Returns:
             EvaluationResult with decision and rationale
         """
-        from victor.framework.evaluation_nodes import EvaluationResult
         from victor.agent.services.turn_execution_runtime import TurnResult
 
         # === PRIORITY 1: Spin Detection (always check) ===

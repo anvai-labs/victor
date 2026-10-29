@@ -10,8 +10,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
-
 
 class TestNoCodingImports:
     """Verify coding_support.py has no direct from victor_coding imports."""
@@ -48,7 +46,6 @@ class TestNoCodingImports:
         """The public API must still be available."""
         from victor.core.utils.capability_loader import (
             load_codebase_analyzer_module,
-            load_codebase_analyzer_attr,
             load_tree_sitter_get_parser,
             load_coding_analyze_app,
         )

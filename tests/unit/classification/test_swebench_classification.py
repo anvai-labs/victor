@@ -27,8 +27,6 @@ from victor.classification import (
     PatternMatcher,
     NudgeEngine,
     TaskType,
-    match_first_pattern,
-    match_all_patterns,
 )
 from victor.classification.nudge_engine import reset_singletons
 from victor.framework.task.protocols import TaskComplexity

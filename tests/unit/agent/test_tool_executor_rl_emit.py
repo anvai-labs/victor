@@ -8,7 +8,7 @@ from the Q-values.
 from __future__ import annotations
 
 from typing import Any, List
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from victor.agent.tool_executor import ToolExecutor
 

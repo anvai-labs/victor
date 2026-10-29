@@ -22,7 +22,6 @@ import asyncio
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest

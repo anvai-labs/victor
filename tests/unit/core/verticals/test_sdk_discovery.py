@@ -19,7 +19,7 @@ from external verticals via entry points.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from victor.core.verticals.sdk_discovery import (
     get_sdk_protocol_registry,
@@ -41,7 +41,6 @@ from victor.core.verticals.sdk_discovery import (
     enhance_vertical_with_sdk_protocols,
     ProtocolRegistry,
     DiscoveryStats,
-    ProtocolMetadata,
 )
 
 

@@ -1,7 +1,5 @@
 """Unit tests for tool deduplication system."""
 
-import pytest
-
 from victor.tools.deduplication import (
     DeduplicationConfig,
     ToolDeduplicator,
@@ -9,12 +7,10 @@ from victor.tools.deduplication import (
 )
 from victor.tools.deduplication.conflict_detector import (
     ConflictDetector,
-    ConflictResult,
     ConflictType,
 )
 from victor.tools.deduplication.naming_enforcer import (
     NamingEnforcer,
-    NamingConvention,
 )
 
 

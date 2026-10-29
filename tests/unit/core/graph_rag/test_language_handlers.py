@@ -15,7 +15,6 @@
 """Unit tests for language-specific edge detection handlers."""
 
 import pytest
-from pathlib import Path
 from typing import Any
 
 pytest.importorskip(
@@ -27,7 +26,6 @@ from victor.core.graph_rag.language_handlers import (
     get_edge_handler,
     _AnalysisProviderEdgeHandler,
     _VictorCodingPluginAdapter,
-    EdgeHandlerRegistry,
 )
 
 # The provider-backed handler is the preferred return type from

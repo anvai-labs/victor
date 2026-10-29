@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor.agent.continuation_strategy import ContinuationStrategy
 from victor.agent.query_classifier import QueryClassification, QueryType

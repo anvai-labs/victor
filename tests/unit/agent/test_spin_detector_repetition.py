@@ -1,4 +1,3 @@
-import pytest
 from victor.agent.turn_policy import SpinDetector, SpinState
 
 

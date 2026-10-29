@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
-from victor.workflows.models import WorkflowExecutionContextModel, WorkflowStateModel
+from victor.workflows.models import WorkflowExecutionContextModel
 
 # Generic type variable for BaseModel subclasses
 T = TypeVar("T", bound=BaseModel)

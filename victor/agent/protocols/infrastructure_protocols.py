@@ -8,7 +8,6 @@ from typing import (
     List,
     Optional,
     Protocol,
-    Set,
     Tuple,
     runtime_checkable,
 )
@@ -237,6 +236,10 @@ class CodeExecutionManagerProtocol(Protocol):
 
     def stop(self) -> None:
         """Stop the execution manager."""
+        ...
+
+    def dispose(self) -> None:
+        """Release resources (container teardown); makes the manager ``Disposable``."""
         ...
 
 

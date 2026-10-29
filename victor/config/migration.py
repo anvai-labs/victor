@@ -359,7 +359,7 @@ class ConfigMigrator:
         Returns:
             New config dict, or None if conversion failed
         """
-        from victor.config.accounts import ProviderAccount, AuthConfig, ConfigDefaults
+        from victor.config.accounts import ProviderAccount, AuthConfig
 
         new_config: Dict[str, Any] = {"accounts": {}, "defaults": {}}
 

@@ -25,7 +25,6 @@ def build_internal_history_metadata(
     """
     from victor.agent.conversation.types import (
         MESSAGE_SOURCE_METADATA_KEY,
-        MessageSource,
     )
 
     metadata: dict[str, Any] = {

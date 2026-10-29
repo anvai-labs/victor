@@ -1,6 +1,5 @@
 """Tests for CreditTrackingService — the runtime integration layer."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from victor.framework.rl.credit_tracking_service import (
@@ -9,7 +8,6 @@ from victor.framework.rl.credit_tracking_service import (
     extract_reward_from_tool_result,
 )
 from victor.framework.rl.credit_assignment import (
-    CreditAssignmentConfig,
     CreditMethodology,
 )
 

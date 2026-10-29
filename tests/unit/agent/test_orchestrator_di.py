@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 # Suppress deprecation warnings for complexity_classifier shim during migration
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
-from victor.core.container import ServiceContainer, ServiceLifetime
+from victor.core.container import ServiceContainer
 
 # =============================================================================
 # Protocol Tests
@@ -39,23 +39,6 @@ class TestServiceProtocols:
         from victor.agent.protocols import (
             ToolRegistryProtocol,
             ConversationControllerProtocol,
-            StreamingControllerProtocol,
-            TaskAnalyzerProtocol,
-            ToolSelectorProtocol,
-            ObservabilityProtocol,
-            MetricsCollectorProtocol,
-            ToolCacheProtocol,
-            TaskTrackerProtocol,
-            ToolOutputFormatterProtocol,
-            ResponseSanitizerProtocol,
-            ArgumentNormalizerProtocol,
-            ProjectContextProtocol,
-            ComplexityClassifierProtocol,
-            ActionAuthorizerProtocol,
-            SearchRouterProtocol,
-            ConversationStateMachineProtocol,
-            MessageHistoryProtocol,
-            ToolExecutorProtocol,
         )
 
         # Verify they are types
@@ -395,7 +378,6 @@ class TestProtocolConformance:
     def test_response_sanitizer_conforms(self):
         """Test ResponseSanitizer conforms to protocol."""
         from victor.agent.response_sanitizer import ResponseSanitizer
-        from victor.agent.protocols import ResponseSanitizerProtocol
 
         sanitizer = ResponseSanitizer()
 
@@ -406,7 +388,6 @@ class TestProtocolConformance:
     def test_complexity_classifier_conforms(self):
         """Test ComplexityClassifier conforms to protocol."""
         from victor.framework.task import TaskComplexityService as ComplexityClassifier
-        from victor.agent.protocols import ComplexityClassifierProtocol
 
         classifier = ComplexityClassifier()
 

@@ -38,19 +38,17 @@ Usage:
                                                  section_name="ASI_TOOL_EFFECTIVENESS_GUIDANCE")
 """
 
-import gzip
 import hashlib
 import json
-from victor.core.json_utils import json_dumps, json_loads
+from victor.core.json_utils import json_loads
 from json import JSONDecodeError
 import logging
 import random
 import re
 import time
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional
 
 from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
 
@@ -60,22 +58,24 @@ logger = logging.getLogger(__name__)
 # trace_analysis.py. They are re-exported here so existing imports of the
 # form ``from ...prompt_optimizer import ExecutionTrace`` keep working.
 from victor.framework.rl.learners.trace_analysis import (
-    FAILURE_HINTS,
-    FAILURE_TO_CAPABILITY,
-    MAX_EXEMPLAR_CALLS_PER_TRACE,
-    MAX_EXEMPLAR_CHARS,
-    MAX_EXEMPLAR_TRACES,
-    TRACE_QUALITY_THRESHOLD,
-    CapabilityGap,
     ExecutionTrace,
     HarnessVerdict,
-    ToolCallTrace,
     TraceZone,
-    analyze_capability_gaps,
     classify_trace_zone,
-    format_failing_exemplars,
-    get_failure_hint,
-    score_trace_quality,
+)
+
+# Trace analysis was extracted to trace_analysis.py. These relocated names stay
+# importable from here (back-compat contract pinned by
+# test_trace_analysis.TestReExportBackCompat); new code imports trace_analysis.
+from victor.framework.rl.learners.trace_analysis import (
+    FAILURE_HINTS as FAILURE_HINTS,
+    FAILURE_TO_CAPABILITY as FAILURE_TO_CAPABILITY,
+    CapabilityGap as CapabilityGap,
+    ToolCallTrace as ToolCallTrace,
+    analyze_capability_gaps as analyze_capability_gaps,
+    format_failing_exemplars as format_failing_exemplars,
+    get_failure_hint as get_failure_hint,
+    score_trace_quality as score_trace_quality,
 )
 
 # The prompt-candidate data model was extracted to candidate.py. Re-exported
@@ -2165,57 +2165,22 @@ class PromptOptimizerLearner(BaseLearner):
         traces: List[ExecutionTrace],
         provider: str,
     ) -> List[ExecutionTrace]:
-        """Keep only the traces that belong to the provider being evolved.
-
-        Candidates are persisted per ``(section, provider)``, but the trace pool
-        is the *global* ``~/.victor/logs/usage.jsonl`` — every project and every
-        provider the operator has ever run. Reflecting a ``moonshot`` candidate
-        over ZAI/Ollama/DeepSeek failures attributes another model's mistakes to
-        Moonshot's prompt.
-
-        Falls back to the unscoped pool when the provider's own traces are too
-        few to evolve from; a narrower-but-empty pool would just stall the loop,
-        and the caller logs the degraded provenance.
-        """
+        """Delegates to :func:`trace_collection.scope_traces_to_provider`."""
         return scope_traces_to_provider(traces, provider, MIN_TRACES_FOR_EVOLUTION)
 
     @staticmethod
     def _normalize_provider_label(raw: str) -> str:
-        """Map a runtime provider class name onto the candidate ``provider`` scope.
-
-        Candidates are stored under short scopes (``moonshot``, ``zai``,
-        ``ollama``); the JSONL logs the class name (``MoonshotProvider``,
-        ``SandhiOllamaProvider``, ``MoonshotCompatProvider``). Without this
-        mapping the two namespaces never meet.
-        """
+        """Delegates to :func:`trace_collection.normalize_provider_label`."""
         return normalize_provider_label(raw)
 
     @staticmethod
     def _absorb_run_kind(session: Dict[str, Any], event: Dict[str, Any]) -> None:
-        """Record the run kind the emitter stamped on this event.
-
-        Sits beside ``session_id`` on the event rather than inside ``data``,
-        because it describes the run rather than the thing that happened. First
-        non-empty value wins: a session does not change kind partway through.
-
-        Events written before the emitter tagged them carry nothing, and those
-        sessions stay ``unknown`` — deliberately, rather than being guessed from
-        prompt text, which is the inference that conflated delegate work with
-        benchmark runs in the first place.
-        """
+        """Delegates to :func:`trace_collection.absorb_run_kind`."""
         absorb_run_kind(session, event)
 
     @classmethod
     def _absorb_session_identity(cls, session: Dict[str, Any], data: Dict[str, Any]) -> None:
-        """Fill a session's provider/model from any event that carries them.
-
-        ``provider``/``model`` were initialised to ``""`` and never assigned, so
-        every collected trace reported ``provider="unknown"`` even though
-        ``session_start`` and ``stream_completed`` events carry the real values.
-        Evolution therefore reflected over a provider-blind trace pool while
-        labelling the resulting candidate with the *current* session's provider.
-        First non-empty value wins — a session does not change provider mid-run.
-        """
+        """Delegates to :func:`trace_collection.absorb_session_identity`."""
         absorb_session_identity(session, data)
 
     @staticmethod

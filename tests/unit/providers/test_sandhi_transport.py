@@ -286,6 +286,43 @@ async def test_stream_consumes_typed_events_without_sse_round_trip(monkeypatch):
         "total_tokens": 15,
         "cache_read_input_tokens": 4,
     }
+    assert chunks[-1].metadata["sandhi_stream"] == {
+        "model": "deepseek-chat",
+        "response_id": "r2",
+        "finish_observed": True,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_finish", [True, False])
+async def test_stream_receipt_distinguishes_observed_finish_from_iterator_eof(
+    monkeypatch, with_finish
+):
+    class ReceiptProvider(FakeTypedProvider):
+        def stream_json(self, request_json, wire_headers_json=None):
+            async def events():
+                yield json.dumps(
+                    {"event": "response_start", "id": "receipt-id", "model": "reported-model"}
+                )
+                yield json.dumps({"event": "text_delta", "delta": "{}"})
+                if with_finish:
+                    yield json.dumps({"event": "finish", "reason": "stop"})
+
+            return events()
+
+    install_runtime(monkeypatch, ReceiptProvider())
+    provider = make_provider()
+    chunks = [
+        chunk
+        async for chunk in provider.stream(
+            [Message(role="user", content="hi")], model="requested-alias"
+        )
+    ]
+    assert chunks[-1].metadata["sandhi_stream"] == {
+        "model": "reported-model",
+        "response_id": "receipt-id",
+        "finish_observed": with_finish,
+    }
 
 
 @pytest.mark.asyncio

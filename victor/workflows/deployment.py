@@ -65,7 +65,6 @@ from typing import (
     Dict,
     List,
     Optional,
-    Type,
 )
 
 if TYPE_CHECKING:

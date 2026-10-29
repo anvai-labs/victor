@@ -22,15 +22,14 @@ register capabilities with the framework without direct dependencies.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
 
 # Import victor-contracts protocols (NO runtime dependency on victor-ai!)
-from victor_contracts.verticals.protocols import (
-    ToolProvider,
-    ToolSelectionStrategy,
-    SafetyProvider,
-    PromptProvider,
-    WorkflowProvider,
+from victor_contracts.verticals import (
+    make_pattern_safety_provider,
+    make_prompt_provider,
+    make_stage_tool_strategy,
+    make_tool_provider,
+    make_workflow_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,208 +40,142 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class RAGToolProvider(ToolProvider):
-    """Tool provider for RAG vertical.
+RAG_TOOLS = [
+    # Core filesystem tools
+    "read",
+    "write",
+    "grep",
+    "ls",
+    # Vector database tools
+    "vector_search",
+    "vector_add",
+    "vector_delete",
+    "vector_index",
+    # Document processing
+    "document_ingest",
+    "document_split",
+    "document_chunk",
+    "document_parse",
+    # Embedding tools
+    "embedding_create",
+    "embedding_batch",
+    "embedding_search",
+    # Knowledge base tools
+    "knowledge_query",
+    "knowledge_add",
+    "knowledge_update",
+    # Retrieval tools
+    "semantic_search",
+    "hybrid_search",
+    "rerank_results",
+    # Citation tools
+    "citation_extract",
+    "citation_verify",
+]
 
-    Provides the list of tools available to the RAG assistant.
-    """
+RAG_STAGE_TOOLS = {
+    "ingest": [
+        "document_ingest",
+        "document_parse",
+        "document_chunk",
+        "vector_add",
+    ],
+    "index": ["embedding_create", "vector_index", "embedding_batch"],
+    "retrieve": ["semantic_search", "vector_search", "hybrid_search"],
+    "rerank": ["rerank_results", "vector_search"],
+    "generate": ["knowledge_query", "citation_extract"],
+}
 
-    def get_tools(self) -> List[str]:
-        """Return list of tool names for RAG vertical."""
-        return [
-            # Core filesystem tools
-            "read",
-            "write",
-            "grep",
-            "ls",
-            # Vector database tools
-            "vector_search",
-            "vector_add",
-            "vector_delete",
-            "vector_index",
-            # Document processing
-            "document_ingest",
-            "document_split",
-            "document_chunk",
-            "document_parse",
-            # Embedding tools
-            "embedding_create",
-            "embedding_batch",
-            "embedding_search",
-            # Knowledge base tools
-            "knowledge_query",
-            "knowledge_add",
-            "knowledge_update",
-            # Retrieval tools
-            "semantic_search",
-            "hybrid_search",
-            "rerank_results",
-            # Citation tools
-            "citation_extract",
-            "citation_verify",
-        ]
+RAG_DANGEROUS_PATTERNS = [
+    # Vector database dangerous commands
+    {
+        "pattern": "vector_delete --all",
+        "description": "Delete entire vector index",
+    },
+    {"pattern": "vector_index --drop", "description": "Drop vector collection"},
+    {
+        "pattern": "knowledge_delete --force",
+        "description": "Force delete knowledge",
+    },
+]
 
+RAG_TOOL_RESTRICTIONS = {
+    "vector_delete": ["--all", "--force"],
+    "knowledge_delete": ["--all", "--force"],
+}
 
-class RAGToolSelectionStrategy(ToolSelectionStrategy):
-    """Stage-aware tool selection for RAG tasks."""
+RAG_PROMPT_SECTIONS = {
+    "role": (
+        "You are a RAG (Retrieval-Augmented Generation) assistant specializing "
+        "in knowledge retrieval and document analysis."
+    ),
+    "expertise": (
+        "You have expertise in vector databases, semantic search, document "
+        "processing, and citation management."
+    ),
+    "retrieval": (
+        "Always use retrieved context to inform your answers. Cite sources "
+        "when referencing specific documents."
+    ),
+    "hallucination": (
+        "Avoid hallucinations by only stating information that is supported "
+        "by the retrieved context."
+    ),
+}
 
-    def get_tools_for_stage(self, stage: str, task_type: str) -> List[str]:
-        """Return optimized tools for given stage and task type."""
-        stage_tools: Dict[str, List[str]] = {
-            "ingest": [
-                "document_ingest",
-                "document_parse",
-                "document_chunk",
-                "vector_add",
-            ],
-            "index": ["embedding_create", "vector_index", "embedding_batch"],
-            "retrieve": ["semantic_search", "vector_search", "hybrid_search"],
-            "rerank": ["rerank_results", "vector_search"],
-            "generate": ["knowledge_query", "citation_extract"],
-        }
+RAG_TASK_TYPE_HINTS = {
+    "ingest": {
+        "hint": "[INGEST] Process and index documents into the knowledge base.",
+        "tool_budget": 10,
+    },
+    "query": {
+        "hint": "[QUERY] Search the knowledge base and provide relevant information.",
+        "tool_budget": 5,
+    },
+    "answer": {
+        "hint": ("[ANSWER] Generate answers based on retrieved context with " "proper citations."),
+        "tool_budget": 8,
+    },
+}
 
-        return stage_tools.get(stage, ["semantic_search", "knowledge_query"])
+RAG_WORKFLOWS = {
+    "ingest_documents": {
+        "name": "Ingest Documents",
+        "description": "Process and index documents into the knowledge base",
+        "stages": ["parse", "chunk", "embed", "index"],
+    },
+    "knowledge_query": {
+        "name": "Knowledge Query",
+        "description": "Query the knowledge base and generate answers",
+        "stages": ["retrieve", "rerank", "generate"],
+    },
+}
 
+RAGToolProvider = make_tool_provider(
+    "RAGToolProvider", RAG_TOOLS, "Tool provider for the RAG vertical."
+)
+RAGToolSelectionStrategy = make_stage_tool_strategy(
+    "RAGToolSelectionStrategy",
+    RAG_STAGE_TOOLS,
+    ["semantic_search", "knowledge_query"],
+    "Stage-aware tool selection for RAG tasks.",
+)
+RAGSafetyProvider = make_pattern_safety_provider(
+    "RAGSafetyProvider",
+    RAG_DANGEROUS_PATTERNS,
+    RAG_TOOL_RESTRICTIONS,
+    doc="Safety provider for RAG knowledge-base operations.",
+)
+RAGPromptProvider = make_prompt_provider(
+    "RAGPromptProvider",
+    RAG_PROMPT_SECTIONS,
+    RAG_TASK_TYPE_HINTS,
+    "Prompt provider for RAG knowledge-retrieval tasks.",
+)
+RAGWorkflowProvider = make_workflow_provider(
+    "RAGWorkflowProvider", RAG_WORKFLOWS, "Workflow provider for the RAG vertical."
+)
 
-# =============================================================================
-# Safety Provider
-# =============================================================================
-
-
-class RAGSafetyProvider(SafetyProvider):
-    """Safety provider for RAG vertical.
-
-    Provides RAG-specific safety patterns for knowledge base operations.
-    """
-
-    def __init__(self):
-        self._dangerous_patterns = [
-            # Vector database dangerous commands
-            {
-                "pattern": "vector_delete --all",
-                "description": "Delete entire vector index",
-            },
-            {"pattern": "vector_index --drop", "description": "Drop vector collection"},
-            {
-                "pattern": "knowledge_delete --force",
-                "description": "Force delete knowledge",
-            },
-        ]
-
-    def get_extensions(self) -> List[Any]:
-        """Return safety extensions for RAG."""
-        return []
-
-    def get_bash_patterns(self) -> List[Any]:
-        """Return bash command patterns to monitor."""
-        return self._dangerous_patterns
-
-    def get_file_patterns(self) -> List[Any]:
-        """Return file operation patterns to monitor."""
-        return []
-
-    def get_tool_restrictions(self) -> Dict[str, List[str]]:
-        """Return tool-specific restrictions."""
-        return {
-            "vector_delete": ["--all", "--force"],
-            "knowledge_delete": ["--all", "--force"],
-        }
-
-
-# =============================================================================
-# Prompt Provider
-# =============================================================================
-
-
-class RAGPromptProvider(PromptProvider):
-    """Prompt provider for RAG vertical.
-
-    Provides system prompt sections for knowledge retrieval tasks.
-    """
-
-    def get_system_prompt_sections(self) -> Dict[str, str]:
-        """Return system prompt sections."""
-        return {
-            "role": (
-                "You are a RAG (Retrieval-Augmented Generation) assistant specializing "
-                "in knowledge retrieval and document analysis."
-            ),
-            "expertise": (
-                "You have expertise in vector databases, semantic search, document "
-                "processing, and citation management."
-            ),
-            "retrieval": (
-                "Always use retrieved context to inform your answers. Cite sources "
-                "when referencing specific documents."
-            ),
-            "hallucination": (
-                "Avoid hallucinations by only stating information that is supported "
-                "by the retrieved context."
-            ),
-        }
-
-    def get_task_type_hints(self) -> Dict[str, Any]:
-        """Return task type hints for RAG."""
-        return {
-            "ingest": {
-                "hint": "[INGEST] Process and index documents into the knowledge base.",
-                "tool_budget": 10,
-            },
-            "query": {
-                "hint": "[QUERY] Search the knowledge base and provide relevant information.",
-                "tool_budget": 5,
-            },
-            "answer": {
-                "hint": (
-                    "[ANSWER] Generate answers based on retrieved context with " "proper citations."
-                ),
-                "tool_budget": 8,
-            },
-        }
-
-    def get_prompt_contributors(self) -> List[Any]:
-        """Return prompt contributors for RAG."""
-        return []
-
-
-# =============================================================================
-# Workflow Provider
-# =============================================================================
-
-
-class RAGWorkflowProvider(WorkflowProvider):
-    """Workflow provider for RAG vertical.
-
-    Provides RAG-specific workflow definitions.
-    """
-
-    def get_workflows(self) -> Dict[str, Any]:
-        """Return workflow specifications."""
-        return {
-            "ingest_documents": {
-                "name": "Ingest Documents",
-                "description": "Process and index documents into the knowledge base",
-                "stages": ["parse", "chunk", "embed", "index"],
-            },
-            "knowledge_query": {
-                "name": "Knowledge Query",
-                "description": "Query the knowledge base and generate answers",
-                "stages": ["retrieve", "rerank", "generate"],
-            },
-        }
-
-    def get_workflow(self, name: str) -> Optional[Any]:
-        """Get a specific workflow by name."""
-        return self.get_workflows().get(name)
-
-    def list_workflows(self) -> List[str]:
-        """List available workflow names."""
-        return list(self.get_workflows().keys())
-
-
-# =============================================================================
-# Exports
-# =============================================================================
 
 __all__ = [
     "RAGToolProvider",

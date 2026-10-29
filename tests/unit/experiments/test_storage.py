@@ -287,7 +287,6 @@ def test_query_experiments(temp_db: SQLiteStorage):
 
 def test_experiment_with_parameters(temp_db: SQLiteStorage):
     """Test experiment with parameters."""
-    import json
 
     experiment = Experiment(
         name="test-experiment",

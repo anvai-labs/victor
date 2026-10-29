@@ -66,7 +66,6 @@ from victor.core.constants import DEFAULT_VERTICAL
 
 if TYPE_CHECKING:
     from victor.core.rl.coordinator_port import RLCoordinatorProtocol
-    from victor.framework.rl.base import RLOutcome
 
 logger = logging.getLogger(__name__)
 

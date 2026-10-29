@@ -1,7 +1,5 @@
 """Unit tests for SecurityFormatter."""
 
-import pytest
-
 from victor.tools.formatters.security import SecurityFormatter
 
 

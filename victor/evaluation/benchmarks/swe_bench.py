@@ -256,8 +256,6 @@ class SWEBenchRunner(BaseBenchmarkRunner):
         then resets again to leave repo clean.
         """
         import asyncio
-        import sys
-        import tempfile
 
         try:
             # Reset to base commit (fetch first — may be outside shallow depth)

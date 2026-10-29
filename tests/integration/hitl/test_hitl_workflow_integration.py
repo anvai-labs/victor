@@ -23,8 +23,7 @@ These tests verify:
 
 import asyncio
 import pytest
-from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 from victor.workflows.hitl import (
     HITLNode,
@@ -34,11 +33,9 @@ from victor.workflows.hitl import (
     HITLRequest,
     HITLResponse,
     HITLExecutor,
-    HITLHandler,
 )
 from victor.workflows.definition import (
     WorkflowBuilder,
-    WorkflowDefinition,
     WorkflowNodeType,
     ConditionNode,
 )

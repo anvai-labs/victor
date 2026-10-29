@@ -149,7 +149,7 @@ def test_async_handler_uses_namespace_executor_pool() -> None:
     sentinel_executor = object()
 
     with patch(
-        "victor.framework.vertical_integration.asyncio.get_running_loop",
+        "asyncio.get_running_loop",
         return_value=fake_loop,
     ):
         with patch(

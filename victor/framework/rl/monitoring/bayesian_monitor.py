@@ -29,6 +29,20 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+def _empty_consensus_stats() -> Dict[str, Any]:
+    """Zeroed consensus-accuracy stats (the starting point and the no-table answer)."""
+    return {
+        "total_consensus": 0,
+        "correct_count": 0,
+        "accuracy": 0.0,
+        "mean_confidence": 0.0,
+        "agreement_distribution": {"unanimous": 0, "partial": 0, "divergent": 0},
+        "by_agreement": {
+            level: {"total": 0, "correct": 0} for level in ("unanimous", "partial", "divergent")
+        },
+    }
+
+
 class BayesianMetricsMonitor:
     """Monitor and visualize Bayesian orchestration metrics.
 
@@ -313,22 +327,7 @@ class BayesianMetricsMonitor:
                 (cutoff_date,),
             )
 
-            stats = {
-                "total_consensus": 0,
-                "correct_count": 0,
-                "accuracy": 0.0,
-                "mean_confidence": 0.0,
-                "agreement_distribution": {
-                    "unanimous": 0,
-                    "partial": 0,
-                    "divergent": 0,
-                },
-                "by_agreement": {
-                    "unanimous": {"total": 0, "correct": 0},
-                    "partial": {"total": 0, "correct": 0},
-                    "divergent": {"total": 0, "correct": 0},
-                },
-            }
+            stats = _empty_consensus_stats()
 
             for row in cursor:
                 confidence = row[1]
@@ -354,22 +353,7 @@ class BayesianMetricsMonitor:
             return stats
         except sqlite3.OperationalError:
             # Table doesn't exist yet
-            return {
-                "total_consensus": 0,
-                "correct_count": 0,
-                "accuracy": 0.0,
-                "mean_confidence": 0.0,
-                "agreement_distribution": {
-                    "unanimous": 0,
-                    "partial": 0,
-                    "divergent": 0,
-                },
-                "by_agreement": {
-                    "unanimous": {"total": 0, "correct": 0},
-                    "partial": {"total": 0, "correct": 0},
-                    "divergent": {"total": 0, "correct": 0},
-                },
-            }
+            return _empty_consensus_stats()
 
     def get_correlation_matrix(
         self, agent_ids: List[str], days: int = 7

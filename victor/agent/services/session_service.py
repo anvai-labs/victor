@@ -29,10 +29,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-
-if TYPE_CHECKING:
-    pass
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 _UNSET = object()
@@ -997,7 +994,6 @@ class SessionService:
         Example:
             service = SessionService.from_dict(data)
         """
-        import time
 
         # Create minimal dependencies
         class MockSessionState:
@@ -1179,7 +1175,6 @@ class SessionService:
             )
         """
         import asyncio
-        import threading
 
         try:
             loop = asyncio.get_running_loop()

@@ -10,7 +10,7 @@ members (no orchestrator core), mirroring the SEQUENTIAL pause tests.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from victor.framework.graph_checkpoint import MemoryCheckpointer
 from victor.teams import TeamFormation, UnifiedTeamCoordinator

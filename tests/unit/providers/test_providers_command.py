@@ -15,12 +15,11 @@
 """Tests for the providers CLI command - achieving 70%+ coverage."""
 
 import pytest
-from unittest.mock import patch, MagicMock
-from io import StringIO
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from victor.ui.commands.providers import providers_app, list_providers, console
+from victor.ui.commands.providers import providers_app
 
 runner = CliRunner()
 
@@ -135,7 +134,6 @@ class TestProviderInfoMapping:
 
     def test_known_provider_info_completeness(self):
         """Test that known providers have complete info."""
-        from victor.ui.commands.providers import list_providers
 
         # Just verify the function doesn't crash when providers are listed
         result = runner.invoke(providers_app, [])

@@ -698,7 +698,7 @@ class HostPluginContext(PluginContext):
             context.register_ccg_builder("python", PythonCCGBuilder(graph_store))
         """
         from victor.core.capability_registry import CapabilityRegistry, CapabilityStatus
-        from victor.framework.vertical_protocols import CCGBuilderProtocol
+        from victor_contracts.verticals.protocols.storage import CCGBuilderProtocol
 
         try:
             registry = CapabilityRegistry.get_instance()

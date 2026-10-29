@@ -34,14 +34,13 @@ Example:
     related = await memory.get_related("ent_abc123", relation_types=[RelationType.IMPORTS])
 """
 
-import asyncio
 import logging
 import sqlite3
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from victor.storage.memory.entity_types import (
     Entity,

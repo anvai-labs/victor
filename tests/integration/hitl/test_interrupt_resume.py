@@ -23,12 +23,10 @@ These tests verify:
 
 import asyncio
 import pytest
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from victor.framework.hitl import (
     HITLController,
-    HITLCheckpoint,
-    ApprovalStatus,
 )
 
 # =============================================================================

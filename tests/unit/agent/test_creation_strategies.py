@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import asdict
 
 from victor.agent.creation_strategies import (
     AgentCreationStrategy,

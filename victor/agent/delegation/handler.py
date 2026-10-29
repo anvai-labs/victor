@@ -31,17 +31,15 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from victor.agent.subagents.base import SubAgentRole, SubAgentResult
 from victor.agent.subagents.orchestrator import (
-    ROLE_DEFAULT_BUDGETS,
     ROLE_DEFAULT_TOOLS,
     SubAgentOrchestrator,
 )
 from victor.observability.run_kind import RunKind, tagged_run
 from victor.agent.delegation.protocol import (
-    DelegationPriority,
     DelegationRequest,
     DelegationResponse,
     DelegationStatus,

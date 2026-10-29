@@ -24,7 +24,7 @@ These tests verify the complete authentication workflow including:
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import patch
 
 import pytest
 
@@ -32,7 +32,6 @@ from victor.config.accounts import (
     AccountManager,
     AuthConfig,
     ProviderAccount,
-    get_account_manager,
     reset_account_manager,
 )
 from victor.config.connection_validation import (
@@ -43,7 +42,6 @@ from victor.config.connection_validation import (
 )
 from victor.config.migration import (
     ConfigMigrator,
-    MigrationResult,
 )
 
 

@@ -16,7 +16,6 @@ class TestScoringWeightsValidator:
             DEFAULT_WEIGHTS,
             EXECUTION_WEIGHTS,
             EXPLORATION_WEIGHTS,
-            PHASE_WEIGHTS,
             PLANNING_WEIGHTS,
             REVIEW_WEIGHTS,
             STORE_WEIGHTS,

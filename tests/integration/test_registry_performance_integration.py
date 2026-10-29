@@ -5,7 +5,6 @@ under realistic scenarios and integrate properly with existing code.
 """
 
 import pytest
-import asyncio
 from pathlib import Path
 import sys
 
@@ -23,7 +22,7 @@ from victor.tools.enums import (
     Priority,
 )
 from victor.tools.metadata import ToolMetadata
-from victor.core.feature_flag_cache import FeatureFlagCache, cached_is_enabled
+from victor.core.feature_flag_cache import FeatureFlagCache
 from victor.tools.query_cache import QueryCache
 from victor.core.feature_flags import FeatureFlag
 from typing import Dict, Any, List

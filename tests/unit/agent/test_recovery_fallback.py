@@ -16,7 +16,6 @@
 
 import pytest
 import time
-from unittest.mock import patch, MagicMock
 
 from victor.agent.recovery.fallback import (
     CircuitState,

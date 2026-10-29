@@ -5,8 +5,6 @@
 
 """Tests for ASI trace enrichment middleware."""
 
-import pytest
-
 from victor.observability.analytics.trace_enrichment import (
     TraceEnricher,
     create_trace_enricher,

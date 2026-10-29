@@ -12,9 +12,6 @@ simple "continue" prompts after compaction cause the model to stop.
 Different models need different continuation strategies.
 """
 
-import pytest
-from enum import Enum
-
 from victor.agent.adaptive_continuation_strategy import (
     ContinuationStrategy,
     StrategySelector,

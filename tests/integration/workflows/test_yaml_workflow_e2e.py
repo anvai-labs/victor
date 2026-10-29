@@ -23,7 +23,6 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict
 
 import pytest
 from victor.core.verticals.import_resolver import import_module_with_fallback

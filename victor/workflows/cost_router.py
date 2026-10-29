@@ -45,8 +45,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from enum import Enum, IntEnum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from enum import IntEnum
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

@@ -17,9 +17,7 @@
 from __future__ import annotations
 
 import pytest
-from dataclasses import dataclass
-from typing import Set
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.agent.protocols import (
     AccessPrecedence,
@@ -28,7 +26,6 @@ from victor.agent.protocols import (
     ToolAccessDecision,
 )
 from victor.agent.tool_access_controller import (
-    AccessLayer,
     IntentLayer,
     ModeLayer,
     SafetyLayer,

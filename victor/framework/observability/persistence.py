@@ -34,15 +34,11 @@ from victor.core.json_utils import json_dumps, json_loads
 import sqlite3
 import time
 from abc import ABC, abstractmethod
-from dataclasses import asdict
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from victor.framework.observability.metrics import (
     AgentMetrics,
-    Metric,
-    MetricType,
     ToolCallMetrics,
     LLMCallMetrics,
 )

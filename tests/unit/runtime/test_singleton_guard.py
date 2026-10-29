@@ -7,7 +7,6 @@ As singletons are converted to DI (via ExecutionContext or ServiceContainer),
 the cap should be lowered.
 """
 
-import ast
 from pathlib import Path
 
 import pytest

@@ -37,7 +37,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterable, List, Optional, Set, Tuple
+from typing import Callable, List, Optional, Set, Tuple
 
 from victor.agent.safety import get_write_tool_names
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name

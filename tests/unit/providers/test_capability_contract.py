@@ -129,8 +129,6 @@ class TestProviderStateContractField:
     def test_provider_state_has_contract_field(self):
         from victor.agent.provider_manager import ProviderState
 
-        import inspect
-
         fields = {f.name for f in getattr(ProviderState, "__dataclass_fields__", {}).values()}
         assert (
             "contract" in fields

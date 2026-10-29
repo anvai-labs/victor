@@ -27,7 +27,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
-from victor.core.schema import Tables
 
 logger = logging.getLogger(__name__)
 

@@ -78,8 +78,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import hashlib
-import json
 import logging
 import uuid
 from contextlib import aclosing
@@ -99,7 +97,6 @@ from typing import (
 )
 
 # Pydantic for type-safe state models (recommended over TypedDict)
-from pydantic import BaseModel
 
 from victor.framework.graph_checkpoint import (
     CheckpointerProtocol,
@@ -135,8 +132,6 @@ from victor.framework.graph_primitives import (
     Send,
     StateProtocol,
     SubgraphNode,
-    _MAX_SUBGRAPH_DEPTH,
-    _SUBGRAPH_DEPTH_KEY,
 )
 from victor.framework.graph_runtime import (
     GraphRuntimeOutcome,
@@ -152,12 +147,6 @@ logger = logging.getLogger(__name__)
 # Import focused configs for ISP compliance
 from victor.framework.config import (
     GraphConfig as GraphConfig,
-    ExecutionConfig,
-    CheckpointConfig,
-    InterruptConfig,
-    PerformanceConfig,
-    ObservabilityConfig,
-    ValidationConfig,
 )
 
 # Type variables for generic state

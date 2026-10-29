@@ -19,14 +19,9 @@ import pytest
 from victor.framework.debugging.breakpoints import (
     BreakpointManager,
     BreakpointStorage,
-    BreakpointType,
-    BreakpointPosition,
-    WorkflowBreakpoint,
 )
 from victor.framework.debugging.execution import (
     ExecutionController,
-    ExecutionState,
-    StepMode,
 )
 from victor.framework.debugging.inspector import StateInspector
 from victor.framework.debugging.session import DebugSession, DebugSessionConfig

@@ -46,7 +46,6 @@ if TYPE_CHECKING:
     from victor.core.events import (
         ObservabilityBus as EventBus,
         VictorEvent,
-        EventCategory,
     )
     from victor.core.events.backends import ObservabilityBus, AgentMessageBus
     from victor.agent.teams.communication import TeamMessageBus

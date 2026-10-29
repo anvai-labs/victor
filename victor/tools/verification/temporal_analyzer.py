@@ -38,9 +38,8 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List
 
 from victor.tools.verification.protocols import (
     ClaimIssue,

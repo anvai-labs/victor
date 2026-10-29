@@ -54,7 +54,6 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.action_authorizer import (
     ActionIntent,
-    IntentClassification,
     detect_intent,
 )
 from victor.agent.task_analyzer import TaskAnalysis, TaskAnalyzer

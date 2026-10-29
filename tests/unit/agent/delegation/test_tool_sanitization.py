@@ -1,4 +1,3 @@
-import pytest
 from victor.agent.delegation.tool import DelegateTool
 
 

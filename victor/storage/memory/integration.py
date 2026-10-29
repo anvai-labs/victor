@@ -28,15 +28,13 @@ Example:
     # Returns [Entity(name="UserAuth", type=CLASS, ...)]
 """
 
-import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from victor.storage.memory.entity_memory import EntityMemory, EntityMemoryConfig
 from victor.storage.memory.entity_types import Entity, EntityType
 from victor.storage.memory.extractors.composite import (
-    CompositeExtractor,
     create_default_extractor,
 )
 

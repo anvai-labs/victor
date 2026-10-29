@@ -14,8 +14,6 @@
 
 """Tests for contextual error handling."""
 
-import pytest
-
 from victor.framework.contextual_errors import (
     ContextualError,
     ProviderConnectionError,

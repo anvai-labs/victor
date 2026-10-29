@@ -14,7 +14,6 @@
 
 """Unit tests for identifier extraction utilities."""
 
-import pytest
 from victor.framework.enrichment.identifiers import (
     PATTERNS,
     COMMON_WORDS,

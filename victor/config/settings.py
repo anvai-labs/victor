@@ -21,22 +21,20 @@ import logging
 import os
 import warnings
 from pathlib import Path
-from typing import Annotated, Any, Callable, ClassVar, Dict, Optional, TypeVar, Union, List
+from typing import Any, Callable, ClassVar, Dict, Optional, TypeVar, Union, List
 
 logger = logging.getLogger(__name__)
 
 import yaml
-from victor.core.model_parameters import ReasoningEffort
 
 from pydantic import BaseModel, Field, SecretStr, computed_field, field_validator, model_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from victor.config.agentic_loop_settings import AgenticLoopSettings
 from victor.config.model_capabilities import _load_tool_capable_patterns_from_yaml
 from victor.config.conversation_settings import (
     DEFAULT_MAX_CONVERSATION_HISTORY,
     DEFAULT_MAX_SESSION_PREFILL_TOKENS,
 )
-from victor.config.orchestrator_constants import BUDGET_LIMITS
 from victor.core.constants import DEFAULT_VERTICAL
 from victor.config.secrets import reveal_secret, unwrap_secrets
 
@@ -789,6 +787,8 @@ class Settings(BaseSettings):
             "code_executor_network_disabled": "subprocess.code_executor_network_disabled",
             "code_executor_memory_limit": "subprocess.code_executor_memory_limit",
             "code_executor_cpu_shares": "subprocess.code_executor_cpu_shares",
+            "code_executor_image": "subprocess.code_executor_image",
+            "code_executor_idle_ttl_seconds": "subprocess.code_executor_idle_ttl_seconds",
             "subprocess_resource_limits_enabled": "subprocess.subprocess_resource_limits_enabled",
             # Usage Configuration
             "usage_sampling_enabled": "usage.usage_sampling_enabled",

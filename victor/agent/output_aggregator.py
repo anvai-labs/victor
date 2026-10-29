@@ -32,7 +32,6 @@ Addresses GAP-8: Missing task completion signal
 """
 
 from victor.core.json_utils import json_dumps
-from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Protocol, List, Dict, Any, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
@@ -74,7 +73,6 @@ class ToolOutput:
     @staticmethod
     def _compute_hash(args: Dict[str, Any]) -> str:
         """Compute a hash of tool arguments for deduplication."""
-        import json
 
         try:
             args_str = json_dumps(args, sort_keys=True, default=str)

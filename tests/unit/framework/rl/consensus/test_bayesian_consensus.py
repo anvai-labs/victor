@@ -16,10 +16,8 @@
 
 import sqlite3
 
-import pytest
 
-from victor.agent.bayesian_task_analysis import BayesianTaskAnalysis
-from victor.agent.task_analyzer import TaskComplexity, UnifiedTaskType
+from victor.agent.task_analyzer import TaskComplexity
 from victor.framework.rl.consensus.bayesian_consensus import BayesianConsensusBuilder
 from victor.framework.rl.learners.agent_reliability import AgentReliabilityLearner
 from victor.framework.rl.learners.observation_model import ObservationModelLearner

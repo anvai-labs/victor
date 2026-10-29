@@ -28,7 +28,7 @@ Based on: HYVE - Hybrid Views for LLM Context Engineering (arXiv 2604.05400)
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 

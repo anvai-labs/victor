@@ -54,11 +54,9 @@ from victor.agent.action_authorizer import (
     should_allow_shell_for_read_only_intent,
 )
 from victor.protocols.mode_aware import ModeAwareMixin
-from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 from victor.tools.tool_names import ToolNames
 
 if TYPE_CHECKING:
-    from victor.agent.conversation.state_machine import ConversationStage
     from victor.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)

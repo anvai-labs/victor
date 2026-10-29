@@ -17,8 +17,7 @@ Addresses GAP-7: Over-exploration without synthesis
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
+from typing import Dict, List, Any
 import logging
 
 from victor.tools.tool_names import ToolNames, get_canonical_name

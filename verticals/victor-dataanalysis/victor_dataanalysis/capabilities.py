@@ -39,7 +39,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from victor_contracts import CapabilityType, OrchestratorCapability
 from victor_contracts.capabilities import CapabilityEntry, capability
@@ -48,9 +48,6 @@ from victor_contracts.capabilities import (
     store_capability_config,
 )
 from victor_contracts import BaseCapabilityProvider, CapabilityMetadata
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,6 @@
 """Tests for evolution audit display and stage prediction integration."""
 
 from unittest.mock import MagicMock
-import pytest
 
 
 class TestEvolutionAuditReport:

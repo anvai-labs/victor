@@ -42,7 +42,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from victor.classification import TaskType, NudgeEngine, get_nudge_engine
 from victor.storage.embeddings.collections import (
@@ -50,9 +50,6 @@ from victor.storage.embeddings.collections import (
     StaticEmbeddingCollection,
 )
 from victor.storage.embeddings.service import EmbeddingService, get_embedding_service
-
-if TYPE_CHECKING:
-    from victor.classification.nudge_engine import NudgeEngine as NudgeEngineType
 
 logger = logging.getLogger(__name__)
 

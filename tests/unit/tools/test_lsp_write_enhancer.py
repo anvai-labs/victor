@@ -25,17 +25,15 @@ Tests LSP validation and formatting for multiple supported languages:
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from victor.tools.lsp_write_enhancer import (
     Diagnostic,
     DiagnosticSeverity,
-    get_write_enhancer,
     LSPWriteEnhancer,
     WriteResult,
-    write_with_lsp,
 )
 
 

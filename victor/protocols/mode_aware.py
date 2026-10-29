@@ -38,7 +38,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, Optional, Protocol, Set, runtime_checkable
 
 if TYPE_CHECKING:
-    from victor.core.mode_controller import AgentModeController, OperationalModeConfig
+    from victor.core.mode_controller import AgentModeController
 
 logger = logging.getLogger(__name__)
 

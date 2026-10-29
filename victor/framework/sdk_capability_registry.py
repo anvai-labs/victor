@@ -9,7 +9,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from victor.framework.capability_runtime import check_capability
 from victor_contracts.constants import CapabilityIds
 from victor_contracts.core.types import (
-    CapabilityRequirement,
     CapabilityRequirementLike,
     normalize_capability_requirements,
 )

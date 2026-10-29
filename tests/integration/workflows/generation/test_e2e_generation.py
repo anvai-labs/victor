@@ -20,14 +20,10 @@ These tests can use real LLM providers or mocks depending on configuration.
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any
 
 from victor.workflows.generation.workflow_pipeline import (
     WorkflowGenerationPipeline,
-    PipelineMode,
-    PipelineResult,
 )
-from victor.framework.graph import StateGraph
 
 # =============================================================================
 # Fixtures

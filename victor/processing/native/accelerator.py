@@ -664,7 +664,6 @@ def get_symbol_extractor(backend: Optional[str] = None) -> "SymbolExtractorProto
     Returns:
         SymbolExtractorProtocol implementation
     """
-    from victor.native.protocols import SymbolExtractorProtocol
 
     if backend == "rust" or (backend is None and _NATIVE_AVAILABLE):
         try:
@@ -691,7 +690,6 @@ def get_argument_normalizer(
     Returns:
         ArgumentNormalizerProtocol implementation
     """
-    from victor.native.protocols import ArgumentNormalizerProtocol
 
     if backend == "rust" or (backend is None and _NATIVE_AVAILABLE):
         try:
@@ -721,7 +719,6 @@ def get_similarity_computer(
     Returns:
         SimilarityComputerProtocol implementation
     """
-    from victor.native.protocols import SimilarityComputerProtocol
 
     effective_backend = backend or get_preferred_backend("batch_similarity")
 
@@ -750,7 +747,6 @@ def get_text_chunker(backend: Optional[str] = None) -> "TextChunkerProtocol":
     Returns:
         TextChunkerProtocol implementation
     """
-    from victor.native.protocols import TextChunkerProtocol
 
     effective_backend = backend or get_preferred_backend("chunk_with_overlap")
 
@@ -777,7 +773,6 @@ def get_ast_indexer(backend: Optional[str] = None) -> "AstIndexerProtocol":
     Returns:
         AstIndexerProtocol implementation
     """
-    from victor.native.protocols import AstIndexerProtocol
 
     if backend == "rust" or (backend is None and _NATIVE_AVAILABLE):
         try:

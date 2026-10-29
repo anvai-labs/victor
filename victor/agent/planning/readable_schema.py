@@ -65,7 +65,6 @@ from victor.agent.recovery.empty_response import (
 from victor.agent.planning.base import (
     ExecutionPlan,
     PlanStep,
-    StepStatus,
     StepType,
 )
 

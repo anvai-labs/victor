@@ -51,7 +51,7 @@ import fnmatch
 import logging
 from typing import Any, Dict, List
 
-from victor.state.protocols import IStateManager, IStateObserver, StateScope
+from victor.state.protocols import IStateObserver, StateScope
 
 logger = logging.getLogger(__name__)
 
