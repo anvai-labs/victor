@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-29
+
+Requires `victor-contracts>=0.11.0` (released alongside as `sdk-v0.11.0`).
+
+### Added
+
+- `victor graph similar`: semantic near-duplicate families over the project
+  graph, with an exact threshold join and a pair-budget guard against
+  unbounded output (#1557, #1560).
+- Execution overrides on team members from vertical definitions:
+  `provider`, `model`, `temperature`, `reasoning_effort` and
+  `formation_role` on the SDK `TeamMemberSpec` (#1571).
+
+### Changed
+
+- Duplicate definitions removed across core, framework and the SDK: core
+  re-exports the SDK's mode, tool-selection, stage, CCG-builder, tool-type,
+  team-member and PII definitions; shared vertical scaffold, persona and
+  ComputeStep kernels (#1554-#1556, #1561, #1564, #1565, #1567, #1571).
+- Team members with role `supervisor`, `manager`, `lead` or `coordinator`
+  map to PLANNER at runtime, as SDK specs already did (#1571).
+- ~3.2k unused imports removed; F401 enforced across source and tests
+  (#1562, #1570). The duplication ratchet covers rust/crates,
+  victor-contracts and victor-codegraph (#1552).
+
+### Fixed
+
+- Code-executor sandboxes no longer leak: containers are acquired lazily,
+  owned by their process, removed on dispose/GC and self-expire after an
+  idle TTL; cleanup removes only containers whose owner is dead (#1563).
+  Evaluation containers carry the same owner labels (#1569).
+- FEP-0041 batch planning is wired into production (#1549).
+- `codebase_verify` tool registers again (#1564); RL outcome rows and
+  provider resolution for GEPA/LLM-critic (#1565).
+- Providers: spec-strict Anthropic request body (#1551), GLM-5.3 reasoning
+  effort (#1558), typed stream model and terminal receipts (#1559), explicit
+  OpenAI response schema projection (#1568).
+- Graph: source-location queries select the innermost node (#1566).
+- pytest pinned below 9.2 (pytest-benchmark breakage) (#1553).
+
 ## [0.17.0] - 2026-10-24
 
 ### Added
