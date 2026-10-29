@@ -302,10 +302,18 @@ class TraceCollector:
     def __init__(self, harness_verdicts: HarnessVerdictLookup):
         self._harness_verdicts = harness_verdicts
 
-    def collect_v1(self, limit: int = 50) -> List[ExecutionTrace]:
-        """Collect execution traces from usage.jsonl files."""
-        traces: List[ExecutionTrace] = []
+    @staticmethod
+    def _scan_usage_logs(
+        details: bool,
+        handle_event: Callable[[Dict[str, Any], str, Dict[str, Any]], None],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Fold every usage.jsonl event into per-session dicts (shared by the collectors).
 
+        Reads the rotated ``usage.*.jsonl.gz`` files first, then the current log.
+        Each event's session absorbs provider/model and run kind, then the event
+        goes to ``handle_event(session, event_type, data)``. A malformed line or
+        a KeyError skips that line; any other error abandons the rest of the file.
+        """
         try:
             from victor.config.settings import get_project_paths
 
@@ -313,7 +321,6 @@ class TraceCollector:
         except Exception:
             logs_dir = Path.home() / ".victor" / "logs"
 
-        # Read from all usage.jsonl files (current + rotated .gz)
         jsonl_files = sorted(logs_dir.glob("usage.*.jsonl.gz")) + [logs_dir / "usage.jsonl"]
 
         sessions: Dict[str, Dict[str, Any]] = {}
@@ -328,9 +335,7 @@ class TraceCollector:
                         try:
                             event = json_loads(line.strip())
                             sid = event.get("session_id", "")
-                            etype = event.get("event_type", "")
                             data = event.get("data", {})
-
                             if sid not in sessions:
                                 sessions[sid] = {
                                     "tool_calls": 0,
@@ -341,30 +346,39 @@ class TraceCollector:
                                     "tokens": 0,
                                     "run_kind": "",
                                 }
-
+                                if details:
+                                    sessions[sid]["details"] = []  # v2: per-call details
                             absorb_session_identity(sessions[sid], data)
                             absorb_run_kind(sessions[sid], event)
-
-                            if etype == "tool_result":
-                                # tool_result is the event actually emitted per
-                                # tool invocation (a paired tool_call event is
-                                # rarely/never logged); count the call here so
-                                # sessions aren't all dropped by the <2-calls filter.
-                                sessions[sid]["tool_calls"] += 1
-                                if not data.get("success", True):
-                                    error = str(
-                                        data.get("error") or data.get("result", {}).get("error", "")
-                                    )
-                                    cat = categorize_failure(error)
-                                    sessions[sid]["failures"][cat] = (
-                                        sessions[sid]["failures"].get(cat, 0) + 1
-                                    )
-                            elif etype == "task_classification":
-                                sessions[sid]["task_type"] = data.get("task_type", "default")
+                            handle_event(sessions[sid], event.get("event_type", ""), data)
                         except (JSONDecodeError, KeyError):
                             continue
             except Exception:
                 continue
+        return sessions
+
+    @staticmethod
+    def _count_failure(session: Dict[str, Any], error: str) -> None:
+        cat = categorize_failure(error)
+        session["failures"][cat] = session["failures"].get(cat, 0) + 1
+
+    def collect_v1(self, limit: int = 50) -> List[ExecutionTrace]:
+        """Collect execution traces from usage.jsonl files."""
+        traces: List[ExecutionTrace] = []
+
+        def _handle(session: Dict[str, Any], etype: str, data: Dict[str, Any]) -> None:
+            if etype == "tool_result":
+                # tool_result is the event actually emitted per tool invocation
+                # (a paired tool_call event is rarely/never logged); count the
+                # call here so sessions aren't all dropped by the <2-calls filter.
+                session["tool_calls"] += 1
+                if not data.get("success", True):
+                    error = str(data.get("error") or data.get("result", {}).get("error", ""))
+                    self._count_failure(session, error)
+            elif etype == "task_classification":
+                session["task_type"] = data.get("task_type", "default")
+
+        sessions = self._scan_usage_logs(details=False, handle_event=_handle)
 
         # Convert to ExecutionTrace objects with quality scoring
         # Quality filter: skip sessions with < 2 tool calls (likely API errors)
@@ -408,107 +422,56 @@ class TraceCollector:
         """
         traces: List[ExecutionTrace] = []
 
-        try:
-            from victor.config.settings import get_project_paths
+        def _handle(session: Dict[str, Any], etype: str, data: Dict[str, Any]) -> None:
+            if etype == "tool_call":
+                # Create a pending detail (reasoning enrichment). Counting happens
+                # on tool_result (the reliably-emitted event) to avoid double-counting.
+                session["details"].append(
+                    ToolCallTrace(
+                        tool_name=data.get("tool_name", ""),
+                        arguments_summary=str(data.get("arguments_sanitized", ""))[:200],
+                        reasoning_before=str(data.get("reasoning_before_call", ""))[:500],
+                    )
+                )
+            elif etype == "tool_result":
+                success = data.get("success", True)
+                session["tool_calls"] += 1
+                # Fill a pending tool_call detail if one is open; otherwise build one
+                # from the result (the emitter logs tool_result directly, with no
+                # paired tool_call).
+                details = session["details"]
+                if details and not (
+                    getattr(details[-1], "result_summary", "")
+                    or getattr(details[-1], "error_detail", "")
+                ):
+                    last = details[-1]
+                else:
+                    last = ToolCallTrace(
+                        tool_name=data.get("tool_name", ""),
+                        arguments_summary="",
+                        reasoning_before="",
+                    )
+                    details.append(last)
+                last.success = success
+                last.duration_ms = data.get("duration_ms", 0)
+                last.result_summary = str(data.get("result_summary") or data.get("result") or "")[
+                    :500
+                ]
+                last.error_detail = str(data.get("error_detail") or data.get("error") or "")[:500]
+                if not last.tool_name and data.get("tool_name"):
+                    last.tool_name = data.get("tool_name", "")
 
-            logs_dir = get_project_paths().global_logs_dir
-        except Exception:
-            logs_dir = Path.home() / ".victor" / "logs"
+                if not success:
+                    error = str(
+                        data.get("error_detail")
+                        or data.get("error")
+                        or data.get("result", {}).get("error", "")
+                    )
+                    self._count_failure(session, error)
+            elif etype == "task_classification":
+                session["task_type"] = data.get("task_type", "default")
 
-        jsonl_files = sorted(logs_dir.glob("usage.*.jsonl.gz")) + [logs_dir / "usage.jsonl"]
-
-        sessions: Dict[str, Dict[str, Any]] = {}
-        for jsonl_path in jsonl_files:
-            if not jsonl_path.exists():
-                continue
-            try:
-                opener = gzip.open if jsonl_path.suffix == ".gz" else open
-                mode = "rt" if jsonl_path.suffix == ".gz" else "r"
-                with opener(jsonl_path, mode) as f:
-                    for line in f:
-                        try:
-                            event = json_loads(line.strip())
-                            sid = event.get("session_id", "")
-                            etype = event.get("event_type", "")
-                            data = event.get("data", {})
-
-                            if sid not in sessions:
-                                sessions[sid] = {
-                                    "tool_calls": 0,
-                                    "failures": {},
-                                    "provider": "",
-                                    "model": "",
-                                    "task_type": "default",
-                                    "tokens": 0,
-                                    "run_kind": "",
-                                    "details": [],  # v2: per-call details
-                                }
-
-                            absorb_session_identity(sessions[sid], data)
-                            absorb_run_kind(sessions[sid], event)
-
-                            if etype == "tool_call":
-                                # Create a pending detail (reasoning enrichment).
-                                # Counting happens on tool_result (the reliably-
-                                # emitted event) to avoid double-counting.
-                                detail = ToolCallTrace(
-                                    tool_name=data.get("tool_name", ""),
-                                    arguments_summary=str(data.get("arguments_sanitized", ""))[
-                                        :200
-                                    ],
-                                    reasoning_before=str(data.get("reasoning_before_call", ""))[
-                                        :500
-                                    ],
-                                )
-                                sessions[sid]["details"].append(detail)
-
-                            elif etype == "tool_result":
-                                success = data.get("success", True)
-                                sessions[sid]["tool_calls"] += 1
-                                # Fill a pending tool_call detail if one is open;
-                                # otherwise build one from the result (the emitter
-                                # logs tool_result directly, with no paired tool_call).
-                                details = sessions[sid]["details"]
-                                if details and not (
-                                    getattr(details[-1], "result_summary", "")
-                                    or getattr(details[-1], "error_detail", "")
-                                ):
-                                    last = details[-1]
-                                else:
-                                    last = ToolCallTrace(
-                                        tool_name=data.get("tool_name", ""),
-                                        arguments_summary="",
-                                        reasoning_before="",
-                                    )
-                                    details.append(last)
-                                last.success = success
-                                last.duration_ms = data.get("duration_ms", 0)
-                                last.result_summary = str(
-                                    data.get("result_summary") or data.get("result") or ""
-                                )[:500]
-                                last.error_detail = str(
-                                    data.get("error_detail") or data.get("error") or ""
-                                )[:500]
-                                if not last.tool_name and data.get("tool_name"):
-                                    last.tool_name = data.get("tool_name", "")
-
-                                if not success:
-                                    error = str(
-                                        data.get("error_detail")
-                                        or data.get("error")
-                                        or data.get("result", {}).get("error", "")
-                                    )
-                                    cat = categorize_failure(error)
-                                    sessions[sid]["failures"][cat] = (
-                                        sessions[sid]["failures"].get(cat, 0) + 1
-                                    )
-
-                            elif etype == "task_classification":
-                                sessions[sid]["task_type"] = data.get("task_type", "default")
-                        except (JSONDecodeError, KeyError):
-                            continue
-            except Exception:
-                continue
+        sessions = self._scan_usage_logs(details=True, handle_event=_handle)
 
         verdicts = self._harness_verdicts()
         for sid, data in list(sessions.items())[-limit:]:

@@ -254,3 +254,92 @@ class TestTraceCollector:
         assert traces[0].completion_score == 0.33
         assert traces[0].success is False
         assert traces[0].score_source == "harness"
+
+
+class TestUsageLogScanning:
+    """Pins how both collectors read the logs (shared scanner)."""
+
+    @staticmethod
+    def _logs(tmp_path, monkeypatch, rotated=(), current=(), raw_current=None):
+        import gzip
+        import json as _json
+        import types
+
+        import victor.config.settings as settings
+
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        for i, events in enumerate(rotated):
+            with gzip.open(logs_dir / f"usage.{i}.jsonl.gz", "wt") as f:
+                f.writelines(_json.dumps(ev) + "\n" for ev in events)
+        with open(logs_dir / "usage.jsonl", "w") as f:
+            f.writelines(_json.dumps(ev) + "\n" for ev in current)
+            if raw_current:
+                f.write(raw_current)
+        monkeypatch.setattr(
+            settings, "get_project_paths", lambda: types.SimpleNamespace(global_logs_dir=logs_dir)
+        )
+
+    @staticmethod
+    def _calls(sid, n, provider=None):
+        events = []
+        if provider:
+            events.append(
+                {"session_id": sid, "event_type": "session_start", "data": {"provider": provider}}
+            )
+        events += [{"session_id": sid, "event_type": "tool_result", "data": {"success": True}}] * n
+        return events
+
+    @pytest.mark.parametrize("collect", ["collect_v1", "collect_v2"])
+    def test_rotated_gz_logs_are_read_before_the_current_log(self, tmp_path, monkeypatch, collect):
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        # identity is first-wins: the rotated (older) log must be read first
+        self._logs(
+            tmp_path,
+            monkeypatch,
+            rotated=[self._calls("s1", 2, provider="MoonshotProvider")],
+            current=self._calls("s1", 1, provider="ZAIProvider"),
+        )
+        (trace,) = getattr(TraceCollector(harness_verdicts=lambda: {}), collect)(limit=50)
+        assert trace.provider == "moonshot"
+        assert trace.tool_calls == 3  # counted across both files
+
+    @pytest.mark.parametrize("collect", ["collect_v1", "collect_v2"])
+    def test_malformed_lines_are_skipped(self, tmp_path, monkeypatch, collect):
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        self._logs(
+            tmp_path,
+            monkeypatch,
+            current=self._calls("s1", 2),
+            raw_current="{not json\n" + __import__("json").dumps(self._calls("s1", 1)[0]) + "\n",
+        )
+        (trace,) = getattr(TraceCollector(harness_verdicts=lambda: {}), collect)(limit=50)
+        assert trace.tool_calls == 3  # the line after the malformed one still counts
+
+    @pytest.mark.parametrize("collect", ["collect_v1", "collect_v2"])
+    def test_limit_keeps_the_most_recent_sessions(self, tmp_path, monkeypatch, collect):
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        self._logs(
+            tmp_path,
+            monkeypatch,
+            current=self._calls("old", 2) + self._calls("mid", 2) + self._calls("new", 2),
+        )
+        traces = getattr(TraceCollector(harness_verdicts=lambda: {}), collect)(limit=2)
+        assert [t.session_id for t in traces] == ["mid", "new"]
+
+    @pytest.mark.parametrize("collect", ["collect_v1", "collect_v2"])
+    def test_missing_logs_dir_yields_nothing(self, tmp_path, monkeypatch, collect):
+        import types
+
+        import victor.config.settings as settings
+        from victor.framework.rl.learners.trace_collection import TraceCollector
+
+        monkeypatch.setattr(
+            settings,
+            "get_project_paths",
+            lambda: types.SimpleNamespace(global_logs_dir=tmp_path / "absent"),
+        )
+        assert getattr(TraceCollector(harness_verdicts=lambda: {}), collect)(limit=50) == []
