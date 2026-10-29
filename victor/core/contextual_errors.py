@@ -496,7 +496,14 @@ def format_exception_for_user(
 
     # Import VictorError types for better handling
     try:
-        from victor.core.errors import ConfigurationError, ProviderConnectionError, ProviderAuthError, ProviderNotFoundError, ToolExecutionError, ValidationError
+        from victor.core.errors import (
+            ConfigurationError,
+            ProviderConnectionError,
+            ProviderAuthError,
+            ProviderNotFoundError,
+            ToolExecutionError,
+            ValidationError,
+        )
     except ImportError:
         ConfigurationError = None
 

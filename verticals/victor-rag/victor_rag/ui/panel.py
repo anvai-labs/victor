@@ -31,7 +31,17 @@ try:
     from textual.binding import Binding
     from textual.containers import Container, Horizontal, Vertical
     from textual.reactive import reactive
-    from textual.widgets import Button, Input, Label, ListItem, ListView, Markdown, Static, TabbedContent, TabPane
+    from textual.widgets import (
+        Button,
+        Input,
+        Label,
+        ListItem,
+        ListView,
+        Markdown,
+        Static,
+        TabbedContent,
+        TabPane,
+    )
     from textual.widget import Widget
 
     TEXTUAL_AVAILABLE = True
