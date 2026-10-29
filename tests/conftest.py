@@ -175,6 +175,7 @@ def _own_sandbox_containers() -> list:
         return []
 
 
+@pytest.hookimpl(optionalhook=True)  # xdist-only hook; absent without xdist
 def pytest_testnodedown(node, error):
     """xdist controller: collect sandbox leaks reported by each worker."""
     leaked = getattr(node, "workeroutput", {}).get("sandbox_leaks", [])
