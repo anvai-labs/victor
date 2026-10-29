@@ -105,6 +105,10 @@ records = to_proxima_records(repository, repo_graph_id="myrepo")
 Java, C, and C++ have conformance fixtures; other mapped tree-sitter languages report
 symbols-tier or fallback status rather than implying full fidelity.
 
+Java records, annotation members and explicit/compact constructors preserve type
+scopes. See [Java indexing qualification](../docs/development/java-indexing.md) for
+the measured Iceberg corpus and compiler-index limitations.
+
 ### Explicit source inventory (0.10.3)
 
 Consumers with their own discovery policy can call:
