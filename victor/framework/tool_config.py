@@ -694,6 +694,7 @@ class AirgappedFilter:
     """Filter that removes network-dependent tools."""
 
     NETWORK_TOOLS = {
+        "web",
         "web_search",
         "web_fetch",
         "http_request",
@@ -716,7 +717,10 @@ class AirgappedFilter:
         Returns:
             Filtered tools
         """
-        return available_tools - self.NETWORK_TOOLS
+        from victor.tools.tool_names import get_canonical_name
+
+        blocked = {get_canonical_name(name) for name in self.NETWORK_TOOLS}
+        return {name for name in available_tools if get_canonical_name(name) not in blocked}
 
 
 class CostTierFilter:

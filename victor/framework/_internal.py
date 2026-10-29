@@ -26,7 +26,18 @@ import asyncio
 import contextlib
 import logging
 import os
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Tuple, Type, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 from victor.agent.config import FrameworkCompatibleAgentConfig, normalize_agent_config
 from victor.core.completion_markers import strip_active_completion_markers
@@ -357,13 +368,109 @@ def configure_tools(
     if airgapped:
         configurator.add_filter(AirgappedFilter())
 
-    # Configure using ToolSet or list
-    if isinstance(tools, ToolSet):
+    # Filters apply only in FILTER mode. REPLACE silently skips them.
+    if airgapped:
+        names = tools.get_tool_names() if isinstance(tools, ToolSet) else tools
+        configurator.configure(orchestrator, set(names), ToolConfigMode.FILTER)
+    elif isinstance(tools, ToolSet):
         # Use configure_from_toolset for ToolSet instances
         configurator.configure_from_toolset(orchestrator, tools)
     else:
         # Convert list to set and configure
         configurator.configure(orchestrator, set(tools), ToolConfigMode.REPLACE)
+
+
+async def _finish_creation_cleanup(cleanup: Awaitable[Any]) -> None:
+    """Drain owned cleanup despite caller cancellation; preserve the primary error.
+
+    Called only from a creation failure handler, which re-raises its original
+    exception. A failing cleanup is logged separately, never retried or replayed.
+    """
+    task = asyncio.ensure_future(cleanup)
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+        except BaseException:
+            break
+    try:
+        task.result()
+    except BaseException:
+        logger.exception("Owned runtime cleanup failed after creation rejection")
+
+
+def _configure_creation_tool_scope(
+    orchestrator: Any,
+    tools: Optional[Union[ToolSet, List[str]]],
+    airgapped: bool,
+) -> None:
+    """Apply and verify an explicit SDK creation scope before exposing a runtime.
+
+    The legacy ToolService treats an empty set as unrestricted. Preserve that
+    contract for existing callers, but never admit an empty creation allowlist.
+    Airgapped filtering removes known network tools, not shell/file capabilities
+    or inference networking; it is not an operating-system sandbox.
+    """
+    from victor.framework.tool_config import AirgappedFilter
+    from victor.tools.core_tool_aliases import (
+        canonicalize_core_tool_name,
+        normalize_model_tool_name,
+    )
+    from victor.tools.tool_names import get_canonical_name
+
+    def identity(name: str) -> str:
+        return canonicalize_core_tool_name(
+            get_canonical_name(normalize_model_tool_name(get_canonical_name(name)))
+        )
+
+    getter = getattr(orchestrator, "get_enabled_tools", None)
+    available_getter = getattr(orchestrator, "get_available_tools", None)
+    if not callable(getter) or not callable(available_getter):
+        raise ValueError("Tool scope cannot be verified by this runtime")
+    available = available_getter()
+    if not isinstance(available, (set, frozenset)):
+        raise ValueError("Tool registry cannot be verified by this runtime")
+    if tools is None:
+        names = getter()
+    elif isinstance(tools, ToolSet):
+        names = tools.get_tool_names()
+    else:
+        names = tools
+    requested = set(names)
+    if airgapped:
+        allowed = AirgappedFilter().filter({identity(name) for name in requested}, {})
+        requested = {name for name in requested if identity(name) in allowed}
+    # Exact names identify implementations. Never expand one requested name
+    # into every registered tool that happens to share its canonical alias.
+    registered = set()
+    for name in requested:
+        if name in available:
+            registered.add(name)
+            continue
+        canonical = identity(name)
+        if canonical in available:
+            registered.add(canonical)
+            continue
+        matches = {item for item in available if identity(item) == canonical}
+        if len(matches) > 1:
+            raise ValueError("Ambiguous tool alias; request an exact registered tool name")
+        registered.update(matches)
+    if not registered:
+        raise ValueError("Tool allowlist must retain at least one registered tool")
+
+    # The current dispatch gate canonicalizes enabled names. It cannot safely
+    # separate distinct implementations in an alias family, or dispatch an
+    # alias-only registry consistently. Refuse those scopes before exposure.
+    if any(identity(name) != name for name in registered):
+        raise ValueError("Tool scope requires canonical registered names for safe dispatch")
+    if any(identity(name) in registered for name in available - registered):
+        raise ValueError("Tool scope cannot separate registered aliases during dispatch")
+
+    configure_tools(orchestrator, sorted(registered), airgapped=airgapped)
+    applied = getter()
+    if not isinstance(applied, (set, frozenset)) or not applied or not applied.issubset(registered):
+        raise ValueError("Tool allowlist was not enforced by this runtime")
 
 
 async def _merge_orchestrator_and_members(
