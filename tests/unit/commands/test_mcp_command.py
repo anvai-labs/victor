@@ -17,7 +17,6 @@
 import asyncio
 
 import yaml
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner

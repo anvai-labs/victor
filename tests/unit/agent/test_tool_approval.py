@@ -1,7 +1,6 @@
 """Tests for HITL tool approval gate."""
 
-from unittest.mock import MagicMock, AsyncMock
-from dataclasses import dataclass
+from unittest.mock import AsyncMock
 import pytest
 
 

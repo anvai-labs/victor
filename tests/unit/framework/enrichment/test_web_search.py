@@ -14,7 +14,6 @@
 
 """Unit tests for web search result formatting utilities."""
 
-import pytest
 from victor.framework.enrichment.web_search import (
     WebSearchFormatter,
     format_web_results,

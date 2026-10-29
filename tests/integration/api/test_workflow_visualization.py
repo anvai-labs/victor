@@ -21,7 +21,6 @@ Tests the complete workflow visualization feature including:
 - Event bridging
 """
 
-import asyncio
 import json
 import pytest
 import pytest_asyncio

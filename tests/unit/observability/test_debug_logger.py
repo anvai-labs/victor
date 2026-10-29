@@ -16,7 +16,7 @@
 
 import logging
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -27,7 +27,6 @@ from victor.agent.debug_logger import (
     configure_debug_logging,
     configure_logging_levels,
     get_debug_logger,
-    trace,
     NOISY_LOGGERS,
 )
 from victor.providers.base import Message

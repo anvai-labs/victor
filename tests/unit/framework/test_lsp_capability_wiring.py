@@ -19,12 +19,10 @@ the ``runtime_checkable Protocol`` isinstance short-circuit in
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, List
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.core.verticals.base import VerticalBase
 from victor.framework.lsp_context import build_context

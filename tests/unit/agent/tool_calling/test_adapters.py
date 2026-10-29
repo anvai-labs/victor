@@ -18,7 +18,6 @@ Tests for Anthropic, OpenAI, and Ollama tool calling adapters.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from victor.agent.tool_calling.adapters import (
     AnthropicToolCallingAdapter,
@@ -32,7 +31,6 @@ from victor.agent.tool_calling.adapters import (
     _get_capability_loader,
 )
 from victor.agent.tool_calling.base import (
-    ToolCall,
     ToolCallFormat,
     ToolCallParseResult,
 )
@@ -815,7 +813,6 @@ class TestCapabilityFieldPreservation:
     the supervised dedup review)."""
 
     def test_ollama_thinking_override_preserves_configured_fields(self, monkeypatch):
-        from dataclasses import replace
         from types import SimpleNamespace
 
         import victor.agent.tool_calling.adapters as adapters_mod

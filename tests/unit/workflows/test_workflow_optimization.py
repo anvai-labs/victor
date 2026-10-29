@@ -26,7 +26,6 @@ Reference: workflow-test-issues-v2.md
 """
 
 import time
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -324,7 +323,7 @@ class TestTimeAwareExecutor:
 
     def test_phase_change_callback(self):
         """Test phase change callback is called."""
-        from victor.agent.time_aware_executor import TimeAwareExecutor, TimePhase
+        from victor.agent.time_aware_executor import TimeAwareExecutor
 
         callback_called = []
 

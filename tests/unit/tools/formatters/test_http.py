@@ -1,7 +1,5 @@
 """Unit tests for HTTPFormatter."""
 
-import pytest
-
 from victor.tools.formatters.http import HTTPFormatter
 
 

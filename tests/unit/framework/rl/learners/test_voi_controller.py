@@ -16,7 +16,6 @@
 
 import sqlite3
 
-import pytest
 
 from victor.agent.bayesian_task_analysis import BayesianTaskAnalysis
 from victor.framework.rl.learners.agent_reliability import AgentReliabilityLearner

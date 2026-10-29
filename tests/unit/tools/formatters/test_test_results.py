@@ -1,7 +1,5 @@
 """Unit tests for TestResultsFormatter."""
 
-import pytest
-
 from victor.tools.formatters.test_results import TestResultsFormatter
 
 

@@ -1,6 +1,5 @@
 """Tests for pre-computed decision trees."""
 
-import pytest
 from pathlib import Path
 from victor.agent.decision_trees import (
     DecisionAction,

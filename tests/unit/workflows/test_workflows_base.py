@@ -16,11 +16,8 @@
 
 import pytest
 from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock
 
 from victor.workflows.base import BaseWorkflow, WorkflowRegistry
-from victor.tools.base import ToolResult
-from victor.tools.registry import ToolRegistry
 
 
 class TestWorkflowBase(BaseWorkflow):

@@ -14,10 +14,8 @@
 
 """Tests for configuration profiles."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-import pytest
 
 from victor.config.profiles import (
     ProfileLevel,
@@ -31,7 +29,6 @@ from victor.config.profiles import (
     list_profiles,
     get_profile,
     get_profiles_by_level,
-    get_recommended_profile,
     generate_profile_yaml,
     _detect_provider,
     _detect_model_for_provider,

@@ -20,7 +20,7 @@ to learn optimal hallucination detection thresholds per provider.
 
 import pytest
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Tuple
 
 from victor.framework.rl.base import RLOutcome
 from victor.framework.rl.coordinator import RLCoordinator

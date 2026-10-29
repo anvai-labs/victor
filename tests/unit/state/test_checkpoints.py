@@ -15,13 +15,10 @@
 """Tests for the git-based checkpoint system."""
 
 import subprocess
-import tempfile
-from pathlib import Path
 
 import pytest
 
 from victor.agent.checkpoints import (
-    GitCheckpoint,
     GitCheckpointManager,
     CheckpointNotFoundError,
     NotAGitRepositoryError,

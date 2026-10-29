@@ -1,7 +1,5 @@
 """Tests for VerticalBase.register_tools() hook."""
 
-from typing import Any, List
-
 import pytest
 
 from victor.core.verticals.base import VerticalBase

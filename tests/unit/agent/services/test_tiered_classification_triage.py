@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 from victor.agent.services.tiered_decision_service import (
     TieredDecisionService,

@@ -21,7 +21,7 @@ are present, and that content is preserved when streams end in thinking mode.
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from rich.console import Console
 from victor.agent.services.chat_stream_runtime import ServiceStreamingRuntime
 
@@ -38,7 +38,6 @@ from victor.agent.services.orchestrator_protocol_adapter import (
     OrchestratorProtocolAdapter,
 )
 from victor.agent.unified_task_tracker import TrackerTaskType
-from victor.agent.streaming.context import StreamingChatContext
 from victor.framework.task import TaskComplexity
 from victor.ui.rendering.live_renderer import LiveDisplayRenderer
 

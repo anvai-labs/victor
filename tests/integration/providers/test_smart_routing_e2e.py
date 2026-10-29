@@ -24,22 +24,19 @@ Tests end-to-end scenarios including:
 
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.providers.smart_router import (
-    RoutingDecisionEngine,
     SmartRoutingProvider,
 )
-from victor.providers.routing_config import SmartRoutingConfig, load_routing_profiles
+from victor.providers.routing_config import SmartRoutingConfig
 from victor.providers.performance_tracker import (
-    ProviderPerformanceTracker,
     RequestMetric,
 )
 from victor.providers.resource_detector import (
-    ResourceAvailabilityDetector,
     GPUAvailability,
 )
-from victor.providers.health import ProviderHealthChecker, ProviderHealthResult
+from victor.providers.health import ProviderHealthResult
 from victor.providers.base import Message
 
 
@@ -418,7 +415,6 @@ class TestSmartRoutingMetrics:
         from victor.providers.routing_config import SmartRoutingConfig
         from victor.providers.smart_router import SmartRoutingProvider
         from unittest.mock import MagicMock
-        import logging
 
         providers = []
         for name in ["ollama", "anthropic"]:

@@ -15,7 +15,6 @@
 """Unit tests for streaming context module."""
 
 import time
-import pytest
 
 from victor.agent.streaming.context import (
     StreamingChatContext,

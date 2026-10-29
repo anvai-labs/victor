@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock
 from dataclasses import dataclass
-import pytest
 
 
 class TestStagePredictor:
@@ -14,7 +13,6 @@ class TestStagePredictor:
     def test_predict_from_reading(self):
         from victor.agent.conversation.state_machine import (
             ConversationStateMachine,
-            STAGE_TRANSITION_PROBS,
         )
 
         sm = MagicMock(spec=ConversationStateMachine)

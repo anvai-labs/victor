@@ -19,7 +19,6 @@ import pytest
 from victor.tools.verification import (
     ClaimIssue,
     FalsePositiveDetector,
-    IssueCategory,
 )
 
 

@@ -390,7 +390,6 @@ class TestPlanningWiring:
         orchestrator._chat_coordinator = mock_coordinator
 
         # Call the actual method logic
-        from victor.providers.base import CompletionResponse
 
         # Simulate what orchestrator.chat does
         result = await mock_coordinator.chat("test message", use_planning=None)

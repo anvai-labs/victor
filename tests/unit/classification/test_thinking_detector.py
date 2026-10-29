@@ -16,7 +16,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor.agent.decisions.schemas import DecisionType, LoopDetection, LoopType
 from victor.agent.services.protocols.decision_service import DecisionResult

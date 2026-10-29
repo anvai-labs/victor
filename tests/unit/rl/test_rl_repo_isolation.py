@@ -5,8 +5,6 @@
 
 """Tests for RL per-repo isolation and test fixture filtering."""
 
-import tempfile
-from pathlib import Path
 from typing import Generator
 from unittest.mock import patch
 
@@ -14,7 +12,6 @@ import pytest
 
 from victor.framework.rl.coordinator import RLCoordinator
 from victor.framework.rl.base import RLOutcome
-from victor.core.database import reset_database
 from victor.core.schema import Tables
 
 

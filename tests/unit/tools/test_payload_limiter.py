@@ -4,7 +4,6 @@
 
 """Unit tests for the PayloadSizeLimiter."""
 
-import pytest
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -12,7 +11,6 @@ from victor.providers.payload_limiter import (
     DEFAULT_LIMITS,
     PayloadEstimate,
     ProviderPayloadLimiter,
-    TruncationResult,
     TruncationStrategy,
     get_payload_limiter,
 )

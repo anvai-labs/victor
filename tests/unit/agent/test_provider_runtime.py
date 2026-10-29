@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.agent.runtime.provider_runtime import (
     LazyRuntimeProxy,

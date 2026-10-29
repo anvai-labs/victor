@@ -17,7 +17,7 @@
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch
 
 from victor.storage.graph.protocol import GraphNode, GraphEdge
 from victor.storage.graph.registry import create_graph_store

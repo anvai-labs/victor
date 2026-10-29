@@ -19,8 +19,6 @@ import pytest
 from victor.agent.argument_normalizer import (
     ArgumentNormalizer,
     NormalizationStrategy,
-    NormalizationStats,
-    ToolStats,
 )
 
 

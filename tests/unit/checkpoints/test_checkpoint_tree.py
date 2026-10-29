@@ -24,9 +24,7 @@ Tests cover:
 """
 
 import pytest
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any, Dict, List
 
 from victor.storage.checkpoints.protocol import (
     CheckpointData,
@@ -39,9 +37,7 @@ from victor.storage.checkpoints.tree import (
     BranchManager,
     CheckpointNode,
     CheckpointTree,
-    MergeResult,
     MergeStrategy,
-    ReplayStep,
 )
 
 # =============================================================================

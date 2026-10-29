@@ -7,12 +7,11 @@ This test suite validates that:
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
 
 from victor.core.verticals.base import VerticalBase
 from victor_contracts.verticals.protocols.base import VerticalBase as SdkVerticalBase
-from victor_contracts.verticals.protocols import ToolProvider, SafetyProvider
-from victor_contracts.core.types import VerticalConfig, VerticalDefinition, Tier
+from victor_contracts.verticals.protocols import ToolProvider
+from victor_contracts.core.types import VerticalDefinition
 
 
 class TestSdkIntegration:

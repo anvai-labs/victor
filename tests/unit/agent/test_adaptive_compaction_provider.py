@@ -27,7 +27,6 @@ Covers:
 from typing import Dict, List
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.agent.adaptive_compaction import AdaptiveCompactionThreshold
 from victor.framework.protocols import DomainKeywordsProviderProtocol

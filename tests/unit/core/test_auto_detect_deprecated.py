@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 
 class TestAutoDetectDeprecated:
     """Phase 3: _AUTO_DETECT_SPECS should be empty."""

@@ -1,7 +1,5 @@
 """Unit tests for SearchResultsFormatter."""
 
-import pytest
-
 from victor.tools.formatters.search import SearchResultsFormatter
 
 

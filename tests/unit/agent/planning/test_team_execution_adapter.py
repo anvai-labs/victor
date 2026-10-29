@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -2227,7 +2227,7 @@ async def test_parallel_steps_dispatched_simultaneously():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, patch
 
-    from victor.agent.planning.base import StepResult, StepStatus
+    from victor.agent.planning.base import StepResult
     from victor.agent.planning.readable_schema import ReadableTaskPlan, TaskComplexity
     from victor.agent.services.planning_runtime import PlanningRuntimeService
 
@@ -2967,7 +2967,7 @@ def test_get_ready_steps_treats_phantom_dep_as_satisfied():
 
 def test_get_ready_steps_blocks_on_real_unsatisfied_dep():
     """Steps with a real unsatisfied dep must NOT be returned as ready."""
-    from victor.agent.planning.base import ExecutionPlan, PlanStep, StepStatus
+    from victor.agent.planning.base import ExecutionPlan, PlanStep
 
     steps = [
         PlanStep(id="1", description="Step 1"),  # PENDING — not completed

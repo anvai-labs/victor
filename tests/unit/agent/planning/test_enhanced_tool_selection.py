@@ -10,7 +10,7 @@ Tests cover:
 - Fallback to static mapping on prediction failure
 """
 
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

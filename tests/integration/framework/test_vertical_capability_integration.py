@@ -32,14 +32,14 @@ For each vertical, tests verify:
 - Capabilities can be applied to orchestrator
 """
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Optional
 from unittest.mock import MagicMock
 
 import pytest
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
 
-from victor.framework.capabilities import BaseCapabilityProvider, CapabilityMetadata
+from victor.framework.capabilities import BaseCapabilityProvider
 from victor.framework.capability_config_service import CapabilityConfigService
 
 
@@ -669,7 +669,6 @@ def _create_concrete_rag_provider():
     RAGWorkflowProvider is abstract and requires _get_escape_hatches_module.
     This helper creates a minimal concrete implementation for testing.
     """
-    from victor.framework.workflows import BaseYAMLWorkflowProvider
 
     class ConcreteRAGWorkflowProvider(RAGWorkflowProvider):
         """Concrete implementation of abstract RAGWorkflowProvider for testing."""

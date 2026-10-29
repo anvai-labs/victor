@@ -18,10 +18,8 @@ Tests for the _get_capability_provider_module() hook and get_capability_provider
 method that enable automatic loading of vertical-specific capability providers.
 """
 
-import importlib
 import pytest
 from typing import Optional
-from pathlib import Path
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
 from victor.framework.workflows.base_yaml_provider import BaseYAMLWorkflowProvider

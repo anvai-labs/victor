@@ -11,7 +11,7 @@ Tests cover:
 import asyncio
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch, call
+from unittest.mock import MagicMock, patch, call
 from rich.console import Console
 
 from victor.ui.rendering import (

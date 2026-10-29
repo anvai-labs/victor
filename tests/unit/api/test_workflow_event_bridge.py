@@ -20,7 +20,7 @@ Tests workflow event bridging and WebSocket streaming functionality.
 import asyncio
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.integrations.api.workflow_event_bridge import (
     WSMessageType,
@@ -142,7 +142,6 @@ class TestWorkflowSubscription:
     @pytest.mark.asyncio
     async def test_subscription_send_updates_activity(self):
         """Test that sending updates last_activity timestamp."""
-        import time
 
         send_mock = AsyncMock()
 

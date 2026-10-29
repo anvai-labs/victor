@@ -3,7 +3,7 @@
 
 """Tests for LangChainAdapterTool and LangChainToolProjector."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 

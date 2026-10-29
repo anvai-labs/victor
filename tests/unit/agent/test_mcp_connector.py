@@ -17,7 +17,6 @@
 Tests the SRP-compliant MCP server connection functionality.
 """
 
-import asyncio
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 

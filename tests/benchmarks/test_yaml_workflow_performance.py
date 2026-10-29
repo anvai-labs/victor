@@ -22,14 +22,12 @@ import gc
 import time
 import tracemalloc
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict
 
 import pytest
 
 # Try to import YAML workflow components
 try:
-    from victor.workflows.yaml_loader import YAMLWorkflowLoader, YAMLWorkflowError
+    from victor.workflows.yaml_loader import YAMLWorkflowLoader, YAMLWorkflowError  # noqa: F401
 
     YAML_WORKFLOWS_AVAILABLE = True
 except ImportError:

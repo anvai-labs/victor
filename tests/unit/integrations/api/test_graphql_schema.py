@@ -1,6 +1,5 @@
 """Tests for GraphQL schema integration."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from victor import __version__
@@ -11,12 +10,8 @@ strawberry = pytest.importorskip("strawberry")
 
 from victor.integrations.api.graphql_schema import (
     AgentEventType,
-    ChatMessageInput,
     ChatResponseType,
     HealthType,
-    ProviderInfoType,
-    StatusType,
-    ToolInfoType,
     create_graphql_schema,
 )
 
@@ -210,7 +205,9 @@ class TestGraphQLDisabledWithoutStrawberry:
             # The import guard in fastapi_server.py catches ImportError
             # so the server should still initialize. We verify the pattern.
             try:
-                from victor.integrations.api.graphql_schema import create_graphql_schema
+                from victor.integrations.api.graphql_schema import (
+                    create_graphql_schema,  # noqa: F401
+                )
             except (ImportError, ModuleNotFoundError):
                 pass  # Expected when strawberry is not available
 

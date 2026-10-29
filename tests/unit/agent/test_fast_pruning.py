@@ -12,11 +12,9 @@ LLM-based compaction, replacing them with lightweight [pruned] markers.
 This reduces LLM compaction cost by 30-40%.
 """
 
-import pytest
 from victor.agent.fast_pruning import (
     FastPruner,
     FastPruningConfig,
-    get_fast_pruner,
 )
 from victor.providers.base import Message
 

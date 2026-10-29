@@ -19,13 +19,10 @@ from __future__ import annotations
 
 import shutil
 
-import pytest
-
 
 def test_edit_self_heals_after_backup_dir_deleted(tmp_path):
     """An edit must still commit after an external process deletes backup_dir."""
     import os
-    from pathlib import Path
 
     from victor.processing.editing.editor import EditOperation, FileEditor, OperationType
 

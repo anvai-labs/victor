@@ -18,8 +18,6 @@ Run with: pytest tests/unit/core/events/test_lightweight_backends.py -v
 """
 
 import asyncio
-import tempfile
-from pathlib import Path
 from typing import List
 
 import pytest

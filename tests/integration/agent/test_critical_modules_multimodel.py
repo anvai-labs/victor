@@ -28,11 +28,10 @@ Model Families Tested:
 Tests are skipped if Ollama is not available (e.g., in GitHub Actions).
 """
 
-import asyncio
 import socket
 import tempfile
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 
 import pytest

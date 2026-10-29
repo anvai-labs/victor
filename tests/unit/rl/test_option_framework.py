@@ -18,13 +18,11 @@ Tests the Option abstraction for hierarchical RL.
 """
 
 import pytest
-from unittest.mock import MagicMock
 
 from victor.framework.rl.option_framework import (
     OptionStatus,
     OptionState,
     OptionResult,
-    Option,
     ExploreOption,
     ImplementOption,
     DebugOption,

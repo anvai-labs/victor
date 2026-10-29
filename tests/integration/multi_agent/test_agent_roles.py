@@ -49,7 +49,6 @@ from victor.framework.agent_roles import (
 )
 from victor.framework.personas import (
     Persona,
-    PERSONA_REGISTRY,
     get_persona,
     list_personas,
     register_persona,

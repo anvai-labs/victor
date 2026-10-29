@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
 # Import subagents module to ensure it's loaded before monkeypatching
-from victor.agent.subagents import orchestrator as subagents_orchestrator_module
+from victor.agent.subagents import orchestrator as subagents_orchestrator_module  # noqa: F401
 
 from victor.core.container import ServiceContainer
 from victor.workflows.definition import (
@@ -122,7 +121,7 @@ async def test_parallel_executor_records_failure_with_runtime_graph_node_result(
 
 @pytest.mark.asyncio
 async def test_agent_executor_uses_output_key_and_runtime_graph_node_result() -> None:
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import patch
 
     executor = AgentNodeExecutor(context=None)
     fake_result = SimpleNamespace(summary="done", success=True, tool_calls_used=2, error=None)
@@ -302,10 +301,10 @@ def test_workflow_definition_module_alias_warns() -> None:
 
 def test_package_alias_warnings_publish_removal_milestone() -> None:
     with pytest.warns(DeprecationWarning) as workflow_warning:
-        from victor.workflows import TeamNodeWorkflow
+        from victor.workflows import TeamNodeWorkflow  # noqa: F401
 
     with pytest.warns(DeprecationWarning) as executor_warning:
-        from victor.workflows.executors import TeamNodeExecutor
+        from victor.workflows.executors import TeamNodeExecutor  # noqa: F401
 
     workflow_message = str(workflow_warning[0].message)
     executor_message = str(executor_warning[0].message)

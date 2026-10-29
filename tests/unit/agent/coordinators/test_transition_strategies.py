@@ -22,7 +22,6 @@ from victor.agent.coordinators.transition_strategies import (
     EdgeModelTransitionStrategy,
     HeuristicOnlyTransitionStrategy,
     HybridTransitionStrategy,
-    TransitionStrategyProtocol,
     create_transition_strategy,
 )
 from victor.core.shared_types import ConversationStage

@@ -48,7 +48,6 @@ from victor.framework.capabilities.base import (
 )
 from victor.framework.chain_registry import (
     ChainRegistry,
-    ChainMetadata,
     reset_chain_registry,
 )
 from victor.framework.persona_registry import (
@@ -739,7 +738,6 @@ class TestMiddlewarePerformance:
 
         Expected: < 1ms for 10 middleware
         """
-        from victor.core.vertical_types import MiddlewarePriority
         from victor.framework.middleware import LoggingMiddleware, MetricsMiddleware
 
         middleware_list = [

@@ -24,7 +24,6 @@ Tests verify that verticals properly adopt and integrate framework components:
 """
 
 import pytest
-from typing import Dict, Any, List
 from unittest.mock import MagicMock
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
@@ -501,7 +500,6 @@ class TestBackwardCompatibility:
         )
         from victor.framework.capabilities import (
             BaseCapabilityProvider,
-            CapabilityMetadata,
         )
 
         # Should instantiate without errors

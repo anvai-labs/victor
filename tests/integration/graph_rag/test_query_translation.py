@@ -26,7 +26,6 @@ from victor.core.graph_rag import (
     list_templates,
     get_template_registry,
     QueryType,
-    MatchStrategy,
 )
 from victor.storage.graph import create_graph_store
 from victor.core.graph_rag import GraphIndexingPipeline, GraphIndexConfig

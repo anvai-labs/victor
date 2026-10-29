@@ -30,7 +30,7 @@ from victor.agent.specs import (
     load_agents_from_dict,
     load_agents_from_yaml,
 )
-from victor.agent.specs.models import OutputFormat, DelegationPolicy
+from victor.agent.specs.models import OutputFormat
 from victor.agent.specs.ensemble import ExecutionStatus, AgentResult, EnsembleResult
 from victor.agent.specs.presets import get_preset_agent, list_preset_agents
 

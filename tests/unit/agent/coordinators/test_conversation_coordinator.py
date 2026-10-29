@@ -14,7 +14,6 @@
 
 """Unit tests for ConversationCoordinator."""
 
-import pytest
 import time
 
 from victor_contracts.conversation import (

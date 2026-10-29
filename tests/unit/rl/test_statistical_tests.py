@@ -18,7 +18,6 @@ Tests the A/B experiment statistical testing utilities.
 """
 
 import pytest
-import math
 
 from victor.framework.rl.statistical_tests import (
     SignificanceLevel,

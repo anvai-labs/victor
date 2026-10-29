@@ -26,7 +26,6 @@ Tests cover:
 import pytest
 
 from victor.framework.events import (
-    AgentExecutionEvent,
     EventType,
     content_event,
     error_event,
@@ -42,19 +41,8 @@ from victor.framework.events import (
 )
 from victor.framework.event_registry import (
     BaseEventConverter,
-    ContentEventConverter,
-    ErrorEventConverter,
     EventRegistry,
     EventTarget,
-    MilestoneEventConverter,
-    ProgressEventConverter,
-    StageChangeEventConverter,
-    StreamEndEventConverter,
-    StreamStartEventConverter,
-    ThinkingEventConverter,
-    ToolCallEventConverter,
-    ToolErrorEventConverter,
-    ToolResultEventConverter,
     convert_from_cqrs,
     convert_from_observability,
     convert_to_cqrs,

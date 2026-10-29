@@ -1,8 +1,6 @@
 """Tests for GEPA structured failure taxonomy with corrective hints."""
 
 from unittest.mock import MagicMock
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 
 class TestFailureHints:

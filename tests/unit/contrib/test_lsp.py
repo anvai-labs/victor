@@ -18,7 +18,7 @@ import pytest
 from pathlib import Path
 
 from victor.contrib.lsp import BasicLSPClient
-from victor.framework.vertical_protocols import CompletionItemKind, Location
+from victor.framework.vertical_protocols import Location
 
 
 @pytest.fixture

@@ -18,7 +18,6 @@ Includes tests for caching behavior and performance.
 """
 
 import time
-import pytest
 
 from victor.framework.tools import ToolSet, ToolCategory
 

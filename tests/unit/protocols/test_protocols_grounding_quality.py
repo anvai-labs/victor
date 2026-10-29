@@ -36,7 +36,6 @@ from victor.protocols.quality import (
     DimensionScore,
     QualityScore,
     IQualityAssessor,
-    BaseQualityAssessor,
     SimpleQualityAssessor,
     ProviderAwareQualityAssessor,
     CompositeQualityAssessor,

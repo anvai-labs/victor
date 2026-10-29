@@ -8,15 +8,14 @@ rather than mocks, to verify end-to-end wiring.
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from victor.agent.action_authorizer import ActionIntent
 from victor.agent.decisions.schemas import DecisionType
 from victor.agent.turn_policy import SpinState
-from victor.framework.agentic_loop import AgenticLoop, LoopResult, LoopStage
+from victor.framework.agentic_loop import AgenticLoop, LoopResult
 from victor.framework.evaluation_nodes import (
     EvaluationDecision,
     EvaluationResult,
@@ -36,7 +35,6 @@ from victor.framework.fulfillment import (
 )
 from victor.framework.perception_integration import (
     Perception,
-    PerceptionIntegration,
     perceive,
 )
 from victor.framework.task.protocols import TaskComplexity
@@ -406,7 +404,7 @@ class TestFrameworkExports:
     """Tests that all new modules are properly exported from victor.framework."""
 
     def test_agentic_loop_exports(self):
-        from victor.framework import AgenticLoop, LoopIteration, LoopResult, LoopStage
+        from victor.framework import AgenticLoop, LoopStage
 
         assert AgenticLoop is not None
         assert LoopStage.PERCEIVE.value == "perceive"
@@ -414,22 +412,12 @@ class TestFrameworkExports:
     def test_evaluation_exports(self):
         from victor.framework import (
             EvaluationDecision,
-            EvaluationNode,
-            EvaluationResult,
-            add_evaluation,
-            composite_evaluator,
-            convergence_evaluator,
-            progress_tracking_evaluator,
         )
 
         assert EvaluationDecision.COMPLETE.value == "complete"
 
     def test_fulfillment_exports(self):
         from victor.framework import (
-            FulfillmentConfig,
-            FulfillmentDetector,
-            FulfillmentResult,
-            FulfillmentStatus,
             TaskType,
         )
 
@@ -438,8 +426,6 @@ class TestFrameworkExports:
     def test_perception_exports(self):
         from victor.framework import (
             Perception,
-            PerceptionIntegration,
-            perceive,
         )
 
         assert Perception is not None

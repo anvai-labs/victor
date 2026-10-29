@@ -9,7 +9,6 @@ from victor.agent.orchestrator import AgentOrchestrator
 from victor.config.settings import Settings
 from victor.providers.base import BaseProvider, Message, StreamChunk, ToolDefinition
 from victor.tools.base import BaseTool
-from victor.tools.registry import ToolRegistry
 
 
 class DummyStreamProvider(BaseProvider):

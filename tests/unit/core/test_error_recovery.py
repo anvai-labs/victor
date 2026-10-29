@@ -9,7 +9,6 @@ import pytest
 from victor.agent.error_recovery import (
     RecoveryAction,
     RecoveryResult,
-    ErrorRecoveryHandler,
     MissingParameterHandler,
     ToolNotFoundHandler,
     NetworkErrorHandler,

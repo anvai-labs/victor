@@ -4,25 +4,15 @@ Tests the standalone state machine implementation with protocols,
 generic state machine, and integration with conversation state.
 """
 
-from typing import Any, Dict, List, Optional, Set
-from unittest.mock import MagicMock
+from typing import Any, Dict, List, Optional
 
 import pytest
 
 from victor.storage.state import (
     ConversationStage,
-    ConversationState,
-    ConversationStateMachine,
     StateConfig,
     StateMachine,
     StateTransition,
-    STAGE_KEYWORDS,
-)
-from victor.storage.state.protocols import (
-    StageDetectorProtocol,
-    StateObserverProtocol,
-    StateProtocol,
-    TransitionValidatorProtocol,
 )
 
 

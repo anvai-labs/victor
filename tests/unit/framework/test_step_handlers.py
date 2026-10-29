@@ -5,12 +5,9 @@
 
 """Tests for StepHandlerStatus enum and StepExceptionDetails TypedDict — Wave K."""
 
-import pytest
-
 from victor.framework.step_handlers import (
     StepHandlerStatus,
     StepExceptionDetails,
-    BaseStepHandler,
 )
 
 

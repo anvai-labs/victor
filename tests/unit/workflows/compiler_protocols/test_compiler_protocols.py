@@ -19,7 +19,6 @@ concrete implementations satisfy the protocols.
 """
 
 import pytest
-from typing import Any, Dict
 from victor.workflows.compiler_protocols import (
     WorkflowCompilerProtocol,
     CompiledGraphProtocol,

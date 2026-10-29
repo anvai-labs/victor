@@ -14,8 +14,6 @@
 
 """Tests for PlanningGate (Fast-Slow Planning Architecture)."""
 
-import pytest
-
 from victor.framework.agentic_loop import PlanningGate
 
 
@@ -447,7 +445,7 @@ class TestPlanningGateConfig:
         assert result is False  # fast-path via explicit routing hint (80 > 70)
 
     def test_agentic_loop_config_has_planning_gate_config(self):
-        from victor.framework.agentic_loop import AgenticLoopConfig, PlanningGateConfig
+        from victor.framework.agentic_loop import AgenticLoopConfig
 
         cfg = AgenticLoopConfig()
         # AgenticLoopConfig should expose a planning_gate field

@@ -22,7 +22,7 @@ from threading import Thread
 
 import pytest
 
-from victor.providers.inferflux_provider import INFERFLUX_MODELS, InferfluxProvider
+from victor.providers.inferflux_provider import INFERFLUX_MODELS
 from victor.ui.commands.models import SUPPORTED_PROVIDERS
 from victor.ui.commands.providers import _default_check_model
 

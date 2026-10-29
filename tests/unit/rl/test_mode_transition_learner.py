@@ -20,7 +20,7 @@ AdaptiveModeController with the RLCoordinator framework.
 
 import pytest
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Tuple
 from unittest.mock import patch
 
 from victor.framework.rl.base import RLOutcome

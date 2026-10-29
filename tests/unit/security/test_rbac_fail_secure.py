@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Tests for RBAC fail_open / fail-secure behaviour."""
 
-import pytest
 
 from victor.security.auth.rbac import Permission, RBACManager
 

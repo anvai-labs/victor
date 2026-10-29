@@ -3,8 +3,7 @@
 Tests the simplified "golden path" API layer.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 # Test imports work
 from victor.framework import (
@@ -13,8 +12,6 @@ from victor.framework import (
     AgentError,
     AgentExecutionEvent,
     BudgetExhaustedError,
-    CancellationError,
-    ChatSession,
     ConfigurationError,
     EventType,
     ProviderError,
@@ -27,7 +24,6 @@ from victor.framework import (
     FrameworkTaskType,
     ToolCategory,
     ToolError,
-    Tools,
     ToolSet,
 )
 

@@ -20,7 +20,6 @@ import pytest
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
 
 from victor.framework.defaults import (
     ANALYSIS_STAGE_TOOLS,

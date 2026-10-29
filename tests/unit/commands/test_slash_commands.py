@@ -30,7 +30,6 @@ from victor.ui.slash import (
     CommandContext,
     BaseSlashCommand,
     get_command_registry,
-    register_command,
 )
 from victor.ui.slash.registry import CommandRegistry
 

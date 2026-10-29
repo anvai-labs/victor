@@ -6,8 +6,7 @@ MEDIUM/LOW complexity leaves it unchanged, and None complexity is a no-op.
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class TestCompactorConfigHighComplexityFactor:

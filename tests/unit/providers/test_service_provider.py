@@ -4,12 +4,11 @@ Tests the Dependency Injection integration for framework components.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.core.container import (
     ServiceContainer,
     ServiceLifetime,
-    ServiceNotFoundError,
     reset_container,
 )
 from victor.framework.service_provider import (

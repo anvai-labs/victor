@@ -31,7 +31,6 @@ from victor.framework.rl import (
     RLStats,
     RLManager,
     RLOutcome,
-    RLRecommendation,
     create_outcome,
     record_tool_success,
     get_rl_coordinator,

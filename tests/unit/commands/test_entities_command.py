@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from victor.ui.slash.commands.entities import EntitiesCommand, entities_command
-from victor.ui.slash.protocol import CommandContext, CommandMetadata
+from victor.ui.slash.protocol import CommandContext
 
 
 @pytest.fixture

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from victor.core.batch_plan import (
     BatchPlan,

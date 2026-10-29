@@ -70,7 +70,6 @@ class TestDashboardMounting:
     async def test_dashboard_mounts_without_errors(self, event_bus):
         """Test that dashboard mounts without errors."""
         from victor.observability.dashboard.app import ObservabilityDashboard
-        from textual.app import App
 
         dashboard = ObservabilityDashboard()
 

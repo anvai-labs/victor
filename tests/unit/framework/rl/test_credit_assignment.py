@@ -27,14 +27,11 @@ Tests cover:
 """
 
 from datetime import datetime
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from victor.framework.rl.credit_assignment import (
     ActionMetadata,
-    BaseCreditAssigner,
     CreditAssignmentConfig,
     CreditAssignmentIntegration,
     CreditGranularity,

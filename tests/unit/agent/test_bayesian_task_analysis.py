@@ -16,7 +16,6 @@
 
 import math
 
-import pytest
 
 from victor.agent.bayesian_task_analysis import BayesianTaskAnalysis
 from victor.agent.task_analyzer import TaskComplexity, UnifiedTaskType

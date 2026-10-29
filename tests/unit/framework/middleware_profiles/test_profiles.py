@@ -19,7 +19,6 @@ pre-configured middleware combinations for common use cases.
 """
 
 import logging
-import pytest
 
 from victor.framework.middleware_profiles.profiles import (
     MiddlewareProfile,

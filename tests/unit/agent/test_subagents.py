@@ -23,8 +23,6 @@ Tests cover:
 - Role-specific prompts and defaults
 """
 
-import asyncio
-from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -929,7 +927,7 @@ class TestOrchestratorSubAgentIntegration:
 
     def test_subagent_orchestrator_returns_none_when_disabled(self):
         """Test that property returns None when subagent orchestration is disabled."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         from victor.agent.orchestrator import AgentOrchestrator
 

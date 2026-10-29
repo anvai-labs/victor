@@ -14,8 +14,6 @@
 
 """Unit tests for observability manager."""
 
-import pytest
-
 from victor.framework.observability import (
     ObservabilityConfig,
     ObservabilityManager,

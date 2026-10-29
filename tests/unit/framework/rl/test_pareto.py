@@ -5,8 +5,6 @@
 
 """Tests for GEPA v2 Pareto frontier."""
 
-import pytest
-
 from victor.framework.rl.pareto import ParetoEntry, ParetoFrontier
 
 

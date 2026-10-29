@@ -1,7 +1,6 @@
 """Real stdio regression tests: transport evidence, not agent narration."""
 
 import asyncio
-import json
 import os
 import subprocess
 import sys

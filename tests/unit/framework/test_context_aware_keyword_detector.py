@@ -16,12 +16,10 @@
 
 from __future__ import annotations
 
-import pytest
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from victor.framework.context_aware_keyword_detector import (
     ContextAwareKeywordDetector,
-    CompletionSignal,
     CompletionIndicatorType,
 )
 from victor.framework.completion_scorer import TaskType

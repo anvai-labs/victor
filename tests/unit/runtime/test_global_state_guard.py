@@ -8,8 +8,6 @@ should decrease.
 import ast
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 VICTOR_ROOT = REPO_ROOT / "victor"
 

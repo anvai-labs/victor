@@ -19,7 +19,6 @@ Tests tool planning, goal inference, and intent-based filtering.
 
 import pytest
 from unittest.mock import Mock, MagicMock
-from typing import List, Any
 
 from victor.agent.services.tool_planning_runtime import ToolPlanner
 from victor.config.settings import Settings

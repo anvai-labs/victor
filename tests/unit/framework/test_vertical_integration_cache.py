@@ -20,7 +20,6 @@ Uses existing to_dict() and from_dict() methods.
 
 import json
 
-import pytest
 
 from victor.framework.vertical_integration import IntegrationResult
 

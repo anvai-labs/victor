@@ -11,8 +11,6 @@ back into the loader.
 import ast
 from pathlib import Path
 
-import pytest
-
 EXTENSION_LOADER_PATH = (
     Path(__file__).parent.parent.parent.parent.parent
     / "victor"

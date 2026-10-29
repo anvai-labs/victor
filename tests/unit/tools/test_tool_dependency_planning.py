@@ -129,7 +129,7 @@ def test_docs_keyword_matching_with_mock_registry():
 
 def test_registry_keyword_lookup():
     """Test that ToolMetadataRegistry correctly looks up tools by keywords."""
-    from victor.tools.metadata_registry import ToolMetadataRegistry, ToolMetadataEntry
+    from victor.tools.metadata_registry import ToolMetadataRegistry
     from victor.tools.base import (
         Priority,
         AccessMode,

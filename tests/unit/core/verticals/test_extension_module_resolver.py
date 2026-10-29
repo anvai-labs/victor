@@ -1,7 +1,6 @@
 """Tests for ExtensionModuleResolver."""
 
-import importlib
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from victor.core.verticals.extension_module_resolver import ExtensionModuleResolver
 

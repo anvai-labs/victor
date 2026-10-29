@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from victor.framework.agentic_loop import AgenticLoop
 from victor.framework.evaluation_nodes import EvaluationDecision
 from victor.framework.perception_integration import RequirementType, Requirement
-from victor.agent.turn_policy import SpinDetector, SpinState
+from victor.agent.turn_policy import SpinState
 
 # =============================================================================
 # Test Fixtures

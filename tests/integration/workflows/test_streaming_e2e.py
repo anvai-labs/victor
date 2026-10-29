@@ -24,16 +24,12 @@ These tests verify the complete streaming workflow API, including:
 - Backward compatibility with execute() method
 """
 
-import asyncio
 import pytest
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from victor.workflows.definition import (
     WorkflowBuilder,
-    WorkflowDefinition,
-    TransformNode,
 )
 from victor.workflows.streaming_executor import (
     StreamingWorkflowExecutor,
@@ -41,7 +37,6 @@ from victor.workflows.streaming_executor import (
     WorkflowStreamChunk,
 )
 from victor.workflows.context import WorkflowResult
-from victor_contracts.workflows import ExecutorNodeStatus
 
 # ============ Test Fixtures ============
 

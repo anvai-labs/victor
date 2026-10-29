@@ -3,7 +3,6 @@
 import time
 from unittest.mock import patch
 
-import pytest
 
 from victor.core.feature_flags import FeatureFlag
 from victor.core.feature_flag_cache import (

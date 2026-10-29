@@ -254,7 +254,6 @@ class TestTaskClassificationBehavior:
         """Test that confidence score is reasonable."""
         from victor.framework.task import (
             TaskComplexityService as ComplexityClassifier,
-            TaskComplexity,
         )
 
         classifier = ComplexityClassifier()
@@ -266,7 +265,6 @@ class TestTaskClassificationBehavior:
         """Test that matched patterns are captured."""
         from victor.framework.task import (
             TaskComplexityService as ComplexityClassifier,
-            TaskComplexity,
         )
 
         classifier = ComplexityClassifier()
@@ -293,7 +291,6 @@ class TestConvenienceFunctions:
         )
         from victor.framework.task import (
             TaskComplexityService as ComplexityClassifier,
-            TaskComplexity,
         )
 
         # First classify the task
@@ -389,7 +386,6 @@ class TestEdgeCases:
         """Test message with multiple complexity signals."""
         from victor.framework.task import (
             TaskComplexityService as ComplexityClassifier,
-            TaskComplexity,
         )
 
         classifier = ComplexityClassifier()

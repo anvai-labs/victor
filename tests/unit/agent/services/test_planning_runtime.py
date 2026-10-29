@@ -1667,7 +1667,7 @@ async def test_plan_state_produces_key_is_stored_after_step():
 @pytest.mark.asyncio
 async def test_plan_state_skip_step_ids_marks_branch_skipped():
     """When a conditional step returns skip_step_ids, downstream steps are marked SKIPPED."""
-    from victor.agent.planning.base import StepResult, StepStatus
+    from victor.agent.planning.base import StepResult
     from victor.agent.planning.team_execution import PlanningTeamExecutionAdapter
 
     svc = PlanningRuntimeService(SimpleNamespace(active_session_id="s"))
@@ -1951,7 +1951,7 @@ async def test_clarification_fp_rescue_upgrades_failed_step_to_completed():
     Fix: when produces key has items AND output >= 100 chars AND error contains
     'Clarification required', rescue the step as COMPLETED.
     """
-    from victor.agent.planning.base import PlanStep, StepResult, StepStatus, StepType
+    from victor.agent.planning.base import StepResult
     from victor.agent.planning.readable_schema import ReadableTaskPlan, TaskComplexity
     from victor.agent.planning.team_execution import PlanningTeamExecutionAdapter
 
@@ -2052,7 +2052,7 @@ async def test_synthesis_step_multi_tool_passes_evidence_contract_directly():
     was removed from _AGENTIC_LOOP_FP_PATTERNS to prevent false rescues for legitimately
     thin steps.
     """
-    from victor.agent.planning.base import PlanStep, StepResult, StepStatus, StepType
+    from victor.agent.planning.base import StepResult
     from victor.agent.planning.readable_schema import ReadableTaskPlan, TaskComplexity
     from victor.agent.planning.team_execution import PlanningTeamExecutionAdapter
 
@@ -2934,7 +2934,7 @@ def test_evidence_summary_counts_exempt_separately_from_missing():
     'missing' should only reflect steps where evidence_validation was never set due to a
     code bug — not steps where the evidence contract was intentionally skipped.
     """
-    from victor.agent.planning.base import PlanResult, PlanStep, StepResult, StepType
+    from victor.agent.planning.base import PlanResult, StepResult
 
     svc = PlanningRuntimeService(SimpleNamespace(active_session_id="s"))
 

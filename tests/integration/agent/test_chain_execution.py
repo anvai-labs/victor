@@ -25,12 +25,9 @@ from __future__ import annotations
 
 import asyncio
 import pytest
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any, Dict
 
 from victor.framework.chain_registry import (
-    ChainRegistry,
-    ChainMetadata,
     get_chain_registry,
     register_chain,
     get_chain,
@@ -41,17 +38,10 @@ from victor.framework.chain_registry import (
 from victor.tools.composition import (
     Runnable,
     RunnableConfig,
-    RunnableSequence,
     RunnableParallel,
     RunnableBranch,
     RunnableLambda,
-    RunnablePassthrough,
-    as_runnable,
-    chain as chain_helper,
-    parallel,
-    branch,
-    extract_output,
-    map_keys,
+    chain as chain_helper,  # noqa: F401
 )
 
 # =============================================================================

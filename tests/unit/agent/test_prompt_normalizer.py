@@ -24,7 +24,6 @@ Tests the prompt normalization and deduplication functionality including:
 import pytest
 from victor.agent.prompt_normalizer import (
     PromptNormalizer,
-    NormalizationResult,
     get_prompt_normalizer,
     reset_normalizer,
 )

@@ -23,7 +23,6 @@ These tests verify the framework-level middleware implementations:
 
 import logging
 import pytest
-from unittest.mock import MagicMock, patch
 
 from victor.core.verticals.import_resolver import import_module_with_fallback
 from victor.core.vertical_types import MiddlewarePriority
@@ -37,7 +36,6 @@ from victor.framework.middleware import (
     ValidationIssue,
     ContentValidationResult,
     ValidationSeverity,
-    ValidatorProtocol,
 )
 
 

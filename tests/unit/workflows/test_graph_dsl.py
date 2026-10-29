@@ -25,7 +25,6 @@ from victor.core.async_utils import run_sync as shared_run_sync, run_sync_in_thr
 from victor.workflows.graph_dsl import (
     State,
     WorkflowGraph,
-    GraphNode,
     GraphNodeType,
     create_graph,
     compile_graph,
@@ -33,7 +32,6 @@ from victor.workflows.graph_dsl import (
 from victor.workflows.definition import (
     AgentNode,
     ConditionNode,
-    ParallelNode,
     TransformNode,
     WorkflowDefinition,
 )

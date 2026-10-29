@@ -7,8 +7,6 @@ load victor.framework.tools or victor.framework.capabilities.
 import importlib
 import sys
 
-import pytest
-
 
 class TestCoreFrameworkDecoupling:
     """Core VerticalBase must not eagerly import Framework modules."""

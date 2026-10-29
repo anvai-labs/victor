@@ -15,7 +15,6 @@
 """Tests for signature store - achieving 70%+ coverage."""
 
 import pytest
-import tempfile
 import time
 from pathlib import Path
 
@@ -26,7 +25,6 @@ from victor.agent.signature_store import (
     get_signature_store,
     reset_signature_store,
     DEFAULT_TTL_SECONDS,
-    SCHEMA_VERSION,
 )
 
 

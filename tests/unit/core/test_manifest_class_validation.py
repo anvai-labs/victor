@@ -10,8 +10,6 @@ in extension manifests at load time.
 
 from __future__ import annotations
 
-from victor_contracts.verticals.manifest import ExtensionManifest
-
 
 class TestManifestClassValidation:
     """Validate manifest module/class references at load time."""

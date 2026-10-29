@@ -134,7 +134,7 @@ def test_chat_compat_runtime_protocol_removed_from_chat_runtime_module():
     """Verify deprecated chat-compat runtime protocol is removed from the module surface."""
     with pytest.raises(ImportError, match="ChatCompatRuntimeProtocol"):
         from victor.agent.services.protocols.chat_runtime import (
-            ChatCompatRuntimeProtocol,
+            ChatCompatRuntimeProtocol,  # noqa: F401
         )  # noqa: F401
 
 

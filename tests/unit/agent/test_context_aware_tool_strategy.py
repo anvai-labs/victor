@@ -14,12 +14,8 @@
 
 """Unit tests for context-aware tool strategy."""
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-
 from victor.providers.base import BaseProvider
 from victor.config.tool_tiers import get_tool_tier, get_tier_summary
-from victor.tools.enums import SchemaLevel
 
 
 class ToolStrategyMockProvider(BaseProvider):

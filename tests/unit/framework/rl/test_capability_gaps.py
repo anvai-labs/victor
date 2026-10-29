@@ -1,7 +1,6 @@
 """Tests for GEPA capability gap analysis (TRACE-inspired)."""
 
 from unittest.mock import MagicMock
-import pytest
 
 
 class TestCapabilityGapAnalysis:

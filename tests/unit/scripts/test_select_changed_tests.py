@@ -636,3 +636,76 @@ def test_import_only_source_without_mirror_no_longer_blocks_selection():
     assert select(rest) == []
     with pytest.raises(_mod.SelectionError):
         select(["victor/agent/argument_sanitizer.py"])
+
+
+# --- import-only test modules ---------------------------------------------
+
+only_drops_unused_test_imports = _mod.only_drops_unused_test_imports
+drop_import_only_tests = _mod.drop_import_only_tests
+
+_TEST_BASE = """\
+import os
+import pytest
+from helpers import tmp_repo
+from unittest.mock import patch
+
+
+def test_a(tmp_repo):
+    assert os.sep
+
+
+def test_warns():
+    with pytest.warns(DeprecationWarning):
+        from pkg import Old
+
+
+def test_probe():
+    try:
+        import optional_dep
+    except ImportError:
+        pytest.skip("absent")
+"""
+
+
+def test_dropping_an_unused_test_import_is_exempt():
+    assert only_drops_unused_test_imports(
+        _TEST_BASE, _TEST_BASE.replace("from unittest.mock import patch\n", "")
+    )
+
+
+def test_emptying_a_warns_block_is_not_exempt():
+    # The import inside pytest.warns IS the assertion; ruff leaves `pass`.
+    new = _TEST_BASE.replace("        from pkg import Old\n", "        pass\n")
+    assert only_removes_imports(_TEST_BASE, new)  # the source rule alone would accept it
+    assert not only_drops_unused_test_imports(_TEST_BASE, new)
+
+
+def test_emptying_an_import_probe_is_not_exempt():
+    new = _TEST_BASE.replace("        import optional_dep\n", "        pass\n")
+    assert not only_drops_unused_test_imports(_TEST_BASE, new)
+
+
+def test_removing_a_requested_fixture_is_not_exempt():
+    # `tmp_repo` looks unused to ruff but test_a requests it as a fixture.
+    new = _TEST_BASE.replace("from helpers import tmp_repo\n", "")
+    assert not only_drops_unused_test_imports(_TEST_BASE, new)
+    usefix = _TEST_BASE + '\n\n@pytest.mark.usefixtures("patch")\ndef test_b():\n    pass\n'
+    assert not only_drops_unused_test_imports(
+        usefix, usefix.replace("from unittest.mock import patch\n", "")
+    )
+
+
+def test_real_test_change_is_not_exempt():
+    assert not only_drops_unused_test_imports(_TEST_BASE, _TEST_BASE.replace("os.sep", "0"))
+    assert not only_drops_unused_test_imports(None, _TEST_BASE)
+
+
+def test_drop_import_only_tests_partitions_tests_only():
+    cleaned = _TEST_BASE.replace("from unittest.mock import patch\n", "")
+    bases = {"tests/unit/test_x.py": _TEST_BASE, "victor/a.py": _TEST_BASE}
+    current = {"tests/unit/test_x.py": cleaned, "victor/a.py": cleaned}
+    changed = ["tests/unit/test_x.py", "victor/a.py", "docs/x.md"]
+    rest, dropped = drop_import_only_tests(changed, read_base=bases.get, read_current=current.get)
+    assert dropped == ["tests/unit/test_x.py"]
+    assert rest == ["victor/a.py", "docs/x.md"]
+    assert drop_import_only_tests(changed, read_base=None) == (changed, [])

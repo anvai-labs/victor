@@ -32,11 +32,7 @@ To skip in CI:
     and FastAPI test client is not available.
 """
 
-import asyncio
-import json
 import os
-import sys
-from typing import Any, Dict, Generator, Optional
 
 import pytest
 
@@ -49,8 +45,8 @@ IS_GITHUB_ACTIONS = os.environ.get("GITHUB_ACTIONS", "false").lower() == "true"
 def _check_fastapi_available() -> bool:
     """Check if FastAPI and its test dependencies are available."""
     try:
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
+        from fastapi import FastAPI  # noqa: F401
+        from fastapi.testclient import TestClient  # noqa: F401
 
         return True
     except ImportError:
@@ -60,7 +56,7 @@ def _check_fastapi_available() -> bool:
 def _check_websocket_available() -> bool:
     """Check if WebSocket support is available."""
     try:
-        import websockets
+        import websockets  # noqa: F401
 
         return True
     except ImportError:

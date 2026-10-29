@@ -16,7 +16,7 @@
 
 import pytest
 from typing import Any, Dict
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from victor.framework.escape_hatch_registry import (
     ConditionFunction,

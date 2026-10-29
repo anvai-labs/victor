@@ -16,8 +16,6 @@
 added to web_search_tool.py (UA rotation, lite endpoint, browser fallback,
 trafilatura content extraction)."""
 
-import asyncio
-
 import pytest
 
 from victor.tools import web_search_tool as wst

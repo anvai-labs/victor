@@ -18,8 +18,7 @@ These tests increase code coverage for victor/ui/rendering/markdown.py
 to ensure all edge cases are handled properly.
 """
 
-import pytest
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from victor.ui.rendering.markdown import (
     render_markdown_with_hooks,
@@ -512,7 +511,6 @@ class TestCollapsibleSections:
         result = render_collapsible_section("Test", content, lines_visible=10)
         # Should return Panel (not plain markdown block)
         from rich.panel import Panel
-        from rich.markdown import Markdown
 
         assert isinstance(result, Panel)
         # Panel should contain more than just the markdown block

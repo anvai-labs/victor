@@ -1,7 +1,5 @@
 """Unit tests for formatter registry and centralized formatting logic."""
 
-import pytest
-
 from victor.tools.formatters.base import ToolFormatter, FormattedOutput
 from victor.tools.formatters.registry import (
     FormatterRegistry,

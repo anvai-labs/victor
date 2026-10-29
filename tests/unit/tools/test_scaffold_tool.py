@@ -116,7 +116,6 @@ class TestVariableInterpolation:
     async def test_from_template_with_variables(self):
         """Test from-template operation with variable interpolation."""
         import os
-        import shutil
 
         with tempfile.TemporaryDirectory() as tmpdir:
             old_cwd = os.getcwd()

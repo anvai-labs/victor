@@ -6,11 +6,10 @@ service resolution, and scoped containers.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.core.container import (
     ServiceContainer,
-    ServiceLifetime,
     reset_container,
 )
 from victor.framework.service_provider import (
@@ -22,23 +21,18 @@ from victor.framework.service_provider import (
     ToolConfiguratorService,
     configure_framework_services,
     create_builder,
-    create_framework_scope,
 )
 from victor.framework.agent_components import (
-    AgentBuilder,
     AgentSession,
     BuilderPreset,
     SessionLifecycleHooks,
-    SessionMetrics,
-    SessionState,
 )
 from victor.framework.tool_config import (
     AirgappedFilter,
     CostTierFilter,
     ToolConfigurator,
-    ToolConfigMode,
 )
-from victor.framework.event_registry import EventRegistry, EventTarget
+from victor.framework.event_registry import EventRegistry
 from victor.framework.events import EventType
 from victor.framework.task import TaskResult
 

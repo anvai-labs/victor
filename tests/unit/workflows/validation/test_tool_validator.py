@@ -7,7 +7,6 @@ import logging
 from typing import Any, List, Optional, Set
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor.workflows.validation import (
     ToolDependencyValidator,

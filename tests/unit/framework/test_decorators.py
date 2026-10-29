@@ -5,10 +5,8 @@
 
 """Tests for @victor.agent and @victor.task decorator API."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from victor.framework.decorators import (
     AgentCallable,

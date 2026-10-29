@@ -16,14 +16,11 @@
 
 import pytest
 
-from victor.agent.conversation.state_machine import ConversationStage
 from victor.agent.planning.readable_schema import ReadableTaskPlan, TaskComplexity
 from victor.agent.planning.tool_selection import (
     COMPLEXITY_TOOL_LIMITS,
     STEP_TOOL_MAPPING,
-    StepAwareToolSelector,
     get_complexity_limits,
-    get_step_tool_sets,
 )
 
 
@@ -111,7 +108,6 @@ class TestStepAwareToolSelector:
         """Test that step tool mapping constants are accessible."""
         # Test that we can import and use the mappings
         from victor.agent.planning.tool_selection import (
-            STEP_TO_TASK_TYPE,
             get_step_tool_sets,
         )
 
@@ -131,7 +127,6 @@ class TestStepAwareToolSelector:
     def test_complexity_limits_mapping(self):
         """Test complexity limits mapping."""
         from victor.agent.planning.tool_selection import (
-            COMPLEXITY_TOOL_LIMITS,
             get_complexity_limits,
         )
 

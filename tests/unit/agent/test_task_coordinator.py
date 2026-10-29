@@ -19,7 +19,6 @@ Tests task preparation, intent detection, and task-specific guidance.
 
 import pytest
 from unittest.mock import Mock, MagicMock
-from typing import Any
 
 from victor.agent.action_authorizer import ActionIntent, IntentClassification
 from victor.agent.services.task_runtime import TaskCoordinator

@@ -11,7 +11,6 @@ at activation time (OCP compliance).
 
 from __future__ import annotations
 
-import pytest
 
 from victor.core.vertical_types import TieredToolTemplate
 

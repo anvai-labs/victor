@@ -30,7 +30,7 @@ from victor.framework.agentic_loop import (
     LoopStage,
 )
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
-from victor.framework.fulfillment import FulfillmentResult, FulfillmentStatus, TaskType
+from victor.framework.fulfillment import TaskType
 from victor.framework.perception_integration import Perception
 from victor.framework.routing_policy import StructuredRoutingPolicy
 from victor.framework.team_runtime import ResolvedTeamExecutionPlan

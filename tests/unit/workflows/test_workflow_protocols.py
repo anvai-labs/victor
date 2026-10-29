@@ -14,9 +14,7 @@
 
 """Tests for Workflow Compiler Protocols (DIP compliance)."""
 
-import pytest
-import typing
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from victor.workflows.protocols import (
     IWorkflowCompiler,
     IWorkflowLoader,

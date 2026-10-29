@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
 
 from victor.agent.tool_pipeline_utils import LRUToolCache, ToolRateLimiter
 

@@ -6,7 +6,6 @@ from victor.runtime.cache_registry import (
     CacheCategory,
     CacheEntry,
     CacheRegistry,
-    CacheRegistryStatus,
 )
 
 

@@ -14,7 +14,6 @@
 
 """Unit tests for keyword classification utilities."""
 
-import pytest
 from victor.framework.enrichment.keyword_classifier import (
     ANALYSIS_TYPES,
     INFRA_TYPES,

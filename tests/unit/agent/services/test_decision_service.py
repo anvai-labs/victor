@@ -18,10 +18,8 @@ from victor.agent.services.decision_service import (
     LLMDecisionServiceConfig,
 )
 from victor.agent.services.protocols.decision_service import (
-    DecisionResult,
     LLMDecisionServiceProtocol,
 )
-from victor.core.async_utils import run_sync as real_run_sync
 from victor.framework.runtime_evaluation_policy import RuntimeEvaluationFeedback
 from victor.providers.base import CompletionResponse
 from victor.providers.httpx_openai_compat import HttpxOpenAICompatProvider

@@ -19,7 +19,7 @@ Tests the RL metrics collection and export for observability.
 
 import json
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.observability.rl_metrics import (
     RLMetricsCollector,

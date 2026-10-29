@@ -22,11 +22,11 @@ Tests the ability to switch between pre-configured profiles, including:
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from pathlib import Path
 import tempfile
 
-from victor.config.settings import ProfileConfig, Settings
+from victor.config.settings import ProfileConfig
 from victor.agent.orchestrator import AgentOrchestrator
 
 

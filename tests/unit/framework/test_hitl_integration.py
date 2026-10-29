@@ -20,9 +20,7 @@ These tests verify integration between:
 - TeamMemberSpec for attaching personas to team members
 """
 
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # =============================================================================
 # HITL with Workflow Integration Tests
@@ -76,7 +74,7 @@ class TestHITLWorkflowIntegration:
     @pytest.mark.asyncio
     async def test_hitl_approval_in_workflow(self):
         """HITL should handle approval requests within workflow."""
-        from victor.framework.hitl import HITLController, ApprovalStatus
+        from victor.framework.hitl import HITLController
 
         controller = HITLController()
         workflow_log = []
@@ -117,7 +115,7 @@ class TestHITLWorkflowIntegration:
     @pytest.mark.asyncio
     async def test_hitl_rejection_stops_workflow(self):
         """HITL rejection should stop dangerous operation."""
-        from victor.framework.hitl import HITLController, ApprovalStatus
+        from victor.framework.hitl import HITLController
 
         controller = HITLController()
         workflow_log = []
@@ -184,7 +182,7 @@ class TestPersonaTeamMemberIntegration:
     def test_persona_attached_to_team_member_spec(self):
         """TeamMemberSpec should work with persona-like attributes."""
         from victor.framework.teams import TeamMemberSpec
-        from victor.framework.personas import Persona, get_persona
+        from victor.framework.personas import get_persona
 
         # Get a built-in persona for reference
         senior_dev = get_persona("senior_developer")
@@ -280,7 +278,7 @@ class TestApprovalFlowEndToEnd:
     @pytest.mark.asyncio
     async def test_concurrent_approval_requests(self):
         """Test handling multiple concurrent approval requests."""
-        from victor.framework.hitl import HITLController, ApprovalStatus
+        from victor.framework.hitl import HITLController
 
         controller = HITLController()
 
@@ -395,7 +393,7 @@ class TestHITLPersonaCombined:
     async def test_checkpoint_stores_persona_context(self):
         """Checkpoint should be able to store persona information."""
         from victor.framework.hitl import HITLController
-        from victor.framework.personas import Persona, get_persona
+        from victor.framework.personas import get_persona
 
         controller = HITLController()
         persona = get_persona("mentor")

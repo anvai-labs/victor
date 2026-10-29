@@ -5,9 +5,6 @@
 
 """Tests for ProjectContext.auto_generate and project context loading."""
 
-import pytest
-from pathlib import Path
-
 from victor.context.project_context import ProjectContext
 
 

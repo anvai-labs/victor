@@ -21,14 +21,11 @@ import pytest
 
 from victor.tools.composition import (
     Runnable,
-    RunnableBinding,
     RunnableBranch,
     RunnableConfig,
     RunnableLambda,
     RunnableParallel,
     RunnablePassthrough,
-    RunnableSequence,
-    as_runnable,
     branch,
     chain,
     extract_if_success,

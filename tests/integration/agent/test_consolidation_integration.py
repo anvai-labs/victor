@@ -251,7 +251,7 @@ class TestCoordinatorIntegration:
         # it must fail rather than silently resolve.
         with pytest.raises(ImportError):
             from victor.agent.facades.workflow_facade import (
-                WorkflowFacade,
+                WorkflowFacade,  # noqa: F401
             )  # noqa: F401
 
         assert hasattr(AgentOrchestrator, "_mode_workflow_team_coordinator") is False
@@ -627,5 +627,5 @@ class TestEndToEndIntegration:
 
         with pytest.raises(ImportError, match="ModeWorkflowTeamCoordinatorProtocol"):
             from victor.protocols.coordination import (
-                ModeWorkflowTeamCoordinatorProtocol,
+                ModeWorkflowTeamCoordinatorProtocol,  # noqa: F401
             )  # noqa: F401

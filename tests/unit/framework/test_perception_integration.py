@@ -6,9 +6,8 @@ components (ActionIntent, TaskAnalyzer) with new requirement extraction.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from victor.agent.action_authorizer import ActionIntent
 from victor.framework.perception_integration import (

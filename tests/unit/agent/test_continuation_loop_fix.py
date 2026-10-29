@@ -31,7 +31,6 @@ import os
 import pytest
 import time
 from unittest.mock import MagicMock, patch, AsyncMock
-from typing import Any, Dict, Optional
 
 
 class TestTaskCompletionDetection:
@@ -445,7 +444,7 @@ class TestFileReadDedup:
 
     def test_record_file_read_updates_timestamp(self):
         """record_file_read should update the timestamp."""
-        from victor.agent.tool_pipeline import ToolPipeline, ToolPipelineConfig
+        from victor.agent.tool_pipeline import ToolPipeline
 
         mock_registry = MagicMock()
         mock_executor = MagicMock()
@@ -769,10 +768,9 @@ class TestVerticalIntegrationObservability:
     async def test_vertical_applied_event_emitted(self):
         """Should emit vertical_applied event when integration completes."""
         from victor.framework.vertical_integration import (
-            VerticalIntegrationPipeline,
             IntegrationResult,
         )
-        from victor.core.events import MessagingEvent, get_observability_bus
+        from victor.core.events import get_observability_bus
 
         # Create a mock result that the pipeline would return
         result = IntegrationResult(vertical_name="coding")

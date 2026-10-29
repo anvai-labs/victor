@@ -14,8 +14,6 @@
 
 """Tests for team formation selector (Phase 4 consolidation)."""
 
-import pytest
-
 from victor.framework.agentic_graph.state import (
     AgenticLoopStateModel,
     create_initial_state,

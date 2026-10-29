@@ -5,8 +5,6 @@ Vertical-specific provider hints and evaluation criteria should be registered
 dynamically by external vertical packages during VictorPlugin.register().
 """
 
-import pytest
-
 from victor.core.verticals.config_registry import VerticalConfigRegistry
 
 

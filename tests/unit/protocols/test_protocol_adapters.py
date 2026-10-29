@@ -28,13 +28,9 @@ from victor.integrations.protocol.adapters import (
 from victor.integrations.protocol.interface import (
     ChatMessage,
     ChatResponse,
-    ClientStreamChunk,
-    ToolCall,
-    UndoRedoResult,
     AgentMode,
     AgentStatus,
 )
-from victor.integrations.search_types import CodeSearchResult
 
 # =============================================================================
 # DIRECT PROTOCOL ADAPTER TESTS

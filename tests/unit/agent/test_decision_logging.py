@@ -7,9 +7,7 @@
 so each decision is joinable to its outcome for reward-weighted training."""
 
 import json
-import os
 
-import pytest
 
 import victor.agent.decisions.chain as chain
 from victor.core import context

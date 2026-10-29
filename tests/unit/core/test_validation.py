@@ -15,7 +15,6 @@
 """Tests for configuration validation module."""
 
 import pytest
-from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from victor.core.validation import (
@@ -36,7 +35,6 @@ from victor.core.validation import (
     ValidationIssue,
     ConfigValidationResult,
     ValidationSeverity,
-    validate_agent_config,
     validate_model_config,
     validate_provider_config,
 )

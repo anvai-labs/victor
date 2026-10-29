@@ -9,9 +9,8 @@ import json
 import sqlite3
 from unittest.mock import MagicMock
 
-import pytest
 
-from victor.framework.rl.base import RLOutcome, RLRecommendation
+from victor.framework.rl.base import RLRecommendation
 from victor.framework.rl.learners.cross_vertical import CrossVerticalLearner
 from victor.framework.rl.learners.quality_weights import (
     QualityWeightLearner,
@@ -33,7 +32,7 @@ def _make_db() -> sqlite3.Connection:
 def _make_cross_vertical() -> CrossVerticalLearner:
     db = _make_db()
     # Create rl_outcome table so cross_vertical queries work in isolation
-    from victor.core.schema import Tables, Schema
+    from victor.core.schema import Schema
 
     db.execute(Schema.RL_OUTCOME)
     db.commit()
@@ -501,7 +500,7 @@ class TestPhase3CoordinatorIntegration:
 
     def test_explainability_importable(self):
         from victor.framework.rl.explainability import (
-            RecommendationExplainer,
+            RecommendationExplainer,  # noqa: F401
         )  # noqa: F401
 
     def test_explainer_works_with_real_coordinator(self):

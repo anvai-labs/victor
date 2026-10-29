@@ -4,11 +4,7 @@ These tests follow TDD approach - written before implementation.
 They verify the streaming data models for graph orchestration.
 """
 
-import asyncio
-import pytest
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, List, Optional
-from unittest.mock import AsyncMock
 
 
 class TestWorkflowEventType:

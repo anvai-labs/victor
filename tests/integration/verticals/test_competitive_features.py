@@ -19,8 +19,6 @@ multi-agent frameworks like LangGraph and CrewAI.
 """
 
 import pytest
-from dataclasses import dataclass
-from typing import List, Optional
 
 
 class TestLangGraphParity:
@@ -164,7 +162,6 @@ class TestCrewAIParity:
         Verifies that teams can be configured with different coordination
         patterns (sequential, parallel, hierarchical, pipeline).
         """
-        from victor.framework.teams import TeamMemberSpec
         from victor.teams import TeamFormation, TeamConfig, TeamMember
         from victor.agent.subagents.base import SubAgentRole
 
@@ -337,7 +334,6 @@ class TestHITLFeatures:
         from victor.workflows.hitl import (
             HITLExecutor,
             HITLStatus,
-            HITLNodeType,
         )
 
         # Given an HITL node and auto-approve handler
@@ -440,7 +436,6 @@ class TestHITLFeatures:
             HITLNode,
             HITLNodeType,
             HITLFallback,
-            HITLRequest,
             HITLExecutor,
         )
 

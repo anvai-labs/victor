@@ -15,7 +15,7 @@
 """Unit tests for state-passed architecture components."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from victor.agent.coordinators.state_context import (
     ContextSnapshot,

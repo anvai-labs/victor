@@ -1,11 +1,10 @@
 """Unit tests for continuation patience RL learner."""
 
-import sqlite3
 import pytest
 from unittest.mock import MagicMock
 from pathlib import Path
 
-from victor.framework.rl.base import RLOutcome, RLRecommendation
+from victor.framework.rl.base import RLOutcome
 from victor.framework.rl.coordinator import RLCoordinator
 from victor.framework.rl.learners.continuation_patience import (
     ContinuationPatienceLearner,
