@@ -60,6 +60,8 @@ from datetime import datetime, timezone
 from statistics import median, quantiles
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from victor.core.metrics_mixin import AdhocMetricsMixin
+
 logger = logging.getLogger(__name__)
 
 
@@ -604,7 +606,7 @@ class MetricsRegistry:
 # =============================================================================
 
 
-class MetricsCollector:
+class MetricsCollector(AdhocMetricsMixin):
     """Automatically collects metrics from Victor events.
 
     Subscribes to EventBus and updates metrics based on events.
@@ -633,11 +635,6 @@ class MetricsCollector:
         """
         self._registry = registry or MetricsRegistry.get_instance()
         self._prefix = prefix
-        # Ad-hoc metrics recorded via the MetricsCollectorProtocol adapter
-        # (``record_metric``). Kept separate from the fixed, event-driven metrics
-        # so the adapter can accept arbitrary metric names without polluting the
-        # shared registry.
-        self._adhoc_metrics: Dict[str, float] = {}
         self._setup_metrics()
 
     def _setup_metrics(self) -> None:
@@ -774,26 +771,9 @@ class MetricsCollector:
         }
 
     # =========================================================================
-    # MetricsCollectorProtocol adapter (FEP-0014)
+    # MetricsCollectorProtocol adapter (FEP-0014); record_metric comes from
+    # AdhocMetricsMixin, the snapshot shape stays per collector.
     # =========================================================================
-
-    def record_metric(self, name: str, value: float, **tags: str) -> None:
-        """Record a single ad-hoc metric observation (protocol adapter).
-
-        Stores the value under ``name`` (tag-qualified when tags are supplied)
-        in the ad-hoc metrics store. This complements the event-driven metrics
-        wired via :meth:`wire_observability_bus`.
-
-        Args:
-            name: Metric name.
-            value: Numeric value to record.
-            **tags: Optional string-valued dimensional tags, appended to the key.
-        """
-        key = name
-        if tags:
-            tag_suffix = ",".join(f"{k}={v}" for k, v in sorted(tags.items()))
-            key = f"{name}{{{tag_suffix}}}"
-        self._adhoc_metrics[key] = float(value)
 
     def get_snapshot(self) -> Dict[str, Any]:
         """Return a point-in-time snapshot of collected metrics (protocol adapter).
