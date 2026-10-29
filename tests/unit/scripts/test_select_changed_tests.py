@@ -542,3 +542,97 @@ def test_agentic_graph_executor_selects_actual_owner_not_unrelated_executors():
         "tests/unit/agent/services/test_turn_execution_runtime.py",
         "tests/unit/providers/test_gateway_policy_resilience.py",
     }
+
+
+# --- import-only changes (unused-import removal sweeps) ---------------------
+
+only_removes_imports = _mod.only_removes_imports
+partition_import_only = _mod.partition_import_only
+
+_BASE = '''\
+import os
+import sys
+from typing import TYPE_CHECKING, Dict, List
+
+if TYPE_CHECKING:
+    from x import Y
+
+try:
+    import tomllib
+except ImportError:
+    pass
+
+
+def f(a: List[int]) -> int:
+    """Doc."""
+    return len(a) + len(os.sep)
+'''
+
+
+def test_removing_unused_imports_is_import_only():
+    new = _BASE.replace("import sys\n", "").replace(", Dict", "")
+    assert only_removes_imports(_BASE, new)
+
+
+def test_dropping_emptied_type_checking_and_probe_blocks_is_import_only():
+    new = _BASE.replace("if TYPE_CHECKING:\n    from x import Y\n\n", "")
+    new = new.replace("try:\n    import tomllib\nexcept ImportError:\n    pass\n\n", "")
+    new = new.replace("TYPE_CHECKING, ", "")
+    assert only_removes_imports(_BASE, new)
+
+
+def test_reformatting_and_noqa_comments_are_import_only():
+    new = _BASE.replace("import os\n", "import os  # noqa: F401 - probe\n")
+    assert only_removes_imports(_BASE, new)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda s: s.replace("import os\n", "import os\nimport json\n"),  # adds an import
+        lambda s: s.replace("from x import Y", "from z import Y"),  # repoints an import
+        lambda s: s.replace("len(a) + len(os.sep)", "len(a)"),  # logic change
+        lambda s: s.replace('"""Doc."""', '"""Changed."""'),  # docstring is code-visible
+        lambda s: s.replace("except ImportError:\n    pass", "except ImportError:\n    raise"),
+    ],
+)
+def test_anything_beyond_import_removal_is_not_import_only(mutate):
+    assert not only_removes_imports(_BASE, mutate(_BASE))
+
+
+def test_new_or_unparsable_files_are_not_import_only():
+    assert not only_removes_imports(None, _BASE)
+    assert not only_removes_imports(_BASE, "def broken(:\n")
+
+
+def test_partition_moves_import_only_core_sources_out_of_selection():
+    bases = {"victor/a.py": _BASE, "victor/b.py": _BASE}
+    current = {
+        "victor/a.py": _BASE.replace("import sys\n", ""),  # import-only
+        "victor/b.py": _BASE.replace("len(a) + len(os.sep)", "0"),  # real change
+    }
+    changed = ["victor/a.py", "victor/b.py", "tests/unit/test_x.py", "docs/x.md"]
+    rest, import_only = partition_import_only(
+        changed, read_base=bases.get, read_current=current.get
+    )
+    assert import_only == ["victor/a.py"]
+    assert rest == ["victor/b.py", "tests/unit/test_x.py", "docs/x.md"]
+
+
+def test_partition_without_base_reader_is_a_no_op():
+    changed = ["victor/a.py"]
+    assert partition_import_only(changed, read_base=None) == (changed, [])
+
+
+def test_import_only_source_without_mirror_no_longer_blocks_selection():
+    # victor/agent/argument_sanitizer.py has no mirror test; an import-only edit
+    # to it must not raise, while a real edit still does.
+    rest, import_only = partition_import_only(
+        ["victor/agent/argument_sanitizer.py"],
+        read_base=lambda p: _BASE,
+        read_current=lambda p: _BASE.replace("import sys\n", ""),
+    )
+    assert import_only == ["victor/agent/argument_sanitizer.py"]
+    assert select(rest) == []
+    with pytest.raises(_mod.SelectionError):
+        select(["victor/agent/argument_sanitizer.py"])
