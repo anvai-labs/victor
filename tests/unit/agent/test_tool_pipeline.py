@@ -87,6 +87,63 @@ class TestToolPipelineConfig:
 
 
 class TestToolPipelineInit:
+    async def test_session_policy_denies_before_cache_or_middleware(self, pipeline):
+        from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+        policy = ToolAccessPolicy(
+            get_registrar=lambda: pipeline.tools,
+            get_selector=lambda: None,
+            logger=logging.getLogger(__name__),
+        )
+        policy.set_enabled_tools({"source_probe"})
+        pipeline.bind_session_tool_policy(policy)
+        pipeline._serve_cached_result = AsyncMock(
+            return_value=ToolCallResult(
+                tool_name="read", arguments={}, success=True, result="cached private bytes"
+            )
+        )
+        pipeline._run_before_middleware = AsyncMock()
+        result = await pipeline.execute_tool_calls([{"name": "read", "arguments": {}}])
+        assert not result.results[0].success
+        assert result.results[0].skipped
+        pipeline._serve_cached_result.assert_not_awaited()
+        pipeline._run_before_middleware.assert_not_awaited()
+        pipeline.executor.execute.assert_not_awaited()
+
+    async def test_bound_policy_is_live_and_final_attempt_rechecks(self, pipeline):
+        from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+        policy = ToolAccessPolicy(
+            get_registrar=lambda: pipeline.tools,
+            get_selector=lambda: None,
+            logger=logging.getLogger(__name__),
+        )
+        policy.set_enabled_tools({"read"})
+        pipeline.bind_session_tool_policy(policy)
+        assert pipeline._tool_is_enabled("read")
+        policy.set_enabled_tools({"source_probe"})
+        # Also gates recovery/steering executor attempts without trusting the
+        # tool's earlier admission or a rewrite's registry-only availability.
+        result = await pipeline._execute_permitted_tool("read", {}, {})
+        assert not result.success
+        pipeline.executor.execute.assert_not_awaited()
+        policy.set_enabled_tools(set())  # Existing empty-set = unrestricted.
+        assert pipeline._tool_is_enabled("read")
+        result = await pipeline._execute_permitted_tool("read", {}, {})
+        assert result.success
+        pipeline.executor.execute.assert_awaited_once()
+
+    async def test_policy_failure_denies_and_does_not_change_shared_registry(self, pipeline):
+        policy = MagicMock()
+        policy.is_tool_enabled.side_effect = RuntimeError("fixture unavailable policy")
+        pipeline.bind_session_tool_policy(policy)
+        result = await pipeline.execute_tool_calls([{"name": "read", "arguments": {}}])
+        assert not result.results[0].success
+        pipeline.executor.execute.assert_not_awaited()
+        pipeline.tools.set_tool_states.assert_not_called()
+        with pytest.raises(TypeError):
+            pipeline.bind_session_tool_policy(object())
+
     def test_initial_state(self, pipeline):
         assert pipeline.calls_used == 0
         assert pipeline.calls_remaining == 5
@@ -855,6 +912,221 @@ class TestNavigationHintLoopDetection:
 
 
 @pytest.mark.parametrize("source", ["execution", "cache", "cross_turn", "semantic", "retry_cache"])
+async def test_scope_revoked_during_result_await_withholds_output(pipeline, source, caplog):
+    from types import SimpleNamespace
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+    from victor.agent.services.tool_retry import ToolRetryExecutor
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"web_search"})
+    pipeline.bind_session_tool_policy(policy)
+
+    async def revoke(*args):
+        policy.set_enabled_tools({"source_probe"})
+        return "private-result"
+
+    pipeline.on_tool_complete = MagicMock()
+    pipeline.on_tool_event = MagicMock()
+    pipeline.executor.execute.return_value.result = "private-result"
+    cached = ToolCallResult("web_search", {}, True, result="private-result", cached=True)
+    if source == "semantic":
+        pipeline.config.enable_semantic_caching = True
+        pipeline.semantic_cache = SimpleNamespace(get=AsyncMock(side_effect=revoke))
+    else:
+        pipeline.middleware_chain = SimpleNamespace(
+            process_before=AsyncMock(return_value=MiddlewareResult()),
+            process_after=AsyncMock(side_effect=revoke),
+        )
+    if source == "cache":
+        pipeline.get_cached_result = MagicMock(return_value=cached)
+    if source == "cross_turn":
+        pipeline._cross_turn_enabled = True
+        pipeline._cross_turn_cache.set(pipeline._get_call_signature("web_search", {}), cached)
+    if source == "retry_cache":
+        retry = ToolRetryExecutor(
+            SimpleNamespace(
+                retry_enabled=True, max_retry_attempts=3, retry_base_delay=0, retry_max_delay=0
+            ),
+            pipeline,
+            MagicMock(get=MagicMock(return_value=cached)),
+        )
+        result, success, _ = await retry.execute_tool_with_retry("web_search", {}, {})
+        assert not success
+    else:
+        result = await pipeline._execute_single_call({"name": "web_search", "arguments": {}}, {})
+    assert not result.success
+    assert result.outcome_kind == "result_withheld"
+    assert result.block_source == "session_policy"
+    assert "private-result" not in repr(result)
+    assert "private-result" not in repr(pipeline.on_tool_complete.call_args_list)
+    assert "private-result" not in repr(pipeline.on_tool_event.call_args_list)
+    assert cached.result == "private-result"
+
+
+async def test_scope_revoked_during_cache_store_withholds_completion(pipeline):
+    from types import SimpleNamespace
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"web_search"})
+    pipeline.bind_session_tool_policy(policy)
+
+    async def put(*args, **kwargs):
+        policy.set_enabled_tools({"source_probe"})
+
+    pipeline.config.enable_semantic_caching = True
+    pipeline.semantic_cache = SimpleNamespace(get=AsyncMock(return_value=None), put=put)
+    pipeline.executor.execute.return_value.result = "private-result"
+    pipeline.on_tool_complete = MagicMock()
+    result = await pipeline._execute_single_call({"name": "web_search", "arguments": {}}, {})
+    assert not result.success
+    assert result.outcome_kind == "result_withheld"
+    assert result.block_source == "session_policy"
+    assert "private-result" not in repr(result)
+    assert "private-result" not in repr(pipeline.on_tool_complete.call_args_list)
+
+
+async def test_batch_publication_rechecks_earlier_results_after_later_awaits(pipeline):
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"source_probe", "later_probe"})
+    pipeline.bind_session_tool_policy(policy)
+
+    async def execute(tool_name, **kwargs):
+        if tool_name == "later_probe":
+            policy.set_enabled_tools({"later_probe"})
+        return ToolExecutionResult(
+            tool_name=tool_name, success=True, result="private-result", execution_time=0.01
+        )
+
+    pipeline.executor.execute.side_effect = execute
+    result = await pipeline.execute_tool_calls(
+        [{"name": "source_probe", "arguments": {}}, {"name": "later_probe", "arguments": {}}]
+    )
+    assert not result.results[0].success
+    assert result.results[0].outcome_kind == "result_withheld"
+    assert "private-result" not in repr(result.results[0])
+    assert result.results[1].success
+
+
+async def test_denied_requested_search_cannot_route_into_an_allowed_tool(pipeline):
+    from types import SimpleNamespace
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"graph"})
+    pipeline.bind_session_tool_policy(policy)
+    pipeline.search_router = SimpleNamespace(
+        route=MagicMock(
+            return_value=SimpleNamespace(
+                tool_name="graph", tool_arguments={"operation": "callers", "symbol": "fixture"}
+            )
+        )
+    )
+    result = await pipeline._execute_single_call(
+        {"name": "code_search", "arguments": {"query": "callers of fixture"}}, {}
+    )
+    assert not result.success
+    assert result.skipped
+    pipeline.search_router.route.assert_not_called()
+    pipeline.executor.execute.assert_not_awaited()
+    policy.set_enabled_tools({"code_search", "graph"})
+    allowed = await pipeline._execute_single_call(
+        {"name": "code_search", "arguments": {"query": "callers of fixture"}}, {}
+    )
+    assert allowed.success
+    pipeline.search_router.route.assert_called_once()
+    pipeline.executor.execute.assert_awaited_once()
+
+
+async def test_requested_name_remains_authority_after_routing_and_middleware(pipeline):
+    from types import SimpleNamespace
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"graph", "code_search"})
+    pipeline.bind_session_tool_policy(policy)
+    pipeline.search_router = SimpleNamespace(
+        route=lambda query: SimpleNamespace(
+            tool_name="graph", tool_arguments={"mode": "callers", "node": "fixture"}
+        )
+    )
+
+    async def revoke(*args):
+        policy.set_enabled_tools({"graph"})
+        return MiddlewareResult()
+
+    pipeline.middleware_chain = SimpleNamespace(
+        process_before=revoke,
+        process_after=AsyncMock(side_effect=lambda name, args, result, success: result),
+    )
+    result = await pipeline._execute_single_call(
+        {"name": "code_search", "arguments": {"query": "who calls fixture"}}, {}
+    )
+    assert not result.success
+    pipeline.executor.execute.assert_not_awaited()
+
+
+async def test_scope_denial_is_not_recoverable_via_a_different_tool(pipeline):
+    from types import SimpleNamespace
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+    from victor.agent.error_recovery import RecoveryAction
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"read"})
+    pipeline.bind_session_tool_policy(policy)
+
+    async def revoke(*args):
+        policy.set_enabled_tools({"code_search"})
+        return MiddlewareResult()
+
+    pipeline.middleware_chain = SimpleNamespace(
+        process_before=revoke,
+        process_after=AsyncMock(side_effect=lambda name, args, result, success: result),
+    )
+    recovery = SimpleNamespace(
+        action=RecoveryAction.FALLBACK_TOOL, fallback_tool="code_search", modified_args=None
+    )
+    with patch("victor.agent.error_recovery.recover_from_error", return_value=recovery) as recover:
+        result = await pipeline._execute_single_call(
+            {"name": "read", "arguments": {"path": "fixture"}}, {}
+        )
+    assert not result.success
+    assert result.retryable is False
+    recover.assert_not_called()
+    pipeline.executor.execute.assert_not_awaited()
+    assert result.error_info.details["execution_outcome"] == "not_executed"
+
+
+@pytest.mark.parametrize("source", ["execution", "cache", "cross_turn", "semantic", "retry_cache"])
 async def test_result_policy_guards_publication_and_cached_returns(pipeline, source, caplog):
     from types import SimpleNamespace
     from victor.agent.middleware_chain import MiddlewareChain
@@ -880,9 +1152,17 @@ async def test_result_policy_guards_publication_and_cached_returns(pipeline, sou
     chain.add(PolicyEngineMiddleware(PolicyEngine([DenyResult()])))
     pipeline.middleware_chain = chain
     pipeline.executor.execute.return_value.result = "private-result"
+    pipeline.executor.execute.return_value.images = [{"data": "private-result"}]
     pipeline.on_tool_event = MagicMock()
     pipeline.on_tool_complete = MagicMock()
-    cached = ToolCallResult("web_search", {}, True, result="private-result", cached=True)
+    cached = ToolCallResult(
+        "web_search",
+        {},
+        True,
+        result="private-result",
+        cached=True,
+        images=[{"data": "private-result"}],
+    )
     if source == "cache":
         pipeline.get_cached_result = MagicMock(return_value=cached)
     if source == "cross_turn":

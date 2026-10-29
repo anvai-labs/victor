@@ -21,6 +21,53 @@ single and batch validation with a single canonical API.
 from unittest.mock import Mock
 
 
+async def test_session_scope_reaches_the_live_pipeline_before_execution():
+    """Creation readback/advertising alone does not constrain pipeline dispatch."""
+    from unittest.mock import AsyncMock
+    from victor.agent.services.tool_service import ToolService, ToolServiceConfig
+    from victor.agent.tool_pipeline import ToolPipeline, ToolPipelineConfig
+    from victor.agent.tool_executor import ToolExecutionResult
+
+    registry = Mock()
+    registry.is_tool_enabled.return_value = True
+    registry.get_registered_tools.return_value = {"source_probe", "outside_probe"}
+    registry.get.return_value = None
+    executor = Mock()
+    executor.execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            tool_name="source_probe", success=True, result="fixture", execution_time=0.01
+        )
+    )
+    pipeline = ToolPipeline(
+        registry,
+        executor,
+        config=ToolPipelineConfig(
+            tool_budget=10,
+            enable_caching=False,
+            enable_semantic_caching=False,
+            enable_output_aggregation=False,
+            enable_synthesis_checkpoints=False,
+        ),
+    )
+    service = ToolService(
+        config=ToolServiceConfig(enable_caching=False),
+        tool_executor=executor,
+        tool_registrar=registry,
+        tool_selector=None,
+    )
+    service.bind_runtime_components(tool_pipeline=pipeline)
+    service.set_enabled_tools({"source_probe"})
+    assert service.get_enabled_tools() == {"source_probe"}
+    result = await pipeline.execute_tool_calls(
+        [{"name": "outside_probe", "arguments": {}}, {"name": "source_probe", "arguments": {}}]
+    )
+    assert not result.results[0].success
+    assert result.results[0].skipped
+    assert result.results[1].success
+    assert executor.execute.await_count == 1
+    assert executor.execute.await_args.kwargs["tool_name"] == "source_probe"
+
+
 class TestToolServiceValidationConsolidation:
     """Test consolidated validate_tool_calls method."""
 

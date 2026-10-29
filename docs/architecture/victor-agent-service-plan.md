@@ -67,7 +67,80 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-STARTUP-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
+- **SDK-SCOPE-RUN-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
+  branch `fix/session-tool-pipeline-gate`, baseline
+  `f442656487cd7c7d48a5bedbc3250d4facc4f417`. Fetched/reconciled develop and
+  #1591 before selection. Actual public `Agent.create`/`Agent.run` with a scripted
+  provider advertises five bounded source tools and reads back that exact scope,
+  yet dispatches a registered, unadvertised `outside_probe` callback. The control
+  only increments a list; no shell/file/network action or actual inference occurs.
+  Evidence: `repocovertvideo/build/rr039-research-sdk-probe-v2.log` and retained
+  scripted requests. Pipeline checks registry enablement independently of the
+  canonical ToolService's session allowlist. Next: RED regression in the existing
+  pipeline/service test owners, bind the owned session policy at dispatch, test
+  allowed/denied/cache/recovery behavior, independent review and full PR CI. No
+  pinned research consumer or HTTP capability acceptance follows. Local candidate
+  binds the live owned session policy to pipeline dispatch, checks before cache
+  access and rechecks each executor/recovery attempt without registry mutation.
+  Four regressions and 266 affected tests pass; 36,923 tests collect. Touched
+  Black/Ruff/configured MyPy pass. The actual scripted SDK probe now refuses the
+  outside callback (zero dispatches), refuses `/etc/passwd`, reads two pinned
+  ranges, proposes a cited brief and finishes `ok` over six scripted turns. This
+  is zero real inference, not live service acceptance; a two-signal close warning
+  remains retained. CI-selected broader tests and independent review are next.
+  First exact-commit review (`ea6e4c48c68bec6f128c28956e37958587080955`)
+  identifies permission revocation during an awaited cache/result operation.
+  Five RED cases reproduce it across fresh, idempotent, cross-turn, semantic and
+  retry-cache output. Publication now checks the live session policy before and
+  after result middleware, withholding output from callbacks/logs and callers
+  after revocation. All 271 affected tests pass. The first broader local run was
+  interrupted for this repair; its partial outcome is retained, not called passed.
+  Refreshed collection, broader checks and final independent review are pending.
+  The second review (`09fc8443622750c9b0258ab968e68f0892d93264`) finds the
+  later semantic-cache store await. A new RED reproduces that completion leak;
+  a separate RED covers earlier batch results surviving later scope changes.
+  The common result guard now runs after storage and at batch assembly, without
+  replaying result middleware. Withholding also clears structured image output;
+  existing five publication-denial controls now exercise image payloads. All 273
+  affected tests pass. The second broader run was interrupted for this repair;
+  neither partial run is qualification. Final source review precedes the next
+  full local/CI run to avoid validating superseded candidates.
+  Third full-source review (`7e02cbcb33a9b046fd4ca1d0160820cbc0f258fc`)
+  identifies an out-of-scope `code_search` request routed to permitted `graph`.
+  RED reproduces that path; the pipeline now checks the requested normalized
+  name before argument/search routing and still checks the routed implementation.
+  The regression also permits routing when both names are enabled. All 396
+  affected tests pass, including the existing search-router suite. RepoReel #154
+  is merged with its corpus/brief contract and 502 tests, independently of this
+  unmerged upstream candidate. Next: final review, then consolidated full checks.
+  Fourth review (`11201b274c724d20ffdffee32d53c0272e733e71`) identifies loss of
+  the original requested-name authority after routing and recoverability of a
+  late policy refusal. Both RED controls reproduce the paths. Call state now
+  retains the host-normalized request name through cache, executor, recovery and
+  publication checks; batch assembly uses the original provider call identity.
+  Policy refusals carry `retryable=False` and observed `not_executed` metadata;
+  fallback recovery cannot dispatch. A caught missing ErrorInfo correlation field
+  is corrected before review. All 398 affected tests and configured typing pass.
+  Next: final exact-source review, then one consolidated broader validation run.
+  **Final local checkpoint:** runtime commit
+  `cd265f74e86ea137ee4d0b9d74ee0df4f0d46205` passes the fifth independent
+  full-source review, 398 affected tests, all 1,143 CI-selected tests and 36,933
+  full-suite collection. Changed-line coverage: 100% (44 lines, zero missing).
+  Touched Black/Ruff/configured MyPy pass. Built core/coupled wheels are installed
+  only in an owned RepoReel candidate prefix; five critical installed core modules
+  match wheel bytes, core locations are admitted and `pip check` passes. The
+  installed actual-SDK fixture records six scripted provider turns, zero outside
+  dispatches and draft-only admission, with zero real inference. Initial package
+  smoke failed for missing NumPy; explicit NumPy 1.26.4 and defusedxml 0.7.1 fix
+  that environment. Optional sentence-transformers remains absent; the retained
+  fixture uses keyword classification. Source-test close still reports two leaked
+  signals; this patch does not accept generic lifecycle/HTTP capabilities. The five
+  code-review requests are separate from production-content accounting. Evidence:
+  `repocovertvideo/build/rr039-session-gate-qualification.json` and referenced
+  review/CI/installed-probe artifacts. Next: independently check this final evidence
+  update, push one reviewed candidate and drive all develop PR CI before merge.
+
+- **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline
   `0bc106516b6444c4067b86eabb777601cd5f6cf3`. Fetched/reconciled SDK-TOOLS-01
   merge and all CI before selection. Mocked preflight invokes skill initialization
@@ -86,8 +159,10 @@ edit. A mock test is not live provider or C5 evidence.
   `__new__`-constructed factory fixture lacking `_settings`; its failed result is
   retained and reproduced locally. The fixture now initializes constructor state.
   Exact CI selection: 146 pass, changed-line coverage 100%; final affected suite:
-  359 pass and 36,836 collect. Next: refreshed exact-commit review and consolidated
-  CI follow-up; real pinned research consumer qualification stays separate.
+  359 pass and 36,836 collect. Final candidate `63c0468b7a0dbef928b1d77321957840b354d3f5`
+  passes independent review and all applicable CI, including CI Success and Vertical
+  Py3.12. Merged into develop as `f442656487cd7c7d48a5bedbc3250d4facc4f417`.
+  This is merged source, not a release or live research acceptance.
 
 - **SDK-TOOLS-01 — MERGED**, [#1589](https://github.com/anvai-labs/victor/pull/1589) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-agent-tool-scope`, initial baseline
