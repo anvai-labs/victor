@@ -19,6 +19,7 @@ runtime subsystems must derive from configuration, not restate Ollama.
 """
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -105,6 +106,7 @@ def test_skill_matcher_attaches_before_initialize_completes():
     from victor.framework.agent_factory import AgentFactory
 
     factory = AgentFactory.__new__(AgentFactory)
+    factory._settings = SimpleNamespace()
     orchestrator = MagicMock()
     factory._orchestrator = orchestrator
 

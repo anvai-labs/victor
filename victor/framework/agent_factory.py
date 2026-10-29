@@ -17,6 +17,7 @@ import asyncio
 import inspect
 import logging
 import uuid
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
 
 from victor.core.errors import VictorError
@@ -386,6 +387,8 @@ class AgentFactory:
         """
         if not self._orchestrator:
             return
+        if not getattr(self._settings, "skill_auto_select_enabled", True):
+            return
         try:
             from victor.framework.skill_matcher import SkillMatcher
             from victor.framework.skills import get_skill_registry
@@ -423,6 +426,14 @@ class AgentFactory:
         Non-blocking: the coordinator spawns a daemon thread internally.
         Resolves provider/model from current settings for evolution context.
         """
+        optimization = getattr(self._settings, "prompt_optimization", None)
+        enabled = (
+            optimization.get("enabled", True)
+            if isinstance(optimization, Mapping)
+            else getattr(optimization, "enabled", True)
+        )
+        if not enabled:
+            return
         try:
             from victor.framework.rl.coordinator import get_rl_coordinator
 

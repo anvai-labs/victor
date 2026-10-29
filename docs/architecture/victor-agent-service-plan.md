@@ -67,7 +67,29 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-TOOLS-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
+- **SDK-STARTUP-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
+  branch `fix/sdk-research-startup-settings`, baseline
+  `0bc106516b6444c4067b86eabb777601cd5f6cf3`. Fetched/reconciled SDK-TOOLS-01
+  merge and all CI before selection. Mocked preflight invokes skill initialization
+  and background evolution despite `skill_auto_select_enabled=False` and
+  `prompt_optimization.enabled=False`; no actual model or registry reads occur.
+  Scope: honor existing startup settings in the shared factory, preserving enabled
+  and missing-setting defaults. No new public contracts, service capability or
+  FEP acceptance. RED: two disabled-hook regressions fail while four enabled/default
+  controls pass; one further RED covers a dictionary-valued existing config overlay.
+  GREEN: nine setting cases and 359 affected tests pass. Full collection: 36,836;
+  touched Black/Ruff/configured MyPy pass. Disabled skill selection avoids registry
+  lookup/embedding initialization; disabled prompt optimization avoids the automatic
+  coordinator kickoff for typed and mapping settings. No inference was executed.
+  This controls factory startup, not all later learning or shared-service isolation.
+  [#1591](https://github.com/anvai-labs/victor/pull/1591) first CI fails one existing
+  `__new__`-constructed factory fixture lacking `_settings`; its failed result is
+  retained and reproduced locally. The fixture now initializes constructor state.
+  Exact CI selection: 146 pass, changed-line coverage 100%; final affected suite:
+  359 pass and 36,836 collect. Next: refreshed exact-commit review and consolidated
+  CI follow-up; real pinned research consumer qualification stays separate.
+
+- **SDK-TOOLS-01 — MERGED**, [#1589](https://github.com/anvai-labs/victor/pull/1589) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-agent-tool-scope`, initial baseline
   `6dd1b0e8df86aa1c236574569a3206a25108d89a`. Reconciled fetched develop before
   selection; later fetched `f2b223b31` adds unrelated metrics work. Existing public
@@ -92,9 +114,13 @@ edit. A mock test is not live provider or C5 evidence.
   Evidence is under `repocovertvideo/build/rr039-sdk-tools-*` and the retained
   exact-commit review directories. This is not live provider, OS isolation,
   pinned-corpus, HTTP capability or general service cancellation/recovery acceptance.
-  RepoReel owns source admission/tutorial policy (RR-015/RR-039). Next: final
-  independent exact-commit review, then PR/develop CI and merge; qualify the actual
-  consumer with bounded canonical source tools separately.
+  Final independent review of `a3e880e7a` is clean. Merged as
+  `0bc106516b6444c4067b86eabb777601cd5f6cf3`; all forty CI checks succeed, two
+  skip and one is neutral, including required CI Success and Vertical Py3.12.
+  The clean canonical checkout is fast-forwarded and the owned feature worktree
+  removed. Candidate wheel is built, not installed/released or live-qualified.
+  RepoReel owns source admission/tutorial policy (RR-015/RR-039); qualify the
+  actual consumer with bounded canonical source tools separately.
 
 - **KV-VERIFY-01 — MERGED (runtime repair), PARTIAL (live matrix), [#1394](https://github.com/anvai-labs/victor/pull/1394)** (2026-10-18), owner: provider verification session;
   branch `fix/kv-compaction-message-contract`, baseline `71e31ad0d`. Actual
