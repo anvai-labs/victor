@@ -295,22 +295,6 @@ class CPlugin(BaseLanguagePlugin):
 
         return None
 
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node.
-
-        Args:
-            node: Tree-sitter node
-
-        Returns:
-            Node text or None
-        """
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text
-
 
 class KotlinPlugin(BaseLanguagePlugin):
     """Kotlin language plugin."""
@@ -567,22 +551,6 @@ class KotlinPlugin(BaseLanguagePlugin):
                     return result
 
         return None
-
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node.
-
-        Args:
-            node: Tree-sitter node
-
-        Returns:
-            Node text or None
-        """
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text
 
 
 class CSharpPlugin(BaseLanguagePlugin):
@@ -876,22 +844,6 @@ class CSharpPlugin(BaseLanguagePlugin):
 
         return None
 
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node.
-
-        Args:
-            node: Tree-sitter node
-
-        Returns:
-            Node text or None
-        """
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text
-
 
 class RubyPlugin(BaseLanguagePlugin):
     """Ruby language plugin."""
@@ -1148,22 +1100,6 @@ class RubyPlugin(BaseLanguagePlugin):
             return identifiers[-1] if len(identifiers) > 1 else identifiers[0]
 
         return None
-
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node.
-
-        Args:
-            node: Tree-sitter node
-
-        Returns:
-            Node text or None
-        """
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text
 
 
 class PhpPlugin(BaseLanguagePlugin):
@@ -1458,22 +1394,6 @@ class PhpPlugin(BaseLanguagePlugin):
 
         return None
 
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node.
-
-        Args:
-            node: Tree-sitter node
-
-        Returns:
-            Node text or None
-        """
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text
-
 
 class SwiftPlugin(BaseLanguagePlugin):
     """Swift language plugin."""
@@ -1750,22 +1670,6 @@ class SwiftPlugin(BaseLanguagePlugin):
                     return result
 
         return None
-
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node.
-
-        Args:
-            node: Tree-sitter node
-
-        Returns:
-            Node text or None
-        """
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text
 
 
 class ScalaPlugin(BaseLanguagePlugin):
