@@ -45,9 +45,8 @@ logger = logging.getLogger(__name__)
 @tool(
     name="codebase_verify",
     category="verification",
-    description="Verify codebase claims with semantic validation and context awareness",
     danger_level=DangerLevel.SAFE,
-    access_mode=AccessMode.READ,
+    access_mode=AccessMode.READONLY,
     priority=Priority.LOW,
 )
 async def codebase_verify(
@@ -176,9 +175,8 @@ async def codebase_verify(
 @tool(
     name="codebase_verify_batch",
     category="verification",
-    description="Verify multiple codebase issues with semantic validation",
     danger_level=DangerLevel.SAFE,
-    access_mode=AccessMode.READ,
+    access_mode=AccessMode.READONLY,
     priority=Priority.LOW,
 )
 async def codebase_verify_batch(
