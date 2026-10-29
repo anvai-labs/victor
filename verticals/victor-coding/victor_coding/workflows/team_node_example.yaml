@@ -51,9 +51,9 @@ workflows:
         type: team
         name: "Small Implementation Team"
         goal: |
-          Implement the feature: {{user_task}}
+          Implement the feature: $ctx.user_task
 
-          Task Analysis: {{task_analysis}}
+          Task Analysis: $ctx.task_analysis
 
           Work together to:
           1. Understand requirements
@@ -111,9 +111,9 @@ workflows:
         type: team
         name: "Large Feature Team"
         goal: |
-          Implement complex feature: {{user_task}}
+          Implement complex feature: $ctx.user_task
 
-          Task Analysis: {{task_analysis}}
+          Task Analysis: $ctx.task_analysis
 
           Coordinate as a team to deliver:
           1. Thorough research and planning

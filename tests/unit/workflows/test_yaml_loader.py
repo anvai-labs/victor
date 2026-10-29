@@ -535,3 +535,286 @@ class TestHITLNodes:
         hitl_node = workflow.nodes["select"]
         assert isinstance(hitl_node, HITLNode)
         assert hitl_node.choices == ["option_a", "option_b", "option_c"]
+
+
+TEAM_EXAMPLE = (
+    Path(__file__).resolve().parents[3]
+    / "verticals/victor-coding/victor_coding/workflows/team_node_example.yaml"
+)
+
+
+def _team_workflow(**overrides):
+    node = {
+        "id": "crew",
+        "type": "team",
+        "goal": "Ship the feature",
+        "members": [
+            {"id": "r", "role": "researcher", "goal": "Research", "tools": ["read"]},
+            {"id": "w", "role": "Executor", "goal": "Write", "tool_budget": 7},
+        ],
+    }
+    node.update(overrides)
+    return {"nodes": [node, {"id": "done", "type": "transform", "transform": "x = 1"}]}
+
+
+class TestTeamNodes:
+    """``type: team`` YAML nodes build ``TeamStepWorkflow`` steps."""
+
+    def test_example_loads_with_expected_fields(self):
+        from victor.workflows.definition import TeamStepWorkflow
+
+        workflow = load_workflow_from_file(TEAM_EXAMPLE)["team_node_demo"]
+
+        small = workflow.nodes["small_team"]
+        large = workflow.nodes["large_team"]
+        assert isinstance(small, TeamStepWorkflow)
+        assert isinstance(large, TeamStepWorkflow)
+        assert small.team_formation == "sequential"
+        assert large.team_formation == "pipeline"
+        assert [m["id"] for m in large.members] == [
+            "architect",
+            "researcher",
+            "implementer",
+            "reviewer",
+        ]
+        assert [m["tool_budget"] for m in large.members] == [20, 15, 40, 15]
+        assert large.members[0]["allowed_tools"] == ["read", "grep", "overview", "code_search"]
+        assert "tools" not in large.members[0]
+        assert large.total_tool_budget == 100
+        assert small.total_tool_budget == 50
+        assert small.max_iterations == 30
+        assert small.timeout_seconds == 300.0
+        assert small.merge_mode == "team_wins"
+        assert small.output_key == "team_result"
+        assert small.continue_on_error is True
+        assert small.next_nodes == ["finalize"]
+        assert small.name == "Small Implementation Team"
+        assert "Implement the feature: $ctx.user_task" in small.goal
+
+    def test_example_team_goal_placeholders_are_filled_by_team_step(self):
+        """Team goals use $ctx.<key>: the loader env-expands ${...} and TeamStep
+        does not render {{...}}."""
+        from victor.framework.workflows.nodes import TeamStep
+
+        node = load_workflow_from_file(TEAM_EXAMPLE)["team_node_demo"].nodes["small_team"]
+        step = TeamStep(id=node.id, name=node.name, goal=node.goal, team_formation=None, members=[])
+        goal = step._build_goal({"user_task": "add retries", "task_analysis": "medium"})
+        assert "Implement the feature: add retries" in goal
+        assert "Task Analysis: medium" in goal
+        assert "{{" not in goal and "$ctx." not in goal
+
+    def test_example_compiles(self):
+        from victor.workflows.unified_compiler import UnifiedWorkflowCompiler
+
+        workflow = load_workflow_from_file(TEAM_EXAMPLE)["team_node_demo"]
+        compiled = UnifiedWorkflowCompiler().compile_definition(workflow)
+        assert compiled is not None
+
+    def test_loaded_members_build_executor_members(self):
+        """The loaded shape is what TeamStepExecutor consumes (no silent defaults)."""
+        from victor.agent.subagents import SubAgentRole
+        from victor.framework.state_merging import MergeMode
+        from victor.teams.types import TeamFormation, TeamMember
+        from victor.workflows.executors.team import TeamStepExecutor
+
+        node = load_workflow_from_file(TEAM_EXAMPLE)["team_node_demo"].nodes["large_team"]
+        executor = TeamStepExecutor()
+        members = executor._build_members(node.members, SubAgentRole, TeamMember)
+        assert [m.role for m in members] == [
+            SubAgentRole.PLANNER,
+            SubAgentRole.RESEARCHER,
+            SubAgentRole.EXECUTOR,
+            SubAgentRole.REVIEWER,
+        ]
+        assert members[0].allowed_tools == ["read", "grep", "overview", "code_search"]
+        assert members[2].tool_budget == 40
+        assert members[0].expertise == [
+            "architecture",
+            "design-patterns",
+            "scalability",
+            "security",
+        ]
+        assert executor._resolve_team_formation(node.team_formation, TeamFormation) is (
+            TeamFormation.PIPELINE
+        )
+        assert executor._resolve_merge_mode(node.merge_mode, MergeMode) is MergeMode.TEAM_WINS
+
+    def test_every_accepted_value_is_honoured_by_the_executor(self):
+        """Loader whitelists must not admit values the executor silently degrades."""
+        from victor.agent.subagents import SubAgentRole
+        from victor.framework.state_merging import MergeMode
+        from victor.teams.types import TeamFormation, TeamMember
+        from victor.workflows.executors.team import TeamStepExecutor
+        from victor.workflows.generation.validator import SchemaValidator
+        from victor.workflows.yaml_loader import (
+            TEAM_FORMATIONS,
+            TEAM_MEMBER_ROLES,
+            TEAM_MERGE_MODES,
+        )
+
+        executor = TeamStepExecutor()
+        for formation in TEAM_FORMATIONS:
+            assert executor._resolve_team_formation(formation, TeamFormation).value == formation
+        for mode in TEAM_MERGE_MODES:
+            assert executor._resolve_merge_mode(mode, MergeMode).value == mode
+        # writer and analyst are deliberate executor aliases (agent-node vocabulary).
+        aliases = {"writer": "executor", "analyst": "researcher"}
+        for role in TEAM_MEMBER_ROLES:
+            (member,) = executor._build_members(
+                [{"role": role, "goal": "g"}], SubAgentRole, TeamMember
+            )
+            assert member.role.value == aliases.get(role, role)
+        assert set(TEAM_FORMATIONS) == SchemaValidator.VALID_TEAM_FORMATIONS
+
+    def test_defaults(self):
+        node = load_workflow_from_dict(_team_workflow(), "t").nodes["crew"]
+        assert node.team_formation == "sequential"
+        assert node.merge_strategy == "dict"
+        assert node.merge_mode == "team_wins"
+        assert node.output_key == "team_result"
+        assert node.timeout_seconds is None
+        assert node.max_iterations == 50
+        assert node.total_tool_budget == 100
+        assert node.shared_context == {}
+        assert node.name == "crew"
+        assert node.next_nodes == ["done"]  # auto-chained like other node types
+        assert node.members[1]["role"] == "executor"  # normalised case
+        assert node.members[0]["allowed_tools"] == ["read"]
+
+    def test_output_alias_timeout_alias_and_shared_context(self):
+        node = load_workflow_from_dict(
+            _team_workflow(output="out", timeout=12, shared_context={"k": 1}), "t"
+        ).nodes["crew"]
+        assert node.output_key == "out"
+        assert node.timeout_seconds == 12.0
+        assert node.shared_context == {"k": 1}
+
+    def test_missing_member_ids_match_executor_generated_ids(self):
+        from victor.agent.subagents import SubAgentRole
+        from victor.teams.types import TeamMember
+        from victor.workflows.executors.team import TeamStepExecutor
+
+        members = [{"role": "writer", "goal": "a"}, {"role": "analyst", "goal": "b"}]
+        node = load_workflow_from_dict(_team_workflow(members=members), "t").nodes["crew"]
+        assert [m["id"] for m in node.members] == ["executor_0", "researcher_1"]
+        anonymous = [{k: v for k, v in m.items() if k != "id"} for m in node.members]
+        built = TeamStepExecutor()._build_members(anonymous, SubAgentRole, TeamMember)
+        assert [m.id for m in built] == ["executor_0", "researcher_1"]
+
+    def test_hierarchical_team_with_one_supervisor_builds_team_config(self):
+        from victor.agent.subagents import SubAgentRole
+        from victor.teams.types import TeamConfig, TeamFormation, TeamMember
+        from victor.workflows.executors.team import TeamStepExecutor
+
+        members = [
+            {"id": "lead", "role": "planner", "goal": "Lead", "agent_category": "supervisor"},
+            {"id": "dev", "goal": "Build", "delegation_targets": ["lead"]},
+        ]
+        node = load_workflow_from_dict(
+            _team_workflow(team_formation="hierarchical", members=members), "t"
+        ).nodes["crew"]
+        built = TeamStepExecutor()._build_members(node.members, SubAgentRole, TeamMember)
+        config = TeamConfig(
+            name="crew", goal=node.goal, members=built, formation=TeamFormation.HIERARCHICAL
+        )
+        assert [m.id for m in config.members if m.is_supervisor] == ["lead"]
+
+    def test_yaml_does_not_mutate_input_members(self):
+        data = _team_workflow()
+        load_workflow_from_dict(data, "t")
+        assert data["nodes"][0]["members"][0]["tools"] == ["read"]
+
+    @pytest.mark.parametrize(
+        "overrides,message",
+        [
+            ({"goal": None}, "requires a non-empty 'goal'"),
+            ({"goal": "   "}, "requires a non-empty 'goal'"),
+            ({"members": []}, "non-empty 'members' list"),
+            ({"members": None}, "non-empty 'members' list"),
+            ({"members": {"a": {}}}, "non-empty 'members' list"),
+            ({"team_formation": "round_robin"}, "invalid team_formation 'round_robin'"),
+            ({"team_formation": "reflection"}, "invalid team_formation"),
+            ({"merge_mode": "loser_wins"}, "invalid merge_mode"),
+            ({"merge_strategy": "custom"}, "invalid merge_strategy"),
+            ({"max_iterations": 0}, "max_iterations must be an integer >= 1"),
+            ({"total_tool_budget": "lots"}, "total_tool_budget must be an integer"),
+            ({"total_tool_budget": True}, "total_tool_budget must be an integer"),
+            ({"timeout_seconds": -5}, "timeout_seconds must be a positive finite number"),
+            ({"timeout_seconds": 0}, "timeout_seconds must be a positive finite number"),
+            ({"timeout_seconds": 0, "timeout": 30}, "timeout_seconds must be a positive"),
+            ({"timeout_seconds": float("inf")}, "timeout_seconds must be a positive finite"),
+            ({"timeout_seconds": float("nan")}, "timeout_seconds must be a positive finite"),
+            ({"timeout_seconds": "soon"}, "timeout_seconds must be a positive finite number"),
+            ({"timeout": True}, "timeout must be a positive finite number"),
+            ({"output_key": 5}, "output_key must be a string"),
+            ({"name": None}, "name must be a string"),
+            ({"members": [{"id": ["a"], "goal": "g"}]}, "member #0 id must be a non-empty string"),
+            ({"members": [{"id": 1, "goal": "g"}]}, "member #0 id must be a non-empty string"),
+            (
+                {"members": [{"goal": "g", "provider": "openai"}]},
+                "member #0 has unsupported keys ['provider']",
+            ),
+            ({"members": [{"goal": "g", "tool_budgte": 3}]}, "unsupported keys ['tool_budgte']"),
+            ({"members": [{"goal": "g", "is_manager": "no"}]}, "is_manager must be a boolean"),
+            ({"members": [{"goal": "g", "can_delegate": 1}]}, "can_delegate must be a boolean"),
+            ({"members": [{"goal": "g", "expertise": "security"}]}, "expertise must be a list"),
+            ({"members": [{"goal": "g", "backstory": ["x"]}]}, "backstory must be a string"),
+            (
+                {"members": [{"id": "a", "goal": "g", "delegation_targets": ["ghost"]}]},
+                "delegation_targets ['ghost'] are not members",
+            ),
+            (
+                # The executor would name the second member executor_1.
+                {"members": [{"id": "executor_1", "goal": "g"}, {"goal": "h"}]},
+                "duplicate member ids",
+            ),
+            (
+                {"team_formation": "hierarchical"},
+                "exactly one supervisor",
+            ),
+            (
+                {
+                    "team_formation": "hierarchical",
+                    "members": [
+                        {"id": "a", "goal": "g", "is_manager": True},
+                        {"id": "b", "goal": "h", "agent_category": "supervisor"},
+                    ],
+                },
+                "supervisors ['a', 'b']",
+            ),
+            (
+                {
+                    "team_formation": "hierarchical",
+                    "members": [{"id": "a", "goal": "g", "is_manager": True}],
+                },
+                "at least 2 members",
+            ),
+            ({"shared_context": [1]}, "shared_context must be a mapping"),
+            ({"continue_on_error": "yes"}, "continue_on_error must be a boolean"),
+            ({"members": ["researcher"]}, "member #0 must be a mapping"),
+            ({"members": [{"id": "a", "role": "executor"}]}, "member 'a' requires a non-empty"),
+            ({"members": [{"role": "wizard", "goal": "g"}]}, "member #0 role 'wizard'"),
+            (
+                {"members": [{"goal": "g", "agent_category": "boss"}]},
+                "agent_category 'boss'",
+            ),
+            ({"members": [{"goal": "g", "tool_budget": 0}]}, "tool_budget must be an integer"),
+            ({"members": [{"goal": "g", "tools": "read"}]}, "tools must be a list"),
+            (
+                {"members": [{"goal": "g", "tools": ["a"], "allowed_tools": ["b"]}]},
+                "both 'tools' and 'allowed_tools'",
+            ),
+            (
+                {"members": [{"id": "a", "goal": "g"}, {"id": "a", "goal": "h"}]},
+                "duplicate member ids",
+            ),
+        ],
+    )
+    def test_malformed_team_node_is_rejected(self, overrides, message):
+        with pytest.raises(YAMLWorkflowError, match="Team node 'crew'") as exc_info:
+            load_workflow_from_dict(_team_workflow(**overrides), "t")
+        assert message in str(exc_info.value)
+
+    def test_team_listed_in_unknown_type_error(self):
+        with pytest.raises(YAMLWorkflowError, match="'team'"):
+            load_workflow_from_dict({"nodes": [{"id": "x", "type": "squad"}]}, "t")
