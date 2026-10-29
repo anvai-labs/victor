@@ -88,6 +88,14 @@ edit. A mock test is not live provider or C5 evidence.
   ranges, proposes a cited brief and finishes `ok` over six scripted turns. This
   is zero real inference, not live service acceptance; a two-signal close warning
   remains retained. CI-selected broader tests and independent review are next.
+  First exact-commit review (`ea6e4c48c68bec6f128c28956e37958587080955`)
+  identifies permission revocation during an awaited cache/result operation.
+  Five RED cases reproduce it across fresh, idempotent, cross-turn, semantic and
+  retry-cache output. Publication now checks the live session policy before and
+  after result middleware, withholding output from callbacks/logs and callers
+  after revocation. All 271 affected tests pass. The first broader local run was
+  interrupted for this repair; its partial outcome is retained, not called passed.
+  Refreshed collection, broader checks and final independent review are pending.
 
 - **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline

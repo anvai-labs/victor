@@ -2642,15 +2642,22 @@ class ToolPipeline:
 
     async def _process_tool_result(self, call_result: ToolCallResult) -> ToolCallResult:
         """Release fresh/cached output only after configured result enforcement."""
-        if self.middleware_chain is None:
-            return call_result
+        block_source = "session_policy"
         try:
+            if not self._tool_is_enabled(call_result.tool_name):
+                raise PermissionError("Session tool policy refused result")
+            if self.middleware_chain is None:
+                return call_result
+            block_source = "middleware_chain"
             output = await self.middleware_chain.process_after(
                 call_result.tool_name,
                 call_result.arguments,
                 call_result.result,
                 call_result.success,
             )
+            block_source = "session_policy"
+            if not self._tool_is_enabled(call_result.tool_name):
+                raise PermissionError("Session tool policy refused result")
             return (
                 call_result if output is call_result.result else replace(call_result, result=output)
             )
@@ -2684,7 +2691,7 @@ class ToolPipeline:
                 skipped=False,
                 skip_reason=None,
                 outcome_kind="result_withheld",
-                block_source="middleware_chain",
+                block_source=block_source,
                 retryable=False,
             )
 

@@ -912,6 +912,63 @@ class TestNavigationHintLoopDetection:
 
 
 @pytest.mark.parametrize("source", ["execution", "cache", "cross_turn", "semantic", "retry_cache"])
+async def test_scope_revoked_during_result_await_withholds_output(pipeline, source, caplog):
+    from types import SimpleNamespace
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+    from victor.agent.services.tool_retry import ToolRetryExecutor
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"web_search"})
+    pipeline.bind_session_tool_policy(policy)
+
+    async def revoke(*args):
+        policy.set_enabled_tools({"source_probe"})
+        return "private-result"
+
+    pipeline.on_tool_complete = MagicMock()
+    pipeline.on_tool_event = MagicMock()
+    pipeline.executor.execute.return_value.result = "private-result"
+    cached = ToolCallResult("web_search", {}, True, result="private-result", cached=True)
+    if source == "semantic":
+        pipeline.config.enable_semantic_caching = True
+        pipeline.semantic_cache = SimpleNamespace(get=AsyncMock(side_effect=revoke))
+    else:
+        pipeline.middleware_chain = SimpleNamespace(
+            process_before=AsyncMock(return_value=MiddlewareResult()),
+            process_after=AsyncMock(side_effect=revoke),
+        )
+    if source == "cache":
+        pipeline.get_cached_result = MagicMock(return_value=cached)
+    if source == "cross_turn":
+        pipeline._cross_turn_enabled = True
+        pipeline._cross_turn_cache.set(pipeline._get_call_signature("web_search", {}), cached)
+    if source == "retry_cache":
+        retry = ToolRetryExecutor(
+            SimpleNamespace(
+                retry_enabled=True, max_retry_attempts=3, retry_base_delay=0, retry_max_delay=0
+            ),
+            pipeline,
+            MagicMock(get=MagicMock(return_value=cached)),
+        )
+        result, success, _ = await retry.execute_tool_with_retry("web_search", {}, {})
+        assert not success
+    else:
+        result = await pipeline._execute_single_call({"name": "web_search", "arguments": {}}, {})
+    assert not result.success
+    assert result.outcome_kind == "result_withheld"
+    assert result.block_source == "session_policy"
+    assert "private-result" not in repr(result)
+    assert "private-result" not in repr(pipeline.on_tool_complete.call_args_list)
+    assert "private-result" not in repr(pipeline.on_tool_event.call_args_list)
+    assert cached.result == "private-result"
+
+
+@pytest.mark.parametrize("source", ["execution", "cache", "cross_turn", "semantic", "retry_cache"])
 async def test_result_policy_guards_publication_and_cached_returns(pipeline, source, caplog):
     from types import SimpleNamespace
     from victor.agent.middleware_chain import MiddlewareChain
