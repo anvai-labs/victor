@@ -285,3 +285,41 @@ class TestWorkflowIntegration:
                     # Most agent nodes should have allowed_tools
                     # (not all require it, but most do)
                     pass  # Just ensure no crashes
+
+
+class TestSharedEscapeHatches:
+    """Generic hatches come from the framework registry, not a local copy."""
+
+    SHARED = {
+        "complexity_check": "condition",
+        "complexity_assessment": "condition",
+        "format_implementation_plan": "transform",
+    }
+
+    def test_provider_resolves_the_shared_hatches(self):
+        config = CodingWorkflowProvider()._get_config()
+        for name, kind in self.SHARED.items():
+            registry = (
+                config.condition_registry if kind == "condition" else config.transform_registry
+            )
+            assert name in registry, f"{name} missing from the coding workflow {kind}s"
+            assert callable(registry[name])
+
+    def test_refactor_workflow_still_routes_on_complexity(self):
+        """refactor.yaml branches on complexity_assessment."""
+        config = CodingWorkflowProvider()._get_config()
+        assess = config.condition_registry["complexity_assessment"]
+        assert assess({"files_affected": list(range(30))}) in {
+            "high",
+            "complex",
+            "medium",
+            "low",
+            "simple",
+        }
+
+    def test_not_redefined_locally(self):
+        import victor_coding.escape_hatches as local
+
+        for name in self.SHARED:
+            assert not hasattr(local, name), f"{name} copied back into victor_coding.escape_hatches"
+        assert not set(self.SHARED) & (set(local.CONDITIONS) | set(local.TRANSFORMS))

@@ -24,13 +24,12 @@ This module analyzes Python codebases to extract:
 Output location: .victor/init.md (configurable via settings.py)
 """
 
-import ast
 import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 # Lazy load ignore patterns from external victor-coding package
 try:
@@ -75,11 +74,10 @@ except ImportError:
 
 
 from victor_coding.compat.settings import VICTOR_CONTEXT_FILE, get_project_paths
-from victor_contracts.utils.ast_helpers import (
-    extract_base_classes,
-    extract_imports,
-    is_stdlib_module,
-)
+
+if TYPE_CHECKING:
+    from victor_coding.codebase.architecture_analyzer import ArchitectureAnalyzer
+    from victor_coding.codebase.symbol_extractor import SymbolExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -239,16 +237,29 @@ class CodebaseAnalyzer:
         Returns:
             Complete CodebaseAnalysis object.
         """
-        from victor_coding.codebase.symbol_extractor import SymbolExtractor
-        from victor_coding.codebase.architecture_analyzer import ArchitectureAnalyzer
-
         logger.info(f"Analyzing codebase at {self.root}")
 
         # Step 1: Detect package/source layout (stays here — lightweight)
         self._detect_package_layout()
 
         # Step 2: Symbol extraction (delegated)
-        extractor = SymbolExtractor(
+        self.symbol_extractor().analyze_source_files()
+
+        # Steps 3-10: Architecture analysis (delegated)
+        arch = self.architecture_analyzer()
+        arch.identify_key_components()
+        arch.extract_entry_points()
+        arch.detect_architecture_patterns()
+        arch.find_config_files()
+        self._run_project_context(arch)
+
+        return self.analysis
+
+    def symbol_extractor(self) -> "SymbolExtractor":
+        """The :class:`SymbolExtractor` bound to this analyzer's root and state."""
+        from victor_coding.codebase.symbol_extractor import SymbolExtractor
+
+        return SymbolExtractor(
             root=self.root,
             analysis=self.analysis,
             include_dirs=self.include_dirs,
@@ -256,10 +267,12 @@ class CodebaseAnalyzer:
             language_extensions=self.LANGUAGE_EXTENSIONS,
             key_class_patterns=self.KEY_CLASS_PATTERNS,
         )
-        extractor.analyze_source_files()
 
-        # Steps 3-10: Architecture analysis (delegated)
-        arch = ArchitectureAnalyzer(
+    def architecture_analyzer(self) -> "ArchitectureAnalyzer":
+        """The :class:`ArchitectureAnalyzer` bound to this analyzer's root and state."""
+        from victor_coding.codebase.architecture_analyzer import ArchitectureAnalyzer
+
+        return ArchitectureAnalyzer(
             root=self.root,
             analysis=self.analysis,
             include_dirs=self.include_dirs,
@@ -267,16 +280,22 @@ class CodebaseAnalyzer:
             language_extensions=self.LANGUAGE_EXTENSIONS,
             config_extensions=self.CONFIG_EXTENSIONS,
         )
-        arch.identify_key_components()
-        arch.extract_entry_points()
-        arch.detect_architecture_patterns()
-        arch.find_config_files()
+
+    def analyze_project_context(self) -> CodebaseAnalysis:
+        """File-level project context only: dependencies, LOC, top imports, coverage.
+
+        A fast subset of :meth:`analyze` (no symbol parsing), used when symbols
+        come from the index instead.
+        """
+        self._run_project_context(self.architecture_analyzer())
+        return self.analysis
+
+    @staticmethod
+    def _run_project_context(arch: "ArchitectureAnalyzer") -> None:
         arch.extract_dependencies()
         arch.calculate_loc_stats()
         arch.extract_top_imports()
         arch.extract_test_coverage()
-
-        return self.analysis
 
     def _detect_package_layout(self) -> None:
         """Detect the package/source layout (language-agnostic)."""
@@ -333,662 +352,6 @@ class CodebaseAnalyzer:
             # Use first source directory found
             main_candidates = [d for d in source_dirs if d not in ("tests", "test", "spec")]
             self.analysis.main_package = main_candidates[0] if main_candidates else source_dirs[0]
-
-    def _analyze_source_files(self) -> None:
-        """Analyze source files across all supported languages."""
-        search_paths = []
-        if self.include_dirs:
-            for d in self.include_dirs:
-                path = self.root / d
-                if path.exists() and path.is_dir():
-                    search_paths.append(path)
-
-        if not search_paths:
-            # Fallback to original logic if no include_dirs provided or none exist
-            if self.analysis.main_package:
-                main_path = self.root / self.analysis.main_package.replace("/", "/")
-                if main_path.exists():
-                    search_paths.append(main_path)
-            if not search_paths:
-                for common_dir in ["src", "lib", "app", "components", "pages", "api"]:
-                    path = self.root / common_dir
-                    if path.exists():
-                        search_paths.append(path)
-            if not search_paths:
-                search_paths.append(self.root)
-
-        for search_path in search_paths:
-            self._scan_directory_for_sources(search_path)
-
-    def _scan_directory_for_sources(self, directory: Path, max_depth: int = 5) -> None:
-        """Scan directory for source files of any language."""
-        for ext, lang in self.LANGUAGE_EXTENSIONS.items():
-            for source_file in directory.rglob(f"*{ext}"):
-                # Use shared ignore logic (handles hidden dirs and skip dirs)
-                if should_ignore_path(source_file, skip_dirs=self.effective_skip_dirs):
-                    continue
-
-                # Check depth
-                try:
-                    rel_path = source_file.relative_to(self.root)
-                    if len(rel_path.parts) > max_depth:
-                        continue
-                except ValueError:
-                    continue
-
-                # Parse based on language
-                if ext == ".py":
-                    module_info = self._parse_python_file(source_file, str(rel_path))
-                else:
-                    module_info = self._parse_generic_file(source_file, str(rel_path), lang)
-
-                if module_info:
-                    # Organize by subpackage/directory
-                    parts = rel_path.parts
-                    if len(parts) > 1:
-                        subpackage = parts[0]
-                    else:
-                        subpackage = "root"
-
-                    if subpackage not in self.analysis.packages:
-                        self.analysis.packages[subpackage] = []
-                    self.analysis.packages[subpackage].append(module_info)
-
-    def _parse_generic_file(
-        self, file_path: Path, rel_path: str, language: str
-    ) -> Optional[ModuleInfo]:
-        """Parse any source file using regex patterns to extract components.
-
-        This is language-agnostic - detects class/interface/struct/function patterns.
-        """
-        try:
-            content = file_path.read_text(encoding="utf-8", errors="ignore")
-        except Exception as e:
-            logger.debug(f"Failed to read {file_path}: {e}")
-            return None
-
-        module_info = ModuleInfo(name=file_path.stem, path=rel_path)
-
-        # Universal patterns for class/component detection
-        patterns = [
-            # class ClassName, export class, public class, etc.
-            r"(?:export\s+)?(?:public\s+|private\s+|abstract\s+)?class\s+([A-Z][a-zA-Z0-9_]*)",
-            # interface IName or interface Name
-            r"(?:export\s+)?interface\s+([A-Z][a-zA-Z0-9_]*)",
-            # struct Name (Go, Rust, C)
-            r"(?:pub\s+)?struct\s+([A-Z][a-zA-Z0-9_]*)",
-            # type Name = (TypeScript type aliases)
-            r"(?:export\s+)?type\s+([A-Z][a-zA-Z0-9_]*)\s*=",
-            # enum Name
-            r"(?:export\s+)?(?:pub\s+)?enum\s+([A-Z][a-zA-Z0-9_]*)",
-            # trait Name (Rust)
-            r"(?:pub\s+)?trait\s+([A-Z][a-zA-Z0-9_]*)",
-            # module Name (Ruby, Elixir)
-            r"(?:defmodule|module)\s+([A-Z][a-zA-Z0-9_:]*)",
-            # React components: function ComponentName or const ComponentName =
-            r"(?:export\s+)?(?:const|function)\s+([A-Z][a-zA-Z0-9_]*)\s*[=\(]",
-            # Vue/Svelte component detection via filename
-        ]
-
-        for line_no, line in enumerate(content.split("\n"), 1):
-            for pattern in patterns:
-                match = re.search(pattern, line)
-                if match:
-                    class_name = match.group(1)
-                    # Get brief description from comment above or same line
-                    desc = self._extract_inline_comment(line, content, line_no)
-                    category = self._categorize_class(class_name, [])
-
-                    class_info = ClassInfo(
-                        name=class_name,
-                        file_path=rel_path,
-                        line_number=line_no,
-                        base_classes=[],
-                        docstring=desc,
-                        is_abstract="abstract" in line.lower() or "interface" in line.lower(),
-                        category=category,
-                    )
-                    module_info.classes.append(class_info)
-                    break  # One match per line
-
-        return module_info if module_info.classes else None
-
-    def _extract_inline_comment(self, line: str, content: str, line_no: int) -> Optional[str]:
-        """Extract comment from line or line above."""
-        # Check for inline comment
-        for comment_marker in ["//", "#", "--", "/*", "///"]:
-            if comment_marker in line:
-                idx = line.find(comment_marker)
-                comment = line[idx + len(comment_marker) :].strip()
-                if comment:
-                    return comment[:60]
-
-        # Check line above for doc comment
-        lines = content.split("\n")
-        if line_no > 1:
-            prev_line = lines[line_no - 2].strip()
-            for marker in ["///", "/**", "//", "#", '"""', "'''"]:
-                if prev_line.startswith(marker):
-                    return prev_line.lstrip(marker).strip("*/ ").strip()[:60]
-
-        return None
-
-    def _parse_python_file(self, file_path: Path, rel_path: str) -> Optional[ModuleInfo]:
-        """Parse a Python file and extract class/function information.
-
-        Args:
-            file_path: Absolute path to the file
-            rel_path: Relative path from project root
-
-        Returns:
-            ModuleInfo or None if parsing fails
-        """
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError) as e:
-            logger.debug(f"Failed to parse {file_path}: {e}")
-            return None
-
-        module_info = ModuleInfo(
-            name=file_path.stem,
-            path=rel_path,
-        )
-
-        # Get module docstring
-        if (
-            tree.body
-            and isinstance(tree.body[0], ast.Expr)
-            and isinstance(tree.body[0].value, ast.Constant)
-            and isinstance(tree.body[0].value.value, str)
-        ):
-            module_info.description = tree.body[0].value.value
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                class_info = self._extract_class_info(node, rel_path)
-                module_info.classes.append(class_info)
-            elif isinstance(node, ast.FunctionDef) and node.col_offset == 0:
-                # Top-level function
-                module_info.functions.append(node.name)
-
-        return module_info
-
-    def _extract_class_info(self, node: ast.ClassDef, file_path: str) -> ClassInfo:
-        """Extract information from a class AST node."""
-        # Get base class names (short names for categorization compatibility)
-        base_classes = [b.rsplit(".", 1)[-1] for b in extract_base_classes(node)]
-
-        # Get docstring
-        docstring = None
-        if (
-            node.body
-            and isinstance(node.body[0], ast.Expr)
-            and isinstance(node.body[0].value, ast.Constant)
-        ):
-            doc = node.body[0].value.value
-            if isinstance(doc, str):
-                # Get first line only
-                docstring = doc.split("\n")[0].strip()
-
-        # Check if abstract
-        is_abstract = (
-            any(
-                isinstance(d, ast.Name) and d.id in ("abstractmethod", "ABC")
-                for d in node.decorator_list
-            )
-            or "ABC" in base_classes
-            or "Abstract" in node.name
-        )
-
-        # Categorize the class
-        category = self._categorize_class(node.name, base_classes)
-
-        return ClassInfo(
-            name=node.name,
-            file_path=file_path,
-            line_number=node.lineno,
-            base_classes=base_classes,
-            docstring=docstring,
-            is_abstract=is_abstract,
-            category=category,
-        )
-
-    def _categorize_class(self, name: str, base_classes: List[str]) -> Optional[str]:
-        """Categorize a class based on its name and base classes."""
-        all_names = [name] + base_classes
-
-        for category, patterns in self.KEY_CLASS_PATTERNS.items():
-            for pattern in patterns:
-                if any(pattern in n for n in all_names):
-                    return category
-        return None
-
-    def _identify_key_components(self) -> None:
-        """Identify the most important classes in the codebase."""
-        all_classes: List[ClassInfo] = []
-        method_count = 0
-        protocol_count = 0
-
-        for modules in self.analysis.packages.values():
-            for module in modules:
-                all_classes.extend(module.classes)
-                # Count methods (top-level functions are tracked separately)
-                method_count += len(module.functions)
-                # Count protocols/ABCs
-                for cls in module.classes:
-                    if (
-                        cls.is_abstract
-                        or "Protocol" in cls.name
-                        or any(base in ("Protocol", "ABC") for base in cls.base_classes)
-                    ):
-                        protocol_count += 1
-
-        self.analysis.method_count = method_count
-        self.analysis.protocol_count = protocol_count
-
-        # Priority scoring for key components
-        def score_class(cls: ClassInfo) -> int:
-            score = 0
-            # Base/abstract classes are important
-            if cls.is_abstract or "Base" in cls.name:
-                score += 10
-            # Categorized classes are more important
-            if cls.category:
-                score += 5
-                if cls.category in ("manager", "provider", "registry"):
-                    score += 5
-            # Orchestrator is the main coordinator - highest priority
-            if "Orchestrator" in cls.name:
-                score += 15
-            # Classes with docstrings are better documented
-            if cls.docstring:
-                score += 2
-            return score
-
-        # Sort by score and take top components
-        scored = [(score_class(c), c) for c in all_classes if c.category]
-        scored.sort(key=lambda x: -x[0])
-
-        # Take top 20 most important (increased from 15)
-        self.analysis.key_components = [c for _, c in scored[:20]]
-
-    def _extract_entry_points(self) -> None:
-        """Extract CLI entry points from pyproject.toml."""
-        pyproject = self.root / "pyproject.toml"
-        if not pyproject.exists():
-            return
-
-        try:
-            content = pyproject.read_text(encoding="utf-8")
-
-            # Parse [project.scripts] section
-            scripts_match = re.search(r"\[project\.scripts\](.*?)(?=\[|\Z)", content, re.DOTALL)
-            if scripts_match:
-                scripts_section = scripts_match.group(1)
-                for line in scripts_section.strip().split("\n"):
-                    if "=" in line:
-                        parts = line.split("=", 1)
-                        cmd = parts[0].strip().strip('"')
-                        target = parts[1].strip().strip('"')
-                        self.analysis.entry_points[cmd] = target
-
-            # Extract dev dependencies for CLI commands
-            if "[project.optional-dependencies]" in content:
-                # Common test/dev commands
-                if "pytest" in content:
-                    self.analysis.cli_commands.append("pytest")
-                if "black" in content:
-                    self.analysis.cli_commands.append("black .")
-                if "ruff" in content:
-                    self.analysis.cli_commands.append("ruff check .")
-                if "mypy" in content:
-                    self.analysis.cli_commands.append("mypy " + (self.analysis.main_package or "."))
-
-        except Exception as e:
-            logger.debug(f"Failed to parse pyproject.toml: {e}")
-
-    def _detect_architecture_patterns(self) -> None:
-        """Detect common architectural patterns in the codebase."""
-        patterns = []
-
-        # Check for provider pattern
-        provider_classes = [c for c in self.analysis.key_components if c.category == "provider"]
-        if len(provider_classes) >= 2:
-            base = next((c for c in provider_classes if c.is_abstract or "Base" in c.name), None)
-            if base:
-                patterns.append(
-                    f"Provider Pattern: Base class `{base.name}` ({base.file_path}:{base.line_number})"
-                )
-
-        # Check for tool/command pattern
-        tool_classes = [c for c in self.analysis.key_components if c.category == "tool"]
-        if len(tool_classes) >= 2:
-            base = next((c for c in tool_classes if c.is_abstract or "Base" in c.name), None)
-            if base:
-                patterns.append(
-                    f"Tool/Command Pattern: Base class `{base.name}` ({base.file_path}:{base.line_number})"
-                )
-
-        # Check for registry pattern
-        registry_classes = [c for c in self.analysis.key_components if c.category == "registry"]
-        if registry_classes:
-            patterns.append(f"Registry Pattern: {len(registry_classes)} registries found")
-
-        # Check for manager/orchestrator
-        manager_classes = [c for c in self.analysis.key_components if c.category == "manager"]
-        if manager_classes:
-            main = manager_classes[0]
-            patterns.append(
-                f"Orchestrator/Manager: `{main.name}` ({main.file_path}:{main.line_number})"
-            )
-
-        # Check for config pattern
-        config_classes = [c for c in self.analysis.key_components if c.category == "config"]
-        if config_classes:
-            patterns.append(f"Configuration: {len(config_classes)} config classes (Pydantic-style)")
-
-        self.analysis.architecture_patterns = patterns
-
-    def _find_config_files(self) -> None:
-        """Find important configuration files."""
-        config_patterns = [
-            (
-                "pyproject.toml",
-                "Project configuration, dependencies, and build settings",
-            ),
-            ("setup.py", "Legacy Python package setup"),
-            ("setup.cfg", "Package configuration"),
-            (".env.example", "Environment variable template"),
-            ("docker-compose.yml", "Docker service definitions"),
-            ("Dockerfile", "Container build instructions"),
-            ("Makefile", "Build automation"),
-            (".github/workflows/*.yml", "GitHub Actions CI/CD"),
-            ("requirements.txt", "Python dependencies"),
-        ]
-
-        for pattern, description in config_patterns:
-            if "*" in pattern:
-                # Glob pattern
-                matches = list(self.root.glob(pattern))
-                if matches:
-                    self.analysis.config_files.append((pattern, description))
-            else:
-                if (self.root / pattern).exists():
-                    self.analysis.config_files.append((pattern, description))
-
-    def _extract_dependencies(self) -> None:
-        """Extract dependencies from pyproject.toml or package.json."""
-        # Try pyproject.toml first (Python)
-        pyproject = self.root / "pyproject.toml"
-        if pyproject.exists():
-            try:
-                content = pyproject.read_text(encoding="utf-8")
-                deps: Dict[str, List[str]] = {"core": [], "dev": [], "optional": []}
-
-                # Parse [project.dependencies]
-                deps_match = re.search(
-                    r"\[project\].*?dependencies\s*=\s*\[(.*?)\]", content, re.DOTALL
-                )
-                if deps_match:
-                    deps_text = deps_match.group(1)
-                    for line in deps_text.split(","):
-                        dep = line.strip().strip("\"'")
-                        if dep and not dep.startswith("#"):
-                            # Extract package name (before version specifier)
-                            pkg_name = re.split(r"[<>=~!]", dep)[0].strip()
-                            if pkg_name:
-                                deps["core"].append(pkg_name)
-
-                # Parse [project.optional-dependencies]
-                opt_deps_match = re.search(
-                    r"\[project\.optional-dependencies\](.*?)(?=\[|\Z)",
-                    content,
-                    re.DOTALL,
-                )
-                if opt_deps_match:
-                    opt_section = opt_deps_match.group(1)
-                    # Extract dev dependencies
-                    dev_match = re.search(r"dev\s*=\s*\[(.*?)\]", opt_section, re.DOTALL)
-                    if dev_match:
-                        for line in dev_match.group(1).split(","):
-                            dep = line.strip().strip("\"'")
-                            if dep and not dep.startswith("#"):
-                                pkg_name = re.split(r"[<>=~!]", dep)[0].strip()
-                                if pkg_name:
-                                    deps["dev"].append(pkg_name)
-
-                self.analysis.dependencies = deps
-
-            except Exception as e:
-                logger.debug(f"Failed to parse pyproject.toml dependencies: {e}")
-
-        # Try package.json (Node.js)
-        package_json = self.root / "package.json"
-        if package_json.exists() and not self.analysis.dependencies:
-            try:
-                import json
-
-                data = json.loads(package_json.read_text(encoding="utf-8"))
-                deps: Dict[str, List[str]] = {"core": [], "dev": []}
-
-                if "dependencies" in data:
-                    deps["core"] = list(data["dependencies"].keys())[:15]
-                if "devDependencies" in data:
-                    deps["dev"] = list(data["devDependencies"].keys())[:10]
-
-                self.analysis.dependencies = deps
-
-            except Exception as e:
-                logger.debug(f"Failed to parse package.json dependencies: {e}")
-
-    def _calculate_loc_stats(self) -> None:
-        """Calculate lines of code statistics for both source and config files."""
-        # Source code stats
-        source_lines = 0
-        source_files = 0
-        # Config/doc stats
-        config_lines = 0
-        config_files = 0
-
-        # Overall tracking
-        total_lines = 0
-        total_files = 0
-        largest_file = ""
-        largest_file_lines = 0
-        file_sizes: List[Tuple[str, int]] = []
-
-        # Merge both extension types for unified scanning
-        all_extensions = {**self.LANGUAGE_EXTENSIONS, **self.CONFIG_EXTENSIONS}
-
-        # Scan all files
-        search_dirs = (
-            [self.root / d for d in self.include_dirs] if self.include_dirs else [self.root]
-        )
-
-        for search_dir in search_dirs:
-            if not search_dir.is_dir():
-                continue
-            for ext in all_extensions.keys():
-                for source_file in search_dir.rglob(f"*{ext}"):
-                    if should_ignore_path(source_file, skip_dirs=self.effective_skip_dirs):
-                        continue
-                    try:
-                        content = source_file.read_text(encoding="utf-8", errors="ignore")
-                        lines = len(content.splitlines())
-
-                        # Track separately
-                        is_config = ext in self.CONFIG_EXTENSIONS
-                        if is_config:
-                            config_lines += lines
-                            config_files += 1
-                        else:
-                            source_lines += lines
-                            source_files += 1
-
-                        # Overall totals
-                        total_lines += lines
-                        total_files += 1
-                        rel_path = str(source_file.relative_to(self.root))
-                        file_sizes.append((rel_path, lines))
-                        if lines > largest_file_lines:
-                            largest_file_lines = lines
-                            largest_file = rel_path
-                    except Exception:
-                        pass
-
-        # Sort by size and get top 5
-        file_sizes.sort(key=lambda x: -x[1])
-        top_files = file_sizes[:5]
-
-        self.analysis.loc_stats = {
-            # Overall totals
-            "total_lines": total_lines,
-            "total_files": total_files,
-            "largest_file": largest_file,
-            "largest_file_lines": largest_file_lines,
-            "top_files": top_files,
-            # Breakdown by type
-            "source_lines": source_lines,
-            "source_files": source_files,
-            "config_lines": config_lines,
-            "config_files": config_files,
-        }
-
-    def _extract_top_imports(self) -> None:
-        """Extract the most commonly imported modules (Python only).
-
-        Uses AST parsing as primary method with regex fallback for notebooks
-        and files with syntax errors (e.g., Databricks notebooks with magic commands).
-        """
-        import_counts: Dict[str, int] = defaultdict(int)
-
-        # Only scan Python files
-        search_dirs = (
-            [self.root / d for d in self.include_dirs] if self.include_dirs else [self.root]
-        )
-        for search_dir in search_dirs:
-            if not search_dir.is_dir():
-                continue
-            for source_file in search_dir.rglob("*.py"):
-                if should_ignore_path(source_file, skip_dirs=self.effective_skip_dirs):
-                    continue
-                try:
-                    content = source_file.read_text(encoding="utf-8", errors="ignore")
-
-                    # Try AST parsing first (fast, accurate)
-                    try:
-                        tree = ast.parse(content)
-                        for module in extract_imports(tree, top_level_only=True):
-                            import_counts[module] += 1
-                    except SyntaxError:
-                        # Fallback to regex for notebooks, Databricks files, etc.
-                        for module in self._extract_imports_regex(content):
-                            import_counts[module] += 1
-                except Exception:
-                    pass
-
-        # Filter and sort (exclude stdlib/common third-party)
-        filtered = [
-            (mod, count) for mod, count in import_counts.items() if not is_stdlib_module(mod)
-        ]
-        filtered.sort(key=lambda x: -x[1])
-
-        self.analysis.top_imports = filtered[:10]
-
-    def _extract_imports_regex(self, content: str) -> List[str]:
-        """Extract imports using regex as fallback for AST failures.
-
-        Handles:
-        - Regular Python imports
-        - Databricks %run magic commands
-        - Dynamic imports
-
-        Args:
-            content: File content to parse
-
-        Returns:
-            List of imported module names
-        """
-        imports = []
-
-        # Regular Python imports
-        # import module
-        imports.extend(re.findall(r"^import\s+(\S+)", content, re.MULTILINE))
-        # from module import ...
-        imports.extend(re.findall(r"^from\s+(\S+)\s+import", content, re.MULTILINE))
-
-        # Databricks-specific patterns
-        # %run /path/to/notebook or %run ../path/to/module
-        run_matches = re.findall(r"%run\s+(\S+)", content)
-        for match in run_matches:
-            # Extract module name from path
-            # e.g., "../include/library/a.utils/import" -> "include.library.a.utils.import"
-            parts = Path(match).parts
-            if parts and parts[-1].endswith(".py"):
-                # Remove .py extension
-                parts = parts[:-1]
-            if parts:
-                imports.append(".".join(parts))
-
-        # Dynamic imports
-        # importlib.import_module("module.name")
-        dynamic_imports = re.findall(r'importlib\.import_module\([\'"]([^\'"]+)[\'"]\)', content)
-        imports.extend(dynamic_imports)
-
-        # __import__("module.name")
-        dynamic_imports2 = re.findall(r'__import__\([\'"]([^\'"]+)[\'"]\)', content)
-        imports.extend(dynamic_imports2)
-
-        return imports
-
-    def _extract_test_coverage(self) -> None:
-        """Try to extract test coverage from coverage reports."""
-        # Check for coverage.xml
-        coverage_file = self.root / "coverage.xml"
-        if coverage_file.exists():
-            try:
-                content = coverage_file.read_text(encoding="utf-8")
-                # Parse line-rate attribute (0.0 to 1.0)
-                match = re.search(r'line-rate="([0-9.]+)"', content)
-                if match:
-                    coverage_pct = float(match.group(1)) * 100
-                    self.analysis.test_coverage = round(coverage_pct, 1)
-                    return
-            except Exception:
-                pass
-
-        # Check for .coverage SQLite database
-        coverage_db = self.root / ".coverage"
-        if coverage_db.exists():
-            try:
-                import sqlite3
-
-                conn = sqlite3.connect(str(coverage_db))
-                cursor = conn.cursor()
-                # Get line counts
-                cursor.execute(
-                    "SELECT SUM(num_statements), SUM(num_statements - missing_lines) FROM file_summary"
-                )
-                row = cursor.fetchone()
-                if row and row[0]:
-                    total, covered = row[0], row[1] or 0
-                    self.analysis.test_coverage = round((covered / total) * 100, 1)
-                conn.close()
-            except Exception:
-                pass
-
-        # Check htmlcov/index.html for coverage percentage
-        htmlcov = self.root / "htmlcov" / "index.html"
-        if htmlcov.exists():
-            try:
-                content = htmlcov.read_text(encoding="utf-8")
-                # Look for coverage percentage in the HTML
-                match = re.search(r"(\d+)%\s*</span>\s*</h1>", content)
-                if match:
-                    self.analysis.test_coverage = float(match.group(1))
-            except Exception:
-                pass
 
 
 def generate_smart_victor_md(
@@ -2196,11 +1559,7 @@ async def generate_victor_md_from_index(
 
     # Also run CodebaseAnalyzer for enhanced info (dependencies, LOC, imports, coverage)
     analyzer = CodebaseAnalyzer(str(root), include_dirs=include_dirs, exclude_dirs=exclude_dirs)
-    analyzer._extract_dependencies()
-    analyzer._calculate_loc_stats()
-    analyzer._extract_top_imports()
-    analyzer._extract_test_coverage()
-    enhanced_info = analyzer.analysis
+    enhanced_info = analyzer.analyze_project_context()
 
     graph_insights = await extract_graph_insights(root_path)
     _collect_embedding_status(root_path)
@@ -2527,11 +1886,7 @@ async def generate_victor_md_from_graph(
 
     # Shared context: LOC, deps, env vars, etc. — fast file-level scans, no symbol re-parsing
     analyzer = CodebaseAnalyzer(str(root), include_dirs=include_dirs, exclude_dirs=exclude_dirs)
-    analyzer._extract_dependencies()
-    analyzer._calculate_loc_stats()
-    analyzer._extract_top_imports()
-    analyzer._extract_test_coverage()
-    enhanced_info = analyzer.analysis
+    enhanced_info = analyzer.analyze_project_context()
 
     graph_insights = await extract_graph_insights(root_path)
     env_vars = _infer_env_vars(root)
