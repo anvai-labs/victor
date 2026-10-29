@@ -125,3 +125,83 @@ def test_too_many_pairs_is_a_clean_error(tmp_path: Path):
         result = _invoke("--path", str(tmp_path), "--threshold", "0.5")
     assert result.exit_code == 1
     assert "--threshold 0.85" in " ".join(result.output.split())
+
+
+# --- --mode structural ------------------------------------------------------
+
+_COPY = """
+def total(items, scale):
+    acc = 0
+    for item in items:
+        if item.enabled and item.weight > 0:
+            acc += item.weight * scale
+        else:
+            acc -= 1
+    return {"total": round(acc, 2), "count": len(items)}
+"""
+
+
+def _structural_repo(tmp_path: Path) -> Path:
+    import subprocess
+
+    (tmp_path / "a.py").write_text(_COPY)
+    (tmp_path / "b.py").write_text(_COPY.replace("items", "rows").replace("acc", "running"))
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+def test_structural_mode_needs_no_embedding_store(tmp_path: Path):
+    result = _invoke(
+        "--path", str(_structural_repo(tmp_path)), "--mode", "structural", "--min-nodes", "10"
+    )
+    assert result.exit_code == 0, result.output
+    out = " ".join(result.output.split())
+    assert "exact 1" in out and "a.py" in out and "b.py" in out
+    assert "No SCIP dump" in out  # the name-only fallback is announced, not silent
+
+
+def test_structural_json_shape(tmp_path: Path):
+    import json
+
+    result = _invoke(
+        "--path",
+        str(_structural_repo(tmp_path)),
+        "--mode",
+        "structural",
+        "--min-nodes",
+        "10",
+        "--json",
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["stats"]["exact_families"] == 1
+    (family,) = data["families"]
+    assert family["tier"] == "exact" and family["files"] == ["a.py", "b.py"]
+    assert {"file", "symbol", "line", "size"} <= set(family["members"][0])
+
+
+def test_structural_no_families_message(tmp_path: Path):
+    import subprocess
+
+    (tmp_path / "a.py").write_text(_COPY)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--min-nodes", "10")
+    assert result.exit_code == 0
+    assert "No structural near-duplicates" in result.output
+
+
+def test_structural_budget_is_a_clean_error(tmp_path: Path):
+    from victor.core.graph_rag.semantic_clones import TooManyPairsError
+
+    with patch(
+        "victor.core.graph_rag.structural_clones.scan", side_effect=TooManyPairsError("too many")
+    ):
+        result = _invoke("--path", str(tmp_path), "--mode", "structural")
+    assert result.exit_code == 1 and "too many" in result.output
+
+
+def test_unknown_mode_is_rejected(tmp_path: Path):
+    result = _invoke("--path", str(tmp_path), "--mode", "fuzzy")
+    assert result.exit_code == 2 and "Unknown --mode" in result.output
