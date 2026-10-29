@@ -29,9 +29,14 @@ install project dependencies. Toolchain provisioning is a separate setup action.
 
 Dispatch uses files represented in the persisted syntax graph. It is not a census
 of every tracked file. Source exclusions can remove an entire language before
-provider selection: on Iceberg, default `**/site/**` exclusion hides its JavaScript
-assets and one Python hook. Explicit source inventory inclusion and source-root
-validation need separate integration. Scala/Kotlin/C# have no registered precise
+provider selection. A plain `site/` directory is now eligible because it may contain
+source; project `.gitignore` rules still exclude generated sites. Explicit `_site/`,
+`docs/_build/` and dependency/cache exclusions remain in force. On the pinned
+Iceberg admitted snapshot, actual discovery increases from 6,212 to 6,224 files and
+selects Java, Python and JavaScript providers rather than only Java and Python.
+This is discovery qualification: it does not execute the three producers or prove
+that the JavaScript project root/build markers are configured. Source-root
+validation still needs separate integration. Scala/Kotlin/C# have no registered precise
 adapter here; current scip-java does not restore Scala coverage. Missing language
 variants, project roots or toolchains must not be called compiler-qualified.
 
@@ -50,3 +55,8 @@ reader errors preserve successful Python edges and later Go execution. Cancellat
 stops continuation. These are orchestration regression tests, not real compilation
 qualification for all seven toolchains. The separate
 [Java/Iceberg audit](java-indexing.md) contains actual compiler measurements.
+
+`test_site_source_discovery.py` checks real file discovery followed by registry
+selection, including generated-directory exclusions and a project `.gitignore`
+that excludes root `/site/` while retaining nested source. The full graph suite
+passes 618 tests; the complete repository collection resolves 36,528 tests.
