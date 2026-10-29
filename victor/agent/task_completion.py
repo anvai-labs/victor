@@ -37,6 +37,7 @@ from typing import (
     runtime_checkable,
 )
 
+from victor.agent.decisions.support import DecisionSupportMixin
 from victor.core.completion_markers import (
     SUMMARY_MARKER,
     detect_active_completion_marker,
@@ -241,7 +242,7 @@ class ITaskCompletionDetector(Protocol):
         ...
 
 
-class TaskCompletionDetector:
+class TaskCompletionDetector(DecisionSupportMixin):
     """Detects when a task's objectives have been achieved.
 
     This detector uses a priority-based approach:
@@ -425,12 +426,6 @@ class TaskCompletionDetector:
             "test": [DeliverableType.CODE_EXECUTED],
         }
 
-    def _has_decision_support(self) -> bool:
-        """Return whether LLM decision augmentation is available."""
-        if self._runtime_intelligence is not None:
-            return True
-        return self._decision_service is not None
-
     def _get_framework_keyword_detector(self) -> Any:
         """Lazily resolve the shared framework completion signal detector."""
         if self._framework_keyword_detector is not None:
@@ -509,31 +504,6 @@ class TaskCompletionDetector:
                 "Framework completion signal detected (confidence=%.2f)",
                 signal.confidence,
             )
-
-    def _decide_sync(
-        self,
-        decision_type: Any,
-        context: Dict[str, Any],
-        *,
-        heuristic_result: Any = None,
-        heuristic_confidence: float = 0.0,
-    ) -> Optional[Any]:
-        """Route LLM-backed decisions through the canonical runtime service when present."""
-        if self._runtime_intelligence is not None:
-            return self._runtime_intelligence.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        if self._decision_service is not None:
-            return self._decision_service.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        return None
 
     def analyze_intent(self, user_message: str) -> List[DeliverableType]:
         """Infer expected deliverables from user request.
