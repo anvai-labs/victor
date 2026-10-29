@@ -76,7 +76,6 @@ import asyncio
 import inspect
 import logging
 import time
-import warnings
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
@@ -95,6 +94,8 @@ from victor.framework.state_merging import (
 )
 from victor.core.async_utils import run_sync
 from victor.teams.types import TeamAgentCategory, TeamConfig, TeamFormation, TeamMember
+
+from victor.workflows.deprecated_aliases import make_deprecated_alias_getattr
 
 if TYPE_CHECKING:
     from victor.agent.orchestrator import AgentOrchestrator
@@ -649,28 +650,14 @@ _DEPRECATED_ALIAS_MAP = {
     "TeamNode": TeamStep,
     "TeamNodeConfig": TeamStepConfig,
 }
-_TEAM_NODE_REMOVAL_VERSION = "v0.9.0"
-_TEAM_NODE_REMOVAL_DATE = "2027-03-31"
-
-
-def __getattr__(name: str) -> Any:
-    if name in _DEPRECATED_ALIAS_MAP:
-        warnings.warn(
-            f"{name} is deprecated; use "
-            f"{_DEPRECATED_ALIAS_MAP[name].__name__} instead. "
-            f"This compatibility alias remains supported through "
-            f"{_TEAM_NODE_REMOVAL_VERSION} ({_TEAM_NODE_REMOVAL_DATE}) and "
-            "will be removed after that milestone. "
-            "See docs/architecture/migration.md for migration guidance.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return _DEPRECATED_ALIAS_MAP[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> List[str]:
-    return sorted(set(globals()) | set(_DEPRECATED_ALIAS_MAP))
+__getattr__, __dir__ = make_deprecated_alias_getattr(
+    __name__,
+    globals(),
+    _DEPRECATED_ALIAS_MAP,
+    removal_version="v0.9.0",
+    removal_date="2027-03-31",
+    migration_guide="docs/architecture/migration.md",
+)
 
 
 if TYPE_CHECKING:

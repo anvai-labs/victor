@@ -74,7 +74,7 @@ Performance Characteristics:
 """
 
 import re
-from typing import Optional
+from typing import Any, Optional
 
 # Pre-compile regex patterns for performance
 # Pattern to match non-alphanumeric characters (except hyphens/underscores)
@@ -423,6 +423,28 @@ class TextNormalizationPresets:
         return slugify(name, delimiter="-")
 
 
+def normalize_text_list(value: Any) -> list[str]:
+    """Normalize a scalar-or-collection value into a list of non-blank strings.
+
+    ``None`` yields ``[]``; a list, tuple or set is iterated; any other value
+    is treated as a single item. Each item is converted with ``str()`` and
+    stripped, and items that are blank after stripping are dropped.
+
+    Args:
+        value: ``None``, a single value, or a list/tuple/set of values.
+
+    Returns:
+        The stripped, non-blank string items in iteration order.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        items = value
+    else:
+        items = [value]
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
 __all__ = [
     "normalize_for_git_branch",
     "normalize_for_filename",
@@ -430,4 +452,5 @@ __all__ = [
     "sanitize_class_name",
     "normalize_for_test_filename",
     "TextNormalizationPresets",
+    "normalize_text_list",
 ]

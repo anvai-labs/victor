@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable, Mapping, Optional
 
+from victor.evaluation.summary_mapping import extract_value as _extract_value
+
 _SUCCESS_STATUSES = {"passed", "complete", "completed", "resolved", "success"}
 _FAILURE_STATUSES = {"failed", "error", "timeout", "cancelled"}
 
@@ -23,12 +25,6 @@ def _coerce_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _extract_value(value: Any, key: str, default: Any = None) -> Any:
-    if isinstance(value, Mapping):
-        return value.get(key, default)
-    return getattr(value, key, default)
 
 
 def _extract_sequence(value: Any, key: str) -> list[Any]:
