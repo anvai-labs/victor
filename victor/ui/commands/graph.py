@@ -1651,15 +1651,51 @@ def graph_similar(
         False, "--include-tests", help="Scan test trees too (default: source files only)"
     ),
     as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    mode: str = typer.Option(
+        "semantic",
+        "--mode",
+        help=(
+            "semantic: embedding similarity of names/signatures/docstrings. "
+            "structural: function bodies normalised with SCIP symbols "
+            "(exact / template / near tiers)"
+        ),
+    ),
+    min_nodes: int = typer.Option(
+        40, "--min-nodes", min=5, help="Structural mode: skip bodies with fewer AST tokens"
+    ),
+    near_threshold: float = typer.Option(
+        0.8,
+        "--near-threshold",
+        min=0.3,
+        max=1.0,
+        help="Structural mode: shingle Jaccard for the near tier",
+    ),
 ):
-    """Find semantic near-duplicate symbol families (evolved copies).
+    """Find near-duplicate symbol families (evolved copies).
 
-    Reads the embedding store produced by ``victor graph index --embeddings``
-    and reports symbol families whose docstrings/signatures are semantically
-    near-identical ACROSS files — the duplicates exact-token tools (jscpd)
-    cannot see because the copies drifted. Complements the duplication
-    ratchet; read-only.
+    ``--mode semantic`` (default) reads the embedding store produced by
+    ``victor graph index --embeddings`` and reports families whose
+    docstrings/signatures are semantically near-identical ACROSS files.
+    ``--mode structural`` compares function bodies instead: locals renamed,
+    constants typed, callees resolved through the SCIP index, so it finds
+    copies whose variable names, constants or a few statements drifted.
+    Both complement the duplication ratchet; read-only.
     """
+    if mode not in ("semantic", "structural"):
+        console.print(f"[red]Unknown --mode {mode!r}; use semantic or structural[/red]")
+        raise typer.Exit(2)
+    if mode == "structural":
+        _graph_similar_structural(
+            Path(os.path.abspath(path)),
+            scope=scope,
+            include_tests=include_tests,
+            min_nodes=min_nodes,
+            near_threshold=near_threshold,
+            same_file=same_file,
+            limit=limit,
+            as_json=as_json,
+        )
+        return
     from victor.core.graph_rag.semantic_clones import (
         TooManyPairsError,
         find_clone_families,
@@ -1749,3 +1785,73 @@ def graph_similar(
             console.print(f"   [cyan]{rel}[/cyan]:{m.line_number} [white]{m.symbol_name}[/white]")
         if len(fam.members) > 6:
             console.print(f"   … +{len(fam.members) - 6} more")
+
+
+def _graph_similar_structural(
+    root: Path,
+    *,
+    scope: Optional[str],
+    include_tests: bool,
+    min_nodes: int,
+    near_threshold: float,
+    same_file: bool,
+    limit: int,
+    as_json: bool,
+) -> None:
+    from collections import Counter
+
+    from victor.core.graph_rag.semantic_clones import TooManyPairsError
+    from victor.core.graph_rag.structural_clones import report_to_dict, scan
+
+    try:
+        with console.status("[dim]normalising function bodies…[/dim]"):
+            report = scan(
+                root,
+                scope=scope,
+                include_tests=include_tests,
+                min_nodes=min_nodes,
+                near_threshold=near_threshold,
+                include_same_file=same_file,
+            )
+    except TooManyPairsError as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(1)
+
+    if as_json:
+        console.print_json(json.dumps(report_to_dict(report, limit)))
+        return
+
+    st = report.stats
+    console.print(
+        f"[bold]{st['functions']}[/bold] functions · "
+        f"exact [bold]{st['exact_families']}[/bold] · template "
+        f"[bold]{st['template_families']}[/bold] · near [bold]{st['near_families']}[/bold] · "
+        f"suppressed {st['suppressed_families']} · {st['seconds']}s"
+    )
+    if not st["scip_dump"]:
+        console.print(
+            "[yellow]No SCIP dump: callees resolved by name only "
+            "(run [cyan]victor graph index[/cyan] with the precise index for SCIP symbols)[/yellow]"
+        )
+    elif st["stale_files"]:
+        console.print(
+            f"[dim]{st['stale_files']} file(s) changed since the SCIP dump: "
+            "resolved by name only[/dim]"
+        )
+    console.print()
+    if not report.families:
+        console.print("[green]No structural near-duplicates found.[/green]")
+        return
+    for fam in report.families[:limit]:
+        label = "1.00" if fam.tier != "near" else f"{fam.score:.2f}"
+        size = max(m.size for m in fam.members)
+        console.print(f"[bold]── {fam.tier}[/bold] ({label}, {size} tokens)")
+        for m in fam.members[:6]:
+            console.print(f"   [cyan]{m.file_path}[/cyan]:{m.line} [white]{m.name}[/white]")
+        if len(fam.members) > 6:
+            console.print(f"   … +{len(fam.members) - 6} more")
+    if report.suppressed:
+        reasons = ", ".join(
+            f"{r} {n}" for r, n in Counter(f.suppressed for f in report.suppressed).items()
+        )
+        console.print(f"\n[dim]suppressed families: {reasons}[/dim]")
