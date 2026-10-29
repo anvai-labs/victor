@@ -597,7 +597,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_check_capability_with_protocol(self):
         """Test _check_capability uses protocol when available."""
-        from victor.framework.vertical_integration import _check_capability
+        from victor.framework.capability_runtime import check_capability as _check_capability
 
         orch = MockOrchestrator()
         assert _check_capability(orch, "enabled_tools")
@@ -605,7 +605,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_check_capability_with_fallback(self):
         """Test _check_capability falls back to hasattr."""
-        from victor.framework.vertical_integration import _check_capability
+        from victor.framework.capability_runtime import check_capability as _check_capability
 
         # Object without capability registry
         class PlainObject:
@@ -618,7 +618,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_check_capability_fallback_blocked_in_protocol_strict_mode(self, monkeypatch):
         """Protocol strict mode should block duck-typed fallback checks."""
-        from victor.framework.vertical_integration import _check_capability
+        from victor.framework.capability_runtime import check_capability as _check_capability
 
         class PlainObject:
             def set_enabled_tools(self, tools):
@@ -631,7 +631,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_invoke_capability_with_protocol(self):
         """Test _invoke_capability uses protocol when available."""
-        from victor.framework.vertical_integration import _invoke_capability
+        from victor.framework.capability_runtime import invoke_capability as _invoke_capability
 
         orch = MockOrchestrator()
         tools = {"read", "write"}
@@ -640,7 +640,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_invoke_capability_with_fallback(self):
         """Test _invoke_capability falls back to method call."""
-        from victor.framework.vertical_integration import _invoke_capability
+        from victor.framework.capability_runtime import invoke_capability as _invoke_capability
 
         class PlainObject:
             def __init__(self):
@@ -656,7 +656,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_invoke_capability_fallback_blocked_in_protocol_strict_mode(self, monkeypatch):
         """Protocol strict mode should block duck-typed fallback invocation."""
-        from victor.framework.vertical_integration import _invoke_capability
+        from victor.framework.capability_runtime import invoke_capability as _invoke_capability
 
         class PlainObject:
             def __init__(self):
@@ -672,7 +672,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_check_capability_with_version_requirement(self):
         """Test _check_capability with min_version requirement."""
-        from victor.framework.vertical_integration import _check_capability
+        from victor.framework.capability_runtime import check_capability as _check_capability
 
         orch = MockOrchestrator()
         # Capability is v1.0
@@ -681,7 +681,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_invoke_capability_with_version_requirement(self):
         """Test _invoke_capability with min_version requirement."""
-        from victor.framework.vertical_integration import _invoke_capability
+        from victor.framework.capability_runtime import invoke_capability as _invoke_capability
 
         orch = MockOrchestrator()
         tools = {"read", "write"}
@@ -692,7 +692,7 @@ class TestVerticalIntegrationHelpers:
 
     def test_invoke_capability_with_incompatible_version(self):
         """Test _invoke_capability raises for incompatible version."""
-        from victor.framework.vertical_integration import _invoke_capability
+        from victor.framework.capability_runtime import invoke_capability as _invoke_capability
 
         orch = MockOrchestrator()
         tools = {"read", "write"}

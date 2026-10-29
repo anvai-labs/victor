@@ -39,7 +39,6 @@ from victor.integrations.mcp.protocol import (
     MCPResourceContent,
     MCPServerInfo,
     MCPTool,
-    MCPToolCallResult,
 )
 from victor.tools.base import BaseTool
 from victor.tools.registry import ToolRegistry

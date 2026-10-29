@@ -23,7 +23,7 @@ try:
     from textual.app import ComposeResult
     from textual.containers import Container, Vertical
     from textual.message import Message
-    from textual.widgets import ListItem, ListView, Markdown, Static
+    from textual.widgets import Markdown, Static
     from textual.widget import Widget
 
     TEXTUAL_AVAILABLE = True

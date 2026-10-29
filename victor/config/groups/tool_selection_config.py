@@ -6,7 +6,7 @@ This module contains settings for:
 - Tool selection fallback
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class ToolSelectionSettings(BaseModel):

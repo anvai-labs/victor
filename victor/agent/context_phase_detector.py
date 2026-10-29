@@ -33,7 +33,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from victor.core.shared_types import ConversationStage, TaskPhase, STAGE_TO_PHASE_MAP
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name

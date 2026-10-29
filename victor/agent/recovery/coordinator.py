@@ -55,7 +55,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from victor.agent.recovery.protocols import (
     FailureType,
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from victor.agent.adaptive_mode_controller import QLearningStore
     from victor.agent.usage_analytics import UsageAnalytics
     from victor.agent.context_compactor import ContextCompactor
-    from victor.providers.circuit_breaker import CircuitBreaker, CircuitBreakerRegistry
+    from victor.providers.circuit_breaker import CircuitBreakerRegistry
 
 logger = logging.getLogger(__name__)
 

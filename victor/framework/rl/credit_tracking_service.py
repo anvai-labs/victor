@@ -24,7 +24,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from victor.framework.rl.credit_assignment import (
     ActionMetadata,

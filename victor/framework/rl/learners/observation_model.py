@@ -22,7 +22,6 @@ Based on: "Position: agentic AI orchestration should be Bayes-consistent"
 """
 
 import logging
-import random
 from datetime import datetime
 from typing import Any, Dict, Optional
 

@@ -54,13 +54,11 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from victor.framework.debugging.breakpoints import (
     BreakpointManager,
-    BreakpointPosition,
     WorkflowBreakpoint,
 )
 from victor.framework.debugging.execution import (

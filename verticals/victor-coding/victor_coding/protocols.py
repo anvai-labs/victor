@@ -33,7 +33,7 @@ Entry Points:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 # Import victor-contracts protocols (NO runtime dependency on victor-ai!)
 try:
@@ -91,9 +91,6 @@ try:
     from victor_coding.workflows.provider import CodingWorkflowProviderImpl
 except ImportError:
     CodingWorkflowProviderImpl = None
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

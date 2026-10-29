@@ -32,7 +32,6 @@ from victor.optimization.models import (
 )
 from victor.optimization.strategies import (
     WorkflowChange,
-    create_strategy,
 )
 
 logger = logging.getLogger(__name__)

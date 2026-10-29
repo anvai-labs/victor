@@ -38,7 +38,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from victor.core.events import ObservabilityBus, get_observability_bus
 from victor.core.events.emit_helper import emit_event_sync

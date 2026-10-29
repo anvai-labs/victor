@@ -27,7 +27,6 @@ from typing import Any, Dict, List, Optional, Set
 
 from victor_contracts.verticals.protocols.base import VerticalBase
 from victor_contracts.verticals.extensions import VerticalExtensions
-from victor.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
 

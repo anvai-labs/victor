@@ -24,16 +24,9 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from victor.core.shared_types import ConversationStage
-
-if TYPE_CHECKING:
-    from victor.agent.services.stage_transition_runtime import (
-        StageTransitionCoordinator,
-        TransitionDecision,
-        TransitionResult,
-    )
 
 logger = logging.getLogger(__name__)
 

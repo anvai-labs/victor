@@ -27,7 +27,6 @@ import asyncio
 import hashlib
 import logging
 import os
-import re
 import threading
 import time
 from collections import OrderedDict

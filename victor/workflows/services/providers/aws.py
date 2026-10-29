@@ -40,12 +40,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from victor.workflows.services.definition import (
-    HealthCheckConfig,
-    HealthCheckType,
     ServiceConfig,
     ServiceHandle,
     ServiceHealthError,

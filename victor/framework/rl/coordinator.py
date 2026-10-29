@@ -277,7 +277,6 @@ class AsyncWriterQueue:
         Returns:
             Number of outcomes written
         """
-        from datetime import datetime as dt
 
         db = self.coordinator.db
         cursor = db.cursor()
@@ -1205,7 +1204,6 @@ class RLCoordinator:
         """
         try:
             self._ensure_db_connection()
-            import json
 
             cursor = self.db.cursor()
             cursor.execute(

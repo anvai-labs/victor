@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
@@ -64,10 +64,8 @@ from typing import (
     Generic,
     List,
     Optional,
-    Set,
     Type,
     TypeVar,
-    Union,
 )
 
 from victor.framework.graph import (
@@ -77,8 +75,7 @@ from victor.framework.graph import (
     Node,
     END,
 )
-from victor.workflows.context import ExecutionContext, create_execution_context
-from victor.workflows.protocols import NodeRunner, NodeRunnerResult
+from victor.workflows.protocols import NodeRunner
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +95,6 @@ if TYPE_CHECKING:
     from victor.workflows.graph_dsl import (
         WorkflowGraph,
         GraphNode,
-        GraphNodeType,
-        State,
     )
     from victor.workflows.definition import WorkflowDefinition, WorkflowNode
     from victor.workflows.node_runners import NodeRunnerRegistry
@@ -531,11 +526,7 @@ class WorkflowDefinitionCompiler:
             CompiledGraph ready for execution.
         """
         from victor.workflows.definition import (
-            AgentNode as DefAgentNode,
-            ComputeNode as DefComputeNode,
             ConditionNode as DefConditionNode,
-            ParallelNode as DefParallelNode,
-            TransformNode as DefTransformNode,
         )
 
         nodes: Dict[str, Node] = {}
@@ -612,10 +603,7 @@ class WorkflowDefinitionCompiler:
             Async callable for node execution.
         """
         from victor.workflows.definition import (
-            AgentNode as DefAgentNode,
-            ComputeNode as DefComputeNode,
             ConditionNode as DefConditionNode,
-            ParallelNode as DefParallelNode,
             TransformNode as DefTransformNode,
         )
 

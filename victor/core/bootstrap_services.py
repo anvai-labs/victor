@@ -32,7 +32,6 @@ from victor.core.container import ServiceContainer, ServiceLifetime
 if TYPE_CHECKING:
     from victor.agent.services.chat_service import ChatService
     from victor.agent.services.context_service import ContextService
-    from victor.agent.services.protocol_registry import ServiceProtocolRegistry
     from victor.agent.services.provider_service import ProviderService
     from victor.agent.services.recovery_service import RecoveryService
     from victor.agent.services.session_service import SessionService

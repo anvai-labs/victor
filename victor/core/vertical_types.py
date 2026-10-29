@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List, Optional, Set, TYPE_CHECKING, Union
+from typing import Any, ClassVar, Dict, List, Optional, Set, Union
 
 from victor.core.grounding_texts import (
     GROUNDING_RULES as CANONICAL_GROUNDING_RULES,
@@ -46,20 +46,13 @@ from victor.core.grounding_texts import (
 )
 from victor_contracts.core.types import (
     StageDefinition,
-    StageDefinitionLike,
     Tier,
-    normalize_stage_definition,
-    normalize_stage_definitions,
 )
 from victor_contracts.verticals.protocols.promoted_types import (
     MiddlewarePriority,
     MiddlewareResult,
     TaskTypeHintData as TaskTypeHint,
 )
-
-if TYPE_CHECKING:
-    from victor.framework.tools import ToolSet
-
 
 # =============================================================================
 # Stage Types

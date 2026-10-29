@@ -19,7 +19,7 @@ experiment variants.
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Tuple
 
 import numpy as np
 

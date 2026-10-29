@@ -117,7 +117,7 @@ See `victor/agent/conversation_state.py` for a complete migration example.
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set
 
 from victor.tools.base import (
     AccessMode,
@@ -129,7 +129,7 @@ from victor.tools.base import (
 )
 from victor.tools.keyword_matcher import KeywordMatcher
 from victor.tools.tool_category_resolver import ToolCategoryResolver
-from victor.tools.cache_manager import CacheNamespace, ToolCacheManager
+from victor.tools.cache_manager import CacheNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -547,7 +547,6 @@ class ToolMetadataRegistry:
     def _calculate_tools_hash(tools: List[BaseTool]) -> str:
         """Calculate a stable hash of tool metadata-relevant fields."""
         import hashlib
-        import json
 
         snapshots = []
         for tool in sorted(tools, key=lambda candidate: candidate.name):

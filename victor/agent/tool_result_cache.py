@@ -47,7 +47,6 @@ Design:
 from __future__ import annotations
 
 import hashlib
-import heapq
 import math
 from victor.core.json_utils import json_dumps
 import logging
@@ -56,7 +55,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 try:
     import numpy as np

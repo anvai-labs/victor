@@ -41,7 +41,7 @@ Related Protocols:
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Dict, List, Protocol, runtime_checkable
 
 from victor.core.verticals.protocols.enrichment import EnrichmentStrategyProtocol
 from victor.core.verticals.protocols.prompt_provider import (

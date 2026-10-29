@@ -20,15 +20,12 @@ including save, restore, fork, and diff capabilities.
 
 import logging
 import uuid
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from victor.storage.checkpoints.protocol import (
-    CheckpointData,
     CheckpointDiff,
     CheckpointManagerProtocol,
     CheckpointMetadata,
-    CheckpointNotFoundError,
     DiffType,
     FieldDiff,
 )

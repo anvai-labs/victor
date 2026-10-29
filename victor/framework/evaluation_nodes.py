@@ -69,7 +69,7 @@ from typing import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from victor.framework.graph import StateGraph, StateType
+    from victor.framework.graph import StateGraph
 
 
 class EvaluationDecision(Enum):

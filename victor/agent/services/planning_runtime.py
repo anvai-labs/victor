@@ -58,11 +58,10 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.planning.constants import (
     COMPLEXITY_KEYWORDS,
-    DEFAULT_MIN_PLANNING_COMPLEXITY,
     DEFAULT_MIN_STEPS_THRESHOLD,
     DEFAULT_MIN_KEYWORD_MATCHES,
     STEP_INDICATORS,

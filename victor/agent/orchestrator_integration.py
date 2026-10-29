@@ -64,10 +64,8 @@ Usage:
     stats = integration.get_pipeline_stats()
 """
 
-import asyncio
 import logging
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
@@ -80,10 +78,6 @@ if TYPE_CHECKING:
     )
 
 # Import protocols for runtime type hints (protocols.py has no heavy deps)
-from victor.core.protocols import (
-    OrchestratorProtocol,
-    RuntimeIntelligencePipelineProtocol,
-)
 
 logger = logging.getLogger(__name__)
 

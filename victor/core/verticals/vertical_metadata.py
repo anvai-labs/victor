@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from victor.core.verticals.manifest_contract import (
     VerticalRuntimeProvenance,
@@ -274,7 +274,6 @@ class VerticalMetadata:
 
         # Pattern 3: No suffix detected - use classname as-is
         # Emit deprecation warning for legacy pattern
-        import warnings
 
         logger.warning(
             "Vertical class '%s' does not follow the recommended naming convention "

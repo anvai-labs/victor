@@ -70,12 +70,9 @@ from typing import (
     AsyncIterator,
     Callable,
     Dict,
-    Generic,
     List,
     Optional,
-    Set,
     Tuple,
-    Type,
     TypeVar,
     Union,
 )
@@ -107,7 +104,6 @@ if TYPE_CHECKING:
     from victor.workflows.graph_dsl import WorkflowGraph
     from victor.workflows.node_runners import NodeRunnerRegistry
     from victor.workflows.compiler.boundary import LegacyWorkflowDslCompiler
-    from victor.workflows.yaml_loader import YAMLWorkflowConfig
 
 logger = logging.getLogger(__name__)
 

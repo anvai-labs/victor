@@ -28,7 +28,7 @@ Protocols allow for:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 class ResponsePhase(Enum):

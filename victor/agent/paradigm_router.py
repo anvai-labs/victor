@@ -28,7 +28,7 @@ This provides additional 10-15% cost savings by:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -39,17 +39,14 @@ logger = logging.getLogger(__name__)
 
 # Optional imports for enhanced functionality
 try:
-    from victor.agent.complexity_estimator import (
-        ComplexityEstimator,
-        get_complexity_estimator,
-    )
+    from victor.agent.complexity_estimator import get_complexity_estimator
 
     COMPLEXITY_ESTIMATOR_AVAILABLE = True
 except ImportError:
     COMPLEXITY_ESTIMATOR_AVAILABLE = False
 
 try:
-    from victor.agent.task_classifier import TaskClassifier, get_task_classifier
+    from victor.agent.task_classifier import get_task_classifier
 
     TASK_CLASSIFIER_AVAILABLE = True
 except ImportError:

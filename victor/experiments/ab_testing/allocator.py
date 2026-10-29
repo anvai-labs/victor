@@ -20,12 +20,11 @@ This module implements various strategies for allocating users to experiment var
 import hashlib
 import random
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from victor.experiments.ab_testing.models import (
     AllocationStrategy,
     ExperimentConfig,
-    ExperimentVariant,
 )
 
 

@@ -30,24 +30,18 @@ from __future__ import annotations
 import csv
 from victor.core.json_utils import json_dumps
 import time
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
-    ClassVar,
     Dict,
-    Generator,
-    Iterator,
     List,
     Optional,
     Protocol,
     runtime_checkable,
 )
-from collections import defaultdict
 
 
 class MetricType(Enum):

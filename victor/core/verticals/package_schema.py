@@ -14,8 +14,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from victor.core.verticals.base import VerticalBase
-
 
 def normalize_victor_requirement(requirement: str) -> str:
     """Normalize Victor requirement strings to a full requirement expression."""
@@ -216,11 +214,6 @@ class VerticalPackageMetadata(BaseModel):
         Args:
             path: Path to write the TOML file
         """
-        try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib
-
         # Build TOML structure
         data = {"vertical": self.dict(exclude_none=True, by_alias=True)}
 

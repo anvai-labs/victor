@@ -24,8 +24,8 @@ Extracted from VerticalBase for SRP compliance.
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type
+from abc import ABC
+from typing import Any, Dict, List, Optional
 
 from victor.core.verticals.import_resolver import vertical_runtime_module_candidates
 

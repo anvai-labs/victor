@@ -42,7 +42,7 @@ import asyncio
 import functools
 import inspect
 import logging
-from typing import Any, Callable, Dict, List, Optional, Type, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from victor.framework.agent import Agent, TaskResult

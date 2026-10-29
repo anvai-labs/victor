@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import warnings
 from types import ModuleType
 from typing import List, Optional, Tuple
 

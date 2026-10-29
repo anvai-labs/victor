@@ -41,7 +41,6 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
@@ -53,9 +52,6 @@ from victor.observability.team_metrics import (
 )
 from victor.core.shared_types import SubAgentRole  # Runtime use (line 234)
 from victor.agent.subagents.orchestrator import (
-    ROLE_DEFAULT_BUDGETS,
-    ROLE_DEFAULT_CONTEXT,
-    ROLE_DEFAULT_TOOLS,
     SubAgentOrchestrator,
     SubAgentTask,
 )
@@ -86,7 +82,7 @@ from victor.agent.teams.communication import (
 if TYPE_CHECKING:
     from victor.agent.orchestrator import AgentOrchestrator
     from victor.agent.presentation import PresentationProtocol
-    from victor.agent.subagents.base import SubAgentConfig, SubAgentResult
+    from victor.agent.subagents.base import SubAgentResult
 
 logger = logging.getLogger(__name__)
 

@@ -32,7 +32,6 @@ from typing import (
     Optional,
     Protocol,
     Type,
-    Union,
     runtime_checkable,
 )
 from contextlib import asynccontextmanager
@@ -57,9 +56,7 @@ if TYPE_CHECKING:
         ToolConfiguratorService,
     )
     from victor.runtime.context import ResolvedRuntimeServices
-    from victor.observability.integration import ObservabilityIntegration
-    from victor.core.events import ObservabilityBus
-    from victor.core.verticals.base import VerticalBase, VerticalConfig
+    from victor.core.verticals.base import VerticalBase
 
 
 logger = logging.getLogger(__name__)

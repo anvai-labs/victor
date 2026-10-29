@@ -31,10 +31,6 @@ from typing import Any, Dict, List, Optional
 
 from victor_contracts.verticals.protocols.base import VerticalBase
 from victor_contracts.core.types import StageDefinition, TieredToolConfig
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass  # Protocol types used in annotations only
 
 # Runtime-resolved names (lazy imports inside methods that need them)
 # MiddlewareProtocol, SafetyExtensionProtocol, TieredToolConfig,

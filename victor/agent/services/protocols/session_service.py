@@ -20,10 +20,7 @@ Defines the interface for session lifecycle and management operations.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, runtime_checkable
-
-if TYPE_CHECKING:
-    from uuid import UUID
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable

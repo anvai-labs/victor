@@ -22,14 +22,13 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass
 
 from victor.optimization.models import (
     Bottleneck,
     BottleneckSeverity,
     BottleneckType,
-    NodeStatistics,
     OptimizationOpportunity,
     OptimizationStrategyType,
     WorkflowProfile,

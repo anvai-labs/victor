@@ -29,7 +29,6 @@ from typing import Any, Dict, List, Optional
 from textual.app import ComposeResult
 from textual.containers import Container, ScrollableContainer
 from textual.widgets import DataTable, RichLog, Static, Tree
-from textual.widgets.tree import TreeNode
 
 from victor.core.events import MessagingEvent
 

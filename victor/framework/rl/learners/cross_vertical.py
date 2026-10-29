@@ -296,7 +296,6 @@ class CrossVerticalLearner(BaseLearner):
         row = cursor.fetchone()
         if row and row[0]:
             try:
-                import json
 
                 metadata = json_loads(row[0])
                 return metadata.get("mode")

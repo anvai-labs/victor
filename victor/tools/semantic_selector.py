@@ -21,7 +21,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 if TYPE_CHECKING:
     # Lazy at runtime: a module-level import here cycles through
@@ -60,7 +60,6 @@ from victor.tools.tool_names import get_canonical_name
 from victor.config.tool_selection_defaults import (
     SemanticSelectorDefaults,
     FallbackTools,
-    QueryPatterns,
 )
 
 # Import for type checking only (avoid circular imports)
@@ -70,9 +69,6 @@ if TYPE_CHECKING:
     import numpy as np
 
     from victor.agent.unified_classifier import ClassificationResult
-    from victor.storage.embeddings.service import (
-        EmbeddingService as EmbeddingServiceType,
-    )
 
 logger = logging.getLogger(__name__)
 

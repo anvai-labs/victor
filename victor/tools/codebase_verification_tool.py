@@ -36,9 +36,6 @@ from victor.tools.base import AccessMode, DangerLevel, Priority
 from victor.tools.decorators import tool
 from victor.tools.verification.protocols import (
     ClaimIssue,
-    EnhancedClaimResult,
-    SeverityLevel,
-    TemporalNature,
     VerificationContext,
 )
 

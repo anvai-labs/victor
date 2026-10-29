@@ -19,10 +19,10 @@ output of agent N becomes input for agent N+1.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, List
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
-from victor.teams.types import AgentMessage, MemberResult, MessageType
+from victor.teams.types import AgentMessage, MemberResult
 
 logger = logging.getLogger(__name__)
 

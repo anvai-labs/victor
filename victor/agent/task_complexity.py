@@ -40,9 +40,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from victor.core.task.protocols import TaskClassification, TaskClassifierProtocol, TaskComplexity
+from victor.core.task.protocols import TaskClassification, TaskComplexity
 
 # TASK_TYPE_TO_COMPLEXITY / get_pattern_matcher come from victor.classification
 # (Single Source of Truth) but are imported at call sites: a module-scope import

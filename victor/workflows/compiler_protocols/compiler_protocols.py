@@ -47,14 +47,13 @@ from typing import (
     AsyncIterator,
     Callable,
     Dict,
-    List,
     Optional,
     Protocol,
 )
 
 if TYPE_CHECKING:
     from victor.framework.graph import StateGraph
-    from victor.workflows.definition import WorkflowDefinition, WorkflowNode
+    from victor.workflows.definition import WorkflowNode
     from victor.workflows.runtime_types import WorkflowState
 
 

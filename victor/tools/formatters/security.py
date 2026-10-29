@@ -1,6 +1,6 @@
 """Security scan results formatter with Rich markup."""
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from .base import ToolFormatter, FormattedOutput
 

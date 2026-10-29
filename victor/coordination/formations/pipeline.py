@@ -19,10 +19,10 @@ Each agent transforms the data, creating a processing pipeline.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, List
 
 from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
-from victor.teams.types import AgentMessage, MemberResult, MessageType
+from victor.teams.types import AgentMessage, MemberResult
 
 logger = logging.getLogger(__name__)
 

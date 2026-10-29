@@ -55,7 +55,6 @@ from victor.workflows.generation.clarifier import (
 )
 from victor.workflows.generation.extractor import RequirementExtractor
 from victor.workflows.generation.requirements import (
-    ExtractionMetadata,
     WorkflowRequirements,
 )
 from victor.workflows.generation.rule_extractor import RuleBasedExtractor

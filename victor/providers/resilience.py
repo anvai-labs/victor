@@ -41,12 +41,10 @@ Usage:
 import asyncio
 import contextlib
 import logging
-import random
 import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -377,9 +375,7 @@ class ProviderRetryStrategy:
             config: Retry configuration
         """
         from victor.core.retry import (
-            BaseRetryStrategy,
             ExponentialBackoffStrategy,
-            RetryContext,
         )
 
         self.config = config or ProviderRetryConfig()

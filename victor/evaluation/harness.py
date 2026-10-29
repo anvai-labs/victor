@@ -56,9 +56,6 @@ from victor.evaluation.runtime_feedback import (
     build_runtime_evaluation_feedback_payload,
     derive_runtime_evaluation_feedback,
 )
-from victor.evaluation.validated_session_truth_emitters import (
-    ValidatedSessionTruthEmitterRegistry,
-)
 from victor.evaluation.services import (
     materialize_validated_session_truth_service,
     ValidatedSessionTruthServiceProtocol,

@@ -34,10 +34,9 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol, Set, runtime_checkable
+from typing import List, Optional, Protocol, runtime_checkable
 
-from victor.core.tool_types import ToolDependency, ToolDependencyProviderProtocol
-from victor.core.vertical_types import MiddlewarePriority, MiddlewareResult
+from victor.core.tool_types import ToolDependencyProviderProtocol
 
 # =============================================================================
 # Focused Tool Extensions Protocol

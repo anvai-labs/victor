@@ -41,17 +41,12 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, Type
+from typing import Dict, List, Optional, Type
 
 from victor.tools.selection.protocol import (
-    PerformanceProfile,
     ToolSelectionContext,
     ToolSelectionStrategy,
-    ToolSelectorFeatures,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

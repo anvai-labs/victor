@@ -21,7 +21,7 @@ Verticals can extend this or provide their own via VectorStoreProtocol.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional
 
 from victor.framework.vertical_protocols import VectorStoreProtocol, VectorSearchResult
 

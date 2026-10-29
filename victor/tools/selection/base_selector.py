@@ -35,11 +35,10 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from victor.config.defaults import ToolDefaults
 from victor.protocols.tool_selector import (
-    IConfigurableToolSelector,
     ToolSelectionContext,
     ToolSelectionResult,
     ToolSelectionStrategy,

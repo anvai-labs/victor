@@ -23,13 +23,12 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import List, Optional, Set
 from urllib.parse import urlparse
 
 from victor.framework.ingestion.models import DocumentType, SourceContent
 from victor.framework.ingestion.chunker import (
     detect_document_type,
-    EXTENSION_TO_DOCTYPE,
 )
 
 logger = logging.getLogger(__name__)

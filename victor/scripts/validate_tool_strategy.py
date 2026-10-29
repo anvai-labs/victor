@@ -13,14 +13,13 @@ Usage:
 import asyncio
 import sys
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from victor.providers.base import BaseProvider
 from victor.config.tool_tiers import get_tool_tier, get_tier_summary
-from victor.tools.enums import SchemaLevel, Priority
+from victor.tools.enums import SchemaLevel
 
 
 def validate_context_window(provider_name: str, model: str) -> Dict[str, Any]:

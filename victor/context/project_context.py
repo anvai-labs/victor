@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from victor.config.settings import (
     VICTOR_DIR_NAME,

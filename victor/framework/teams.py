@@ -58,12 +58,9 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterator,
-    Callable,
     Dict,
     List,
     Optional,
-    Type,
-    Union,
 )
 
 from victor.teams.types import (
@@ -83,7 +80,6 @@ from victor.teams import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from victor.core.shared_types import SubAgentRole
     from victor.core.protocols import OrchestratorProtocol as AgentOrchestrator
     from victor.protocols.team import ITeamCoordinator as TeamCoordinator
     from victor.framework.agent import Agent

@@ -31,7 +31,7 @@ New high-level application code should still prefer `ChatServiceProtocol`,
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, AsyncIterator, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 __all__ = [
     "ChatRuntimeHelperAccessProtocol",

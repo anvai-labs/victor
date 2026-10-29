@@ -86,7 +86,6 @@ from victor.core.provider_messages import StreamChunk
 
 if TYPE_CHECKING:
     from victor.agent.orchestrator import AgentOrchestrator
-    from victor.agent.streaming.handler import StreamingChatHandler
     from victor.config.settings import Settings
 
 logger = logging.getLogger(__name__)

@@ -26,7 +26,7 @@ The strategies integrate with Q-learning for adaptive behavior:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from victor.agent.recovery.protocols import (
@@ -35,7 +35,6 @@ from victor.agent.recovery.protocols import (
     RecoveryAction,
     RecoveryContext,
     RecoveryResult,
-    RecoveryStrategy,
 )
 from victor.framework.temperature import escalate_temperature
 

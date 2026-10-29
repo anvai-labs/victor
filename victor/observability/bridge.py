@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from contextlib import contextmanager
 
-from victor.core.events import MessagingEvent, ObservabilityBus, get_observability_bus
+from victor.core.events import ObservabilityBus, get_observability_bus
 from victor.observability.emitters import (
     ToolEventEmitter,
     ModelEventEmitter,

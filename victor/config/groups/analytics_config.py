@@ -7,7 +7,7 @@ This module contains settings for:
 - Token tracking
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class AnalyticsSettings(BaseModel):

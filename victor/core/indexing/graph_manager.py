@@ -32,7 +32,6 @@ from typing import Any, Dict, Optional, Tuple
 
 from victor.core.indexing.file_watcher import (
     FileChangeEvent,
-    FileChangeType,
     FileWatcherRegistry,
 )
 from victor.core.indexing.index_lock import IndexLockRegistry

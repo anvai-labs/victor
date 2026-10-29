@@ -46,10 +46,7 @@ def orchestrator_settings():
 @pytest.fixture
 def orchestrator(mock_provider, orchestrator_settings):
     """Create an orchestrator for testing."""
-    with (
-        patch("victor.agent.orchestrator.UsageLogger"),
-        patch("victor.core.bootstrap_services.bootstrap_new_services"),
-    ):
+    with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
         orch = AgentOrchestrator(
             settings=orchestrator_settings,
             provider=mock_provider,
@@ -567,10 +564,7 @@ class TestToolCacheIntegration:
         orchestrator_settings.tools.tool_cache_enabled = True
         orchestrator_settings.tools.tool_cache_ttl = 300
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -794,10 +788,7 @@ class TestChatMethod:
         mock_provider.chat = AsyncMock(return_value=mock_response)
         mock_provider.supports_tools.return_value = False
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -823,10 +814,7 @@ class TestChatMethod:
         mock_provider.chat = AsyncMock(return_value=mock_response)
         mock_provider.supports_tools.return_value = True
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -851,10 +839,7 @@ class TestChatMethod:
         mock_provider.chat = AsyncMock(return_value=mock_response)
         mock_provider.supports_tools.return_value = False
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -905,7 +890,6 @@ class TestFromSettings:
         with (
             patch("victor.providers.registry.ProviderRegistry.create") as mock_create,
             patch("victor.agent.tool_calling.capabilities.ModelCapabilityLoader") as mock_caps,
-            patch("victor.agent.orchestrator.UsageLogger"),
             patch("victor.core.bootstrap_services.bootstrap_new_services"),
         ):
             mock_create.return_value = mock_provider
@@ -974,10 +958,7 @@ class TestToolConfiguration:
         """Test _load_tool_configurations with empty config."""
         orchestrator_settings.load_tool_config = MagicMock(return_value=None)
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -990,14 +971,13 @@ class TestToolConfiguration:
         """Test _load_tool_configurations handles exception (covers lines 950-951)."""
         orchestrator_settings.load_tool_config = MagicMock(side_effect=Exception("Config error"))
 
-        with patch("victor.agent.orchestrator.UsageLogger"):
-            # Should not raise during init
-            orch = AgentOrchestrator(
-                settings=orchestrator_settings,
-                provider=mock_provider,
-                model="test-model",
-            )
-            assert orch is not None
+        # Should not raise during init
+        orch = AgentOrchestrator(
+            settings=orchestrator_settings,
+            provider=mock_provider,
+            model="test-model",
+        )
+        assert orch is not None
 
 
 class TestExecuteToolCalls:
@@ -1254,10 +1234,7 @@ class TestServiceFirstDelegation:
         self, mock_provider, orchestrator_settings
     ):
         """Test execute_tool_calls with JSON string arguments."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1280,10 +1257,7 @@ class TestServiceFirstDelegation:
     @pytest.mark.asyncio
     async def test_execute_tool_calls_none_arguments(self, mock_provider, orchestrator_settings):
         """Test execute_tool_calls with None arguments defaults gracefully."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1302,10 +1276,7 @@ class TestServiceFirstDelegation:
         self, mock_provider, orchestrator_settings
     ):
         """Test execute_tool_calls skips repeated failing calls."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1335,10 +1306,7 @@ class TestServiceFirstDelegation:
     @pytest.mark.asyncio
     async def test_execute_tool_calls_success(self, mock_provider, orchestrator_settings):
         """Test execute_tool_calls successful execution."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1363,10 +1331,7 @@ class TestServiceFirstDelegation:
     @pytest.mark.asyncio
     async def test_execute_tool_calls_failure(self, mock_provider, orchestrator_settings):
         """Test execute_tool_calls failed execution."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1393,10 +1358,7 @@ class TestServiceFirstDelegation:
         self, mock_provider, orchestrator_settings
     ):
         """Test execute_tool_calls tracks read_file paths."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1480,10 +1442,7 @@ class TestVerticalExtensionSupport:
             def get_applicable_tools(self):
                 return None
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1518,10 +1477,7 @@ class TestVerticalExtensionSupport:
             risk_level: str = "HIGH"
             category: str = "test"
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1560,10 +1516,7 @@ class TestVerticalExtensionSupport:
             def get_applicable_tools(self):
                 return None
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1854,10 +1807,7 @@ class TestRecoveryIntegration:
 
     def test_recovery_handler_initialization(self, mock_provider, orchestrator_settings):
         """Recovery handler is initialized when enabled."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1888,10 +1838,7 @@ class TestObservabilityIntegration:
 
     def test_observability_enabled_by_default(self, mock_provider, orchestrator_settings):
         """Observability is enabled by default."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1908,10 +1855,7 @@ class TestObservabilityIntegration:
             use_semantic_tool_selection=False,
             use_mcp_tools=False,
         )
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=settings,
                 provider=mock_provider,
@@ -1921,10 +1865,7 @@ class TestObservabilityIntegration:
 
     def test_on_tool_start_with_observability(self, mock_provider, orchestrator_settings):
         """Tool start emits observability event when enabled."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -1939,10 +1880,7 @@ class TestObservabilityIntegration:
         """Tool complete emits observability event when enabled."""
         from victor.agent.tool_pipeline import ToolCallResult
 
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orch = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,
@@ -2321,10 +2259,7 @@ class TestSwitchProvider:
     @pytest.mark.asyncio
     async def test_switch_updates_provider_name(self, mock_provider, orchestrator_settings):
         """Successful switch updates provider_name."""
-        with (
-            patch("victor.agent.orchestrator.UsageLogger"),
-            patch("victor.core.bootstrap_services.bootstrap_new_services"),
-        ):
+        with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
             orchestrator = AgentOrchestrator(
                 settings=orchestrator_settings,
                 provider=mock_provider,

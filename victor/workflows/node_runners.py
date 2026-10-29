@@ -49,7 +49,6 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -57,18 +56,15 @@ from typing import (
     Dict,
     List,
     Optional,
-    Protocol,
     Tuple,
-    Type,
 )
 
-from victor.workflows.protocols import NodeRunner, NodeRunnerResult, ProtocolNodeStatus
-from victor.workflows.context import ExecutionContext
+from victor.workflows.protocols import NodeRunner, NodeRunnerResult
 
 if TYPE_CHECKING:
     from victor.agent.subagents import SubAgentManager
     from victor.tools.registry import ToolRegistry
-    from victor.workflows.hitl import HITLExecutor, HITLNode
+    from victor.workflows.hitl import HITLExecutor
 
 logger = logging.getLogger(__name__)
 

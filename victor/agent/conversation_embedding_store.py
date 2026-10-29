@@ -56,7 +56,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 # Availability WITHOUT importing: ``import lancedb`` at module scope eagerly
 # loads protobuf, lance_namespace_*, and pyarrow into the CLI cold-start path

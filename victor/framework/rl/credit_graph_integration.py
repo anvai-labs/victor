@@ -56,14 +56,12 @@ from typing import (
     Dict,
     List,
     Optional,
-    Union,
 )
 
 from victor.framework.rl.credit_assignment import (
     ActionMetadata,
     CreditAssignmentConfig,
     CreditAssignmentIntegration,
-    CreditGranularity,
     CreditMethodology,
     CreditSignal,
 )

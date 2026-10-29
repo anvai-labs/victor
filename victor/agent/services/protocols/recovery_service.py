@@ -20,18 +20,13 @@ Defines the interface for error recovery and resilience operations.
 from __future__ import annotations
 
 from typing import (
-    TYPE_CHECKING,
     Any,
-    Callable,
     Dict,
     List,
     Optional,
     Protocol,
     runtime_checkable,
 )
-
-if TYPE_CHECKING:
-    from enum import Enum
 
 
 @runtime_checkable

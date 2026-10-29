@@ -1314,7 +1314,7 @@ class TestSubgraphNesting:
         self,
     ):
         """Self-referencing subgraph hits depth limit."""
-        from victor.framework.graph import _MAX_SUBGRAPH_DEPTH
+        from victor.framework.graph_primitives import _MAX_SUBGRAPH_DEPTH
 
         # Create a graph that references itself via a subgraph
         inner = StateGraph(SimpleState)
@@ -1341,7 +1341,7 @@ class TestSubgraphNesting:
         self,
     ):
         """Depth counter cleaned from output state."""
-        from victor.framework.graph import _SUBGRAPH_DEPTH_KEY
+        from victor.framework.graph_primitives import _SUBGRAPH_DEPTH_KEY
 
         inner = StateGraph(SimpleState)
         inner.add_node("inc", increment_node)

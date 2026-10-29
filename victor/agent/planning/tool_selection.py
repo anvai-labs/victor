@@ -27,8 +27,7 @@ for the current step, reducing token usage and improving focus.
 from __future__ import annotations
 
 import logging
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from victor.agent.conversation.state_machine import ConversationStage
 from victor.agent.planning.constants import (
@@ -199,8 +198,6 @@ class StepAwareToolSelector:
         if cache_key in self._tool_set_cache:
             logger.debug(f"Using cached tool set for step_type={step_type}")
             return self._tool_set_cache[cache_key]
-
-        from victor.providers.base import ToolDefinition
 
         # 1. Get base tool set for step type
         base_tools = STEP_TOOL_MAPPING.get(step_type, set())

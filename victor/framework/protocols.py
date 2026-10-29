@@ -30,7 +30,6 @@ from typing import (
     Optional,
     Protocol,
     Set,
-    Tuple,
     runtime_checkable,
 )
 
@@ -40,7 +39,6 @@ from victor.core.protocol_support import IncompatibleVersionError as Incompatibl
 from victor.core.protocol_support import verify_protocol_conformance as verify_protocol_conformance
 
 if TYPE_CHECKING:
-    from victor.framework.events import EventType
     from victor.framework.state import Stage
 
 

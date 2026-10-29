@@ -41,15 +41,12 @@ from __future__ import annotations
 import hashlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from victor.tools.verification.protocols import (
     ClaimIssue,
-    DocumentationReference,
     EnhancedClaimResult,
     Evidence,
-    SeverityLevel,
-    TemporalNature,
     VerificationContext,
 )
 

@@ -18,10 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Optional
 
 import aiohttp
 

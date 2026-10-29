@@ -35,7 +35,6 @@ from victor.classification.pattern_registry import (
     PATTERNS,
     ClassificationPattern,
     TaskType,
-    get_patterns_sorted_by_priority,
 )
 
 logger = logging.getLogger(__name__)

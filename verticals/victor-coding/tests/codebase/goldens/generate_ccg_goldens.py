@@ -52,7 +52,6 @@ def _hint_records(language: str, file_name: str, builder) -> list[list]:
     ~2.7 ms); the differential needs the exact (start_byte, end_byte,
     node_type) -> (name, symbol_type) mapping the live walk consumed.
     """
-    import tree_sitter
 
     plugin = builder._get_plugin(language)  # noqa: SLF001 - same package family
     parser_language = builder._parser_language_for_plugin(plugin, language, Path(file_name))

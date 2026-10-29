@@ -7,7 +7,6 @@ from typing import (
     Dict,
     Optional,
     Protocol,
-    TYPE_CHECKING,
     runtime_checkable,
 )
 

@@ -38,19 +38,17 @@ Usage:
                                                  section_name="ASI_TOOL_EFFECTIVENESS_GUIDANCE")
 """
 
-import gzip
 import hashlib
 import json
-from victor.core.json_utils import json_dumps, json_loads
+from victor.core.json_utils import json_loads
 from json import JSONDecodeError
 import logging
 import random
 import re
 import time
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional
 
 from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
 
@@ -60,22 +58,10 @@ logger = logging.getLogger(__name__)
 # trace_analysis.py. They are re-exported here so existing imports of the
 # form ``from ...prompt_optimizer import ExecutionTrace`` keep working.
 from victor.framework.rl.learners.trace_analysis import (
-    FAILURE_HINTS,
-    FAILURE_TO_CAPABILITY,
-    MAX_EXEMPLAR_CALLS_PER_TRACE,
-    MAX_EXEMPLAR_CHARS,
-    MAX_EXEMPLAR_TRACES,
-    TRACE_QUALITY_THRESHOLD,
-    CapabilityGap,
     ExecutionTrace,
     HarnessVerdict,
-    ToolCallTrace,
     TraceZone,
-    analyze_capability_gaps,
     classify_trace_zone,
-    format_failing_exemplars,
-    get_failure_hint,
-    score_trace_quality,
 )
 
 # The prompt-candidate data model was extracted to candidate.py. Re-exported

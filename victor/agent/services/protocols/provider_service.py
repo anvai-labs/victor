@@ -22,7 +22,6 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterator,
     Dict,
     List,
     Optional,
@@ -33,8 +32,6 @@ from typing import (
 if TYPE_CHECKING:
     from victor.providers.base import (
         BaseProvider,
-        CompletionResponse,
-        StreamChunk,
     )
 
 

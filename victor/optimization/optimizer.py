@@ -25,12 +25,10 @@ from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
 
 from victor.optimization.models import (
-    Bottleneck,
     OptimizationOpportunity,
     WorkflowProfile,
 )
 from victor.optimization.profiler import WorkflowProfiler
-from victor.optimization.strategies import create_strategy
 from victor.optimization.generator import (
     WorkflowVariant,
     WorkflowVariantGenerator,

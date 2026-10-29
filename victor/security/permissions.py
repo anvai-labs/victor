@@ -37,9 +37,8 @@ Example:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Callable, Dict, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 

@@ -145,8 +145,6 @@ class WorkflowExecutionLearner(BaseLearner):
         if not available_workflows:
             return None
 
-        import random
-
         # ε-greedy: explore with probability epsilon
         if self._rng.random() < self._epsilon:
             return self._rng.choice(available_workflows)

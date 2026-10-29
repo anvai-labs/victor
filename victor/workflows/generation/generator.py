@@ -47,15 +47,13 @@ import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 from enum import Enum
 
 from victor.workflows.generation.requirements import WorkflowRequirements
 from victor.workflows.generation.types import (
     WorkflowValidationError,
-    WorkflowGenerationValidationResult,
-    RefinementResult,
 )
 
 # Import unified response parser from framework

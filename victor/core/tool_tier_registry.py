@@ -61,10 +61,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Type, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from victor.core.vertical_types import TieredToolConfig
+from typing import Any, Dict, List, Optional, Set
 
 
 @dataclass

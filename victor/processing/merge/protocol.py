@@ -13,8 +13,6 @@
 
 from __future__ import annotations
 
-import enum
-
 """Merge Conflict Resolution Protocol - Unified interface for conflict analysis.
 
 This module defines the abstract interface and data structures for

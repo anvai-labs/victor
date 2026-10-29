@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from victor.agent.conversation.store import ConversationStore

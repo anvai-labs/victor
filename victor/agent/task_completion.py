@@ -44,7 +44,6 @@ from victor.core.completion_markers import (
 )
 from victor.agent.action_authorizer import (
     build_write_tool_set,
-    normalize_tool_name_for_policy,
 )
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 from victor.tools.tool_names import get_canonical_name

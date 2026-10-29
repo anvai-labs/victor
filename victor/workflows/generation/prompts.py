@@ -35,13 +35,9 @@ Example:
     )
 """
 
-import json
 from typing import Any, Dict, List, Optional
 
 from victor.workflows.generation.types import (
-    ErrorCategory,
-    ErrorSeverity,
-    WorkflowValidationError,
     WorkflowGenerationValidationResult,
 )
 from victor.workflows.generation.error_reporter import ErrorReporter

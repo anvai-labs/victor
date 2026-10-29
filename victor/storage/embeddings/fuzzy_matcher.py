@@ -40,7 +40,6 @@ Usage:
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 from functools import lru_cache
 from typing import Any, Dict, FrozenSet, Set, Tuple
 

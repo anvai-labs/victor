@@ -20,16 +20,12 @@ class TestCapabilityGapAnalysis:
         return d
 
     def test_function_exists(self):
-        from victor.framework.rl.learners.prompt_optimizer import (
-            analyze_capability_gaps,
-        )
+        from victor.framework.rl.learners.trace_analysis import analyze_capability_gaps
 
         assert callable(analyze_capability_gaps)
 
     def test_dominant_gap_identified(self):
-        from victor.framework.rl.learners.prompt_optimizer import (
-            analyze_capability_gaps,
-        )
+        from victor.framework.rl.learners.trace_analysis import analyze_capability_gaps
 
         traces = [
             self._make_trace(success=False, failures={"edit_mismatch": 8, "file_not_found": 2})
@@ -40,9 +36,7 @@ class TestCapabilityGapAnalysis:
         assert gaps[0].failure_rate > 0.5
 
     def test_multiple_gaps_ranked(self):
-        from victor.framework.rl.learners.prompt_optimizer import (
-            analyze_capability_gaps,
-        )
+        from victor.framework.rl.learners.trace_analysis import analyze_capability_gaps
 
         traces = [
             self._make_trace(
@@ -56,17 +50,13 @@ class TestCapabilityGapAnalysis:
         assert counts == sorted(counts, reverse=True)
 
     def test_no_failures_returns_empty(self):
-        from victor.framework.rl.learners.prompt_optimizer import (
-            analyze_capability_gaps,
-        )
+        from victor.framework.rl.learners.trace_analysis import analyze_capability_gaps
 
         traces = [self._make_trace(success=True, failures={})]
         assert analyze_capability_gaps(traces) == []
 
     def test_example_errors_collected(self):
-        from victor.framework.rl.learners.prompt_optimizer import (
-            analyze_capability_gaps,
-        )
+        from victor.framework.rl.learners.trace_analysis import analyze_capability_gaps
 
         detail = self._make_detail(success=False, error="old_str not found in auth.py")
         traces = [self._make_trace(success=False, failures={"edit_mismatch": 1}, details=[detail])]
@@ -75,9 +65,7 @@ class TestCapabilityGapAnalysis:
         assert any("old_str" in e for e in gaps[0].example_errors)
 
     def test_max_3_gaps_returned(self):
-        from victor.framework.rl.learners.prompt_optimizer import (
-            analyze_capability_gaps,
-        )
+        from victor.framework.rl.learners.trace_analysis import analyze_capability_gaps
 
         traces = [
             self._make_trace(
@@ -94,10 +82,7 @@ class TestCapabilityGapAnalysis:
         assert len(analyze_capability_gaps(traces)) <= 3
 
     def test_capability_mapping_exists(self):
-        from victor.framework.rl.learners.prompt_optimizer import (
-            FAILURE_TO_CAPABILITY,
-            FAILURE_HINTS,
-        )
+        from victor.framework.rl.learners.trace_analysis import FAILURE_TO_CAPABILITY, FAILURE_HINTS
 
         for category in FAILURE_HINTS:
             assert category in FAILURE_TO_CAPABILITY, f"Missing mapping for {category}"
@@ -105,7 +90,7 @@ class TestCapabilityGapAnalysis:
 
 class TestCapabilityGapDataclass:
     def test_dataclass_exists(self):
-        from victor.framework.rl.learners.prompt_optimizer import CapabilityGap
+        from victor.framework.rl.learners.trace_analysis import CapabilityGap
 
         gap = CapabilityGap(
             capability="edit_precision",
@@ -124,7 +109,7 @@ class TestGapReportFormatting:
 
     def test_gap_report_contains_capability_name(self):
         from victor.framework.rl.gepa_strategy_adapter import GEPAServiceStrategy
-        from victor.framework.rl.learners.prompt_optimizer import CapabilityGap
+        from victor.framework.rl.learners.trace_analysis import CapabilityGap
 
         gaps = [CapabilityGap("edit_precision", 0.65, 13, ["old_str not found"])]
         report = GEPAServiceStrategy._format_gap_report(gaps)

@@ -56,14 +56,9 @@ from typing import (
     Mapping,
     Optional,
     Protocol,
-    TYPE_CHECKING,
     TypeVar,
     runtime_checkable,
 )
-
-if TYPE_CHECKING:
-    from victor.providers.base import CompletionResponse, Message, StreamChunk
-
 
 # Type variables for generic protocols
 T = TypeVar("T")

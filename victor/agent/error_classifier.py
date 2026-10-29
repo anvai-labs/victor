@@ -28,9 +28,9 @@ import logging
 import re
 from functools import lru_cache
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, FrozenSet, Set
+from typing import Any, Set
 
 logger = logging.getLogger(__name__)
 

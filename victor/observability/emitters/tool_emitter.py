@@ -32,9 +32,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-import traceback
 from typing import Any, Dict, Optional
-from datetime import datetime, timezone
 
 from victor.observability.emitters.base import IToolEventEmitter
 from victor.core.events import ObservabilityBus, SyncEventWrapper

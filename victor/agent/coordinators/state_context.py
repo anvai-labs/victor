@@ -39,7 +39,7 @@ from enum import Enum
 from datetime import datetime, timezone
 
 if TYPE_CHECKING:
-    from victor.providers.base import Message, ToolCall
+    from victor.providers.base import Message
     from victor.config.settings import Settings
 
 logger = logging.getLogger(__name__)

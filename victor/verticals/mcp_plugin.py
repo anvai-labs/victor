@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import Any
 
 from victor_contracts.core.plugins import VictorPlugin
-from victor_contracts.verticals.protocols.base import VerticalBase
 from victor.verticals.mcp_vertical import MCPVertical
 
 

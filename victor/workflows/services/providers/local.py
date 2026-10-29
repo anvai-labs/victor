@@ -39,12 +39,10 @@ import logging
 import os
 import signal
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from victor.workflows.services.definition import (
-    HealthCheckConfig,
     ServiceConfig,
     ServiceHandle,
     ServiceStartError,

@@ -332,7 +332,6 @@ class BreakpointStorage:
         if not self._persist_enabled or not self._persist_path:
             return
 
-        import json
         from pathlib import Path
 
         data = {
@@ -353,7 +352,6 @@ class BreakpointStorage:
         if not self._persist_enabled or not self._persist_path:
             return
 
-        import json
         from pathlib import Path
 
         path = Path(self._persist_path)

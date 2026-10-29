@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from victor_contracts.verticals.manifest import ExtensionManifest
 

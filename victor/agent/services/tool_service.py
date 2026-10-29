@@ -26,12 +26,10 @@ This service handles:
 from __future__ import annotations
 
 import asyncio
-import ast
 from victor.core.json_utils import json_dumps, json_loads
 import logging
 from dataclasses import dataclass
 from typing import (
-    TYPE_CHECKING,
     Any,
     AsyncIterator,
     Awaitable,
@@ -1877,7 +1875,6 @@ class ToolService:
             )
         """
         import re
-        import json
 
         tool_calls = []
 

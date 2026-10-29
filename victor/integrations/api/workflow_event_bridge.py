@@ -49,7 +49,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional
 
 from victor.core.events import (
     ObservabilityBus,
@@ -57,7 +57,7 @@ from victor.core.events import (
     get_observability_bus,
     SubscriptionHandle,
 )
-from victor.workflows.streaming import WorkflowEventType, WorkflowStreamChunk
+from victor.workflows.streaming import WorkflowStreamChunk
 
 logger = logging.getLogger(__name__)
 

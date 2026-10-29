@@ -42,13 +42,12 @@ from victor.core.json_utils import json_dumps
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
     Optional,
-    Tuple,
     TypeVar,
 )
 

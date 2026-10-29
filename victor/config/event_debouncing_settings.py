@@ -20,7 +20,7 @@ high-frequency duplicate events to prevent log bloat and improve performance.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class EventDebouncingSettings(BaseModel):

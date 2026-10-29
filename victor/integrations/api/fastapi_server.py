@@ -29,10 +29,8 @@ Features:
 import asyncio
 from victor import __version__
 from functools import partial
-import json
 import logging
 import secrets
-import shlex
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -41,41 +39,22 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import (
     APIRouter,
-    Body,
     Depends,
     FastAPI,
     HTTPException,
-    Query,
     Request,
-    Response,
     WebSocket,
-    WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from pydantic import BaseModel, Field, field_validator
 
 from victor.integrations.search_types import CodeSearchResult
 
-from victor.integrations.api.change_tracker_ops import (
-    apply_patch_request,
-    change_history,
-    create_patch_request,
-    redo_last_change,
-    undo_last_change,
-)
-from victor.integrations.api.event_bridge import EventBridge, EventBroadcaster
-from victor.integrations.api.graph_export import (
-    export_graph_schema,
-    get_execution_state,
-    WorkflowExecutionState,
-)
+from victor.integrations.api.event_bridge import EventBridge
 from victor.integrations.api.router_plugins import load_fastapi_router_registrations
 from victor.integrations.api.workflow_event_bridge import WorkflowEventBridge
 from victor.core.events import get_observability_bus
-from victor.observability.request_correlation import request_correlation_id
-from fastapi.responses import HTMLResponse
 
 logger = logging.getLogger(__name__)
 

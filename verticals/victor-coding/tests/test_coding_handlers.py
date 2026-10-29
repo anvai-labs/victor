@@ -20,7 +20,7 @@ failure policies (code_validation always COMPLETED with all_passed inside the
 output; test_runner FAILED when the suite fails), and registration semantics.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

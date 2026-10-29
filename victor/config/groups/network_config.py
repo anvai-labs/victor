@@ -6,7 +6,7 @@ This module contains settings for:
 - Request timeouts and retries
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class NetworkSettings(BaseModel):

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
@@ -33,8 +33,6 @@ from victor.observability.query_service import (
     QueryService,
     EventFilters,
     Event,
-    SessionInfo,
-    MetricsSnapshot,
 )
 from victor.observability.aggregation_service import AggregationService
 from victor.observability.export_service import ExportService

@@ -218,7 +218,6 @@ class CodeValidatorRegistry:
         returning one. Failures loading/instantiating a single entry point are logged
         and skipped (one bad registration must not break discovery).
         """
-        from .base import BaseCodeValidator
 
         try:
             entry_points = importlib.metadata.entry_points(group="victor.code_validators")

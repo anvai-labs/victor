@@ -29,7 +29,6 @@ from victor.agent.services.chat_runtime_services import ChatRuntimeServices
 
 from typing import (
     Any,
-    AsyncIterator,
     Dict,
     List,
     Optional,
@@ -42,9 +41,6 @@ from victor.agent.services.protocols.infrastructure_runtime import (
     IntentClassifierProtocol as StreamingIntentClassifierRuntimeProtocol,
     ReminderManagerProtocol as StreamingReminderRuntimeProtocol,
     ResponseSanitizerProtocol as StreamingSanitizerRuntimeProtocol,
-    StreamingConfidenceMonitorProtocol,
-    StreamingHandlerProtocol,
-    StreamingMetricsCollectorProtocol,
 )
 from victor.agent.services.protocols.runtime_support import (
     ChunkRuntimeProtocol as StreamingChunkRuntimeProtocol,

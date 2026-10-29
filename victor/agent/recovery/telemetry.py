@@ -43,7 +43,6 @@ from victor.agent.recovery.protocols import (
     RecoveryAction,
     RecoveryContext,
     RecoveryResult,
-    TelemetryCollector,
 )
 
 logger = logging.getLogger(__name__)

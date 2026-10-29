@@ -57,8 +57,8 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from statistics import mean, median, quantiles
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from statistics import median, quantiles
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

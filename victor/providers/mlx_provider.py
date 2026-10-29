@@ -36,19 +36,15 @@ Download models from: https://huggingface.co/mlx-community
 """
 
 import asyncio
-import re
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, List, Optional
 
 from victor.providers.base import (
     CacheCostModel,
     BaseProvider,
     CompletionResponse,
     Message,
-    ProviderAuthError,
     ProviderConnectionError,
     ProviderError,
-    ProviderRateLimitError,
-    ProviderTimeoutError,
     StreamChunk,
     ToolDefinition,
 )

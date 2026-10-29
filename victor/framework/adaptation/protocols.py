@@ -27,11 +27,7 @@ Following the refinement plan, these protocols extend existing Victor
 infrastructure and follow SOLID principles.
 """
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from langchain_core.runnables import Runnable
-
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 # =============================================================================
 # Data Classes

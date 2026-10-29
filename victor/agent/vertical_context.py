@@ -103,13 +103,6 @@ from typing import (
 
 if TYPE_CHECKING:
     from victor.core.verticals.base import VerticalConfig
-    from victor.core.verticals.protocols import (
-        MiddlewareProtocol,
-        ModeConfig,
-        SafetyPattern,
-        TaskTypeHint,
-        ToolDependency,
-    )
     from victor.core.vertical_types import TieredToolConfig
 
 

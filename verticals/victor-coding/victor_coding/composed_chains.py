@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional
 
 from victor.tools.composition import (
     Runnable,
@@ -65,9 +65,6 @@ from victor.tools.composition import (
     LazyToolRunnable as BaseLazyToolRunnable,
     ToolCompositionBuilder,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

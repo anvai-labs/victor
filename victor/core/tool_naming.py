@@ -50,7 +50,7 @@ Example:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 # Re-export the SDK-owned naming registry for runtime utilities.
 from victor_contracts.constants import (

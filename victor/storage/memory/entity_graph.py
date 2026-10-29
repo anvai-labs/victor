@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from victor.core.json_utils import json_dumps, json_loads
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from victor.storage.memory.entity_types import (
     Entity,

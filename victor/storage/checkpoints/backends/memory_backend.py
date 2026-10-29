@@ -15,7 +15,6 @@
 """In-memory checkpoint storage backend for testing."""
 
 import copy
-from datetime import datetime
 from typing import Any, Dict, List
 
 from victor.storage.checkpoints.protocol import (

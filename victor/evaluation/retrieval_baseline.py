@@ -14,10 +14,9 @@ Example::
 
 from __future__ import annotations
 
-import statistics
 import time
-from dataclasses import dataclass, field
-from typing import List, Optional, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 # =============================================================================
 # Golden dataset

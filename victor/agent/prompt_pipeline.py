@@ -66,13 +66,11 @@ from victor.tools.core_tool_aliases import CORE_TOOL_ALIASES
 
 if TYPE_CHECKING:
     from victor.agent.content_registry import (
-        ContentCategory,
         ContentItem,
         ContentRegistry,
     )
     from victor.agent.optimization_injector import OptimizationInjector
     from victor.agent.task_analyzer import TaskAnalyzer
-    from victor.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

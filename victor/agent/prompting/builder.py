@@ -49,21 +49,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from dataclasses import dataclass, field
 from textwrap import dedent
 from enum import Enum
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
-    Any,
     Dict,
     Iterable,
     List,
     Literal,
     Optional,
     Tuple,
-    Union,
 )
 
 # Python 3.11+ has typing.Self, 3.10 needs typing_extensions

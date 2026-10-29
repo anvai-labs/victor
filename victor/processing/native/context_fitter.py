@@ -21,7 +21,7 @@ falling back to pure Python implementation.
 
 import struct
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from victor.processing.native._base import _NATIVE_AVAILABLE, _native
 

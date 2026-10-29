@@ -45,14 +45,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import os
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from victor.workflows.services.definition import (
-    HealthCheckConfig,
     ServiceConfig,
     ServiceHandle,
     ServiceHealthError,

@@ -30,12 +30,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from victor.storage.graph.protocol import (
         GraphStoreProtocol,
-        RequirementNode,
         GraphNode,
         GraphEdge,
     )

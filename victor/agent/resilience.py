@@ -56,12 +56,11 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, TypeVar, TYPE_CHECKING
+from typing import Any, Callable, Dict, Optional, TypeVar, TYPE_CHECKING
 
 # Import shared circuit-breaker types from core to avoid cross-layer coupling
 from victor.core.circuit_breaker import (
     CircuitState as _CircuitState,
-    CircuitBreakerConfig as CanonicalCircuitBreakerConfig,
 )
 
 if TYPE_CHECKING:

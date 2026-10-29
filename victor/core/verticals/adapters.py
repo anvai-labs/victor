@@ -30,7 +30,6 @@ from victor.core.verticals.base import VerticalBase, VerticalConfig
 if TYPE_CHECKING:
     from victor.framework.tools import ToolSet
 from victor_contracts.core.types import (
-    StageDefinition as SdkStageDefinition,
     ToolSet as SdkToolSet,
     VerticalConfig as SdkVerticalConfig,
     normalize_stage_definition,

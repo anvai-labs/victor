@@ -31,9 +31,8 @@ Addresses GAP-8: Missing task completion signal
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-import time
 import logging
 
 logger = logging.getLogger(__name__)

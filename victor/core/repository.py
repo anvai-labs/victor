@@ -52,7 +52,6 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import sqlite3
@@ -65,14 +64,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
     Dict,
     Generic,
-    Iterator,
     List,
     Optional,
     Protocol,
-    Set,
     Type,
     TypeVar,
     Union,

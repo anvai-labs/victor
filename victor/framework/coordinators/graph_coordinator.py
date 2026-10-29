@@ -36,7 +36,6 @@ from typing import (
     Any,
     AsyncIterator,
     Dict,
-    List,
     Optional,
 )
 

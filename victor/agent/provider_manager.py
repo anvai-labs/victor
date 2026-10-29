@@ -50,26 +50,22 @@ Usage:
     healthy = await manager.get_healthy_providers()
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from victor.agent.model_switcher import ModelSwitcher, SwitchReason, ModelSwitchEvent
 from victor.agent.tool_calling import (
-    ToolCallingAdapterRegistry,
     ToolCallingCapabilities,
 )
 from victor.agent.provider import (
     ProviderSwitcher,
     ProviderHealthMonitor,
     ToolAdapterCoordinator,
-    ProviderSwitcherState,
 )
 from victor.agent.strategies import DefaultProviderClassificationStrategy
 from victor.core.errors import ProviderNotFoundError
 from victor.providers.base import BaseProvider
-from victor.providers.registry import ProviderRegistry
 from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
 from victor.providers.capability_contract import ProviderCapabilityContract
 

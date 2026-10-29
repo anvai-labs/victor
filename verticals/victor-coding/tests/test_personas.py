@@ -22,7 +22,6 @@ import-time registration side effect (registration tuples included).
 
 from victor_coding.teams.personas import (
     CODING_PERSONAS,
-    CodingPersona,
     CodingPersonaTraits,
     CommunicationStyle,
     DecisionStyle,
@@ -58,9 +57,7 @@ class TestInventory:
 
 class TestTraits:
     def test_trait_scales_normalized(self):
-        traits = CodingPersonaTraits(
-            attention_to_detail=2.0, risk_tolerance=-1.0, verbosity=0.5
-        )
+        traits = CodingPersonaTraits(attention_to_detail=2.0, risk_tolerance=-1.0, verbosity=0.5)
         # values are stored as given (no clamping in the dataclass)
         assert traits.attention_to_detail == 2.0
         assert traits.risk_tolerance == -1.0
@@ -79,12 +76,8 @@ class TestTraits:
         assert "thorough testing" in hints.lower()
 
     def test_framework_traits_mapping(self):
-        traits = CodingPersonaTraits(
-            attention_to_detail=0.8, risk_tolerance=0.4, verbosity=0.6
-        )
-        fw = traits.to_framework_traits(
-            name="X", role="executor", description="d", strengths=["s"]
-        )
+        traits = CodingPersonaTraits(attention_to_detail=0.8, risk_tolerance=0.4, verbosity=0.6)
+        fw = traits.to_framework_traits(name="X", role="executor", description="d", strengths=["s"])
         assert fw.risk_tolerance == 0.4
         assert fw.verbosity == 0.6
         # coding's mapping: creativity = 1 - attention_to_detail

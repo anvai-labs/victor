@@ -383,7 +383,6 @@ class ModeTransitionLearner(BaseLearner):
         total_visits = sum(self._visit_counts.get(state_key, {}).values())
 
         # Epsilon-greedy: explore or exploit
-        import random
 
         if self._rng.random() < self.epsilon:
             # Exploration: random action

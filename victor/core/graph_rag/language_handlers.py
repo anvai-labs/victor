@@ -36,13 +36,12 @@ Future sessions should:
 from __future__ import annotations
 
 import logging
-from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tree_sitter import Node, Tree
+    from tree_sitter import Tree
 
 logger = logging.getLogger(__name__)
 

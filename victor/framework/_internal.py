@@ -142,7 +142,6 @@ async def create_orchestrator_from_options(
     Returns:
         Configured AgentOrchestrator instance
     """
-    from victor.agent.orchestrator import AgentOrchestrator
     from victor.agent.orchestrator_factory import OrchestratorFactory
     from victor.config.settings import load_settings
     from victor.core.bootstrap import ensure_bootstrapped
@@ -347,7 +346,6 @@ def configure_tools(
     """
     from victor.framework.tool_config import (
         AirgappedFilter,
-        ToolConfigurator,
         ToolConfigMode,
         get_tool_configurator,
     )

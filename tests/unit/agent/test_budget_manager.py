@@ -25,12 +25,8 @@ from victor.agent.protocols import (
     BudgetType,
     IBudgetManager,
 )
-from victor.agent.budget_manager import (
-    BudgetManager,
-    BudgetState,
-    WRITE_TOOLS,
-    is_write_tool,
-)
+from victor.agent.budget_manager import BudgetManager, WRITE_TOOLS, is_write_tool
+from victor.agent.budget import BudgetState
 
 # =============================================================================
 # Test Fixtures

@@ -50,7 +50,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional
 from dataclasses import dataclass, field
 
 try:

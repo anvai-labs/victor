@@ -2,7 +2,7 @@
 
 from typing import List, Dict
 
-from .protocol import PackageDependency, DependencyType
+from .protocol import PackageDependency
 
 
 def count_by_type(dependencies: List[PackageDependency]) -> Dict[str, int]:

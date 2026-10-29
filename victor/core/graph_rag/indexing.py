@@ -2596,7 +2596,6 @@ class GraphIndexingPipeline:
             return stats
 
         GraphNode, GraphEdge = _get_graph_types()
-        from victor.storage.graph.edge_types import EdgeType
 
         try:
             # Detect language
@@ -3366,7 +3365,6 @@ class GraphIndexingPipeline:
             List of CALLS edges
         """
         _, GraphEdge = _get_graph_types()
-        from victor.storage.graph.edge_types import EdgeType
 
         edges: List[Any] = []
 
@@ -3382,7 +3380,6 @@ class GraphIndexingPipeline:
             tree = parser.parse(bytes(source_code, "utf-8"))
 
             # Use handler to detect calls
-            from victor.core.graph_rag.language_handlers import CallEdge
 
             result = await handler.detect_calls_edges(tree, source_code, file_path)
 
@@ -3458,7 +3455,6 @@ class GraphIndexingPipeline:
             List of CALLS edges
         """
         _, GraphEdge = _get_graph_types()
-        from victor.storage.graph.edge_types import EdgeType
 
         edges: List[Any] = []
 

@@ -58,7 +58,6 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import json
@@ -70,7 +69,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, Type, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 # SSO / OAuth / OIDC lives in the security layer; re-exported here unchanged.
 from victor.security.auth.sso import (

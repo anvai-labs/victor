@@ -24,7 +24,6 @@ from typing import Dict, List, Optional, Tuple
 import statistics
 import logging
 
-from victor.core.events import MessagingEvent
 from victor.observability.query_service import QueryService
 
 logger = logging.getLogger(__name__)

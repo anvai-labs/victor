@@ -47,7 +47,6 @@ from typing import (
     Optional,
     Protocol,
     Set,
-    Tuple,
     runtime_checkable,
 )
 

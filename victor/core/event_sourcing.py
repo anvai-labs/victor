@@ -66,11 +66,9 @@ Example:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import sqlite3
-import time
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -82,7 +80,6 @@ from typing import (
     Callable,
     Dict,
     Generic,
-    Iterator,
     List,
     Optional,
     Type,

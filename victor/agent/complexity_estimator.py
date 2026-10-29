@@ -28,7 +28,6 @@ a scale of 0-1, considering:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from enum import Enum

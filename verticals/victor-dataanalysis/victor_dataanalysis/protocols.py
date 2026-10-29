@@ -22,7 +22,6 @@ register capabilities with the framework without direct dependencies.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
 
 # Import victor-contracts protocols (NO runtime dependency on victor-ai!)
 from victor_contracts.verticals import (

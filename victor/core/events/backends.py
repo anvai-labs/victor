@@ -46,7 +46,7 @@ import logging
 import threading
 import uuid
 from fnmatch import fnmatchcase
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from victor.core.events.protocols import (
@@ -56,7 +56,6 @@ from victor.core.events.protocols import (
     MessagingEvent,
     EventHandler,
     EventPublishError,
-    EventSubscriptionError,
     IEventBackend,
     SubscriptionHandle,
 )
