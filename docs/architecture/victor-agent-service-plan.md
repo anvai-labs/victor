@@ -96,6 +96,15 @@ edit. A mock test is not live provider or C5 evidence.
   after revocation. All 271 affected tests pass. The first broader local run was
   interrupted for this repair; its partial outcome is retained, not called passed.
   Refreshed collection, broader checks and final independent review are pending.
+  The second review (`09fc8443622750c9b0258ab968e68f0892d93264`) finds the
+  later semantic-cache store await. A new RED reproduces that completion leak;
+  a separate RED covers earlier batch results surviving later scope changes.
+  The common result guard now runs after storage and at batch assembly, without
+  replaying result middleware. Withholding also clears structured image output;
+  existing five publication-denial controls now exercise image payloads. All 273
+  affected tests pass. The second broader run was interrupted for this repair;
+  neither partial run is qualification. Final source review precedes the next
+  full local/CI run to avoid validating superseded candidates.
 
 - **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline

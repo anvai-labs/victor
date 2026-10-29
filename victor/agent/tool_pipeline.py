@@ -2342,6 +2342,7 @@ class ToolPipeline:
             call_result = call_results[unique_call_idx]
             if call_result is None:
                 continue  # A pending/unknown call is not a completed result.
+            call_result = self._enforce_result_scope(call_result)
             call_result = replace(call_result)  # Cached/shared results do not own this call's ID.
             # Propagate tool_call_id from provider's tool_calls[].id per OpenAI spec.
             # Only auto-generate an ID for executed calls — internally-skipped calls
@@ -2640,60 +2641,67 @@ class ToolPipeline:
         except Exception:
             pass  # Intent logging is non-critical
 
+    def _withhold_tool_result(
+        self, call_result: ToolCallResult, block_source: str
+    ) -> ToolCallResult:
+        """Sanitize a withheld outcome without losing an observed execution result."""
+        previous = call_result.error_info
+        unknown = previous is not None and previous.details.get("execution_outcome") == "unknown"
+        message = "Tool result withheld after execution; do not repeat the action."
+        info = ErrorInfo(
+            message=message,
+            correlation_id=previous.correlation_id if previous else f"result_{uuid4().hex}",
+            category=ErrorCategory.TOOL_EXECUTION,
+            severity=ErrorSeverity.ERROR,
+            details={
+                "retryable": False,
+                "result_withheld": True,
+                "execution_outcome": (
+                    "unknown" if unknown else ("succeeded" if call_result.success else "failed")
+                ),
+                "reconciliation_required": unknown,
+            },
+        )
+        return replace(
+            call_result,
+            success=False,
+            result=None,
+            images=None,
+            error=message,
+            user_message=message,
+            error_info=info,
+            skipped=False,
+            skip_reason=None,
+            outcome_kind="result_withheld",
+            block_source=block_source,
+            retryable=False,
+        )
+
+    def _enforce_result_scope(self, call_result: ToolCallResult) -> ToolCallResult:
+        """Gate publication after awaits, preserving nonexecuted skip outcomes."""
+        if call_result.skipped or call_result.outcome_kind == "result_withheld":
+            return call_result
+        if self._tool_is_enabled(call_result.tool_name):
+            return call_result
+        return self._withhold_tool_result(call_result, "session_policy")
+
     async def _process_tool_result(self, call_result: ToolCallResult) -> ToolCallResult:
         """Release fresh/cached output only after configured result enforcement."""
-        block_source = "session_policy"
+        checked = self._enforce_result_scope(call_result)
+        if checked is not call_result or self.middleware_chain is None:
+            return checked
         try:
-            if not self._tool_is_enabled(call_result.tool_name):
-                raise PermissionError("Session tool policy refused result")
-            if self.middleware_chain is None:
-                return call_result
-            block_source = "middleware_chain"
             output = await self.middleware_chain.process_after(
                 call_result.tool_name,
                 call_result.arguments,
                 call_result.result,
                 call_result.success,
             )
-            block_source = "session_policy"
-            if not self._tool_is_enabled(call_result.tool_name):
-                raise PermissionError("Session tool policy refused result")
-            return (
-                call_result if output is call_result.result else replace(call_result, result=output)
-            )
         except Exception:
-            previous = call_result.error_info
-            unknown = (
-                previous is not None and previous.details.get("execution_outcome") == "unknown"
-            )
-            message = "Tool result withheld after execution; do not repeat the action."
-            info = ErrorInfo(
-                message=message,
-                correlation_id=previous.correlation_id if previous else f"result_{uuid4().hex}",
-                category=ErrorCategory.TOOL_EXECUTION,
-                severity=ErrorSeverity.ERROR,
-                details={
-                    "retryable": False,
-                    "result_withheld": True,
-                    "execution_outcome": (
-                        "unknown" if unknown else ("succeeded" if call_result.success else "failed")
-                    ),
-                    "reconciliation_required": unknown,
-                },
-            )
-            return replace(
-                call_result,
-                success=False,
-                result=None,
-                error=message,
-                user_message=message,
-                error_info=info,
-                skipped=False,
-                skip_reason=None,
-                outcome_kind="result_withheld",
-                block_source=block_source,
-                retryable=False,
-            )
+            return self._withhold_tool_result(call_result, "middleware_chain")
+        if output is not call_result.result:
+            call_result = replace(call_result, result=output)
+        return self._enforce_result_scope(call_result)
 
     async def _execute_single_call(
         self, tool_call: Dict[str, Any], context: Dict[str, Any]
@@ -3646,6 +3654,9 @@ class ToolPipeline:
                     logger.debug(f"Semantic cache store failed (I/O error): {e}")
                 except (ValueError, TypeError) as e:
                     logger.debug(f"Semantic cache store failed (data error): {e}")
+
+        # Semantic-cache storage above may await; scope must still permit publication.
+        call_result = self._enforce_result_scope(call_result)
 
         # Record successful tool call in deduplication tracker
         if call_result.success and self.deduplication_tracker is not None:
