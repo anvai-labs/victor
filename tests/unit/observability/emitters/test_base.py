@@ -109,6 +109,8 @@ async def test_emit_async_bus_failure_returns_false_and_logs(
     with caplog.at_level(logging.DEBUG):
         assert await emitter.emit_async("t", {}) is False
     assert f"Failed to emit {category} event: boom" in caplog.text
+    # Logged on the concrete emitter's module logger.
+    assert {r.name for r in caplog.records if "Failed to emit" in r.message} == {cls.__module__}
 
 
 @pytest.mark.parametrize("cls,category", EMITTERS)
@@ -176,3 +178,4 @@ def test_emit_sync_swallows_and_logs_failures(
     with caplog.at_level(logging.DEBUG):
         cls(bus=fake_bus).emit("t", {})
     assert f"Failed to emit {category} event: kaput" in caplog.text
+    assert {r.name for r in caplog.records if "Failed to emit" in r.message} == {cls.__module__}
