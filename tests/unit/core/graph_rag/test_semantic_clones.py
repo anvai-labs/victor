@@ -158,3 +158,112 @@ def test_progress_callback_and_union_find():
     find, union = make_union_find(4)
     union(0, 1)
     assert find(0) == find(1) != find(2)
+
+
+def _reference_families(records, mat, threshold):
+    """Brute-force oracle: every cross-file pair >= threshold, union-find."""
+    n = len(records)
+    sims = mat @ mat.T
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            x = parent[x]
+        return x
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if sims[i, j] >= threshold and records[i].file_path != records[j].file_path:
+                parent[find(j)] = find(i)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), set()).add(records[i].id)
+    return {
+        frozenset(g)
+        for g in groups.values()
+        if len(g) > 1 and len({records[int(x)].file_path for x in g}) > 1
+    }
+
+
+class TestThresholdJoin:
+    def test_cross_file_twin_found_when_nearest_neighbours_are_same_file(self):
+        # E has three same-file siblings closer than its cross-file twin F;
+        # F has three cross-file neighbours closer than E. A per-row top-3 cap
+        # applied before the same-file filter drops the E-F pair entirely.
+        rows = [
+            ("x.py", "e", [1.0, 0.0, 0.0, 0.0]),
+            ("x.py", "s1", [1.0, 0.01, 0.0, 0.0]),
+            ("x.py", "s2", [1.0, 0.0, 0.01, 0.0]),
+            ("x.py", "s3", [1.0, 0.0, 0.0, 0.01]),
+            ("y.py", "f", [1.0, 0.0, 0.0, 0.3]),
+            ("p.py", "g1", [1.0, 0.0, 0.0, 0.31]),
+            ("q.py", "g2", [1.0, 0.0, 0.0, 0.32]),
+            ("r.py", "g3", [1.0, 0.0, 0.0, 0.29]),
+        ]
+        records = [rec(i, f, n) for i, (f, n, _) in enumerate(rows)]
+        mat = np.array([v for _, _, v in rows], dtype=np.float32)
+        mat /= np.linalg.norm(mat, axis=1, keepdims=True)
+        assert float(mat[0] @ mat[4]) >= 0.9  # E-F is a genuine pair
+
+        families = find_clone_families(records, mat, threshold=0.9)
+        names = {r.symbol_name for fam in families for r in fam.members}
+        assert {"e", "f"} <= names
+
+    def test_matches_brute_force_oracle_across_block_boundaries(self, monkeypatch):
+        import victor.core.graph_rag.semantic_clones as sc
+
+        monkeypatch.setattr(sc, "BLOCK_ROWS", 7)  # force many uneven blocks
+        rng = np.random.default_rng(0)
+        centers = rng.normal(size=(12, 16)).astype(np.float32)
+        mat = np.repeat(centers, 5, axis=0) + rng.normal(scale=0.08, size=(60, 16)).astype(
+            np.float32
+        )
+        mat /= np.linalg.norm(mat, axis=1, keepdims=True)
+        records = [rec(i, f"f{i % 4}.py", f"s{i}") for i in range(60)]
+
+        got = {
+            frozenset(r.id for r in fam.members)
+            for fam in sc.find_clone_families(records, mat, threshold=0.9)
+        }
+        assert got == _reference_families(records, mat, 0.9)
+
+    def test_family_similarity_is_max_member_pair(self):
+        records = [rec(0, "a.py", "x"), rec(1, "b.py", "x"), rec(2, "c.py", "x")]
+        mat = np.stack([vec(0.0), vec(0.2), vec(0.4)])  # 0-1, 1-2 at cos .98
+        families = find_clone_families(records, mat, threshold=0.95)
+        assert len(families) == 1
+        assert families[0].similarity == pytest.approx(float(np.cos(0.2)), abs=1e-6)
+
+    def test_optional_neighbour_cap_limits_pairs(self):
+        records = [rec(i, f"{i}.py", "same") for i in range(6)]
+        mat = np.tile(vec(0.0), (6, 1))
+        assert len(find_clone_families(records, mat, threshold=0.9)[0].members) == 6
+        capped = find_clone_families(records, mat, threshold=0.9, top_k=1)
+        # each row keeps one neighbour: still >= 2 members per family, never > 6
+        assert all(2 <= len(f.members) <= 6 for f in capped)
+
+
+class TestPairBudget:
+    def _dense(self, n=40):
+        records = [rec(i, f"{i}.py", "same") for i in range(n)]
+        return records, np.tile(vec(0.0), (n, 1))  # every pair matches
+
+    def test_low_threshold_fails_fast_instead_of_exhausting_memory(self, monkeypatch):
+        import victor.core.graph_rag.semantic_clones as sc
+
+        monkeypatch.setattr(sc, "BLOCK_ROWS", 8)
+        records, mat = self._dense()
+        seen = []
+        # block 1 (rows 0-7) yields 39+...+32 = 284 pairs; block 2 pushes past 300
+        with pytest.raises(sc.TooManyPairsError, match="raise the threshold"):
+            sc.find_clone_families(
+                records, mat, threshold=0.5, max_pairs=300, progress=lambda d, t: seen.append(d)
+            )
+        assert seen == [8]  # stopped in block 2 of 5, not after the full scan
+
+    def test_within_budget_is_unaffected(self):
+        from victor.core.graph_rag.semantic_clones import find_clone_families
+
+        records, mat = self._dense()
+        families = find_clone_families(records, mat, threshold=0.5, max_pairs=40 * 39 // 2)
+        assert len(families) == 1 and len(families[0].members) == 40

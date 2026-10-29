@@ -1646,8 +1646,12 @@ def graph_similar(
     threshold: float = typer.Option(
         0.90, "--threshold", "-t", min=0.5, max=1.0, help="Cosine similarity threshold"
     ),
-    top_k: int = typer.Option(
-        3, "--neighbors", "-k", min=1, max=10, help="Neighbours examined per symbol"
+    top_k: Optional[int] = typer.Option(
+        None,
+        "--neighbors",
+        "-k",
+        min=1,
+        help="Cap neighbours kept per symbol (default: every match above the threshold)",
     ),
     limit: int = typer.Option(20, "--limit", "-l", min=1, max=200, help="Max families to show"),
     same_file: bool = typer.Option(
@@ -1670,6 +1674,7 @@ def graph_similar(
     ratchet; read-only.
     """
     from victor.core.graph_rag.semantic_clones import (
+        TooManyPairsError,
         find_clone_families,
         load_embedding_symbols,
     )
@@ -1694,17 +1699,24 @@ def graph_similar(
         console.print(f"[yellow]{detail}[/yellow]")
         raise typer.Exit(1)
 
-    with console.status("[dim]scanning…[/dim]") as status:
-        families = find_clone_families(
-            records,
-            mat,
-            threshold=threshold,
-            top_k=top_k,
-            include_same_file=same_file,
-            progress=lambda done, total: status.update(
-                status=f"[dim]scanning… {done}/{total} symbols[/dim]"
-            ),
+    try:
+        with console.status("[dim]scanning…[/dim]") as status:
+            families = find_clone_families(
+                records,
+                mat,
+                threshold=threshold,
+                top_k=top_k,
+                include_same_file=same_file,
+                progress=lambda done, total: status.update(
+                    status=f"[dim]scanning… {done}/{total} symbols[/dim]"
+                ),
+            )
+    except TooManyPairsError as exc:
+        console.print(
+            f"[yellow]{exc}[/yellow]\n"
+            "Try [cyan]--threshold 0.85[/cyan] or higher, or cap with [cyan]--neighbors 3[/cyan]."
         )
+        raise typer.Exit(1)
 
     if as_json:
         import json as _json

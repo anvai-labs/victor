@@ -108,3 +108,21 @@ def test_no_families_message(tmp_path: Path):
         result = _invoke("--path", str(tmp_path), "--threshold", "0.99")
     assert result.exit_code == 0
     assert "No semantic near-duplicates" in result.output
+
+
+def test_too_many_pairs_is_a_clean_error(tmp_path: Path):
+    from victor.core.graph_rag.semantic_clones import TooManyPairsError
+
+    with (
+        patch(
+            "victor.core.graph_rag.semantic_clones.load_embedding_symbols",
+            return_value=([], None),
+        ),
+        patch(
+            "victor.core.graph_rag.semantic_clones.find_clone_families",
+            side_effect=TooManyPairsError("threshold 0.5 matched over 5,000,000 pairs"),
+        ),
+    ):
+        result = _invoke("--path", str(tmp_path), "--threshold", "0.5")
+    assert result.exit_code == 1
+    assert "--threshold 0.85" in " ".join(result.output.split())
