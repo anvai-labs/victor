@@ -185,6 +185,16 @@ class LifecycleManager:
             logger.warning(f"Failed to stop health monitoring: {e}")
             results["health_monitoring_stopped"] = False
 
+        # Release the code-execution sandbox (idempotent; re-acquired on next use).
+        # API server and Agent.graceful_shutdown() exit through here only.
+        if self._code_manager is not None:
+            try:
+                self._code_manager.stop()
+                results["code_manager_stopped"] = True
+            except Exception as e:
+                logger.warning(f"Failed to stop code execution manager: {e}")
+                results["code_manager_stopped"] = False
+
         # End usage analytics session
         if self._usage_analytics is not None:
             try:

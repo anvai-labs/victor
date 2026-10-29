@@ -248,6 +248,33 @@ class TestLifecycleManager:
         assert result["usage_logger_closed"] is True
 
     @pytest.mark.asyncio
+    async def test_graceful_shutdown_releases_code_sandbox(self, lifecycle_manager):
+        """API server and Agent.graceful_shutdown() exit only through this path;
+        it must release the sandbox container, not leave it to the idle TTL."""
+        code_manager = MagicMock()
+        lifecycle_manager._code_manager = code_manager
+        lifecycle_manager._flush_analytics = MagicMock(return_value={})
+        lifecycle_manager._stop_health_monitoring = AsyncMock(return_value=True)
+
+        result = await lifecycle_manager.graceful_shutdown()
+
+        code_manager.stop.assert_called_once()
+        assert result["code_manager_stopped"] is True
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_survives_sandbox_stop_failure(self, lifecycle_manager):
+        code_manager = MagicMock()
+        code_manager.stop.side_effect = RuntimeError("daemon gone")
+        lifecycle_manager._code_manager = code_manager
+        lifecycle_manager._flush_analytics = MagicMock(return_value={})
+        lifecycle_manager._stop_health_monitoring = AsyncMock(return_value=True)
+
+        result = await lifecycle_manager.graceful_shutdown()
+
+        assert result["code_manager_stopped"] is False
+        assert "health_monitoring_stopped" in result  # the rest of shutdown still ran
+
+    @pytest.mark.asyncio
     async def test_graceful_shutdown_without_usage_logger(self, lifecycle_manager):
         """No usage logger configured: shutdown must not fail and must
         report the step as trivially successful."""

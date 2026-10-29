@@ -238,6 +238,10 @@ class CodeExecutionManagerProtocol(Protocol):
         """Stop the execution manager."""
         ...
 
+    def dispose(self) -> None:
+        """Release resources (container teardown); makes the manager ``Disposable``."""
+        ...
+
 
 @runtime_checkable
 class WorkflowRegistryProtocol(Protocol):

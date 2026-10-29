@@ -145,3 +145,77 @@ def pytest_collection_modifyitems(config, items):
                         reason="victor-coding package not installed",
                     )
                 )
+
+
+def _own_sandbox_containers() -> list:
+    """Code-executor sandbox containers owned by THIS pytest process (xdist-safe)."""
+    try:
+        import docker
+
+        from victor_coding.tools.code_executor_tool import (
+            OWNER_HOST_LABEL,
+            OWNER_PID_LABEL,
+            SANDBOX_CONTAINER_LABEL,
+            SANDBOX_CONTAINER_VALUE,
+            host_identity,
+        )
+
+        client = docker.from_env(timeout=3)
+        return client.containers.list(
+            all=True,
+            filters={
+                "label": [
+                    f"{SANDBOX_CONTAINER_LABEL}={SANDBOX_CONTAINER_VALUE}",
+                    f"{OWNER_HOST_LABEL}={host_identity()}",
+                    f"{OWNER_PID_LABEL}={__import__('os').getpid()}",
+                ]
+            },
+        )
+    except Exception:  # no docker / no coding vertical: nothing can have leaked
+        return []
+
+
+@pytest.hookimpl(optionalhook=True)  # xdist-only hook; absent without xdist
+def pytest_testnodedown(node, error):
+    """xdist controller: collect sandbox leaks reported by each worker."""
+    leaked = getattr(node, "workeroutput", {}).get("sandbox_leaks", [])
+    node.config.__dict__.setdefault("_sandbox_leaks", []).extend(leaked)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail the session if any test left a sandbox container behind, then remove it.
+
+    Sandbox containers are acquired lazily and released on dispose / garbage
+    collection, so none should survive a session. This turns a regression of
+    the 2,242-container leak into a loud failure instead of silent build-up.
+    Under xdist each worker removes its own leaks and reports them to the
+    controller, which fails the run.
+    """
+    import gc
+
+    gc.collect()  # let finalizers of unreachable sandboxes run first
+    leaked = []
+    for container in _own_sandbox_containers():
+        leaked.append(container.short_id)
+        try:
+            container.remove(force=True)
+        except Exception:
+            pass
+
+    workeroutput = getattr(session.config, "workeroutput", None)
+    if workeroutput is not None:  # xdist worker: the controller reports and fails
+        workeroutput["sandbox_leaks"] = leaked
+        return
+
+    leaked += session.config.__dict__.get("_sandbox_leaks", [])
+    if not leaked:
+        return
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    message = (
+        f"{len(leaked)} code-executor sandbox container(s) were left running by this "
+        f"test session ({', '.join(leaked)}); removed. A test acquired a CodeSandbox "
+        "container and kept a reference past teardown."
+    )
+    if reporter is not None:
+        reporter.write_line(f"SANDBOX LEAK: {message}", red=True)
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED
