@@ -248,34 +248,18 @@ jobs:
             --columns=mean,stddev,ops
 
       - name: Check for regressions
+        # Warn-only for now (owner decision): regressions surface as ::warning::
+        # annotations plus a step-summary table; switch --mode to fail once the
+        # noise policy has a track record. The job checks out the BASE branch, so
+        # take the comparison script from the PR head like the toolchain step.
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          python -c "
-          import json
-          import sys
-
-          with open('baseline.json') as f:
-              baseline = json.load(f)
-          with open('output.json') as f:
-              current = json.load(f)
-
-          regressions = []
-          for test in baseline['benchmarks']:
-              if test in current['benchmarks']:
-                  baseline_mean = baseline['benchmarks'][test]['stats']['mean']
-                  current_mean = current['benchmarks'][test]['stats']['mean']
-                  change_pct = ((current_mean - baseline_mean) / baseline_mean) * 100
-
-                  if change_pct > 20:  # 20% regression threshold
-                      regressions.append((test, change_pct))
-
-          if regressions:
-              print('❌ PERFORMANCE REGRESSIONS DETECTED:')
-              for test, change_pct in regressions:
-                  print(f'  {test}: +{change_pct:.1f}%')
-              sys.exit(1)
-          else:
-              print('✅ No significant regressions detected')
-          "
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          git show "$HEAD_SHA:scripts/ci/benchmark_regressions.py" \
+            > "$RUNNER_TEMP/benchmark_regressions.py"
+          python "$RUNNER_TEMP/benchmark_regressions.py" baseline.json output.json \
+            --mode warn --threshold 20
 
   notify:
     name: Notify on failure
