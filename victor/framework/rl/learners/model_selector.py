@@ -36,7 +36,12 @@ import math
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import (
+    BaseLearner,
+    RLOutcome,
+    RLRecommendation,
+    saturating_confidence,
+)
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -372,7 +377,7 @@ class ModelSelectorLearner(BaseLearner):
 
         q_value = self._get_q_value(selected, task_type)
         count = self._selection_counts.get(selected, 0)
-        confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 20)))
+        confidence = saturating_confidence(count, scale=20)
 
         return RLRecommendation(
             value=selected,
@@ -491,7 +496,7 @@ class ModelSelectorLearner(BaseLearner):
                 ucb_score = q_value + self.ucb_c * math.sqrt(log_total / count)
 
             # Confidence
-            confidence = min(0.95, 0.5 + 0.45 * (1 - math.exp(-count / 20)))
+            confidence = saturating_confidence(count, scale=20)
 
             rankings.append(
                 {

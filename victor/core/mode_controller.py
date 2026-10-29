@@ -38,8 +38,8 @@ class AgentMode(str, Enum):
 
     Semantic Variants (different modes for different purposes):
     - AgentMode (here): Core coding modes for runtime behavior
-    - RLAgentMode: Extended 5 modes for RL state machine (includes REVIEW, COMPLETE)
-    - AdaptiveAgentMode: Extended 5 modes for adaptive control
+    - ExtendedAgentMode: the 5-mode state machine (adds COMPLETE) shared by RL
+      mode-transition learning (RLAgentMode) and adaptive control (AdaptiveAgentMode)
     """
 
     BUILD = "build"
@@ -47,6 +47,43 @@ class AgentMode(str, Enum):
     REVIEW = "review"
     DELEGATE = "delegate"
     EXPLORE = "explore"
+
+
+class ExtendedAgentMode(Enum):
+    """Five-mode agent state machine for mode-transition learning and control.
+
+    One definition for the RL mode-transition learner (``RLAgentMode``) and the
+    adaptive mode controller (``AdaptiveAgentMode``), which previously each
+    declared this enum and its transition table.
+    """
+
+    EXPLORE = "explore"  # Understanding codebase
+    PLAN = "plan"  # Creating implementation plan
+    BUILD = "build"  # Writing/modifying code
+    REVIEW = "review"  # Reviewing changes
+    COMPLETE = "complete"  # Task finished
+
+
+# Allowed transitions of the five-mode state machine.
+EXTENDED_MODE_TRANSITIONS: Dict[ExtendedAgentMode, List[ExtendedAgentMode]] = {
+    ExtendedAgentMode.EXPLORE: [
+        ExtendedAgentMode.PLAN,
+        ExtendedAgentMode.BUILD,
+        ExtendedAgentMode.COMPLETE,
+    ],
+    ExtendedAgentMode.PLAN: [
+        ExtendedAgentMode.BUILD,
+        ExtendedAgentMode.EXPLORE,
+        ExtendedAgentMode.COMPLETE,
+    ],
+    ExtendedAgentMode.BUILD: [
+        ExtendedAgentMode.REVIEW,
+        ExtendedAgentMode.EXPLORE,
+        ExtendedAgentMode.COMPLETE,
+    ],
+    ExtendedAgentMode.REVIEW: [ExtendedAgentMode.BUILD, ExtendedAgentMode.COMPLETE],
+    ExtendedAgentMode.COMPLETE: [],
+}
 
 
 @dataclass
