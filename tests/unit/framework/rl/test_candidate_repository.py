@@ -14,7 +14,7 @@ import sqlite3
 import pytest
 
 from victor.framework.rl.learners.candidate import PromptCandidate
-from victor.framework.rl.learners.candidate_repository import CandidateRepository, candidate_key
+from victor.framework.rl.learners.candidate_repository import candidate_key
 from victor.framework.rl.learners.prompt_optimizer import PromptOptimizerLearner
 
 

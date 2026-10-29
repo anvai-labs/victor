@@ -14,15 +14,12 @@
 
 """Unit tests for SafetyCoordinator."""
 
-import pytest
-
 from victor_contracts.safety import (
     SafetyAction,
     SafetyCategory,
     SafetyCheckResult,
     SafetyCoordinator,
     SafetyRule,
-    SafetyStats,
 )
 
 

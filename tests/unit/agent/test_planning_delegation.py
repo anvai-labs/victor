@@ -1,7 +1,6 @@
 """Tests for sub-agent delegation in planning — Layer 5 of agentic execution quality."""
 
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

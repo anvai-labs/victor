@@ -27,7 +27,6 @@ Run with: pytest tests/unit/framework/test_architectural_boundaries.py -v
 import pytest
 from typing import List, Tuple
 import ast
-import os
 from pathlib import Path
 
 

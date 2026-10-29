@@ -22,7 +22,6 @@ import pytest
 from victor.framework.rl.experiment_coordinator import (
     ExperimentConfig,
     ExperimentCoordinator,
-    ExperimentResult,
     ExperimentStatus,
     Variant,
     VariantMetrics,

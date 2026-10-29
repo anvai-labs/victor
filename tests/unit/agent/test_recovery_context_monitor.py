@@ -16,7 +16,6 @@
 
 import pytest
 import time
-from unittest.mock import patch
 
 from victor.agent.recovery.context_monitor import (
     ContextHealth,

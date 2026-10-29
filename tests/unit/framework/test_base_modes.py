@@ -1,8 +1,6 @@
 """Tests for base mode configuration (WS-5)."""
 
-import pytest
-
-from victor.framework.modes.base_modes import BASE_MODES, BaseModeConfig, ModeDefinition
+from victor.framework.modes.base_modes import BaseModeConfig, ModeDefinition
 
 
 class TestBaseModeConfig:

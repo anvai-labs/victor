@@ -22,7 +22,6 @@ import pytest
 from victor.evaluation.rl_test_optimizer import (
     RLTestOptimizer,
     TestDependencyLearner,
-    TestMetadata,
     TestPrioritizer,
     TestPriorityResult,
 )

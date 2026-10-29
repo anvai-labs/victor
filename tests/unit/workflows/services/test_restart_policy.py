@@ -2,10 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for RestartPolicyEnforcer and RestartAttempt."""
 
-from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -13,7 +11,6 @@ from victor.workflows.services.registry import (
     RestartAttempt,
     RestartPolicyEnforcer,
     ServiceRegistry,
-    ServiceRegistryEntry,
 )
 from victor.workflows.services.definition import (
     ServiceConfig,

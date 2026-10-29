@@ -27,7 +27,6 @@ from victor.agent.coordinators.safety_state_passed import SafetyStatePassedCoord
 from victor.agent.coordinators.system_prompt_state_passed import (
     SystemPromptStatePassedCoordinator,
 )
-from victor.agent.runtime.provider_runtime import LazyRuntimeProxy
 from victor.agent.orchestrator import AgentOrchestrator
 from victor.config.settings import Settings
 

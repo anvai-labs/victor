@@ -5,7 +5,6 @@
 
 """Tests for workspace setup utilities."""
 
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -99,7 +98,7 @@ class TestEnsureProjectImportableFastPath:
     @pytest.mark.asyncio
     async def test_pip_installed_package_skips_install(self):
         """A pip-installed package (django) returns True without installing."""
-        import importlib.metadata
+        import importlib.metadata  # noqa: F401
         from pathlib import Path
         from unittest.mock import AsyncMock, patch
 

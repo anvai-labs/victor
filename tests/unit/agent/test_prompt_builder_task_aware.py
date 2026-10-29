@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.agent.prompt_builder import SystemPromptBuilder
 from victor.agent.query_classifier import QueryClassification, QueryType

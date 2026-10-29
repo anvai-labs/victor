@@ -23,7 +23,6 @@ Tests:
 
 import pytest
 from typing import Protocol
-from unittest.mock import MagicMock
 
 # =============================================================================
 # Protocol importability and structure

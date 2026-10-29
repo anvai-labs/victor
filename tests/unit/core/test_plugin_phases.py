@@ -23,19 +23,15 @@ Covers:
 - P3-1: AOT manifest integration
 """
 
-import warnings
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.core.plugins.registry import (
     PluginRegistry,
     call_lifecycle_hook,
 )
-from victor.core.plugins.protocol import VictorPlugin
 from victor.core.verticals.capability_negotiator import (
     CapabilityNegotiator,
-    NegotiationResult,
 )
 from victor_contracts.verticals.manifest import ExtensionManifest, ExtensionType
 

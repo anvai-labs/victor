@@ -25,13 +25,12 @@ These tests verify the complete approval request lifecycle including:
 import asyncio
 import pytest
 import time
-from typing import Dict, Any, Optional, Tuple
+from typing import Optional, Tuple
 
 from victor.framework.hitl import (
     HITLController,
     ApprovalStatus,
     ApprovalRequest,
-    ApprovalHandler,
 )
 from victor.workflows.hitl import (
     HITLNode,

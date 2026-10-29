@@ -4,7 +4,6 @@ import pytest
 
 from victor.runtime.trace_context import (
     TraceContext,
-    TraceSpan,
     current_trace,
     get_correlation_id,
 )

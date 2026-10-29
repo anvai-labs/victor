@@ -19,11 +19,10 @@ the smart routing provider system.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager
 from victor.providers.smart_router import SmartRoutingProvider
-from victor.providers.routing_config import SmartRoutingConfig, RoutingProfile
+from victor.providers.routing_config import SmartRoutingConfig
 from victor.providers.base import BaseProvider, CompletionResponse, Message, StreamChunk
 
 

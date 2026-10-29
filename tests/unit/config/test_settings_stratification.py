@@ -7,8 +7,6 @@ Verifies that:
 4. Direct initialization maps flat parameters to nested groups
 """
 
-import pytest
-
 from victor.config.settings import (
     EventSettings,
     PipelineSettings,

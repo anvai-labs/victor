@@ -3,8 +3,7 @@
 
 """TDD tests for extension handler infrastructure and first 3 handlers."""
 
-from unittest.mock import MagicMock, patch
-from typing import Any, ClassVar, List, Optional
+from unittest.mock import MagicMock
 
 import pytest
 

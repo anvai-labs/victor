@@ -14,8 +14,6 @@
 
 """Tests for ToolOutputPruner."""
 
-import pytest
-
 from victor.tools.output_pruner import (
     ToolOutputPruner,
     PruningInfo,

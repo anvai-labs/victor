@@ -19,7 +19,6 @@ import pytest
 
 from victor.core.middleware import (
     CachingMiddleware,
-    ContextKey,
     ErrorHandlingMiddleware,
     LoggingMiddleware,
     MetricsMiddleware,

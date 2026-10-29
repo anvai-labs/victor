@@ -35,16 +35,13 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from victor.teams import (
     AgentMessage,
-    ITeamCoordinator,
-    MessageType,
     TeamFormation,
-    UnifiedTeamCoordinator,
     create_coordinator,
 )
 

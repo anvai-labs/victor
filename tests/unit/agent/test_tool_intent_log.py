@@ -1,11 +1,6 @@
 """Tests for pre-execution intent logging (LogAct-inspired)."""
 
-import time
-from unittest.mock import MagicMock, patch, AsyncMock
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-
-import pytest
+from unittest.mock import MagicMock
 
 
 class TestToolIntentEmission:

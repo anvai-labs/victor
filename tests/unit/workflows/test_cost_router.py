@@ -14,8 +14,6 @@
 
 """Tests for cost-aware routing for provider and model selection."""
 
-import pytest
-
 from victor.workflows.cost_router import (
     CostAwareRouter,
     CostTier,

@@ -15,14 +15,11 @@
 """Tests for profiles CLI commands - achieving 70%+ coverage."""
 
 import pytest
-import tempfile
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import yaml
 
 from typer.testing import CliRunner
-import typer
 
 from victor.ui.commands.profiles import (
     profiles_app,
@@ -119,7 +116,6 @@ class TestSaveProfilesYaml:
 
     def test_save_profiles_error_handling(self, tmp_path):
         """Test saving handles permission errors."""
-        from click.exceptions import Exit
 
         # Create read-only directory
         readonly_dir = tmp_path / "readonly"

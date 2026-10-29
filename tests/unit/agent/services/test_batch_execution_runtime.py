@@ -6,7 +6,6 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
 
 from victor.agent.services.batch_execution_runtime import BatchExecutionRuntime
 from victor.core.batch_plan import BatchPlan, BatchStep

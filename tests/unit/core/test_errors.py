@@ -17,7 +17,7 @@
 import threading
 
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime
 
 from victor.core.errors import (
     ErrorCategory,

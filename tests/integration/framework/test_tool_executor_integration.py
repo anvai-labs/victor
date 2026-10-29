@@ -18,7 +18,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from victor.agent.orchestrator import AgentOrchestrator
-from victor.agent.tool_executor import ToolExecutor, ToolExecutionResult
+from victor.agent.tool_executor import ToolExecutor
 from victor.config.settings import Settings
 
 

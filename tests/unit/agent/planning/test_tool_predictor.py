@@ -11,10 +11,6 @@ Tests cover:
 - Statistics and metadata
 """
 
-from unittest.mock import MagicMock, Mock
-
-import pytest
-
 from victor.agent.planning.tool_predictor import (
     ToolPredictor,
     ToolPredictorConfig,

@@ -15,7 +15,7 @@
 """Tests for provider refactored components."""
 
 import pytest
-from unittest.mock import Mock, MagicMock, AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from victor.agent.provider.switcher import ProviderSwitcher, ProviderSwitcherState
 from victor.agent.provider.health_monitor import ProviderHealthMonitor

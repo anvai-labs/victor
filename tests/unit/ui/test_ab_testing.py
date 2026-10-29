@@ -54,7 +54,7 @@ def test_ab_testing_command_import_keeps_numpy_and_scipy_off_the_chain():
 
 def test_list_experiments_lazily_imports_the_paths_helper(monkeypatch):
     """The lazy import inside _list_experiments resolves at call time."""
-    import victor.ui.commands.ab_testing as mod
+    import victor.ui.commands.ab_testing as mod  # noqa: F401
 
     called = {}
 

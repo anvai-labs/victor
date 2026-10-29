@@ -25,7 +25,7 @@ def test_victor_sdk_reexports_with_deprecation():
     sys.modules.pop("victor_sdk", None)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        import victor_sdk
+        import victor_sdk  # noqa: F401
         from victor_sdk import PluginContext, VictorPlugin
 
     assert PluginContext is not None

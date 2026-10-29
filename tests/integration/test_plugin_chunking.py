@@ -15,7 +15,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from victor.core.chunking.registry import ChunkingRegistry
 from victor.core.chunking.base import Chunk, ChunkingStrategy
 from victor.core.plugins.protocol import VictorPlugin
 
@@ -52,7 +51,7 @@ class TestPluginChunkingIntegration(unittest.TestCase):
     @patch("victor.core.plugins.registry.PluginRegistry.discover")
     def test_chunking_registry_uses_plugin_strategy(self, mock_discover):
         # Reset registry for test
-        from victor.core.chunking.registry import _default_registry
+        from victor.core.chunking.registry import _default_registry  # noqa: F401
         import victor.core.chunking.registry as registry_mod
 
         registry_mod._default_registry = None

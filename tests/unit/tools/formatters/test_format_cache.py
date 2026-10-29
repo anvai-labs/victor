@@ -16,7 +16,6 @@
 
 import time
 
-import pytest
 
 from victor.tools.formatters.registry import (
     _FormatCache,

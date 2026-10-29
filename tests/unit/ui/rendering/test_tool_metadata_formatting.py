@@ -17,8 +17,6 @@
 These tests verify the unified registry metadata display helpers.
 """
 
-import pytest
-
 from victor.ui.rendering.utils import (
     format_access_mode_badge,
     format_cost_tier_indicator,

@@ -11,7 +11,6 @@ Tests cover:
 """
 
 import pytest
-from datetime import datetime, timezone
 
 from victor.storage.memory import (
     EntityType,
@@ -19,9 +18,7 @@ from victor.storage.memory import (
     EntityRelation,
     RelationType,
     EntityMemory,
-    EntityMemoryConfig,
     EntityGraph,
-    GraphPath,
     LRUCache,
     CodeEntityExtractor,
     TextEntityExtractor,

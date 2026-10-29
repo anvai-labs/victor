@@ -8,8 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 
 class TestDeepSeekRetryConfig:
     """DeepSeek retry configuration for sustained load."""

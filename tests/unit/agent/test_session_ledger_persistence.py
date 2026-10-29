@@ -3,13 +3,13 @@
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from victor.agent.message_history import MessageHistory
 from victor.agent.sqlite_session_persistence import SQLiteSessionPersistence
-from victor.agent.session_ledger import SessionLedger, LedgerEntry
+from victor.agent.session_ledger import SessionLedger
 from victor.core.database import reset_project_database
 
 
@@ -48,7 +48,6 @@ class TestLedgerPersistence:
 
     def test_ledger_none_backward_compat(self):
         """Save without ledger, load returns None for field."""
-        from victor.agent.sqlite_session_persistence import SQLiteSessionPersistence
 
         # Simulate session_data without session_ledger key
         session_data = {

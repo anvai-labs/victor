@@ -46,7 +46,7 @@ class TestConsoleRenderingE2E:
         # For CI/CD, we mock the provider. For local testing, use real provider.
 
         # Mock agent that simulates DeepSeek thinking mode
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import MagicMock
         from victor.providers.base import StreamChunk
 
         mock_agent = MagicMock()
@@ -228,7 +228,6 @@ class TestConsoleRenderingE2E:
     async def test_empty_stream_handled_gracefully(self):
         """Empty stream should be handled without errors."""
         from unittest.mock import MagicMock
-        from victor.providers.base import StreamChunk
 
         mock_agent = MagicMock()
         mock_renderer = LiveDisplayRenderer(_themed_console())

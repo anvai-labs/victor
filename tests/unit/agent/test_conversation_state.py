@@ -1136,7 +1136,6 @@ class TestNaturalStageProgression:
 
     def test_benchmark_adapter_starts_reading(self):
         """Benchmark adapter should set READING, not lock EXECUTION."""
-        from unittest.mock import MagicMock
 
         sm = ConversationStateMachine()
         default_min_tools = sm.MIN_TOOLS_FOR_TRANSITION
@@ -1269,7 +1268,6 @@ class TestStageThrashingDampener:
 
     def test_thrashing_detected_on_oscillation(self):
         """Rapid READING↔EXECUTION cycling triggers thrashing detection."""
-        import time
 
         sm = self._make_sm()
         # Simulate 10 rapid transitions (above MAX_TRANSITIONS_PER_WINDOW=8)

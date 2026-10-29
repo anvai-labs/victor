@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import List
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.agent.conversation.assembler import TurnBoundaryContextAssembler
 from victor.agent.conversation.scoring import CONTROLLER_WEIGHTS, score_messages
@@ -26,7 +25,6 @@ from victor.agent.kv_prefix_observability import serialize_payload
 from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.session_ledger import SessionLedger
 from victor.config.settings import ProfileConfig, Settings
-from victor.providers.base import Message
 
 
 def _canonical_score_fn(messages, current_query=None):

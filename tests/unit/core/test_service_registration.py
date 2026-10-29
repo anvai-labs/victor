@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-import pytest
 
 from victor.core.container import ServiceContainer, ServiceLifetime
 from victor.core.service_registration import (

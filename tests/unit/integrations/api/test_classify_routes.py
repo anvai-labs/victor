@@ -25,11 +25,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from victor.integrations.api import fastapi_server
 from victor.integrations.api.routes.classify_routes import (

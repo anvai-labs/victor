@@ -15,8 +15,6 @@
 """Tests for the scaffold command."""
 
 import pytest
-import tempfile
-from pathlib import Path
 from typer.testing import CliRunner
 
 from victor.ui.commands.scaffold import (

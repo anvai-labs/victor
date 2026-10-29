@@ -15,7 +15,6 @@
 """Tests for victor.providers.logging module."""
 
 import logging
-from unittest.mock import patch, MagicMock
 import time
 
 import pytest

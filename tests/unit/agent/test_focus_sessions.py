@@ -1,8 +1,6 @@
 """Tests for DACS-inspired focus sessions in context assembly."""
 
-from unittest.mock import MagicMock
 from dataclasses import dataclass
-import pytest
 
 
 @dataclass

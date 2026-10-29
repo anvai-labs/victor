@@ -17,7 +17,6 @@
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.config.settings import Settings, validate_default_model
 

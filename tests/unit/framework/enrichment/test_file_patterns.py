@@ -14,7 +14,6 @@
 
 """Unit tests for file pattern matching utilities."""
 
-import pytest
 from victor.framework.enrichment.file_patterns import (
     DEVOPS_PATTERNS,
     DATA_PATTERNS,

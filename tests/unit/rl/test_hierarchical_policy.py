@@ -18,12 +18,9 @@ Tests the hierarchical RL components for multi-step task planning.
 """
 
 import pytest
-from unittest.mock import MagicMock
 
 from victor.framework.rl.option_framework import (
-    Option,
     OptionRegistry,
-    OptionResult,
     OptionState,
     OptionStatus,
     ExploreOption,

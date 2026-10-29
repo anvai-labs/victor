@@ -21,7 +21,7 @@ including cyclic workflows, checkpointing, and typed state management.
 import logging
 import pytest
 from typing import TypedDict, Optional, List
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from pydantic import BaseModel
 
@@ -31,21 +31,16 @@ from victor.framework.graph import (
     Node,
     Edge,
     EdgeType,
-    FrameworkNodeStatus,
-    GraphExecutionResult,
     GraphConfig,
     GraphEventEmitter,
     WorkflowCheckpoint,
-    CheckpointerProtocol,
     MemoryCheckpointer,
-    RLCheckpointerAdapter,
     SubgraphNode,
     Send,
     default_state_merger,
     ParallelBranchExecutionError,
     strict_state_merger,
     END,
-    START,
     create_graph,
 )
 
@@ -53,8 +48,6 @@ from victor.framework.config import (
     ExecutionConfig,
     CheckpointConfig,
     InterruptConfig,
-    PerformanceConfig,
-    ObservabilityConfig,
 )
 from victor.framework.execution_checkpoint import ExecutionCheckpoint
 
@@ -1121,17 +1114,8 @@ class TestFrameworkExports:
         from victor.framework import (
             StateGraph,
             CompiledGraph,
-            Node,
-            Edge,
-            EdgeType,
-            GraphExecutionResult,
-            GraphConfig,
-            WorkflowCheckpoint,
-            MemoryCheckpointer,
-            RLCheckpointerAdapter,
             END,
             START,
-            create_graph,
         )
 
         assert StateGraph is not None
@@ -1314,7 +1298,6 @@ class TestSubgraphNesting:
         self,
     ):
         """Self-referencing subgraph hits depth limit."""
-        from victor.framework.graph_primitives import _MAX_SUBGRAPH_DEPTH
 
         # Create a graph that references itself via a subgraph
         inner = StateGraph(SimpleState)

@@ -1,10 +1,7 @@
 """Tests for semantic event sampling filter."""
 
 import time
-from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from victor.observability.analytics.sampling_filter import (
     SamplingPolicy,

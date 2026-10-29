@@ -18,7 +18,6 @@ import asyncio
 import pytest
 
 from victor.framework.debugging.execution import (
-    ExecutionController,
     ExecutionState,
     StepMode,
     PauseContext,

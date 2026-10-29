@@ -1,6 +1,5 @@
 """Tests for tool name resolution and canonicalization."""
 
-import pytest
 from victor.tools.decorators import _resolve_tool_name
 
 

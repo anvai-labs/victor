@@ -487,8 +487,6 @@ class TestBenchmarkRun:
         async def fake_run_benchmark_async(**_kwargs):
             from victor.evaluation.protocol import (
                 BenchmarkFailureCategory,
-                BenchmarkType,
-                EvaluationConfig,
                 EvaluationResult,
                 TaskResult,
                 TaskStatus,

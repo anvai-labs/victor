@@ -10,7 +10,6 @@ from victor.agent.services.runtime_overrides import (
     OverrideRestorationError,
     apply_overrides,
     attribute_change,
-    restore_overrides,
 )
 from victor.agent.services.turn_execution_runtime import TurnExecutor
 from victor.agent.planning.team_execution import PlanningTeamExecutionAdapter

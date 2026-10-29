@@ -451,7 +451,6 @@ class TestTeamStep:
 
     def test_merge_team_result_team_wins(self, sample_team_step):
         """Test merging team result with team_wins mode."""
-        from victor.teams.types import TeamResult
 
         graph_state = {"key": "graph_value"}
         team_result = MagicMock()
@@ -467,7 +466,6 @@ class TestTeamStep:
 
     def test_merge_team_result_graph_wins(self, sample_team_step):
         """Test merging team result with graph_wins mode."""
-        from victor.teams.types import TeamResult
 
         sample_team_step.config.merge_mode = MergeMode.GRAPH_WINS
 
@@ -485,7 +483,6 @@ class TestTeamStep:
 
     def test_merge_team_result_error_mode(self, sample_team_step):
         """Test merging team result with error mode raises on conflict."""
-        from victor.teams.types import TeamResult
 
         sample_team_step.config.merge_mode = MergeMode.ERROR
 

@@ -18,7 +18,6 @@ import numpy as np
 import pytest
 
 from victor.core.graph_rag.semantic_clones import (
-    CloneFamily,
     SymbolRecord,
     find_clone_families,
 )

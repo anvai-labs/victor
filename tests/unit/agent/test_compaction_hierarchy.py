@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from victor.agent.compaction_hierarchy import (
-    CompactionEpoch,
     HierarchicalCompactionManager,
 )
 

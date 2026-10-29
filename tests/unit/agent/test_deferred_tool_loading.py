@@ -12,10 +12,6 @@ that can be loaded on-demand. This reduces context usage while preserving
 the ability to access previous tool results when needed.
 """
 
-import pytest
-from dataclasses import dataclass
-from typing import List, Optional, Dict
-
 from victor.agent.deferred_tool_loading import (
     ToolResultPlaceholder,
     DeferredToolResult,

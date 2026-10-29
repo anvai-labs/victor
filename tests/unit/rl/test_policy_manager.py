@@ -20,7 +20,7 @@ Tests the policy lifecycle management, auto-checkpointing, and rollback.
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.framework.rl.policy_manager import (
     PolicyManager,

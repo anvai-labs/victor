@@ -20,7 +20,7 @@ ensuring DIP compliance for vertical data storage.
 
 import pytest
 from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class TestVerticalStorageProtocol:
@@ -55,7 +55,6 @@ class TestVerticalStorageProtocol:
 
     def test_protocol_rejects_incomplete_implementation(self):
         """VerticalStorageProtocol should reject incomplete implementations."""
-        from victor.agent.protocols import VerticalStorageProtocol
 
         # Create an incomplete implementation
         class IncompleteStorage:
@@ -321,7 +320,6 @@ class TestProtocolIntegrationWithAdapter:
 
     def test_adapter_can_use_storage_protocol(self):
         """Test that VerticalIntegrationAdapter can work with storage protocol."""
-        from victor.agent.protocols import VerticalStorageProtocol
         from unittest.mock import MagicMock
 
         # Simulate orchestrator implementing VerticalStorageProtocol

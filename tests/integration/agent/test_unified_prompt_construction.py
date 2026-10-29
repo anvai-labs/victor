@@ -7,7 +7,6 @@ across legacy and StateGraph execution paths.
 import pytest
 
 from victor.agent.prompt_orchestrator import get_prompt_orchestrator
-from victor.agent.constraint_activation_service import get_constraint_activator
 from victor.workflows.definition import FullAccessConstraints, ComputeOnlyConstraints
 
 

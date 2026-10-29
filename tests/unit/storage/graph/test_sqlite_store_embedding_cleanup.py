@@ -18,8 +18,7 @@ These tests verify that when graph nodes are deleted, corresponding
 embeddings are also cleaned up from the vector store.
 """
 
-import sqlite3
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 import tempfile
 

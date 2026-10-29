@@ -23,7 +23,7 @@ Tests the conversation management facade including:
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from victor.agent.conversation_manager import (
     ConversationManager,

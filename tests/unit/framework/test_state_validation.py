@@ -16,7 +16,7 @@
 
 import pytest
 from typing_extensions import TypedDict
-from pydantic import BaseModel, Field, ValidationError, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 
 from victor.framework.graph import StateGraph, StateValidator, StateValidationError
 

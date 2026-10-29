@@ -15,7 +15,6 @@ Tests that:
 
 from __future__ import annotations
 
-import pytest
 
 from victor.agent.services.prompt_runtime import (
     PromptRuntimeAdapter,

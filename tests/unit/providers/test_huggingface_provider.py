@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Comprehensive unit tests for HuggingFace Inference API provider."""
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx

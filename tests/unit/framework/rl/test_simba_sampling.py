@@ -1,7 +1,6 @@
 """Tests for SIMBA challenge-focused trace sampling (DSPy-inspired)."""
 
 from unittest.mock import MagicMock
-import pytest
 
 
 class TestSIMBAChallengeSampling:

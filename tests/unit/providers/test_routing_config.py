@@ -17,8 +17,6 @@ Unit tests for routing configuration models.
 """
 
 import pytest
-from datetime import datetime
-from pathlib import Path
 
 from victor.providers.routing_config import (
     RoutingProfile,

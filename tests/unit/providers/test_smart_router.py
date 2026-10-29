@@ -25,7 +25,7 @@ from victor.providers.smart_router import (
     RoutingDecisionEngine,
     SmartRoutingProvider,
 )
-from victor.providers.routing_config import SmartRoutingConfig, RoutingProfile
+from victor.providers.routing_config import SmartRoutingConfig
 from victor.providers.performance_tracker import (
     ProviderPerformanceTracker,
     RequestMetric,

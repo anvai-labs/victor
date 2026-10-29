@@ -21,11 +21,9 @@ Tests end-to-end compilation and execution, ensuring that:
 4. No regressions from legacy implementation
 """
 
-import asyncio
 import pytest
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
 
 from victor.core.bootstrap import bootstrap_container
 from victor.config.settings import Settings

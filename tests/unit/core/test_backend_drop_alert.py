@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import asyncio
-import pytest
 
 from victor.core.events.backends import InMemoryEventBackend, ObservabilityBus
 from victor.core.events.protocols import MessagingEvent

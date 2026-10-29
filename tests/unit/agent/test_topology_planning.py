@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from victor.framework.agentic_loop import AgenticLoop
 from victor.agent.topology_planning import TopologyPlanningMixin

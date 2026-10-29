@@ -5,13 +5,8 @@
 
 """Unit tests for Priority 4 Phase 1 — user feedback learner and meta-learning."""
 
-import json
 import sqlite3
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.framework.rl.base import RLOutcome, RLRecommendation
 from victor.framework.rl.learners.user_feedback import (
@@ -253,7 +248,7 @@ class TestUsageAnalyticsPersistBridge:
 class TestMetaLearningCoordinator:
     def test_importable(self):
         from victor.framework.rl.meta_learning import (
-            MetaLearningCoordinator,
+            MetaLearningCoordinator,  # noqa: F401
         )  # noqa: F401
 
     def test_get_meta_learning_coordinator_returns_instance(self):

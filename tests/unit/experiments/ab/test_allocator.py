@@ -14,8 +14,6 @@
 
 """Unit tests for A/B testing allocator."""
 
-import asyncio
-
 import pytest
 
 from victor.experiments.ab_testing.models import (

@@ -37,7 +37,6 @@ from victor.framework.agent_protocols import (
     AgentMessage,
     IAgentPersona,
     IAgentRole,
-    ITeamMember,
     MessageType,
     TeamFormation,
 )
@@ -46,13 +45,10 @@ from victor.framework.agent_roles import (
     ManagerRole,
     ResearcherRole,
     ReviewerRole,
-    get_role,
 )
 from victor.framework.personas import Persona, get_persona
 from victor.teams import (
     UnifiedTeamCoordinator,
-    MemberResult,
-    TeamResult,
 )
 
 # =============================================================================

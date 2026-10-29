@@ -237,7 +237,7 @@ async def test_compact_context_if_recommended_accepts_task_complexity_param():
 async def test_high_complexity_propagated_to_context_service():
     """task_complexity='high' should be forwarded when the service accepts it."""
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import AsyncMock
 
     from victor.agent.services.context_service import compact_context_if_recommended
 

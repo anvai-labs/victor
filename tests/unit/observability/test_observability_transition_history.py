@@ -28,7 +28,6 @@ from victor.observability import (
     LoggingHook,
     MetricsHook,
     StateHookManager,
-    StateTransitionHook,
     TransitionHistory,
     TransitionRecord,
 )

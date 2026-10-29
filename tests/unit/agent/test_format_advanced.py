@@ -19,7 +19,6 @@ import pytest
 from victor.agent.format_monitoring import (
     FormatPerformanceMonitor,
     FormatMetric,
-    ProviderSummary,
 )
 from victor.agent.toon_production import (
     ToonFormatter,
@@ -332,7 +331,7 @@ class TestCustomFormatStrategies:
     def test_register_custom_strategies(self):
         """Should register all custom strategies."""
         # Clear any existing registrations
-        from victor.agent.format_strategies import FormatStrategyFactory
+        from victor.agent.format_strategies import FormatStrategyFactory  # noqa: F401
 
         # Register custom strategies
         register_custom_strategies()
@@ -478,7 +477,6 @@ class TestIntegrationScenarios:
         FormatStrategyFactory.register_strategy("custom", MarkdownFormatStrategy)
 
         # Create format spec
-        from victor.agent.format_strategies import ToolOutputFormat
 
         # Create a mock format spec with custom style
         @dataclass

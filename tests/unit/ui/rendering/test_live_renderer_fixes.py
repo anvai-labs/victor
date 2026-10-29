@@ -101,7 +101,6 @@ class TestLiveDisplayRendererContentDisplay:
         This verifies the fix that resume() recreates Live display with
         content buffered during thinking, ensuring it becomes visible.
         """
-        from unittest.mock import MagicMock
 
         console = Console(theme=victor_theme)
         renderer = LiveDisplayRenderer(console)

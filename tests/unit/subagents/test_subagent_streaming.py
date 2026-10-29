@@ -26,7 +26,7 @@ TDD: These tests are written FIRST before implementation.
 
 import asyncio
 from typing import AsyncIterator, List
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

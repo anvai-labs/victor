@@ -14,7 +14,6 @@
 
 """Tests for resilience patterns (circuit breaker, retry, rate limiter)."""
 
-import asyncio
 import time
 
 import pytest

@@ -14,7 +14,6 @@
 
 """Integration tests for A/B testing."""
 
-import asyncio
 import tempfile
 from pathlib import Path
 

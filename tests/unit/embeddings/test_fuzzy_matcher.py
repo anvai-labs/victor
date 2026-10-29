@@ -23,8 +23,6 @@ Tests cover:
 - Edge cases and error handling
 """
 
-import pytest
-
 from victor.storage.embeddings.fuzzy_matcher import (
     calculate_similarity_ratio,
     exact_match_only,

@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import os
 import pytest
 import re
 from typer.testing import CliRunner

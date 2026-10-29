@@ -16,10 +16,8 @@
 
 import logging
 import os
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from victor.config.config_loaders import (
     LoggingConfig,

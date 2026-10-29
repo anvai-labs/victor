@@ -15,8 +15,8 @@
 """Unit tests for FrameworkStepHandler apply methods."""
 
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from typing import Dict, Any, List, Optional
+from unittest.mock import MagicMock, patch
+from typing import Dict, Any, List
 from types import SimpleNamespace
 
 from victor.core.verticals.base import VerticalBase

@@ -19,7 +19,6 @@ Tests chunk generation for tool execution, status updates, metrics, and content.
 
 import pytest
 from unittest.mock import Mock, MagicMock
-from typing import Dict, Any, List
 
 from victor.agent.services.chunk_runtime import ChunkGenerator as LegacyChunkGenerator
 from victor.agent.services.chunk_runtime import ChunkGenerator

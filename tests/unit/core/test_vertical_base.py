@@ -19,7 +19,6 @@ import time
 
 import pytest
 from typing import List
-from unittest.mock import patch, MagicMock
 import threading
 
 from victor.core.verticals.base import VerticalBase, VerticalConfig
@@ -124,7 +123,6 @@ class TestGetExtensionsLSPCompliance:
 
         All fields should have sensible defaults (empty lists, None for optionals).
         """
-        from victor.core.verticals.protocols import VerticalExtensions
 
         extensions = ConcreteVertical.get_extensions(use_cache=False)
 

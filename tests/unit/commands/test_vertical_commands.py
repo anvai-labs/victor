@@ -18,9 +18,8 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from victor.core.verticals.registry_manager import (
@@ -1010,7 +1009,6 @@ class TestVerticalInstallation:
     @patch("victor.core.verticals.registry_manager.VerticalRegistryManager._validate_package")
     def test_install_validation_failure(self, mock_validate, mock_run):
         """Test installation fails validation."""
-        from victor.core.verticals.registry_manager import PackageSpec
 
         mock_validate.return_value = ["Package name conflicts with built-in vertical"]
         result = runner.invoke(vertical_app, ["install", "victor-security"])

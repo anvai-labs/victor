@@ -1,10 +1,5 @@
 """Tests for E3-TIR Tool Selector and Experience Store."""
 
-import time
-from unittest.mock import MagicMock
-
-import pytest
-
 from victor.tools.e3_tir_selector import (
     E3TIRConfig,
     E3TIRToolSelector,
@@ -14,7 +9,6 @@ from victor.tools.experience_store import (
     ExperienceType,
     ToolExperience,
     ToolExperienceStore,
-    ToolStats,
 )
 
 TOOLS = [

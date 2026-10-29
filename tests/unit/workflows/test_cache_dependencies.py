@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor.workflows.cache import (
     DependencyGraph,

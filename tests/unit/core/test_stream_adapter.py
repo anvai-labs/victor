@@ -15,9 +15,9 @@
 """Tests for UnifiedStreamAdapter and SDK-specific adapters."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, List, Optional
+from typing import Any, List, Optional
 
 from victor.providers.stream_adapter import (
     StreamMetrics,
@@ -39,7 +39,6 @@ from victor.providers.base import (
     CompletionResponse,
     Message,
     StreamChunk,
-    ToolDefinition,
 )
 
 # =============================================================================

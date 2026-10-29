@@ -18,9 +18,6 @@ These tests follow TDD - written before implementation.
 They verify the pre-defined roles for multi-agent team coordination.
 """
 
-import pytest
-from typing import Set
-
 # =============================================================================
 # ManagerRole Tests
 # =============================================================================

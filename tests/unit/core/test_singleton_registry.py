@@ -19,7 +19,6 @@ Tests thread-safety, singleton isolation, and common registry patterns.
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict
 
 import pytest
 

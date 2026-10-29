@@ -16,8 +16,6 @@ from victor.storage.checkpoints.protocol import (
 )
 from victor.storage.checkpoints.state_serializer import (
     StateSerializer,
-    serialize_conversation_state,
-    deserialize_conversation_state,
 )
 from victor.storage.checkpoints.backends.memory_backend import MemoryCheckpointBackend
 from victor.storage.checkpoints.manager import ConversationCheckpointManager

@@ -229,6 +229,5 @@ class TestFirstAgentNotebook:
 
 if __name__ == "__main__":
     # Run tests directly
-    import sys
 
     pytest.main([__file__, "-v", "-s"])

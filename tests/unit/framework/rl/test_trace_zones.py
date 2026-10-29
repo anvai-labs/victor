@@ -1,9 +1,6 @@
 """Tests for GEPA semantic trace zones (PRIME-inspired)."""
 
 from unittest.mock import MagicMock
-from enum import Enum
-
-import pytest
 
 
 class TestTraceZoneEnum:

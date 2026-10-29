@@ -14,7 +14,6 @@
 
 """Tests for web_search_tool module."""
 
-import asyncio
 import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -443,7 +442,6 @@ class TestGetRateLimiter:
     def test_uses_default_parameters(self):
         """Test that default parameters are used."""
         # Reset global rate limiter
-        from victor.tools.web_search_tool import _RATE_LIMITER
 
         web_search_tool_module._RATE_LIMITER = None
 
@@ -458,7 +456,6 @@ class TestGetRateLimiter:
     def test_uses_custom_parameters(self):
         """Test that custom parameters are applied."""
         # Reset global rate limiter
-        from victor.tools.web_search_tool import _RATE_LIMITER
 
         web_search_tool_module._RATE_LIMITER = None
 

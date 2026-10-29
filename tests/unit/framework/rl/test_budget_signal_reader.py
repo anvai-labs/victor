@@ -24,10 +24,6 @@ from typing import Any, Dict, List
 
 import pytest
 
-from victor.framework.rl.budget_calibration import (
-    DecisionOutcomeAggregate,
-    ToolBudgetSignals,
-)
 from victor.framework.rl.budget_signal_reader import BudgetSignalReader
 
 # ---------------------------------------------------------------------------

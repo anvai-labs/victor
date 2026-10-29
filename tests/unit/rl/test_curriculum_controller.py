@@ -22,7 +22,6 @@ import pytest
 from victor.framework.rl.curriculum_controller import (
     CurriculumController,
     CurriculumStage,
-    StageConfig,
     StageMetrics,
 )
 

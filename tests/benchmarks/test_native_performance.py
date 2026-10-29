@@ -325,7 +325,6 @@ class TestJsonRepairPerformance:
 
     def test_python_json_repair(self, malformed_json_samples: List[str]):
         """Benchmark Python JSON repair."""
-        import json
 
         def repair(s: str) -> str:
             result = s

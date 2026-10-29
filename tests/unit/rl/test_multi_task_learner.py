@@ -19,7 +19,6 @@ Tests the multi-task learning coordinator for cross-vertical transfer.
 
 import sqlite3
 import pytest
-from unittest.mock import MagicMock, patch
 
 from victor.framework.rl.multi_task_learner import (
     MultiTaskLearner,

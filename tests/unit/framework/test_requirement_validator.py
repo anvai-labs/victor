@@ -16,14 +16,11 @@
 
 from __future__ import annotations
 
-import pytest
 from dataclasses import dataclass
 from unittest.mock import Mock
 
 from victor.framework.requirement_validator import (
     RequirementValidator,
-    RequirementResult,
-    RequirementStatus,
 )
 from victor.framework.perception_integration import RequirementType, Requirement
 

@@ -29,7 +29,6 @@ Tests cover:
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
 
 import pytest
 
@@ -39,7 +38,6 @@ from victor.workflows.trigger_registry import (
     get_trigger_registry,
     register_trigger,
     find_workflow_for_query,
-    _registry_instance,
 )
 
 # ============ Fixtures ============

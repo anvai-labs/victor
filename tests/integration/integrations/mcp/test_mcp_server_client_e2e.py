@@ -27,13 +27,7 @@ For unit testing individual components in isolation (with mocks), see:
 - tests/unit/test_mcp_client.py
 """
 
-import asyncio
-import json
-import os
 import sys
-import tempfile
-from pathlib import Path
-from typing import Any, Dict, List
 
 import pytest
 
@@ -41,9 +35,9 @@ import pytest
 def _check_mcp_available():
     """Check if MCP module is available."""
     try:
-        from victor.integrations.mcp.server import MCPServer
-        from victor.integrations.mcp.client import MCPClient
-        from victor.integrations.mcp.protocol import MCPTool
+        from victor.integrations.mcp.server import MCPServer  # noqa: F401
+        from victor.integrations.mcp.client import MCPClient  # noqa: F401
+        from victor.integrations.mcp.protocol import MCPTool  # noqa: F401
 
         return True
     except ImportError:

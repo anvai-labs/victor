@@ -21,7 +21,6 @@ import json
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Optional
 
 from victor.evaluation.harness import (
     BaseBenchmarkRunner,

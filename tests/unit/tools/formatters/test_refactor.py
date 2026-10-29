@@ -1,7 +1,5 @@
 """Unit tests for RefactorFormatter."""
 
-import pytest
-
 from victor.tools.formatters.refactor import RefactorFormatter
 
 

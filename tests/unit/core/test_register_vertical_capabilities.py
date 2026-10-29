@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import Any, List, Protocol, Tuple, Type, runtime_checkable
 
-import pytest
-
 
 @runtime_checkable
 class MockCapProtocol(Protocol):

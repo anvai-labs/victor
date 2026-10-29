@@ -15,7 +15,7 @@
 """Tests for agentic loop nodes (perceive, plan, act, evaluate)."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.framework.graph import CopyOnWriteState
 from victor.framework.agentic_graph.state import (

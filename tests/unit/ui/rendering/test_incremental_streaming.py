@@ -23,7 +23,6 @@ exception fallback.
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from rich.console import Console
 
 from victor.ui.rendering import LiveDisplayRenderer

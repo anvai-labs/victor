@@ -13,7 +13,6 @@ Tests cover:
 
 import asyncio
 import pytest
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from victor.workflows.hitl import (
@@ -24,7 +23,6 @@ from victor.workflows.hitl import (
     HITLResponse,
     HITLNode,
     HITLExecutor,
-    DefaultHITLHandler,
 )
 from victor.workflows.definition import WorkflowNodeType, WorkflowBuilder
 

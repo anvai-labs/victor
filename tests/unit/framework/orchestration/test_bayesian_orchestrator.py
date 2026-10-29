@@ -16,10 +16,8 @@
 
 import sqlite3
 
-import pytest
 
-from victor.agent.bayesian_task_analysis import BayesianTaskAnalysis
-from victor.agent.task_analyzer import TaskComplexity, UnifiedTaskType
+from victor.agent.task_analyzer import TaskComplexity
 from victor.framework.rl.orchestration.bayesian_orchestrator import (
     BayesianOrchestrationService,
 )

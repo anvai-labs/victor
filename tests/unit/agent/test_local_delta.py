@@ -95,7 +95,6 @@ def _pfn(dtype, features):
 
 def test_update_then_load_assembles_vectors_in_label_order(monkeypatch):
     monkeypatch.setattr(ld, "extract_features", lambda txt: {42: 1.0})
-    from victor.core.database import get_project_database
 
     n = ld.update_delta_from_session(
         "s1",

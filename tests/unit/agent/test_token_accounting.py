@@ -10,9 +10,8 @@ ConversationController so get_context_metrics() uses real counts
 instead of char/N estimation.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from victor.agent.conversation.controller import (
     ConversationController,

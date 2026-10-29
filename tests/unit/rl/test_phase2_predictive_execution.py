@@ -6,10 +6,8 @@
 """Unit tests for Priority 4 Phase 2 — predictive tool selection and model threshold learning."""
 
 import sqlite3
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from victor.framework.rl.base import RLOutcome
 from victor.framework.rl.learners.tool_selector import ToolSelectorLearner

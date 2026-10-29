@@ -20,7 +20,6 @@ human approval flows and agent interruption/resume capabilities.
 
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 # =============================================================================
 # ApprovalStatus Enum Tests
@@ -65,7 +64,7 @@ class TestApprovalRequest:
 
     def test_approval_request_required_fields(self):
         """ApprovalRequest should have required fields."""
-        from victor.framework.hitl import ApprovalRequest, ApprovalStatus
+        from victor.framework.hitl import ApprovalRequest
 
         request = ApprovalRequest(
             id="req-123",

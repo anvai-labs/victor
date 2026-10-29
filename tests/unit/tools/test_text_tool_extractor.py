@@ -14,10 +14,8 @@
 
 """Tests for the Python-style tool call text extractor."""
 
-import pytest
 from victor.agent.tool_calling.text_extractor import (
     PythonCallExtractor,
-    ExtractionResult,
     extract_tool_calls_from_text,
     KNOWN_TOOL_PATTERNS,
 )
@@ -318,7 +316,6 @@ class TestFallbackParsingMixinIntegration:
         """Test the mixin method for Python call parsing."""
         from victor.agent.tool_calling.base import (
             FallbackParsingMixin,
-            ToolCallParseResult,
         )
 
         # Create a class that uses the mixin

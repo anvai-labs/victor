@@ -22,8 +22,6 @@ Tests automated refinement strategies:
 - Main workflow refiner
 """
 
-import pytest
-
 from victor.workflows.generation import (
     WorkflowRefiner,
     SchemaRefiner,

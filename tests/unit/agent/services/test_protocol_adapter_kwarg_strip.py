@@ -22,7 +22,6 @@ from victor.agent.services.metrics_service import AgentMetricsService
 from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.providers.base import CompletionResponse
 
-import pytest
 
 from victor.agent.services.orchestrator_protocol_adapter import (
     _INTERNAL_KWARG_KEYS,

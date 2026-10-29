@@ -16,7 +16,6 @@
 
 from pathlib import Path
 
-import pytest
 
 from victor.tools.sandbox import backends as sb
 from victor.tools.sandbox import (

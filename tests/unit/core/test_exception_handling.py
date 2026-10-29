@@ -24,9 +24,7 @@ Verifies that:
 
 import logging
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 from victor.core.errors import (
-    VictorError,
     ProviderError,
     ProviderConnectionError,
     ProviderAuthError,
@@ -34,7 +32,6 @@ from victor.core.errors import (
     ProviderTimeoutError,
     ProviderNotFoundError,
     ProviderInvalidResponseError,
-    ToolError,
     ToolNotFoundError,
     ToolExecutionError,
     ToolValidationError,
@@ -46,7 +43,6 @@ from victor.core.errors import (
     NetworkError,
     ErrorHandler,
     ErrorCategory,
-    ErrorSeverity,
 )
 
 

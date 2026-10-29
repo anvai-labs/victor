@@ -17,10 +17,6 @@
 from __future__ import annotations
 
 import logging
-import pytest
-from pathlib import Path
-import tempfile
-import re
 
 
 class TestSessionLoggerIntegration:

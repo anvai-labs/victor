@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from victor.framework.entry_point_loader import (
     load_rl_config_provider_from_entry_points,

@@ -18,7 +18,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import victor.agent.services.tool_selection_runtime as tsr
 from victor.agent.services.tool_selection_runtime import (
     ToolSelectionRuntime,
     _get_e3tir_shared_store,

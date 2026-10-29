@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from victor.core.event_sourcing import (
     ContextCompactedEvent,

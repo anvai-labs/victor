@@ -16,7 +16,6 @@
 
 from pathlib import Path
 
-import pytest
 
 from victor.tools.context import (
     DEFAULT_PERMISSIONS,

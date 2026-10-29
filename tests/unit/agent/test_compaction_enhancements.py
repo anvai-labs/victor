@@ -22,8 +22,7 @@ Tests cover:
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
-from typing import Optional
+from unittest.mock import Mock, patch
 
 from victor.agent.decisions.schemas import (
     DecisionType,
@@ -32,7 +31,7 @@ from victor.agent.decisions.schemas import (
 )
 from victor.config.decision_settings import DecisionServiceSettings
 from victor.config.context_settings import ContextSettings
-from victor.agent.context_compactor import ContextCompactor, CompactorConfig
+from victor.agent.context_compactor import ContextCompactor
 from victor.agent.prompt_builder import SystemPromptBuilder
 
 

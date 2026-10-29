@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from victor_contracts.skills import SkillDefinition
 

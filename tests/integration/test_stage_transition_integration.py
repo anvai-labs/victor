@@ -19,7 +19,6 @@ and turn lifecycle to verify Phase 1 optimizations work correctly.
 """
 
 import time
-from unittest.mock import MagicMock, patch
 
 import pytest
 

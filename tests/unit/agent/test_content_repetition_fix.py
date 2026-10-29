@@ -22,11 +22,10 @@ P0 Issues Fixed:
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 
 from victor.agent.tool_call_extractor import (
     ToolCallExtractor,
-    ExtractedToolCall,
     extract_tool_call_from_text,
 )
 from victor.agent.unified_task_tracker import UnifiedTaskTracker, TrackerTaskType

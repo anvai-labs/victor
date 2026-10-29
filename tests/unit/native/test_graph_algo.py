@@ -1,7 +1,5 @@
 """Tests for graph algorithm implementations (Rust + Python parity)."""
 
-import pytest
-
 from victor.native.python.graph_algo import (
     betweenness_centrality,
     connected_components,

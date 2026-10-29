@@ -22,7 +22,6 @@ across arbitrary chunk boundaries (the streaming case that naive line parsers mi
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator
 
 import httpx
 import pytest

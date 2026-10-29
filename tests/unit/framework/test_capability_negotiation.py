@@ -14,8 +14,6 @@
 
 """Tests for capability negotiation system."""
 
-import pytest
-
 from victor.framework.capability_negotiation import (
     Version,
     CompatibilityStrategy,

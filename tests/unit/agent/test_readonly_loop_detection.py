@@ -1,7 +1,5 @@
 """Tests for read-only loop detection in UnifiedTaskTracker."""
 
-import pytest
-
 from victor.agent.unified_task_tracker import (
     UnifiedTaskTracker,
     TrackerTaskType,

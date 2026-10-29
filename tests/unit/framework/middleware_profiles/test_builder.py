@@ -19,7 +19,6 @@ interface for creating custom middleware profiles.
 """
 
 import logging
-import pytest
 
 from victor.framework.middleware_profiles.builder import (
     MiddlewareProfileBuilder,

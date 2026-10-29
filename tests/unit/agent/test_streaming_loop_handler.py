@@ -1,12 +1,9 @@
 """Tests for StreamingLoopHandler."""
 
-import asyncio
-
 import pytest
 
 from victor.agent.coordinators.streaming_loop_handler import (
     StreamingLoopHandler,
-    StreamingResult,
 )
 
 

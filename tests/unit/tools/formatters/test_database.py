@@ -1,7 +1,5 @@
 """Unit tests for DatabaseFormatter."""
 
-import pytest
-
 from victor.tools.formatters.database import DatabaseFormatter
 
 

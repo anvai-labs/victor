@@ -17,7 +17,6 @@
 import pytest
 import tempfile
 from pathlib import Path
-from typing import List
 
 from victor.framework.capability_loader import (
     CapabilityLoader,

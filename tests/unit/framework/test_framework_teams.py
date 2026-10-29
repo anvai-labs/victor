@@ -19,7 +19,7 @@ multi-agent infrastructure via the framework.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from victor.agent.subagents.base import SubAgentRole
 from victor.teams.types import TeamAgentCategory, TeamMember, TeamConfig
@@ -33,7 +33,6 @@ from victor.framework.teams import (
     team_start_event,
     team_complete_event,
     member_start_event,
-    member_complete_event,
 )
 
 # =============================================================================

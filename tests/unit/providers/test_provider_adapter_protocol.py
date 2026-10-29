@@ -15,7 +15,6 @@
 """Tests for provider adapter protocol and implementations."""
 
 import pytest
-from unittest.mock import MagicMock
 
 from victor.agent.tool_calling.base import ToolCall
 from victor.protocols.provider_adapter import (

@@ -25,7 +25,6 @@ The legacy ``victor.verticals`` path remains covered as a compatibility shim.
 
 from __future__ import annotations
 
-import warnings
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 

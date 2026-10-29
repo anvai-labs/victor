@@ -8,7 +8,7 @@ Verifies that:
 - Streaming pipeline skips tools for Q&A tasks
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

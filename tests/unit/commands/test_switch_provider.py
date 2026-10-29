@@ -22,7 +22,6 @@ async method used 'provider' as param name while all callers passed
 import inspect
 import io
 from dataclasses import dataclass
-from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

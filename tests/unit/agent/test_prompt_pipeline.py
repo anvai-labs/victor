@@ -10,7 +10,7 @@ Tests written BEFORE implementation per plan. These validate:
 """
 
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 # ============================================================================
 # Helper: create mock providers for each tier

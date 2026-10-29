@@ -1,9 +1,7 @@
 """Test tool output preview functionality."""
 
-import pytest
-
 from victor.config.tool_settings import ToolSettings
-from victor.ui.output_formatter import OutputFormatter, OutputConfig
+from victor.ui.output_formatter import OutputFormatter
 from victor.ui.rendering.live_renderer import LiveDisplayRenderer
 from rich.console import Console
 
@@ -195,7 +193,6 @@ def test_output_formatter_tool_result_with_preview_params():
 
 def _make_formatter() -> OutputFormatter:
     """Return an OutputFormatter with a record-mode Rich console."""
-    from io import StringIO
     from victor.ui.output_formatter import OutputConfig, OutputMode
 
     console = Console(record=True, width=120)
