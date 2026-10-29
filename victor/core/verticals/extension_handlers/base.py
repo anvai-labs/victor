@@ -15,7 +15,8 @@ extension type names to handler classes.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, List, Optional, Protocol, Type, runtime_checkable
+import importlib
+from typing import Any, ClassVar, Dict, List, Optional, Protocol, Type, runtime_checkable
 
 
 @runtime_checkable
@@ -72,3 +73,66 @@ class BaseExtensionHandler:
             Extension instance, list, or None depending on type
         """
         raise NotImplementedError(f"{cls.__name__} must implement load()")
+
+
+def _load_dict_extension(
+    ctx: Type[ExtensionLoaderContext],
+    *,
+    suffix: str,
+    constant_suffix: str,
+    factory_name: str,
+    cache_key: str,
+) -> Dict[str, Any]:
+    """Load a dict-valued extension from the vertical's runtime modules.
+
+    Tries each candidate module for ``suffix`` in order. The first module that
+    defines a callable ``factory_name`` wins; otherwise the first module that
+    defines a dict constant ``<VERTICAL>_<constant_suffix>`` wins. The result
+    is cached on ``ctx`` under ``cache_key``.
+
+    Args:
+        ctx: Loader context (the VerticalExtensionLoader class).
+        suffix: Module suffix passed to ``ctx._find_available_candidates``.
+        constant_suffix: Constant-name suffix, e.g. ``"CHAINS"``.
+        factory_name: Factory function name, e.g. ``"get_composed_chains"``.
+        cache_key: Extension cache key.
+
+    Returns:
+        A copy of the extension dict, or ``{}`` when no candidate provides it.
+
+    Raises:
+        ImportError: The last candidate import error, when no candidate
+            provided the extension and at least one failed to import.
+    """
+    candidate_paths = ctx._find_available_candidates(suffix)
+    if not candidate_paths:
+        return {}
+
+    vertical_name = getattr(ctx, "name", ctx.__name__).upper().replace("-", "_")
+    constant_name = f"{vertical_name}_{constant_suffix}"
+    last_error: Optional[Exception] = None
+
+    for module_path in candidate_paths:
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError as exc:
+            last_error = exc
+            continue
+
+        factory = getattr(module, factory_name, None)
+        if callable(factory):
+            return ctx._get_cached_extension(
+                cache_key,
+                lambda factory=factory: dict(factory() or {}),
+            )
+
+        value = getattr(module, constant_name, None)
+        if isinstance(value, dict):
+            return ctx._get_cached_extension(
+                cache_key,
+                lambda value=value: dict(value),
+            )
+
+    if last_error:
+        raise last_error
+    return {}
