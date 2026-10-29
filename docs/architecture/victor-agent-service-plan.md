@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-SCOPE-RUN-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
+- **SDK-SCOPE-RUN-01 — MERGED**, [#1592](https://github.com/anvai-labs/victor/pull/1592) (2026-10-29), owner: RepoReel integration session;
   branch `fix/session-tool-pipeline-gate`, baseline
   `f442656487cd7c7d48a5bedbc3250d4facc4f417`. Fetched/reconciled develop and
   #1591 before selection. Actual public `Agent.create`/`Agent.run` with a scripted
@@ -139,6 +139,16 @@ edit. A mock test is not live provider or C5 evidence.
   `repocovertvideo/build/rr039-session-gate-qualification.json` and referenced
   review/CI/installed-probe artifacts. Next: independently check this final evidence
   update, push one reviewed candidate and drive all develop PR CI before merge.
+  **Merge checkpoint:** #1592 merges into develop as
+  `a60f0bdfe42a633e940b40f467293eadff3e3a8d` after 40 successful checks,
+  two skipped and one neutral, with zero failed/pending checks; CI Success and
+  Vertical Py3.12 both succeed. The installed candidate's five critical modules
+  also match the fetched merge bytes. Canonical develop is fast-forwarded and the
+  owned implementation worktree/branch removed. This is merged source plus the
+  recorded scripted package check, not release, live inference, HTTP or MVP
+  acceptance. RepoReel owns the next bounded local research-worker integration
+  and actual three-repository content qualification; no new Victor service API
+  or FEP acceptance is required or claimed by this handoff.
 
 - **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline
