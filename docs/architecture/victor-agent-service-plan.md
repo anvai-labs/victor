@@ -75,16 +75,21 @@ edit. A mock test is not live provider or C5 evidence.
   repository-research consumer is qualified; preserve default creation and shared
   runtime ownership. No new public service resources or FEP acceptance.
   RED: six creation regressions fail for the intended scope/airgap reasons
-  (`repocovertvideo/build/rr039-sdk-tools-red-v2.log`). GREEN: 272 affected
-  framework/client/service tests pass, including seventeen new cases for explicit
+  (`repocovertvideo/build/rr039-sdk-tools-red-v2.log`). The first independent
+  review identifies unified `web`, earlier post-factory cleanup and a missing
+  dispatch proof; three additional RED cases reproduce those boundary gaps.
+  GREEN: 277 affected framework/client/service tests pass, including twenty-two new cases for explicit
   list/ToolSet scopes, aliases, default preservation, empty/unknown/network-only
   rejection, unenforced scope, cancellation cleanup and independent sessions.
-  Full collection passes (36,795 tests); touched Black/Ruff/configured MyPy pass.
+  Full collection passes (36,800 tests); touched Black/Ruff/configured MyPy pass.
   The shared configurator now actually applies its airgap filter, including
-  canonical `http` aliases. Existing empty-set ToolService semantics stay intact;
+  canonical `http` aliases and unified `web`. Existing empty-set ToolService semantics stay intact;
   SDK creation instead rejects a scope that is empty or cannot be verified.
-  Evidence uses the real access policy with mocked creation; this is not live
-  provider, OS isolation, pinned-corpus enforcement or HTTP capability acceptance.
+  Evidence uses mocked creation plus the real registry/selector/ToolService:
+  `read` is selected/dispatched; write/shell/bash/web/http are refused before
+  the fake executor. This is not live provider, OS isolation, pinned-corpus
+  enforcement or HTTP capability acceptance. Every post-factory setup failure
+  now closes the owned runtime, including cancellation before wrapper creation.
   Next: independent exact-commit adversarial review, then PR/develop CI and merge.
   RepoReel owns source admission and tutorial policy (RR-015/RR-039).
 

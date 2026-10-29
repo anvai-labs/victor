@@ -1507,7 +1507,7 @@ def scoped_runtime(mock_orchestrator):
     """Use the real access policy: unlike a set mock, empty means all tools."""
     from victor.agent.services.tool_access_policy import ToolAccessPolicy
 
-    available = {"read", "write", "shell", "web_search", "http"}
+    available = {"read", "write", "shell", "web_search", "http", "web"}
     policy = ToolAccessPolicy(
         get_registrar=lambda: SimpleNamespace(get_tool_names=lambda: available),
         get_selector=lambda: None,
@@ -1515,6 +1515,7 @@ def scoped_runtime(mock_orchestrator):
     )
     mock_orchestrator.tools = dict.fromkeys(available)
     mock_orchestrator.get_enabled_tools = policy.get_enabled_tools
+    mock_orchestrator.get_available_tools = policy.get_available_tools
     mock_orchestrator.set_enabled_tools = policy.set_enabled_tools
     mock_orchestrator.has_capability = lambda *args, **kwargs: False
     settings = MagicMock()
@@ -1531,6 +1532,49 @@ def scoped_runtime(mock_orchestrator):
 
 class TestAgentCreate:
     """Tests for Agent.create classmethod."""
+
+    @pytest.mark.asyncio
+    async def test_create_scope_reaches_real_selection_and_dispatch(self, mock_orchestrator):
+        from victor.agent.services.tool_service import ToolService, ToolServiceConfig
+        from victor.agent.tool_selection.selector import ToolSelector
+        from victor.framework.agent import Agent
+        from victor.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        for name in ("read", "write", "shell", "web", "http"):
+            registry.register_dict({"name": name, "description": name})
+        selector = ToolSelector(registry)
+        executor = SimpleNamespace(execute_tool=AsyncMock(return_value={"fixture": "read"}))
+        service = ToolService(
+            config=ToolServiceConfig(),
+            tool_selector=selector,
+            tool_executor=executor,
+            tool_registrar=SimpleNamespace(get_tool_names=lambda: set(registry.list_all())),
+        )
+        mock_orchestrator.tools = registry
+        mock_orchestrator.get_enabled_tools = service.get_enabled_tools
+        mock_orchestrator.get_available_tools = service.get_available_tools
+        mock_orchestrator.set_enabled_tools = service.set_enabled_tools
+        mock_orchestrator.has_capability = lambda *args, **kwargs: False
+        with (
+            patch("victor.config.settings.load_settings", return_value=MagicMock()),
+            patch(
+                "victor.framework.agent_factory.AgentFactory.create",
+                new=AsyncMock(return_value=mock_orchestrator),
+            ),
+        ):
+            async with await Agent.create(tools=["read"], enable_observability=False):
+                selected = await selector.select_tools(
+                    "write files and run shell or web", use_semantic=False
+                )
+                assert [definition.name for definition in selected] == ["read"]
+                allowed = await service.execute_tool_with_validation("read", {})
+                assert allowed["success"] is True
+                for name in ("write", "shell", "bash", "web", "http"):
+                    denied = await service.execute_tool_with_validation(name, {})
+                    assert denied["success"] is False
+                    assert "not available" in denied["error"]
+                executor.execute_tool.assert_awaited_once_with(tool_name="read", arguments={})
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("toolset", [False, True])
@@ -1606,6 +1650,54 @@ class TestAgentCreate:
         orchestrator.chat.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_create_airgap_rejects_unified_web_only_scope(self, scoped_runtime):
+        from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
+
+        orchestrator, _, _, _ = scoped_runtime
+        with pytest.raises(AgentError, match="Tool allowlist"):
+            await Agent.create(tools=["web"], airgapped=True, enable_observability=False)
+        orchestrator.close.assert_awaited_once()
+        orchestrator.chat.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_unregistered_scope_even_if_runtime_echoes_it(
+        self, scoped_runtime
+    ):
+        from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
+
+        orchestrator, _, _, _ = scoped_runtime
+        orchestrator.get_enabled_tools = lambda: {"not_registered"}
+        orchestrator.set_enabled_tools = MagicMock()
+        with pytest.raises(AgentError, match="Tool allowlist"):
+            await Agent.create(tools=["not_registered"], enable_observability=False)
+        orchestrator.close.assert_awaited_once()
+        orchestrator.set_enabled_tools.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cancelled", [False, True])
+    async def test_create_closes_runtime_when_setup_fails_before_scope(
+        self, scoped_runtime, cancelled
+    ):
+        import asyncio
+        from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
+
+        orchestrator, _, _, _ = scoped_runtime
+        failure = asyncio.CancelledError() if cancelled else RuntimeError("setup failed")
+        with (
+            patch(
+                "victor.framework.lsp_middleware.set_lsp_feedback_mode",
+                side_effect=failure,
+            ),
+            pytest.raises(asyncio.CancelledError if cancelled else AgentError),
+        ):
+            await Agent.create(tools=["read"], enable_observability=False)
+        orchestrator.close.assert_awaited_once()
+        orchestrator.chat.assert_not_awaited()
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("fault", ["noop", "raises", "unverifiable", "cancelled"])
     async def test_create_rejects_unenforced_scope_and_closes(self, scoped_runtime, fault):
         import asyncio
@@ -1645,6 +1737,7 @@ class TestAgentCreate:
         second.close = AsyncMock()
         second.tools = dict.fromkeys(available)
         second.get_enabled_tools = second_policy.get_enabled_tools
+        second.get_available_tools = second_policy.get_available_tools
         second.set_enabled_tools = second_policy.set_enabled_tools
         second.has_capability = lambda *args, **kwargs: False
         create.side_effect = [first, second]

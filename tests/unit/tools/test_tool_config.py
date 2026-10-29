@@ -527,7 +527,7 @@ class TestAirgappedFilter:
     """Tests for AirgappedFilter."""
 
     def test_removes_canonical_http_and_alias(self):
-        assert AirgappedFilter().filter({"read", "http", "http_request"}, {}) == {"read"}
+        assert AirgappedFilter().filter({"read", "http", "http_request", "web"}, {}) == {"read"}
 
     def test_removes_network_tools(self):
         """Test that network tools are removed."""

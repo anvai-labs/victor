@@ -385,8 +385,12 @@ def _configure_creation_tool_scope(
     from victor.tools.tool_names import get_canonical_name
 
     getter = getattr(orchestrator, "get_enabled_tools", None)
-    if not callable(getter):
+    available_getter = getattr(orchestrator, "get_available_tools", None)
+    if not callable(getter) or not callable(available_getter):
         raise ValueError("Tool scope cannot be verified by this runtime")
+    available = available_getter()
+    if not isinstance(available, (set, frozenset)):
+        raise ValueError("Tool registry cannot be verified by this runtime")
     if tools is None:
         names = getter()
     elif isinstance(tools, ToolSet):
@@ -396,6 +400,7 @@ def _configure_creation_tool_scope(
     requested = {get_canonical_name(name) for name in names}
     if airgapped:
         requested = AirgappedFilter().filter(requested, {})
+    requested.intersection_update(get_canonical_name(name) for name in available)
     if not requested:
         raise ValueError("Tool allowlist must retain at least one registered tool")
 

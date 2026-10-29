@@ -694,6 +694,7 @@ class AirgappedFilter:
     """Filter that removes network-dependent tools."""
 
     NETWORK_TOOLS = {
+        "web",
         "web_search",
         "web_fetch",
         "http_request",

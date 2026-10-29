@@ -218,7 +218,7 @@ class Agent:
                 Use ToolSet.from_categories() for categories. Explicit scopes
                 must leave at least one registered tool; empty scopes fail closed.
             thinking: Enable extended thinking mode (Claude only)
-            airgapped: Disable network-dependent tools
+            airgapped: Filter known network-dependent tools; not OS/network isolation
             profile: Profile name from ~/.victor/profiles.yaml
             workspace: Working directory for file operations
             config: Advanced configuration. Accepts AgentConfig (deprecated) or
@@ -360,62 +360,72 @@ class Agent:
             )
             orchestrator = await factory.create()
 
-            # FEP-0018: wire the verifier from session_config to the
-            # turn_executor → AgenticLoop. Framework-owned path; the UI
-            # never reaches into the orchestrator directly.
-            _verify_mode = getattr(session_config, "verify_mode", "none")
-            if _verify_mode and _verify_mode != "none":
-                _te = getattr(orchestrator, "turn_executor", None)
-                if _te is not None:
-                    _verifier = _build_verifier(_verify_mode, orchestrator)
-                    if _verifier is not None:
-                        _te._verifier = _verifier
-                        _te._max_verify_retries = 2
+            agent = None
+            try:
+                # FEP-0018: wire the verifier from session_config to the
+                # turn_executor → AgenticLoop. Framework-owned path; the UI
+                # never reaches into the orchestrator directly.
+                _verify_mode = getattr(session_config, "verify_mode", "none")
+                if _verify_mode and _verify_mode != "none":
+                    _te = getattr(orchestrator, "turn_executor", None)
+                    if _te is not None:
+                        _verifier = _build_verifier(_verify_mode, orchestrator)
+                        if _verifier is not None:
+                            _te._verifier = _verifier
+                            _te._max_verify_retries = 2
 
-            # FEP-0019: propagate the LSP diagnostics feedback mode to the
-            # orchestrator so the auto-activated middleware honors it.
-            _lsp_feedback = getattr(session_config, "lsp_feedback", "errors")
-            if _lsp_feedback:
-                from victor.framework.lsp_middleware import set_lsp_feedback_mode
+                # FEP-0019: propagate the LSP diagnostics feedback mode to the
+                # orchestrator so the auto-activated middleware honors it.
+                _lsp_feedback = getattr(session_config, "lsp_feedback", "errors")
+                if _lsp_feedback:
+                    from victor.framework.lsp_middleware import set_lsp_feedback_mode
 
-                set_lsp_feedback_mode(orchestrator, _lsp_feedback)
+                    set_lsp_feedback_mode(orchestrator, _lsp_feedback)
 
-            # FEP-0019 Phase 3: enable proactive LSP context injection. The flag
-            # is read off the turn_executor by AgenticLoop.__init__ — same path
-            # as the verifier above; no loop-construction-site changes needed.
-            if getattr(session_config, "lsp_perception", False):
-                _te = getattr(orchestrator, "turn_executor", None)
-                if _te is not None:
-                    _te._lsp_context_enabled = True
+                # FEP-0019 Phase 3: enable proactive LSP context injection. The flag
+                # is read off the turn_executor by AgenticLoop.__init__ — same path
+                # as the verifier above; no loop-construction-site changes needed.
+                if getattr(session_config, "lsp_perception", False):
+                    _te = getattr(orchestrator, "turn_executor", None)
+                    if _te is not None:
+                        _te._lsp_context_enabled = True
 
-            resolved_provider = (
-                provider
-                or getattr(orchestrator, "provider_name", None)
-                or getattr(getattr(orchestrator, "provider", None), "name", None)
-                or "unknown"
-            )
-            resolved_model = model or getattr(orchestrator, "model", None)
-            agent = cls(
-                orchestrator,
-                provider=resolved_provider,
-                model=resolved_model,
-                vertical=vertical,
-                vertical_config=vertical_config,
-            )
-            if tools is not None or airgapped:
-                from victor.framework._internal import _configure_creation_tool_scope
+                resolved_provider = (
+                    provider
+                    or getattr(orchestrator, "provider_name", None)
+                    or getattr(getattr(orchestrator, "provider", None), "name", None)
+                    or "unknown"
+                )
+                resolved_model = model or getattr(orchestrator, "model", None)
+                agent = cls(
+                    orchestrator,
+                    provider=resolved_provider,
+                    model=resolved_model,
+                    vertical=vertical,
+                    vertical_config=vertical_config,
+                )
+                if tools is not None or airgapped:
+                    from victor.framework._internal import _configure_creation_tool_scope
 
-                try:
                     _configure_creation_tool_scope(orchestrator, tools, airgapped)
-                except BaseException:
-                    # The runtime is owned here and must never escape with an
-                    # unverified scope, even when configuration is cancelled.
-                    try:
+                return agent
+            except BaseException:
+                # Every post-factory failure owns cleanup, including setup
+                # before the Agent wrapper exists and cancellation.
+                try:
+                    if agent is not None:
                         await agent.close()
-                    except Exception:
-                        logger.exception("Failed to close agent after tool scope rejection")
-                    raise
-            return agent
+                    else:
+                        cleanup = getattr(orchestrator, "close", None) or getattr(
+                            orchestrator, "shutdown", None
+                        )
+                        if cleanup is not None:
+                            result = cleanup()
+                            if inspect.isawaitable(result):
+                                await result
+                except Exception:
+                    logger.exception("Failed to close agent after creation rejection")
+                raise
         except InitializationError as e:
             if e.stage == "credentials":
                 raise ProviderError(str(e), provider=provider) from e
