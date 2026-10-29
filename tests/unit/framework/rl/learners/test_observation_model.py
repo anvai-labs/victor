@@ -511,3 +511,29 @@ class TestDatabasePersistence:
         assert recommendation.value == "observation_model"
         assert recommendation.confidence > 0
         assert "learner_name" in recommendation.metadata
+
+
+class TestSharedKeywordClassifier:
+    """categorize_message and the learner heuristic share one keyword table."""
+
+    def test_priority_order(self):
+        from victor.framework.rl.learners.observation_model import categorize_message
+
+        # error beats everything; uncertain beats deny; deny beats affirm
+        assert categorize_message("yes but it crashed", "success", 0.9) == "error"
+        assert categorize_message("maybe wrong", "success", 0.9) == "uncertain"
+        assert categorize_message("it won't work", "success", 0.9) == "deny"
+        assert categorize_message("looks good", "success", 0.1) == "affirm"
+
+    def test_fallbacks_differ_only_without_keywords(self):
+        from victor.framework.rl.learners.observation_model import (
+            ObservationModelLearner,
+            categorize_message,
+        )
+
+        heuristic = ObservationModelLearner._categorize_message_heuristic
+        assert categorize_message("hmm", "success", 0.9) == "affirm"
+        assert categorize_message("hmm", "success", 0.1) == "deny"
+        assert categorize_message("hmm", "success", 0.5) == "uncertain"
+        assert heuristic(None, "hmm") == "uncertain"
+        assert heuristic(None, "it works") == "affirm"
