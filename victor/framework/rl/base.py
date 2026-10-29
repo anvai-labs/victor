@@ -23,7 +23,7 @@ import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, ClassVar, Dict, Optional, TYPE_CHECKING
+from typing import Any, Callable, ClassVar, Dict, List, Optional, TYPE_CHECKING
 from victor.core.constants import DEFAULT_VERTICAL
 from victor.core.sql_utils import validate_identifier
 
@@ -252,6 +252,43 @@ class BaseLearner(ABC):
         from victor.framework.rl.migration import RLTableMigrator
 
         RLTableMigrator(self.db).run_if_needed(self.name, migrate)
+
+    def _read_task_stats(self, task_type: str) -> Dict[str, Any]:
+        """This learner's ``rl_task_stat`` rows for ``task_type`` as ``{stat_key: value}``."""
+        from victor.core.schema import Tables
+
+        cursor = self.db.cursor()
+        cursor.execute(
+            f"SELECT stat_key, stat_value FROM {Tables.RL_TASK_STAT}"
+            f" WHERE learner_id = ? AND task_type = ?",
+            (self.name, task_type),
+        )
+        return {row["stat_key"]: row["stat_value"] for row in map(dict, cursor.fetchall())}
+
+    def _read_params(self) -> List[Dict[str, Any]]:
+        """All of this learner's ``rl_param`` rows (param_key, param_value, context, sample_count)."""
+        from victor.core.schema import Tables
+
+        cursor = self.db.cursor()
+        cursor.execute(
+            f"SELECT param_key, param_value, context, sample_count FROM {Tables.RL_PARAM}"
+            f" WHERE learner_id = ?",
+            (self.name,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def _read_param(self, param_key: str, context: str) -> Optional[Any]:
+        """One ``rl_param`` value of this learner, or None when unset."""
+        from victor.core.schema import Tables
+
+        cursor = self.db.cursor()
+        cursor.execute(
+            f"SELECT param_value FROM {Tables.RL_PARAM}"
+            f" WHERE learner_id = ? AND param_key = ? AND context = ?",
+            (self.name, param_key, context),
+        )
+        row = cursor.fetchone()
+        return dict(row)["param_value"] if row else None
 
     @abstractmethod
     def record_outcome(self, outcome: RLOutcome) -> None:

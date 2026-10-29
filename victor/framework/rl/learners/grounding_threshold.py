@@ -119,13 +119,7 @@ class GroundingThresholdLearner(BaseLearner):
 
         try:
             # Load Beta parameters from rl_param: param_key = "alpha:{ctx}:{thresh}" / "beta:{ctx}:{thresh}"
-            cursor.execute(
-                f"SELECT param_key, param_value, sample_count FROM {Tables.RL_PARAM}"
-                f" WHERE learner_id = ?",
-                (self.name,),
-            )
-            for row in cursor.fetchall():
-                row_dict = dict(row)
+            for row_dict in self._read_params():
                 key = row_dict["param_key"]
                 value = row_dict["param_value"]
                 if value is None:
@@ -463,13 +457,7 @@ class GroundingThresholdLearner(BaseLearner):
         Returns:
             Dictionary with fp_rate, fn_rate, precision, recall
         """
-        cursor = self.db.cursor()
-        cursor.execute(
-            f"SELECT stat_key, stat_value FROM {Tables.RL_TASK_STAT}"
-            f" WHERE learner_id = ? AND task_type = ?",
-            (self.name, provider),
-        )
-        counts = {dict(r)["stat_key"]: int(dict(r)["stat_value"]) for r in cursor.fetchall()}
+        counts = {key: int(value) for key, value in self._read_task_stats(provider).items()}
 
         if not counts:
             return {"fp_rate": 0.0, "fn_rate": 0.0, "precision": 0.0, "recall": 0.0}

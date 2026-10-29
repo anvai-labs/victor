@@ -146,16 +146,8 @@ class QualityWeightLearner(BaseLearner):
 
     def _load_state(self) -> None:
         """Load state from database."""
-        cursor = self.db.cursor()
-
         try:
-            cursor.execute(
-                f"SELECT param_key, param_value, context, sample_count FROM {Tables.RL_PARAM}"
-                f" WHERE learner_id = ?",
-                (self.name,),
-            )
-            for row in cursor.fetchall():
-                row_dict = dict(row)
+            for row_dict in self._read_params():
                 key = row_dict["param_key"]
                 task_type = row_dict["context"] or ""
                 value = row_dict["param_value"]
