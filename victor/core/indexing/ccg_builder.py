@@ -196,7 +196,7 @@ class CodeContextGraphBuilder:
         """
         try:
             from victor.core.capability_registry import CapabilityRegistry
-            from victor.framework.vertical_protocols import CCGBuilderProtocol
+            from victor_contracts.verticals.protocols.storage import CCGBuilderProtocol
 
             registry = CapabilityRegistry.get_instance()
             provider = registry.get(CCGBuilderProtocol)
