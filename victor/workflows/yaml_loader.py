@@ -94,6 +94,7 @@ Example YAML format:
 from __future__ import annotations
 
 import logging
+import math
 import operator
 import os
 import re
@@ -136,6 +137,7 @@ class YAMLNodeType(str, Enum):
     PARALLEL = "parallel"
     TRANSFORM = "transform"
     HITL = "hitl"
+    TEAM = "team"
 
 
 class ConstraintType(str, Enum):
@@ -257,6 +259,7 @@ from victor.workflows.definition import (
     ConditionNode,
     ParallelNode,
     TaskConstraints,
+    TeamStepWorkflow,
     TransformNode,
     WorkflowDefinition,
     WorkflowNode,
@@ -1062,6 +1065,256 @@ def _parse_hitl_node(node_data: Dict[str, Any]) -> WorkflowNode:
     )
 
 
+# Values the team step executor (victor.workflows.executors.team) maps
+# explicitly. Anything else would silently degrade to a default there, so the
+# loader rejects it instead.
+TEAM_FORMATIONS: Tuple[str, ...] = (
+    "sequential",
+    "parallel",
+    "hierarchical",
+    "pipeline",
+    "consensus",
+)
+TEAM_MERGE_MODES: Tuple[str, ...] = ("team_wins", "graph_wins", "merge", "error")
+# "custom" needs a Python callable and "selective" needs a key list; neither can
+# be expressed through a YAML team node, so only the self-contained ones load.
+TEAM_MERGE_STRATEGIES: Tuple[str, ...] = ("dict", "list")
+TEAM_MEMBER_ROLES: Tuple[str, ...] = (
+    "researcher",
+    "planner",
+    "executor",
+    "reviewer",
+    "writer",
+    "analyst",
+)
+TEAM_AGENT_CATEGORIES: Tuple[str, ...] = ("specialist", "supervisor")
+# Member keys the team executor reads. Any other key would be dropped without
+# effect at execution time, so it is rejected (``tools`` is the agent-node
+# spelling of ``allowed_tools``).
+TEAM_MEMBER_KEYS: Tuple[str, ...] = (
+    "id",
+    "name",
+    "role",
+    "goal",
+    "tool_budget",
+    "tools",
+    "allowed_tools",
+    "agent_category",
+    "can_delegate",
+    "delegation_targets",
+    "is_manager",
+    "backstory",
+    "expertise",
+    "personality",
+)
+# Role names the executor maps aliased roles to; used to predict the member id
+# it generates when a member has none.
+_TEAM_ROLE_RUNTIME_VALUE = {"writer": "executor", "analyst": "researcher"}
+
+
+def _team_error(node_id: str, message: str) -> YAMLWorkflowError:
+    return YAMLWorkflowError(f"Team node '{node_id}': {message}")
+
+
+def _team_choice(node_id: str, key: str, value: Any, allowed: Tuple[str, ...]) -> str:
+    """Return ``value`` lower-cased if it is one of ``allowed``, else raise."""
+    if not isinstance(value, str) or value.lower() not in allowed:
+        raise _team_error(node_id, f"invalid {key} {value!r}. Valid values: {list(allowed)}")
+    return value.lower()
+
+
+def _team_int(node_id: str, key: str, value: Any, *, minimum: int = 1) -> int:
+    """Return ``value`` if it is an int >= ``minimum`` (bools rejected), else raise."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise _team_error(node_id, f"{key} must be an integer >= {minimum}, got {value!r}")
+    return value
+
+
+def _team_check_type(node_id: str, where: str, data: Dict[str, Any], key: str, kind: str) -> None:
+    """Raise unless ``data[key]`` (when present) is a str, bool or list of str."""
+    if key not in data:
+        return
+    value = data[key]
+    if kind == "str":
+        ok = isinstance(value, str)
+    elif kind == "bool":
+        ok = isinstance(value, bool)
+    else:
+        ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+    if not ok:
+        expected = {"str": "a string", "bool": "a boolean"}.get(kind, "a list of strings")
+        raise _team_error(node_id, f"{where} {key} must be {expected}, got {value!r}")
+
+
+def _parse_team_member(node_id: str, index: int, member: Any) -> Dict[str, Any]:
+    """Validate one team member mapping and normalize it for the executor.
+
+    The returned mapping always has an ``id`` (the one the executor would
+    generate when omitted) and uses ``allowed_tools`` rather than ``tools``.
+    """
+    where = f"member #{index}"
+    if not isinstance(member, dict):
+        raise _team_error(node_id, f"{where} must be a mapping, got {type(member).__name__}")
+    normalized = dict(member)
+    if "id" in normalized:
+        member_id = normalized["id"]
+        if not isinstance(member_id, str) or not member_id.strip():
+            raise _team_error(node_id, f"{where} id must be a non-empty string")
+        where = f"member '{member_id}'"
+    unknown = sorted(str(k) for k in normalized if k not in TEAM_MEMBER_KEYS)
+    if unknown:
+        raise _team_error(
+            node_id, f"{where} has unsupported keys {unknown}. Supported: {list(TEAM_MEMBER_KEYS)}"
+        )
+    if not isinstance(normalized.get("goal"), str) or not normalized["goal"].strip():
+        raise _team_error(node_id, f"{where} requires a non-empty 'goal'")
+    role = _team_choice(
+        node_id, f"{where} role", normalized.get("role", "executor"), TEAM_MEMBER_ROLES
+    )
+    normalized["role"] = role
+    if "agent_category" in normalized:
+        normalized["agent_category"] = _team_choice(
+            node_id, f"{where} agent_category", normalized["agent_category"], TEAM_AGENT_CATEGORIES
+        )
+    if "tool_budget" in normalized:
+        _team_int(node_id, f"{where} tool_budget", normalized["tool_budget"])
+    if "tools" in normalized:
+        if "allowed_tools" in normalized:
+            raise _team_error(node_id, f"{where} sets both 'tools' and 'allowed_tools'")
+        normalized["allowed_tools"] = normalized.pop("tools")
+    for key in ("name", "backstory", "personality"):
+        _team_check_type(node_id, where, normalized, key, "str")
+    for key in ("is_manager", "can_delegate"):
+        _team_check_type(node_id, where, normalized, key, "bool")
+    for key in ("allowed_tools", "expertise", "delegation_targets"):
+        _team_check_type(node_id, where, normalized, key, "list")
+    normalized.setdefault("id", f"{_TEAM_ROLE_RUNTIME_VALUE.get(role, role)}_{index}")
+    return normalized
+
+
+def _team_timeout(node_id: str, node_data: Dict[str, Any]) -> Optional[float]:
+    """Return the team timeout (``timeout_seconds`` or ``timeout``), validated."""
+    key = "timeout_seconds" if "timeout_seconds" in node_data else "timeout"
+    value = node_data.get(key)
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise _team_error(node_id, f"{key} must be a positive finite number, got {value!r}")
+    return float(value)
+
+
+def _validate_team_roster(node_id: str, formation: str, members: List[Dict[str, Any]]) -> None:
+    """Check cross-member rules the team runtime enforces at execution time."""
+    member_ids = [m["id"] for m in members]
+    if len(member_ids) != len(set(member_ids)):
+        raise _team_error(node_id, f"duplicate member ids: {member_ids}")
+    known = set(member_ids)
+    for member in members:
+        missing = [t for t in member.get("delegation_targets") or [] if t not in known]
+        if missing:
+            raise _team_error(
+                node_id, f"member '{member['id']}' delegation_targets {missing} are not members"
+            )
+    if formation == "hierarchical":
+        supervisors = [
+            m["id"]
+            for m in members
+            if m.get("is_manager") is True or m.get("agent_category") == "supervisor"
+        ]
+        if len(members) < 2 or len(supervisors) != 1:
+            raise _team_error(
+                node_id,
+                "hierarchical teams need at least 2 members and exactly one supervisor "
+                "(agent_category: supervisor or is_manager: true); "
+                f"found {len(members)} members, supervisors {supervisors}",
+            )
+
+
+def _parse_team_node(node_data: Dict[str, Any]) -> TeamStepWorkflow:
+    """Parse a team node (an ad-hoc multi-agent team step) from YAML data.
+
+        - id: implement
+          type: team
+          goal: "Implement $ctx.feature"  # $ctx.<key> is filled from workflow state
+          team_formation: pipeline      # sequential|parallel|hierarchical|pipeline|consensus
+          total_tool_budget: 50
+          output_key: team_result
+          members:
+            - id: researcher
+              role: researcher
+              goal: "Find the relevant code"
+              tool_budget: 15
+              tools: [read, grep]
+
+    Raises:
+        YAMLWorkflowError: If the goal is missing, ``members`` is empty or
+            malformed, or a value is one the team runtime would reject or
+            silently ignore.
+    """
+    node_id = node_data["id"]
+
+    goal = node_data.get("goal")
+    if not isinstance(goal, str) or not goal.strip():
+        raise YAMLWorkflowError(f"Team node '{node_id}' requires a non-empty 'goal'")
+
+    members_data = node_data.get("members")
+    if not isinstance(members_data, list) or not members_data:
+        raise YAMLWorkflowError(f"Team node '{node_id}' requires a non-empty 'members' list")
+    members = [_parse_team_member(node_id, i, m) for i, m in enumerate(members_data)]
+
+    formation = _team_choice(
+        node_id, "team_formation", node_data.get("team_formation", "sequential"), TEAM_FORMATIONS
+    )
+    _validate_team_roster(node_id, formation, members)
+
+    name = node_data.get("name", node_id)
+    if not isinstance(name, str):
+        raise _team_error(node_id, f"name must be a string, got {name!r}")
+
+    output_key = node_data.get("output_key") or node_data.get("output") or "team_result"
+    if not isinstance(output_key, str):
+        raise _team_error(node_id, f"output_key must be a string, got {output_key!r}")
+
+    shared_context = node_data.get("shared_context", {})
+    if not isinstance(shared_context, dict):
+        raise _team_error(node_id, "shared_context must be a mapping")
+
+    continue_on_error = node_data.get("continue_on_error", True)
+    if not isinstance(continue_on_error, bool):
+        raise _team_error(node_id, "continue_on_error must be a boolean")
+
+    return TeamStepWorkflow(
+        id=node_id,
+        name=name,
+        goal=goal,
+        team_formation=formation,
+        members=members,
+        timeout_seconds=_team_timeout(node_id, node_data),
+        merge_strategy=_team_choice(
+            node_id,
+            "merge_strategy",
+            node_data.get("merge_strategy", "dict"),
+            TEAM_MERGE_STRATEGIES,
+        ),
+        merge_mode=_team_choice(
+            node_id, "merge_mode", node_data.get("merge_mode", "team_wins"), TEAM_MERGE_MODES
+        ),
+        output_key=output_key,
+        continue_on_error=continue_on_error,
+        shared_context=dict(shared_context),
+        max_iterations=_team_int(node_id, "max_iterations", node_data.get("max_iterations", 50)),
+        total_tool_budget=_team_int(
+            node_id, "total_tool_budget", node_data.get("total_tool_budget", 100)
+        ),
+        next_nodes=node_data.get("next", []),
+    )
+
+
 def _parse_constraints(constraints_data: Any, timeout: float = 60.0) -> TaskConstraints:
     """Parse constraints from YAML data.
 
@@ -1292,6 +1545,8 @@ def _parse_node(
         return _parse_transform_node(node_data, config)
     elif node_type_str == YAMLNodeType.HITL.value:
         return _parse_hitl_node(node_data)
+    elif node_type_str == YAMLNodeType.TEAM.value:
+        return _parse_team_node(node_data)
     else:
         valid_types = [t.value for t in YAMLNodeType]
         raise YAMLWorkflowError(f"Unknown node type: '{node_type_str}'. Valid types: {valid_types}")
