@@ -87,6 +87,63 @@ class TestToolPipelineConfig:
 
 
 class TestToolPipelineInit:
+    async def test_session_policy_denies_before_cache_or_middleware(self, pipeline):
+        from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+        policy = ToolAccessPolicy(
+            get_registrar=lambda: pipeline.tools,
+            get_selector=lambda: None,
+            logger=logging.getLogger(__name__),
+        )
+        policy.set_enabled_tools({"source_probe"})
+        pipeline.bind_session_tool_policy(policy)
+        pipeline._serve_cached_result = AsyncMock(
+            return_value=ToolCallResult(
+                tool_name="read", arguments={}, success=True, result="cached private bytes"
+            )
+        )
+        pipeline._run_before_middleware = AsyncMock()
+        result = await pipeline.execute_tool_calls([{"name": "read", "arguments": {}}])
+        assert not result.results[0].success
+        assert result.results[0].skipped
+        pipeline._serve_cached_result.assert_not_awaited()
+        pipeline._run_before_middleware.assert_not_awaited()
+        pipeline.executor.execute.assert_not_awaited()
+
+    async def test_bound_policy_is_live_and_final_attempt_rechecks(self, pipeline):
+        from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+        policy = ToolAccessPolicy(
+            get_registrar=lambda: pipeline.tools,
+            get_selector=lambda: None,
+            logger=logging.getLogger(__name__),
+        )
+        policy.set_enabled_tools({"read"})
+        pipeline.bind_session_tool_policy(policy)
+        assert pipeline._tool_is_enabled("read")
+        policy.set_enabled_tools({"source_probe"})
+        # Also gates recovery/steering executor attempts without trusting the
+        # tool's earlier admission or a rewrite's registry-only availability.
+        result = await pipeline._execute_permitted_tool("read", {}, {})
+        assert not result.success
+        pipeline.executor.execute.assert_not_awaited()
+        policy.set_enabled_tools(set())  # Existing empty-set = unrestricted.
+        assert pipeline._tool_is_enabled("read")
+        result = await pipeline._execute_permitted_tool("read", {}, {})
+        assert result.success
+        pipeline.executor.execute.assert_awaited_once()
+
+    async def test_policy_failure_denies_and_does_not_change_shared_registry(self, pipeline):
+        policy = MagicMock()
+        policy.is_tool_enabled.side_effect = RuntimeError("fixture unavailable policy")
+        pipeline.bind_session_tool_policy(policy)
+        result = await pipeline.execute_tool_calls([{"name": "read", "arguments": {}}])
+        assert not result.results[0].success
+        pipeline.executor.execute.assert_not_awaited()
+        pipeline.tools.set_tool_states.assert_not_called()
+        with pytest.raises(TypeError):
+            pipeline.bind_session_tool_policy(object())
+
     def test_initial_state(self, pipeline):
         assert pipeline.calls_used == 0
         assert pipeline.calls_remaining == 5

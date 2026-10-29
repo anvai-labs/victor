@@ -67,7 +67,29 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-STARTUP-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
+- **SDK-SCOPE-RUN-01 — ACTIVE** (2026-10-29), owner: RepoReel integration session;
+  branch `fix/session-tool-pipeline-gate`, baseline
+  `f442656487cd7c7d48a5bedbc3250d4facc4f417`. Fetched/reconciled develop and
+  #1591 before selection. Actual public `Agent.create`/`Agent.run` with a scripted
+  provider advertises five bounded source tools and reads back that exact scope,
+  yet dispatches a registered, unadvertised `outside_probe` callback. The control
+  only increments a list; no shell/file/network action or actual inference occurs.
+  Evidence: `repocovertvideo/build/rr039-research-sdk-probe-v2.log` and retained
+  scripted requests. Pipeline checks registry enablement independently of the
+  canonical ToolService's session allowlist. Next: RED regression in the existing
+  pipeline/service test owners, bind the owned session policy at dispatch, test
+  allowed/denied/cache/recovery behavior, independent review and full PR CI. No
+  pinned research consumer or HTTP capability acceptance follows. Local candidate
+  binds the live owned session policy to pipeline dispatch, checks before cache
+  access and rechecks each executor/recovery attempt without registry mutation.
+  Four regressions and 266 affected tests pass; 36,923 tests collect. Touched
+  Black/Ruff/configured MyPy pass. The actual scripted SDK probe now refuses the
+  outside callback (zero dispatches), refuses `/etc/passwd`, reads two pinned
+  ranges, proposes a cited brief and finishes `ok` over six scripted turns. This
+  is zero real inference, not live service acceptance; a two-signal close warning
+  remains retained. CI-selected broader tests and independent review are next.
+
+- **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline
   `0bc106516b6444c4067b86eabb777601cd5f6cf3`. Fetched/reconciled SDK-TOOLS-01
   merge and all CI before selection. Mocked preflight invokes skill initialization
@@ -86,8 +108,10 @@ edit. A mock test is not live provider or C5 evidence.
   `__new__`-constructed factory fixture lacking `_settings`; its failed result is
   retained and reproduced locally. The fixture now initializes constructor state.
   Exact CI selection: 146 pass, changed-line coverage 100%; final affected suite:
-  359 pass and 36,836 collect. Next: refreshed exact-commit review and consolidated
-  CI follow-up; real pinned research consumer qualification stays separate.
+  359 pass and 36,836 collect. Final candidate `63c0468b7a0dbef928b1d77321957840b354d3f5`
+  passes independent review and all applicable CI, including CI Success and Vertical
+  Py3.12. Merged into develop as `f442656487cd7c7d48a5bedbc3250d4facc4f417`.
+  This is merged source, not a release or live research acceptance.
 
 - **SDK-TOOLS-01 — MERGED**, [#1589](https://github.com/anvai-labs/victor/pull/1589) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-agent-tool-scope`, initial baseline

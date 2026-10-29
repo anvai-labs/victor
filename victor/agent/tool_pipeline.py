@@ -87,6 +87,7 @@ except ImportError:
     native_compute_signature = None  # type: ignore
 
 if TYPE_CHECKING:
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
     from victor.agent.search_router import SearchRouter
     from victor.tools.registry import ToolRegistry
     from victor.storage.cache.tool_cache import ToolCache
@@ -646,6 +647,7 @@ class ToolPipeline:
         self.semantic_cache = semantic_cache
         self.search_router = search_router
         self._permission_policy = permission_policy
+        self._session_tool_policy: Optional[ToolAccessPolicy] = None
 
         # Callbacks
         self.on_tool_start = on_tool_start
@@ -1512,10 +1514,19 @@ class ToolPipeline:
         except (TypeError, ValueError):
             return None
 
+    def bind_session_tool_policy(self, policy: ToolAccessPolicy) -> None:
+        """Bind the owning ToolService's live session policy without registry edits."""
+        if not callable(getattr(policy, "is_tool_enabled", None)):
+            raise TypeError("Session tool policy must enforce tool enablement")
+        self._session_tool_policy = policy
+
     def _tool_is_enabled(self, tool_name: str) -> bool:
-        """Best-effort tool availability check for guidance generation."""
+        """Require registry and bound session enablement; policy errors deny."""
         try:
-            return bool(self.tools.is_tool_enabled(tool_name))
+            return bool(self.tools.is_tool_enabled(tool_name)) and (
+                self._session_tool_policy is None
+                or self._session_tool_policy.is_tool_enabled(tool_name) is True
+            )
         except Exception:
             return False
 
@@ -2864,7 +2875,7 @@ class ToolPipeline:
             tool_name, raw_args, context=context
         )
 
-        if not self.tools.is_tool_enabled(tool_name):
+        if not self._tool_is_enabled(tool_name):
             return _build_skip_result(
                 tool_name=tool_name,
                 arguments=normalized_args,
@@ -3246,6 +3257,22 @@ class ToolPipeline:
 
         return None
 
+    async def _execute_permitted_tool(
+        self, tool_name: str, arguments: Dict[str, Any], context: Dict[str, Any]
+    ) -> ToolExecutionResult:
+        """Recheck policy after awaits/rewrites and before each executor attempt."""
+        if not self._tool_is_enabled(tool_name):
+            return ToolExecutionResult(
+                tool_name=tool_name,
+                success=False,
+                result=None,
+                error=f"Unknown or disabled tool: {tool_name}",
+                execution_time=0.0,
+            )
+        return await self.executor.execute(
+            tool_name=tool_name, arguments=arguments, context=context
+        )
+
     async def _dispatch_tool(
         self, call: "_ToolCallState", context: Dict[str, Any]
     ) -> "Tuple[ToolExecutionResult, bool, float, float]":
@@ -3257,7 +3284,7 @@ class ToolPipeline:
         execution_interrupted = False
         try:
             exec_result = await asyncio.wait_for(
-                self.executor.execute(
+                self._execute_permitted_tool(
                     tool_name=call.tool_name,
                     arguments=call.normalized_args,
                     context=context,
@@ -3370,7 +3397,7 @@ class ToolPipeline:
                         fallback_tool_name,
                     )
                     recovered_exec_result = await asyncio.wait_for(
-                        self.executor.execute(
+                        self._execute_permitted_tool(
                             tool_name=fallback_tool_name,
                             arguments=fallback_args,
                             context=context,
@@ -3445,7 +3472,7 @@ class ToolPipeline:
                     )
                 elif recovery.action == RecoveryAction.FALLBACK_TOOL and recovery.fallback_tool:
                     fallback_name = recovery.fallback_tool
-                    if self.tools.is_tool_enabled(fallback_name):
+                    if self._tool_is_enabled(fallback_name):
                         recovery_tool_name = fallback_name
                         logger.info(
                             "[Pipeline] Falling back from %s to %s",
@@ -3459,7 +3486,7 @@ class ToolPipeline:
                 ) and allows_tool_retry(self.tools.get(recovery_tool_name)):
                     try:
                         recovered_exec_result = await asyncio.wait_for(
-                            self.executor.execute(
+                            self._execute_permitted_tool(
                                 tool_name=recovery_tool_name,
                                 arguments=recovery_args,
                                 context=context,
