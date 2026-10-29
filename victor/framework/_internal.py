@@ -397,12 +397,24 @@ def _configure_creation_tool_scope(
         names = tools.get_tool_names()
     else:
         names = tools
-    requested = {get_canonical_name(name) for name in names}
+    requested = set(names)
     if airgapped:
         requested = AirgappedFilter().filter(requested, {})
-    # Configure in the registry's naming domain, even for legacy alias-named
-    # entries. Canonical names are only the request/alias matching domain.
-    registered = {name for name in available if get_canonical_name(name) in requested}
+    # Exact names identify implementations. Never expand one requested name
+    # into every registered tool that happens to share its canonical alias.
+    registered = set()
+    for name in requested:
+        if name in available:
+            registered.add(name)
+            continue
+        canonical = get_canonical_name(name)
+        if canonical in available:
+            registered.add(canonical)
+            continue
+        matches = {item for item in available if get_canonical_name(item) == canonical}
+        if len(matches) > 1:
+            raise ValueError("Ambiguous tool alias; request an exact registered tool name")
+        registered.update(matches)
     if not registered:
         raise ValueError("Tool allowlist must retain at least one registered tool")
 

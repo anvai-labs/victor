@@ -1602,6 +1602,32 @@ class TestAgentCreate:
                 assert not policy.is_tool_enabled("shell")
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("requested", ["read", "read_file"])
+    async def test_create_prefers_exact_name_over_other_registered_aliases(
+        self, scoped_runtime, requested
+    ):
+        from victor.framework.agent import Agent
+
+        orchestrator, policy, _, _ = scoped_runtime
+        orchestrator.tools["read_file"] = None
+        orchestrator.get_available_tools = lambda: set(orchestrator.tools)
+        async with await Agent.create(tools=[requested], enable_observability=False):
+            assert policy.get_enabled_tools() == {requested}
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_ambiguous_alias_resolution(self, scoped_runtime):
+        from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
+
+        orchestrator, _, _, _ = scoped_runtime
+        orchestrator.tools = dict.fromkeys({"read_file", "repo_browser.read_file", "shell"})
+        orchestrator.get_available_tools = lambda: set(orchestrator.tools)
+        with pytest.raises(AgentError, match="[Aa]mbiguous"):
+            await Agent.create(tools=["read"], enable_observability=False)
+        orchestrator.close.assert_awaited_once()
+        orchestrator.chat.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_create_scope_reaches_real_selection_and_dispatch(self, mock_orchestrator):
         from victor.agent.services.tool_service import ToolService, ToolServiceConfig
         from victor.agent.tool_selection.selector import ToolSelector

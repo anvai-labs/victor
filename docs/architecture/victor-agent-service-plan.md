@@ -82,10 +82,13 @@ edit. A mock test is not live provider or C5 evidence.
   setup failure/cancellation (three more RED cases). Configuration now preserves
   actual registered names, and the shared factory closes a runtime it has not
   successfully returned, cancelling this creation's skill task on failure.
-  GREEN: 333 affected framework/client/service tests pass, including twenty-seven new cases for explicit
+  The third review catches canonical matching that can expose distinct registered
+  implementations sharing an alias (three RED cases). Exact names now win;
+  otherwise resolve one canonical/unique alias or reject ambiguity.
+  GREEN: 336 affected framework/client/service tests pass, including thirty new cases for explicit
   list/ToolSet scopes, aliases, default preservation, empty/unknown/network-only
   rejection, unenforced scope, cancellation cleanup and independent sessions.
-  Full collection passes (36,805 tests); touched Black/Ruff/configured MyPy pass.
+  Full collection passes (36,808 tests); touched Black/Ruff/configured MyPy pass.
   The shared configurator now actually applies its airgap filter, including
   canonical `http` aliases and unified `web`. Existing empty-set ToolService semantics stay intact;
   SDK creation instead rejects a scope that is empty or cannot be verified.
