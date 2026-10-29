@@ -1502,8 +1502,166 @@ class TestAgentLifecycle:
 # =============================================================================
 
 
+@pytest.fixture
+def scoped_runtime(mock_orchestrator):
+    """Use the real access policy: unlike a set mock, empty means all tools."""
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+    available = {"read", "write", "shell", "web_search", "http"}
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: SimpleNamespace(get_tool_names=lambda: available),
+        get_selector=lambda: None,
+        logger=MagicMock(),
+    )
+    mock_orchestrator.tools = dict.fromkeys(available)
+    mock_orchestrator.get_enabled_tools = policy.get_enabled_tools
+    mock_orchestrator.set_enabled_tools = policy.set_enabled_tools
+    mock_orchestrator.has_capability = lambda *args, **kwargs: False
+    settings = MagicMock()
+    settings.security.airgapped_mode = False
+    with (
+        patch("victor.config.settings.load_settings", return_value=settings),
+        patch(
+            "victor.framework.agent_factory.AgentFactory.create",
+            new=AsyncMock(return_value=mock_orchestrator),
+        ) as create,
+    ):
+        yield mock_orchestrator, policy, settings, create
+
+
 class TestAgentCreate:
     """Tests for Agent.create classmethod."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("toolset", [False, True])
+    async def test_create_enforces_explicit_tool_scope(self, scoped_runtime, toolset):
+        from victor.framework.agent import Agent
+        from victor.framework.tools import ToolSet
+
+        _, policy, _, _ = scoped_runtime
+        requested = ToolSet.from_tools(["read"]) if toolset else ["read"]
+        async with await Agent.create(tools=requested, enable_observability=False):
+            assert policy.get_enabled_tools() == {"read"}
+            assert not policy.is_tool_enabled("shell")
+            assert not policy.is_tool_enabled("write")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("requested", [[], ["not_registered"]])
+    async def test_create_cannot_turn_empty_or_unknown_scope_into_all_tools(
+        self, scoped_runtime, requested
+    ):
+        from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
+
+        orchestrator, _, _, _ = scoped_runtime
+        with pytest.raises(AgentError, match="[Tt]ool|allowlist"):
+            await Agent.create(tools=requested, enable_observability=False)
+        orchestrator.close.assert_awaited_once()
+        orchestrator.chat.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("requested", [None, ["read", "http", "web_search"]])
+    async def test_create_airgap_filters_tools_and_sets_fresh_settings(
+        self, scoped_runtime, requested
+    ):
+        from victor.framework.agent import Agent
+
+        _, policy, settings, create = scoped_runtime
+        async with await Agent.create(tools=requested, airgapped=True, enable_observability=False):
+            assert settings.security.airgapped_mode is True
+            assert policy.get_enabled_tools() == (
+                {"read", "write", "shell"} if requested is None else {"read"}
+            )
+            assert create.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_create_default_preserves_runtime_scope(self, scoped_runtime):
+        from victor.framework.agent import Agent
+
+        _, policy, settings, _ = scoped_runtime
+        policy.set_enabled_tools({"read", "http"})
+        async with await Agent.create(enable_observability=False):
+            assert policy.get_enabled_tools() == {"read", "http"}
+            assert settings.security.airgapped_mode is False
+
+    @pytest.mark.asyncio
+    async def test_create_resolves_registered_tool_aliases(self, scoped_runtime):
+        from victor.framework.agent import Agent
+
+        _, policy, _, _ = scoped_runtime
+        async with await Agent.create(tools=["read_file"], enable_observability=False):
+            assert policy.get_enabled_tools() == {"read"}
+
+    @pytest.mark.asyncio
+    async def test_create_airgap_cannot_widen_network_only_scope(self, scoped_runtime):
+        from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
+
+        orchestrator, policy, _, _ = scoped_runtime
+        policy.set_enabled_tools({"http", "web_search"})
+        with pytest.raises(AgentError, match="Tool allowlist"):
+            await Agent.create(airgapped=True, enable_observability=False)
+        assert policy.get_enabled_tools() == {"http", "web_search"}
+        orchestrator.close.assert_awaited_once()
+        orchestrator.chat.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("fault", ["noop", "raises", "unverifiable", "cancelled"])
+    async def test_create_rejects_unenforced_scope_and_closes(self, scoped_runtime, fault):
+        import asyncio
+        from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
+
+        orchestrator, _, _, _ = scoped_runtime
+        error = AgentError
+        if fault == "noop":
+            orchestrator.set_enabled_tools = MagicMock()
+        elif fault == "raises":
+            orchestrator.set_enabled_tools = MagicMock(side_effect=RuntimeError("Tool failure"))
+        elif fault == "unverifiable":
+            orchestrator.get_enabled_tools = None
+        else:
+            orchestrator.set_enabled_tools = MagicMock(side_effect=asyncio.CancelledError())
+            error = asyncio.CancelledError
+        with pytest.raises(error):
+            await Agent.create(tools=["read"], enable_observability=False)
+        orchestrator.close.assert_awaited_once()
+        orchestrator.chat.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_scope_does_not_leak_into_later_session(self, scoped_runtime):
+        from victor.agent.services.tool_access_policy import ToolAccessPolicy
+        from victor.framework.agent import Agent
+
+        first, first_policy, settings, create = scoped_runtime
+        available = set(first.tools)
+        second_policy = ToolAccessPolicy(
+            get_registrar=lambda: SimpleNamespace(get_tool_names=lambda: available),
+            get_selector=lambda: None,
+            logger=MagicMock(),
+        )
+        second = AgentOrchestratorMock()
+        second.chat = AsyncMock()
+        second.close = AsyncMock()
+        second.tools = dict.fromkeys(available)
+        second.get_enabled_tools = second_policy.get_enabled_tools
+        second.set_enabled_tools = second_policy.set_enabled_tools
+        second.has_capability = lambda *args, **kwargs: False
+        create.side_effect = [first, second]
+        next_settings = MagicMock()
+        next_settings.security.airgapped_mode = False
+        with patch(
+            "victor.config.settings.load_settings", side_effect=[settings, next_settings]
+        ) as load:
+            async with await Agent.create(
+                tools=["read"], airgapped=True, enable_observability=False
+            ):
+                async with await Agent.create(tools=["http"], enable_observability=False):
+                    assert first_policy.get_enabled_tools() == {"read"}
+                    assert second_policy.get_enabled_tools() == {"http"}
+                    assert settings.security.airgapped_mode is True
+                    assert next_settings.security.airgapped_mode is False
+            assert all(call.kwargs == {"fresh": True} for call in load.call_args_list)
 
     @pytest.mark.asyncio
     async def test_create_basic(self):

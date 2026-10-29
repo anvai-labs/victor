@@ -67,6 +67,27 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **SDK-TOOLS-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
+  branch `fix/sdk-agent-tool-scope`, baseline `6dd1b0e8df86aa1c236574569a3206a25108d89a`. Reconciled
+  fetched develop source before selection; the public `Agent.create(tools=...,
+  airgapped=...)` parameters are present but not consumed by its factory bridge.
+  Scope: restore existing SDK tool-scope behavior before a bounded external
+  repository-research consumer is qualified; preserve default creation and shared
+  runtime ownership. No new public service resources or FEP acceptance.
+  RED: six creation regressions fail for the intended scope/airgap reasons
+  (`repocovertvideo/build/rr039-sdk-tools-red-v2.log`). GREEN: 272 affected
+  framework/client/service tests pass, including seventeen new cases for explicit
+  list/ToolSet scopes, aliases, default preservation, empty/unknown/network-only
+  rejection, unenforced scope, cancellation cleanup and independent sessions.
+  Full collection passes (36,795 tests); touched Black/Ruff/configured MyPy pass.
+  The shared configurator now actually applies its airgap filter, including
+  canonical `http` aliases. Existing empty-set ToolService semantics stay intact;
+  SDK creation instead rejects a scope that is empty or cannot be verified.
+  Evidence uses the real access policy with mocked creation; this is not live
+  provider, OS isolation, pinned-corpus enforcement or HTTP capability acceptance.
+  Next: independent exact-commit adversarial review, then PR/develop CI and merge.
+  RepoReel owns source admission and tutorial policy (RR-015/RR-039).
+
 - **KV-VERIFY-01 — MERGED (runtime repair), PARTIAL (live matrix), [#1394](https://github.com/anvai-labs/victor/pull/1394)** (2026-10-18), owner: provider verification session;
   branch `fix/kv-compaction-message-contract`, baseline `71e31ad0d`. Actual
   DeepSeek buffered-agent verification exposed an `AttributeError`: the inline

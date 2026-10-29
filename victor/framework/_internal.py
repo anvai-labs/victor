@@ -357,13 +357,52 @@ def configure_tools(
     if airgapped:
         configurator.add_filter(AirgappedFilter())
 
-    # Configure using ToolSet or list
-    if isinstance(tools, ToolSet):
+    # Filters apply only in FILTER mode. REPLACE silently skips them.
+    if airgapped:
+        names = tools.get_tool_names() if isinstance(tools, ToolSet) else tools
+        configurator.configure(orchestrator, set(names), ToolConfigMode.FILTER)
+    elif isinstance(tools, ToolSet):
         # Use configure_from_toolset for ToolSet instances
         configurator.configure_from_toolset(orchestrator, tools)
     else:
         # Convert list to set and configure
         configurator.configure(orchestrator, set(tools), ToolConfigMode.REPLACE)
+
+
+def _configure_creation_tool_scope(
+    orchestrator: Any,
+    tools: Optional[Union[ToolSet, List[str]]],
+    airgapped: bool,
+) -> None:
+    """Apply and verify an explicit SDK creation scope before exposing a runtime.
+
+    The legacy ToolService treats an empty set as unrestricted. Preserve that
+    contract for existing callers, but never admit an empty creation allowlist.
+    Airgapped filtering removes known network tools, not shell/file capabilities
+    or inference networking; it is not an operating-system sandbox.
+    """
+    from victor.framework.tool_config import AirgappedFilter
+    from victor.tools.tool_names import get_canonical_name
+
+    getter = getattr(orchestrator, "get_enabled_tools", None)
+    if not callable(getter):
+        raise ValueError("Tool scope cannot be verified by this runtime")
+    if tools is None:
+        names = getter()
+    elif isinstance(tools, ToolSet):
+        names = tools.get_tool_names()
+    else:
+        names = tools
+    requested = {get_canonical_name(name) for name in names}
+    if airgapped:
+        requested = AirgappedFilter().filter(requested, {})
+    if not requested:
+        raise ValueError("Tool allowlist must retain at least one registered tool")
+
+    configure_tools(orchestrator, sorted(requested), airgapped=airgapped)
+    applied = getter()
+    if not isinstance(applied, (set, frozenset)) or not applied or not applied.issubset(requested):
+        raise ValueError("Tool allowlist was not enforced by this runtime")
 
 
 async def _merge_orchestrator_and_members(

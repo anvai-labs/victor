@@ -214,7 +214,9 @@ class Agent:
             model: Model identifier. If None, uses provider/profile default.
             temperature: Sampling temperature (0.0 to 1.0)
             max_tokens: Maximum tokens to generate
-            tools: Tool configuration - ToolSet, list of category names, or None
+            tools: ToolSet, list of tool names, or None to retain runtime defaults.
+                Use ToolSet.from_categories() for categories. Explicit scopes
+                must leave at least one registered tool; empty scopes fail closed.
             thinking: Enable extended thinking mode (Claude only)
             airgapped: Disable network-dependent tools
             profile: Profile name from ~/.victor/profiles.yaml
@@ -312,6 +314,9 @@ class Agent:
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("Shell safety policy configuration skipped: %s", exc)
 
+        if airgapped:
+            settings.security.airgapped_mode = True
+
         # Resolve a string vertical name into the actual VerticalBase class
         # before any attribute access. The public docstring/example accepts
         # vertical="coding"; without this step the get_config() call below
@@ -390,13 +395,27 @@ class Agent:
                 or "unknown"
             )
             resolved_model = model or getattr(orchestrator, "model", None)
-            return cls(
+            agent = cls(
                 orchestrator,
                 provider=resolved_provider,
                 model=resolved_model,
                 vertical=vertical,
                 vertical_config=vertical_config,
             )
+            if tools is not None or airgapped:
+                from victor.framework._internal import _configure_creation_tool_scope
+
+                try:
+                    _configure_creation_tool_scope(orchestrator, tools, airgapped)
+                except BaseException:
+                    # The runtime is owned here and must never escape with an
+                    # unverified scope, even when configuration is cancelled.
+                    try:
+                        await agent.close()
+                    except Exception:
+                        logger.exception("Failed to close agent after tool scope rejection")
+                    raise
+            return agent
         except InitializationError as e:
             if e.stage == "credentials":
                 raise ProviderError(str(e), provider=provider) from e
