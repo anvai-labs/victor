@@ -189,11 +189,4 @@ def test_internal_modules_use_sdk_tool_dependency_types_directly():
     for module_path in module_paths:
         source = module_path.read_text()
         assert "from victor.core.tool_dependency_base import" not in source
-    # tool_types.py still defines parallel copies of the SDK's
-    # EmptyToolDependencyProvider / ToolDependencyProviderProtocol (a known
-    # duplicate, tracked separately), so only the modules that consume SDK types
-    # are required to import them from the SDK.
-    for module_path in module_paths:
-        if module_path.name == "tool_types.py":
-            continue
-        assert "victor_contracts.verticals.tool_dependencies" in module_path.read_text()
+        assert "victor_contracts.verticals.tool_dependencies" in source
