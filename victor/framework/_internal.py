@@ -400,13 +400,15 @@ def _configure_creation_tool_scope(
     requested = {get_canonical_name(name) for name in names}
     if airgapped:
         requested = AirgappedFilter().filter(requested, {})
-    requested.intersection_update(get_canonical_name(name) for name in available)
-    if not requested:
+    # Configure in the registry's naming domain, even for legacy alias-named
+    # entries. Canonical names are only the request/alias matching domain.
+    registered = {name for name in available if get_canonical_name(name) in requested}
+    if not registered:
         raise ValueError("Tool allowlist must retain at least one registered tool")
 
-    configure_tools(orchestrator, sorted(requested), airgapped=airgapped)
+    configure_tools(orchestrator, sorted(registered), airgapped=airgapped)
     applied = getter()
-    if not isinstance(applied, (set, frozenset)) or not applied or not applied.issubset(requested):
+    if not isinstance(applied, (set, frozenset)) or not applied or not applied.issubset(registered):
         raise ValueError("Tool allowlist was not enforced by this runtime")
 
 

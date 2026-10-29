@@ -1534,6 +1534,74 @@ class TestAgentCreate:
     """Tests for Agent.create classmethod."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("phase", ["success", "error", "cancel", "skill_task"])
+    async def test_factory_owns_cleanup_before_returning_runtime(self, mock_orchestrator, phase):
+        import asyncio
+        from victor.framework.agent_factory import AgentFactory
+
+        factory = AgentFactory(settings=MagicMock(), enable_observability=False)
+        factory.validate = MagicMock(return_value=[])
+        factory._apply_profile_overrides = MagicMock()
+        factory._trigger_background_evolution = MagicMock()
+        failure = asyncio.CancelledError() if phase == "cancel" else RuntimeError("setup failed")
+        factory._initialize_skill_matcher = AsyncMock(
+            side_effect=None if phase == "success" else failure
+        )
+        if phase == "skill_task":
+
+            async def fail_after_starting_skill_task():
+                factory._skill_matcher_init_task = asyncio.create_task(asyncio.Event().wait())
+                raise RuntimeError("setup failed")
+
+            factory._initialize_skill_matcher = fail_after_starting_skill_task
+        with (
+            patch("victor.core.bootstrap.ensure_bootstrapped"),
+            patch(
+                "victor.agent.orchestrator.AgentOrchestrator.from_settings",
+                new=AsyncMock(return_value=mock_orchestrator),
+            ),
+        ):
+            if phase == "success":
+                assert await factory.create() is mock_orchestrator
+                mock_orchestrator.close.assert_not_awaited()
+                await mock_orchestrator.close()
+            else:
+                with pytest.raises(asyncio.CancelledError if phase == "cancel" else RuntimeError):
+                    await factory.create()
+                mock_orchestrator.close.assert_awaited_once()
+                assert factory._orchestrator is None
+                factory._trigger_background_evolution.assert_not_called()
+                if phase == "skill_task":
+                    assert factory._skill_matcher_init_task.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_create_preserves_registered_alias_names(self, mock_orchestrator):
+        from victor.agent.services.tool_access_policy import ToolAccessPolicy
+        from victor.framework.agent import Agent
+
+        available = {"read_file", "shell"}
+        policy = ToolAccessPolicy(
+            get_registrar=lambda: SimpleNamespace(get_tool_names=lambda: available),
+            get_selector=lambda: None,
+            logger=MagicMock(),
+        )
+        mock_orchestrator.tools = dict.fromkeys(available)
+        mock_orchestrator.get_enabled_tools = policy.get_enabled_tools
+        mock_orchestrator.get_available_tools = policy.get_available_tools
+        mock_orchestrator.set_enabled_tools = policy.set_enabled_tools
+        mock_orchestrator.has_capability = lambda *args, **kwargs: False
+        with (
+            patch("victor.config.settings.load_settings", return_value=MagicMock()),
+            patch(
+                "victor.framework.agent_factory.AgentFactory.create",
+                new=AsyncMock(return_value=mock_orchestrator),
+            ),
+        ):
+            async with await Agent.create(tools=["read_file"], enable_observability=False):
+                assert policy.get_enabled_tools() == {"read_file"}
+                assert not policy.is_tool_enabled("shell")
+
+    @pytest.mark.asyncio
     async def test_create_scope_reaches_real_selection_and_dispatch(self, mock_orchestrator):
         from victor.agent.services.tool_service import ToolService, ToolServiceConfig
         from victor.agent.tool_selection.selector import ToolSelector

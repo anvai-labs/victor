@@ -14,6 +14,7 @@ All entry points now use:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
@@ -226,42 +227,66 @@ class AgentFactory:
                 suggestions=["victor doctor"],
             ) from e
 
-        # Step 4: Apply vertical configuration
-        if self._vertical:
+        previous_skill_task = getattr(self, "_skill_matcher_init_task", None)
+        try:
+            # Step 4: Apply vertical configuration
+            if self._vertical:
+                try:
+                    self._apply_vertical()
+                except Exception as e:
+                    logger.warning(f"Vertical application failed: {e}")
+
+            # Step 5: Wire observability
+            if self._enable_observability:
+                self._wire_observability()
+
+            # Step 6: Apply overrides
+            if self._tool_budget is not None and hasattr(self._orchestrator, "unified_tracker"):
+                self._orchestrator.unified_tracker.set_tool_budget(
+                    self._tool_budget, user_override=True
+                )
+            if self._max_iterations is not None and hasattr(self._orchestrator, "unified_tracker"):
+                self._orchestrator.unified_tracker.set_max_iterations(
+                    self._max_iterations, user_override=True
+                )
+
+            # Step 7: Initialize skill matcher
+            await self._initialize_skill_matcher()
+
+            # Step 8: Background RL warm-up — evolve stale prompt candidates
+            # Non-blocking: spawns a daemon thread if candidates are >7 days old.
+            self._trigger_background_evolution()
+
+            logger.info(
+                "AgentFactory created orchestrator: profile=%s, vertical=%s, session=%s",
+                self._profile,
+                self._vertical.name if self._vertical else None,
+                self._session_id,
+            )
+
+            return self._orchestrator
+        except BaseException:
+            # Ownership transfers to the caller only on a successful return.
+            # Cancel only this creation's skill task, never a prior runtime's.
             try:
-                self._apply_vertical()
-            except Exception as e:
-                logger.warning(f"Vertical application failed: {e}")
-
-        # Step 5: Wire observability
-        if self._enable_observability:
-            self._wire_observability()
-
-        # Step 6: Apply overrides
-        if self._tool_budget is not None and hasattr(self._orchestrator, "unified_tracker"):
-            self._orchestrator.unified_tracker.set_tool_budget(
-                self._tool_budget, user_override=True
-            )
-        if self._max_iterations is not None and hasattr(self._orchestrator, "unified_tracker"):
-            self._orchestrator.unified_tracker.set_max_iterations(
-                self._max_iterations, user_override=True
-            )
-
-        # Step 7: Initialize skill matcher
-        await self._initialize_skill_matcher()
-
-        # Step 8: Background RL warm-up — evolve stale prompt candidates
-        # Non-blocking: spawns a daemon thread if candidates are >7 days old.
-        self._trigger_background_evolution()
-
-        logger.info(
-            "AgentFactory created orchestrator: profile=%s, vertical=%s, session=%s",
-            self._profile,
-            self._vertical.name if self._vertical else None,
-            self._session_id,
-        )
-
-        return self._orchestrator
+                skill_task = getattr(self, "_skill_matcher_init_task", None)
+                if skill_task is not None and skill_task is not previous_skill_task:
+                    skill_task.cancel()
+                    await asyncio.gather(skill_task, return_exceptions=True)
+            finally:
+                try:
+                    cleanup = getattr(self._orchestrator, "close", None) or getattr(
+                        self._orchestrator, "shutdown", None
+                    )
+                    if cleanup is not None:
+                        result = cleanup()
+                        if inspect.isawaitable(result):
+                            await result
+                except Exception:
+                    logger.exception("Failed to close runtime after factory setup rejection")
+                finally:
+                    self._orchestrator = None
+            raise
 
     def validate(self) -> List[Dict[str, Any]]:
         """Pre-flight validation without creating orchestrator.
