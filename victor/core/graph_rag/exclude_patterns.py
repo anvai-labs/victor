@@ -190,8 +190,8 @@ UNIVERSAL_EXCLUDE_PATTERNS = [
     # OS files
     "**/.DS_Store/**",
     "**/._*",
-    # Documentation builds
-    "**/site/**",
+    # Unambiguous documentation build outputs. A plain "site" directory may
+    # contain source; projects that generate it declare that in .gitignore.
     "**/_site/**",
     "**/docs/_build/**",
     "**/.doctrees/**",
