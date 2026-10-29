@@ -77,13 +77,17 @@ edit. A mock test is not live provider or C5 evidence.
   and missing-setting defaults. No new public contracts, service capability or
   FEP acceptance. RED: two disabled-hook regressions fail while four enabled/default
   controls pass; one further RED covers a dictionary-valued existing config overlay.
-  GREEN: nine setting cases and 354 affected tests pass. Full collection: 36,836;
+  GREEN: nine setting cases and 359 affected tests pass. Full collection: 36,836;
   touched Black/Ruff/configured MyPy pass. Disabled skill selection avoids registry
   lookup/embedding initialization; disabled prompt optimization avoids the automatic
   coordinator kickoff for typed and mapping settings. No inference was executed.
   This controls factory startup, not all later learning or shared-service isolation.
-  Next: independent exact-commit review, then PR/develop CI and merge; real pinned
-  research consumer qualification stays separate.
+  [#1591](https://github.com/anvai-labs/victor/pull/1591) first CI fails one existing
+  `__new__`-constructed factory fixture lacking `_settings`; its failed result is
+  retained and reproduced locally. The fixture now initializes constructor state.
+  Exact CI selection: 146 pass, changed-line coverage 100%; final affected suite:
+  359 pass and 36,836 collect. Next: refreshed exact-commit review and consolidated
+  CI follow-up; real pinned research consumer qualification stays separate.
 
 - **SDK-TOOLS-01 — MERGED**, [#1589](https://github.com/anvai-labs/victor/pull/1589) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-agent-tool-scope`, initial baseline
