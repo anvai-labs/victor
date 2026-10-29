@@ -185,7 +185,7 @@ def test_bazel_relative_binary_uses_subprocess_root_not_caller_directory(tmp_pat
         lambda cmd, **kwargs: captured.append(cmd),
     )
     JV.dump("bin/scip-java", root, root / "out.scip", timeout_seconds=1)
-    assert captured[0][0] == "bin/scip-java"
+    assert captured[0][0] == str(root / "bin/scip-java")
     assert f"--bazel-scip-java-binary={root / 'bin/scip-java'}" in captured[0]
     assert f"--bazel-scip-java-binary={tmp_path / 'bin/scip-java'}" not in captured[0]
 
@@ -195,7 +195,7 @@ def test_bazel_bare_binary_matches_path_lookup(tmp_path, monkeypatch):
     (tmp_path / "MODULE.bazel").touch()
     selected = tmp_path / "tools/scip-java"
     monkeypatch.setattr(
-        "victor.core.graph_rag.precise_providers.shutil.which", lambda _: str(selected)
+        "victor.core.graph_rag.precise_providers.shutil.which", lambda _, **kwargs: str(selected)
     )
     monkeypatch.setattr(
         "victor.core.graph_rag.precise_providers._run_dump",
@@ -203,6 +203,44 @@ def test_bazel_bare_binary_matches_path_lookup(tmp_path, monkeypatch):
     )
     JV.dump("scip-java", tmp_path, tmp_path / "out.scip", timeout_seconds=1)
     assert f"--bazel-scip-java-binary={selected}" in captured[0]
+
+
+def test_bazel_relative_path_entries_search_in_child_working_directory(tmp_path, monkeypatch):
+    captured = []
+    root = tmp_path / "project"
+    (root / "second").mkdir(parents=True)
+    (tmp_path / "first").mkdir()
+    for path in (root / "second/scip-java", tmp_path / "first/scip-java"):
+        path.touch()
+        path.chmod(0o755)
+    (root / "MODULE.bazel").touch()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "first:second")
+    monkeypatch.setattr(
+        "victor.core.graph_rag.precise_providers._run_dump",
+        lambda cmd, **kwargs: captured.append(cmd),
+    )
+    JV.dump("scip-java", root, root / "out.scip", timeout_seconds=1)
+    expected = root / "second/scip-java"
+    assert captured[0][0] == str(expected)
+    assert f"--bazel-scip-java-binary={expected}" in captured[0]
+
+
+def test_bazel_missing_child_path_does_not_execute_caller_only_binary(tmp_path, monkeypatch):
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "MODULE.bazel").touch()
+    (tmp_path / "bin").mkdir()
+    fake = tmp_path / "bin/scip-java"
+    fake.touch()
+    fake.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "bin")
+    monkeypatch.setattr(
+        "victor.core.graph_rag.precise_providers._run_dump",
+        lambda *args, **kwargs: pytest.fail("caller-only executable must not run"),
+    )
+    assert JV.dump("scip-java", root, root / "out.scip", timeout_seconds=1) is None
 
 
 @pytest.mark.parametrize("marker", ["build.sbt", "MILL_VERSION", "build.xml"])

@@ -662,9 +662,23 @@ class ScipJavaProvider:
             if not executable.is_absolute():
                 # Relative argv containing a slash is resolved by subprocess
                 # against cwd=root. Bare executable names instead search PATH.
-                discovered = shutil.which(tool) if executable.parent == Path(".") else None
-                executable = Path(discovered) if discovered else root / executable
-            command.append(f"--bazel-scip-java-binary={executable.resolve()}")
+                if executable.parent == Path("."):
+                    # PATH entries themselves may be relative. Lookup must use
+                    # the child's cwd, not the index client's current directory.
+                    search_path = os.pathsep.join(
+                        str((root / entry).resolve()) if not Path(entry).is_absolute() else entry
+                        for entry in os.get_exec_path()
+                    )
+                    discovered = shutil.which(tool, path=search_path)
+                    if discovered is None:
+                        logger.info("precise-index: JVM executable not found in build PATH")
+                        return None
+                    executable = Path(discovered)
+                else:
+                    executable = root / executable
+            executable = executable.resolve()
+            command[0] = str(executable)
+            command.append(f"--bazel-scip-java-binary={executable}")
         return _run_dump(
             command,
             cwd=root,
