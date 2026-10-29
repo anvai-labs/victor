@@ -207,9 +207,8 @@ class TestCodebaseAnalyzerDetectPackageLayout:
             assert analyzer.analysis.main_package == "mypackage"
 
 
-@pytest.mark.skip(reason="CodebaseAnalyzer._parse_python_file method not implemented")
 class TestCodebaseAnalyzerParsePythonFile:
-    """Tests for _parse_python_file method."""
+    """Tests for SymbolExtractor._parse_python_file (via CodebaseAnalyzer.symbol_extractor)."""
 
     def test_parse_simple_file(self):
         """Test parsing a simple Python file."""
@@ -226,7 +225,7 @@ def my_function():
 ''')
 
             analyzer = CodebaseAnalyzer(tmpdir)
-            module_info = analyzer._parse_python_file(py_file, "test.py")
+            module_info = analyzer.symbol_extractor()._parse_python_file(py_file, "test.py")
 
             assert module_info is not None
             assert module_info.name == "test"
@@ -242,14 +241,13 @@ def my_function():
             py_file.write_text("def broken(")
 
             analyzer = CodebaseAnalyzer(tmpdir)
-            result = analyzer._parse_python_file(py_file, "bad.py")
+            result = analyzer.symbol_extractor()._parse_python_file(py_file, "bad.py")
 
             assert result is None
 
 
-@pytest.mark.skip(reason="CodebaseAnalyzer._extract_class_info method not implemented")
 class TestCodebaseAnalyzerExtractClassInfo:
-    """Tests for _extract_class_info method."""
+    """Tests for SymbolExtractor._extract_class_info (via CodebaseAnalyzer.symbol_extractor)."""
 
     def test_extract_basic_class(self):
         """Test extracting basic class info."""
@@ -262,7 +260,7 @@ class TestCodebaseAnalyzerExtractClassInfo:
         class_node = tree.body[0]
 
         analyzer = CodebaseAnalyzer()
-        class_info = analyzer._extract_class_info(class_node, "test.py")
+        class_info = analyzer.symbol_extractor()._extract_class_info(class_node, "test.py")
 
         assert class_info.name == "MyClass"
         assert class_info.docstring == "My docstring."
@@ -277,7 +275,7 @@ class TestCodebaseAnalyzerExtractClassInfo:
         class_node = tree.body[0]
 
         analyzer = CodebaseAnalyzer()
-        class_info = analyzer._extract_class_info(class_node, "test.py")
+        class_info = analyzer.symbol_extractor()._extract_class_info(class_node, "test.py")
 
         assert "BaseProvider" in class_info.base_classes
         assert class_info.category == "provider"
@@ -291,7 +289,7 @@ class TestCodebaseAnalyzerExtractClassInfo:
         class_node = tree.body[0]
 
         analyzer = CodebaseAnalyzer()
-        class_info = analyzer._extract_class_info(class_node, "test.py")
+        class_info = analyzer.symbol_extractor()._extract_class_info(class_node, "test.py")
 
         assert class_info.is_abstract is True
 
@@ -302,25 +300,27 @@ class TestCodebaseAnalyzerCategorizeClass:
     def test_categorize_provider(self):
         """Test categorizing provider classes."""
         analyzer = CodebaseAnalyzer()
-        assert analyzer._categorize_class("OllamaProvider", []) == "provider"
-        assert analyzer._categorize_class("MyClass", ["BaseProvider"]) == "provider"
+        assert analyzer.symbol_extractor()._categorize_class("OllamaProvider", []) == "provider"
+        assert (
+            analyzer.symbol_extractor()._categorize_class("MyClass", ["BaseProvider"]) == "provider"
+        )
 
     def test_categorize_tool(self):
         """Test categorizing tool classes."""
         analyzer = CodebaseAnalyzer()
-        assert analyzer._categorize_class("GitTool", []) == "tool"
-        assert analyzer._categorize_class("FileHandler", []) == "tool"
+        assert analyzer.symbol_extractor()._categorize_class("GitTool", []) == "tool"
+        assert analyzer.symbol_extractor()._categorize_class("FileHandler", []) == "tool"
 
     def test_categorize_manager(self):
         """Test categorizing manager classes."""
         analyzer = CodebaseAnalyzer()
-        assert analyzer._categorize_class("AgentOrchestrator", []) == "manager"
-        assert analyzer._categorize_class("CacheManager", []) == "manager"
+        assert analyzer.symbol_extractor()._categorize_class("AgentOrchestrator", []) == "manager"
+        assert analyzer.symbol_extractor()._categorize_class("CacheManager", []) == "manager"
 
     def test_categorize_unknown(self):
         """Test uncategorized classes."""
         analyzer = CodebaseAnalyzer()
-        assert analyzer._categorize_class("SomeRandomClass", []) is None
+        assert analyzer.symbol_extractor()._categorize_class("SomeRandomClass", []) is None
 
 
 class TestCodebaseAnalyzerExtractEntryPoints:
@@ -344,7 +344,7 @@ dev = ["pytest", "black", "ruff", "mypy"]
 
             analyzer = CodebaseAnalyzer(tmpdir)
             analyzer.analysis.main_package = "mypackage"
-            analyzer._extract_entry_points()
+            analyzer.architecture_analyzer().extract_entry_points()
 
             assert "myapp" in analyzer.analysis.entry_points
             assert "pytest" in analyzer.analysis.cli_commands
@@ -354,7 +354,7 @@ dev = ["pytest", "black", "ruff", "mypy"]
         """Test when pyproject.toml doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             analyzer = CodebaseAnalyzer(tmpdir)
-            analyzer._extract_entry_points()
+            analyzer.architecture_analyzer().extract_entry_points()
             assert analyzer.analysis.entry_points == {}
 
 
@@ -380,7 +380,7 @@ class TestCodebaseAnalyzerDetectArchitecturePatterns:
             ),
         ]
 
-        analyzer._detect_architecture_patterns()
+        analyzer.architecture_analyzer().detect_architecture_patterns()
 
         assert any("Provider Pattern" in p for p in analyzer.analysis.architecture_patterns)
 
@@ -396,7 +396,7 @@ class TestCodebaseAnalyzerDetectArchitecturePatterns:
             ),
         ]
 
-        analyzer._detect_architecture_patterns()
+        analyzer.architecture_analyzer().detect_architecture_patterns()
 
         assert any("Registry Pattern" in p for p in analyzer.analysis.architecture_patterns)
 
@@ -412,7 +412,7 @@ class TestCodebaseAnalyzerFindConfigFiles:
             (Path(tmpdir) / "Dockerfile").write_text("")
 
             analyzer = CodebaseAnalyzer(tmpdir)
-            analyzer._find_config_files()
+            analyzer.architecture_analyzer().find_config_files()
 
             config_files = [f for f, _ in analyzer.analysis.config_files]
             assert "pyproject.toml" in config_files
@@ -427,7 +427,7 @@ class TestCodebaseAnalyzerFindConfigFiles:
             (github_dir / "ci.yml").write_text("")
 
             analyzer = CodebaseAnalyzer(tmpdir)
-            analyzer._find_config_files()
+            analyzer.architecture_analyzer().find_config_files()
 
             config_files = [f for f, _ in analyzer.analysis.config_files]
             assert ".github/workflows/*.yml" in config_files
@@ -582,7 +582,7 @@ class TestCodebaseAnalyzerAnalyzePythonFiles:
         """Test analyze files when no main package."""
         with tempfile.TemporaryDirectory() as tmpdir:
             analyzer = CodebaseAnalyzer(tmpdir)
-            analyzer._analyze_source_files()
+            analyzer.symbol_extractor().analyze_source_files()
             assert analyzer.analysis.packages == {}
 
     def test_analyze_files_with_subpackages(self):
@@ -604,7 +604,7 @@ class GitTool:
 
             analyzer = CodebaseAnalyzer(tmpdir)
             analyzer._detect_package_layout()
-            analyzer._analyze_source_files()
+            analyzer.symbol_extractor().analyze_source_files()
 
             # The main package should contain modules from subpackages
             assert "mypackage" in analyzer.analysis.packages
@@ -635,8 +635,8 @@ class BaseProvider:
 
             analyzer = CodebaseAnalyzer(tmpdir)
             analyzer._detect_package_layout()
-            analyzer._analyze_source_files()
-            analyzer._identify_key_components()
+            analyzer.symbol_extractor().analyze_source_files()
+            analyzer.architecture_analyzer().identify_key_components()
 
             # Orchestrator should be identified
             component_names = [c.name for c in analyzer.analysis.key_components]
@@ -777,3 +777,42 @@ class TestExtractGraphInsights:
             # Should NOT find data — it must use graph_node/graph_edge
             insights = await extract_graph_insights(tmpdir)
             assert insights["has_graph"] is False
+
+
+class TestCodebaseAnalyzerProjectContext:
+    """analyze_project_context: the file-level subset used when symbols come from the index."""
+
+    def test_fills_context_without_parsing_symbols(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "pkg").mkdir()
+            (root / "pkg" / "__init__.py").write_text("")
+            (root / "pkg" / "core.py").write_text(
+                "import os\nimport json\n\nclass Engine:\n    pass\n"
+            )
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\ndependencies = ["requests>=2"]\n'
+            )
+            analyzer = CodebaseAnalyzer(tmpdir)
+            analysis = analyzer.analyze_project_context()
+
+            assert analysis is analyzer.analysis
+            assert analysis.loc_stats.get("source_files", 0) >= 2
+            assert analysis.packages == {}  # no symbol extraction
+            assert analysis.key_components == []
+
+    def test_matches_the_context_steps_of_full_analyze(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "app.py").write_text("import os\nimport sys\n\ndef main():\n    return 0\n")
+            context = CodebaseAnalyzer(tmpdir).analyze_project_context()
+            full = CodebaseAnalyzer(tmpdir).analyze()
+            assert context.loc_stats == full.loc_stats
+            assert context.top_imports == full.top_imports
+            assert context.dependencies == full.dependencies
+            assert context.test_coverage == full.test_coverage
+
+    def test_helpers_share_the_analyzer_state(self):
+        analyzer = CodebaseAnalyzer()
+        assert analyzer.symbol_extractor().analysis is analyzer.analysis
+        assert analyzer.architecture_analyzer().analysis is analyzer.analysis

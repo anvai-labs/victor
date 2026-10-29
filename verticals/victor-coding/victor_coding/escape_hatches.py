@@ -17,6 +17,11 @@
 Complex conditions and transforms that cannot be expressed in YAML.
 These are registered with the YAML workflow loader for use in condition nodes.
 
+Generic hatches shared by every vertical (``complexity_check``,
+``complexity_assessment``, ``format_implementation_plan``) live in
+``victor.workflows.escape_hatches``; the YAML workflow provider merges them
+beneath the hatches defined here, so they are not redefined in this module.
+
 Example YAML usage:
     - id: check_tests
       type: condition
@@ -166,106 +171,6 @@ def review_verdict(ctx: Dict[str, Any]) -> str:
     return "changes_requested"
 
 
-def complexity_assessment(ctx: Dict[str, Any]) -> str:
-    """Assess task complexity for planning.
-
-    Args:
-        ctx: Workflow context with keys:
-            - files_to_modify (int): Number of files to change
-            - estimated_lines (int): Estimated lines of code
-            - dependencies (list): External dependencies involved
-
-    Returns:
-        "simple", "moderate", "complex", or "major"
-    """
-    files = ctx.get("files_to_modify", 1)
-    lines = ctx.get("estimated_lines", 0)
-    dependencies = ctx.get("dependencies", [])
-
-    dep_count = len(dependencies) if isinstance(dependencies, list) else 0
-
-    if files <= 1 and lines <= 50 and dep_count == 0:
-        return "simple"
-
-    if files <= 3 and lines <= 200:
-        return "moderate"
-
-    if files <= 10 or lines <= 500:
-        return "complex"
-
-    return "major"
-
-
-def complexity_check(ctx: Dict[str, Any]) -> str:
-    """Assess task complexity from task analysis for team routing.
-
-    Used by team_node workflows to route tasks to appropriate team sizes.
-    Evaluates task_analysis output to determine complexity level.
-
-    Args:
-        ctx: Workflow context with keys:
-            - task_analysis (str|dict): Task analysis from planner agent
-            - user_task (str): Original user task description
-
-    Returns:
-        "simple", "medium", or "complex"
-    """
-    task_analysis = ctx.get("task_analysis", "")
-    user_task = ctx.get("user_task", "")
-
-    # Handle string analysis (from agent output)
-    if isinstance(task_analysis, str):
-        analysis_lower = task_analysis.lower()
-
-        # Check for explicit complexity mentions
-        if any(kw in analysis_lower for kw in ["complex", "major", "significant", "large"]):
-            return "complex"
-        if any(kw in analysis_lower for kw in ["medium", "moderate", "several"]):
-            return "medium"
-        if any(kw in analysis_lower for kw in ["simple", "trivial", "straightforward", "minor"]):
-            return "simple"
-
-        # Estimate from team size mentions
-        if "team size: 4" in analysis_lower or "team size: 3" in analysis_lower:
-            return "complex"
-        if "team size: 2" in analysis_lower:
-            return "medium"
-        if "team size: 1" in analysis_lower:
-            return "simple"
-
-    # Handle dict analysis
-    elif isinstance(task_analysis, dict):
-        complexity = task_analysis.get("complexity", "").lower()
-        if complexity in ["complex", "major"]:
-            return "complex"
-        if complexity in ["medium", "moderate"]:
-            return "medium"
-        if complexity in ["simple", "trivial"]:
-            return "simple"
-
-        # Check team size from dict
-        team_size = task_analysis.get("team_size", 1)
-        if isinstance(team_size, int):
-            if team_size >= 4:
-                return "complex"
-            if team_size >= 2:
-                return "medium"
-            return "simple"
-
-    # Fallback: estimate from user task length/keywords
-    task_lower = user_task.lower() if isinstance(user_task, str) else ""
-    if len(task_lower) > 200 or any(
-        kw in task_lower for kw in ["refactor", "redesign", "migrate", "overhaul"]
-    ):
-        return "complex"
-    if len(task_lower) > 100 or any(
-        kw in task_lower for kw in ["add feature", "implement", "create"]
-    ):
-        return "medium"
-
-    return "simple"
-
-
 def tdd_cycle_status(ctx: Dict[str, Any]) -> str:
     """Determine TDD cycle status.
 
@@ -403,41 +308,6 @@ def merge_code_analysis(ctx: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def format_implementation_plan(ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """Format implementation plan from analysis.
-
-    Args:
-        ctx: Workflow context with research_findings
-
-    Returns:
-        Formatted implementation plan
-    """
-    findings = ctx.get("research_findings", {})
-    task = ctx.get("task", "")
-
-    files_to_modify = findings.get("files_to_modify", [])
-    approach = findings.get("approach", "")
-    risks = findings.get("risks", [])
-
-    steps = []
-    for i, file in enumerate(files_to_modify, 1):
-        steps.append(
-            {
-                "step": i,
-                "file": file,
-                "action": "modify",
-            }
-        )
-
-    return {
-        "task": task,
-        "steps": steps,
-        "approach": approach,
-        "risks": risks,
-        "estimated_files": len(files_to_modify),
-    }
-
-
 # =============================================================================
 # Registry Exports
 # =============================================================================
@@ -448,8 +318,6 @@ CONDITIONS = {
     "code_quality_check": code_quality_check,
     "should_retry_implementation": should_retry_implementation,
     "review_verdict": review_verdict,
-    "complexity_assessment": complexity_assessment,
-    "complexity_check": complexity_check,
     "tdd_cycle_status": tdd_cycle_status,
     "bugfix_priority": bugfix_priority,
     "should_continue_fixing": should_continue_fixing,
@@ -458,7 +326,6 @@ CONDITIONS = {
 # Transforms available in YAML workflows
 TRANSFORMS = {
     "merge_code_analysis": merge_code_analysis,
-    "format_implementation_plan": format_implementation_plan,
 }
 
 __all__ = [
@@ -467,14 +334,11 @@ __all__ = [
     "code_quality_check",
     "should_retry_implementation",
     "review_verdict",
-    "complexity_assessment",
-    "complexity_check",
     "tdd_cycle_status",
     "bugfix_priority",
     "should_continue_fixing",
     # Transforms
     "merge_code_analysis",
-    "format_implementation_plan",
     # Registries
     "CONDITIONS",
     "TRANSFORMS",

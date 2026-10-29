@@ -367,12 +367,3 @@ class TypeScriptPlugin(BaseLanguagePlugin):
                 if text:
                     return text.strip("\"'")
         return None
-
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node."""
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text

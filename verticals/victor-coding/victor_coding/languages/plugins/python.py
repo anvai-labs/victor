@@ -361,19 +361,3 @@ class PythonPlugin(BaseLanguagePlugin):
                     return result
 
         return None
-
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node.
-
-        Args:
-            node: Tree-sitter node
-
-        Returns:
-            Node text or None
-        """
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text

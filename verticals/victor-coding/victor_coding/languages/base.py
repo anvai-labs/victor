@@ -495,6 +495,16 @@ class BaseLanguagePlugin(ABC):
         self._capabilities: Optional[LanguageCapabilities] = None
         self._tree_sitter_queries: Optional[TreeSitterQueries] = None
 
+    @staticmethod
+    def _get_node_text(node: "Node") -> Optional[str]:
+        """Text of a tree-sitter node (bytes decoded as UTF-8), or None."""
+        if node is None or not hasattr(node, "text"):
+            return None
+        text = node.text
+        if isinstance(text, bytes):
+            return text.decode("utf-8", errors="ignore")
+        return text
+
     @property
     def config(self) -> LanguageConfig:
         """Get language configuration."""
