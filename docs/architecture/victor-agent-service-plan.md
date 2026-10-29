@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-SCOPE-RUN-01 — ACTIVE** (2026-10-29), owner: RepoReel integration session;
+- **SDK-SCOPE-RUN-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
   branch `fix/session-tool-pipeline-gate`, baseline
   `f442656487cd7c7d48a5bedbc3250d4facc4f417`. Fetched/reconciled develop and
   #1591 before selection. Actual public `Agent.create`/`Agent.run` with a scripted
@@ -122,6 +122,23 @@ edit. A mock test is not live provider or C5 evidence.
   fallback recovery cannot dispatch. A caught missing ErrorInfo correlation field
   is corrected before review. All 398 affected tests and configured typing pass.
   Next: final exact-source review, then one consolidated broader validation run.
+  **Final local checkpoint:** runtime commit
+  `cd265f74e86ea137ee4d0b9d74ee0df4f0d46205` passes the fifth independent
+  full-source review, 398 affected tests, all 1,143 CI-selected tests and 36,933
+  full-suite collection. Changed-line coverage: 100% (44 lines, zero missing).
+  Touched Black/Ruff/configured MyPy pass. Built core/coupled wheels are installed
+  only in an owned RepoReel candidate prefix; five critical installed core modules
+  match wheel bytes, core locations are admitted and `pip check` passes. The
+  installed actual-SDK fixture records six scripted provider turns, zero outside
+  dispatches and draft-only admission, with zero real inference. Initial package
+  smoke failed for missing NumPy; explicit NumPy 1.26.4 and defusedxml 0.7.1 fix
+  that environment. Optional sentence-transformers remains absent; the retained
+  fixture uses keyword classification. Source-test close still reports two leaked
+  signals; this patch does not accept generic lifecycle/HTTP capabilities. The five
+  code-review requests are separate from production-content accounting. Evidence:
+  `repocovertvideo/build/rr039-session-gate-qualification.json` and referenced
+  review/CI/installed-probe artifacts. Next: independently check this final evidence
+  update, push one reviewed candidate and drive all develop PR CI before merge.
 
 - **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline
