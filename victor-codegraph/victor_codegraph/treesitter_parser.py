@@ -54,7 +54,9 @@ _FUNC_NODES = {
     "method",  # ruby
     "function",
     "arrow_function",
+    "annotation_type_element_declaration",  # java annotation member
 }
+_JAVA_CONSTRUCTOR_NODES = {"constructor_declaration", "compact_constructor_declaration"}
 _CLASS_NODES = {
     "class_declaration",
     "class_definition",
@@ -67,6 +69,8 @@ _CLASS_NODES = {
     "enum_item",  # rust
     "enum_declaration",  # java / ts / c#
     "enum_specifier",  # c / cpp
+    "record_declaration",  # java
+    "annotation_type_declaration",  # java annotation interface
 }
 _IMPORT_NODES = {
     "import_statement",
@@ -221,7 +225,9 @@ def _collect_calls(node, owner: CodeSymbol, src: bytes, file_path: str, relation
         t = n.type
         if t in _CLASS_NODES:
             continue  # nested type owns its contents
-        if t in _FUNC_NODES and _name_of(n, src) is not None:
+        if (
+            t in _FUNC_NODES or (owner.language == "java" and t in _JAVA_CONSTRUCTOR_NODES)
+        ) and _name_of(n, src) is not None:
             continue  # nested named function owns its calls
         if t in CALL_NODES:
             callee_node = None
@@ -318,7 +324,7 @@ def _extract_heritage(class_node, sym: CodeSymbol, src: bytes, relations) -> Non
 def _class_symbol_type(node_type: str) -> CodeSymbolType:
     if node_type.startswith("struct"):
         return CodeSymbolType.STRUCT
-    if "interface" in node_type:
+    if "interface" in node_type or node_type == "annotation_type_declaration":
         return CodeSymbolType.INTERFACE
     if node_type.startswith("trait"):
         return CodeSymbolType.TRAIT
@@ -539,7 +545,7 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                 relations,
                 impl_traits,
             )
-        elif t in _FUNC_NODES:
+        elif t in _FUNC_NODES or (language == "java" and t in _JAVA_CONSTRUCTOR_NODES):
             name = _name_of(child, src)
             if name is None:
                 # Anonymous functions have no durable structural discriminator. Do
@@ -550,7 +556,10 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                 continue
             in_class = bool(frames) and frames[-1][1] in {"class", "object"}
             stype = CodeSymbolType.METHOD if in_class else CodeSymbolType.FUNCTION
-            if name in ("constructor", "__init__", "new"):
+            if language == "java" and t in _JAVA_CONSTRUCTOR_NODES:
+                name = "constructor"  # agrees with scip-java's <init> descriptor mapping
+                stype = CodeSymbolType.CONSTRUCTOR
+            elif name in ("constructor", "__init__", "new"):
                 stype = CodeSymbolType.CONSTRUCTOR
             receiver = None
             if language == "go" and t == "method_declaration":
@@ -558,6 +567,14 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                 if receiver and stype == CodeSymbolType.FUNCTION:
                     stype = CodeSymbolType.METHOD  # a receiver makes it a method
             sym = _mk(child, src, file_path, language, name, stype, _scope_names(frames))
+            if language == "java" and t == "compact_constructor_declaration":
+                # Compact constructors inherit the record's canonical parameter list.
+                # Never search the body: a nested call/function is not this signature.
+                record = child.parent
+                while record is not None and record.type != "record_declaration":
+                    record = record.parent
+                parameters = record.child_by_field_name("parameters") if record else None
+                sym.signature = _text(parameters, src) if parameters is not None else None
             if receiver:
                 sym.metadata["receiver"] = receiver
                 receiver_var = _go_receiver_name(child, src)
