@@ -1057,6 +1057,75 @@ async def test_denied_requested_search_cannot_route_into_an_allowed_tool(pipelin
     pipeline.executor.execute.assert_awaited_once()
 
 
+async def test_requested_name_remains_authority_after_routing_and_middleware(pipeline):
+    from types import SimpleNamespace
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"graph", "code_search"})
+    pipeline.bind_session_tool_policy(policy)
+    pipeline.search_router = SimpleNamespace(
+        route=lambda query: SimpleNamespace(
+            tool_name="graph", tool_arguments={"mode": "callers", "node": "fixture"}
+        )
+    )
+
+    async def revoke(*args):
+        policy.set_enabled_tools({"graph"})
+        return MiddlewareResult()
+
+    pipeline.middleware_chain = SimpleNamespace(
+        process_before=revoke,
+        process_after=AsyncMock(side_effect=lambda name, args, result, success: result),
+    )
+    result = await pipeline._execute_single_call(
+        {"name": "code_search", "arguments": {"query": "who calls fixture"}}, {}
+    )
+    assert not result.success
+    pipeline.executor.execute.assert_not_awaited()
+
+
+async def test_scope_denial_is_not_recoverable_via_a_different_tool(pipeline):
+    from types import SimpleNamespace
+    from victor.core.verticals.protocols import MiddlewareResult
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+    from victor.agent.error_recovery import RecoveryAction
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"read"})
+    pipeline.bind_session_tool_policy(policy)
+
+    async def revoke(*args):
+        policy.set_enabled_tools({"code_search"})
+        return MiddlewareResult()
+
+    pipeline.middleware_chain = SimpleNamespace(
+        process_before=revoke,
+        process_after=AsyncMock(side_effect=lambda name, args, result, success: result),
+    )
+    recovery = SimpleNamespace(
+        action=RecoveryAction.FALLBACK_TOOL, fallback_tool="code_search", modified_args=None
+    )
+    with patch("victor.agent.error_recovery.recover_from_error", return_value=recovery) as recover:
+        result = await pipeline._execute_single_call(
+            {"name": "read", "arguments": {"path": "fixture"}}, {}
+        )
+    assert not result.success
+    assert result.retryable is False
+    recover.assert_not_called()
+    pipeline.executor.execute.assert_not_awaited()
+    assert result.error_info.details["execution_outcome"] == "not_executed"
+
+
 @pytest.mark.parametrize("source", ["execution", "cache", "cross_turn", "semantic", "retry_cache"])
 async def test_result_policy_guards_publication_and_cached_returns(pipeline, source, caplog):
     from types import SimpleNamespace

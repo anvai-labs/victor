@@ -113,6 +113,15 @@ edit. A mock test is not live provider or C5 evidence.
   affected tests pass, including the existing search-router suite. RepoReel #154
   is merged with its corpus/brief contract and 502 tests, independently of this
   unmerged upstream candidate. Next: final review, then consolidated full checks.
+  Fourth review (`11201b274c724d20ffdffee32d53c0272e733e71`) identifies loss of
+  the original requested-name authority after routing and recoverability of a
+  late policy refusal. Both RED controls reproduce the paths. Call state now
+  retains the host-normalized request name through cache, executor, recovery and
+  publication checks; batch assembly uses the original provider call identity.
+  Policy refusals carry `retryable=False` and observed `not_executed` metadata;
+  fallback recovery cannot dispatch. A caught missing ErrorInfo correlation field
+  is corrected before review. All 398 affected tests and configured typing pass.
+  Next: final exact-source review, then one consolidated broader validation run.
 
 - **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline
