@@ -10,7 +10,31 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
-## [0.10.0] - release candidate
+## [0.11.0] - release candidate
+
+### Added
+
+- `TeamMemberSpec` gains the per-member execution overrides the runtime already
+  supported: `provider`, `model`, `temperature`, `reasoning_effort` and
+  `formation_role`. Vertical team definitions can now declare heterogeneous
+  (cross-vendor, per-role sampling) teams; `to_team_member()` forwards them.
+  `TeamSpec.to_dict()`/`from_dict()` round-trip them.
+- `PIISeverity.to_severity()` maps onto the host's unified `SeverityLevel`,
+  matching the other severity enums (requires the Victor runtime host).
+
+### Changed
+
+- `victor-ai` now re-exports `TeamMemberSpec`, `ROLE_MAPPING` and the PII
+  module from the SDK instead of maintaining diverged copies. Runtime-built
+  specs therefore gain the SDK behaviour: `allowed_tools` are canonicalized,
+  `can_delegate` is an explicit field, and the `supervisor`, `manager`, `lead`
+  and `coordinator` roles map to PLANNER (previously EXECUTOR at runtime).
+  **Behaviour change for runtime API users:** a member with one of those roles
+  and no explicit `allowed_tools` now gets the planner's default (read-only)
+  tool set and a 15-call budget instead of the executor's; pass `role="executor"`
+  or explicit `allowed_tools` for a coordinating member that must write.
+
+## [0.10.0] - 2026-10-17
 
 ### Changed
 

@@ -49,6 +49,8 @@ PAIRS = [
         "victor_contracts.verticals.protocols.storage",
         "CCGBuilderProtocol",
     ),
+    ("victor.framework.teams", "TeamMemberSpec", "victor_contracts.team_schema", "TeamMemberSpec"),
+    ("victor.framework.teams", "ROLE_MAPPING", "victor_contracts.team_schema", "ROLE_MAPPING"),
 ]
 
 
@@ -76,3 +78,64 @@ def test_ccg_registry_key_is_shared():
     from victor.framework.vertical_protocols import CCGBuilderProtocol
 
     assert {CCGBuilderProtocol: "x"}[Sdk] == "x"
+
+
+def test_team_member_spec_carries_execution_overrides_to_runtime_member():
+    """The framework copy had these fields and the SDK copy did not: vertical team
+    definitions (which import the SDK) could not declare heterogeneous teams."""
+    from victor_contracts.team_schema import TeamMemberSpec
+
+    spec = TeamMemberSpec(
+        role="reviewer",
+        goal="Review",
+        provider="anthropic",
+        model="m",
+        temperature=0.0,
+        reasoning_effort="high",
+        formation_role="critic",
+    )
+    member = spec.to_team_member()
+    assert (member.provider, member.model, member.temperature) == ("anthropic", "m", 0.0)
+    assert (member.reasoning_effort, member.formation_role) == ("high", "critic")
+
+
+def test_team_member_spec_rejects_unknown_formation_role():
+    from victor_contracts.team_schema import TeamMemberSpec
+
+    with pytest.raises(ValueError):
+        TeamMemberSpec(role="critic", goal="x", formation_role="not-a-role").to_team_member()
+
+
+def test_supervisor_roles_map_to_planner_from_the_framework_path():
+    """The framework copy lacked the supervisor aliases and fell back to EXECUTOR."""
+    from victor.core.shared_types import SubAgentRole
+    from victor.framework.teams import TeamMemberSpec
+
+    assert TeamMemberSpec(role="supervisor", goal="x").to_team_member().role is SubAgentRole.PLANNER
+
+
+def test_team_spec_round_trip_keeps_execution_overrides():
+    from victor_contracts.team_schema import TeamFormation, TeamMemberSpec, TeamSpec
+
+    spec = TeamSpec(
+        name="t",
+        description="d",
+        vertical="v",
+        formation=TeamFormation.SEQUENTIAL,
+        members=[
+            TeamMemberSpec(
+                role="reviewer",
+                goal="g",
+                provider="p",
+                model="m",
+                temperature=0.2,
+                reasoning_effort="high",
+                formation_role="critic",
+            ),
+            TeamMemberSpec(role="writer", goal="g"),
+        ],
+    )
+    reviewer, writer = TeamSpec.from_dict(spec.to_dict()).members
+    assert (reviewer.provider, reviewer.model, reviewer.temperature) == ("p", "m", 0.2)
+    assert (reviewer.reasoning_effort, reviewer.formation_role) == ("high", "critic")
+    assert (writer.provider, writer.formation_role) == (None, None)

@@ -51,7 +51,7 @@ classifiers = [
 
 dependencies = [
     # Core
-    "victor-contracts>=0.10.0,<1.0",  # Contract protocol definitions (independent semver)
+    "victor-contracts>=0.11.0,<1.0",  # Contract protocol definitions (independent semver)
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",

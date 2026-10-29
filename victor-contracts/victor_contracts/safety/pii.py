@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Pattern, Tuple
+from typing import Any, Dict, List, Pattern, Tuple
 
 
 class PIIType(Enum):
@@ -42,6 +42,16 @@ class PIISeverity(Enum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+
+    def to_severity(self) -> Any:
+        """Convert to the host runtime's unified ``SeverityLevel``."""
+        try:
+            from victor.core.severity import SeverityLevel
+        except ImportError as exc:  # pragma: no cover - only exercised outside host runtime
+            raise RuntimeError(
+                "PIISeverity.to_severity() requires the Victor runtime host package."
+            ) from exc
+        return SeverityLevel.from_pii_severity(self)
 
 
 @dataclass
