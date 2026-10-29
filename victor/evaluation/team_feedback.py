@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable, Mapping, Optional
 
+from victor.evaluation.summary_mapping import extract_summary_mapping
+from victor.evaluation.summary_mapping import extract_value as _extract_value
+
 
 def _coerce_optional_text(value: Any) -> Optional[str]:
     if value is None:
@@ -20,12 +23,6 @@ def _coerce_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _extract_value(value: Any, key: str, default: Any = None) -> Any:
-    if isinstance(value, Mapping):
-        return value.get(key, default)
-    return getattr(value, key, default)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -443,27 +440,6 @@ def _enrich_delegate_approval_contract(
     return enriched_contract
 
 
-def _extract_team_summary_mapping(value: Any) -> Optional[dict[str, Any]]:
-    if isinstance(value, Mapping):
-        summary = value.get("team_feedback_summary")
-        if isinstance(summary, Mapping):
-            return dict(summary)
-    else:
-        summary = getattr(value, "team_feedback_summary", None)
-        if isinstance(summary, Mapping):
-            return dict(summary)
-    for container_name in ("metadata", "failure_details", "completion_signals"):
-        container = _extract_value(value, container_name)
-        if isinstance(container, Mapping):
-            summary = container.get("team_feedback_summary")
-            if isinstance(summary, Mapping):
-                return dict(summary)
-    trace = _extract_value(value, "trace")
-    if trace is not None and trace is not value:
-        return _extract_team_summary_mapping(trace)
-    return None
-
-
 def extract_team_feedback_artifacts(value: Any) -> dict[str, dict[str, Any]]:
     """Extract normalized team/worktree artifacts from task, trace, or payload objects."""
     artifacts: dict[str, dict[str, Any]] = {}
@@ -512,7 +488,7 @@ def extract_team_feedback_artifacts(value: Any) -> dict[str, dict[str, Any]]:
 
 def summarize_team_feedback(value: Any) -> Optional[dict[str, Any]]:
     """Return a task-level team/worktree summary suitable for benchmark artifacts."""
-    existing_summary = _extract_team_summary_mapping(value)
+    existing_summary = extract_summary_mapping(value, "team_feedback_summary")
     if existing_summary:
         return existing_summary
 

@@ -65,6 +65,8 @@ from typing import (
     runtime_checkable,
 )
 
+from victor.core.utils import normalize_text_list
+
 logger = logging.getLogger(__name__)
 
 
@@ -1041,16 +1043,8 @@ class UnifiedMemoryCoordinator:
 
         return f"Matched prior query '{transfer_hint.matched_query}'. " + " ".join(fragments)
 
-    @staticmethod
-    def _normalize_hint_list(value: Any) -> List[str]:
-        """Normalize metadata hint fields to a compact string list."""
-        if value is None:
-            return []
-        if isinstance(value, (list, tuple, set)):
-            items = value
-        else:
-            items = [value]
-        return [str(item).strip() for item in items if str(item).strip()]
+    # Normalize metadata hint fields to a compact string list.
+    _normalize_hint_list = staticmethod(normalize_text_list)
 
     @staticmethod
     def _normalize_scope_value(value: Any) -> Optional[str]:

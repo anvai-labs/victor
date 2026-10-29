@@ -20,6 +20,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from victor.core.utils import normalize_text_list
+from victor.evaluation.benchmarks.manifest_loader import ManifestBenchmarkMixin
 from victor.evaluation.harness import BaseBenchmarkRunner
 from victor.evaluation.protocol import (
     BenchmarkFailureCategory,
@@ -34,8 +36,11 @@ from victor.evaluation.protocol import (
 )
 
 
-class BrowserTaskBenchmarkRunner(BaseBenchmarkRunner):
+class BrowserTaskBenchmarkRunner(ManifestBenchmarkMixin, BaseBenchmarkRunner):
     """Runner for browser/web-task manifests with action-trace evaluation."""
+
+    _manifest_dataset_label = "Browser benchmark"
+    _manifest_label = "Browser benchmark"
 
     def __init__(self, benchmark_type: BenchmarkType, dataset_path: Path):
         if not is_browser_task_benchmark(benchmark_type):
@@ -120,39 +125,6 @@ class BrowserTaskBenchmarkRunner(BaseBenchmarkRunner):
         result.error_message = "Output did not complete required browser actions or answer coverage"
         result.failure_category = BenchmarkFailureCategory.TASK_COMPLETION
         return result
-
-    def _load_manifest(self, dataset_path: Path) -> tuple[list[dict[str, Any]], BenchmarkMetadata]:
-        if not dataset_path.exists():
-            raise FileNotFoundError(f"Benchmark dataset not found: {dataset_path}")
-
-        if dataset_path.suffix == ".jsonl":
-            records = []
-            for line in dataset_path.read_text().splitlines():
-                if line.strip():
-                    records.append(json.loads(line))
-            return records, self._build_manifest_metadata({}, records)
-
-        payload = json.loads(dataset_path.read_text())
-        if isinstance(payload, list):
-            return payload, self._build_manifest_metadata({}, payload)
-
-        if not isinstance(payload, dict):
-            raise ValueError("Browser benchmark dataset payload must be a list or object manifest")
-
-        records = payload.get("tasks", [])
-        if not isinstance(records, list):
-            raise ValueError("Browser benchmark manifest 'tasks' must be a list")
-
-        defaults = payload.get("defaults", {}) or {}
-        if not isinstance(defaults, dict):
-            raise ValueError("Browser benchmark manifest 'defaults' must be an object")
-        self._defaults = defaults
-
-        metadata = payload.get("metadata", {}) or {}
-        if not isinstance(metadata, dict):
-            raise ValueError("Browser benchmark manifest 'metadata' must be an object")
-
-        return records, self._build_manifest_metadata(metadata, records)
 
     def _build_manifest_metadata(
         self,
@@ -241,15 +213,7 @@ class BrowserTaskBenchmarkRunner(BaseBenchmarkRunner):
             "final_answer": final_answer,
         }
 
-    @staticmethod
-    def _normalize_list(value: Any) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, (list, tuple, set)):
-            items = value
-        else:
-            items = [value]
-        return [str(item).strip() for item in items if str(item).strip()]
+    _normalize_list = staticmethod(normalize_text_list)
 
     @staticmethod
     def _match_text_requirements(requirements: list[str], text: str) -> list[str]:

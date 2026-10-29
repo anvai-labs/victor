@@ -28,6 +28,8 @@ _FAILURE_STATUSES = {"failed", "error", "timeout", "cancelled"}
 
 
 from victor.core.utils import clamp as _clamp
+from victor.evaluation.summary_mapping import extract_summary_mapping
+from victor.evaluation.summary_mapping import extract_value as _extract_value
 
 
 def _coerce_optional_text(value: Any) -> Optional[str]:
@@ -53,12 +55,6 @@ def _coerce_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _extract_value(value: Any, key: str, default: Any = None) -> Any:
-    if isinstance(value, Mapping):
-        return value.get(key, default)
-    return getattr(value, key, default)
 
 
 def _extract_mapping(value: Any, key: str) -> dict[str, Any]:
@@ -100,48 +96,6 @@ def _normalize_event(event: Any) -> Optional[dict[str, Any]]:
             dict(event.get("outcome") or {}) if isinstance(event.get("outcome"), Mapping) else {}
         ),
     }
-
-
-def _extract_topology_summary_mapping(value: Any) -> Optional[dict[str, Any]]:
-    if isinstance(value, Mapping):
-        summary = value.get("topology_summary")
-        if isinstance(summary, Mapping):
-            return dict(summary)
-    else:
-        summary = getattr(value, "topology_summary", None)
-        if isinstance(summary, Mapping):
-            return dict(summary)
-    for container_name in ("metadata", "failure_details", "completion_signals"):
-        container = _extract_value(value, container_name)
-        if isinstance(container, Mapping):
-            summary = container.get("topology_summary")
-            if isinstance(summary, Mapping):
-                return dict(summary)
-    trace = _extract_value(value, "trace")
-    if trace is not None and trace is not value:
-        return _extract_topology_summary_mapping(trace)
-    return None
-
-
-def _extract_optimization_summary_mapping(value: Any) -> Optional[dict[str, Any]]:
-    if isinstance(value, Mapping):
-        summary = value.get("optimization_summary")
-        if isinstance(summary, Mapping):
-            return dict(summary)
-    else:
-        summary = getattr(value, "optimization_summary", None)
-        if isinstance(summary, Mapping):
-            return dict(summary)
-    for container_name in ("metadata", "failure_details", "completion_signals"):
-        container = _extract_value(value, container_name)
-        if isinstance(container, Mapping):
-            summary = container.get("optimization_summary")
-            if isinstance(summary, Mapping):
-                return dict(summary)
-    trace = _extract_value(value, "trace")
-    if trace is not None and trace is not value:
-        return _extract_optimization_summary_mapping(trace)
-    return None
 
 
 def extract_topology_events(value: Any) -> list[dict[str, Any]]:
@@ -187,7 +141,7 @@ def extract_topology_events(value: Any) -> list[dict[str, Any]]:
 
 def summarize_topology_feedback(value: Any) -> Optional[dict[str, Any]]:
     """Return a task-level topology summary suitable for benchmark artifacts."""
-    existing_summary = _extract_topology_summary_mapping(value)
+    existing_summary = extract_summary_mapping(value, "topology_summary")
     if existing_summary:
         return existing_summary
 
@@ -300,7 +254,7 @@ def summarize_topology_feedback(value: Any) -> Optional[dict[str, Any]]:
 
 def summarize_optimization_feedback(value: Any) -> Optional[dict[str, Any]]:
     """Return a task-level optimization summary when present on task artifacts."""
-    existing_summary = _extract_optimization_summary_mapping(value)
+    existing_summary = extract_summary_mapping(value, "optimization_summary")
     if not existing_summary:
         return None
 
