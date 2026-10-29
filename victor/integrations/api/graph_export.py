@@ -42,12 +42,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from victor.framework.graph import CompiledGraph, Node, Edge
-    from victor.workflows.definition import WorkflowDefinition
-    from victor.workflows.visualization import WorkflowVisualizer
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

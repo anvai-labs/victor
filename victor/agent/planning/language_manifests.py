@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
+from typing import Dict, Iterable, List, Protocol, Sequence, Tuple
 
 from victor.agent.planning.repository_profile import EXCLUDED_DIRS
 

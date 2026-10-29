@@ -250,7 +250,7 @@ class KafkaService(ServiceLifecycle):
         logger.info(f"Initializing Kafka service: {config.name}")
 
         try:
-            from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
+            from aiokafka import AIOKafkaProducer
 
             bootstrap_servers = config.config.get("bootstrap_servers", "localhost:9092")
 

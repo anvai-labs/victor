@@ -58,31 +58,20 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
     List,
     Optional,
     Protocol,
-    Set,
-    Tuple,
     runtime_checkable,
 )
 
 from victor.storage.checkpoints.protocol import (
-    CheckpointData,
-    CheckpointDiff,
     CheckpointManagerProtocol,
     CheckpointMetadata,
-    CheckpointNotFoundError,
     CheckpointError,
-    DiffType,
-    FieldDiff,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

@@ -28,14 +28,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from victor.storage.graph.protocol import (
         GraphEdge,
         GraphNode,
-        Subgraph,
     )
 
 logger = logging.getLogger(__name__)

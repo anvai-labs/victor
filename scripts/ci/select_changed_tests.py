@@ -23,8 +23,11 @@ Usage: ``select_changed_tests.py <changed_file> [<changed_file> ...]``
 from __future__ import annotations
 
 import argparse
+import ast
+import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -933,6 +936,111 @@ class SelectionError(ValueError):
     """The changed core source cannot be covered safely by the fast gate."""
 
 
+def _strip_imports(tree: ast.Module) -> str:
+    """Dump ``tree`` with every import removed, plus the ``if TYPE_CHECKING:``
+    and ``try: <imports> except ImportError: pass`` blocks that removal empties."""
+
+    def clean(body: list[ast.stmt]) -> list[ast.stmt]:
+        out: list[ast.stmt] = []
+        for node in body:
+            if isinstance(node, (ast.Import, ast.ImportFrom, ast.Pass)):
+                continue
+            for name in ("body", "orelse", "finalbody"):
+                if isinstance(getattr(node, name, None), list):
+                    setattr(node, name, clean(getattr(node, name)))
+            for handler in getattr(node, "handlers", []):
+                handler.body = clean(handler.body)
+            if isinstance(node, ast.If) and not node.body and not node.orelse:
+                continue
+            if (
+                isinstance(node, ast.Try)
+                and not node.body
+                and not node.orelse
+                and not node.finalbody
+                and all(not h.body for h in node.handlers)
+            ):
+                continue
+            out.append(node)
+        return out
+
+    tree.body = clean(tree.body)
+    return ast.dump(tree)
+
+
+def _import_set(tree: ast.Module) -> set[tuple[str, str, str | None]]:
+    found: set[tuple[str, str, str | None]] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update(("", a.name, a.asname) for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = "." * node.level + (node.module or "")
+            found.update((module, a.name, a.asname) for a in node.names)
+    return found
+
+
+def only_removes_imports(old_source: str | None, new_source: str | None) -> bool:
+    """True when ``new_source`` differs from ``old_source`` only by removed imports.
+
+    Formatting and comments are invisible to the AST, so they pass; adding or
+    repointing an import, or any other code change, does not.
+    """
+    if old_source is None or new_source is None:
+        return False
+    try:
+        old_tree, new_tree = ast.parse(old_source), ast.parse(new_source)
+    except SyntaxError:
+        return False
+    if not _import_set(new_tree) <= _import_set(old_tree):
+        return False
+    return _strip_imports(old_tree) == _strip_imports(new_tree)
+
+
+def partition_import_only(
+    changed: list[str],
+    read_base: Callable[[str], str | None] | None,
+    read_current: Callable[[str], str | None] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Split core sources whose diff only removes imports out of ``changed``.
+
+    Removing an unused import cannot change behaviour a unit test observes,
+    so those files need no mirror test and must not count toward the target
+    cap. The workflow import-smokes them instead (a removed import that
+    something still needed fails at import time).
+    """
+    if read_base is None:
+        return list(changed), []
+    if read_current is None:
+        read_current = _read_working_tree
+    rest: list[str] = []
+    import_only: list[str] = []
+    for raw in changed:
+        path = raw.strip()
+        if (
+            path.startswith("victor/")
+            and path.endswith(".py")
+            and only_removes_imports(read_base(path), read_current(path))
+        ):
+            import_only.append(path)
+        else:
+            rest.append(raw)
+    return rest, import_only
+
+
+def _read_working_tree(path: str) -> str | None:
+    file = ROOT / path
+    return file.read_text() if file.is_file() else None
+
+
+def _git_reader(ref: str) -> Callable[[str], str | None]:
+    def read(path: str) -> str | None:
+        result = subprocess.run(
+            ["git", "show", f"{ref}:{path}"], cwd=ROOT, capture_output=True, text=True
+        )
+        return result.stdout if result.returncode == 0 else None
+
+    return read
+
+
 def select(changed: list[str]) -> list[str]:
     targets: set[str] = set()
     unmapped_sources: list[str] = []
@@ -1000,8 +1108,27 @@ if __name__ == "__main__":
         action="store_true",
         help="read one changed path per line from stdin (safe for spaces and leading dashes)",
     )
+    parser.add_argument(
+        "--base",
+        help="git ref the change is compared against; enables the import-only exemption",
+    )
+    parser.add_argument(
+        "--import-only-out",
+        help="write core sources whose diff only removes imports here (one per line)",
+    )
     args = parser.parse_args()
     changed = [line.rstrip("\n") for line in sys.stdin] if args.stdin else args.files
+    changed, import_only = partition_import_only(
+        changed, _git_reader(args.base) if args.base else None
+    )
+    if args.import_only_out:
+        Path(args.import_only_out).write_text("".join(f"{p}\n" for p in import_only))
+    if import_only:
+        print(
+            f"select_changed_tests: {len(import_only)} import-only source change(s) "
+            "exempt from mirror tests (import-smoked instead)",
+            file=sys.stderr,
+        )
     try:
         for target in select(changed):
             print(target)

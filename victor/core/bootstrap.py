@@ -253,7 +253,7 @@ def bootstrap_container(
     Returns:
         Configured ServiceContainer
     """
-    from victor.core.bootstrap_phases import BootstrapPhase, execute_phases
+    from victor.core.bootstrap_phases import execute_phases
 
     if settings is None:
         settings = load_settings()

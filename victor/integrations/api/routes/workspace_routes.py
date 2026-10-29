@@ -39,7 +39,6 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def workspace_overview(depth: int = Query(3, ge=1, le=10)) -> JSONResponse:
         """Get workspace structure overview."""
         try:
-            import os
 
             root = Path(server.workspace_root)
             overview: Dict[str, Any] = {

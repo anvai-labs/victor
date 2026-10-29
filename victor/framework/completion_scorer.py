@@ -54,15 +54,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from victor.framework.perception_integration import Perception
     from victor.framework.requirement_validator import RequirementResult
-    from victor.framework.fulfillment import FulfillmentResult
-    from victor.agent.task_analyzer import TaskComplexity
 
 
 class TaskType(Enum):

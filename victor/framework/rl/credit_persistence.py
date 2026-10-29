@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 from victor.core.json_utils import json_dumps
 import logging
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -37,7 +36,6 @@ from contextlib import contextmanager
 
 from victor.framework.rl import (
     CreditSignal,
-    ActionMetadata,
     CreditMethodology,
     CreditGranularity,
 )

@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from victor.storage.graph.protocol import GraphEdge, GraphNode, GraphStoreProtocol
+    from victor.storage.graph.protocol import GraphNode, GraphStoreProtocol
 
 logger = logging.getLogger(__name__)
 

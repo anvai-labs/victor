@@ -29,13 +29,12 @@ Design:
 """
 
 import logging
-import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
-from victor.framework.rl.base import BaseLearner, RLOutcome, RLRecommendation
+from victor.framework.rl.base import BaseLearner, RLRecommendation
 from victor.core.schema import Tables
 from victor.framework.rl.migration import RLTableMigrator
 
@@ -245,7 +244,6 @@ class ContextPruningLearner(BaseLearner):
             }
 
         # Thompson Sampling: sample from Beta distribution for each action
-        import random
 
         best_action = None
         best_sample = -float("inf")

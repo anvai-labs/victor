@@ -26,7 +26,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-from victor.agent.task_analyzer import TaskAnalysis, TaskComplexity, UnifiedTaskType
+from victor.agent.task_analyzer import TaskAnalysis
 
 logger = logging.getLogger(__name__)
 

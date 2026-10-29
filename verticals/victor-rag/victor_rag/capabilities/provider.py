@@ -21,7 +21,7 @@ for discovery, and convenience functions for capability registration.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Set, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Set
 
 from victor_contracts import CapabilityType, OrchestratorCapability
 from victor_contracts.capabilities import CapabilityEntry
@@ -37,9 +37,6 @@ from victor_rag.capabilities.handlers import (
     configure_safety,
     configure_query_enhancement,
 )
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

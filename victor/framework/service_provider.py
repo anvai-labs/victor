@@ -49,11 +49,9 @@ from victor.core.container import (
 )
 
 if TYPE_CHECKING:
-    from victor.framework.agent import Agent
     from victor.framework.agent_components import (
         AgentBuilder,
         AgentBridge,
-        AgentSession,
     )
     from victor.framework.event_registry import EventRegistry
     from victor.framework.tool_config import ToolConfigurator

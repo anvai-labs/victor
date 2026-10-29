@@ -44,7 +44,6 @@ from __future__ import annotations
 import functools
 import logging
 import threading
-import warnings
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 from victor.framework.config import SafetyEnforcer

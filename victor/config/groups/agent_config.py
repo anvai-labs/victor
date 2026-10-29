@@ -21,7 +21,7 @@ Note: Tool-level configuration (budget, retry, cache, selection) is already
 extracted in victor/config/tool_settings.py as ToolSettings.
 """
 
-from typing import Dict, List
+from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 

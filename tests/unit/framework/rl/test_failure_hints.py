@@ -10,10 +10,8 @@ class TestFailureHints:
 
     def test_all_known_categories_have_hints(self):
         """Every category returned by _categorize_failure has a corresponding hint."""
-        from victor.framework.rl.learners.prompt_optimizer import (
-            PromptOptimizerLearner,
-            FAILURE_HINTS,
-        )
+        from victor.framework.rl.learners.prompt_optimizer import PromptOptimizerLearner
+        from victor.framework.rl.learners.trace_analysis import FAILURE_HINTS
 
         # All known error messages that produce specific categories
         test_errors = [
@@ -38,7 +36,7 @@ class TestFailureHints:
 
     def test_hints_are_actionable(self):
         """All hints are non-empty and at least 20 chars (actionable, not vague)."""
-        from victor.framework.rl.learners.prompt_optimizer import FAILURE_HINTS
+        from victor.framework.rl.learners.trace_analysis import FAILURE_HINTS
 
         for cat, hint in FAILURE_HINTS.items():
             assert isinstance(hint, str), f"Hint for '{cat}' is not a string"
@@ -46,14 +44,14 @@ class TestFailureHints:
 
     def test_get_failure_hint_known(self):
         """get_failure_hint() returns the correct hint for known categories."""
-        from victor.framework.rl.learners.prompt_optimizer import get_failure_hint
+        from victor.framework.rl.learners.trace_analysis import get_failure_hint
 
         hint = get_failure_hint("edit_mismatch")
         assert "old_str" in hint.lower() or "read" in hint.lower()
 
     def test_get_failure_hint_unknown(self):
         """get_failure_hint() returns empty string for unknown categories."""
-        from victor.framework.rl.learners.prompt_optimizer import get_failure_hint
+        from victor.framework.rl.learners.trace_analysis import get_failure_hint
 
         assert get_failure_hint("nonexistent_category") == ""
 

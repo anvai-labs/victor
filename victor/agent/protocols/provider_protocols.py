@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from typing import (
     Any,
-    Callable,
     Dict,
     List,
     Optional,
     Protocol,
-    Set,
-    TYPE_CHECKING,
     runtime_checkable,
 )
 

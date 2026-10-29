@@ -320,7 +320,7 @@ class TestBudgetManagement:
     @pytest.mark.asyncio
     async def test_budget_state_creation(self):
         """Test budget state creation."""
-        from victor.agent.budget_manager import BudgetState
+        from victor.agent.budget import BudgetState
 
         state = BudgetState(
             current=5,

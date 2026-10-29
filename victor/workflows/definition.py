@@ -68,7 +68,6 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from victor.agent.subagents import SubAgentRole
     from victor.workflows.protocols import RetryPolicy
     from victor.tools.write_path_policy import WritePathPolicy
 

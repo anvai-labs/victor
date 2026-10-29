@@ -158,6 +158,11 @@ target-version = [
 ]
 
 [tool.ruff]
+extend-exclude = [
+    # Parser input corpus for the golden tests: data, not code. Editing it
+    # shifts the pinned line numbers.
+    "tests/codebase/goldens/samples",
+]
 line-length = 100
 target-version = "py312"
 
@@ -166,7 +171,6 @@ select = ["E", "W", "F", "B", "C4"]
 ignore = [
     "E501",  # line too long (handled by formatter)
     "E402",  # module level import not at top of file (sometimes necessary)
-    "F401",  # unused imports (often intentional re-exports)
     "F811",  # redefined while unused (type imports shadowing runtime)
     "B007",  # loop control variable not used within loop body
     "B008",  # do not perform function calls in argument defaults

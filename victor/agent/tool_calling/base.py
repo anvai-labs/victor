@@ -423,10 +423,7 @@ class FallbackParsingMixin:
             return ToolCallParseResult()
 
         try:
-            from victor.agent.tool_calling.text_extractor import (
-                PythonCallExtractor,
-                ExtractionResult,
-            )
+            from victor.agent.tool_calling.text_extractor import PythonCallExtractor
 
             extractor = PythonCallExtractor(strict_mode=False)
             result = extractor.extract_from_text(content, valid_tool_names)

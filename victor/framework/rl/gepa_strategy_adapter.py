@@ -12,7 +12,7 @@ run_sync_in_thread internally), so this adapter primarily:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from victor.framework.tool_naming import ToolNames, get_canonical_name
 from victor.framework.rl.gepa_tier_manager import GEPATierManager
@@ -70,9 +70,7 @@ class GEPAServiceStrategy:
     ) -> str:
         """Convert traces to ASI summary and call GEPA reflection."""
         del kwargs
-        from victor.framework.rl.learners.prompt_optimizer import (
-            analyze_capability_gaps,
-        )
+        from victor.framework.rl.learners.trace_analysis import analyze_capability_gaps
 
         service = self._tier_manager.get_service()
         traces_summary = self._format_traces_as_asi(traces)
@@ -276,7 +274,7 @@ class GEPAServiceStrategy:
             f"- Avg tokens: {total_tokens/max(total,1):.0f}",
         ]
         if all_failures:
-            from victor.framework.rl.learners.prompt_optimizer import FAILURE_HINTS
+            from victor.framework.rl.learners.trace_analysis import FAILURE_HINTS
 
             lines.append("- Top failures:")
             for cat, count in sorted(all_failures.items(), key=lambda x: -x[1])[:5]:

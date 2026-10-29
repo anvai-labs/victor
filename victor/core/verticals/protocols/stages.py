@@ -31,9 +31,8 @@ Phase 2: Fix SOLID Violations via Coordinator Extraction
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Protocol, runtime_checkable
+from typing import Any, Dict, List, Set, Protocol, runtime_checkable
 from enum import Enum
 
 

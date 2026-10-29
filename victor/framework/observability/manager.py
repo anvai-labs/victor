@@ -48,11 +48,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
-import traceback
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Callable, Deque, Dict, List, Optional, Set
+from datetime import datetime
+from typing import Any, Deque, Dict, List, Optional
 from weakref import WeakSet
 
 import psutil
@@ -67,7 +66,6 @@ from victor.framework.observability.metrics import (
     MetricSource,
     MetricsCollection,
     MetricsSnapshot,
-    SummaryMetric,
 )
 
 logger = logging.getLogger(__name__)

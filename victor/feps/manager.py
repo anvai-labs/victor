@@ -34,7 +34,6 @@ from victor.feps.schema import (
     FEPType,
     FEPValidator,
     FEPValidationResult,
-    parse_fep_metadata,
 )
 
 

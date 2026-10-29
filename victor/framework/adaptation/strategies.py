@@ -21,7 +21,7 @@ with AdaptableGraph for common optimization patterns.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List
+from typing import Any, Dict, List
 
 from victor.framework.adaptation.types import (
     AdaptationStrategy,

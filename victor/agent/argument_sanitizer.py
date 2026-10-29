@@ -19,7 +19,6 @@ handling non-JSON-serializable objects that may appear in LLM-generated tool cal
 """
 
 import logging
-from pathlib import Path
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)

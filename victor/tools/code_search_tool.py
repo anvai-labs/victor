@@ -17,7 +17,7 @@ TODO: Migrate tests to use the new code_search tool or mark as skipped.
 """
 
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
 

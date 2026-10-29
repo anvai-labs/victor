@@ -44,10 +44,9 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from victor.core.verticals.protocols import (
-    MiddlewarePriority,
     MiddlewareProtocol,
     MiddlewareResult,
 )

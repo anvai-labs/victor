@@ -55,7 +55,6 @@ from victor.core.events.emit_helper import emit_event_sync
 from victor.core.verticals.adapters import ensure_runtime_vertical
 from victor.core.verticals.base import VerticalBase, VerticalRegistry
 from victor.core.verticals.compatibility_gate import VerticalCompatibilityGate
-from victor.core.verticals.framework_version import get_framework_version
 from victor.core.verticals.manifest_contract import (
     VerticalRuntimeProvenance,
     get_or_create_vertical_manifest,

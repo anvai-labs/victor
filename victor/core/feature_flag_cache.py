@@ -9,8 +9,7 @@ repeated environment variable lookups and enum resolution.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional
 import logging
 
 from victor.core.feature_flags import FeatureFlag

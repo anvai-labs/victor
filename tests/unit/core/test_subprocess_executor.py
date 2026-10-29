@@ -8,8 +8,6 @@ import pytest
 from victor.tools.subprocess_executor import (
     CommandErrorType,
     CommandResult,
-    DANGEROUS_COMMANDS,
-    DANGEROUS_PATTERNS,
     check_docker_available,
     check_git_available,
     check_npm_available,
@@ -27,6 +25,7 @@ from victor.tools.subprocess_executor import (
     run_npm,
     run_pip,
 )
+from victor.security.command_safety import DANGEROUS_COMMANDS, DANGEROUS_PATTERNS
 
 
 class TestCommandResult:

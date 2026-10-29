@@ -34,13 +34,13 @@ import re
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Literal
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
     from victor.tools.registry import ToolRegistry
     from victor.workflows.definition import ComputeNode
     from victor.workflows.context import WorkflowContext
-    from victor_contracts.workflows import NodeResult, ExecutorNodeStatus
+    from victor_contracts.workflows import NodeResult
 
 logger = logging.getLogger(__name__)
 

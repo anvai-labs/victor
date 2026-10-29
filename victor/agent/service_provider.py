@@ -47,7 +47,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import warnings
 from typing import TYPE_CHECKING, Any, Optional
 
 from victor.config.tool_selection_access import is_semantic_tool_selection_enabled
@@ -89,7 +88,6 @@ if TYPE_CHECKING:
         TaskTrackerProtocol,
         TaskTypeHinterProtocol,
         ToolCacheProtocol,
-        ToolCallTrackerProtocol,
         ToolDeduplicationTrackerProtocol,
         ToolDependencyGraphProtocol,
         ToolExecutorProtocol,

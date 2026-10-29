@@ -86,12 +86,10 @@ from typing import (
     List,
     Mapping,
     Optional,
-    Union,
 )
 
 from victor.framework.state_merging import (
     MergeMode,
-    MergeStrategy,
     StateMergeError,
     create_merge_strategy,
 )

@@ -31,10 +31,8 @@ from unittest.mock import Mock
 from victor.config.tool_selection_access import is_semantic_tool_selection_enabled
 
 if TYPE_CHECKING:
-    from victor.config.settings import Settings
     from victor.providers.base import BaseProvider
     from victor.agent.tool_calling import (
-        BaseToolCallingAdapter,
         ToolCallingCapabilities,
     )
     from victor.tools.registry import ToolRegistry

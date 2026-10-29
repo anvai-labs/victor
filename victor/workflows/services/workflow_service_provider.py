@@ -45,9 +45,9 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
-from victor.core.container import ServiceContainer, ServiceLifetime
+from victor.core.container import ServiceContainer
 from victor.core.service_registration import (
     ServiceRegistrationSpec,
     register_services_from_specs,
@@ -202,11 +202,6 @@ class WorkflowServiceProvider:
             container: DI container to register services in
         """
         # Import concrete implementations for registration
-        from victor.workflows.compiler.workflow_compiler_impl import (
-            WorkflowCompilerImpl,
-        )
-        from victor.workflows.runtime_executor_factory import create_legacy_workflow_executor
-        from victor.workflows.compiler_protocols import WorkflowCompilerProtocol
 
         transient_specs = []
         for spec in WORKFLOW_TRANSIENT_SPECS:

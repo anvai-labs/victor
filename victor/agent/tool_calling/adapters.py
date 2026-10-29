@@ -517,7 +517,6 @@ class OllamaToolCallingAdapter(FallbackParsingMixin, BaseToolCallingAdapter):
             ToolCallParseResult with parsed tool calls
         """
         import re
-        import json
 
         # Hybrid pattern: <function=name> with </tool_call> closing
         # This is a common malformed pattern from Qwen3 models on Ollama

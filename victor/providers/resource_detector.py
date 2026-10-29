@@ -41,10 +41,9 @@ from victor.core.json_utils import json_loads
 from victor.providers.provider_kinds import ON_BOX_PROVIDERS
 import asyncio
 import logging
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +290,6 @@ class ResourceAvailabilityDetector:
                 return GPUAvailability(available=False, reason="system_profiler failed")
 
             # Parse JSON output
-            import json
 
             data = json_loads(stdout.decode())
             displays = data.get("SPDisplaysDataType", [])

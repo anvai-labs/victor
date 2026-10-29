@@ -300,7 +300,7 @@ class TestProviderSwitching:
 
     @pytest.mark.asyncio
     @patch("victor.agent.provider.switcher.ProviderRegistry")
-    @patch("victor.agent.provider_manager.ToolCallingAdapterRegistry")
+    @patch("victor.agent.provider.tool_adapter_coordinator.ToolCallingAdapterRegistry")
     async def test_switch_provider_success(
         self, mock_adapter_registry, mock_provider_registry, manager
     ):
@@ -356,7 +356,7 @@ class TestProviderSwitching:
 
     @pytest.mark.asyncio
     @patch("victor.agent.provider.switcher.ProviderRegistry")
-    @patch("victor.agent.provider_manager.ToolCallingAdapterRegistry")
+    @patch("victor.agent.provider.tool_adapter_coordinator.ToolCallingAdapterRegistry")
     async def test_switch_provider_with_fallback(
         self, mock_adapter_registry, mock_provider_registry
     ):
@@ -433,7 +433,7 @@ class TestModelSwitching:
         )
 
     @pytest.mark.asyncio
-    @patch("victor.agent.provider_manager.ToolCallingAdapterRegistry")
+    @patch("victor.agent.provider.tool_adapter_coordinator.ToolCallingAdapterRegistry")
     async def test_switch_model_success(self, mock_registry, manager):
         """Test successful model switch."""
         mock_adapter = MagicMock()
@@ -523,7 +523,7 @@ class TestSwitchHistory:
 
     @pytest.mark.asyncio
     @patch("victor.agent.provider.switcher.ProviderRegistry")
-    @patch("victor.agent.provider_manager.ToolCallingAdapterRegistry")
+    @patch("victor.agent.provider.tool_adapter_coordinator.ToolCallingAdapterRegistry")
     async def test_switch_history_recorded(
         self, mock_adapter_registry, mock_provider_registry, manager
     ):

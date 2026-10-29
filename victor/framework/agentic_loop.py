@@ -90,8 +90,7 @@ from victor.agent.turn_policy import (
     TurnEvaluationController,
     TurnObservation,
 )
-from victor.agent.topology_contract import TopologyAction
-from victor.agent.topology_grounder import GroundedTopologyPlan, TopologyGrounder
+from victor.agent.topology_grounder import TopologyGrounder
 from victor.agent.topology_planning import TopologyPlanningMixin
 from victor.agent.topology_selector import TopologySelector
 from victor.agent.topology_telemetry import (
@@ -102,15 +101,13 @@ from victor.core.shared_types import TaskPhase
 from victor.framework.evaluation_nodes import (
     EvaluationDecision,
     EvaluationResult,
-    create_agentic_loop_graph,
 )
 from victor.framework import response_classification
 from victor.framework.fulfillment import FulfillmentDetector, TaskType
 from victor.framework.perception_integration import Perception, PerceptionIntegration
 from victor.framework.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.framework.capabilities.task_hints import TaskTypeHintCapabilityProvider
-from victor.agent.paradigm_router import ParadigmRouter, get_paradigm_router
-from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
+from victor.agent.paradigm_router import get_paradigm_router
 from victor.framework.enhanced_completion_evaluation import EnhancedCompletionEvaluator
 from victor.providers.base import StreamChunk
 
@@ -190,8 +187,6 @@ if TYPE_CHECKING:
         TurnResult,
     )
     from victor.storage.memory.unified import UnifiedMemoryCoordinator
-    from victor.agent.services.planning_runtime import PlanningCoordinator
-    from victor.framework.agent import Agent
     from victor.framework.verification import VerificationResult
 
 
@@ -2488,7 +2483,6 @@ class AgenticLoop(TopologyPlanningMixin):
             Number of unique papers found
         """
         import re
-        from collections import defaultdict
 
         papers = set()
 
@@ -2712,7 +2706,6 @@ class AgenticLoop(TopologyPlanningMixin):
 
         # PRIMARY: Use turn_executor for single-turn (no nested loop)
         if self.turn_executor is not None:
-            from victor.agent.services.turn_execution_runtime import TurnResult
 
             task_classification = state.get("_task_classification")
             is_qa = state.get("_is_qa_task", False)

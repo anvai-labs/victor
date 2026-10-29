@@ -61,7 +61,7 @@ Extracted from AgentOrchestrator (December 2025) for cleaner separation of conce
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Tuple
 from victor.tools.tool_names import get_canonical_name

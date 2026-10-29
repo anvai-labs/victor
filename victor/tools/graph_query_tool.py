@@ -298,7 +298,6 @@ async def impact_analysis(
 
     try:
         from victor.storage.graph import create_graph_store
-        from victor.storage.graph.edge_types import EdgeType
 
         # Create graph store with project path
         project_path = Path(path).resolve()

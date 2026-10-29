@@ -22,8 +22,8 @@ Part of SOLID-based refactoring to eliminate god class anti-pattern.
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional
 
 from victor.agent.protocols import (
     BudgetConfig,

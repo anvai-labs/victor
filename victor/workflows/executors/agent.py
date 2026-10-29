@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from victor.agent.subagents.base import SubAgentRole
     from victor.workflows.definition import AgentNode
-    from victor.workflows.compiler_protocols import NodeExecutorProtocol
     from victor.workflows.runtime_types import WorkflowState
 
 logger = logging.getLogger(__name__)

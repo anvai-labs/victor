@@ -45,7 +45,7 @@ Example:
 """
 
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from victor.workflows.generation.types import (
     ErrorCategory,

@@ -25,7 +25,7 @@ Based on: "Position: agentic AI orchestration should be Bayes-consistent"
 from victor.core.json_utils import json_dumps
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from victor.framework.rl.learners.correlation_tracker import CorrelationTracker
 from victor.framework.rl.orchestration.bayesian_orchestrator import (
@@ -411,8 +411,6 @@ class BayesianConsensusBuilder:
             agent_messages: Optional agent messages for correlation tracking
         """
         was_correct = consensus["recommended_outcome"] == actual_outcome
-
-        import json
 
         self.db.execute(
             """INSERT INTO rl_bayesian_consensus

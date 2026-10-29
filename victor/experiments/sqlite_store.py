@@ -34,7 +34,7 @@ from victor.experiments.entities import (
     Metric,
     Run,
 )
-from victor.experiments.storage import IStorageBackend, StorageBackendError
+from victor.experiments.storage import StorageBackendError
 
 _EXPERIMENT_UPDATE_FIELDS = frozenset(
     {

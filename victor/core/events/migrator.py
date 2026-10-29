@@ -28,9 +28,7 @@ Topic Mapping Reference (OLD -> NEW):
 from __future__ import annotations
 
 import logging
-from typing import Dict, Tuple
-
-from victor.core.events.protocols import MessagingEvent
+from typing import Dict
 
 # Migration complete - VictorEvent and EventCategory have been removed
 # TOPIC_MAPPING kept for reference only

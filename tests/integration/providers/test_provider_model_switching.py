@@ -95,12 +95,11 @@ def mock_provider2():
 @pytest.fixture
 def orchestrator(settings, mock_provider):
     """Create orchestrator with mocked provider."""
-    with patch("victor.agent.orchestrator.UsageLogger"):
-        orc = AgentOrchestrator(
-            settings=settings,
-            provider=mock_provider,
-            model="test-model",
-        )
+    orc = AgentOrchestrator(
+        settings=settings,
+        provider=mock_provider,
+        model="test-model",
+    )
 
     # Mock _metrics_collector to avoid errors during switch
     orc._metrics_collector = MagicMock()

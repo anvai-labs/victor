@@ -51,14 +51,11 @@ Recent Refactoring (December 2025 - January 2025):
 - Added LifecycleManager for lifecycle management (January 2025)
 """
 
-import ast
 import asyncio
-import inspect
 import logging
 import threading
-import time
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Any, AsyncIterator, Dict, List, Optional, Set, TYPE_CHECKING
 
 from rich.console import Console
 
@@ -71,188 +68,81 @@ from victor.agent.services.metrics_service import AgentMetricsService  # noqa: F
 if TYPE_CHECKING:
     # Type-only imports (created by factory, only used for type hints)
     from victor.agent.orchestrator_integration import OrchestratorIntegration
-    from victor.agent.services.recovery_service import RecoveryService
-    from victor.agent.services.chunk_runtime import ChunkGenerator
-    from victor.agent.services.tool_planning_runtime import ToolPlanner
-    from victor.agent.services.task_runtime import TaskCoordinator
-    from victor.agent.kv_prefix_observability import PrefixCallTracker
     from victor.agent.protocols import ToolAccessContext
     from victor.evaluation.protocol import TokenUsage
 
     # Factory-created components (type hints only)
-    from victor.agent.response_sanitizer import ResponseSanitizer
-    from victor.agent.search_router import SearchRouter
-    from victor.agent.task_complexity import TaskComplexityService as ComplexityClassifier
-    from victor.agent.metrics_collector import MetricsCollector
-    from victor.agent.conversation.controller import ConversationController
-    from victor.agent.context_compactor import ContextCompactor
-    from victor.agent.usage_analytics import UsageAnalytics
-    from victor.agent.tool_sequence_tracker import ToolSequenceTracker
-    from victor.agent.recovery import RecoveryHandler
-    from victor.agent.orchestrator_recovery import OrchestratorRecoveryIntegration
-    from victor.agent.tool_output_formatter import ToolOutputFormatter
-    from victor.agent.tool_pipeline import ToolPipeline
     from victor.runtime.context import RuntimeExecutionContext
-    from victor.agent.streaming_controller import StreamingController
-    from victor.agent.task_analyzer import TaskAnalyzer
-    from victor.agent.tool_registrar import ToolRegistrar
-    from victor.agent.provider_manager import ProviderManager
-    from victor.agent.tool_selection import ToolSelector
-    from victor.agent.tool_executor import ToolExecutor
     from victor.agent.safety import SafetyChecker
     from victor.agent.auto_commit import AutoCommitter
-    from victor.agent.conversation_manager import (
-        ConversationManager,
-        create_conversation_manager,
-    )
 
 # Runtime imports - used for instantiation, enums, constants, or function calls
-from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
-from victor.agent.message_history import MessageHistory
 from victor.agent.tool_supply_policy import (
     classify_tool_supply,
     demote_tools_to_fit,
     should_skip_tools_via_edge,
 )
 from victor.agent.control_plane import envelope_if_internal
-from victor.agent.conversation.store import ConversationStore
 from victor.agent.system_nudges import log_dropped_system_nudge
 
 # DI container bootstrap
-from victor.core.bootstrap import ensure_bootstrapped, get_service_optional
-from victor.core.container import MetricsServiceProtocol, LoggerServiceProtocol
+from victor.core.bootstrap import ensure_bootstrapped
 
 # Service protocols for DI resolution
-from victor.agent.protocols import (
-    ComplexityClassifierProtocol,
-    ActionAuthorizerProtocol,
-    SearchRouterProtocol,
-    ProjectContextProtocol,
-    ArgumentNormalizerProtocol,
-    ConversationStateMachineProtocol,
-    TaskTrackerProtocol,
-    CodeExecutionManagerProtocol,
-    WorkflowRegistryProtocol,
-    UsageAnalyticsProtocol,
-    ToolSequenceTrackerProtocol,
-    ContextCompactorProtocol,
-)
-from victor.agent.services.protocols import ResponseSanitizerProtocol
 
 # Mixins (used at class definition time)
 from victor.protocols.mode_aware import ModeAwareMixin
 from victor.agent.capability_registry import OrchestratorCapabilityMixin
 
 # Config and enums (used at runtime)
-from victor.config.config_loaders import get_provider_limits
-from victor.agent.conversation_embedding_store import ConversationEmbeddingStore
 from victor.agent.conversation.state_machine import (
-    ConversationStateMachine,
     ConversationStage,
 )
-from victor.agent.action_authorizer import ActionIntent, INTENT_BLOCKED_TOOLS
-from victor.agent.prompt_builder import get_task_type_hint, SystemPromptBuilder
 from victor.agent.search_router import SearchRoute, SearchType
-from victor.core.task.protocols import TaskComplexity
-from victor.agent.task_complexity import DEFAULT_BUDGETS
 from victor.agent.stream_handler import StreamMetrics
-from victor.agent.metrics_collector import MetricsCollectorConfig
-from victor.agent.unified_task_tracker import TrackerTaskType, UnifiedTaskTracker
-from victor.agent.prompt_requirement_extractor import extract_prompt_requirements
+from victor.agent.unified_task_tracker import TrackerTaskType
 
 # Decomposed components - configs, strategies, functions
 from victor.agent.conversation.controller import (
-    ConversationConfig,
     ContextMetrics,
-    CompactionStrategy,
 )
-from victor.agent.context_compactor import (
-    TruncationStrategy,
-    create_context_compactor,
-    calculate_parallel_read_budget,
-)
-from victor.agent.context_manager import (
-    ContextManager,
-    ContextManagerConfig,
-    create_context_manager,
-)
-from victor.agent.continuation_strategy import ContinuationStrategy
-from victor.agent.tool_call_extractor import ExtractedToolCall
-from victor.agent.services.rl_runtime import get_rl_coordinator
-from victor.agent.usage_analytics import AnalyticsConfig
-from victor.agent.tool_sequence_tracker import create_sequence_tracker
 from victor.agent.session_state_accessor import SessionStateAccessor
 from victor.agent.session_state_manager import (
-    SessionStateManager,
     create_session_state_manager,
 )
 
 # Recovery - enums and functions used at runtime
-from victor.agent.recovery import RecoveryOutcome, FailureType, RecoveryAction
-from victor.agent.vertical_context import VerticalContext, create_vertical_context
-from victor.agent.vertical_integration_adapter import VerticalIntegrationAdapter
-from victor.agent.protocols import RecoveryHandlerProtocol
+from victor.agent.vertical_context import VerticalContext
 from victor.agent.orchestrator_recovery import (
-    create_recovery_integration,
     RecoveryAction as OrchestratorRecoveryAction,
-)
-from victor.agent.tool_output_formatter import (
-    ToolOutputFormatterConfig,
-    create_tool_output_formatter,
 )
 
 # Pipeline - configs and results used at runtime
-from victor.agent.tool_pipeline import ToolPipelineConfig, ToolCallResult
+from victor.agent.tool_pipeline import ToolCallResult
 from victor.agent.streaming_controller import (
-    StreamingControllerConfig,
     StreamingSession,
 )
 from victor.agent.task_analyzer import get_task_analyzer
-from victor.agent.tool_registrar import ToolRegistrarConfig
-from victor.agent.provider_manager import ProviderManagerConfig, ProviderState
 
 # Observability
 # from victor.observability.event_bus import EventBus, EventCategory, VictorEvent  # DELETED
 from victor.observability.integration import ObservabilityIntegration
-from victor.agent.orchestrator_integration import IntegrationConfig
 
 # Tool execution - functions and enums
-from victor.agent.tool_selection import get_critical_tools
 from victor.agent.tool_calling import ToolCallParseResult
-from victor.agent.tool_executor import ValidationMode
 from victor.agent.orchestrator_utils import (
     calculate_max_context_chars,
-    infer_git_operation,
-    get_tool_status_message,
 )
 from victor.agent.orchestrator_factory import OrchestratorFactory
-from victor.agent.parallel_executor import create_parallel_executor
-from victor.agent.response_completer import (
-    ToolFailureContext,
-    create_response_completer,
-)
-from victor.observability.analytics.logger import UsageLogger
-from victor.observability.analytics.streaming_metrics import StreamingMetricsCollector
-from victor.storage.cache.tool_cache import ToolCache
-from victor.config.model_capabilities import ToolCallingMatrix
 from victor.config.settings import Settings
-from victor.context.project_context import ProjectContext
 from victor.providers.base import (
     BaseProvider,
     CompletionResponse,
     Message,
     StreamChunk,
-    ToolDefinition,
 )
 from victor.providers.registry import ProviderRegistry
-from victor.core.errors import (
-    ToolNotFoundError,
-    ToolValidationError,
-)
 from victor.tools.enums import CostTier
-from victor.tools.registry import ToolRegistry
-from victor.tools.mcp_bridge_tool import get_mcp_tool_definitions
-from victor.tools.plugin_registry import ToolPluginRegistry
 
 # NOTE: no module-level import of victor.tools.semantic_selector here — it
 # would complete the cycle semantic_selector -> victor.agent (package
@@ -260,31 +150,12 @@ from victor.tools.plugin_registry import ToolPluginRegistry
 # cold-start import orders where numpy is absent (import-guard test,
 # frozen binary). The selector is constructed via the registry instead.
 from victor.tools.tool_names import ToolNames, TOOL_ALIASES
-from victor.tools.alias_resolver import get_alias_resolver
 from victor.tools.progressive_registry import get_progressive_registry
-from victor.workflows.base import WorkflowRegistry
 from victor.workflows.discovery import register_builtin_workflows
 
 # Streaming submodule - extracted for testability
 from victor.agent.streaming import (
-    CoordinatorConfig,
-    ContinuationHandler,
-    ContinuationResult,
-    IntentClassificationHandler,
-    IntentClassificationResult,
-    IterationCoordinator,
     StreamingChatContext,
-    StreamingChatHandler,
-    ToolExecutionHandler,
-    ToolExecutionResult,
-    TrackingState,
-    apply_tracking_state_updates,
-    create_continuation_handler,
-    create_coordinator,
-    create_intent_classification_handler,
-    create_stream_context,
-    create_tool_execution_handler,
-    create_tracking_state,
 )
 
 logger = logging.getLogger(__name__)

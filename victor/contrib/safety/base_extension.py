@@ -51,14 +51,11 @@ from abc import abstractmethod
 from typing import Any, Dict, List, Optional
 
 from victor_contracts.safety import (
-    SafetyAction,
-    SafetyCategory,
     SafetyCoordinator,
     SafetyRule,
 )
 from victor.core.verticals.protocols import SafetyExtensionProtocol, SafetyPattern
 from victor.contrib.safety.safety_context import SafetyContext
-from victor.contrib.safety.vertical_mixin import VerticalSafetyMixin
 
 logger = logging.getLogger(__name__)
 

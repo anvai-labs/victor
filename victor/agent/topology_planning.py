@@ -27,10 +27,6 @@ from typing import Any, Dict, List, Optional
 from victor.agent.perception_integration import Perception
 from victor.agent.topology_contract import TopologyAction
 from victor.agent.topology_grounder import GroundedTopologyPlan
-from victor.agent.topology_telemetry import (
-    build_topology_telemetry_event,
-    emit_topology_telemetry_event,
-)
 
 logger = logging.getLogger(__name__)
 

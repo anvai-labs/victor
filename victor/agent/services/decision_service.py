@@ -29,7 +29,6 @@ from victor.agent.services.protocols.decision_service import (
     DecisionMetrics,
     DecisionResult,
 )
-from victor.core.async_utils import run_sync
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationFeedback
 from victor.core.provider_messages import Message
 

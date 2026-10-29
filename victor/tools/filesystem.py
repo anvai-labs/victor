@@ -19,7 +19,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, Tuple, Union

@@ -21,9 +21,8 @@ changes over time without losing data.
 from victor.core.json_utils import json_loads
 import sqlite3
 import logging
-from typing import Optional, List, Callable
+from typing import Optional, List
 from datetime import datetime
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

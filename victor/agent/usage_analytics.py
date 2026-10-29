@@ -829,7 +829,6 @@ class UsageAnalytics:
         try:
             from victor.agent.services.rl_runtime import get_rl_coordinator
             from victor.framework.rl.base import RLOutcome
-            import json
 
             coord = get_rl_coordinator()
             if repo_id:

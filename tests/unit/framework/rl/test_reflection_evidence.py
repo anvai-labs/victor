@@ -29,11 +29,11 @@ whitespace-only diff on two independent evolution runs.
 from unittest.mock import MagicMock, patch
 
 from victor.framework.rl.gepa_service import GEPAService
-from victor.framework.rl.learners.prompt_optimizer import (
+from victor.framework.rl.learners.prompt_optimizer import ExecutionTrace
+from victor.framework.rl.learners.trace_analysis import (
     MAX_EXEMPLAR_CALLS_PER_TRACE,
     MAX_EXEMPLAR_CHARS,
     MAX_EXEMPLAR_TRACES,
-    ExecutionTrace,
     ToolCallTrace,
     format_failing_exemplars,
 )

@@ -13,13 +13,11 @@ Dead‑letter queue stores unrecoverable records.
 """
 
 import json
-import requests
 import logging
-import os
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from victor.config.settings import VICTOR_DIR_NAME
 

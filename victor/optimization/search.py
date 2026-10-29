@@ -24,12 +24,10 @@ import logging
 import random
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
-from copy import deepcopy
 import math
 
 from victor.optimization.models import (
     OptimizationOpportunity,
-    OptimizationStrategyType,
     WorkflowProfile,
 )
 from victor.optimization.generator import (

@@ -19,7 +19,7 @@ strategy selection based on document type.
 """
 
 import logging
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional
 
 from victor.core.chunking.base import Chunk, ChunkingConfig, ChunkingStrategy
 from victor.core.chunking.detector import detect_document_type
@@ -83,7 +83,6 @@ class ChunkingRegistry:
 
     def _discover_external_strategies(self) -> None:
         """Discover strategies via 'victor.chunking_strategies' entry point."""
-        import logging
 
         try:
             from victor.core.entry_point_registry import get_entry_point_registry

@@ -69,21 +69,14 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import (
-    TYPE_CHECKING,
     Any,
-    Callable,
     Dict,
-    Generic,
     List,
     Optional,
     Protocol,
     TypedDict,
-    Type,
-    TypeVar,
-    Union,
     runtime_checkable,
 )
 
@@ -102,9 +95,6 @@ from victor.framework.events import (
     tool_error_event,
     tool_result_event,
 )
-
-if TYPE_CHECKING:
-    from victor.core.event_sourcing import DomainEvent as CQRSEvent
 
 logger = logging.getLogger(__name__)
 

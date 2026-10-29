@@ -29,9 +29,9 @@ Integration Point:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List
 
-from victor_contracts import SafetyAction, SafetyCategory, SafetyCoordinator, SafetyRule
+from victor_contracts import SafetyAction, SafetyCategory, SafetyRule
 from victor_contracts.verticals import CoordinatorSafetyExtension
 
 logger = logging.getLogger(__name__)

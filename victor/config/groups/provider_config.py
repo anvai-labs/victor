@@ -24,10 +24,9 @@ from pydantic import BaseModel, Field, field_validator
 
 try:
     from pydantic import SecretStr
-    from pydantic_settings import BaseSettings, SettingsConfigDict
+    from pydantic_settings import BaseSettings
 except ImportError:
     from pydantic import BaseSettings
-    from pydantic_settings import SettingsConfigDict
 
 
 def reveal_secret(secret: Optional[SecretStr]) -> Optional[str]:

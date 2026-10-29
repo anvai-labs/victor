@@ -20,7 +20,6 @@ from enum import Enum
 
 if TYPE_CHECKING:
     from victor.agent.conversation.state_machine import ConversationStage
-    from victor.agent.tool_pipeline import ToolCallResult
     from victor.tools.base import CostTier
 
 

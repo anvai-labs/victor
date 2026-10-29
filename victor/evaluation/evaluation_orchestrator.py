@@ -64,9 +64,6 @@ from victor.evaluation.baseline_validator import (
     TestBaseline,
 )
 from victor.evaluation.env_setup import EnvironmentConfig, EnvironmentSetup, SetupResult
-from victor.evaluation.validated_session_truth_emitters import (
-    ValidatedSessionTruthEmitterRegistry,
-)
 from victor.evaluation.services import (
     materialize_validated_session_truth_service,
     ValidatedSessionTruthServiceProtocol,

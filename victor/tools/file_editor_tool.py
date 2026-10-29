@@ -537,7 +537,6 @@ async def edit(
 
     # Allow callers (models) to pass ops as a JSON string; normalize to list[dict]
     if isinstance(ops, str):
-        import json
 
         # NOTE: do not rebind `logger` here — an assignment would make it local to
         # the whole function and break later uses on the non-string path.

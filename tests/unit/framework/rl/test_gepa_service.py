@@ -143,10 +143,8 @@ class TestGEPATierManager:
 class TestGEPAStrategyAdapter:
     def test_format_traces_as_asi_with_details(self):
         from victor.framework.rl.gepa_strategy_adapter import GEPAServiceStrategy
-        from victor.framework.rl.learners.prompt_optimizer import (
-            ExecutionTrace,
-            ToolCallTrace,
-        )
+        from victor.framework.rl.learners.prompt_optimizer import ExecutionTrace
+        from victor.framework.rl.learners.trace_analysis import ToolCallTrace
 
         mock_mgr = MagicMock()
         adapter = GEPAServiceStrategy(mock_mgr)

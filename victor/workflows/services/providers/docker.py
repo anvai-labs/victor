@@ -31,16 +31,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from victor.workflows.services.definition import (
-    PortMapping,
     ServiceConfig,
     ServiceHandle,
     ServiceStartError,
     ServiceState,
-    VolumeMount,
 )
 from victor.workflows.services.providers.base import BaseServiceProvider
 

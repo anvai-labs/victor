@@ -25,7 +25,6 @@ This bridge enables:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from victor.agent.specs.ensemble import (
     Ensemble,
@@ -37,13 +36,9 @@ from victor.agent.specs.ensemble import (
 from victor.agent.specs.models import AgentSpec, ModelPreference
 from victor.workflows.definition import (
     AgentNode,
-    ParallelNode,
     WorkflowBuilder,
     WorkflowDefinition,
 )
-
-if TYPE_CHECKING:
-    from victor.workflows.hitl import HITLNode
 
 logger = logging.getLogger(__name__)
 

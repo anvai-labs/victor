@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from victor.storage.graph.protocol import GraphNode, GraphEdge
+    from victor.storage.graph.protocol import GraphNode
 
 logger = logging.getLogger(__name__)
 

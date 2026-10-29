@@ -1554,7 +1554,6 @@ def load_and_validate(
     from victor.workflows.validation import (
         ToolDependencyValidator,
         ToolValidationResult,
-        validate_workflow_tools,
     )
 
     # Load the workflow(s)

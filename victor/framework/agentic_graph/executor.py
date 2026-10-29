@@ -29,7 +29,6 @@ from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, TYPE_CHECK
 from victor.framework.agentic_graph.state import (
     AgenticLoopStateModel,
     create_initial_state,
-    should_continue_loop,
 )
 from victor.framework.agentic_graph.builder import (
     AgenticLoopDependencies,
@@ -44,7 +43,6 @@ from victor.framework.execution_checkpoint import execution_checkpoint_trace_met
 if TYPE_CHECKING:
     from victor.agent.services.turn_execution_runtime import TurnExecutor
     from victor.framework.graph import CompiledGraph
-    from victor.runtime.context import RuntimeExecutionContext
 
 logger = logging.getLogger(__name__)
 

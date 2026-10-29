@@ -28,7 +28,6 @@ from __future__ import annotations
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import (
-    TYPE_CHECKING,
     Dict,
     List,
     Optional,
@@ -37,9 +36,6 @@ from typing import (
     Tuple,
     runtime_checkable,
 )
-
-if TYPE_CHECKING:
-    from victor_contracts.verticals.tool_dependencies import ToolDependencyConfig
 
 
 @dataclass

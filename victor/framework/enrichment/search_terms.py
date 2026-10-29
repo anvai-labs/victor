@@ -30,7 +30,7 @@ Example:
 
 import logging
 import re
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ _NATIVE_AVAILABLE = False
 _native = None
 
 try:
-    import victor_native as _native
+    import victor_native as _native  # noqa: F401 - availability probe
 
     _NATIVE_AVAILABLE = True
     logger.debug("Native pattern matching available for search term extraction")

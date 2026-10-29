@@ -17,12 +17,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List
 
 from victor.framework.extensions import (
     SafetyAction,
     SafetyCategory,
-    SafetyCoordinator,
     SafetyRule,
 )
 from victor_contracts.verticals import CoordinatorSafetyExtension

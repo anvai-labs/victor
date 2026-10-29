@@ -53,13 +53,9 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from victor.framework.completion_scorer import TaskType
-    from victor.framework.perception_integration import Requirement
 
 
 class CompletionIndicatorType(Enum):

@@ -23,11 +23,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path
-from typing import Any, Optional
-from unittest import mock
-
-import pytest
+from typing import Optional
 
 
 class VerticalTestCase:

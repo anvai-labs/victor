@@ -387,7 +387,6 @@ class CacheEvictionLearner(BaseLearner):
         total_visits = sum(self._visit_counts.get(state_key, {}).values())
 
         # Epsilon-greedy selection
-        import random
 
         if self._rng.random() < self.epsilon:
             action = self._rng.choice(self.ACTIONS)

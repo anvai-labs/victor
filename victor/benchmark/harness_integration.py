@@ -40,11 +40,10 @@ Usage:
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from victor.benchmark.agent import BenchmarkAgent, BenchmarkAgentConfig, ExecutionTrace
+from victor.benchmark.agent import BenchmarkAgent, BenchmarkAgentConfig
 from victor.evaluation.protocol import (
     BenchmarkTask,
     EvaluationConfig,

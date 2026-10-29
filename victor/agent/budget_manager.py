@@ -58,10 +58,8 @@ from typing import Any, Callable, Dict, Optional, Set
 
 from victor.agent.budget import (
     BudgetTracker,
-    BudgetState,
     ModeCompletionChecker,
     ModeCompletionConfig,
-    ModeObjective,
     MultiplierCalculator,
     ToolCallClassifier,
 )

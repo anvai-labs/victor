@@ -12,7 +12,6 @@ owning a parallel implementation.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 
 from victor.core.async_utils import aclosing_if_supported
@@ -20,9 +19,8 @@ from victor.agent.services.tool_selection_runtime import (
     hydrate_demand_tools,
 )
 import re
-from types import SimpleNamespace
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, List, Optional, Protocol, Tuple
+from typing import Any, AsyncIterator, List, Optional, Protocol
 
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
@@ -38,7 +36,6 @@ from victor.agent.services.protocols.streaming_runtime import (
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 from victor.tools.tool_names import get_canonical_name
 from victor.core.completion_markers import (
-    FILE_DONE_MARKER,
     strip_active_completion_markers,
 )
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy

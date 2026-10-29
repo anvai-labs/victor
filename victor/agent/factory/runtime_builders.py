@@ -28,23 +28,18 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from victor.config.settings import Settings
     from victor.providers.base import BaseProvider
     from victor.agent.tool_calling import (
         BaseToolCallingAdapter,
         ToolCallingCapabilities,
     )
-    from victor.agent.response_sanitizer import ResponseSanitizer
     from victor.agent.conversation.controller import ConversationController
-    from victor.agent.tool_pipeline import ToolPipeline
     from victor.agent.streaming_controller import StreamingController
     from victor.agent.context_compactor import ContextCompactor
     from victor.agent.usage_analytics import UsageAnalytics
     from victor.agent.tool_sequence_tracker import ToolSequenceTracker
-    from victor.agent.tool_output_formatter import ToolOutputFormatter
     from victor.agent.metrics_collector import MetricsCollector
     from victor.agent.conversation.store import ConversationStore
-    from victor.observability.analytics.logger import UsageLogger
     from victor.observability.analytics.streaming_metrics import (
         StreamingMetricsCollector,
     )
@@ -53,14 +48,8 @@ if TYPE_CHECKING:
     from victor.agent.conversation.state_machine import ConversationStateMachine
     from victor.agent.streaming.streaming_coordinator import StreamingCoordinator
     from victor.agent.streaming.handler import StreamingChatHandler
-    from victor.agent.services.chat_stream_executor import StreamingChatExecutor
     from victor.agent.lifecycle_manager import LifecycleManager
     from victor.agent.provider_manager import ProviderManager
-    from victor.tools.registry import ToolRegistry
-    from victor.agent.protocols.provider_protocols import (
-        IProviderSwitcher,
-        IProviderHealthMonitor,
-    )
     from victor.agent.services.protocols import ReminderManagerProtocol
 
 logger = logging.getLogger(__name__)
@@ -393,7 +382,6 @@ class RuntimeBuildersMixin:
         from victor.agent.message_history import MessageHistory
         from victor.config.conversation_settings import (
             DEFAULT_MAX_CONVERSATION_HISTORY,
-            DEFAULT_MAX_SESSION_PREFILL_TOKENS,
         )
 
         max_history = getattr(

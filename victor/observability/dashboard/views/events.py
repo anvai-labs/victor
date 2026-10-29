@@ -26,10 +26,10 @@ from typing import Any, Dict, List, Optional, Set
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
-from textual.widgets import DataTable, RichLog, Select, Static, Switch
+from textual.widgets import DataTable, RichLog, Static, Switch
 from textual.reactive import reactive
 
-from victor.core.events import MessagingEvent, ObservabilityBus, get_observability_bus
+from victor.core.events import MessagingEvent
 
 # Color mapping for event categories (topic prefixes)
 CATEGORY_COLORS: Dict[str, str] = {

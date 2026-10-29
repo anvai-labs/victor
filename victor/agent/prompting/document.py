@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, replace
-from typing import Dict, Iterable, Iterator, List, Optional, Protocol, Tuple
+from typing import Iterable, List, Optional, Protocol, Tuple
 
 
 @dataclass

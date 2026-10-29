@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from victor.agent.prompt_section_registry import build_edge_focus_prompt_options_text
 
@@ -415,8 +415,6 @@ def verify_classification_with_edge_llm(
         EdgeLLMVerificationResult with verification outcome
     """
     import time
-
-    from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
 
     start = time.monotonic()
 

@@ -32,7 +32,7 @@ import signal
 import tarfile
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 import weakref
 
 logger = logging.getLogger(__name__)

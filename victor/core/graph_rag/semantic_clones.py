@@ -10,7 +10,7 @@ exact-token tools (jscpd) cannot see. Read-only analysis; surfaced as
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_THRESHOLD = 0.90
 

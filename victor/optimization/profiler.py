@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
 from collections import defaultdict
 from statistics import fmean, median
 

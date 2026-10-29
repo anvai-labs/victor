@@ -51,7 +51,6 @@ from typing import (
     Mapping,
     Optional,
     Protocol,
-    Sequence,
     runtime_checkable,
 )
 
@@ -82,8 +81,6 @@ from victor.teams.workspace_isolation import (
 from victor.teams import delegate_contracts
 from victor.teams.formation_outcome import aggregate_member_results, apply_pause_status
 from victor.teams.worktree_runtime import (
-    MaterializedWorktreeAssignment,
-    WorktreeAssignment,
     WorktreeExecutionPlan,
     WorktreeMaterializationSession,
 )

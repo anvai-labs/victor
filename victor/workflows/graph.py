@@ -15,16 +15,14 @@ These classes implement the protocols defined in victor.workflows.protocols.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from victor.core.graph_algorithms import detect_cycle, find_reachable
 from victor.workflows.protocols import (
-    ProtocolNodeStatus,
     RetryPolicy,
     NodeResult,
     IWorkflowNode,
     IWorkflowEdge,
-    IWorkflowGraph,
 )
 
 # Type alias for router functions with Literal return types for better type safety

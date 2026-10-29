@@ -36,7 +36,6 @@ from victor.agent.specs.models import (
     AgentConstraints,
     ModelPreference,
     OutputFormat,
-    DelegationPolicy,
 )
 
 # =============================================================================

@@ -29,19 +29,15 @@ Design Patterns:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, AsyncIterator, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 from victor.agent.tool_execution.categorization import (
     ToolCategory,
     ToolCallSpec,
-    ExecutionPriority,
     extract_files_from_args,
-    categorize_tool_call,
 )
 
 logger = logging.getLogger(__name__)

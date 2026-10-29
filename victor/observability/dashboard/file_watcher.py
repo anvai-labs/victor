@@ -17,7 +17,7 @@ from typing import Optional
 from textual import work
 from textual.widgets import Static
 
-from victor.core.events import MessagingEvent, ObservabilityBus, get_observability_bus
+from victor.core.events import MessagingEvent, get_observability_bus
 
 logger = logging.getLogger(__name__)
 

@@ -46,7 +46,6 @@ from typing import (
     Protocol,
     Tuple,
     List,
-    Optional,
     Any,
     runtime_checkable,
     TYPE_CHECKING,

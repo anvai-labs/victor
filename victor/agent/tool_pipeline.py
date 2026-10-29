@@ -31,24 +31,21 @@ Design Principles:
 from __future__ import annotations
 
 import asyncio
-import ast
 from victor.core.json_utils import json_dumps, json_loads
 import logging
 import os
 from pathlib import Path
 import re
-import threading
 import time
 import traceback
 from uuid import uuid4
-from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, TYPE_CHECKING, Union
 
 from victor.agent.argument_normalizer import ArgumentNormalizer, NormalizationStrategy
 from victor.agent.middleware_chain import _validate_before_result
 from victor.agent.tool_executor import ToolExecutor, ToolExecutionResult
-from victor.agent.tool_pipeline_utils import LRUToolCache, ToolRateLimiter
+from victor.agent.tool_pipeline_utils import LRUToolCache
 from victor.agent.tool_retry_safety import (
     allows_tool_retry,
     blocks_tool_retry,

@@ -75,7 +75,7 @@ import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -100,8 +100,8 @@ def _detect_best_backend() -> "RenderBackend":
     if _check_command("d2"):
         return RenderBackend.D2
     try:
-        import matplotlib
-        import networkx
+        import matplotlib  # noqa: F401 - availability probe
+        import networkx  # noqa: F401 - availability probe
 
         return RenderBackend.MATPLOTLIB
     except ImportError:
@@ -259,7 +259,6 @@ class WorkflowVisualizer:
             ComputeNode,
             ConditionNode,
             ParallelNode,
-            TransformNode,
         )
 
         # Try to import HITLNode for enhanced metadata
@@ -1168,8 +1167,8 @@ def get_available_backends() -> Dict[str, bool]:
 def _has_matplotlib() -> bool:
     """Check if matplotlib is available."""
     try:
-        import matplotlib
-        import networkx
+        import matplotlib  # noqa: F401 - availability probe
+        import networkx  # noqa: F401 - availability probe
 
         return True
     except ImportError:

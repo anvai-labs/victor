@@ -10,7 +10,8 @@ detail, the distilled scaffold must reflect that trace's real trajectory, not
 a fixed template.
 """
 
-from victor.framework.rl.learners.prompt_optimizer import ExecutionTrace, ToolCallTrace
+from victor.framework.rl.learners.prompt_optimizer import ExecutionTrace
+from victor.framework.rl.learners.trace_analysis import ToolCallTrace
 from victor.framework.rl.learners.strategies.cot_distillation_strategy import (
     CoTDistillationStrategy,
 )

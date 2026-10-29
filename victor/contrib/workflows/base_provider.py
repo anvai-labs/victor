@@ -147,7 +147,6 @@ class BaseWorkflowProvider:
             Dict mapping workflow names to workflow definitions
         """
         import glob
-        import os
 
         loaded = {}
         pattern = self.get_workflow_file_pattern()

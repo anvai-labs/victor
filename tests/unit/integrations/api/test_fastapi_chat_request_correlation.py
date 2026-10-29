@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 
 from victor.framework.session_config import SessionConfig
 from victor.integrations.api import fastapi_server
-from victor.integrations.api.event_bridge import BridgeEvent, BridgeEventType
+from victor.integrations.api.event_bridge import BridgeEvent, BridgeEventType, EventBroadcaster
 from victor.observability.request_correlation import get_request_correlation_id
 
 
@@ -93,7 +93,7 @@ async def test_recent_events_endpoint_filters_by_correlation_id(
 ) -> None:
     """Recent-event snapshots should return only matching request timeline events."""
     server = _create_server(monkeypatch, tmp_path, _FakeOrchestrator())
-    broadcaster = fastapi_server.EventBroadcaster()
+    broadcaster = EventBroadcaster()
     broadcaster._recent_events.clear()
     broadcaster.broadcast_sync(
         BridgeEvent(

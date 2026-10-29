@@ -53,7 +53,7 @@ from typing import (
 # Import types from victor.teams.types (canonical location for types)
 # Moved to TYPE_CHECKING to avoid circular import with victor.agent.teams.coordinator
 if TYPE_CHECKING:
-    from victor.teams.types import AgentMessage, MemberResult, TeamFormation, TeamResult
+    from victor.teams.types import AgentMessage, TeamFormation
 
 
 @runtime_checkable

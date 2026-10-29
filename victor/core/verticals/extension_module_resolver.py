@@ -32,7 +32,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import logging
-from typing import Any, List, Optional
+from typing import Any, List
 
 from victor.core.verticals.import_resolver import vertical_runtime_module_candidates
 

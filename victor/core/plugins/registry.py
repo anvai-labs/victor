@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import threading
 from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
 
 from victor.core.aot_manifest import AOTManifestManager

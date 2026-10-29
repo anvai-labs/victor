@@ -67,11 +67,8 @@ Example usage:
 
 from __future__ import annotations
 
-from victor.core.json_utils import json_loads
-from json import JSONDecodeError
 import logging
 import time
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, runtime_checkable
 
@@ -1372,7 +1369,6 @@ class MiddlewareComposer:
         Returns:
             Self for method chaining
         """
-        from victor.core.vertical_types import MiddlewarePriority
 
         # Import here to avoid circular import
         git_middleware = GitSafetyMiddleware(

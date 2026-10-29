@@ -27,22 +27,20 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from victor.config.settings import get_settings
-from victor.core.events import MessagingEvent, ObservabilityBus, get_observability_bus
+from victor.core.events import MessagingEvent, get_observability_bus
 from victor.ui.tui.wire_timeline import WireTimeline, parse_wire_line
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+from textual.containers import ScrollableContainer
 from textual.widgets import (
     DataTable,
     Footer,
     Header,
-    Label,
     Static,
     TabbedContent,
     TabPane,

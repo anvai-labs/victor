@@ -24,7 +24,7 @@ import asyncio
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from victor.config.tool_selection_defaults import ToolPipelineDefaults
 

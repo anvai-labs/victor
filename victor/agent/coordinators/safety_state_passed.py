@@ -11,7 +11,7 @@ making it an ideal candidate for state-passed migration.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from victor_contracts.safety import (
     SafetyAction,
@@ -23,7 +23,6 @@ from victor.agent.coordinators.state_context import (
     CoordinatorResult,
     ContextSnapshot,
     TransitionBatch,
-    TransitionType,
 )
 
 logger = logging.getLogger(__name__)

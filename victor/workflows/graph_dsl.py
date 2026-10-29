@@ -113,7 +113,6 @@ from typing import (
     Type,
     TypeVar,
     Union,
-    cast,
     runtime_checkable,
 )
 

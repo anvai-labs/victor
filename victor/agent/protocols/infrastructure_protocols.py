@@ -8,7 +8,6 @@ from typing import (
     List,
     Optional,
     Protocol,
-    Set,
     Tuple,
     runtime_checkable,
 )

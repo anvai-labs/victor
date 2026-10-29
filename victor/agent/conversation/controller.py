@@ -763,7 +763,6 @@ class ConversationController:
 
         # DEBUG: trace source of msgs_to_score
         if msgs_to_score:
-            import traceback as _tb
 
             sample_types = [type(m).__name__ for m in msgs_to_score[:5]]
             history_id = id(self._history) if hasattr(self, "_history") else "N/A"

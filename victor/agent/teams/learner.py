@@ -31,11 +31,9 @@ from __future__ import annotations
 from victor.core.json_utils import json_dumps, json_loads
 import logging
 import random
-import sqlite3
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from victor.agent.subagents import SubAgentRole
 
@@ -44,7 +42,6 @@ from victor.teams.types import TeamAgentCategory, TeamConfig, TeamFormation, Tea
 from victor.agent.teams.metrics import (
     TaskCategory,
     TeamMetrics,
-    CompositionStats,
     categorize_task,
 )
 from victor.core.database import get_database

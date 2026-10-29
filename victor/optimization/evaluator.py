@@ -26,12 +26,10 @@ from dataclasses import dataclass
 from enum import Enum
 
 from victor.optimization.models import (
-    NodeStatistics,
     WorkflowProfile,
 )
 from victor.optimization.generator import (
     WorkflowVariant,
-    WorkflowVariantGenerator,
 )
 
 logger = logging.getLogger(__name__)

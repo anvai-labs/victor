@@ -103,8 +103,6 @@ class CommandResult:
 # Commands that should never be executed
 # Consolidated dangerous command detection — single source of truth.
 from victor.security.command_safety import (  # noqa: E402
-    DANGEROUS_COMMANDS,
-    DANGEROUS_PATTERNS,
     is_dangerous_command,
 )
 

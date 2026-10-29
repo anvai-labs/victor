@@ -42,7 +42,7 @@ from __future__ import annotations
 from victor.core.json_utils import json_dumps
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
 

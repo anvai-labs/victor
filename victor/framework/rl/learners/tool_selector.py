@@ -369,7 +369,6 @@ class ToolSelectorLearner(BaseLearner):
         Returns:
             True if should explore, False if should exploit
         """
-        import random
 
         return self._rng.random() < self.epsilon
 

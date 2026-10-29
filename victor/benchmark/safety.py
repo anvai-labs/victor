@@ -32,7 +32,6 @@ from typing import List, Optional
 from victor.contrib.safety import BaseSafetyExtension, VerticalSafetyMixin
 from victor_contracts.safety import (
     SafetyRule,
-    SafetyAction,
     SafetyCategory,
 )
 

@@ -20,7 +20,7 @@ rather than concrete implementations.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from victor.framework.ingestion.models import Chunk, ChunkingConfig, SourceContent
 

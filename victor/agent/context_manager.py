@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import logging
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional, TYPE_CHECKING
 
 from victor.core.provider_messages import StreamChunk

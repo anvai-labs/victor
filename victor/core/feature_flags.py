@@ -59,7 +59,7 @@ import threading
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from victor.core.yaml_utils import safe_load as yaml_safe_load
 

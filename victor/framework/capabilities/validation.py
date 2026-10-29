@@ -43,12 +43,11 @@ from __future__ import annotations
 
 from victor.core.json_utils import json_loads
 from json import JSONDecodeError
-import os
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Type
 
 # FEP-0014 Phase 2a: re-export the canonical severity instead of redefining it.
 from victor.core.validation import ValidationSeverity
@@ -332,7 +331,6 @@ class CodeSyntaxValidator(Validator):
     def _validate_json(self, code: str) -> CapabilityValidationResult:
         """Validate JSON syntax."""
         try:
-            import json
 
             json_loads(code)
             return CapabilityValidationResult.success()

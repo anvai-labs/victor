@@ -48,9 +48,9 @@ Note:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
 # Import framework types for base functionality
 from victor_contracts import (
@@ -59,7 +59,7 @@ from victor_contracts import (
     PersonaTemplate,
     PersonaTraits as FrameworkPersonaTraits,
 )
-from victor_contracts import PersonaRegistryProtocol, get_default_persona_registry
+from victor_contracts import PersonaRegistryProtocol
 from victor_contracts.verticals import (
     RegistrationPolicy,
     ScaleRule,

@@ -42,10 +42,9 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 from victor.core.tool_types import ToolDependency
-from victor.core.vertical_types import MiddlewarePriority, MiddlewareResult
 
 
 @dataclass

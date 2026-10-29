@@ -43,15 +43,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-import warnings
 from dataclasses import dataclass, field
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     List,
     Optional,
-    Union,
 )
 
 from victor.core.async_utils import run_sync

@@ -33,7 +33,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 # Mode-aware mixin for consistent mode controller access
 from victor.protocols.mode_aware import ModeAwareMixin
@@ -57,86 +57,8 @@ if TYPE_CHECKING:
     from victor.agent.task_complexity import TaskComplexityService as ComplexityClassifier
     from victor.agent.action_authorizer import ActionAuthorizer
     from victor.agent.search_router import SearchRouter
-    from victor.agent.metrics_collector import MetricsCollector
-    from victor.agent.conversation.controller import ConversationController
-    from victor.agent.tool_pipeline import ToolPipeline
-    from victor.agent.streaming_controller import StreamingController
-    from victor.agent.context_compactor import ContextCompactor
-    from victor.agent.usage_analytics import UsageAnalytics
-    from victor.agent.tool_sequence_tracker import ToolSequenceTracker
-    from victor.agent.tool_output_formatter import ToolOutputFormatter
-    from victor.agent.recovery import RecoveryHandler
-    from victor.observability.integration import ObservabilityIntegration
 
     # Additional types for method signatures
-    from victor.tools.registry import ToolRegistry
-    from victor.agent.tool_executor import ToolExecutor
-    from victor.agent.tool_registrar import ToolRegistrar
-    from victor.agent.conversation.store import ConversationStore
-    from victor.observability.analytics.logger import UsageLogger  # noqa: F811
-    from victor.observability.analytics.streaming_metrics import (
-        StreamingMetricsCollector,
-    )
-    from victor.agent.middleware_chain import MiddlewareChain
-    from victor.agent.parallel_executor import ParallelToolExecutor
-    from victor.agent.response_completer import ResponseCompleter
-    from victor.agent.unified_task_tracker import UnifiedTaskTracker
-    from victor.agent.orchestrator_recovery import OrchestratorRecoveryIntegration
-    from victor.agent.orchestrator_integration import IntegrationConfig
-    from victor.agent.message_history import MessageHistory
-    from victor.agent.tool_selection import ToolSelector
-    from victor.storage.embeddings.intent_classifier import IntentClassifier
-    from victor.agent.debug_logger import DebugLogger
-    from victor.agent.tool_access_controller import ToolAccessController
-    from victor.agent.session_ledger import SessionLedger
-    from victor.agent.compaction_summarizer import LedgerAwareCompactionSummarizer
-    from victor.agent.tool_result_deduplicator import ToolResultDeduplicator
-    from victor.agent.conversation.assembler import TurnBoundaryContextAssembler
-    from victor.agent.streaming.streaming_coordinator import StreamingCoordinator
-    from victor.agent.streaming.handler import StreamingChatHandler
-    from victor.agent.services.chat_stream_executor import StreamingChatExecutor
-    from victor.agent.lifecycle_manager import LifecycleManager
-    from victor.agent.tool_call_tracker import (
-        ToolCallTracker as ToolDeduplicationTracker,
-    )
-    from victor.agent.provider_manager import ProviderManager
-    from victor.agent.presentation.protocols import PresentationProtocol
-    from victor.tools.plugin_registry import ToolPluginRegistry
-    from victor.tools.semantic_selector import SemanticToolSelector
-    from victor.storage.cache.tool_cache import ToolCache
-    from victor.storage.checkpoints import ConversationCheckpointManager
-    from victor.observability.tracing import ExecutionTracer, ToolCallTracer
-    from victor.config.model_capabilities import ToolCallingMatrix
-    from victor.agent.argument_normalizer import ArgumentNormalizer
-    from victor.agent.conversation.state_machine import ConversationStateMachine
-    from victor.agent.protocols.tool_protocols import ToolDependencyGraphProtocol
-    from victor.agent.protocols.infrastructure_protocols import (
-        SafetyCheckerProtocol,
-        AutoCommitterProtocol,
-        TaskTrackerProtocol,
-        CodeExecutionManagerProtocol,
-        WorkflowRegistryProtocol,
-        ArgumentNormalizerProtocol,
-        DebugLoggerProtocol,
-    )
-    from victor.agent.services.protocols import (
-        ChunkRuntimeProtocol as ChunkGeneratorProto,
-        ReminderManagerProtocol,
-        RLLearningRuntimeProtocol as RLCoordinatorProtocol,
-        ResponseSanitizerProtocol,
-        StreamingMetricsCollectorProtocol,
-        StreamingRecoveryRuntimeProtocol as StreamingRecoveryCoordinatorProto,
-        TaskRuntimeProtocol as TaskCoordinatorProtocol,
-        ToolPlanningRuntimeProtocol as ToolPlannerProtocol,
-    )
-    from victor.agent.protocols.budget_protocols import (
-        IBudgetManager,
-        IModeCompletionChecker,
-    )
-    from victor.agent.protocols.provider_protocols import (
-        IProviderSwitcher,
-        IProviderHealthMonitor,
-    )
 
 logger = logging.getLogger(__name__)
 

@@ -11,9 +11,9 @@ New code should import directly from this module.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol
+from typing import TYPE_CHECKING, Dict, List, Optional, Protocol
 
-from victor_contracts.workflows import ExecutorNodeStatus, NodeResult
+from victor_contracts.workflows import NodeResult
 
 # Prefix identifying chain handlers in YAML workflow references
 # ("chain:<vertical>:<name>"). Canonical home; victor.workflows.executor

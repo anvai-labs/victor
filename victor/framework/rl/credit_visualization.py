@@ -35,7 +35,6 @@ from typing import Any, Dict, List, Optional, Union
 from victor.framework.rl.credit_assignment import (
     CreditSignal,
     ActionMetadata,
-    CreditGranularity,
     CreditMethodology,
 )
 

@@ -39,7 +39,7 @@ Example usage:
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional, Pattern, Tuple
+from typing import TYPE_CHECKING, Dict, List, Pattern, Tuple
 
 if TYPE_CHECKING:
     from victor.core.severity import SeverityLevel

@@ -22,14 +22,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import hmac
 import logging
-import os
 import secrets
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from functools import lru_cache, wraps
+from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from aiohttp import web

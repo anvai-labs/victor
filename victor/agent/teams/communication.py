@@ -51,7 +51,6 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
@@ -59,7 +58,7 @@ if TYPE_CHECKING:
     from victor.agent.presentation import PresentationProtocol
 
 # Import canonical types from victor.teams.types
-from victor.teams.types import MessageType, AgentMessage as CanonicalAgentMessage
+from victor.teams.types import MessageType
 
 logger = logging.getLogger(__name__)
 

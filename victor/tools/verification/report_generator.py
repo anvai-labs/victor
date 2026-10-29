@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from rich.console import Console
 from rich.table import Table
@@ -34,13 +34,11 @@ from victor.tools.verification import (
     ClaimIssue,
     ClaimVerifier,
     DocumentationCrossReference,
-    EnhancedClaimResult,
     FalsePositiveDetector,
     SeverityLevel,
     SeverityWeighting,
     TemporalContextAnalyzer,
     TemporalNature,
-    VerificationContext,
 )
 
 console = Console()

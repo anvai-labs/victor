@@ -26,9 +26,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from textual.app import ComposeResult
-from textual.containers import Container, ScrollableContainer
+from textual.containers import Container
 from textual.widgets import DataTable, RichLog, Static
-from textual.reactive import reactive
 
 from victor.core.events import MessagingEvent
 

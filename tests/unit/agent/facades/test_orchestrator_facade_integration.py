@@ -56,10 +56,7 @@ def orchestrator_settings():
 @pytest.fixture
 def orchestrator(mock_provider, orchestrator_settings):
     """Create an orchestrator for testing."""
-    with (
-        patch("victor.agent.orchestrator.UsageLogger"),
-        patch("victor.core.bootstrap_services.bootstrap_new_services"),
-    ):
+    with (patch("victor.core.bootstrap_services.bootstrap_new_services"),):
         return AgentOrchestrator(
             settings=orchestrator_settings,
             provider=mock_provider,

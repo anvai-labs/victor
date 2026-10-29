@@ -11,10 +11,9 @@ repeated index lookups and tool filtering operations.
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
+from typing import Any, Callable, Dict, Optional, Set, TypeVar
 import logging
 import hashlib
-import json
 
 logger = logging.getLogger(__name__)
 

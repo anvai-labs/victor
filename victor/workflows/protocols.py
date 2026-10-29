@@ -15,7 +15,6 @@ Protocols defined:
 - IWorkflowValidator: Interface for validating workflow definitions (DIP compliant)
 """
 
-from abc import abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import (

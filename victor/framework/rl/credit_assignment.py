@@ -72,7 +72,6 @@ from typing import (
 logger = logging.getLogger(__name__)
 
 # Import RL types
-from victor.framework.rl.base import RLOutcome
 
 if TYPE_CHECKING:
     try:

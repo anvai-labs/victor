@@ -27,7 +27,7 @@ Performance:
 import logging
 import re
 from enum import Enum
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Tuple
 
 logger = logging.getLogger(__name__)
 

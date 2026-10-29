@@ -27,8 +27,7 @@ Test cases:
 
 import pytest
 from dataclasses import dataclass
-from typing import Literal, Optional
-from unittest.mock import MagicMock, patch
+from typing import Literal
 
 
 # Test isolation configuration

@@ -29,13 +29,6 @@ Design Principles:
 
 from __future__ import annotations
 
-import uuid
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
-
-from victor.agent.subagents.base import SubAgentRole
-
 # Import canonical team types from victor.teams.types
 from victor.teams.types import (
     TeamFormation,
@@ -46,10 +39,6 @@ from victor.teams.types import (
     MemberResult,
     TeamResult,
 )
-
-if TYPE_CHECKING:
-    from victor.agent.protocols import UnifiedMemoryCoordinatorProtocol
-
 
 __all__ = [
     "MemoryConfig",

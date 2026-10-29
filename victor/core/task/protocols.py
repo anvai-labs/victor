@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Protocol, runtime_checkable
+from typing import List, Protocol, runtime_checkable
 
 
 class TaskComplexity(Enum):

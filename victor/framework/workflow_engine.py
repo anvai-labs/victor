@@ -82,7 +82,7 @@ from typing import (
 from enum import Enum
 
 if TYPE_CHECKING:
-    from victor.framework.graph import CompiledGraph, StateGraph
+    from victor.framework.graph import CompiledGraph
     from victor.framework.coordinators import (
         YAMLWorkflowCoordinator,
         GraphTurnExecutor,
@@ -93,8 +93,6 @@ if TYPE_CHECKING:
         IStreamingExecutor,
         IWorkflowExecutor,
     )
-    from victor.workflows.context import WorkflowResult
-    from victor.workflows.streaming import WorkflowStreamChunk
     from victor.workflows.hitl import HITLHandler, HITLExecutor
     from victor.workflows.cache import WorkflowCacheManager
     from victor.workflows.definition import WorkflowDefinition

@@ -22,7 +22,7 @@ from various sources (YAML, JSON, database, etc.).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
 class WorkflowCompilerPlugin(ABC):
