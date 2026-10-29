@@ -2885,6 +2885,20 @@ class ToolPipeline:
                 retryable=False,
             )
 
+        # Session authorization applies to the provider-requested tool as well
+        # as any routed/steered implementation. Normalization must not admit an
+        # out-of-scope request by changing it into a different permitted tool.
+        if not self._tool_is_enabled(tool_name):
+            return _build_skip_result(
+                tool_name=tool_name,
+                arguments=raw_args if isinstance(raw_args, dict) else {},
+                success=False,
+                skip_reason=f"Unknown or disabled tool: {tool_name}",
+                outcome_kind="tool_unavailable",
+                block_source="tool_registry",
+                retryable=False,
+            )
+
         # Check if tool exists
         tool_name, normalized_args, strategy = self._normalize_tool_call(
             tool_name, raw_args, context=context

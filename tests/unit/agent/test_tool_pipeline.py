@@ -1023,6 +1023,40 @@ async def test_batch_publication_rechecks_earlier_results_after_later_awaits(pip
     assert result.results[1].success
 
 
+async def test_denied_requested_search_cannot_route_into_an_allowed_tool(pipeline):
+    from types import SimpleNamespace
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
+
+    policy = ToolAccessPolicy(
+        get_registrar=lambda: pipeline.tools,
+        get_selector=lambda: None,
+        logger=logging.getLogger(__name__),
+    )
+    policy.set_enabled_tools({"graph"})
+    pipeline.bind_session_tool_policy(policy)
+    pipeline.search_router = SimpleNamespace(
+        route=MagicMock(
+            return_value=SimpleNamespace(
+                tool_name="graph", tool_arguments={"operation": "callers", "symbol": "fixture"}
+            )
+        )
+    )
+    result = await pipeline._execute_single_call(
+        {"name": "code_search", "arguments": {"query": "callers of fixture"}}, {}
+    )
+    assert not result.success
+    assert result.skipped
+    pipeline.search_router.route.assert_not_called()
+    pipeline.executor.execute.assert_not_awaited()
+    policy.set_enabled_tools({"code_search", "graph"})
+    allowed = await pipeline._execute_single_call(
+        {"name": "code_search", "arguments": {"query": "callers of fixture"}}, {}
+    )
+    assert allowed.success
+    pipeline.search_router.route.assert_called_once()
+    pipeline.executor.execute.assert_awaited_once()
+
+
 @pytest.mark.parametrize("source", ["execution", "cache", "cross_turn", "semantic", "retry_cache"])
 async def test_result_policy_guards_publication_and_cached_returns(pipeline, source, caplog):
     from types import SimpleNamespace

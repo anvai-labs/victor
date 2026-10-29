@@ -105,6 +105,14 @@ edit. A mock test is not live provider or C5 evidence.
   affected tests pass. The second broader run was interrupted for this repair;
   neither partial run is qualification. Final source review precedes the next
   full local/CI run to avoid validating superseded candidates.
+  Third full-source review (`7e02cbcb33a9b046fd4ca1d0160820cbc0f258fc`)
+  identifies an out-of-scope `code_search` request routed to permitted `graph`.
+  RED reproduces that path; the pipeline now checks the requested normalized
+  name before argument/search routing and still checks the routed implementation.
+  The regression also permits routing when both names are enabled. All 396
+  affected tests pass, including the existing search-router suite. RepoReel #154
+  is merged with its corpus/brief contract and 502 tests, independently of this
+  unmerged upstream candidate. Next: final review, then consolidated full checks.
 
 - **SDK-STARTUP-01 — MERGED**, [#1591](https://github.com/anvai-labs/victor/pull/1591) (2026-10-29), owner: RepoReel integration session;
   branch `fix/sdk-research-startup-settings`, baseline
