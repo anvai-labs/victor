@@ -398,7 +398,6 @@ async def _impact_async(
     Returns:
         True if successful
     """
-    from victor.storage.graph.edge_types import EdgeType
 
     root_path = Path(path).resolve()
 
@@ -473,23 +472,21 @@ async def _resolve_target(target: str, graph_store) -> Optional[str]:
     and when even that leaves multiple candidates, prints them so the user
     can disambiguate with the file:line form instead of a bare refusal.
     """
-    from victor.storage.graph.edge_types import EdgeType
+    from victor.core.graph_rag.target_resolution import innermost_node
 
     exact = await graph_store.get_node_by_id(target)
     if exact is not None:
         return exact.node_id
 
-    # Check if file:line format
     if ":" in target:
         file_path, line_str = target.rsplit(":", 1)
         try:
             line = int(line_str)
-            nodes = await graph_store.get_nodes_by_file(file_path)
-            for node in nodes:
-                if node.line and node.line <= line <= (node.end_line or line):
-                    return node.node_id
         except ValueError:
-            pass
+            pass  # A qualified symbol name may itself contain a colon.
+        else:
+            nodes = await graph_store.get_nodes_by_file(file_path)
+            return innermost_node(nodes, line)
 
     # Search by name
     nodes = await graph_store.find_nodes(name=target)

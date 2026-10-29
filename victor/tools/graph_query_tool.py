@@ -518,18 +518,21 @@ async def _resolve_target(
     Returns:
         Node ID or None if not found
     """
-    # Check if it's file:line format
+    from victor.core.graph_rag.target_resolution import innermost_node
+
+    exact = await graph_store.get_node_by_id(target)
+    if exact is not None:
+        return exact.node_id
+
     if ":" in target:
         file_path, line_str = target.rsplit(":", 1)
         try:
             line = int(line_str)
-            # Find nodes at this location
-            nodes = await graph_store.get_nodes_by_file(file_path)
-            for node in nodes:
-                if node.line and node.line <= line <= (node.end_line or line):
-                    return node.node_id
         except ValueError:
-            pass
+            pass  # A qualified symbol name may itself contain a colon.
+        else:
+            nodes = await graph_store.get_nodes_by_file(file_path)
+            return innermost_node(nodes, line)
 
     # Search by name
     nodes = await graph_store.find_nodes(name=target)
