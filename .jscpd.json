@@ -1,14 +1,30 @@
 {
   "//": "Duplication-ratchet scan config (scripts/ci/duplication_ratchet.py + CI job 'duplication-ratchet'). Code formats only; generated protobuf bindings and vendored/build trees are excluded. jscpd auto-discovers this file from the repo root, so local runs and the CI ratchet measure the SAME corpus. The pinned jscpd version lives in scripts/ci/duplication_baseline.json (tokenization must not drift between runs).",
-  "path": ["victor", "verticals", "vscode-victor/src"],
-  "format": ["python", "typescript", "tsx", "javascript", "jsx"],
+  "path": [
+    "victor",
+    "verticals",
+    "vscode-victor/src",
+    "rust/crates",
+    "victor-contracts",
+    "victor-codegraph"
+  ],
+  "format": [
+    "python",
+    "typescript",
+    "tsx",
+    "javascript",
+    "jsx",
+    "rust"
+  ],
   "ignore": [
     "**/.venv/**",
     "**/node_modules/**",
     "**/dist/**",
     "**/build/**",
     "**/*_pb2.py",
-    "victor/core/graph_rag/_scip/**"
+    "victor/core/graph_rag/_scip/**",
+    "rust/target/**",
+    "victor-codegraph/**/.venv/**"
   ],
   "minTokens": 70,
   "minLines": 8
