@@ -174,6 +174,37 @@ def test_mixed_build_roots_keep_required_bazel_aspect_input(tmp_path, monkeypatc
     assert f"--bazel-scip-java-binary={Path(tool).resolve()}" in captured[0]
 
 
+def test_bazel_relative_binary_uses_subprocess_root_not_caller_directory(tmp_path, monkeypatch):
+    captured = []
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "MODULE.bazel").touch()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "victor.core.graph_rag.precise_providers._run_dump",
+        lambda cmd, **kwargs: captured.append(cmd),
+    )
+    JV.dump("bin/scip-java", root, root / "out.scip", timeout_seconds=1)
+    assert captured[0][0] == "bin/scip-java"
+    assert f"--bazel-scip-java-binary={root / 'bin/scip-java'}" in captured[0]
+    assert f"--bazel-scip-java-binary={tmp_path / 'bin/scip-java'}" not in captured[0]
+
+
+def test_bazel_bare_binary_matches_path_lookup(tmp_path, monkeypatch):
+    captured = []
+    (tmp_path / "MODULE.bazel").touch()
+    selected = tmp_path / "tools/scip-java"
+    monkeypatch.setattr(
+        "victor.core.graph_rag.precise_providers.shutil.which", lambda _: str(selected)
+    )
+    monkeypatch.setattr(
+        "victor.core.graph_rag.precise_providers._run_dump",
+        lambda cmd, **kwargs: captured.append(cmd),
+    )
+    JV.dump("scip-java", tmp_path, tmp_path / "out.scip", timeout_seconds=1)
+    assert f"--bazel-scip-java-binary={selected}" in captured[0]
+
+
 @pytest.mark.parametrize("marker", ["build.sbt", "MILL_VERSION", "build.xml"])
 def test_unsupported_builds_skip_before_execution(tmp_path, monkeypatch, marker):
     def no_execution(*args, **kwargs):

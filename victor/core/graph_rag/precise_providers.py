@@ -658,7 +658,13 @@ class ScipJavaProvider:
             # Modern Bazel roots can have MODULE.bazel without WORKSPACE.
             # Supply its required aspect input even in mixed-build roots; the
             # indexer's Gradle/Maven integrations ignore this Bazel-only option.
-            command.append(f"--bazel-scip-java-binary={Path(tool).resolve()}")
+            executable = Path(tool)
+            if not executable.is_absolute():
+                # Relative argv containing a slash is resolved by subprocess
+                # against cwd=root. Bare executable names instead search PATH.
+                discovered = shutil.which(tool) if executable.parent == Path(".") else None
+                executable = Path(discovered) if discovered else root / executable
+            command.append(f"--bazel-scip-java-binary={executable.resolve()}")
         return _run_dump(
             command,
             cwd=root,
