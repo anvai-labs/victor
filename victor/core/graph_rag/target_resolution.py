@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 
-from victor.storage.graph.protocol import GraphNode
+from victor.storage.graph.protocol import GraphNode, GraphStoreProtocol
 
 
 def innermost_node(nodes: Iterable[GraphNode], line: int) -> str | None:
@@ -27,3 +27,26 @@ def innermost_node(nodes: Iterable[GraphNode], line: int) -> str | None:
     smallest = min(matches.values())
     winners = [identifier for identifier, size in matches.items() if size == smallest]
     return winners[0] if len(winners) == 1 else None
+
+
+async def resolve_explicit_target(
+    target: str, graph_store: GraphStoreProtocol
+) -> tuple[bool, str | None]:
+    """Resolve IDs/locations once; leave each caller's named-target policy intact.
+
+    The boolean distinguishes a handled but unavailable/ambiguous location from
+    a name. A failed location lookup must not fall through to unrelated names.
+    """
+    exact = await graph_store.get_node_by_id(target)
+    if exact is not None:
+        return True, exact.node_id
+    if ":" in target:
+        file_path, line_str = target.rsplit(":", 1)
+        try:
+            line = int(line_str)
+        except ValueError:
+            pass  # A qualified symbol name may itself contain a colon.
+        else:
+            nodes = await graph_store.get_nodes_by_file(file_path)
+            return True, innermost_node(nodes, line)
+    return False, None
