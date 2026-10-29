@@ -568,22 +568,11 @@ jobs:
           printf '%s\n' "$CHANGED" | python scripts/ci/select_changed_tests.py --stdin \
             --base "$BASE_SHA" --import-only-out "$import_only_file" > "$target_file"
           # Sources whose diff only removes imports need no mirror test, but a removed
-          # import that something still needed must fail here: import every one of them.
+          # import that something still needed must fail here: import every one of them
+          # (failures already present at the merge-base are reported, not fatal).
           mapfile -t IMPORT_ONLY < "$import_only_file"
           if [ ${#IMPORT_ONLY[@]} -gt 0 ]; then
-            echo "Import-smoking ${#IMPORT_ONLY[@]} import-only source change(s)"
-            printf '%s\n' "${IMPORT_ONLY[@]}" | python -c '
-          import importlib, sys
-          failed = []
-          for path in sys.stdin.read().split():
-              module = path[:-3].replace("/", ".").removesuffix(".__init__")
-              try:
-                  importlib.import_module(module)
-              except Exception as exc:
-                  failed.append(f"{module}: {type(exc).__name__}: {exc}")
-          print("\n".join(failed))
-          sys.exit(1 if failed else 0)
-          '
+            printf '%s\n' "${IMPORT_ONLY[@]}" | python scripts/ci/import_smoke.py --base "$BASE_SHA"
           fi
           mapfile -t TARGETS < "$target_file"
           if [ ${#TARGETS[@]} -eq 0 ]; then
