@@ -608,12 +608,10 @@ class ScipClangProvider:
 
 
 class ScipJavaProvider:
-    """``scip-java`` (JVM) — Java on maven/gradle/sbt projects.
+    """``scip-java`` — Java on Gradle/Maven, or explicitly configured Bazel.
 
-    Scala rides the same toolchain (scip-java instruments scalac through the
-    JVM) once its grammar is captured against a real sbt dump; until then
-    the language set stays Java-only rather than shipping an unverified
-    parser.
+    Current 0.13.x releases support Java 17/21/25, not Scala/sbt or Mill.
+    Bazel requires the absolute indexer path for its compiler aspect.
     """
 
     name = "scip-java"
@@ -622,16 +620,20 @@ class ScipJavaProvider:
     # real JVM builds are minutes-class → pyright-class budget.
     default_timeout_seconds = 1200
 
-    _BUILD_MARKERS = (
+    _AUTOMATIC_BUILD_MARKERS = (
         "pom.xml",
         "build.gradle",
         "build.gradle.kts",
         "settings.gradle",
         "settings.gradle.kts",
-        "build.sbt",
-        "WORKSPACE",
-        "MILL_VERSION",
+        "gradlew",
     )
+    _BAZEL_BUILD_MARKERS = (
+        "WORKSPACE",
+        "WORKSPACE.bazel",
+        "MODULE.bazel",
+    )
+    _BUILD_MARKERS = _AUTOMATIC_BUILD_MARKERS + _BAZEL_BUILD_MARKERS
 
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
         return _detect_tool(self.name, tool_hint)
@@ -646,13 +648,39 @@ class ScipJavaProvider:
     ) -> Union[Path, DumpSkipped, None]:
         if not any((root / marker).exists() for marker in self._BUILD_MARKERS):
             logger.info(
-                "precise-index: no JVM build file (pom.xml/gradle/sbt/mill) at %s; skipping",
+                "precise-index: no supported JVM build file (Maven/Gradle/Bazel) at %s; skipping",
                 root,
             )
             return DumpSkipped("no-jvm-build")
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        command = [tool, "index", f"--output={output_path}"]
+        if any((root / marker).exists() for marker in self._BAZEL_BUILD_MARKERS):
+            # Modern Bazel roots can have MODULE.bazel without WORKSPACE.
+            # Supply its required aspect input even in mixed-build roots; the
+            # indexer's Gradle/Maven integrations ignore this Bazel-only option.
+            executable = Path(tool)
+            if not executable.is_absolute():
+                # Relative argv containing a slash is resolved by subprocess
+                # against cwd=root. Bare executable names instead search PATH.
+                if executable.parent == Path("."):
+                    # PATH entries themselves may be relative. Lookup must use
+                    # the child's cwd, not the index client's current directory.
+                    search_path = os.pathsep.join(
+                        str((root / entry).resolve()) if not Path(entry).is_absolute() else entry
+                        for entry in os.get_exec_path()
+                    )
+                    discovered = shutil.which(tool, path=search_path)
+                    if discovered is None:
+                        logger.info("precise-index: JVM executable not found in build PATH")
+                        return None
+                    executable = Path(discovered)
+                else:
+                    executable = root / executable
+            executable = executable.resolve()
+            command[0] = str(executable)
+            command.append(f"--bazel-scip-java-binary={executable}")
         return _run_dump(
-            [tool, "index", f"--output={output_path}"],
+            command,
             cwd=root,
             output_path=output_path,
             timeout_seconds=timeout_seconds,
@@ -661,9 +689,12 @@ class ScipJavaProvider:
 
     @staticmethod
     def _callable_name(segment: str) -> Optional[str]:
-        if not segment.endswith("()"):
+        match = re.search(r"\((?:\+[1-9][0-9]*)?\)$", segment)
+        if match is None:
             return None  # fields / interface-style signatures: no codegraph node
-        name = _strip_backticks(segment.removesuffix("()"))
+        # +N is the producer's overload ordinal, not a signature or arity.
+        # Actual definition positions disambiguate overloads in the join.
+        name = _strip_backticks(segment[: match.start()])
         if not name:
             return None
         if name == "<init>":
