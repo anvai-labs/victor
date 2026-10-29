@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from victor.agent.services.tiered_decision_service import TieredDecisionService
 
 # Import native availability from shared location
+from victor.agent.decisions.support import DecisionSupportMixin
 from victor.processing.native._base import _NATIVE_AVAILABLE, _native
 
 # Import fuzzy matching for robust typo-tolerant classification
@@ -539,7 +540,7 @@ def _calculate_category_score(matches: List[KeywordMatch]) -> Tuple[float, int]:
     return max(0.0, score), non_negated
 
 
-class UnifiedTaskClassifier:
+class UnifiedTaskClassifier(DecisionSupportMixin):
     """Unified task classifier combining keyword, semantic, and contextual signals.
 
     This classifier provides robust task detection through:
@@ -585,37 +586,6 @@ class UnifiedTaskClassifier:
         self._cache: Dict[str, Tuple[ClassificationResult, float]] = {}
         self._cache_hits = 0
         self._cache_misses = 0
-
-    def _has_decision_support(self) -> bool:
-        """Return whether low-confidence LLM task classification is available."""
-        if self._runtime_intelligence is not None:
-            return True
-        return self._decision_service is not None
-
-    def _decide_sync(
-        self,
-        decision_type: Any,
-        context: Dict[str, Any],
-        *,
-        heuristic_result: Any = None,
-        heuristic_confidence: float = 0.0,
-    ) -> Optional[Any]:
-        """Delegate low-confidence task classification to the canonical runtime service."""
-        if self._runtime_intelligence is not None:
-            return self._runtime_intelligence.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        if self._decision_service is not None:
-            return self._decision_service.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        return None
 
     @property
     def semantic_classifier(self) -> Optional["TaskTypeClassifier"]:

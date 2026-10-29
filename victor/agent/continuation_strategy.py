@@ -27,6 +27,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from victor.agent.decisions.support import DecisionSupportMixin
 from victor.core.events import ObservabilityBus
 from victor.agent.continuation_contract import (
     ContinuationActionType,
@@ -147,7 +148,7 @@ def classify_question(text: str):
     return _classify_question(text)
 
 
-class ContinuationStrategy:
+class ContinuationStrategy(DecisionSupportMixin):
     """Handles continuation decision logic for orchestrator.
 
     This component encapsulates the complex logic for determining what action
@@ -226,37 +227,6 @@ class ContinuationStrategy:
                     logger.debug(f"No event loop, skipping event emission for {topic}")
             except Exception as e:
                 logger.debug(f"Failed to emit continuation event: {e}")
-
-    def _has_decision_support(self) -> bool:
-        """Return whether LLM-backed continuation decisions are available."""
-        if self._runtime_intelligence is not None:
-            return True
-        return self._decision_service is not None
-
-    def _decide_sync(
-        self,
-        decision_type: Any,
-        context: Dict[str, Any],
-        *,
-        heuristic_result: Any = None,
-        heuristic_confidence: float = 0.0,
-    ) -> Optional[Any]:
-        """Route continuation decisions through the canonical runtime service when present."""
-        if self._runtime_intelligence is not None:
-            return self._runtime_intelligence.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        if self._decision_service is not None:
-            return self._decision_service.decide_sync(
-                decision_type,
-                context,
-                heuristic_result=heuristic_result,
-                heuristic_confidence=heuristic_confidence,
-            )
-        return None
 
     @staticmethod
     def _make_action_result(
