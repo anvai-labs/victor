@@ -35,13 +35,13 @@ import time
 import traceback
 from typing import Any, Dict, Optional, Tuple
 
-from victor.observability.emitters.base import IErrorEventEmitter
-from victor.core.events import ObservabilityBus, SyncEventWrapper
+from victor.observability.emitters.base import BaseEventEmitter, IErrorEventEmitter
+from victor.core.events import ObservabilityBus
 
 logger = logging.getLogger(__name__)
 
 
-class ErrorEventEmitter(IErrorEventEmitter):
+class ErrorEventEmitter(BaseEventEmitter, IErrorEventEmitter):
     """Emits error events to ObservabilityBus.
 
     Thread-safe, performant error tracking.
@@ -60,53 +60,21 @@ class ErrorEventEmitter(IErrorEventEmitter):
         ("error.raised") instead of category-based routing.
     """
 
-    def __init__(self, bus: Optional[ObservabilityBus] = None):
+    _CATEGORY = "error"
+
+    def __init__(self, bus: Optional[ObservabilityBus] = None) -> None:
         """Initialize the error event emitter.
 
         Args:
             bus: Optional ObservabilityBus instance. If None, uses DI container.
         """
-        self._bus = bus
-        self._sync_wrapper: Optional[SyncEventWrapper] = None
-        self._enabled = True
+        super().__init__(bus)
 
         # Warning deduplication state
         self._warning_dedup: Dict[str, Dict[str, Any]] = {}
         self._dedup_enabled = True
         self._dedup_window = 300  # 5 minutes
         self._max_suppressed = 10  # Max duplicates before forcing emission
-
-    def _get_bus(self) -> Optional[ObservabilityBus]:
-        """Get ObservabilityBus instance.
-
-        Returns:
-            ObservabilityBus instance or None if unavailable
-        """
-        if self._bus:
-            return self._bus
-
-        try:
-            from victor.core.events import get_observability_bus
-
-            return get_observability_bus()
-        except Exception:
-            return None
-
-    def _get_sync_wrapper(self) -> Optional[SyncEventWrapper]:
-        """Get sync wrapper for gradual migration.
-
-        Returns:
-            SyncEventWrapper instance or None if unavailable
-        """
-        if self._sync_wrapper:
-            return self._sync_wrapper
-
-        bus = self._get_bus()
-        if bus:
-            self._sync_wrapper = SyncEventWrapper(bus.backend)
-            return self._sync_wrapper
-
-        return None
 
     def _should_suppress_warning(self, warning: str) -> Tuple[bool, Optional[str]]:
         """Check if warning should be suppressed due to recent duplicates.
@@ -159,81 +127,33 @@ class ErrorEventEmitter(IErrorEventEmitter):
             }
             return False, None
 
-    async def emit_async(
-        self,
-        topic: str,
-        data: Dict[str, Any],
-    ) -> bool:
-        """Emit an error event asynchronously.
+    def _prepare_sync_data(self, topic: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Apply warning de-duplication before sync emission.
 
         Args:
-            topic: Event topic (e.g., "error.raised")
+            topic: Event topic
             data: Event payload
 
         Returns:
-            True if emission succeeded, False otherwise
+            The payload to emit (with a repeat suffix when forced), or None
+            when the warning is a suppressed duplicate
         """
-        if not self._enabled:
-            return False
+        if topic == "warning.raised" and self._dedup_enabled:
+            warning_msg = data.get("warning", "")
+            should_suppress, suffix = self._should_suppress_warning(warning_msg)
 
-        bus = self._get_bus()
-        if bus:
-            try:
-                # Add category metadata for observability features
-                data_with_category = {
-                    **data,
-                    "category": "error",
-                }
-                return await bus.emit(topic, data_with_category)
-            except Exception as e:
-                logger.debug(f"Failed to emit error event: {e}")
-                return False
+            if should_suppress:
+                logger.debug(f"Suppressed duplicate warning: {warning_msg[:100]}")
+                return None
 
-        return False
+            if suffix:
+                data = data.copy()  # Don't modify original
+                data["warning"] = warning_msg + suffix
+                data["suppressed_count"] = self._warning_dedup.get(
+                    hashlib.md5(warning_msg.encode(), usedforsecurity=False).hexdigest(), {}
+                ).get("count", 1)
 
-    def emit(
-        self,
-        topic: str,
-        data: Dict[str, Any],
-    ) -> None:
-        """Emit an error event synchronously (for gradual migration).
-
-        This method wraps the async emit_async() method using emit_event_sync()
-        so sync callers can reuse the shared async/sync bridge behavior.
-
-        Args:
-            topic: Event topic (e.g., "error.raised")
-            data: Event payload
-        """
-        try:
-            from victor.core.events.emit_helper import emit_event_sync
-
-            # Apply deduplication to warnings
-            if topic == "warning.raised" and self._dedup_enabled:
-                warning_msg = data.get("warning", "")
-                should_suppress, suffix = self._should_suppress_warning(warning_msg)
-
-                if should_suppress:
-                    logger.debug(f"Suppressed duplicate warning: {warning_msg[:100]}")
-                    return
-
-                if suffix:
-                    data = data.copy()  # Don't modify original
-                    data["warning"] = warning_msg + suffix
-                    data["suppressed_count"] = self._warning_dedup.get(
-                        hashlib.md5(warning_msg.encode(), usedforsecurity=False).hexdigest(), {}
-                    ).get("count", 1)
-
-            bus = self._get_bus()
-            if bus:
-                emit_event_sync(
-                    bus,
-                    topic=topic,
-                    data=data,
-                    source="ErrorEventEmitter",
-                )
-        except Exception as e:
-            logger.debug(f"Failed to emit error event: {e}")
+        return data
 
     async def error_async(
         self,
@@ -297,22 +217,6 @@ class ErrorEventEmitter(IErrorEventEmitter):
                 **metadata,
             },
         )
-
-    def enable(self) -> None:
-        """Enable event emission."""
-        self._enabled = True
-
-    def disable(self) -> None:
-        """Disable event emission."""
-        self._enabled = False
-
-    def is_enabled(self) -> bool:
-        """Check if event emission is enabled.
-
-        Returns:
-            True if enabled, False otherwise
-        """
-        return self._enabled
 
     def cleanup_expired_warnings(self) -> None:
         """Clean up expired warning dedup entries.
