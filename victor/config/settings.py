@@ -787,6 +787,8 @@ class Settings(BaseSettings):
             "code_executor_network_disabled": "subprocess.code_executor_network_disabled",
             "code_executor_memory_limit": "subprocess.code_executor_memory_limit",
             "code_executor_cpu_shares": "subprocess.code_executor_cpu_shares",
+            "code_executor_image": "subprocess.code_executor_image",
+            "code_executor_idle_ttl_seconds": "subprocess.code_executor_idle_ttl_seconds",
             "subprocess_resource_limits_enabled": "subprocess.subprocess_resource_limits_enabled",
             # Usage Configuration
             "usage_sampling_enabled": "usage.usage_sampling_enabled",

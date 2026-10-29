@@ -257,10 +257,11 @@ async def test_eval_container_stop_never_raises(monkeypatch):
 # ---- stale-sandbox sweep ----
 
 
-async def test_cleanup_sweeps_by_label_key_not_just_eval(monkeypatch):
-    """The sweep must filter on the ``victor.sandbox`` KEY so it reclaims BOTH
-    eval and code-executor orphans (an eval-only value filter left a 3,456
-    code-executor pileup uncollected)."""
+async def test_cleanup_sweeps_eval_and_reaps_code_executor_orphans(monkeypatch):
+    """Both subsystems' leaks are reclaimed (a 3,456-container code-executor
+    pileup once went uncollected), each by a sweep that only removes what it
+    can prove is orphaned: eval by exact label value, code-executor through the
+    owner-aware reaper."""
     issued: list = []
 
     async def _fake(cmd, timeout):
@@ -272,15 +273,54 @@ async def test_cleanup_sweeps_by_label_key_not_just_eval(monkeypatch):
         return 0, b"", b""
 
     monkeypatch.setattr(ce, "_run_cmd", _fake)
+    reaped_code_exec = ["c1", "c2"]  # owner-dead code-executor sandboxes
+    _patch_code_exec_reaper(monkeypatch, lambda: reaped_code_exec)
     removed = await cleanup_stale_sandbox_containers()
 
-    assert removed == 3
+    assert removed == 3 + 2
     ps = next(c for c in issued if c[1] == "ps")
-    # Filter is the bare label KEY — no "=eval" value pinned.
-    assert "label=victor.sandbox" in ps
-    assert "label=victor.sandbox=eval" not in ps
+    # Eval containers are swept by exact value; code-executor sandboxes go
+    # through the owner-aware reaper instead of a blanket label-key sweep.
+    assert "label=victor.sandbox=eval" in ps
     rm = next(c for c in issued if c[1] == "rm")
     assert rm[:3] == ["docker", "rm", "-f"] and rm[3:] == ["aaa", "bbb", "ccc"]
+
+
+async def test_cleanup_never_sweeps_code_executor_by_label_key(monkeypatch):
+    """A blanket ``label=victor.sandbox`` sweep removed live chat-session sandboxes."""
+    issued: list = []
+
+    async def _fake(cmd, timeout):
+        issued.append(list(cmd))
+        return 0, b"", b""
+
+    monkeypatch.setattr(ce, "_run_cmd", _fake)
+    _patch_code_exec_reaper(monkeypatch, lambda: [])
+    await cleanup_stale_sandbox_containers()
+    filters = [c[c.index("--filter") + 1] for c in issued if "--filter" in c]
+    assert filters == ["label=victor.sandbox=eval"]
+
+
+async def test_cleanup_tolerates_missing_coding_vertical(monkeypatch):
+    async def _fake(cmd, timeout):
+        return 0, b"", b""
+
+    monkeypatch.setattr(ce, "_run_cmd", _fake)
+
+    def _missing():
+        raise ImportError("victor-coding not installed")
+
+    monkeypatch.setattr("victor.core.utils.capability_loader.load_code_executor_module", _missing)
+    assert await cleanup_stale_sandbox_containers() == 0
+
+
+def _patch_code_exec_reaper(monkeypatch, reaper):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "victor.core.utils.capability_loader.load_code_executor_module",
+        lambda: SimpleNamespace(reap_orphaned_sandboxes=reaper),
+    )
 
 
 async def test_cleanup_no_orphans_is_noop(monkeypatch):
@@ -291,5 +331,6 @@ async def test_cleanup_no_orphans_is_noop(monkeypatch):
         return 0, b"", b""  # ps returns nothing
 
     monkeypatch.setattr(ce, "_run_cmd", _fake)
+    _patch_code_exec_reaper(monkeypatch, lambda: [])
     assert await cleanup_stale_sandbox_containers() == 0
     assert not any(c[1] == "rm" for c in issued)  # never attempts a remove

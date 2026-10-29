@@ -45,8 +45,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
-import threading
 from typing import TYPE_CHECKING, Any, Optional
 
 from victor.config.tool_selection_access import is_semantic_tool_selection_enabled
@@ -619,86 +617,62 @@ class OrchestratorServiceProvider:
     # =========================================================================
 
     def _create_code_execution_manager(self) -> "CodeExecutionManagerProtocol":
-        """Create CodeSandbox instance via dynamic vertical loading.
+        """Create the code-execution sandbox handle (no Docker contact here).
 
-        The vertical's constructor contacts the Docker daemon (``docker.from_env``
-        runs a version probe whose requests timeout defaults to 60s), so with
-        Docker Desktop closed or unresponsive every session bootstrap stalled
-        for a flat minute — the dominant ``victor chat`` startup cost
-        (diagnosed 2026-09-16 via faulthandler stacks: blocked in
-        ``docker/api/client.py:_retrieve_server_version``).
-
-        Bootstrap therefore bounds the load+start with a wall-clock budget
-        (``VICTOR_CODE_EXEC_START_TIMEOUT``, default 5s — a healthy local
-        socket answers in milliseconds) and degrades loudly, exactly like the
-        already-handled missing-docker-package case. The load thread is a
-        daemon: a probe that eventually returns has its manager discarded and
-        never delays process exit.
+        ``CodeSandbox`` acquires its container lazily on first use, under a
+        bounded Docker connect budget (``VICTOR_CODE_EXEC_START_TIMEOUT``), and
+        the container is owned, finalized and self-expiring. Bootstrap therefore
+        stays fast and starts no containers, even when Docker is down. Building
+        the handle eagerly used to start one container per container bootstrap,
+        which leaked thousands across test runs.
         """
-        timeout = float(os.getenv("VICTOR_CODE_EXEC_START_TIMEOUT", "5.0"))
 
         class _UnavailableExecutionManager:
-            """Degraded manager: the sandbox could not be brought up."""
+            """Degraded manager: victor-coding (the sandbox owner) is not installed."""
 
-            def start(self):
+            def start(self) -> None:
                 pass
 
-            def stop(self):
+            def stop(self) -> None:
+                pass
+
+            def dispose(self) -> None:
                 pass
 
             def __getattr__(self, name: str) -> Any:
                 raise RuntimeError(
-                    "Code execution sandbox is unavailable this session "
-                    "(Docker did not answer in time). Start Docker Desktop "
-                    "and restart victor, or raise the budget via "
-                    "VICTOR_CODE_EXEC_START_TIMEOUT."
+                    "Code execution sandbox is unavailable: the victor-coding "
+                    "vertical is not installed."
                 )
 
         try:
             from victor.core.utils.capability_loader import load_code_executor_module
+
+            module = load_code_executor_module()
         except ImportError:
-            # Provide a dummy implementation if victor-coding is not installed
             return _UnavailableExecutionManager()
 
-        result: dict[str, Any] = {}
+        settings = getattr(self, "_settings", None)
+        sub = getattr(settings, "subprocess", None)
 
-        def _load_and_start() -> None:
-            try:
-                module = load_code_executor_module()
-                manager = module.CodeSandbox()
-                manager.start()
-            except ImportError as exc:
-                # victor-coding absent: the long-standing silent-dummy case.
-                result["import_error"] = exc
-            except Exception as exc:  # noqa: BLE001 - degraded mode covers all
-                result["error"] = exc
-            else:
-                result["manager"] = manager
+        def _setting(name: str, default: Any) -> Any:
+            return getattr(sub, name, getattr(settings, name, default))
 
-        thread = threading.Thread(
-            target=_load_and_start, name="code-exec-manager-init", daemon=True
-        )
-        thread.start()
-        thread.join(timeout=timeout)
-
-        if "manager" in result:
-            return result["manager"]
-        if "import_error" in result:
-            # victor-coding not installed — long-standing silent-dummy case.
+        try:
+            return module.CodeSandbox(
+                docker_image=_setting("code_executor_image", "python:3.11-slim"),
+                network_disabled=_setting("code_executor_network_disabled", True),
+                memory_limit=_setting("code_executor_memory_limit", "512m"),
+                cpu_shares=_setting("code_executor_cpu_shares", 256),
+                idle_ttl_seconds=_setting("code_executor_idle_ttl_seconds", 900),
+            )
+        except Exception as exc:  # noqa: BLE001 - degraded mode covers all
+            logger.warning(
+                "Code execution sandbox unavailable this session (failed: %s); "
+                "continuing without it.",
+                exc,
+            )
             return _UnavailableExecutionManager()
-
-        reason = (
-            f"timed out after {timeout:.0f}s contacting Docker"
-            if thread.is_alive()
-            else f"failed: {result.get('error')}"
-        )
-        logger.warning(
-            "Code execution sandbox unavailable this session (%s); continuing "
-            "without it. Start Docker Desktop, or tune the budget via "
-            "VICTOR_CODE_EXEC_START_TIMEOUT.",
-            reason,
-        )
-        return _UnavailableExecutionManager()
 
     def _create_workflow_registry(self) -> "WorkflowRegistryProtocol":
         """Create WorkflowRegistry instance."""

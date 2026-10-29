@@ -175,13 +175,15 @@ def cleanup_containers(
 ) -> None:
     """Clean up orphaned sandbox containers.
 
-    Removes Docker containers that were created by Victor's code executor
-    but may not have been properly cleaned up. By default, only removes
-    containers with the 'victor.sandbox' label.
+    Removes code-executor sandbox containers whose owning Victor process is
+    gone (owner labels: host, pid, process start time), plus pre-redesign
+    'sleep infinity' sandboxes without owner labels. A live session's sandbox
+    is never removed; containers owned by another host expire on their own
+    idle TTL.
 
-    Use --include-unlabeled to also clean up legacy containers (python-slim
-    images running 'sleep infinity') that lack the label. This is safe as
-    it excludes Kubernetes-related containers.
+    Use --include-unlabeled to also clean up very old containers (python-slim
+    images running 'sleep infinity') that lack the 'victor.sandbox' label
+    entirely. Kubernetes-related containers are excluded.
 
     Examples:
         victor tools cleanup-containers
@@ -193,8 +195,7 @@ def cleanup_containers(
 
         _module = load_code_executor_module()
         DOCKER_AVAILABLE = _module.DOCKER_AVAILABLE
-        SANDBOX_CONTAINER_LABEL = _module.SANDBOX_CONTAINER_LABEL
-        SANDBOX_CONTAINER_VALUE = _module.SANDBOX_CONTAINER_VALUE
+        find_orphaned_sandboxes = _module.find_orphaned_sandboxes
     except ImportError:
         console.print(
             "[red]Container cleanup requires the 'victor-coding' package. "
@@ -214,13 +215,9 @@ def cleanup_containers(
         # First, list what we would clean up
         containers_to_clean = []
 
-        # Find labeled containers
-        labeled = client.containers.list(
-            all=True,
-            filters={"label": f"{SANDBOX_CONTAINER_LABEL}={SANDBOX_CONTAINER_VALUE}"},
-        )
-        for c in labeled:
-            containers_to_clean.append((c.short_id, c.name, "labeled", c))
+        # Labelled sandboxes whose owner is gone (never a live session's)
+        for c in find_orphaned_sandboxes(client):
+            containers_to_clean.append((c.short_id, c.name, "orphaned", c))
 
         # Find unlabeled legacy containers if requested
         if include_unlabeled:
@@ -242,8 +239,8 @@ def cleanup_containers(
                     if any(container_name.startswith(p) for p in k8s_name_patterns):
                         continue
 
-                    # Skip already added labeled containers
-                    if container in [c[3] for c in containers_to_clean]:
+                    # Labelled sandboxes are decided by the owner check above only
+                    if "victor.sandbox" in (container.labels or {}):
                         continue
 
                     image_tags = container.image.tags

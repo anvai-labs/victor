@@ -190,6 +190,12 @@ export LMSTUDIO_BASE_URLS="http://192.168.1.20:1234,http://127.0.0.1:1234"
 |----------|---------|-------------|
 | `VICTOR_CODE_EXECUTOR_MEM` | `512m` | Memory limit for code execution |
 | `VICTOR_CODE_EXECUTOR_CPU_SHARES` | `256` | CPU shares for code execution |
+| `VICTOR_CODE_EXEC_START_TIMEOUT` | `5.0` | Seconds allowed for the Docker connect probe on first sandbox use (a closed Docker Desktop otherwise hangs 60s) |
+
+The sandbox container is created on first use, removed when its session
+releases it, and removes itself after `code_executor_idle_ttl_seconds` without
+use, even if the owning process was killed. Orphans from dead sessions are
+removed automatically on next use, or with `victor tools cleanup-containers`.
 
 ---
 
