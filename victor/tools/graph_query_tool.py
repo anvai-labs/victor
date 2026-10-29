@@ -518,18 +518,11 @@ async def _resolve_target(
     Returns:
         Node ID or None if not found
     """
-    # Check if it's file:line format
-    if ":" in target:
-        file_path, line_str = target.rsplit(":", 1)
-        try:
-            line = int(line_str)
-            # Find nodes at this location
-            nodes = await graph_store.get_nodes_by_file(file_path)
-            for node in nodes:
-                if node.line and node.line <= line <= (node.end_line or line):
-                    return node.node_id
-        except ValueError:
-            pass
+    from victor.core.graph_rag.target_resolution import resolve_explicit_target
+
+    handled, identifier = await resolve_explicit_target(target, graph_store)
+    if handled:
+        return identifier
 
     # Search by name
     nodes = await graph_store.find_nodes(name=target)
