@@ -29,18 +29,14 @@ Migration Notes:
 
 from __future__ import annotations
 
-import logging
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any
 
-from victor.observability.emitters.base import ILifecycleEventEmitter
-from victor.core.events import ObservabilityBus, SyncEventWrapper
-
-logger = logging.getLogger(__name__)
+from victor.observability.emitters.base import BaseEventEmitter, ILifecycleEventEmitter
 
 
-class LifecycleEventEmitter(ILifecycleEventEmitter):
+class LifecycleEventEmitter(BaseEventEmitter, ILifecycleEventEmitter):
     """Emits lifecycle events to ObservabilityBus.
 
     Thread-safe, performant lifecycle tracking.
@@ -59,107 +55,7 @@ class LifecycleEventEmitter(ILifecycleEventEmitter):
         category-based routing.
     """
 
-    def __init__(self, bus: Optional[ObservabilityBus] = None):
-        """Initialize the lifecycle event emitter.
-
-        Args:
-            bus: Optional ObservabilityBus instance. If None, uses DI container.
-        """
-        self._bus = bus
-        self._sync_wrapper: Optional[SyncEventWrapper] = None
-        self._enabled = True
-
-    def _get_bus(self) -> Optional[ObservabilityBus]:
-        """Get ObservabilityBus instance.
-
-        Returns:
-            ObservabilityBus instance or None if unavailable
-        """
-        if self._bus:
-            return self._bus
-
-        try:
-            from victor.core.events import get_observability_bus
-
-            return get_observability_bus()
-        except Exception:
-            return None
-
-    def _get_sync_wrapper(self) -> Optional[SyncEventWrapper]:
-        """Get sync wrapper for gradual migration.
-
-        Returns:
-            SyncEventWrapper instance or None if unavailable
-        """
-        if self._sync_wrapper:
-            return self._sync_wrapper
-
-        bus = self._get_bus()
-        if bus:
-            self._sync_wrapper = SyncEventWrapper(bus.backend)
-            return self._sync_wrapper
-
-        return None
-
-    async def emit_async(
-        self,
-        topic: str,
-        data: Dict[str, Any],
-    ) -> bool:
-        """Emit a lifecycle event asynchronously.
-
-        Args:
-            topic: Event topic (e.g., "lifecycle.session.start")
-            data: Event payload
-
-        Returns:
-            True if emission succeeded, False otherwise
-        """
-        if not self._enabled:
-            return False
-
-        bus = self._get_bus()
-        if bus:
-            try:
-                # Add category metadata for observability features
-                data_with_category = {
-                    **data,
-                    "category": "lifecycle",
-                }
-                return await bus.emit(topic, data_with_category)
-            except Exception as e:
-                logger.debug(f"Failed to emit lifecycle event: {e}")
-                return False
-
-        return False
-
-    def emit(
-        self,
-        topic: str,
-        data: Dict[str, Any],
-    ) -> None:
-        """Emit a lifecycle event synchronously (for gradual migration).
-
-        This method wraps the async emit_async() method using emit_event_sync()
-        so sync callers can reuse the shared async/sync bridge behavior.
-
-        Args:
-            topic: Event topic (e.g., "lifecycle.session.start")
-            data: Event payload
-        """
-        try:
-            from victor.core.events.emit_helper import emit_event_sync
-
-            bus = self._get_bus()
-            if bus:
-                emit_event_sync(
-                    bus,
-                    topic=topic,
-                    data=data,
-                    source="LifecycleEventEmitter",
-                )
-        except Exception as e:
-            logger.debug(f"Failed to emit lifecycle event: {e}")
+    _CATEGORY = "lifecycle"
 
     async def session_start_async(
         self,
@@ -278,19 +174,3 @@ class LifecycleEventEmitter(ILifecycleEventEmitter):
         finally:
             duration_ms = (time.time() - start_time) * 1000
             self.session_end(session_id, duration_ms, **metadata)
-
-    def enable(self) -> None:
-        """Enable event emission."""
-        self._enabled = True
-
-    def disable(self) -> None:
-        """Disable event emission."""
-        self._enabled = False
-
-    def is_enabled(self) -> bool:
-        """Check if event emission is enabled.
-
-        Returns:
-            True if enabled, False otherwise
-        """
-        return self._enabled

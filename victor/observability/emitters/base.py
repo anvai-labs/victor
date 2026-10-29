@@ -25,10 +25,14 @@ but these protocols provide type-safe domain-specific methods.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable, Any, Dict, Optional
+import logging
+from typing import TYPE_CHECKING, Protocol, runtime_checkable, Any, ClassVar, Dict, Optional
 from contextlib import contextmanager
 
 from victor.core.events import MessagingEvent
+
+if TYPE_CHECKING:
+    from victor.core.events import ObservabilityBus
 
 
 @runtime_checkable
@@ -334,3 +338,137 @@ class IErrorEventEmitter(IEventEmitter, Protocol):
             **metadata: Additional metadata
         """
         ...
+
+
+class BaseEventEmitter:
+    """Shared ObservabilityBus plumbing for the concrete event emitters.
+
+    Subclasses set ``_CATEGORY`` (the ``category`` tag added to async payloads
+    and the word used in failure logs) and add only their typed helpers. Sync
+    emission uses the concrete class name as the event source, and failures are
+    logged on the concrete emitter's module logger.
+    """
+
+    _CATEGORY: ClassVar[str]
+    _logger: ClassVar[logging.Logger]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        cls._logger = logging.getLogger(cls.__module__)
+
+    def __init__(self, bus: Optional[ObservabilityBus] = None) -> None:
+        """Initialize the event emitter.
+
+        Args:
+            bus: Optional ObservabilityBus instance. If None, uses DI container.
+        """
+        self._bus = bus
+        self._enabled = True
+
+    def _get_bus(self) -> Optional[ObservabilityBus]:
+        """Get ObservabilityBus instance.
+
+        Returns:
+            ObservabilityBus instance or None if unavailable
+        """
+        if self._bus:
+            return self._bus
+
+        try:
+            from victor.core.events import get_observability_bus
+
+            return get_observability_bus()
+        except Exception:
+            return None
+
+    def _prepare_sync_data(self, topic: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Hook run before sync emission; return None to drop the event.
+
+        Args:
+            topic: Event topic
+            data: Event payload
+
+        Returns:
+            The payload to emit, or None to suppress the event
+        """
+        return data
+
+    async def emit_async(
+        self,
+        topic: str,
+        data: Dict[str, Any],
+    ) -> bool:
+        """Emit an event asynchronously, tagged with this emitter's category.
+
+        Args:
+            topic: Event topic (e.g., "tool.start")
+            data: Event payload
+
+        Returns:
+            True if emission succeeded, False otherwise
+        """
+        if not self._enabled:
+            return False
+
+        bus = self._get_bus()
+        if bus:
+            try:
+                # Add category metadata for observability features
+                data_with_category = {
+                    **data,
+                    "category": self._CATEGORY,
+                }
+                return await bus.emit(topic, data_with_category)
+            except Exception as e:
+                self._logger.debug(f"Failed to emit {self._CATEGORY} event: {e}")
+                return False
+
+        return False
+
+    def emit(
+        self,
+        topic: str,
+        data: Dict[str, Any],
+    ) -> None:
+        """Emit an event synchronously (for gradual migration).
+
+        This method wraps the async emit_async() method using emit_event_sync()
+        so sync callers can reuse the shared async/sync bridge behavior.
+
+        Args:
+            topic: Event topic (e.g., "tool.start")
+            data: Event payload
+        """
+        try:
+            from victor.core.events.emit_helper import emit_event_sync
+
+            prepared = self._prepare_sync_data(topic, data)
+            if prepared is None:
+                return
+
+            bus = self._get_bus()
+            if bus:
+                emit_event_sync(
+                    bus,
+                    topic=topic,
+                    data=prepared,
+                    source=type(self).__name__,
+                )
+        except Exception as e:
+            self._logger.debug(f"Failed to emit {self._CATEGORY} event: {e}")
+
+    def enable(self) -> None:
+        """Enable event emission."""
+        self._enabled = True
+
+    def disable(self) -> None:
+        """Disable event emission."""
+        self._enabled = False
+
+    def is_enabled(self) -> bool:
+        """Check if event emission is enabled.
+
+        Returns:
+            True if enabled, False otherwise
+        """
+        return self._enabled
