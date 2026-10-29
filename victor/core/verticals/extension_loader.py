@@ -134,7 +134,7 @@ def _build_team_spec_provider_from_definition(definition: Any) -> Optional[Any]:
         return None
 
     from victor.framework.team_schema import TeamSpec
-    from victor.framework.teams import TeamMemberSpec
+    from victor_contracts.team_schema import TeamMemberSpec
     from victor.teams.types import MemoryConfig, TeamAgentCategory, TeamFormation
 
     @dataclass(frozen=True)

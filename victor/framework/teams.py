@@ -51,7 +51,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import uuid
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import (
@@ -75,6 +74,10 @@ from victor.teams import (
     create_coordinator,
     TeamFormation,
     TeamResult,
+)
+from victor_contracts.team_schema import (
+    ROLE_MAPPING as ROLE_MAPPING,
+    TeamMemberSpec as TeamMemberSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -210,207 +213,6 @@ class TeamEvent:
             "metadata": self.metadata,
             "timestamp": self.timestamp,
         }
-
-
-# Role name to SubAgentRole name mapping (string-based to avoid eager import)
-ROLE_MAPPING: Dict[str, str] = {
-    "researcher": "RESEARCHER",
-    "research": "RESEARCHER",
-    "planner": "PLANNER",
-    "plan": "PLANNER",
-    "executor": "EXECUTOR",
-    "execute": "EXECUTOR",
-    "impl": "EXECUTOR",
-    "implementer": "EXECUTOR",
-    "reviewer": "REVIEWER",
-    "review": "REVIEWER",
-    "critic": "REVIEWER",
-    "writer": "EXECUTOR",
-    "analyzer": "RESEARCHER",
-    "verifier": "REVIEWER",
-}
-
-
-@dataclass
-class TeamMemberSpec:
-    """Simplified specification for a team member.
-
-    This provides a user-friendly way to specify team members without
-    needing to know about SubAgentRole internals. Supports rich persona
-    attributes inspired by CrewAI for natural agent characterization.
-
-    Attributes:
-        role: Role name (researcher, planner, executor, reviewer)
-        goal: What this member should accomplish
-        name: Optional display name (auto-generated if not provided)
-        tool_budget: Maximum tool calls (default based on role)
-        agent_category: Coordination category; use ``SUPERVISOR`` for the
-            coordinating member in hierarchical teams
-        is_manager: Legacy alias for supervisor (for hierarchical)
-        priority: Execution priority (lower = earlier, for sequential/pipeline)
-        backstory: Rich persona description for agent's history and character
-        expertise: List of domain expertise areas for context-aware behavior
-        personality: Communication style and behavioral traits
-        max_delegation_depth: Maximum levels of delegation allowed (0 = none)
-        memory: Whether to persist discoveries across tasks (simple flag)
-        memory_config: Detailed memory configuration (overrides simple memory)
-        cache: Whether to cache tool results
-        verbose: Whether to show detailed execution logs
-        max_iterations: Per-member iteration limit
-
-    Example:
-        # Simple usage
-        TeamMemberSpec(
-            role="researcher",
-            goal="Find all authentication code and patterns",
-            backstory="You are a security expert with 10 years experience.",
-            tool_budget=20,
-            memory=True,
-        )
-
-        # Rich persona with CrewAI-style attributes
-        TeamMemberSpec(
-            role="researcher",
-            goal="Find authentication vulnerabilities",
-            name="Security Analyst",
-            backstory="10 years of security experience at major tech companies. "
-                      "Previously led red team exercises at a Fortune 500 company.",
-            expertise=["security", "authentication", "oauth", "jwt"],
-            personality="methodical and thorough; communicates findings with severity ratings",
-            max_delegation_depth=2,
-            memory=True,
-            memory_config=MemoryConfig(
-                enabled=True,
-                persist_across_sessions=True,
-                memory_types={"entity", "semantic"},
-                relevance_threshold=0.7,
-            ),
-            tool_budget=25,
-        )
-    """
-
-    role: str
-    goal: str
-    name: Optional[str] = None
-    tool_budget: Optional[int] = None
-    allowed_tools: Optional[List[str]] = None
-    agent_category: TeamAgentCategory = TeamAgentCategory.SPECIALIST
-    is_manager: bool = False
-    priority: int = 0
-    # Rich persona attributes (CrewAI-compatible)
-    backstory: str = ""
-    expertise: List[str] = field(default_factory=list)
-    personality: str = ""
-    max_delegation_depth: int = 0
-    memory: bool = False
-    memory_config: Optional[MemoryConfig] = None
-    cache: bool = True
-    verbose: bool = False
-    max_iterations: Optional[int] = None
-    # Heterogeneous execution: per-member provider/model/temperature override.
-    # When unset, the member inherits the team orchestrator's settings. Enables
-    # cross-vendor teams (e.g. writer on one vendor, reviewer on another) and
-    # per-role sampling (e.g. writer hot, reviewer at temperature 0).
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    temperature: Optional[float] = None
-    # Per-member reasoning effort ("low"/"medium"/"high") for reasoning-capable
-    # models (e.g. reviewer thinks hard at "high", writer at "low"). None
-    # inherits/omits; forwarded only to providers/models that support it.
-    reasoning_effort: Optional[str] = None
-    # Formation role for context-driven formations (e.g. "generator"/"critic"
-    # for REFLECTION). None = positional binding.
-    formation_role: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        """Normalize compatibility aliases for coordination category."""
-        if isinstance(self.agent_category, str):
-            self.agent_category = TeamAgentCategory(self.agent_category)
-        if self.is_manager:
-            self.agent_category = TeamAgentCategory.SUPERVISOR
-        if self.agent_category == TeamAgentCategory.SUPERVISOR:
-            self.is_manager = True
-            if self.max_delegation_depth < 1:
-                self.max_delegation_depth = 1
-
-    @property
-    def is_supervisor(self) -> bool:
-        """Return whether this spec designates the team supervisor."""
-        return self.agent_category == TeamAgentCategory.SUPERVISOR or self.is_manager
-
-    def to_team_member(self, index: int = 0) -> TeamMember:
-        """Convert to internal TeamMember.
-
-        Args:
-            index: Member index for ID generation
-
-        Returns:
-            TeamMember instance with memory coordinator attached if memory is enabled
-        """
-        from victor.core.shared_types import SubAgentRole
-
-        # Resolve role via string mapping → enum
-        role_lower = self.role.lower()
-        role_name = ROLE_MAPPING.get(role_lower, "EXECUTOR")
-        sub_role = getattr(SubAgentRole, role_name, SubAgentRole.EXECUTOR)
-
-        # Generate name if not provided
-        name = self.name or f"{self.role.title()} Agent"
-
-        # Generate ID
-        member_id = f"{role_lower}_{uuid.uuid4().hex[:8]}"
-
-        # Default budget based on role
-        default_budgets = {
-            SubAgentRole.RESEARCHER: 20,
-            SubAgentRole.PLANNER: 15,
-            SubAgentRole.EXECUTOR: 25,
-            SubAgentRole.REVIEWER: 15,
-        }
-        tool_budget = self.tool_budget or default_budgets.get(sub_role, 15)
-
-        member = TeamMember(
-            id=member_id,
-            role=sub_role,
-            name=name,
-            goal=self.goal,
-            tool_budget=tool_budget,
-            allowed_tools=self.allowed_tools,  # Pass through allowed_tools
-            agent_category=self.agent_category,
-            is_manager=self.is_manager,
-            can_delegate=self.is_supervisor,
-            priority=self.priority if self.priority else index,
-            # Pass through all persona attributes
-            backstory=self.backstory,
-            expertise=self.expertise,
-            personality=self.personality,
-            max_delegation_depth=self.max_delegation_depth,
-            memory=self.memory,
-            memory_config=self.memory_config,
-            cache=self.cache,
-            verbose=self.verbose,
-            max_iterations=self.max_iterations,
-            provider=self.provider,
-            model=self.model,
-            temperature=self.temperature,
-            reasoning_effort=self.reasoning_effort,
-            formation_role=(
-                FormationRole(self.formation_role).value
-                if self.formation_role is not None
-                else None
-            ),
-        )
-
-        # Auto-attach memory coordinator if memory is enabled
-        if member.memory_enabled:
-            try:
-                from victor.storage.memory import get_memory_coordinator
-
-                member.attach_memory_coordinator(get_memory_coordinator())
-            except ImportError:
-                pass  # Memory module not available, skip
-
-        return member
 
 
 class AgentTeam:

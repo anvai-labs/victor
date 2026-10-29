@@ -166,13 +166,13 @@ _SDK_VERTICAL_EXTENSIONS = _load_sdk_vertical_extensions()
 
 
 # VerticalExtensions canonical definition lives in the SDK (victor-contracts
-# >=0.10.0 ships victor_contracts/verticals/extensions.py; the root pins that
+# >=0.10.0 ships victor_contracts/verticals/extensions.py; the root pins a higher
 # floor, so a resolved SDK absence is an install bug, not a compatibility
 # case — fail loudly instead of silently running the former 250-line fork.
 if _SDK_VERTICAL_EXTENSIONS is None:
     raise ImportError(
         "victor_contracts.verticals.extensions.VerticalExtensions is not "
-        "resolvable; victor-ai requires victor-contracts>=0.10.0. Reinstall "
+        "resolvable; victor-ai requires victor-contracts>=0.11.0. Reinstall "
         "with `pip install -e ./victor-contracts` (or upgrade the package)."
     )
 VerticalExtensions = _SDK_VERTICAL_EXTENSIONS

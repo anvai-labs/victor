@@ -141,7 +141,67 @@ ROLE_MAPPING: Dict[str, str] = {
 
 @dataclass
 class TeamMemberSpec:
-    """Declarative specification for a team member."""
+    """Simplified specification for a team member.
+
+    This provides a user-friendly way to specify team members without
+    needing to know about the host runtime's SubAgentRole internals. Supports rich persona
+    attributes inspired by CrewAI for natural agent characterization.
+
+    Attributes:
+        role: Role name (researcher, planner, executor, reviewer)
+        goal: What this member should accomplish
+        name: Optional display name (auto-generated if not provided)
+        tool_budget: Maximum tool calls (default based on role)
+        agent_category: Coordination category; use ``SUPERVISOR`` for the
+            coordinating member in hierarchical teams
+        is_manager: Legacy alias for supervisor (for hierarchical)
+        priority: Execution priority (lower = earlier, for sequential/pipeline)
+        backstory: Rich persona description for agent's history and character
+        expertise: List of domain expertise areas for context-aware behavior
+        personality: Communication style and behavioral traits
+        max_delegation_depth: Maximum levels of delegation allowed (0 = none)
+        memory: Whether to persist discoveries across tasks (simple flag)
+        memory_config: Detailed memory configuration (overrides simple memory)
+        cache: Whether to cache tool results
+        verbose: Whether to show detailed execution logs
+        max_iterations: Per-member iteration limit
+        can_delegate: Whether the member may delegate (implied for the supervisor)
+        provider: Per-member provider override (None inherits the team's)
+        model: Per-member model override (None inherits the team's)
+        temperature: Per-member sampling temperature (None inherits the team's)
+        reasoning_effort: "low"/"medium"/"high" for reasoning-capable models
+        formation_role: Context-driven formation role (e.g. "generator"/"critic")
+
+    Example:
+        # Simple usage
+        TeamMemberSpec(
+            role="researcher",
+            goal="Find all authentication code and patterns",
+            backstory="You are a security expert with 10 years experience.",
+            tool_budget=20,
+            memory=True,
+        )
+
+        # Rich persona with CrewAI-style attributes
+        TeamMemberSpec(
+            role="researcher",
+            goal="Find authentication vulnerabilities",
+            name="Security Analyst",
+            backstory="10 years of security experience at major tech companies. "
+                      "Previously led red team exercises at a Fortune 500 company.",
+            expertise=["security", "authentication", "oauth", "jwt"],
+            personality="methodical and thorough; communicates findings with severity ratings",
+            max_delegation_depth=2,
+            memory=True,
+            memory_config=MemoryConfig(
+                enabled=True,
+                persist_across_sessions=True,
+                memory_types={"entity", "semantic"},
+                relevance_threshold=0.7,
+            ),
+            tool_budget=25,
+        )
+    """
 
     role: str
     goal: str
@@ -161,6 +221,19 @@ class TeamMemberSpec:
     cache: bool = True
     verbose: bool = False
     max_iterations: Optional[int] = None
+    # Heterogeneous execution: per-member provider/model/temperature override.
+    # When unset, the member inherits the team orchestrator's settings. Enables
+    # cross-vendor teams (e.g. writer on one vendor, reviewer on another) and
+    # per-role sampling (e.g. writer hot, reviewer at temperature 0).
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    temperature: Optional[float] = None
+    # Per-member reasoning effort ("low"/"medium"/"high") for reasoning-capable
+    # models. None inherits/omits; forwarded only to providers that support it.
+    reasoning_effort: Optional[str] = None
+    # Formation role for context-driven formations (e.g. "generator"/"critic"
+    # for REFLECTION). None = positional binding.
+    formation_role: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Normalize canonical tool names at definition time."""
@@ -185,7 +258,7 @@ class TeamMemberSpec:
         """Convert this SDK definition into the host runtime TeamMember model."""
         try:
             from victor.core.shared_types import SubAgentRole
-            from victor.teams.types import TeamMember
+            from victor.teams.types import FormationRole, TeamMember
         except ImportError as exc:  # pragma: no cover - only exercised outside host runtime
             raise RuntimeError(
                 "TeamMemberSpec.to_team_member() requires the Victor runtime host package."
@@ -226,6 +299,15 @@ class TeamMemberSpec:
             cache=self.cache,
             verbose=self.verbose,
             max_iterations=self.max_iterations,
+            provider=self.provider,
+            model=self.model,
+            temperature=self.temperature,
+            reasoning_effort=self.reasoning_effort,
+            formation_role=(
+                FormationRole(self.formation_role).value
+                if self.formation_role is not None
+                else None
+            ),
         )
 
         if member.memory_enabled:
@@ -327,6 +409,11 @@ class TeamSpec:
                     "verbose": member.verbose,
                     "max_iterations": member.max_iterations,
                     "max_delegation_depth": member.max_delegation_depth,
+                    "provider": member.provider,
+                    "model": member.model,
+                    "temperature": member.temperature,
+                    "reasoning_effort": member.reasoning_effort,
+                    "formation_role": member.formation_role,
                 }
                 for member in self.members
             ],
@@ -376,6 +463,11 @@ class TeamSpec:
                 verbose=member_data.get("verbose", False),
                 max_iterations=member_data.get("max_iterations"),
                 max_delegation_depth=member_data.get("max_delegation_depth", 0),
+                provider=member_data.get("provider"),
+                model=member_data.get("model"),
+                temperature=member_data.get("temperature"),
+                reasoning_effort=member_data.get("reasoning_effort"),
+                formation_role=member_data.get("formation_role"),
             )
             members.append(member)
 
