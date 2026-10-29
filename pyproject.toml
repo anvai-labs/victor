@@ -811,7 +811,6 @@ select = [
 ignore = [
     "E501",  # line too long (handled by formatter)
     "E402",  # module level import not at top of file (sometimes necessary)
-    "F401",  # unused imports (often intentional re-exports)
     "F811",  # redefined while unused (type imports shadowing runtime)
     "B007",  # loop control variable not used within loop body
     "B008",  # do not perform function calls in argument defaults
@@ -828,6 +827,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__.py
 "tests/**/*.py" = [
+    "F401",  # backlog of ~1.6k unused imports; pytest fixtures imported by name look unused — clean separately
     "B017",  # assert blind exception (common in test assertions)
     "B018",  # useless expression (for test assertions)
     "E741",  # ambiguous variable name (common in test fixtures)
