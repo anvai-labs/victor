@@ -20,11 +20,9 @@ from typing import List, Optional, TYPE_CHECKING
 from victor_coding.languages.base import (
     BaseLanguagePlugin,
     BuildSystem,
-    CallEdge,
     CommentStyle,
     ConfigurableASTTraverser,
     DocCommentPattern,
-    EdgeDetectionResult,
     Formatter,
     LanguageCapabilities,
     LanguageConfig,
@@ -36,7 +34,7 @@ from victor_coding.languages.base import (
 )
 
 if TYPE_CHECKING:
-    from tree_sitter import Node, Tree
+    from tree_sitter import Node
 
 
 class PythonPlugin(BaseLanguagePlugin):
@@ -243,51 +241,6 @@ class PythonPlugin(BaseLanguagePlugin):
             run_command=["python"],
             install_command=["pip", "install", "-e", "."],
             manifest_file="pyproject.toml",
-        )
-
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in Python source code.
-
-        Finds function calls within the same file by analyzing:
-        - Call nodes (call)
-        - Enclosing function context (function_definition)
-        - Method calls (attribute expressions)
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-
-        # Find enclosing function for each call
-        call_nodes = self._find_call_nodes(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "python",
-                "file": str(file_path),
-            },
         )
 
     def _find_call_nodes(
