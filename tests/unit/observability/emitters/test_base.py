@@ -27,6 +27,7 @@ from typing import Any, Type
 import pytest
 
 import victor.core.events as core_events
+from victor.observability.emitters.base import BaseEventEmitter
 from victor.observability.emitters import (
     ErrorEventEmitter,
     IEventEmitter,
@@ -179,3 +180,15 @@ def test_emit_sync_swallows_and_logs_failures(
         cls(bus=fake_bus).emit("t", {})
     assert f"Failed to emit {category} event: kaput" in caplog.text
     assert {r.name for r in caplog.records if "Failed to emit" in r.message} == {cls.__module__}
+
+
+def test_subclass_loggers_are_bound_per_module() -> None:
+    assert BaseEventEmitter._logger.name == "victor.observability.emitters.base"
+    assert ToolEventEmitter._logger.name == "victor.observability.emitters.tool_emitter"
+    assert ErrorEventEmitter._logger.name == "victor.observability.emitters.error_emitter"
+
+
+def test_sync_wrapper_plumbing_removed() -> None:
+    emitter = ToolEventEmitter()
+    assert not hasattr(emitter, "_get_sync_wrapper")
+    assert not hasattr(emitter, "_sync_wrapper")

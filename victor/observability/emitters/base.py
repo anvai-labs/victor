@@ -350,7 +350,7 @@ class BaseEventEmitter:
     """
 
     _CATEGORY: ClassVar[str]
-    _logger: ClassVar[logging.Logger]
+    _logger: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
