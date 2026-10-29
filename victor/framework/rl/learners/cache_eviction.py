@@ -97,6 +97,8 @@ class CacheEvictionLearner(BaseLearner):
         epsilon: Exploration rate, default 0.1
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_cache_eviction)
+
     # Default Q-value for unseen state-action pairs
     DEFAULT_Q_VALUE = 0.0
 
@@ -151,10 +153,6 @@ class CacheEvictionLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_cache_eviction)
 
     def _load_state(self) -> None:
         """Load state from database."""

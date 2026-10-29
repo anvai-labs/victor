@@ -161,6 +161,8 @@ class PromptTemplateLearner(BaseLearner):
         exploration_rate: Additional exploration probability
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_prompt_template)
+
     # Default templates for different task types
     DEFAULT_TEMPLATES: Dict[str, PromptTemplate] = {
         "analysis": PromptTemplate(
@@ -249,10 +251,6 @@ class PromptTemplateLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_prompt_template)
 
     def _load_state(self) -> None:
         """Load state from database."""

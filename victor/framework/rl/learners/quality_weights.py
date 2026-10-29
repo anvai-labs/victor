@@ -80,6 +80,8 @@ class QualityWeightLearner(BaseLearner):
         momentum: Momentum factor for smoother updates (default 0.9)
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_quality_weights)
+
     # Default weights (matching ResponseQualityScorer.DEFAULT_WEIGHTS)
     DEFAULT_WEIGHTS = {
         QualityDimension.RELEVANCE: 1.5,
@@ -136,10 +138,6 @@ class QualityWeightLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_quality_weights)
 
     def _load_state(self) -> None:
         """Load state from database."""

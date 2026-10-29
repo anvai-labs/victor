@@ -60,6 +60,8 @@ class GroundingThresholdLearner(BaseLearner):
         learning_rate: Update rate for parameters, default 0.1
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_grounding_threshold)
+
     # Discretized threshold levels
     THRESHOLD_LEVELS = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
 
@@ -111,12 +113,6 @@ class GroundingThresholdLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(
-            self.name, RLTableMigrator.migrate_grounding_threshold
-        )
 
     def _load_state(self) -> None:
         """Load state from database."""
