@@ -413,7 +413,16 @@ def _configure_creation_tool_scope(
     or inference networking; it is not an operating-system sandbox.
     """
     from victor.framework.tool_config import AirgappedFilter
+    from victor.tools.core_tool_aliases import (
+        canonicalize_core_tool_name,
+        normalize_model_tool_name,
+    )
     from victor.tools.tool_names import get_canonical_name
+
+    def identity(name: str) -> str:
+        return canonicalize_core_tool_name(
+            get_canonical_name(normalize_model_tool_name(get_canonical_name(name)))
+        )
 
     getter = getattr(orchestrator, "get_enabled_tools", None)
     available_getter = getattr(orchestrator, "get_available_tools", None)
@@ -430,7 +439,8 @@ def _configure_creation_tool_scope(
         names = tools
     requested = set(names)
     if airgapped:
-        requested = AirgappedFilter().filter(requested, {})
+        allowed = AirgappedFilter().filter({identity(name) for name in requested}, {})
+        requested = {name for name in requested if identity(name) in allowed}
     # Exact names identify implementations. Never expand one requested name
     # into every registered tool that happens to share its canonical alias.
     registered = set()
@@ -438,16 +448,24 @@ def _configure_creation_tool_scope(
         if name in available:
             registered.add(name)
             continue
-        canonical = get_canonical_name(name)
+        canonical = identity(name)
         if canonical in available:
             registered.add(canonical)
             continue
-        matches = {item for item in available if get_canonical_name(item) == canonical}
+        matches = {item for item in available if identity(item) == canonical}
         if len(matches) > 1:
             raise ValueError("Ambiguous tool alias; request an exact registered tool name")
         registered.update(matches)
     if not registered:
         raise ValueError("Tool allowlist must retain at least one registered tool")
+
+    # The current dispatch gate canonicalizes enabled names. It cannot safely
+    # separate distinct implementations in an alias family, or dispatch an
+    # alias-only registry consistently. Refuse those scopes before exposure.
+    if any(identity(name) != name for name in registered):
+        raise ValueError("Tool scope requires canonical registered names for safe dispatch")
+    if any(identity(name) in registered for name in available - registered):
+        raise ValueError("Tool scope cannot separate registered aliases during dispatch")
 
     configure_tools(orchestrator, sorted(registered), airgapped=airgapped)
     applied = getter()

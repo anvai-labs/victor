@@ -1644,9 +1644,12 @@ class TestAgentCreate:
                     assert factory._skill_matcher_init_task.cancelled()
 
     @pytest.mark.asyncio
-    async def test_create_preserves_registered_alias_names(self, mock_orchestrator):
+    async def test_create_rejects_alias_only_registry_without_canonical_dispatch(
+        self, mock_orchestrator
+    ):
         from victor.agent.services.tool_access_policy import ToolAccessPolicy
         from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
 
         available = {"read_file", "shell"}
         policy = ToolAccessPolicy(
@@ -1666,22 +1669,34 @@ class TestAgentCreate:
                 new=AsyncMock(return_value=mock_orchestrator),
             ),
         ):
-            async with await Agent.create(tools=["read_file"], enable_observability=False):
-                assert policy.get_enabled_tools() == {"read_file"}
-                assert not policy.is_tool_enabled("shell")
+            with pytest.raises(AgentError, match="[Cc]anonical"):
+                await Agent.create(tools=["read_file"], enable_observability=False)
+        mock_orchestrator.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("requested", ["read", "read_file"])
-    async def test_create_prefers_exact_name_over_other_registered_aliases(
-        self, scoped_runtime, requested
+    @pytest.mark.parametrize(
+        "requested, other",
+        [
+            ("read", "read_file"),
+            ("read_file", "read"),
+            ("shell", "execute_bash"),
+            ("write", "create_file"),
+            ("read", "ReadFile"),
+        ],
+    )
+    async def test_create_rejects_scopes_split_across_registered_aliases(
+        self, scoped_runtime, requested, other
     ):
         from victor.framework.agent import Agent
+        from victor.core.errors import AgentError
 
-        orchestrator, policy, _, _ = scoped_runtime
-        orchestrator.tools["read_file"] = None
+        orchestrator, _, _, _ = scoped_runtime
+        orchestrator.tools.update(dict.fromkeys({requested, other}))
         orchestrator.get_available_tools = lambda: set(orchestrator.tools)
-        async with await Agent.create(tools=[requested], enable_observability=False):
-            assert policy.get_enabled_tools() == {requested}
+        with pytest.raises(AgentError, match="[Aa]lias|[Cc]anonical"):
+            await Agent.create(tools=[requested], enable_observability=False)
+        orchestrator.close.assert_awaited_once()
+        orchestrator.chat.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_create_rejects_ambiguous_alias_resolution(self, scoped_runtime):
@@ -1697,17 +1712,34 @@ class TestAgentCreate:
         orchestrator.chat.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_create_scope_reaches_real_selection_and_dispatch(self, mock_orchestrator):
+    @pytest.mark.parametrize("aliased_request", [None, "read", "read_file"])
+    async def test_create_scope_reaches_real_selection_and_dispatch(
+        self, mock_orchestrator, aliased_request
+    ):
         from victor.agent.services.tool_service import ToolService, ToolServiceConfig
         from victor.agent.tool_selection.selector import ToolSelector
         from victor.framework.agent import Agent
         from victor.tools.registry import ToolRegistry
+        from victor.core.errors import AgentError
 
         registry = ToolRegistry()
+        registry._deduplication_enabled = False
         for name in ("read", "write", "shell", "web", "http"):
             registry.register_dict({"name": name, "description": name})
+        if aliased_request:
+            registry.register_dict(
+                {"name": "read_file", "description": "distinct alias implementation"}
+            )
+            assert {"read", "read_file"} <= set(registry.list_all())
         selector = ToolSelector(registry)
-        executor = SimpleNamespace(execute_tool=AsyncMock(return_value={"fixture": "read"}))
+        implementations = {
+            name: AsyncMock(return_value={"implementation": name}) for name in ("read", "read_file")
+        }
+
+        async def dispatch(tool_name, arguments):
+            return await implementations[tool_name](arguments)
+
+        executor = SimpleNamespace(execute_tool=AsyncMock(side_effect=dispatch))
         service = ToolService(
             config=ToolServiceConfig(),
             tool_selector=selector,
@@ -1726,6 +1758,14 @@ class TestAgentCreate:
                 new=AsyncMock(return_value=mock_orchestrator),
             ),
         ):
+            if aliased_request:
+                with pytest.raises(AgentError, match="[Aa]lias|[Cc]anonical"):
+                    await Agent.create(tools=[aliased_request], enable_observability=False)
+                executor.execute_tool.assert_not_awaited()
+                for implementation in implementations.values():
+                    implementation.assert_not_awaited()
+                mock_orchestrator.close.assert_awaited_once()
+                return
             async with await Agent.create(tools=["read"], enable_observability=False):
                 selected = await selector.select_tools(
                     "write files and run shell or web", use_semantic=False

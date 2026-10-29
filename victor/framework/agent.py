@@ -217,6 +217,8 @@ class Agent:
             tools: ToolSet, list of tool names, or None to retain runtime defaults.
                 Use ToolSet.from_categories() for categories. Explicit scopes
                 must leave at least one registered tool; empty scopes fail closed.
+                Alias-only registries or scopes that split registered alias
+                implementations are rejected when dispatch cannot separate them.
             thinking: Enable extended thinking mode (Claude only)
             airgapped: Filter known network-dependent tools; not OS/network isolation
             profile: Profile name from ~/.victor/profiles.yaml

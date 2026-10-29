@@ -68,40 +68,33 @@ edit. A mock test is not live provider or C5 evidence.
 ## Current checkpoint
 
 - **SDK-TOOLS-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration session;
-  branch `fix/sdk-agent-tool-scope`, baseline `6dd1b0e8df86aa1c236574569a3206a25108d89a`. Reconciled
-  fetched develop source before selection; the public `Agent.create(tools=...,
-  airgapped=...)` parameters are present but not consumed by its factory bridge.
-  Scope: restore existing SDK tool-scope behavior before a bounded external
-  repository-research consumer is qualified; preserve default creation and shared
-  runtime ownership. No new public service resources or FEP acceptance.
-  RED: six creation regressions fail for the intended scope/airgap reasons
-  (`repocovertvideo/build/rr039-sdk-tools-red-v2.log`). The first independent
-  review identifies unified `web`, earlier post-factory cleanup and a missing
-  dispatch proof; three additional RED cases reproduce those boundary gaps.
-  A second review reproduces alias-named registry mismatch and factory-owned
-  setup failure/cancellation (three more RED cases). Configuration now preserves
-  actual registered names, and the shared factory closes a runtime it has not
-  successfully returned, cancelling this creation's skill task on failure.
-  The third review catches canonical matching that can expose distinct registered
-  implementations sharing an alias (three RED cases). Exact names now win;
-  otherwise resolve one canonical/unique alias or reject ambiguity.
-  A fourth review reproduces cancellation arriving during owned close (four RED
-  cases). Both owners now shield and drain one cleanup attempt, retaining the
-  primary failure/cancellation and separately logging cleanup failure without replay.
-  GREEN: 340 affected framework/client/service tests pass, including thirty-four new cases for explicit
-  list/ToolSet scopes, aliases, default preservation, empty/unknown/network-only
-  rejection, unenforced scope, cancellation cleanup and independent sessions.
-  Full collection passes (36,812 tests); touched Black/Ruff/configured MyPy pass.
-  The shared configurator now actually applies its airgap filter, including
-  canonical `http` aliases and unified `web`. Existing empty-set ToolService semantics stay intact;
-  SDK creation instead rejects a scope that is empty or cannot be verified.
-  Evidence uses mocked creation plus the real registry/selector/ToolService:
-  `read` is selected/dispatched; write/shell/bash/web/http are refused before
-  the fake executor. This is not live provider, OS isolation, pinned-corpus
-  enforcement or HTTP capability acceptance. Every post-factory setup failure
-  now closes the owned runtime, including cancellation before wrapper creation.
-  Next: independent exact-commit adversarial review, then PR/develop CI and merge.
-  RepoReel owns source admission and tutorial policy (RR-015/RR-039).
+  branch `fix/sdk-agent-tool-scope`, initial baseline
+  `6dd1b0e8df86aa1c236574569a3206a25108d89a`. Reconciled fetched develop before
+  selection; later fetched `f2b223b31` adds unrelated metrics work. Existing public
+  `Agent.create(tools=..., airgapped=...)` arguments were dropped by the factory
+  bridge. The repair applies and verifies a nonempty registered creation scope,
+  filters known HTTP/web tools correctly, and cleans up failed SDK/factory creation
+  through caller cancellation. Default creation and legacy ToolService empty-set
+  semantics stay unchanged; no public HTTP contract or FEP acceptance is added.
+  RED: six original scope/airgap cases, then retained alias/ownership/close tests
+  reproduce independent-review findings. A real baseline ToolService dispatch
+  executes unrequested `read` under `{'read_file'}`: canonicalization cannot safely
+  distinguish those implementations. The candidate rejects alias-only registries
+  and scopes that split registered alias families before exposure, instead of
+  promising unsupported alias compatibility or changing legacy dispatch semantics.
+  Normal alias requests resolving to one canonical registered tool still work.
+  GREEN: 345 affected framework/client/service tests pass, including thirty-nine
+  new cases. Full collection passes (36,817 tests); touched Black/Ruff/configured
+  MyPy pass. Real registry/selector/validated dispatch advertises and executes
+  `read`; write/shell/bash/web/http are refused before the fake executor. Distinct
+  alias implementations are rejected before dispatch. Owned close is shielded and
+  drained once; failure is logged separately while preserving the primary error.
+  Evidence is under `repocovertvideo/build/rr039-sdk-tools-*` and the retained
+  exact-commit review directories. This is not live provider, OS isolation,
+  pinned-corpus, HTTP capability or general service cancellation/recovery acceptance.
+  RepoReel owns source admission/tutorial policy (RR-015/RR-039). Next: final
+  independent exact-commit review, then PR/develop CI and merge; qualify the actual
+  consumer with bounded canonical source tools separately.
 
 - **KV-VERIFY-01 — MERGED (runtime repair), PARTIAL (live matrix), [#1394](https://github.com/anvai-labs/victor/pull/1394)** (2026-10-18), owner: provider verification session;
   branch `fix/kv-compaction-message-contract`, baseline `71e31ad0d`. Actual
