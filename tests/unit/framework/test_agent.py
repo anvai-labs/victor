@@ -1534,6 +1534,75 @@ class TestAgentCreate:
     """Tests for Agent.create classmethod."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("owner", ["sdk", "factory"])
+    @pytest.mark.parametrize("primary_cancel", [False, True])
+    async def test_creation_cancellation_during_close_preserves_cleanup_and_primary_error(
+        self, mock_orchestrator, owner, primary_cancel
+    ):
+        import asyncio
+        from contextlib import ExitStack
+        from victor.core.errors import AgentError
+        from victor.framework.agent import Agent
+        from victor.framework.agent_factory import AgentFactory
+
+        started, release, closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        async def close():
+            started.set()
+            await release.wait()
+            closed.set()
+
+        mock_orchestrator.close = AsyncMock(side_effect=close)
+        failure = asyncio.CancelledError() if primary_cancel else RuntimeError("setup failed")
+        with ExitStack() as stack:
+            if owner == "sdk":
+                stack.enter_context(
+                    patch("victor.config.settings.load_settings", return_value=MagicMock())
+                )
+                stack.enter_context(
+                    patch(
+                        "victor.framework.agent_factory.AgentFactory.create",
+                        new=AsyncMock(return_value=mock_orchestrator),
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "victor.framework._internal._configure_creation_tool_scope",
+                        side_effect=failure,
+                    )
+                )
+                creation = Agent.create(tools=["read"], enable_observability=False)
+                expected = AgentError
+            else:
+                factory = AgentFactory(settings=MagicMock(), enable_observability=False)
+                factory.validate = MagicMock(return_value=[])
+                factory._apply_profile_overrides = MagicMock()
+                factory._initialize_skill_matcher = AsyncMock(side_effect=failure)
+                stack.enter_context(patch("victor.core.bootstrap.ensure_bootstrapped"))
+                stack.enter_context(
+                    patch(
+                        "victor.agent.orchestrator.AgentOrchestrator.from_settings",
+                        new=AsyncMock(return_value=mock_orchestrator),
+                    )
+                )
+                creation = factory.create()
+                expected = RuntimeError
+            task = asyncio.create_task(creation)
+            try:
+                await asyncio.wait_for(started.wait(), timeout=5)
+                task.cancel()
+                await asyncio.sleep(0)
+                assert not task.done(), "creation must wait for owned cleanup"
+                release.set()
+                with pytest.raises(asyncio.CancelledError if primary_cancel else expected):
+                    await asyncio.wait_for(task, timeout=5)
+                assert closed.is_set()
+                mock_orchestrator.close.assert_awaited_once()
+            finally:
+                release.set()
+                await asyncio.gather(task, return_exceptions=True)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("phase", ["success", "error", "cancel", "skill_task"])
     async def test_factory_owns_cleanup_before_returning_runtime(self, mock_orchestrator, phase):
         import asyncio

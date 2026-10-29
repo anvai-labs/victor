@@ -266,26 +266,29 @@ class AgentFactory:
 
             return self._orchestrator
         except BaseException:
-            # Ownership transfers to the caller only on a successful return.
-            # Cancel only this creation's skill task, never a prior runtime's.
-            try:
-                skill_task = getattr(self, "_skill_matcher_init_task", None)
-                if skill_task is not None and skill_task is not previous_skill_task:
-                    skill_task.cancel()
-                    await asyncio.gather(skill_task, return_exceptions=True)
-            finally:
+            from victor.framework._internal import _finish_creation_cleanup
+
+            async def _cleanup_owned_runtime() -> None:
+                # Ownership transfers only on successful return. Never cancel
+                # a prior runtime's skill task when this factory is reused.
                 try:
-                    cleanup = getattr(self._orchestrator, "close", None) or getattr(
-                        self._orchestrator, "shutdown", None
-                    )
-                    if cleanup is not None:
-                        result = cleanup()
-                        if inspect.isawaitable(result):
-                            await result
-                except Exception:
-                    logger.exception("Failed to close runtime after factory setup rejection")
+                    skill_task = getattr(self, "_skill_matcher_init_task", None)
+                    if skill_task is not None and skill_task is not previous_skill_task:
+                        skill_task.cancel()
+                        await asyncio.gather(skill_task, return_exceptions=True)
                 finally:
-                    self._orchestrator = None
+                    try:
+                        cleanup = getattr(self._orchestrator, "close", None) or getattr(
+                            self._orchestrator, "shutdown", None
+                        )
+                        if cleanup is not None:
+                            result = cleanup()
+                            if inspect.isawaitable(result):
+                                await result
+                    finally:
+                        self._orchestrator = None
+
+            await _finish_creation_cleanup(_cleanup_owned_runtime())
             raise
 
     def validate(self) -> List[Dict[str, Any]]:

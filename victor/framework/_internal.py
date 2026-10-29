@@ -26,7 +26,18 @@ import asyncio
 import contextlib
 import logging
 import os
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Tuple, Type, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 from victor.agent.config import FrameworkCompatibleAgentConfig, normalize_agent_config
 from victor.core.completion_markers import strip_active_completion_markers
@@ -367,6 +378,26 @@ def configure_tools(
     else:
         # Convert list to set and configure
         configurator.configure(orchestrator, set(tools), ToolConfigMode.REPLACE)
+
+
+async def _finish_creation_cleanup(cleanup: Awaitable[Any]) -> None:
+    """Drain owned cleanup despite caller cancellation; preserve the primary error.
+
+    Called only from a creation failure handler, which re-raises its original
+    exception. A failing cleanup is logged separately, never retried or replayed.
+    """
+    task = asyncio.ensure_future(cleanup)
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+        except BaseException:
+            break
+    try:
+        task.result()
+    except BaseException:
+        logger.exception("Owned runtime cleanup failed after creation rejection")
 
 
 def _configure_creation_tool_scope(

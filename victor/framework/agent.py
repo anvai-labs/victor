@@ -410,9 +410,9 @@ class Agent:
                     _configure_creation_tool_scope(orchestrator, tools, airgapped)
                 return agent
             except BaseException:
-                # Every post-factory failure owns cleanup, including setup
-                # before the Agent wrapper exists and cancellation.
-                try:
+                from victor.framework._internal import _finish_creation_cleanup
+
+                async def _cleanup_owned_runtime() -> None:
                     if agent is not None:
                         await agent.close()
                     else:
@@ -423,8 +423,8 @@ class Agent:
                             result = cleanup()
                             if inspect.isawaitable(result):
                                 await result
-                except Exception:
-                    logger.exception("Failed to close agent after creation rejection")
+
+                await _finish_creation_cleanup(_cleanup_owned_runtime())
                 raise
         except InitializationError as e:
             if e.stage == "credentials":
