@@ -52,11 +52,7 @@ class ContinuationPromptLearner(BaseLearner):
         learning_rate: Adjustment rate (0.0-1.0)
     """
 
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(
-            self.name, RLTableMigrator.migrate_continuation_prompts
-        )
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_continuation_prompts)
 
     def record_outcome(self, outcome: RLOutcome) -> None:
         """Record continuation prompts outcome.

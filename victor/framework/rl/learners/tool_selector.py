@@ -57,6 +57,8 @@ class ToolSelectorLearner(BaseLearner):
         min_samples: Minimum samples before confident recommendation
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_tool_selector)
+
     # Default tool Q-value (optimistic for exploration)
     DEFAULT_Q_VALUE = 0.5
 
@@ -106,10 +108,6 @@ class ToolSelectorLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_tool_selector)
 
     def _load_state(self) -> None:
         """Load state from database."""

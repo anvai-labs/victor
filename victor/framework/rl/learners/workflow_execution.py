@@ -83,6 +83,8 @@ class WorkflowExecutionLearner(BaseLearner):
         epsilon: Exploration rate for ε-greedy selection
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_workflow_execution)
+
     # Default Q-value for unseen workflow-task pairs
     DEFAULT_Q_VALUE = 0.5
 
@@ -117,17 +119,10 @@ class WorkflowExecutionLearner(BaseLearner):
             provider_adapter=provider_adapter,
         )
         self._epsilon = epsilon
-        self._ensure_tables()
 
         logger.debug(
             f"WorkflowExecutionLearner initialized: "
             f"learning_rate={learning_rate}, epsilon={epsilon}"
-        )
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy per-learner tables to unified RL tables."""
-        RLTableMigrator(self.db).run_if_needed(
-            self.name, RLTableMigrator.migrate_workflow_execution
         )
 
     def get_best_workflow(

@@ -75,6 +75,8 @@ class ModeTransitionLearner(BaseLearner):
         epsilon: Exploration rate, default 0.1
     """
 
+    _legacy_migration = staticmethod(RLTableMigrator.migrate_mode_transition)
+
     # Default Q-value for unseen state-action pairs
     DEFAULT_Q_VALUE = 0.0
 
@@ -127,10 +129,6 @@ class ModeTransitionLearner(BaseLearner):
 
         # Load state from database
         self._load_state()
-
-    def _ensure_tables(self) -> None:
-        """Migrate legacy private tables into unified RL schema (idempotent)."""
-        RLTableMigrator(self.db).run_if_needed(self.name, RLTableMigrator.migrate_mode_transition)
 
     def _load_state(self) -> None:
         """Load state from unified rl_q_value and rl_task_stat tables."""

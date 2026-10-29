@@ -18,10 +18,11 @@ from victor.core.json_utils import json_dumps, json_loads
 import logging
 import os
 import random
+import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Callable, ClassVar, Dict, Optional, TYPE_CHECKING
 from victor.core.constants import DEFAULT_VERTICAL
 from victor.core.sql_utils import validate_identifier
 
@@ -172,6 +173,11 @@ class BaseLearner(ABC):
     Subclasses implement domain-specific learning logic.
     """
 
+    # Learners on the unified RL tables set this to their
+    # ``RLTableMigrator.migrate_*`` function (wrapped in ``staticmethod``);
+    # the default ``_ensure_tables`` then runs it once per database.
+    _legacy_migration: ClassVar[Optional[Callable[[sqlite3.Connection], None]]] = None
+
     def __init__(
         self,
         name: str,
@@ -206,14 +212,25 @@ class BaseLearner(ABC):
         """Seed this learner's RNG for deterministic draws (tests/reproducibility)."""
         self._rng.seed(seed)
 
-    @abstractmethod
     def _ensure_tables(self) -> None:
         """Ensure required database tables exist.
 
-        Each learner creates its own tables for storing stats and outcomes.
-        Table names should be prefixed with learner name to avoid conflicts.
+        The default runs ``_legacy_migration`` once per database. Learners
+        that own their tables override this to create them; table names
+        should be prefixed with the learner name to avoid conflicts.
+
+        Raises:
+            TypeError: the learner neither sets ``_legacy_migration`` nor
+                overrides this method (it would have no storage).
         """
-        pass
+        migrate = type(self)._legacy_migration
+        if migrate is None:
+            raise TypeError(
+                f"{type(self).__name__} must set _legacy_migration or override _ensure_tables"
+            )
+        from victor.framework.rl.migration import RLTableMigrator
+
+        RLTableMigrator(self.db).run_if_needed(self.name, migrate)
 
     @abstractmethod
     def record_outcome(self, outcome: RLOutcome) -> None:
