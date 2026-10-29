@@ -307,42 +307,6 @@ class TestExecution:
 # ---------------------------------------------------------------------------
 
 
-class TestOwnerChecks:
-    def test_self_is_alive(self):
-        assert owner_alive(os.getpid(), process_start_marker(os.getpid()))
-
-    def test_missing_pid_is_dead(self):
-        assert not owner_alive(0, "")
-        with patch(f"{MODULE}.os.kill", side_effect=ProcessLookupError):
-            assert not owner_alive(424242, "")
-
-    def test_reused_pid_is_dead(self):
-        pid = os.getpid()
-        assert not owner_alive(pid, "not-" + process_start_marker(pid))
-
-    def test_unknown_start_marker_is_treated_as_alive(self):
-        with patch(f"{MODULE}.process_start_marker", return_value=""):
-            assert owner_alive(os.getpid(), "12345")
-
-    def test_permission_denied_means_alive(self):
-        with patch(f"{MODULE}.os.kill", side_effect=PermissionError):
-            assert owner_alive(1, "")
-
-    def test_start_marker_parses_comm_with_spaces_and_parens(self, tmp_path, monkeypatch):
-        stat = "4242 (weird (name) x) S " + " ".join(str(i) for i in range(4, 60))
-        real_path = cet.Path
-
-        def fake_path(p):
-            if p == "/proc/4242/stat":
-                f = tmp_path / "stat"
-                f.write_text(stat)
-                return f
-            return real_path(p)
-
-        monkeypatch.setattr(cet, "Path", fake_path)
-        assert process_start_marker(4242) == "22"  # field 22: starttime
-
-
 def _labelled(cid, *, host=None, pid=None, start="", legacy_cmd=False, age_s=0.0):
     container = MagicMock()
     container.short_id = cid

@@ -10,18 +10,23 @@ assert the docker create/start/exec/rm command sequence and the image resolvers.
 
 from __future__ import annotations
 
+import json
+import time
+from datetime import datetime, timezone
 from typing import Optional
 
 import pytest
 
 from victor.evaluation import container_eval as ce
 from victor.evaluation.container_eval import (
+    LEGACY_EVAL_MIN_AGE_SECONDS,
     DockerUnavailable,
     EvalContainer,
     cleanup_stale_sandbox_containers,
     resolve_runtime,
     resolve_swebench_image,
 )
+from victor.tools.sandbox_ownership import OWNER_HOST_LABEL, OWNER_PID_LABEL, owner_labels
 
 # ---- lightweight task/config stand-ins (duck-typed to what the resolvers read) ----
 
@@ -212,6 +217,10 @@ async def test_eval_container_start_exec_stop_issues_correct_docker_cmds(monkeyp
     assert "--name" in create_cmd
     assert any("victor.sandbox=eval" in flag for flag in create_cmd)
     assert any("/tmp/repo:/workspace:rw" == flag for flag in create_cmd)
+    # Owner labels let a concurrent run's sweep tell this live container apart
+    # from a crashed run's orphan.
+    for key, value in owner_labels().items():
+        assert f"{key}={value}" in create_cmd
     assert create_cmd[-3:] == [
         "sweb.eval.astropy:astropy__astropy-12907",
         "sleep",
@@ -257,33 +266,80 @@ async def test_eval_container_stop_never_raises(monkeypatch):
 # ---- stale-sandbox sweep ----
 
 
+def _inspect_entry(cid: str, labels: dict, age_s: float = 0.0) -> dict:
+    created = datetime.fromtimestamp(time.time() - age_s, timezone.utc)
+    return {
+        "Id": cid + "0" * 52,
+        "Created": created.strftime("%Y-%m-%dT%H:%M:%S.%f") + "123Z",
+        "Config": {"Labels": {"victor.sandbox": "eval", **labels}},
+    }
+
+
+def _fake_docker(issued: list, entries: list):
+    async def _fake(cmd, timeout):
+        issued.append(list(cmd))
+        if cmd[1] == "ps":
+            return 0, "\n".join(e["Id"][:12] for e in entries).encode(), b""
+        if cmd[1] == "inspect":
+            return 0, json.dumps(entries).encode(), b""
+        return 0, b"", b""
+
+    return _fake
+
+
 async def test_cleanup_sweeps_eval_and_reaps_code_executor_orphans(monkeypatch):
     """Both subsystems' leaks are reclaimed (a 3,456-container code-executor
     pileup once went uncollected), each by a sweep that only removes what it
-    can prove is orphaned: eval by exact label value, code-executor through the
-    owner-aware reaper."""
+    can prove is orphaned: eval containers whose owner is gone, code-executor
+    sandboxes through their owner-aware reaper."""
+    issued: list = []
+    me = owner_labels()
+    dead = {**me, OWNER_PID_LABEL: "999999"}
+    entries = [
+        _inspect_entry("live00000000", me),  # this process: a concurrent run's container
+        _inspect_entry("dead00000000", dead),
+        _inspect_entry("foreign00000", {OWNER_HOST_LABEL: "other-boot", OWNER_PID_LABEL: "1"}),
+        _inspect_entry("legacyold000", {}, age_s=LEGACY_EVAL_MIN_AGE_SECONDS + 60),
+        _inspect_entry("legacynew000", {}, age_s=60),
+    ]
+    monkeypatch.setattr(ce, "_run_cmd", _fake_docker(issued, entries))
+    monkeypatch.setattr(
+        "victor.tools.sandbox_ownership.owner_alive", lambda pid, start: pid != 999999
+    )
+    _patch_code_exec_reaper(monkeypatch, lambda: ["c1", "c2"])  # owner-dead code-executor
+    removed = await cleanup_stale_sandbox_containers()
+
+    assert removed == 2 + 2
+    ps = next(c for c in issued if c[1] == "ps")
+    assert "label=victor.sandbox=eval" in ps
+    rm = next(c for c in issued if c[1] == "rm")
+    assert rm == ["docker", "rm", "-f", "dead00000000", "legacyold000"]
+
+
+async def test_cleanup_never_removes_a_live_runs_eval_container(monkeypatch):
+    """The old sweep removed every eval container, killing concurrent runs mid-task."""
+    issued: list = []
+    monkeypatch.setattr(
+        ce, "_run_cmd", _fake_docker(issued, [_inspect_entry("live00000000", owner_labels())])
+    )
+    _patch_code_exec_reaper(monkeypatch, lambda: [])
+    assert await cleanup_stale_sandbox_containers() == 0
+    assert not any(c[1] == "rm" for c in issued)
+
+
+async def test_cleanup_inspect_failure_removes_nothing(monkeypatch):
     issued: list = []
 
     async def _fake(cmd, timeout):
         issued.append(list(cmd))
         if cmd[1] == "ps":
-            return 0, b"aaa\nbbb\nccc\n", b""  # three orphans
-        if cmd[1] == "rm":
-            return 0, b"", b""
-        return 0, b"", b""
+            return 0, b"aaa\n", b""
+        return 1, b"", b"boom"
 
     monkeypatch.setattr(ce, "_run_cmd", _fake)
-    reaped_code_exec = ["c1", "c2"]  # owner-dead code-executor sandboxes
-    _patch_code_exec_reaper(monkeypatch, lambda: reaped_code_exec)
-    removed = await cleanup_stale_sandbox_containers()
-
-    assert removed == 3 + 2
-    ps = next(c for c in issued if c[1] == "ps")
-    # Eval containers are swept by exact value; code-executor sandboxes go
-    # through the owner-aware reaper instead of a blanket label-key sweep.
-    assert "label=victor.sandbox=eval" in ps
-    rm = next(c for c in issued if c[1] == "rm")
-    assert rm[:3] == ["docker", "rm", "-f"] and rm[3:] == ["aaa", "bbb", "ccc"]
+    _patch_code_exec_reaper(monkeypatch, lambda: [])
+    assert await cleanup_stale_sandbox_containers() == 0
+    assert not any(c[1] == "rm" for c in issued)
 
 
 async def test_cleanup_never_sweeps_code_executor_by_label_key(monkeypatch):
