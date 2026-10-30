@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 from types import SimpleNamespace
 
 from victor.evaluation import (
@@ -68,7 +70,10 @@ def test_feedback_modules_share_one_extract_value() -> None:
         team_feedback,
         topology_feedback,
     ):
-        assert module._extract_value is extract_value
+        # No feedback module carries its own fork: either it imports the shared
+        # helper or (after moving to collect_events) no longer needs it.
+        assert getattr(module, "_extract_value", extract_value) is extract_value
+        assert "def _extract_value" not in inspect.getsource(module)
 
 
 def test_feedback_summaries_still_pass_through_existing_mappings() -> None:
@@ -125,3 +130,44 @@ def test_optional_coercions() -> None:
     assert coerce_optional_int("7") == 7
     assert coerce_optional_int(None) is None
     assert coerce_optional_int("7.5") is None
+
+
+def test_collect_events_walks_sources_containers_and_trace_in_order() -> None:
+    from victor.evaluation.summary_mapping import collect_events
+
+    def as_a(item):
+        return {"kind": "a", "v": item} if isinstance(item, int) else None
+
+    def as_b(item):
+        return {"kind": "b", "v": item} if isinstance(item, int) else None
+
+    value = {
+        "a_events": [1, "junk"],
+        "b_events": [2],
+        "metadata": {"a_events": [3], "b_events": [4]},
+        "failure_details": "not-a-mapping",
+        "trace": {"a_events": [5, 1], "completion_signals": {"b_events": [6]}},
+    }
+    events = collect_events(
+        value, [("a_events", as_a), ("b_events", as_b)], lambda e: (e["kind"], e["v"])
+    )
+    assert [(e["kind"], e["v"]) for e in events] == [
+        ("a", 1),
+        ("b", 2),
+        ("a", 3),
+        ("b", 4),
+        ("a", 5),  # trace walked after the node's own containers
+        ("b", 6),  # duplicate ("a", 1) from the trace dropped
+    ]
+
+
+def test_collect_events_handles_self_trace_and_empty_inputs() -> None:
+    from victor.evaluation.summary_mapping import collect_events
+
+    class _Task:
+        events = [7]
+
+    task = _Task()
+    task.trace = task  # self-reference must not recurse forever
+    assert collect_events(task, [("events", lambda i: {"v": i})], lambda e: e["v"]) == [{"v": 7}]
+    assert collect_events(None, [("events", lambda i: {"v": i})], lambda e: e["v"]) == []
