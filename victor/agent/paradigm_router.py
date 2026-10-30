@@ -37,22 +37,6 @@ from victor.agent.topology_contract import TopologyDecisionInput
 logger = logging.getLogger(__name__)
 
 
-# Optional imports for enhanced functionality
-try:
-    from victor.agent.complexity_estimator import get_complexity_estimator
-
-    COMPLEXITY_ESTIMATOR_AVAILABLE = True
-except ImportError:
-    COMPLEXITY_ESTIMATOR_AVAILABLE = False
-
-try:
-    from victor.agent.task_classifier import get_task_classifier
-
-    TASK_CLASSIFIER_AVAILABLE = True
-except ImportError:
-    TASK_CLASSIFIER_AVAILABLE = False
-
-
 class ProcessingParadigm(str, Enum):
     """Processing paradigm for task execution.
 
@@ -185,22 +169,13 @@ class ParadigmRouter:
         "analysis_deep",
     }
 
-    def __init__(
-        self,
-        enabled: bool = True,
-        use_enhanced_classification: bool = True,
-        use_enhanced_complexity: bool = True,
-    ):
+    def __init__(self, enabled: bool = True):
         """Initialize the paradigm router.
 
         Args:
             enabled: Whether the router is enabled (for feature flagging)
-            use_enhanced_classification: Whether to use LLM-based task classification
-            use_enhanced_complexity: Whether to use edge model complexity estimation
         """
         self.enabled = enabled
-        self.use_enhanced_classification = use_enhanced_classification
-        self.use_enhanced_complexity = use_enhanced_complexity
         self._routing_count = 0
         self._paradigm_stats: Dict[str, int] = {
             "direct": 0,
@@ -208,92 +183,6 @@ class ParadigmRouter:
             "standard": 0,
             "deep": 0,
         }
-
-        # Initialize enhanced components if available and enabled
-        self._complexity_estimator = None
-        self._task_classifier = None
-
-        if self.use_enhanced_complexity and COMPLEXITY_ESTIMATOR_AVAILABLE:
-            self._complexity_estimator = get_complexity_estimator()
-
-        if self.use_enhanced_classification and TASK_CLASSIFIER_AVAILABLE:
-            self._task_classifier = get_task_classifier()
-
-    async def route_async(
-        self,
-        task_type: str,
-        query: str,
-        history_length: int = 0,
-        query_complexity: Optional[float] = None,
-        tool_budget: Optional[int] = None,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> RoutingDecision:
-        """Route query to optimal processing paradigm (async version with enhanced estimation).
-
-        Uses LLM-based task classification and complexity estimation when available
-        for more accurate routing decisions.
-
-        Args:
-            task_type: Detected task type
-            query: User's query
-            history_length: Length of conversation history
-            query_complexity: Optional complexity score (0-1)
-            tool_budget: Optional tool budget constraint
-            context: Additional execution context
-
-        Returns:
-            RoutingDecision with paradigm, model tier, and settings
-        """
-        self._routing_count += 1
-
-        if not self.enabled:
-            decision = RoutingDecision(
-                paradigm=ProcessingParadigm.STANDARD,
-                model_tier=ModelTier.MEDIUM,
-                max_tokens=2000,
-                tool_budget=tool_budget or 10,
-                skip_planning=False,
-                skip_evaluation=False,
-                confidence=0.5,
-                reasoning="Router disabled, using standard paradigm",
-            )
-            self._paradigm_stats["standard"] += 1
-            return decision
-
-        # Use enhanced task classification if available
-        if self._task_classifier:
-            try:
-                classification = await self._task_classifier.classify(query, context)
-                if classification.confidence > 0.8:
-                    task_type = classification.task_type
-                    logger.debug(
-                        f"[ParadigmRouter] Enhanced classification: {task_type} "
-                        f"(confidence={classification.confidence:.2f})"
-                    )
-            except Exception as e:
-                logger.warning(f"[ParadigmRouter] Task classification failed: {e}")
-
-        # Use enhanced complexity estimation if available
-        if self._complexity_estimator and query_complexity is None:
-            try:
-                estimate = await self._complexity_estimator.estimate(query, context)
-                query_complexity = estimate.score
-                logger.debug(
-                    f"[ParadigmRouter] Enhanced complexity: {query_complexity:.2f} "
-                    f"(band={estimate.band.value})"
-                )
-            except Exception as e:
-                logger.warning(f"[ParadigmRouter] Complexity estimation failed: {e}")
-
-        # Fall back to synchronous routing with enhanced data
-        return self.route(
-            task_type=task_type,
-            query=query,
-            history_length=history_length,
-            query_complexity=query_complexity,
-            tool_budget=tool_budget,
-            context=context,
-        )
 
     def route(
         self,

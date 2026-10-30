@@ -1,8 +1,7 @@
 {
-  "count": 95,
+  "count": 93,
   "pairs": [
     "victor.agent -> victor.framework.decorators",
-    "victor.agent.complexity_estimator -> victor.framework.agentic_loop",
     "victor.agent.creation_strategies -> victor.framework.agent_factory",
     "victor.agent.factory.coordination_builders -> victor.framework.coordination_runtime",
     "victor.agent.loop_evaluation.hybrid -> victor.framework.agentic_loop_executor",
@@ -33,7 +32,6 @@
     "victor.agent.session_manager_base -> victor.ui.commands.utils",
     "victor.agent.streaming.handler -> victor.framework.temperature",
     "victor.agent.task_analyzer -> victor.framework.enrichment.strategies",
-    "victor.agent.task_classifier -> victor.framework.agentic_loop",
     "victor.agent.task_completion -> victor.framework.context_aware_keyword_detector",
     "victor.config.prompt_optimization_settings -> victor.agent.prompt_section_registry",
     "victor.core.container -> victor.runtime.reachability",

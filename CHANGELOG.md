@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- Dormant `victor.agent.complexity_estimator` / `victor.agent.task_classifier` (and their
+  shared `edge_decision_cache` core) together with `ParadigmRouter.route_async()` and its
+  `use_enhanced_*` flags: nothing called `route_async()` (the agentic loop routes through
+  the synchronous `route()`), and the edge-model hook imported a `decide_sync` that
+  `victor.framework.agentic_loop` never defined. Routing behaviour is unchanged.
+
 ### Deprecated
 
 - `victor.framework.chains` (the versioned chain registry) and
