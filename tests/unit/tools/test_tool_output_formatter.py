@@ -547,6 +547,20 @@ class TestSerializeStructuredOutput:
 class TestGetStatusMessage:
     """Tests for get_status_message method."""
 
+    def test_status_non_dict_args_does_not_raise(self):
+        """Non-dict tool args (malformed provider output) yield a generic message."""
+        formatter = ToolOutputFormatter()
+        result = formatter.get_status_message("shell", "ls -la")  # type: ignore[arg-type]
+        assert "Running shell" in result
+
+    def test_status_uses_formatter_presentation_icon(self):
+        """The formatter's own presentation adapter supplies the icon."""
+        formatter = ToolOutputFormatter()
+        formatter._presentation = type("P", (), {"icon": lambda self, name: f"<{name}>"})()
+        assert (
+            formatter.get_status_message("read", {"path": "a.py"}) == "<running> Reading file: a.py"
+        )
+
     def test_status_execute_bash(self):
         """Test status message for execute_bash."""
         formatter = ToolOutputFormatter()

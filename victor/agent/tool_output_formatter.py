@@ -64,6 +64,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Tuple
+from victor.agent.orchestrator_utils import get_tool_status_message
 from victor.tools.tool_names import get_canonical_name
 
 if TYPE_CHECKING:
@@ -623,8 +624,8 @@ ACTION REQUIRED: This file is too large to display fully.
     def get_status_message(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
         """Generate a user-friendly status message for a tool execution.
 
-        Provides context-aware status messages showing relevant details
-        (command, path, query, etc.) for different tool types.
+        Delegates to :func:`victor.agent.orchestrator_utils.get_tool_status_message`
+        with this formatter's presentation adapter.
 
         Args:
             tool_name: Name of the tool being executed
@@ -633,45 +634,7 @@ ACTION REQUIRED: This file is too large to display fully.
         Returns:
             Status message string with icon prefix
         """
-        running_icon = self._presentation.icon("running")
-        canonical_tool_name = get_canonical_name(tool_name)
-        display_name = tool_name or canonical_tool_name
-
-        if canonical_tool_name == "shell":
-            cmd = tool_args.get("cmd") or tool_args.get("command")
-            if not cmd:
-                return f"{running_icon} Running {display_name}..."
-            cmd_display = cmd[:80] + "..." if len(cmd) > 80 else cmd
-            return f"{running_icon} Running {display_name}: `{cmd_display}`"
-
-        if canonical_tool_name == "ls":
-            path = tool_args.get("path", ".")
-            return f"{running_icon} Listing directory: {path}"
-
-        if canonical_tool_name == "read":
-            path = tool_args.get("path", "file")
-            return f"{running_icon} Reading file: {path}"
-
-        if canonical_tool_name == "edit":
-            files = tool_args.get("ops") or tool_args.get("files") or tool_args.get("edits") or []
-            if files and isinstance(files, list):
-                paths = [f.get("path", "?") for f in files[:3] if isinstance(f, dict)]
-                path_display = ", ".join(paths)
-                if len(files) > 3:
-                    path_display += f" (+{len(files) - 3} more)"
-                return f"{running_icon} Editing: {path_display}"
-            return f"{running_icon} Running {display_name}..."
-
-        if canonical_tool_name == "write":
-            path = tool_args.get("path", "file")
-            return f"{running_icon} Writing file: {path}"
-
-        if tool_name == "code_search":
-            query = tool_args.get("query", "")
-            query_display = query[:50] + "..." if len(query) > 50 else query
-            return f"{running_icon} Searching: {query_display}"
-
-        return f"{running_icon} Running {display_name}..."
+        return get_tool_status_message(tool_name, tool_args, presentation=self._presentation)
 
 
 def create_tool_output_formatter(
