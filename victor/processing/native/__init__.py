@@ -106,8 +106,6 @@ from victor.processing.native.chunking import (  # noqa: F401
     chunk_by_paragraphs,
     detect_doc_type,
     count_tokens_approx,
-    count_tokens,
-    count_tokens_batch,
 )
 
 # Secret detection & pattern matching

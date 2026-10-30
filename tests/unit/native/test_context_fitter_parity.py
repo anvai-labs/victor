@@ -285,3 +285,135 @@ class _NullContext:
 
 def _nullcontext():
     return _NullContext()
+
+
+class TestSingleSourcedPythonFallbacks:
+    """One FitResult type, one Python truncation, one tiktoken loader."""
+
+    def test_fit_result_is_one_type(self):
+        from victor.native.python import context_fitter as py_cf
+
+        assert py_cf.FitResult is cf.FitResult
+
+    def test_python_fitter_returns_canonical_fit_result(self):
+        from victor.native.python.context_fitter import PythonContextFitter
+
+        fitter = PythonContextFitter.__new__(PythonContextFitter)
+        fitter._timed_call = lambda label: _nullcontext()
+        result = fitter.fit_context([{"role": "user", "content": "m", "token_count": 5}], 100)
+        assert isinstance(result, cf.FitResult)
+
+    @pytest.mark.parametrize(
+        "content,max_tokens,preserve_lines",
+        [
+            ("", 5, True),
+            ("one two three\n\nfour five six seven\neight", 5, True),
+            ("one two three\n\nfour five six seven\neight", 3, True),
+            ("w " * 40, 13, False),
+            ("single", 0, False),
+        ],
+    )
+    def test_python_fitter_truncation_matches_processing_fallback(
+        self, content, max_tokens, preserve_lines
+    ):
+        from victor.native.python.context_fitter import PythonContextFitter
+
+        fitter = PythonContextFitter.__new__(PythonContextFitter)
+        fitter._timed_call = lambda label: _nullcontext()
+        assert fitter.truncate_message(
+            content, max_tokens, preserve_lines
+        ) == cf._truncate_message_python(content, max_tokens, preserve_lines)
+
+    def test_python_truncation_semantics(self):
+        # ~1.3 tokens per word, empty lines cost one token, stop at the line
+        # that would overflow; word mode keeps max(1, max_tokens*10//13) words.
+        text = "a b\n\nc d e f"
+        assert cf._truncate_message_python(text, 3, True) == "a b\n"
+        assert cf._truncate_message_python(text, 100, True) == text
+        ten_words = " ".join("abcdefghij")
+        assert cf._truncate_message_python(ten_words, 12, True) == ""  # 10 words = 13 tokens
+        assert cf._truncate_message_python(ten_words, 13, True) == ten_words
+        assert cf._truncate_message_python("a b c d e f", 2, False) == "a"
+        assert cf._truncate_message_python("a b c d e f", 13, False) == "a b c d e f"
+
+    def test_rust_shim_coerces_non_numeric_priority(self):
+        if not _NATIVE_AVAILABLE:
+            pytest.skip("requires the native wheel (CI does not install it)")
+        from victor.native.rust import context_fitter as rust_cf
+
+        assert rust_cf.FitResult is cf.FitResult
+        fitter = rust_cf.RustContextFitter.__new__(rust_cf.RustContextFitter)
+        fitter._timed_call = lambda label: _nullcontext()
+        msgs = [
+            {"role": "user", "content": "m0", "token_count": 10, "priority": "high"},
+            {"role": "user", "content": "m1", "token_count": 10, "priority": 7.9},
+        ]
+        assert fitter.fit_context(msgs, 5000, "smart").total_tokens == 20
+
+    def test_python_token_counter_shares_tiktoken_loader(self):
+        from victor.native.python import tokenizer as py_tok
+        from victor.processing.native import tokenizer as tok
+
+        assert py_tok._get_tiktoken_encoder is tok._get_tiktoken_encoder
+        assert py_tok._TIKTOKEN_AVAILABLE is tok._TIKTOKEN_AVAILABLE
+
+    def test_package_exports_tokenizer_counters(self):
+        import victor.processing.native as native_pkg
+        from victor.processing.native import chunking, tokenizer
+
+        assert native_pkg.count_tokens is tokenizer.count_tokens
+        assert native_pkg.count_tokens_batch is tokenizer.count_tokens_batch
+        assert not hasattr(chunking, "count_tokens")
+
+
+def test_rust_shim_slot_coercion_without_native_wheel(monkeypatch):
+    """The shim's slot building is checked against a fake ``victor_native`` so
+    it is exercised (and coverage-measured) on runners without the wheel."""
+    import importlib.util
+    import sys
+    import types
+    from pathlib import Path
+
+    import victor.native as native_pkg
+
+    captured = {}
+
+    class _Slot:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    def _fit(slots, budget, strategy, preserve_system):
+        captured.update(slots=slots, strategy=strategy)
+        return types.SimpleNamespace(
+            kept_indices=[s.index for s in slots],
+            total_tokens=sum(s.token_count for s in slots),
+            dropped_count=0,
+            freed_tokens=0,
+        )
+
+    fake_native = types.ModuleType("victor_native")
+    fake_native.MessageSlot = _Slot
+    fake_native.fit_context = _fit
+    monkeypatch.setitem(sys.modules, "victor_native", fake_native)
+
+    # Load the file directly: the victor.native.rust package __init__ needs the wheel.
+    path = Path(native_pkg.__file__).parent / "rust" / "context_fitter.py"
+    spec = importlib.util.spec_from_file_location("_rust_cf_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.FitResult is cf.FitResult
+    fitter = module.RustContextFitter.__new__(module.RustContextFitter)
+    fitter._timed_call = lambda label: _nullcontext()
+    result = fitter.fit_context(
+        [
+            {"role": "user", "content": "a", "token_count": 3, "priority": "high"},
+            {"role": "user", "content": "b", "token_count": 4, "priority": 300.7},
+            {"role": "system", "content": "c", "token_count": 5},
+        ],
+        100,
+        "recency",
+    )
+    assert isinstance(result, cf.FitResult) and result.total_tokens == 12
+    assert [s.priority for s in captured["slots"]] == [50, 255, 50]
+    assert captured["strategy"] == "fifo"

@@ -19,27 +19,16 @@ Provides context window management for fitting messages into token budgets.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from victor.native.observability import InstrumentedAccelerator
+from victor.processing.native.context_fitter import (
+    FitResult,
+    _truncate_message_python,
+)
+from victor.processing.native.context_fitter import fit_context as _canonical_fit_context
 
-
-@dataclass
-class FitResult:
-    """Result of context fitting operation.
-
-    Attributes:
-        kept_indices: Indices of messages that fit within the budget
-        total_tokens: Total token count of kept messages
-        dropped_count: Number of messages dropped
-        freed_tokens: Number of tokens freed by dropping messages
-    """
-
-    kept_indices: List[int]
-    total_tokens: int
-    dropped_count: int
-    freed_tokens: int
+__all__ = ["FitResult", "PythonContextFitter"]
 
 
 class PythonContextFitter(InstrumentedAccelerator):
@@ -82,18 +71,9 @@ class PythonContextFitter(InstrumentedAccelerator):
         Returns:
             FitResult with indices of kept messages and statistics
         """
-        from victor.processing.native.context_fitter import fit_context as _canonical
-
         with self._timed_call("context_fitting"):
-            result = _canonical(
+            return _canonical_fit_context(
                 messages, budget, strategy=strategy, preserve_system=preserve_system
-            )
-            # Re-wrap in this module's FitResult type for protocol consumers.
-            return FitResult(
-                kept_indices=result.kept_indices,
-                total_tokens=result.total_tokens,
-                dropped_count=result.dropped_count,
-                freed_tokens=result.freed_tokens,
             )
 
     def truncate_message(
@@ -104,7 +84,8 @@ class PythonContextFitter(InstrumentedAccelerator):
     ) -> str:
         """Truncate a message to fit within a token limit.
 
-        Uses line-based or word-based truncation.
+        Delegates to the canonical pure-Python truncation in
+        ``victor.processing.native.context_fitter``.
 
         Args:
             content: Message content to truncate
@@ -115,26 +96,4 @@ class PythonContextFitter(InstrumentedAccelerator):
             Truncated content string
         """
         with self._timed_call("message_truncation"):
-            if not content:
-                return content
-
-            if preserve_lines:
-                lines = content.split("\n")
-                kept_lines = []
-                current_tokens = 0
-
-                for line in lines:
-                    line_tokens = len(line.split()) * 13 // 10
-                    if line_tokens == 0:
-                        line_tokens = 1  # Empty lines still cost a token
-                    if current_tokens + line_tokens > max_tokens:
-                        break
-                    kept_lines.append(line)
-                    current_tokens += line_tokens
-
-                return "\n".join(kept_lines)
-            else:
-                words = content.split()
-                # Approximate: ~1.3 tokens per word
-                max_words = max(1, max_tokens * 10 // 13)
-                return " ".join(words[:max_words])
+            return _truncate_message_python(content, max_tokens, preserve_lines)
