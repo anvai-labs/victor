@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Framework-level chain registry for versioned tool chains.
+"""Framework-level chain registry for versioned tool chains (deprecated).
 
-This package provides a central registry for LCEL-composed tool chains
-that can be shared across all verticals.
+Deprecated (backlog F-019); removable in a future victor-ai release, no earlier
+than the one shipping victor-contracts 0.14.0. Nothing in the runtime reads this registry: verticals
+deliver chains through ``get_chains()`` / ``get_composed_chains()`` and the
+host registers them in :mod:`victor.framework.chain_registry`.
 
 Example:
     from victor.framework.chains import ChainRegistry
@@ -33,7 +35,19 @@ Example:
     chain = ChainRegistry.get_chain("safe_edit_chain")
 """
 
+import warnings
+
 from .registry import ChainMetadata, ChainRegistry, get_chain_registry
+
+warnings.warn(
+    "victor.framework.chains (the versioned chain registry) is deprecated and will be "
+    "removed in a future victor-ai release (no earlier than the one shipping "
+    "victor-contracts 0.14.0): nothing reads it at runtime. Use "
+    "victor.framework.chain_registry, which the host fills from each vertical's "
+    "get_chains() / get_composed_chains() hook.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "ChainMetadata",

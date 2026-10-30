@@ -10,7 +10,28 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
-## [0.12.0] - release candidate
+## [0.13.0] - release candidate
+
+### Deprecated
+
+- `chain_runtime` (`ChainRegistry`, `get_chain_registry`): accessing either name
+  emits `DeprecationWarning`; removable no earlier than 0.14.0. The versioned
+  chain registry it bridges to has no runtime readers. Deliver chains through
+  the vertical's `get_chains()` / `get_composed_chains()` hook; the host
+  registers them in its chain registry on activation.
+- `multi_agent.get_runtime_persona_provider()`: emits `DeprecationWarning`;
+  removable no earlier than 0.14.0. The host persona provider has no runtime
+  readers. Deliver personas through the vertical's `get_personas()` hook.
+- The host's flat chain/persona registries (`victor.framework.chain_registry`,
+  `victor.framework.persona_registry`) are unaffected.
+
+### Added
+
+- (internal) `_lazy.make_lazy_getattr(..., deprecated=...)`: bridge names listed in the
+  optional mapping emit `DeprecationWarning` (attributed to the caller) before
+  resolving.
+
+## [0.12.0] - 2026-10-30
 
 ### Removed
 
