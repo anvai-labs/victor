@@ -2,7 +2,7 @@
 fep: "0042"
 title: "Remove the versioned chain registry and persona provider (F-019 Phase 2)"
 type: Standards Track
-status: Draft
+status: Accepted
 created: 2026-10-30
 modified: 2026-10-30
 authors:
@@ -281,8 +281,8 @@ modules.
 - [ ] Add the `provider=None`, `provider_getter`/`auto_register`, and default-registry-hook
       deprecation warnings, with tests.
 - [ ] In the same PR, update the verticals: drop the import-time calls and
-      `register_data_analysis_personas`, add `get_personas()` to the devops, research and
-      dataanalysis `teams` packages, remove the devops alias, and update the vertical persona
+      `register_data_analysis_personas` (the `get_personas()` factories for devops, research
+      and dataanalysis already landed in PR #1615), remove the devops alias, and update the vertical persona
       tests (`victor-coding/tests/test_personas.py:127-138`,
       `victor-dataanalysis/tests/test_personas.py:134-136`).
 - [ ] Update the CHANGELOG `[0.14.0]` and the `CONTRACT_STABILITY.md` "Removed in 0.14.0" /
@@ -408,14 +408,27 @@ def get_personas() -> dict[str, VerticalPersona]:
 
 ### Decisions
 
-- **Recommendation**: Pending
-- **Decision date**: TBD
-- **Approved by**: TBD
-- **Rationale**: TBD
+- **Recommendation**: Accept
+- **Decision date**: 2026-10-30
+- **Approved by**: Vijaykumar Singh (maintainer)
+- **Rationale**: Owner decisions recorded on review:
+  1. Personas reach the host only through the activation hook (`get_personas()`), option (b):
+     one writer through the registry service, no import-order dependence, and the same model
+     chains already use. The bootstrap-adapter and dual-path options were rejected.
+  2. The devops/research/dataanalysis persona gap is fixed immediately and separately from the
+     removal, by adding `get_personas()` factories (PR #1615), so Phase 2a only deletes code.
+  3. The inert Stable kernel surfaces (`provider_getter`, `auto_register`, the `provider=None`
+     default path, `set/get_default_persona_registry`) follow CONTRACT_STABILITY to the letter:
+     deprecated in 0.14.0, removed no earlier than 0.15.0.
+  4. Delivery: Phase 2a ships in victor-contracts 0.14.0 together with victor-ai 0.22.0 in one
+     promotion (SDK tag verified on PyPI before the victor-ai tag); Phase 2b ships in the next
+     victor-ai release requiring `victor-contracts>=0.14.0`.
 
 ### Revision History
 
 1. **v1.0** (2026-10-30): Initial draft
+2. **v1.1** (2026-10-30): Accepted with the owner decisions above; the persona gap moved
+   to a standalone fix (PR #1615) ahead of Phase 2a
 
 ## Acceptance Criteria
 
