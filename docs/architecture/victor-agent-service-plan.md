@@ -83,7 +83,9 @@ edit. A mock test is not live provider or C5 evidence.
   materialized conversation messages. Appending copies only domain instructions;
   custom policy also participates in frozen-prefix invalidation. Replacement,
   clearing, type rejection, per-builder isolation, API/KV/no-cache and direct
-  builder updates pass. All **307 affected tests** pass; **37,006 tests collect**.
+  builder updates pass. Initial **307 affected tests** pass; **37,006 tests collect**. After the
+  required #1596 integration, **505 affected tests pass** and **37,142 tests
+  collect**.
   Black/Ruff/configured MyPy pass. Installed SDK scripted correction/burst checks
   verify complete policy on five/three turns with zero real model-network calls;
   the old installed runtime is refused before native dispatch by the consumer's
@@ -91,7 +93,27 @@ edit. A mock test is not live provider or C5 evidence.
   qualify separately. Next: independent commit-bound review, required PR CI and
   merge, then actual model research. HTTP per-job policy, unified sessions, FEP
   acceptance, content quality and RepoReel MVP acceptance remain open. The
-  canonical tracker remains the upstream status owner.
+  canonical tracker remains the upstream status owner. PR
+  [#1597](https://github.com/anvai-labs/victor/pull/1597) has a clean independent
+  Sol review and commit-bound attestation for initial source `6978c7150`.
+  During its CI, #1596 advances develop; strict up-to-date branch protection
+  requires merging `5117814be` and rerunning final preflight/review before the
+  consolidated update. No prompt production file changes in that integration.
+  A fresh local fixture retains full policy on all five normal requests and nine
+  successful source/navigation calls, but submits no brief. Inspection of actual
+  arguments proves the four source reads target the same source ID. The spin
+  stop is justified; its `Agent stuck: 0 turns without tool calls` message is
+  misleading. The fifth call is presentation recovery with no tools, not another
+  research turn. An initial false-positive interpretation was corrected before
+  publication; no spin-guard bypass or model-content acceptance follows. Further
+  consumer work must inspect delivered tool results and held-out examples before
+  changing prompts, budgets or shared progress policy.
+  A separately explicit hosted GLM call series uses the same fixture, installed
+  runtime, policy and numerical budgets. It submits a mechanically admitted draft
+  after five normal model calls, three successful source reads and one corrected
+  proposal. Local Qwen also spends five normal calls but repeats one source ID
+  and produces no brief. This tiny diagnostic is not a held-out model ranking,
+  three-repository content review or local-generation MVP acceptance.
 
 - **SDK-VALIDATION-01 — MERGED**, [#1594](https://github.com/anvai-labs/victor/pull/1594)
   (2026-10-29), owner: RepoReel integration session; branch
