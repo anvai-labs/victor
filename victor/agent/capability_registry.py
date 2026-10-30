@@ -606,13 +606,21 @@ class OrchestratorCapabilityMixin:
     # These bridge the capability system to underlying components
     # =========================================================================
 
-    def _set_custom_prompt_via_builder(self, prompt: str) -> None:
-        """Set custom prompt via prompt_builder."""
-        if hasattr(self, "prompt_builder") and self.prompt_builder:
-            if hasattr(self.prompt_builder, "set_custom_prompt"):
-                self.prompt_builder.set_custom_prompt(prompt)
-            elif hasattr(self.prompt_builder, "_custom_prompt"):
-                self.prompt_builder._custom_prompt = prompt
+    def _set_custom_prompt_via_builder(self, prompt: Optional[str]) -> None:
+        """Apply custom policy through the service owner, including live caches."""
+        setter = getattr(self, "set_system_prompt", None)
+        if callable(setter):
+            setter(prompt)
+            return
+        builder = getattr(self, "prompt_builder", None)
+        if builder is not None:
+            if callable(getattr(builder, "set_custom_prompt", None)):
+                builder.set_custom_prompt(prompt)
+                return
+            if hasattr(builder, "_custom_prompt"):
+                builder._custom_prompt = prompt
+                return
+        raise ValueError("Prompt builder does not support a custom prompt")
 
     def _get_custom_prompt_via_builder(self) -> Optional[str]:
         """Get custom prompt via prompt_builder."""

@@ -690,3 +690,77 @@ def test_sync_conversation_system_prompt_updates_live_system_message():
     assert conversation.system_prompt == "new prompt"
     assert conversation._messages[0].role == "system"
     assert conversation._messages[0].content == "new prompt"
+
+
+@pytest.mark.parametrize("api_cache,kv_cache", [(False, False), (True, False), (False, True)])
+def test_custom_prompt_capability_refreshes_real_pipeline_and_live_conversation(
+    api_cache, kv_cache
+):
+    from victor.agent.capability_registry import OrchestratorCapabilityMixin
+    from victor.agent.prompt_builder import SystemPromptBuilder
+    from victor.agent.prompt_pipeline import UnifiedPromptPipeline
+    from victor.providers.base import Message
+
+    class Host(OrchestratorCapabilityMixin):
+        def set_system_prompt(self, prompt):
+            self.prompt_runtime.set_system_prompt(prompt)
+
+    host = Host()
+    host.prompt_builder = SystemPromptBuilder(provider_name="openai", model="fixture")
+    provider = SimpleNamespace(
+        supports_prompt_caching=lambda: api_cache,
+        supports_kv_prefix_caching=lambda: kv_cache,
+    )
+    host._prompt_pipeline = UnifiedPromptPipeline(
+        provider,
+        host.prompt_builder,
+        enable_prompt_completeness_guard=False,
+    )
+    host.build_system_prompt = host._prompt_pipeline.build_system_prompt
+    host._system_prompt = host.build_system_prompt()
+    original = host._system_prompt
+    host._kv_optimization_enabled = kv_cache
+    host.conversation = SimpleNamespace(
+        system_prompt=original,
+        _system_added=True,
+        _messages=[Message(role="system", content=original)],
+    )
+    host.prompt_runtime = PromptBuilderRuntime(OrchestratorProtocolAdapter(host))
+
+    # The vertical applies its capability after the initial system prefix is built.
+    host._set_custom_prompt_via_builder("Research policy for this session")
+    assert "Research policy for this session" in host._system_prompt
+    assert host.build_system_prompt() == host._system_prompt
+    assert host.conversation.system_prompt == host._system_prompt
+    assert host.conversation._messages[0].content == host._system_prompt
+    host.prompt_runtime.append_to_system_prompt("Additional domain rule")
+    assert host._system_prompt.count("Research policy for this session") == 1
+    assert host._system_prompt.count("Additional domain rule") == 1
+    assert host._system_prompt.count(original.split("\n")[0]) == 1
+    host._set_custom_prompt_via_builder("New session policy")
+    assert "Research policy for this session" not in host._system_prompt
+    host._set_custom_prompt_via_builder(None)
+    assert host._system_prompt == original
+    assert host.conversation._messages[0].content == original
+    other_builder = SystemPromptBuilder(provider_name="openai", model="fixture")
+    # Existing builder consumers can also change policy; signature invalidation
+    # must refresh a previously frozen conversation on its next turn.
+    host.prompt_runtime.ensure_system_prompt_current()
+    host.prompt_builder.set_custom_prompt("Changed policy through builder")
+    host.prompt_runtime.ensure_system_prompt_current()
+    assert "Changed policy through builder" in host.conversation._messages[0].content
+    assert "Changed policy through builder" not in other_builder.build()
+    before = host._system_prompt
+    with pytest.raises(TypeError):
+        host._set_custom_prompt_via_builder({"content": "untyped policy"})
+    assert host._system_prompt == before
+    assert host.conversation._messages[0].content == before
+
+
+def test_custom_prompt_capability_refuses_unsupported_builder():
+    from victor.agent.capability_registry import OrchestratorCapabilityMixin
+
+    host = OrchestratorCapabilityMixin()
+    host.prompt_builder = SimpleNamespace()
+    with pytest.raises(ValueError, match="custom prompt"):
+        host._set_custom_prompt_via_builder("Required domain policy")

@@ -408,16 +408,28 @@ class PromptBuilderRuntime:
             return ""
         return builder.build()
 
-    def set_system_prompt(self, prompt: str) -> None:
-        """Set a custom prompt through the prompt-builder surface when supported."""
-        builder = getattr(self._runtime, "prompt_builder", None)
-        if builder is not None and hasattr(builder, "set_custom_prompt"):
-            builder.set_custom_prompt(prompt)
+    def set_system_prompt(self, prompt: Optional[str]) -> None:
+        """Replace domain policy and refresh cached and already-materialized prompts."""
+        runtime = self._runtime
+        builder = getattr(runtime, "prompt_builder", None)
+        if builder is None or not callable(getattr(builder, "set_custom_prompt", None)):
+            raise ValueError("Prompt builder does not support a custom prompt")
+        builder.set_custom_prompt(prompt)
+        if callable(getattr(runtime, "build_system_prompt", None)):
+            self.refresh_system_prompt()
+        else:
+            # Protocol hosts without a pipeline still own their live conversation.
+            runtime._system_prompt = builder.build()
+            self.sync_conversation_system_prompt()
 
     def append_to_system_prompt(self, content: str) -> None:
-        """Append extra prompt content through the same custom-prompt surface."""
-        current = self.get_system_prompt()
-        self.set_system_prompt(current + "\n\n" + content)
+        """Append domain policy without copying the compiled framework prompt."""
+        if not isinstance(content, str):
+            raise TypeError("Additional prompt content must be a string")
+        builder = getattr(self._runtime, "prompt_builder", None)
+        getter = getattr(builder, "get_custom_prompt", None)
+        current = (getter() or "") if callable(getter) else self.get_system_prompt()
+        self.set_system_prompt(current + "\n\n" + content if current else content)
 
     def sync_conversation_system_prompt(self) -> None:
         """Push the current runtime system prompt into the live conversation state."""
@@ -545,6 +557,11 @@ class PromptBuilderRuntime:
             getattr(builder, "model", ""),
             getattr(builder, "mode_prompt_addition", ""),
             tuple(getattr(builder, "stable_prompt_tools", []) or []),
+            (
+                builder.get_custom_prompt()
+                if callable(getattr(builder, "get_custom_prompt", None))
+                else None
+            ),
             self._compute_project_context_signature(),
         )
 

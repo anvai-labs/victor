@@ -16,6 +16,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from victor.agent.prompt_builder import (
     ASI_TOOL_EFFECTIVENESS_GUIDANCE,
     COMPLETION_GUIDANCE,
@@ -423,3 +425,42 @@ class TestSystemPromptBuilderEdgeCases:
         xai_result = builder._build_xai_prompt()
         # Both should return the same content
         assert cloud_result == xai_result
+
+
+@pytest.mark.parametrize(
+    "provider_caches,provider_has_kv_cache", [(False, False), (True, False), (False, True)]
+)
+def test_custom_domain_prompt_survives_pruning_and_static_cache(
+    provider_caches, provider_has_kv_cache
+):
+    builder = SystemPromptBuilder(
+        provider_name="openai",
+        model="test",
+        available_tools=["read"],
+        provider_caches=provider_caches,
+        provider_has_kv_cache=provider_has_kv_cache,
+    )
+    original = builder.build()
+    builder.set_custom_prompt("Domain policy: admit only inspected evidence.")
+    actual = builder.build()
+    assert actual.count("Domain policy: admit only inspected evidence.") == 1
+    assert builder.get_custom_prompt() == "Domain policy: admit only inspected evidence."
+    # Preserve default framework guidance; custom domain policy is additive.
+    assert actual.replace("Domain policy: admit only inspected evidence.\n\n", "") == original
+    builder.set_custom_prompt("Replacement domain policy")
+    assert "Domain policy: admit" not in builder.build()
+    assert "Replacement domain policy" in builder.build()
+    builder.set_custom_prompt(None)
+    assert builder.get_custom_prompt() is None
+    assert builder.build() == original
+    builder.set_custom_prompt("   ")
+    assert builder.build() == original
+
+
+def test_invalid_custom_domain_prompt_preserves_previous_prompt():
+    builder = SystemPromptBuilder(provider_name="openai", model="test")
+    builder.set_custom_prompt("Validated domain policy")
+    before = builder.build()
+    with pytest.raises(TypeError):
+        builder.set_custom_prompt({"content": "untyped"})
+    assert builder.build() == before
