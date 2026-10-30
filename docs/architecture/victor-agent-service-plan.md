@@ -67,6 +67,30 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **SDK-VALIDATION-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration
+  session; branch `fix/tool-validation-feedback`, baseline
+  `adc2da6edf35a61634b57082cc799c30fe026c08`. Fetched/reconciled develop and
+  merged #1593 before selection. A real local-model source-research fixture
+  receives only `Argument validation failed` for an underscore in a nested ID;
+  it cannot see the available field/pattern errors and its next reply truncates.
+  `ToolValidationResult.__bool__` returns `valid`, so the executor's truthiness
+  test discards details for every invalid result. Next: RED in the existing
+  executor test owner, retain detailed strict refusals without executing tools,
+  affected checks, independent review and PR CI. This is error feedback, not
+  automatic retry, model-content acceptance or HTTP/live-service qualification.
+  Both existing-owner RED cases fail with the generic error on baseline; they now
+  report exact required/nested schema locations and never execute rejected tools.
+  The repair checks result presence explicitly, preserving the three-error cap
+  and generic fallback. All 163 affected unit/integration/service tests pass;
+  touched Black/Ruff and configured MyPy pass. First attempted test/Black commands
+  selected an environment lacking pytest/a compiled Black dependency; the retained
+  successful checks use the qualified test environment and available formatter.
+  First review requests an explicit nested-tool execution counter. The regression
+  now checks zero calls, required/nested errors, empty-error generic fallback and
+  the three-error cap. All 165 affected tests pass; Black/Ruff/configured MyPy
+  pass. Collection finds 36,936 tests; a final post-edit collection and independent
+  follow-up review precede push. PR CI, release and live acceptance remain pending.
+
 - **SDK-SCOPE-RUN-01 — MERGED**, [#1592](https://github.com/anvai-labs/victor/pull/1592) (2026-10-29), owner: RepoReel integration session;
   branch `fix/session-tool-pipeline-gate`, baseline
   `f442656487cd7c7d48a5bedbc3250d4facc4f417`. Fetched/reconciled develop and
