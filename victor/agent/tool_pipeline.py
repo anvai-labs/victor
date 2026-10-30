@@ -87,6 +87,7 @@ except ImportError:
     native_compute_signature = None  # type: ignore
 
 if TYPE_CHECKING:
+    from victor.agent.services.tool_access_policy import ToolAccessPolicy
     from victor.agent.search_router import SearchRouter
     from victor.tools.registry import ToolRegistry
     from victor.storage.cache.tool_cache import ToolCache
@@ -573,6 +574,7 @@ class _ToolCallState:
     normalization_applied: Optional[str]
     canonical_core_tool: str = ""
     steering_user_message: Optional[str] = None
+    requested_tool_name: Optional[str] = None
 
 
 class ToolPipeline:
@@ -646,6 +648,7 @@ class ToolPipeline:
         self.semantic_cache = semantic_cache
         self.search_router = search_router
         self._permission_policy = permission_policy
+        self._session_tool_policy: Optional[ToolAccessPolicy] = None
 
         # Callbacks
         self.on_tool_start = on_tool_start
@@ -1512,10 +1515,19 @@ class ToolPipeline:
         except (TypeError, ValueError):
             return None
 
+    def bind_session_tool_policy(self, policy: ToolAccessPolicy) -> None:
+        """Bind the owning ToolService's live session policy without registry edits."""
+        if not callable(getattr(policy, "is_tool_enabled", None)):
+            raise TypeError("Session tool policy must enforce tool enablement")
+        self._session_tool_policy = policy
+
     def _tool_is_enabled(self, tool_name: str) -> bool:
-        """Best-effort tool availability check for guidance generation."""
+        """Require registry and bound session enablement; policy errors deny."""
         try:
-            return bool(self.tools.is_tool_enabled(tool_name))
+            return bool(self.tools.is_tool_enabled(tool_name)) and (
+                self._session_tool_policy is None
+                or self._session_tool_policy.is_tool_enabled(tool_name) is True
+            )
         except Exception:
             return False
 
@@ -2331,6 +2343,14 @@ class ToolPipeline:
             call_result = call_results[unique_call_idx]
             if call_result is None:
                 continue  # A pending/unknown call is not a completed result.
+            call_result = self._enforce_result_scope(
+                call_result,
+                (
+                    self._normalize_valid_tool_name(tool_call.get("name"))
+                    if isinstance(tool_call, dict)
+                    else None
+                ),
+            )
             call_result = replace(call_result)  # Cached/shared results do not own this call's ID.
             # Propagate tool_call_id from provider's tool_calls[].id per OpenAI spec.
             # Only auto-generate an ID for executed calls — internally-skipped calls
@@ -2629,10 +2649,65 @@ class ToolPipeline:
         except Exception:
             pass  # Intent logging is non-critical
 
-    async def _process_tool_result(self, call_result: ToolCallResult) -> ToolCallResult:
-        """Release fresh/cached output only after configured result enforcement."""
-        if self.middleware_chain is None:
+    def _withhold_tool_result(
+        self, call_result: ToolCallResult, block_source: str
+    ) -> ToolCallResult:
+        """Sanitize a withheld outcome without losing an observed execution result."""
+        previous = call_result.error_info
+        unknown = previous is not None and previous.details.get("execution_outcome") == "unknown"
+        message = "Tool result withheld after execution; do not repeat the action."
+        info = ErrorInfo(
+            message=message,
+            correlation_id=previous.correlation_id if previous else f"result_{uuid4().hex}",
+            category=ErrorCategory.TOOL_EXECUTION,
+            severity=ErrorSeverity.ERROR,
+            details={
+                "retryable": False,
+                "result_withheld": True,
+                "execution_outcome": (
+                    previous.details["execution_outcome"]
+                    if previous is not None
+                    and previous.details.get("execution_outcome")
+                    in {"unknown", "succeeded", "failed", "not_executed"}
+                    else ("succeeded" if call_result.success else "failed")
+                ),
+                "reconciliation_required": unknown,
+            },
+        )
+        return replace(
+            call_result,
+            success=False,
+            result=None,
+            images=None,
+            error=message,
+            user_message=message,
+            error_info=info,
+            skipped=False,
+            skip_reason=None,
+            outcome_kind="result_withheld",
+            block_source=block_source,
+            retryable=False,
+        )
+
+    def _enforce_result_scope(
+        self, call_result: ToolCallResult, requested_tool_name: Optional[str] = None
+    ) -> ToolCallResult:
+        """Gate publication after awaits, preserving nonexecuted skip outcomes."""
+        if call_result.skipped or call_result.outcome_kind == "result_withheld":
             return call_result
+        if self._tool_is_enabled(call_result.tool_name) and (
+            requested_tool_name is None or self._tool_is_enabled(requested_tool_name)
+        ):
+            return call_result
+        return self._withhold_tool_result(call_result, "session_policy")
+
+    async def _process_tool_result(
+        self, call_result: ToolCallResult, requested_tool_name: Optional[str] = None
+    ) -> ToolCallResult:
+        """Release fresh/cached output only after configured result enforcement."""
+        checked = self._enforce_result_scope(call_result, requested_tool_name)
+        if checked is not call_result or self.middleware_chain is None:
+            return checked
         try:
             output = await self.middleware_chain.process_after(
                 call_result.tool_name,
@@ -2640,42 +2715,11 @@ class ToolPipeline:
                 call_result.result,
                 call_result.success,
             )
-            return (
-                call_result if output is call_result.result else replace(call_result, result=output)
-            )
         except Exception:
-            previous = call_result.error_info
-            unknown = (
-                previous is not None and previous.details.get("execution_outcome") == "unknown"
-            )
-            message = "Tool result withheld after execution; do not repeat the action."
-            info = ErrorInfo(
-                message=message,
-                correlation_id=previous.correlation_id if previous else f"result_{uuid4().hex}",
-                category=ErrorCategory.TOOL_EXECUTION,
-                severity=ErrorSeverity.ERROR,
-                details={
-                    "retryable": False,
-                    "result_withheld": True,
-                    "execution_outcome": (
-                        "unknown" if unknown else ("succeeded" if call_result.success else "failed")
-                    ),
-                    "reconciliation_required": unknown,
-                },
-            )
-            return replace(
-                call_result,
-                success=False,
-                result=None,
-                error=message,
-                user_message=message,
-                error_info=info,
-                skipped=False,
-                skip_reason=None,
-                outcome_kind="result_withheld",
-                block_source="middleware_chain",
-                retryable=False,
-            )
+            return self._withhold_tool_result(call_result, "middleware_chain")
+        if output is not call_result.result:
+            call_result = replace(call_result, result=output)
+        return self._enforce_result_scope(call_result, requested_tool_name)
 
     async def _execute_single_call(
         self, tool_call: Dict[str, Any], context: Dict[str, Any]
@@ -2859,12 +2903,27 @@ class ToolPipeline:
                 retryable=False,
             )
 
+        # Session authorization applies to the provider-requested tool as well
+        # as any routed/steered implementation. Normalization must not admit an
+        # out-of-scope request by changing it into a different permitted tool.
+        if not self._tool_is_enabled(tool_name):
+            return _build_skip_result(
+                tool_name=tool_name,
+                arguments=raw_args if isinstance(raw_args, dict) else {},
+                success=False,
+                skip_reason=f"Unknown or disabled tool: {tool_name}",
+                outcome_kind="tool_unavailable",
+                block_source="tool_registry",
+                retryable=False,
+            )
+
         # Check if tool exists
+        requested_tool_name = tool_name
         tool_name, normalized_args, strategy = self._normalize_tool_call(
             tool_name, raw_args, context=context
         )
 
-        if not self.tools.is_tool_enabled(tool_name):
+        if not self._tool_is_enabled(tool_name):
             return _build_skip_result(
                 tool_name=tool_name,
                 arguments=normalized_args,
@@ -2920,6 +2979,7 @@ class ToolPipeline:
         normalization_applied = None if strategy == NormalizationStrategy.DIRECT else strategy.value
         return _ToolCallState(
             tool_name=tool_name,
+            requested_tool_name=requested_tool_name,
             normalized_args=normalized_args,
             raw_args=raw_args,
             normalization_applied=normalization_applied,
@@ -2935,7 +2995,7 @@ class ToolPipeline:
             None if bound_resume else self.get_cached_result(call.tool_name, call.normalized_args)
         )
         if cached_result is not None:
-            cached_result = await self._process_tool_result(cached_result)
+            cached_result = await self._process_tool_result(cached_result, call.requested_tool_name)
             logger.info(f"[Pipeline] Returning cached result for {call.tool_name}")
             # Still count as a tool call for tracking, but don't execute
             self._executed_tools.append(call.tool_name)
@@ -2962,7 +3022,9 @@ class ToolPipeline:
             signature = self._get_call_signature(call.tool_name, call.normalized_args)
             cross_cached = self._cross_turn_cache.get(signature)
             if cross_cached is not None:
-                cross_cached = await self._process_tool_result(cross_cached)
+                cross_cached = await self._process_tool_result(
+                    cross_cached, call.requested_tool_name
+                )
                 self._cross_turn_hits += 1
                 logger.info(
                     "[Pipeline] Cross-turn dedup hit for %s (hits=%d)",
@@ -3005,7 +3067,9 @@ class ToolPipeline:
                         cached=True,
                         normalization_applied=call.normalization_applied,
                     )
-                    sem_cached_result = await self._process_tool_result(sem_cached_result)
+                    sem_cached_result = await self._process_tool_result(
+                        sem_cached_result, call.requested_tool_name
+                    )
                     if self.on_tool_start:
                         try:
                             self.on_tool_start(call.tool_name, call.normalized_args)
@@ -3246,6 +3310,39 @@ class ToolPipeline:
 
         return None
 
+    async def _execute_permitted_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        context: Dict[str, Any],
+        requested_tool_name: Optional[str] = None,
+    ) -> ToolExecutionResult:
+        """Recheck policy after awaits/rewrites and before each executor attempt."""
+        if not self._tool_is_enabled(tool_name) or (
+            requested_tool_name is not None and not self._tool_is_enabled(requested_tool_name)
+        ):
+            return ToolExecutionResult(
+                tool_name=tool_name,
+                success=False,
+                result=None,
+                error=f"Unknown or disabled tool: {tool_name}",
+                execution_time=0.0,
+                error_info=ErrorInfo(
+                    message="Session tool policy refused execution",
+                    correlation_id=f"scope_{uuid4().hex}",
+                    category=ErrorCategory.TOOL_EXECUTION,
+                    severity=ErrorSeverity.WARNING,
+                    details={
+                        "retryable": False,
+                        "execution_outcome": "not_executed",
+                        "reconciliation_required": False,
+                    },
+                ),
+            )
+        return await self.executor.execute(
+            tool_name=tool_name, arguments=arguments, context=context
+        )
+
     async def _dispatch_tool(
         self, call: "_ToolCallState", context: Dict[str, Any]
     ) -> "Tuple[ToolExecutionResult, bool, float, float]":
@@ -3257,10 +3354,11 @@ class ToolPipeline:
         execution_interrupted = False
         try:
             exec_result = await asyncio.wait_for(
-                self.executor.execute(
+                self._execute_permitted_tool(
                     tool_name=call.tool_name,
                     arguments=call.normalized_args,
                     context=context,
+                    requested_tool_name=call.requested_tool_name,
                 ),
                 timeout=self._get_tool_timeout(call.tool_name),
             )
@@ -3370,10 +3468,11 @@ class ToolPipeline:
                         fallback_tool_name,
                     )
                     recovered_exec_result = await asyncio.wait_for(
-                        self.executor.execute(
+                        self._execute_permitted_tool(
                             tool_name=fallback_tool_name,
                             arguments=fallback_args,
                             context=context,
+                            requested_tool_name=call.requested_tool_name,
                         ),
                         timeout=self._get_tool_timeout(fallback_tool_name),
                     )
@@ -3445,7 +3544,7 @@ class ToolPipeline:
                     )
                 elif recovery.action == RecoveryAction.FALLBACK_TOOL and recovery.fallback_tool:
                     fallback_name = recovery.fallback_tool
-                    if self.tools.is_tool_enabled(fallback_name):
+                    if self._tool_is_enabled(fallback_name):
                         recovery_tool_name = fallback_name
                         logger.info(
                             "[Pipeline] Falling back from %s to %s",
@@ -3459,10 +3558,11 @@ class ToolPipeline:
                 ) and allows_tool_retry(self.tools.get(recovery_tool_name)):
                     try:
                         recovered_exec_result = await asyncio.wait_for(
-                            self.executor.execute(
+                            self._execute_permitted_tool(
                                 tool_name=recovery_tool_name,
                                 arguments=recovery_args,
                                 context=context,
+                                requested_tool_name=call.requested_tool_name,
                             ),
                             timeout=self._get_tool_timeout(recovery_tool_name),
                         )
@@ -3517,7 +3617,7 @@ class ToolPipeline:
                 logger.debug(f"Invalidated caches for modified file: {file_path}")
 
         original_result = call_result
-        call_result = await self._process_tool_result(call_result)
+        call_result = await self._process_tool_result(call_result, call.requested_tool_name)
         if call_result is not original_result and self.on_tool_event:
             try:
                 self.on_tool_event(
@@ -3612,6 +3712,9 @@ class ToolPipeline:
                     logger.debug(f"Semantic cache store failed (I/O error): {e}")
                 except (ValueError, TypeError) as e:
                     logger.debug(f"Semantic cache store failed (data error): {e}")
+
+        # Semantic-cache storage above may await; scope must still permit publication.
+        call_result = self._enforce_result_scope(call_result, call.requested_tool_name)
 
         # Record successful tool call in deduplication tracker
         if call_result.success and self.deduplication_tracker is not None:

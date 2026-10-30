@@ -1090,6 +1090,9 @@ class ToolService:
             self._registrar = tool_registry
         if tool_pipeline is not None:
             self._tool_pipeline = tool_pipeline
+            bind_policy = getattr(tool_pipeline, "bind_session_tool_policy", None)
+            if callable(bind_policy):
+                bind_policy(self._tool_access_policy)
             self._sync_budget_manager_from_runtime()
         if tool_cache is not None:
             self._tool_cache = tool_cache

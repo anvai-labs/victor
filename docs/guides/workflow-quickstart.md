@@ -35,6 +35,7 @@ victor workflow execute my_workflow
 | `condition` | Branching logic | ❌ | Quality checks |
 | `parallel` | Concurrent execution | ✅ | Multi-source |
 | `hitl` | Human approval | ✅ | Code reviews |
+| `team` | Multi-agent team step | ✅ | Research + implement + review |
 
 ## Workflow Structure
 

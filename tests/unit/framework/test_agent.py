@@ -1533,6 +1533,31 @@ def scoped_runtime(mock_orchestrator):
 class TestAgentCreate:
     """Tests for Agent.create classmethod."""
 
+    @pytest.mark.parametrize(
+        "enabled, expected",
+        [
+            (False, 0),
+            (True, 1),
+            (None, 1),
+            ({"enabled": False}, 0),
+            ({"enabled": True}, 1),
+            ({}, 1),
+        ],
+    )
+    def test_factory_honors_prompt_evolution_startup_setting(self, enabled, expected):
+        from victor.framework.agent_factory import AgentFactory
+
+        settings = SimpleNamespace()
+        if enabled is not None:
+            settings.prompt_optimization = (
+                enabled if isinstance(enabled, dict) else SimpleNamespace(enabled=enabled)
+            )
+        factory = AgentFactory(settings=settings, enable_observability=False)
+        with patch("victor.framework.rl.coordinator.get_rl_coordinator") as coordinator:
+            factory._trigger_background_evolution()
+        assert coordinator.call_count == expected
+        assert coordinator.return_value.maybe_background_evolve.call_count == expected
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("owner", ["sdk", "factory"])
     @pytest.mark.parametrize("primary_cancel", [False, True])
