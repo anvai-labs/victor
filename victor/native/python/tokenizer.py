@@ -24,24 +24,8 @@ from typing import List, Optional
 
 from victor.native.observability import InstrumentedAccelerator
 
-# Try to use tiktoken for accurate counting
-try:
-    import tiktoken
-
-    _TIKTOKEN_AVAILABLE = True
-except ImportError:
-    _TIKTOKEN_AVAILABLE = False
-
-# Cached tiktoken encoder
-_tiktoken_encoder = None
-
-
-def _get_tiktoken_encoder():
-    """Get or create cached tiktoken encoder."""
-    global _tiktoken_encoder
-    if _tiktoken_encoder is None and _TIKTOKEN_AVAILABLE:
-        _tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
-    return _tiktoken_encoder
+# Single-sourced tiktoken loader (shared with the processing tokenizer).
+from victor.processing.native.tokenizer import _TIKTOKEN_AVAILABLE, _get_tiktoken_encoder
 
 
 class PythonTokenCounter(InstrumentedAccelerator):

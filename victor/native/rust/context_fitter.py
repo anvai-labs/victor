@@ -25,29 +25,18 @@ Performance characteristics:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import victor_native
 
 from victor.native.observability import InstrumentedAccelerator
+from victor.processing.native.context_fitter import (
+    FitResult,
+    _coerce_priority,
+    _normalize_strategy,
+)
 
-
-@dataclass
-class FitResult:
-    """Result of context fitting operation.
-
-    Attributes:
-        kept_indices: Indices of messages that fit within the budget
-        total_tokens: Total token count of kept messages
-        dropped_count: Number of messages dropped
-        freed_tokens: Number of tokens freed by dropping messages
-    """
-
-    kept_indices: List[int]
-    total_tokens: int
-    dropped_count: int
-    freed_tokens: int
+__all__ = ["FitResult", "RustContextFitter"]
 
 
 class RustContextFitter(InstrumentedAccelerator):
@@ -95,19 +84,16 @@ class RustContextFitter(InstrumentedAccelerator):
             # aliases (recency->fifo, balanced->smart) but the Rust side
             # rejects them — two public entry points must not have two
             # contracts (adversarial-review finding).
-            from victor.processing.native.context_fitter import _normalize_strategy
-
             strategy = _normalize_strategy(strategy)
 
             # Build MessageSlot objects for Rust
             slots = []
             for i, msg in enumerate(messages):
                 token_count = msg.get("token_count", len(msg.get("content", "").split()) * 13 // 10)
-                # MessageSlot.priority is u8 — pyo3 rejects floats, which
-                # previously raised TypeError for every message without an
-                # explicit int priority (co-design review U8-F4).
-                raw_priority = msg.get("priority", 50)
-                priority = max(0, min(255, int(raw_priority)))
+                # MessageSlot.priority is u8 — pyo3 rejects floats (co-design
+                # review U8-F4); share the processing wrapper's coercion so a
+                # non-numeric priority defaults instead of raising.
+                priority = _coerce_priority(msg.get("priority"))
                 role = msg.get("role", "user")
                 recency = float(i) / max(len(messages), 1)
                 slot = victor_native.MessageSlot(
