@@ -83,31 +83,6 @@ class EmbeddingRegistry:
         if name not in cls._providers:
             available = ", ".join(cls._providers.keys())
 
-            # Special case for victor-coding bridge provider
-            if name == "victor_structural_bridge":
-                # Check if victor-coding is actually installed
-                import importlib.util
-
-                victor_coding_installed = importlib.util.find_spec("victor_coding") is not None
-
-                if victor_coding_installed:
-                    # victor-coding IS installed but the bridge isn't registered in victor's registry
-                    # This is expected - the bridge lives in victor-coding's namespace
-                    # Provide a helpful error message that explains this
-                    raise KeyError(
-                        f"The '{name}' vector store is only available through victor-coding's "
-                        f"embedding registry, not victor's core registry. "
-                        f"Use the upstream vector store directly (e.g., 'lancedb') "
-                        f"or access through victor-coding's CodebaseIndex factory.\n"
-                        f"Available providers in victor's registry: {available if available else 'none'}"
-                    )
-                else:
-                    raise KeyError(
-                        f"The '{name}' vector store requires victor-coding to be installed. "
-                        f"Install it with: pip install victor-coding\n"
-                        f"Available providers in this registry: {available if available else 'none'}"
-                    )
-
             raise KeyError(
                 f"Unknown embedding provider: {name}. "
                 f"Available: {available if available else 'none'}"
@@ -142,6 +117,13 @@ class EmbeddingRegistry:
             config.embedding_model_name,
             config.distance_metric,
         ]
+        # Providers whose behaviour depends on extra_config (e.g. the structural
+        # bridge's chunking strategy and workspace root) add those values so
+        # differing configs never share one cached instance.
+        provider_class = cls._providers.get(config.vector_store)
+        cache_key_extras = getattr(provider_class, "cache_key_extras", None)
+        if callable(cache_key_extras):
+            key_parts.extend(cache_key_extras(config))
 
         # Join and hash
         key_str = "|".join(str(part) for part in key_parts)

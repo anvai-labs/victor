@@ -12,19 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Compatibility bridge for structural codebase indexing.
+"""Structural codebase indexing provider.
 
-This module upgrades ``victor-coding``'s symbol-oriented embedding API to the
-main repo's structural chunking and vector-store stack without editing the
-external plugin package. The bridge is intentionally narrow:
+The structural bridge is an embedding provider registered in Victor's
+embedding registry. It re-chunks indexed files with Victor's structural
+(symbol-span / code-graph) chunkers and stores them through a normal upstream
+vector-store provider:
 
-- ``code_search_tool`` can opt the codebase index into the bridge
-- the bridge implements the ``victor-coding`` embedding provider contract
-- the actual storage/search backend remains the normal main-repo provider
+- ``code_search_tool`` opts a codebase index into the bridge
+- the bridge implements the core ``BaseEmbeddingProvider`` contract
+- the actual storage/search backend remains the normal upstream provider
 
 The result is a reusable, loosely coupled indexing path:
 - no duplication of vector-store logic
-- no hard dependency on sibling repo internals at import time
+- no hard dependency on vertical internals at import time
 - explicit persistence manifesting so storage schema changes rebuild safely
 """
 
@@ -351,44 +352,49 @@ def _import_coding_codebase_module(module_suffix: str) -> Optional[Any]:
 
 
 def register_structural_codebase_embedding_provider() -> bool:
-    """Register the structural bridge into victor-coding's embedding registry."""
+    """Register the structural bridge into Victor's embedding registry.
 
-    registry_module = _import_coding_codebase_module("codebase.embeddings.registry")
-    if registry_module is None:
-        return False
+    This is the registry the coding vertical's indexer resolves providers from
+    (via ``victor_contracts.embeddings_runtime``), so a config whose
+    ``vector_store`` is the bridge name resolves to this provider.
+    """
 
-    registry = getattr(registry_module, "EmbeddingRegistry", None)
-    if registry is None:
-        return False
-
-    if registry.is_registered(STRUCTURAL_CODEBASE_VECTOR_STORE):
+    if InternalEmbeddingRegistry.is_registered(STRUCTURAL_CODEBASE_VECTOR_STORE):
         return True
 
-    provider_class = get_structural_codebase_embedding_provider_class()
-    if provider_class is None:
-        return False
-
-    registry.register(STRUCTURAL_CODEBASE_VECTOR_STORE, provider_class)
+    InternalEmbeddingRegistry.register(
+        STRUCTURAL_CODEBASE_VECTOR_STORE, get_structural_codebase_embedding_provider_class()
+    )
     return True
 
 
-def get_structural_codebase_embedding_provider_class() -> Optional[type[Any]]:
-    """Return the lazily constructed victor-coding bridge provider class."""
+def get_structural_codebase_embedding_provider_class() -> type[InternalEmbeddingProvider]:
+    """Return the lazily constructed structural bridge provider class."""
 
     global _STRUCTURAL_PROVIDER_CLASS
     if _STRUCTURAL_PROVIDER_CLASS is not None:
         return _STRUCTURAL_PROVIDER_CLASS
 
-    base_module = _import_coding_codebase_module("codebase.embeddings.base")
-    if base_module is None:
-        return None
+    class StructuralCodebaseEmbeddingBridge(InternalEmbeddingProvider):
+        """Embedding provider that indexes Victor's structural code chunks."""
 
-    base_provider_class = getattr(base_module, "BaseEmbeddingProvider", None)
-    if base_provider_class is None:
-        return None
-
-    class StructuralCodebaseEmbeddingBridge(base_provider_class):  # type: ignore[misc, valid-type]
-        """Bridge victor-coding's provider API to Victor's structural chunking stack."""
+        @classmethod
+        def cache_key_extras(cls, config: Any) -> tuple[str, ...]:
+            """Extra-config values that define this bridge's behaviour."""
+            extra = dict(getattr(config, "extra_config", {}) or {})
+            return (
+                str(extra.get("upstream_vector_store", "lancedb")),
+                str(
+                    _infer_workspace_root(
+                        explicit_root=extra.get("workspace_root"),
+                        persist_directory=getattr(config, "persist_directory", None),
+                    )
+                ),
+                _normalized_chunking_strategy(extra),
+                json_dumps(_normalized_language_overrides(extra), sort_keys=True),
+                str(extra.get("chunk_size", DEFAULT_CODEBASE_CHUNK_SIZE)),
+                str(extra.get("chunk_overlap", DEFAULT_CODEBASE_CHUNK_OVERLAP)),
+            )
 
         def __init__(self, config: Any):
             super().__init__(config)
@@ -786,9 +792,8 @@ __all__ = [
 ]
 
 
-# Auto-register the structural bridge provider on module import
-# This ensures victor-coding's registry knows about the bridge without requiring
-# explicit registration calls by users of the framework.
+# Auto-register the structural bridge provider on module import so a config
+# naming it resolves without explicit registration calls.
 _try_auto_registration: bool = True
 
 
@@ -796,8 +801,8 @@ def _auto_register_bridge_on_import() -> None:
     """Attempt to register the structural bridge on module import.
 
     This is called at module import time to ensure the bridge is available
-    for victor-coding's embedding registry. Failures are silently ignored
-    since the bridge is an optional enhancement.
+    in the embedding registry. Failures are silently ignored since the
+    bridge is an optional enhancement.
     """
     global _try_auto_registration
     if not _try_auto_registration:
@@ -810,7 +815,13 @@ def _auto_register_bridge_on_import() -> None:
                 STRUCTURAL_CODEBASE_VECTOR_STORE,
             )
     except Exception:
-        # Silently ignore registration failures - the bridge is optional
+        # Registration has no optional dependency any more, so a failure is a
+        # defect: surface it instead of deferring to an opaque KeyError later.
+        logger.warning(
+            "[structural_bridge] Auto-registration of %s failed",
+            STRUCTURAL_CODEBASE_VECTOR_STORE,
+            exc_info=True,
+        )
         _try_auto_registration = False
 
 
