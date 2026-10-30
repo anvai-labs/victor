@@ -67,6 +67,32 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **SDK-PROMPT-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration
+  session; branch `fix/vertical-prompt-propagation`, baseline
+  `36c43ad94bc2d4503813e68c132fbc816774f041`. Fetched/reconciled #1595 and
+  #1590; other active worktrees do not modify this prompt owner. Actual research
+  requests advertise the five scoped tools but omit the full
+  `VerticalBase.get_system_prompt()` text. Prior native content comparisons are
+  confounded, not negative model-quality measurements. The capability bridge
+  silently ignores the actual SystemPromptBuilder, which lacks the custom-prompt
+  setter/getter. Eight baseline RED cases reproduce missing policy and the silent
+  unsupported-builder path (`repocovertvideo/build/rr015-vertical-prompt-red.log`).
+  The repair adds a mandatory additive domain block, preserving default framework
+  guidance and optional-section pruning. Capability writes route through the
+  existing prompt runtime owner, which refreshes pipeline caches and already
+  materialized conversation messages. Appending copies only domain instructions;
+  custom policy also participates in frozen-prefix invalidation. Replacement,
+  clearing, type rejection, per-builder isolation, API/KV/no-cache and direct
+  builder updates pass. All **307 affected tests** pass; **37,006 tests collect**.
+  Black/Ruff/configured MyPy pass. Installed SDK scripted correction/burst checks
+  verify complete policy on five/three turns with zero real model-network calls;
+  the old installed runtime is refused before native dispatch by the consumer's
+  new prompt guard. Candidate wheel bytes, package locations and dependencies
+  qualify separately. Next: independent commit-bound review, required PR CI and
+  merge, then actual model research. HTTP per-job policy, unified sessions, FEP
+  acceptance, content quality and RepoReel MVP acceptance remain open. The
+  canonical tracker remains the upstream status owner.
+
 - **SDK-VALIDATION-01 — MERGED**, [#1594](https://github.com/anvai-labs/victor/pull/1594)
   (2026-10-29), owner: RepoReel integration session; branch
   `fix/tool-validation-feedback`, baseline
