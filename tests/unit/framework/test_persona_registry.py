@@ -18,6 +18,7 @@ These tests verify the PersonaRegistry functionality for cross-vertical
 persona discovery and access.
 """
 
+import threading
 import pytest
 
 from victor.framework.persona_registry import (
@@ -26,6 +27,7 @@ from victor.framework.persona_registry import (
     get_persona_registry,
     register_persona_spec,
     get_persona_spec,
+    reset_persona_registry,
 )
 
 # =============================================================================
@@ -570,3 +572,179 @@ class TestPersonaRegistryThreadSafety:
             t.join()
 
         assert len(errors) == 0
+
+
+# =============================================================================
+# Characterisation Tests (pinned before the NamespacedRegistry extraction)
+# =============================================================================
+
+
+class TestPersonaRegistryCharacterisation:
+    """Pin public behaviour that the shared-base refactor must preserve."""
+
+    def test_batch_update_registers_and_resets_depth(self):
+        """Registrations inside batch_update are visible; the lock is released."""
+        registry = PersonaRegistry()
+        with registry.batch_update():
+            registry.register("a", PersonaSpec(name="a", role="R"), vertical="v")
+        assert registry.list_personas() == ["v:a"]
+
+    def test_batch_update_resets_depth_on_exception(self):
+        """An exception inside batch_update propagates and the lock is released."""
+        registry = PersonaRegistry()
+        with pytest.raises(RuntimeError):
+            with registry.batch_update():
+                raise RuntimeError("boom")
+        assert _lock_released(registry)
+
+    def test_register_sets_vertical_even_when_skipped(self):
+        """register() stamps persona.vertical before the duplicate check."""
+        registry = PersonaRegistry()
+        registry.register("a", PersonaSpec(name="a", role="R"), vertical="v")
+        dup = PersonaSpec(name="a", role="R2")
+        registry.register("a", dup, vertical="v")
+        assert dup.vertical == "v"
+        assert registry.get("a", vertical="v").role == "R"
+
+    def test_duplicate_register_warns(self, caplog):
+        """Duplicate persona registration is skipped at WARNING level."""
+        registry = PersonaRegistry()
+        registry.register("a", PersonaSpec(name="a", role="R"))
+        with caplog.at_level("WARNING", logger="victor.framework.persona_registry"):
+            registry.register("a", PersonaSpec(name="a", role="R2"))
+        assert any("already registered" in r.message for r in caplog.records)
+
+    def test_factory_is_not_indexed_and_duplicate_logs_debug(self, caplog):
+        """register_factory stores only the factory; duplicates log at DEBUG."""
+        registry = PersonaRegistry()
+        registry.register_factory("v:f", lambda: PersonaSpec(name="f", role="R"))
+        assert registry.list_factories(vertical="v") == ["v:f"]
+        assert registry.find_by_vertical("v") == []
+        assert registry._vertical_index == {}
+        assert registry._roles_index == {}
+        with caplog.at_level("DEBUG", logger="victor.framework.persona_registry"):
+            registry.register_factory("f", lambda: None, vertical="v")
+        dup_records = [r for r in caplog.records if "already registered" in r.message]
+        assert dup_records and all(r.levelname == "DEBUG" for r in dup_records)
+
+    def test_create_sets_vertical_and_missing_logs_debug(self, caplog):
+        """create() stamps vertical; a missing factory logs at DEBUG only."""
+        registry = PersonaRegistry()
+        registry.register_factory("f", lambda: PersonaSpec(name="f", role="R"))
+        created = registry.create("f", vertical="v")
+        assert created is not None and created.vertical == "v"
+        with caplog.at_level("DEBUG", logger="victor.framework.persona_registry"):
+            assert registry.create("missing") is None
+        missing = [r for r in caplog.records if "No factory registered" in r.message]
+        assert missing and all(r.levelname == "DEBUG" for r in missing)
+
+    def test_create_failing_factory_raises_runtime_error(self):
+        """A failing factory surfaces as RuntimeError."""
+        registry = PersonaRegistry()
+
+        def boom() -> PersonaSpec:
+            raise ValueError("bad")
+
+        registry.register_factory("f", boom)
+        with pytest.raises(RuntimeError, match="Persona factory execution failed"):
+            registry.create("f")
+
+    def test_unregister_factory_only(self):
+        """unregister() removes a factory-only entry and reports True."""
+        registry = PersonaRegistry()
+        registry.register_factory("f", lambda: PersonaSpec(name="f", role="R"))
+        assert registry.unregister("f") is True
+        assert registry.has("f") is False
+        assert registry.unregister("f") is False
+
+    def test_has_does_not_fall_back_but_get_does(self):
+        """has() checks only the exact key; get() falls back to the bare name."""
+        registry = PersonaRegistry()
+        spec = PersonaSpec(name="b", role="R")
+        registry.register("b", spec)
+        assert registry.has("b", vertical="v") is False
+        assert registry.get("b", vertical="v") is spec
+
+    def test_find_by_role_substring_fallback(self):
+        """find_by_role uses exact (case-insensitive) index, else substring scan."""
+        registry = PersonaRegistry()
+        spec = PersonaSpec(name="s", role="Security Analyst")
+        registry.register("s", spec)
+        assert registry.find_by_role("SECURITY ANALYST") == [spec]
+        assert registry.find_by_role("analyst") == [spec]
+        assert registry.find_by_role("nobody") == []
+
+    def test_find_by_tags_empty_returns_all(self):
+        """find_by_tags([]) returns every persona as a list."""
+        registry = PersonaRegistry()
+        spec = PersonaSpec(name="s", role="R")
+        registry.register("s", spec)
+        assert registry.find_by_tags([]) == [spec]
+        assert registry.find_by_tags(["x", "y"], match_all=True) == []
+
+    def test_to_dict_and_list_specs(self):
+        """to_dict keys are full keys; list_specs filters by vertical prefix."""
+        registry = PersonaRegistry()
+        spec = PersonaSpec(name="s", role="R")
+        registry.register("s", spec, vertical="v")
+        registry.register("t", PersonaSpec(name="t", role="R"))
+        assert set(registry.to_dict()) == {"v:s", "t"}
+        assert registry.to_dict()["v:s"]["vertical"] == "v"
+        assert registry.list_specs(vertical="v") == [spec]
+
+    def test_register_from_vertical_logs_info(self, caplog):
+        """register_from_vertical returns the count and logs at INFO."""
+        registry = PersonaRegistry()
+        with caplog.at_level("INFO", logger="victor.framework.persona_registry"):
+            count = registry.register_from_vertical("v", {"a": PersonaSpec(name="a", role="R")})
+        assert count == 1
+        assert registry.get("a", vertical="v").vertical == "v"
+        assert any("Registered 1 personas from vertical 'v'" in r.message for r in caplog.records)
+
+    def test_clear_empties_indexes(self):
+        """clear() empties personas, factories and every index."""
+        registry = PersonaRegistry()
+        registry.register("a", PersonaSpec(name="a", role="R", expertise=["e"], tags=["t"]), "v")
+        registry.register_factory("f", lambda: PersonaSpec(name="f", role="R"))
+        registry.clear()
+        assert registry.list_personas() == [] and registry.list_factories() == []
+        assert registry._expertise_index == {} and registry._roles_index == {}
+
+
+class TestPersonaRegistrySingleton:
+    """The module accessor and the class singleton must be the same object."""
+
+    @pytest.fixture(autouse=True)
+    def reset_registry_singleton(self):
+        """Reset the singleton before and after each test."""
+        reset_persona_registry()
+        yield
+        reset_persona_registry()
+
+    def test_get_persona_registry_is_class_singleton(self):
+        """get_persona_registry() and PersonaRegistry.get_instance() are one object."""
+        assert get_persona_registry() is PersonaRegistry.get_instance()
+
+    def test_reset_persona_registry_resets_class_singleton(self):
+        """reset_persona_registry() replaces the instance seen by both accessors."""
+        before = PersonaRegistry.get_instance()
+        reset_persona_registry()
+        after = get_persona_registry()
+        assert after is not before
+        assert after is PersonaRegistry.get_instance()
+
+
+def _lock_released(registry) -> bool:
+    """True when another thread can take the registry lock (no batch left open)."""
+    acquired = []
+
+    def probe() -> None:
+        ok = registry._lock.acquire(timeout=1)
+        acquired.append(ok)
+        if ok:
+            registry._lock.release()
+
+    t = threading.Thread(target=probe)
+    t.start()
+    t.join()
+    return acquired[0]

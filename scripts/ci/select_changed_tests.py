@@ -922,6 +922,12 @@ RELATED_TESTS = {
         "tests/unit/security/auth/test_sso.py",
         "tests/unit/providers/test_oauth_manager.py",
     ),
+    # Compute-node executor behaviour (incl. chain: handler resolution) is
+    # pinned by the workflow-level suites rather than an executors/ mirror.
+    "victor/workflows/executors/compute.py": (
+        "tests/unit/workflows/test_chain_handler_resolution.py",
+        "tests/unit/workflows/test_yaml_workflow_executor.py",
+    ),
     "scripts/ci/select_changed_tests.py": ("tests/unit/scripts/test_select_changed_tests.py",),
     **dict.fromkeys(DEPRECATION_NOTICE_FILES, DEPRECATION_NOTICE_TESTS),
     "victor/tools/base.py": (

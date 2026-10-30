@@ -45,7 +45,9 @@ class TestSingletonGuard:
         As singletons are migrated to DI, lower this number.
         """
         singletons = _count_singleton_classes(VICTOR_ROOT)
-        MAX_FILES = 75  # +1: ModelCapabilityLoader (tool_calling/capabilities.py)
+        # +1: ModelCapabilityLoader (tool_calling/capabilities.py);
+        # -1: chain/persona registries share NamespacedRegistry's singleton.
+        MAX_FILES = 74
         assert len(singletons) <= MAX_FILES, (
             f"Found {len(singletons)} files with singleton pattern "
             f"(cap is {MAX_FILES}). Use DI via ExecutionContext or "

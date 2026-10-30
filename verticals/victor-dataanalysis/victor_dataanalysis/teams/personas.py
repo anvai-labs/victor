@@ -534,20 +534,22 @@ _REGISTRATION_POLICY = RegistrationPolicy(
         "business_analyst": "planning",
     },
     tag_policy="expertise",
-    provider_getter="runtime",
     auto_register=False,
 )
 
 
 def register_data_analysis_personas() -> int:
-    """Register data-analysis personas with the runtime persona provider."""
-    from victor_contracts import get_runtime_persona_provider
+    """Register data-analysis personas with the default host persona registry.
 
-    provider = get_runtime_persona_provider()
-    if provider is None:
-        return 0
-    result = register_vertical_personas(DATA_ANALYSIS_PERSONAS, _REGISTRATION_POLICY, provider)
-    return result if isinstance(result, int) else len(DATA_ANALYSIS_PERSONAS)
+    Uses ``victor_contracts.get_default_persona_registry()`` like the other
+    verticals.
+
+    Returns:
+        Number of personas registered, or 0 when no default registry is set
+        (the host sets one when its persona provider is constructed).
+    """
+    result = register_vertical_personas(DATA_ANALYSIS_PERSONAS, _REGISTRATION_POLICY)
+    return result if result is not None else 0
 
 
 __all__ = [
