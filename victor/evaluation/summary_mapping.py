@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Hashable, Mapping, Optional, Sequence, Tuple
 
 _SUMMARY_CONTAINERS = ("metadata", "failure_details", "completion_signals")
 
@@ -105,8 +105,58 @@ def coerce_optional_int(value: Any) -> Optional[int]:
         return None
 
 
+EventNormalizer = Callable[[Any], Optional[dict[str, Any]]]
+
+
+def collect_events(
+    value: Any,
+    sources: Sequence[Tuple[str, EventNormalizer]],
+    dedup_key: Callable[[dict[str, Any]], Hashable],
+) -> list[dict[str, Any]]:
+    """Collect normalized events from a task, trace or payload object.
+
+    For each ``(key, normalize)`` source, events are read from ``value`` and
+    then from each summary container (``metadata``, ``failure_details``,
+    ``completion_signals``), and the same walk recurses into ``value.trace``.
+    Normalizers return None to drop an item. Events are de-duplicated by
+    ``dedup_key``, keeping the first occurrence in walk order.
+    """
+    events: list[dict[str, Any]] = []
+
+    def _append(items: Any, normalize: EventNormalizer) -> None:
+        for item in items:
+            normalized = normalize(item)
+            if normalized is not None:
+                events.append(normalized)
+
+    def _walk(node: Any) -> None:
+        for key, normalize in sources:
+            _append(extract_sequence(node, key), normalize)
+        for container_name in _SUMMARY_CONTAINERS:
+            container = extract_value(node, container_name)
+            if isinstance(container, Mapping):
+                for key, normalize in sources:
+                    _append(extract_sequence(container, key), normalize)
+        trace = extract_value(node, "trace")
+        if trace is not None and trace is not node:
+            _walk(trace)
+
+    _walk(value)
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[Hashable] = set()
+    for event in events:
+        key = dedup_key(event)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(event)
+    return deduped
+
+
 __all__ = [
     "as_event_mapping",
+    "collect_events",
     "coerce_optional_float",
     "coerce_optional_int",
     "coerce_optional_text",

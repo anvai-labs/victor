@@ -3,12 +3,12 @@ from __future__ import annotations
 """Planning-feedback summarization helpers for benchmark and runtime evaluation."""
 
 from collections import Counter
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Optional
 
 from victor.evaluation.summary_mapping import as_event_mapping as _as_event_mapping
+from victor.evaluation.summary_mapping import collect_events as _collect_events
 from victor.evaluation.summary_mapping import coerce_optional_float as _coerce_float
 from victor.evaluation.summary_mapping import coerce_optional_text as _coerce_optional_text
-from victor.evaluation.summary_mapping import extract_sequence as _extract_sequence
 from victor.evaluation.summary_mapping import extract_value as _extract_value
 
 _SUCCESS_STATUSES = {"passed", "complete", "completed", "resolved", "success"}
@@ -44,28 +44,10 @@ def _normalize_event(event: Any) -> Optional[dict[str, Any]]:
 
 def extract_planning_events(value: Any) -> list[dict[str, Any]]:
     """Extract normalized planning events from task, trace, or payload objects."""
-    events: list[dict[str, Any]] = []
-    for item in _extract_sequence(value, "planning_events"):
-        normalized = _normalize_event(item)
-        if normalized is not None:
-            events.append(normalized)
-
-    for container_name in ("metadata", "failure_details", "completion_signals"):
-        container = _extract_value(value, container_name)
-        if isinstance(container, Mapping):
-            for item in _extract_sequence(container, "planning_events"):
-                normalized = _normalize_event(item)
-                if normalized is not None:
-                    events.append(normalized)
-
-    trace = _extract_value(value, "trace")
-    if trace is not None and trace is not value:
-        events.extend(extract_planning_events(trace))
-
-    deduped: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
-    for event in events:
-        key = (
+    return _collect_events(
+        value,
+        [("planning_events", _normalize_event)],
+        lambda event: (
             event.get("selection_policy"),
             event.get("used_llm_planning"),
             event.get("task_type"),
@@ -74,12 +56,8 @@ def extract_planning_events(value: Any) -> list[dict[str, Any]]:
             event.get("forced_by_runtime_feedback"),
             tuple(event.get("constraint_tags") or []),
             event.get("experiment_support"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(event)
-    return deduped
+        ),
+    )
 
 
 def summarize_planning_feedback(value: Any) -> Optional[dict[str, Any]]:
