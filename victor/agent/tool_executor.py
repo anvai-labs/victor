@@ -879,7 +879,7 @@ class ToolExecutor:
         should_proceed, validation_result = self._validate_arguments(tool, normalized_args)
         if not should_proceed:
             error_msg = "Argument validation failed"
-            if validation_result and validation_result.errors:
+            if validation_result is not None and validation_result.errors:
                 error_msg = f"Invalid arguments: {'; '.join(validation_result.errors[:3])}"
             result = ToolExecutionResult(
                 tool_name=tool_name,

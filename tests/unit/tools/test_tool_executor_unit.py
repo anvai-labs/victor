@@ -1189,9 +1189,44 @@ class TestToolExecutorValidateArguments:
         result = await executor.execute("validated_tool", {})
 
         assert result.success is False
-        # Error can be either "Invalid arguments" with errors or fallback message
-        assert "Invalid arguments" in result.error or "validation failed" in result.error.lower()
+        assert result.error == "Invalid arguments: path is required"
         mock_tool.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_strict_validation_reports_nested_schema_location_without_execution(self):
+        from victor.agent.tool_executor import ValidationMode
+
+        class NestedTool(BaseTool):
+            name = "nested_contract"
+            description = "Generic nested contract fixture"
+
+            @property
+            def parameters(self):
+                return {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {"id": {"type": "string", "pattern": "^[a-z-]+$"}},
+                                "required": ["id"],
+                            },
+                        }
+                    },
+                    "required": ["items"],
+                }
+
+            async def execute(self, _exec_ctx, **kwargs):
+                raise AssertionError("Invalid arguments must never execute the tool")
+
+        registry = ToolRegistry()
+        registry.register(NestedTool())
+        executor = ToolExecutor(tool_registry=registry, validation_mode=ValidationMode.STRICT)
+        result = await executor.execute("nested_contract", {"items": [{"id": "invalid_id"}]})
+        assert result.success is False
+        assert "items.0.id" in result.error
+        assert "^[a-z-]+$" in result.error
 
 
 class TestToolExecutorUnknownArguments:
