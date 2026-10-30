@@ -14,23 +14,24 @@
 
 """Document Chunker - Intelligent document chunking for RAG.
 
-This module provides RAG-specific document chunking that builds on the
-framework's BaseChunker. The generic chunking algorithms are in
-victor/framework/ingestion/chunker.py.
+This module provides RAG-specific document chunking. The generic text,
+markdown and code strategies live in the SDK chunking core
+(victor_contracts.chunking), shared with the framework's BaseChunker.
 
 This vertical-specific module:
 - Provides DocumentChunker class with RAG-specific embedding integration
-- Wraps framework's BaseChunker for core chunking strategies
+- Delegates the text/markdown/code strategies to the SDK chunking core
+  (victor_contracts.chunking.TextChunker)
 - Maintains backward-compatible API (ChunkingConfig, detect_document_type)
 - Adds RAG-specific metadata and document type handling
 
 Design:
-    - ChunkingConfig: Configuration dataclass (re-exported from framework)
+    - ChunkingConfig: Configuration dataclass (re-exported from victor_contracts.chunking)
     - DocumentChunker: RAG-specific chunker with embedding support
     - detect_document_type: Document type detection (from framework)
 
 Example:
-    chunker = DocumentChunker(ChunkingConfig(chunk_size=1024, overlap=128))
+    chunker = DocumentChunker(ChunkingConfig(chunk_size=1024, chunk_overlap=128))
 
     # Chunk a document with embeddings
     doc = Document(id="1", content="...", source="doc.md", doc_type="markdown")
@@ -45,8 +46,9 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass
-from typing import Any, Callable, Coroutine, List, Optional, Tuple
+from typing import Any, Callable, Coroutine, List, Sequence, Tuple
+
+from victor_contracts.chunking import ChunkingConfig, ChunkSpan, TextChunker
 
 from victor_rag.document_store import Document, DocumentChunk
 
@@ -89,36 +91,6 @@ EXTENSION_TO_DOCTYPE = {
     ".txt": "text",
     ".pdf": "text",  # After extraction
 }
-
-
-@dataclass
-class ChunkingConfig:
-    """Configuration for document chunking.
-
-    Optimized for BGE embedding model (BAAI/bge-small-en-v1.5):
-    - 384 dimensions, 512 token context limit
-    - Default chunk_size = 3.5x dimension = 1344 chars (~336 tokens)
-    - Well within 512 token limit while maximizing context per chunk
-
-    Attributes:
-        chunk_size: Target chunk size in characters
-        chunk_overlap: Overlap between chunks in characters
-        min_chunk_size: Minimum chunk size (avoid tiny chunks)
-        max_chunk_size: Maximum chunk size (hard limit)
-        respect_sentence_boundaries: Try to break at sentence ends
-        respect_paragraph_boundaries: Try to break at paragraphs
-        code_aware: Use code-aware chunking for code files
-    """
-
-    # 3.5x embedding dimension (384 * 3.5 = 1344) for optimal context utilization
-    # ~336 tokens at 4 chars/token, safely under 512 token limit
-    chunk_size: int = 1344
-    chunk_overlap: int = 134  # ~10% overlap for context continuity
-    min_chunk_size: int = 200  # Scaled proportionally
-    max_chunk_size: int = 2000  # Keep max limit for edge cases
-    respect_sentence_boundaries: bool = True
-    respect_paragraph_boundaries: bool = True
-    code_aware: bool = True
 
 
 # Type alias for embedding function
@@ -194,7 +166,7 @@ def detect_document_type(source: str, content: str) -> str:
     return "text"
 
 
-class DocumentChunker:
+class DocumentChunker(TextChunker):
     """Intelligent document chunker with multiple strategies.
 
     Supports:
@@ -208,25 +180,18 @@ class DocumentChunker:
         chunks = await chunker.chunk_document(doc, embedding_fn)
     """
 
-    # Sentence ending patterns
-    SENTENCE_END = re.compile(r"[.!?]\s+")
-
-    # Code block patterns
+    # SENTENCE_END, FUNCTION_DEF, CLASS_DEF and MARKDOWN_HEADER come from TextChunker.
     CODE_BLOCK = re.compile(r"```[\s\S]*?```", re.MULTILINE)
-    FUNCTION_DEF = re.compile(r"^(def|async def|function|fn|func)\s+\w+", re.MULTILINE)
-    CLASS_DEF = re.compile(r"^(class|struct|interface|impl)\s+\w+", re.MULTILINE)
-
-    # Markdown patterns
-    MARKDOWN_HEADER = re.compile(r"^#{1,6}\s+.+$", re.MULTILINE)
     MARKDOWN_LIST = re.compile(r"^[\s]*[-*+]\s+", re.MULTILINE)
 
-    def __init__(self, config: Optional[ChunkingConfig] = None):
-        """Initialize chunker.
+    @property
+    def config(self) -> ChunkingConfig:
+        """The chunking configuration (assignable, as before the SDK core)."""
+        return self._config
 
-        Args:
-            config: Chunking configuration
-        """
-        self.config = config or ChunkingConfig()
+    @config.setter
+    def config(self, value: ChunkingConfig) -> None:
+        self._config = value
 
     async def chunk_document(
         self,
@@ -253,6 +218,7 @@ class DocumentChunker:
             logger.info(f"Auto-detected document type: {doc_type} for source: {doc.source}")
 
         # Select chunking strategy based on document type
+        raw_chunks: Sequence[Tuple[str, int, int]]
         if doc_type == "html":
             raw_chunks = self._chunk_html(doc.content)
         elif doc_type == "code":
@@ -287,136 +253,27 @@ class DocumentChunker:
 
         return chunks
 
-    def _chunk_text(self, content: str) -> List[Tuple[str, int, int]]:
-        """Chunk plain text with sentence boundaries.
+    # The SDK core calls its strategies through the public names; route them
+    # back through the private hooks so subclass overrides apply everywhere.
+    def chunk_text(self, content: str) -> List[ChunkSpan]:
+        return self._chunk_text(content)
 
-        Args:
-            content: Text content
+    def chunk_markdown(self, content: str) -> List[ChunkSpan]:
+        return self._chunk_markdown(content)
 
-        Returns:
-            List of (chunk_text, start_char, end_char) tuples
-        """
-        chunks = []
-        current_pos = 0
+    def chunk_code(self, content: str) -> List[ChunkSpan]:
+        return self._chunk_code(content)
 
-        while current_pos < len(content):
-            # Determine chunk end position
-            chunk_end = min(current_pos + self.config.chunk_size, len(content))
+    def _chunk_text(self, content: str) -> List[ChunkSpan]:
+        return TextChunker.chunk_text(self, content)
 
-            # Try to find a sentence boundary
-            if self.config.respect_sentence_boundaries and chunk_end < len(content):
-                # Look for sentence end in the last portion of the chunk
-                search_start = max(current_pos + self.config.min_chunk_size, chunk_end - 100)
-                search_text = content[search_start : chunk_end + 50]
+    def _chunk_markdown(self, content: str) -> List[ChunkSpan]:
+        return TextChunker.chunk_markdown(self, content)
 
-                match = None
-                for m in self.SENTENCE_END.finditer(search_text):
-                    match = m
+    def _chunk_code(self, content: str) -> List[ChunkSpan]:
+        return TextChunker.chunk_code(self, content)
 
-                if match:
-                    chunk_end = search_start + match.end()
-
-            # Extract chunk
-            chunk_text = content[current_pos:chunk_end].strip()
-
-            # Skip empty chunks
-            if len(chunk_text) >= self.config.min_chunk_size:
-                chunks.append((chunk_text, current_pos, chunk_end))
-
-            # Move to next chunk with overlap
-            current_pos = chunk_end - self.config.chunk_overlap
-            if current_pos >= len(content) - self.config.min_chunk_size:
-                break
-
-        return chunks
-
-    def _chunk_markdown(self, content: str) -> List[Tuple[str, int, int]]:
-        """Chunk markdown preserving structure.
-
-        Respects headers and code blocks as natural break points.
-
-        Args:
-            content: Markdown content
-
-        Returns:
-            List of (chunk_text, start_char, end_char) tuples
-        """
-        chunks = []
-
-        # Find all headers as potential break points
-        headers = list(self.MARKDOWN_HEADER.finditer(content))
-
-        if not headers:
-            # Fall back to text chunking
-            return self._chunk_text(content)
-
-        # Chunk by headers
-        for i, header in enumerate(headers):
-            start = header.start()
-            end = headers[i + 1].start() if i + 1 < len(headers) else len(content)
-
-            section = content[start:end].strip()
-
-            # If section is too large, sub-chunk it
-            if len(section) > self.config.max_chunk_size:
-                sub_chunks = self._chunk_text(section)
-                for sub_text, sub_start, sub_end in sub_chunks:
-                    chunks.append((sub_text, start + sub_start, start + sub_end))
-            elif len(section) >= self.config.min_chunk_size:
-                chunks.append((section, start, end))
-
-        return chunks
-
-    def _chunk_code(self, content: str) -> List[Tuple[str, int, int]]:
-        """Chunk code preserving function/class boundaries.
-
-        Attempts to keep functions and classes intact.
-
-        Args:
-            content: Code content
-
-        Returns:
-            List of (chunk_text, start_char, end_char) tuples
-        """
-        chunks = []
-
-        # Find function and class definitions
-        definitions = []
-        for match in self.FUNCTION_DEF.finditer(content):
-            definitions.append(("function", match.start()))
-        for match in self.CLASS_DEF.finditer(content):
-            definitions.append(("class", match.start()))
-
-        # Sort by position
-        definitions.sort(key=lambda x: x[1])
-
-        if not definitions:
-            # Fall back to text chunking
-            return self._chunk_text(content)
-
-        # Add content before first definition
-        if definitions[0][1] > self.config.min_chunk_size:
-            pre_content = content[: definitions[0][1]].strip()
-            if len(pre_content) >= self.config.min_chunk_size:
-                chunks.append((pre_content, 0, definitions[0][1]))
-
-        # Chunk by definitions
-        for i, (def_type, start) in enumerate(definitions):
-            end = definitions[i + 1][1] if i + 1 < len(definitions) else len(content)
-
-            section = content[start:end].strip()
-
-            # If section is too large, sub-chunk it
-            if len(section) > self.config.max_chunk_size:
-                sub_chunks = self._chunk_text(section)
-                for sub_text, sub_start, sub_end in sub_chunks:
-                    chunks.append((sub_text, start + sub_start, start + sub_end))
-            elif len(section) >= self.config.min_chunk_size:
-                chunks.append((section, start, end))
-
-        return chunks
-
-    def _chunk_html(self, content: str) -> List[Tuple[str, int, int]]:
+    def _chunk_html(self, content: str) -> Sequence[Tuple[str, int, int]]:
         """Chunk HTML preserving semantic structure.
 
         Uses paragraph, section, table, and header elements as natural
@@ -482,7 +339,7 @@ class DocumentChunker:
             return self._chunk_text(full_text)
 
         # Convert semantic elements to chunks with size limits
-        current_chunk = []
+        current_chunk: List[str] = []
         current_size = 0
         pos = 0
 
@@ -524,7 +381,7 @@ class DocumentChunker:
         logger.debug(f"HTML chunking produced {len(chunks)} chunks")
         return chunks if chunks else self._chunk_text(soup.get_text())
 
-    def _chunk_json(self, content: str) -> List[Tuple[str, int, int]]:
+    def _chunk_json(self, content: str) -> Sequence[Tuple[str, int, int]]:
         """Chunk JSON preserving object boundaries.
 
         Chunks by top-level keys or array items.
@@ -563,7 +420,7 @@ class DocumentChunker:
 
         elif isinstance(data, list):
             # Chunk by array items (batch small items together)
-            current_batch = []
+            current_batch: List[Any] = []
             current_size = 0
 
             for item in data:
@@ -602,20 +459,3 @@ class DocumentChunker:
 
         logger.debug(f"JSON chunking produced {len(chunks)} chunks")
         return chunks if chunks else self._chunk_text(content)
-
-    def estimate_chunks(self, content: str) -> int:
-        """Estimate number of chunks for content.
-
-        Useful for progress estimation.
-
-        Args:
-            content: Content to estimate
-
-        Returns:
-            Estimated chunk count
-        """
-        if not content:
-            return 0
-
-        effective_size = self.config.chunk_size - self.config.chunk_overlap
-        return max(1, len(content) // effective_size)

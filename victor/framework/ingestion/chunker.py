@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from victor_contracts.chunking import ChunkSpan, TextChunker
 
-from victor.framework.ingestion.models import Chunk, ChunkingConfig
+from victor.framework.ingestion.models import Chunk
 
 logger = logging.getLogger(__name__)
 
