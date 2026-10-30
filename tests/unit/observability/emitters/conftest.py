@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Tuple
 
 import pytest
@@ -61,3 +62,24 @@ def sync_recorder(monkeypatch: pytest.MonkeyPatch) -> SyncRecorder:
     recorder = SyncRecorder()
     monkeypatch.setattr(emit_helper, "emit_event_sync", recorder)
     return recorder
+
+
+@pytest.fixture(autouse=True)
+def _emitter_logs_reach_caplog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo cross-test logging pollution so emitter log assertions see records.
+
+    A sibling test in a full shard may leave ``logging.disable()`` set, or
+    (via ``dictConfig``) disable or detach the ``victor`` logger hierarchy,
+    which empties ``caplog``. Restore it for each test; monkeypatch undoes it.
+    """
+    logging.disable(logging.NOTSET)
+    for name in ("victor", "victor.observability", "victor.observability.emitters"):
+        log = logging.getLogger(name)
+        monkeypatch.setattr(log, "disabled", False)
+        monkeypatch.setattr(log, "propagate", True)
+        monkeypatch.setattr(log, "level", logging.NOTSET)
+    for name, log in list(logging.Logger.manager.loggerDict.items()):
+        if name.startswith("victor.observability.emitters.") and isinstance(log, logging.Logger):
+            monkeypatch.setattr(log, "disabled", False)
+            monkeypatch.setattr(log, "propagate", True)
+            monkeypatch.setattr(log, "level", logging.NOTSET)
