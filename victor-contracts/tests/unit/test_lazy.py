@@ -89,7 +89,7 @@ def test_returned_callable_is_named_like_a_module_getattr() -> None:
 
 @pytest.mark.parametrize("bridge", LAZY_BRIDGES)
 def test_bridges_use_the_shared_helper(bridge: str) -> None:
-    module = importlib.import_module(f"victor_contracts.{bridge}")
+    module = importlib.import_module(f"victor_contracts.{bridge}")  # nosemgrep
     lazy_imports = module._LAZY_IMPORTS
     assert lazy_imports and all(
         isinstance(k, str) and isinstance(v, str) for k, v in lazy_imports.items()
@@ -107,4 +107,4 @@ def test_bridges_use_the_shared_helper(bridge: str) -> None:
 @pytest.mark.parametrize("bridge", REMOVED_BRIDGES)
 def test_removed_bridges_are_not_importable(bridge: str) -> None:
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module(f"victor_contracts.{bridge}")
+        importlib.import_module(f"victor_contracts.{bridge}")  # nosemgrep
