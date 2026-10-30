@@ -41,7 +41,9 @@ import re
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from victor.framework.ingestion.models import Chunk, ChunkingConfig
+from victor_contracts.chunking import ChunkSpan, TextChunker
+
+from victor.framework.ingestion.models import Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +166,7 @@ def detect_document_type(source: str, content: str) -> DocumentType:
     return DocumentType.TEXT
 
 
-class BaseChunker:
+class BaseChunker(TextChunker):
     """Base document chunker with multiple strategies.
 
     Provides domain-agnostic chunking algorithms. Verticals can:
@@ -184,25 +186,8 @@ class BaseChunker:
                 ...
     """
 
-    # Regex patterns for chunking
-    SENTENCE_END = re.compile(r"[.!?]\s+")
+    # SENTENCE_END, FUNCTION_DEF, CLASS_DEF and MARKDOWN_HEADER come from TextChunker.
     CODE_BLOCK = re.compile(r"```[\s\S]*?```", re.MULTILINE)
-    FUNCTION_DEF = re.compile(r"^(def|async def|function|fn|func)\s+\w+", re.MULTILINE)
-    CLASS_DEF = re.compile(r"^(class|struct|interface|impl)\s+\w+", re.MULTILINE)
-    MARKDOWN_HEADER = re.compile(r"^#{1,6}\s+.+$", re.MULTILINE)
-
-    def __init__(self, config: Optional[ChunkingConfig] = None):
-        """Initialize chunker.
-
-        Args:
-            config: Chunking configuration (uses defaults if None)
-        """
-        self._config = config or ChunkingConfig()
-
-    @property
-    def config(self) -> ChunkingConfig:
-        """Get chunking configuration."""
-        return self._config
 
     def chunk(
         self,
@@ -247,114 +232,31 @@ class BaseChunker:
 
         return chunks
 
-    def _chunk_text(self, content: str) -> List[Tuple[str, int, int]]:
-        """Chunk plain text with sentence boundaries.
+    # Override rule: customize a strategy by overriding the private hook
+    # (``_chunk_text``, ``_chunk_markdown``, ``_chunk_code``); every call site,
+    # including the SDK core's own sub-splitting, reaches it. The public
+    # ``chunk_*`` names are routing shims for the SDK core: do not override
+    # them, and never call them from a private hook (that recurses).
+    def chunk_text(self, content: str) -> List[ChunkSpan]:
+        return self._chunk_text(content)
 
-        Args:
-            content: Text content
+    def chunk_markdown(self, content: str) -> List[ChunkSpan]:
+        return self._chunk_markdown(content)
 
-        Returns:
-            List of (chunk_text, start_char, end_char) tuples
-        """
-        chunks = []
-        current_pos = 0
+    def chunk_code(self, content: str) -> List[ChunkSpan]:
+        return self._chunk_code(content)
 
-        while current_pos < len(content):
-            chunk_end = min(current_pos + self._config.chunk_size, len(content))
+    def _chunk_text(self, content: str) -> List[ChunkSpan]:
+        """Chunk plain text with sentence boundaries."""
+        return super().chunk_text(content)
 
-            # Try to find a sentence boundary
-            if self._config.respect_sentence_boundaries and chunk_end < len(content):
-                search_start = max(current_pos + self._config.min_chunk_size, chunk_end - 100)
-                search_text = content[search_start : chunk_end + 50]
+    def _chunk_markdown(self, content: str) -> List[ChunkSpan]:
+        """Chunk markdown by headers, splitting long sections as text."""
+        return super().chunk_markdown(content)
 
-                match = None
-                for m in self.SENTENCE_END.finditer(search_text):
-                    match = m
-
-                if match:
-                    chunk_end = search_start + match.end()
-
-            chunk_text = content[current_pos:chunk_end].strip()
-
-            if len(chunk_text) >= self._config.min_chunk_size:
-                chunks.append((chunk_text, current_pos, chunk_end))
-
-            current_pos = chunk_end - self._config.chunk_overlap
-            if current_pos >= len(content) - self._config.min_chunk_size:
-                break
-
-        return chunks
-
-    def _chunk_markdown(self, content: str) -> List[Tuple[str, int, int]]:
-        """Chunk markdown preserving structure.
-
-        Args:
-            content: Markdown content
-
-        Returns:
-            List of (chunk_text, start_char, end_char) tuples
-        """
-        chunks = []
-        headers = list(self.MARKDOWN_HEADER.finditer(content))
-
-        if not headers:
-            return self._chunk_text(content)
-
-        for i, header in enumerate(headers):
-            start = header.start()
-            end = headers[i + 1].start() if i + 1 < len(headers) else len(content)
-
-            section = content[start:end].strip()
-
-            if len(section) > self._config.max_chunk_size:
-                sub_chunks = self._chunk_text(section)
-                for sub_text, sub_start, sub_end in sub_chunks:
-                    chunks.append((sub_text, start + sub_start, start + sub_end))
-            elif len(section) >= self._config.min_chunk_size:
-                chunks.append((section, start, end))
-
-        return chunks
-
-    def _chunk_code(self, content: str) -> List[Tuple[str, int, int]]:
-        """Chunk code preserving function/class boundaries.
-
-        Args:
-            content: Code content
-
-        Returns:
-            List of (chunk_text, start_char, end_char) tuples
-        """
-        chunks = []
-        definitions = []
-
-        for match in self.FUNCTION_DEF.finditer(content):
-            definitions.append(("function", match.start()))
-        for match in self.CLASS_DEF.finditer(content):
-            definitions.append(("class", match.start()))
-
-        definitions.sort(key=lambda x: x[1])
-
-        if not definitions:
-            return self._chunk_text(content)
-
-        # Add content before first definition
-        if definitions[0][1] > self._config.min_chunk_size:
-            pre_content = content[: definitions[0][1]].strip()
-            if len(pre_content) >= self._config.min_chunk_size:
-                chunks.append((pre_content, 0, definitions[0][1]))
-
-        for i, (def_type, start) in enumerate(definitions):
-            end = definitions[i + 1][1] if i + 1 < len(definitions) else len(content)
-            section = content[start:end].strip()
-
-            if len(section) > self._config.max_chunk_size:
-                sub_chunks = self._chunk_text(section)
-                for sub_text, sub_start, sub_end in sub_chunks:
-                    chunks.append((sub_text, start + sub_start, start + sub_end))
-            elif len(section) >= self._config.min_chunk_size:
-                chunks.append((section, start, end))
-
-        return chunks
+    def _chunk_code(self, content: str) -> List[ChunkSpan]:
+        """Chunk code preserving function/class boundaries."""
+        return super().chunk_code(content)
 
     def _chunk_html(self, content: str) -> List[Tuple[str, int, int]]:
         """Chunk HTML preserving semantic structure.
@@ -519,21 +421,6 @@ class BaseChunker:
                     chunks.append((batch_text, pos, pos + len(batch_text)))
 
         return chunks if chunks else self._chunk_text(content)
-
-    def estimate_chunks(self, content: str) -> int:
-        """Estimate number of chunks for content.
-
-        Args:
-            content: Content to estimate
-
-        Returns:
-            Estimated chunk count
-        """
-        if not content:
-            return 0
-
-        effective_size = self._config.chunk_size - self._config.chunk_overlap
-        return max(1, len(content) // effective_size)
 
 
 __all__ = [

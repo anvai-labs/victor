@@ -35,7 +35,7 @@ classifiers = [
     "Topic :: Software Development",
 ]
 dependencies = [
-    "victor-contracts>=0.6.0,<1.0",
+    "victor-contracts>=0.12.0,<1.0",
     "sentence-transformers>=2.2.0",
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",

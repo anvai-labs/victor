@@ -80,7 +80,7 @@ class DocumentStore:
 
         # Add documents
         doc = Document(id="1", content="...", source="doc.pdf")
-        chunks = chunker.chunk(doc)
+        chunks = await DocumentChunker().chunk_document(doc, embedding_fn)
         await store.add_chunks(chunks)
 
         # Search
