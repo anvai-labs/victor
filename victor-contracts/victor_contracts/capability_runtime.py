@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any, Callable
 
+from victor_contracts._lazy import make_lazy_getattr
+
 if TYPE_CHECKING:
     from victor.framework.vertical_protocols import (
         CodebaseIndexFactoryProtocol,
@@ -33,16 +35,7 @@ _LAZY_IMPORTS = {
 }
 
 
-def __getattr__(name: str) -> Any:
-    """Resolve capability helpers lazily from the Victor host runtime."""
-    module_name = _LAZY_IMPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(
-            f"module 'victor_contracts.capability_runtime' has no attribute {name!r}"
-        )
-
-    module = importlib.import_module(module_name)
-    return getattr(module, name)
+__getattr__ = make_lazy_getattr(__name__, _LAZY_IMPORTS)
 
 
 def create_lazy_capability_proxy(provider: Callable[[], Any] | Any) -> Any:
