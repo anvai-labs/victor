@@ -108,3 +108,46 @@ def test_bridges_use_the_shared_helper(bridge: str) -> None:
 def test_removed_bridges_are_not_importable(bridge: str) -> None:
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(f"victor_contracts.{bridge}")  # nosemgrep
+
+
+def test_deprecated_names_warn_and_still_resolve() -> None:
+    module = types.ModuleType("victor_contracts.fake_bridge")
+    module.__getattr__ = make_lazy_getattr(  # type: ignore[method-assign]
+        module.__name__,
+        {"dumps": "json", "loads": "json"},
+        deprecated={"dumps": "dumps is deprecated; use loads"},
+    )
+    with pytest.warns(DeprecationWarning, match="dumps is deprecated; use loads"):
+        assert module.dumps is json.dumps
+
+
+def test_non_deprecated_names_do_not_warn() -> None:
+    import warnings
+
+    module = types.ModuleType("victor_contracts.fake_bridge")
+    module.__getattr__ = make_lazy_getattr(  # type: ignore[method-assign]
+        module.__name__, {"dumps": "json", "loads": "json"}, deprecated={"dumps": "x"}
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert module.loads is json.loads
+
+
+@pytest.mark.parametrize("name", ["ChainRegistry", "get_chain_registry"])
+def test_chain_runtime_names_are_deprecated(name: str) -> None:
+    chain_runtime = importlib.import_module("victor_contracts.chain_runtime")
+    pytest.importorskip("victor.framework.chains")
+    with pytest.warns(
+        DeprecationWarning, match=rf"chain_runtime\.{name} is deprecated.*0\.14\.0"
+    ) as record:
+        getattr(chain_runtime, name)
+    # One warning, attributed to the caller (the host's import-time warning is
+    # suppressed on this path).
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+
+def test_unknown_chain_runtime_name_still_attribute_error() -> None:
+    chain_runtime = importlib.import_module("victor_contracts.chain_runtime")
+    with pytest.raises(AttributeError):
+        _ = chain_runtime.not_a_name

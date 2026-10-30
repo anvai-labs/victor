@@ -91,7 +91,8 @@ _TOOL_EMBEDDING_PROCESS_CACHE: dict[tuple[str, int], dict] = {}
 
 
 # Shared with victor.tools.selection_common (jscpd exact-duplicate extraction):
-# these five definitions were token-identical modulo the FALLBACK_ prefix.
+# these definitions were token-identical modulo the FALLBACK_ prefix (and the
+# keyword selector modulo its optional registry argument).
 # get_web_tools / detect_categories_from_message / get_tools_for_categories
 # are deliberate forks (fallback-set vs empty-set, merged vs registry-only
 # detection, broad vs narrow except) and stay local.
@@ -102,6 +103,7 @@ from victor.tools.selection_common import (  # noqa: F401
     get_category_to_tools_map,
     get_critical_tools,
     get_tools_by_category,
+    select_tools_by_keywords,
 )
 
 CATEGORY_KEYWORDS = _FALLBACK_CATEGORY_KEYWORDS
@@ -624,48 +626,6 @@ def calculate_adaptive_threshold(
     max_tools = max(MIN_TOOLS, min(MAX_TOOLS, max_tools))
 
     return threshold, max_tools
-
-
-def select_tools_by_keywords(
-    message: str,
-    all_tool_names: Set[str],
-    is_small: bool = False,
-    max_tools_for_small: int = 10,
-) -> Set[str]:
-    """Select tools using keyword matching via ToolMetadataRegistry.
-
-    Uses keywords defined in @tool decorators for tool selection.
-    This is the recommended approach - tools define their own keywords.
-
-    Args:
-        message: User message
-        all_tool_names: Set of all available tool names
-        is_small: Whether this is a small model
-        max_tools_for_small: Max tools for small models
-
-    Returns:
-        Set of selected tool names
-    """
-    # Start with critical tools (dynamic discovery)
-    core_tools = get_critical_tools()
-    selected = core_tools.copy()
-
-    # Add tools matching keywords from @tool decorators
-    keyword_matches = get_tools_from_message(message)
-    selected.update(keyword_matches)
-
-    # Filter to only available tools
-    selected = selected.intersection(all_tool_names)
-
-    # Limit for small models
-    if is_small and len(selected) > max_tools_for_small:
-        # Keep core tools, limit others
-        core_in_selected = selected.intersection(core_tools)
-        others = list(selected - core_tools)
-        max_others = max(0, max_tools_for_small - len(core_in_selected))
-        selected = core_in_selected.union(set(others[:max_others]))
-
-    return selected
 
 
 class ToolSelector(ModeAwareMixin):

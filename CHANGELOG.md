@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Deprecated
+
+- `victor.framework.chains` (the versioned chain registry) and
+  `victor.framework.multi_agent.FrameworkPersonaProvider` /
+  `victor.framework.multi_agent.persona_provider`: nothing reads them at runtime.
+  They emit `DeprecationWarning` and will be removed in a future release, no earlier
+  than the one shipping victor-contracts 0.14.0 (backlog F-019). Use
+  `victor.framework.chain_registry` / `victor.framework.persona_registry`, which the
+  host fills from each vertical's `get_composed_chains()` / `get_personas()` hook.
+  The SDK bridges to them are deprecated in victor-contracts 0.13.0.
+
+### Fixed
+
+- Opting in to structural codebase indexing (`codebase_structural_indexing_enabled`)
+  no longer fails with `KeyError: 'victor_structural_bridge'`: the bridge provider now
+  registers in Victor's embedding registry, which the coding indexer resolves from, and
+  bridge instances are cached per behaviour-defining config (upstream store, workspace
+  root, chunk size/overlap, language overrides).
+
+### Removed
+
+- victor-coding's private embedding fork `victor_coding.codebase.embeddings.{base,
+  registry,lancedb_provider,proximadb_provider}` (unreachable: the indexer already used
+  the core providers). Import the embedding API from
+  `victor_contracts.embeddings_runtime` (or `victor_coding.codebase.embeddings`, which
+  re-exports it).
+
 ## [0.21.0] - 2026-10-29
 
 Requires `victor-contracts>=0.12.0` (released alongside as `sdk-v0.12.0`).

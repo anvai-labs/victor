@@ -47,10 +47,10 @@ native = [
     # Compatibility extra. Build the separate distribution from ./native;
     # see native/README.md. Installing this empty extra does not build Rust.
 ]
-# ProximaDB embedding provider (optional backend).
-# Imported lazily with graceful ImportError fallback in
-# victor_coding/codebase/embeddings/proximadb_provider.py. Pin kept identical
-# to victor-ai's proximadb extra so the backend version stays aligned.
+# ProximaDB embedding backend (optional). The provider lives in victor-ai
+# (victor/storage/vector_stores/proximadb_provider.py) and is resolved through
+# victor_contracts.embeddings_runtime; this pass-through extra keeps the pin
+# identical to victor-ai's proximadb extra.
 proximadb = [
     "proximadb>=0.4.1,<0.5",
 ]

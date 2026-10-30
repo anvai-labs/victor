@@ -130,10 +130,20 @@ class TestWorkflowExecutorInit:
 
 
 class TestWorkflowExecutorChainHandlers:
+    @pytest.fixture(autouse=True)
+    def _fresh_chain_registry(self):
+        """Isolate the global chain registry for each test."""
+        from victor.framework.chain_registry import reset_chain_registry
+
+        reset_chain_registry()
+        yield
+        reset_chain_registry()
+
     @pytest.mark.asyncio
     async def test_execute_chain_handler_uses_asyncio_to_thread_for_sync_invoke(self):
         from types import SimpleNamespace
         from victor.workflows.definition import ComputeNode
+        from victor.framework.chain_registry import get_chain_registry
         from victor.workflows.executors.compute import ComputeNodeExecutor
 
         node = ComputeNode(
@@ -148,10 +158,8 @@ class TestWorkflowExecutorChainHandlers:
         async def run_in_thread(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        with (
-            patch("victor.framework.chain_registry.create_chain", return_value=chain),
-            patch("asyncio.to_thread", side_effect=run_in_thread) as offload,
-        ):
+        get_chain_registry().register("analysis_chain", chain)
+        with patch("asyncio.to_thread", side_effect=run_in_thread) as offload:
             state = await ComputeNodeExecutor().execute(node, {"value": 42})
         assert state["_node_results"][node.id].success is True
         assert state["chain_output"] == {"result": "ok"}
@@ -161,6 +169,7 @@ class TestWorkflowExecutorChainHandlers:
     @pytest.mark.asyncio
     async def test_execute_chain_handler_uses_asyncio_to_thread_for_sync_callable(self):
         from victor.workflows.definition import ComputeNode
+        from victor.framework.chain_registry import get_chain_registry
         from victor.workflows.executors.compute import ComputeNodeExecutor
 
         node = ComputeNode(
@@ -177,10 +186,8 @@ class TestWorkflowExecutorChainHandlers:
         async def run_in_thread(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        with (
-            patch("victor.framework.chain_registry.create_chain", return_value=chain),
-            patch("asyncio.to_thread", side_effect=run_in_thread) as offload,
-        ):
+        get_chain_registry().register("callable_chain", chain)
+        with patch("asyncio.to_thread", side_effect=run_in_thread) as offload:
             state = await ComputeNodeExecutor().execute(node, {"value": "repo"})
         assert state["_node_results"][node.id].success is True
         assert state["callable_output"] == {"seen": {"payload": "repo"}}

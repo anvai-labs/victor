@@ -6,44 +6,20 @@ from collections import Counter
 from typing import Any, Iterable, Mapping, Optional
 
 from victor.evaluation.summary_mapping import extract_summary_mapping
+from victor.evaluation.summary_mapping import as_event_mapping as _as_event_mapping
+from victor.evaluation.summary_mapping import coerce_optional_int as _coerce_int
+from victor.evaluation.summary_mapping import coerce_optional_text as _coerce_optional_text
+from victor.evaluation.summary_mapping import extract_sequence as _extract_sequence
 from victor.evaluation.summary_mapping import extract_value as _extract_value
 
 
-def _coerce_optional_text(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    text = str(getattr(value, "value", value)).strip()
-    return text or None
-
-
-def _coerce_int(value: Any) -> Optional[int]:
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    if hasattr(value, "to_dict"):
-        value = value.to_dict()
-    return dict(value) if isinstance(value, Mapping) else {}
+    mapping = _as_event_mapping(value)
+    return dict(mapping) if mapping is not None else {}
 
 
 def _extract_mapping(value: Any, key: str) -> dict[str, Any]:
     return _coerce_mapping(_extract_value(value, key))
-
-
-def _extract_sequence(value: Any, key: str) -> list[Any]:
-    raw_value = _extract_value(value, key, [])
-    if raw_value is None:
-        return []
-    if isinstance(raw_value, (list, tuple)):
-        return list(raw_value)
-    return []
 
 
 def _normalize_path_map(value: Any) -> dict[str, tuple[str, ...]]:

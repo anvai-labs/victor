@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Framework-level persona provider with versioning.
+"""Framework-level persona provider with versioning (deprecated).
+
+Deprecated (backlog F-019); removable in a future victor-ai release, no earlier
+than the one shipping victor-contracts 0.14.0.
+Nothing in the runtime reads this provider: verticals deliver personas
+through ``get_personas()`` and the host registers them in
+:mod:`victor.framework.persona_registry`.
 
 This module provides a central registry for agent personas that can be
 shared across all verticals (Coding, DevOps, RAG, Research, DataAnalysis).
@@ -43,6 +49,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
@@ -51,6 +58,9 @@ from victor.framework.capabilities.base import (
     CapabilityMetadata,
 )
 from victor_contracts.registries import set_default_persona_registry
+from victor.framework.multi_agent import PERSONA_PROVIDER_DEPRECATION
+
+warnings.warn(PERSONA_PROVIDER_DEPRECATION, DeprecationWarning, stacklevel=2)
 
 if TYPE_CHECKING:
     from victor.framework.multi_agent.personas import PersonaTraits

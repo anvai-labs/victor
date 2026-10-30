@@ -25,6 +25,8 @@ import logging
 import threading
 from typing import Any, Callable, Dict, Optional
 
+from victor.core.events.periodic import PeriodicMetricsReporter
+
 logger = logging.getLogger(__name__)
 
 _BACKGROUND_LOOP_LOCK = threading.Lock()
@@ -270,8 +272,10 @@ def emit_sync_metrics_event(
     return stats_snapshot
 
 
-class EmitSyncMetricsReporter:
+class EmitSyncMetricsReporter(PeriodicMetricsReporter):
     """Periodic publisher for sync emitter metrics snapshots."""
+
+    _THREAD_NAME = "emit-sync-metrics-reporter"
 
     def __init__(
         self,
@@ -283,66 +287,23 @@ class EmitSyncMetricsReporter:
         use_background_loop: bool = True,
         event_bus_provider: Optional[Callable[[], Any]] = None,
     ) -> None:
-        if interval_seconds <= 0:
-            raise ValueError("interval_seconds must be > 0")
-
-        self._interval_seconds = interval_seconds
-        self._topic = topic
-        self._source = source
-        self._reset_after_emit = reset_after_emit
+        super().__init__(
+            interval_seconds=interval_seconds,
+            topic=topic,
+            source=source,
+            reset_after_emit=reset_after_emit,
+        )
         self._use_background_loop = use_background_loop
         self._event_bus_provider = event_bus_provider
-        self._stop_event = threading.Event()
-        self._lock = threading.Lock()
-        self._thread: Optional[threading.Thread] = None
 
-    @property
-    def is_running(self) -> bool:
-        """Return True when reporter loop thread is active."""
-        with self._lock:
-            return self._thread is not None and self._thread.is_alive()
-
-    def start(self) -> None:
-        """Start periodic emission loop if not already running."""
-        with self._lock:
-            if self._thread is not None and self._thread.is_alive():
-                return
-
-            self._stop_event.clear()
-            self._thread = threading.Thread(
-                target=self._run_loop,
-                name="emit-sync-metrics-reporter",
-                daemon=True,
-            )
-            self._thread.start()
-
-    def stop(self, *, timeout: float = 2.0) -> None:
-        """Stop periodic emission loop."""
-        with self._lock:
-            thread = self._thread
-            if thread is None:
-                return
-            self._stop_event.set()
-
-        thread.join(timeout=timeout)
-        with self._lock:
-            if self._thread is thread:
-                self._thread = None
-
-    def _run_loop(self) -> None:
-        """Loop that periodically emits metrics snapshot events."""
-        while not self._stop_event.wait(self._interval_seconds):
-            try:
-                bus = self._resolve_event_bus()
-                emit_sync_metrics_event(
-                    event_bus=bus,
-                    topic=self._topic,
-                    source=self._source,
-                    reset_after_emit=self._reset_after_emit,
-                    use_background_loop=self._use_background_loop,
-                )
-            except Exception as e:
-                logger.debug(f"EmitSyncMetricsReporter loop error: {e}")
+    def _emit(self) -> None:
+        emit_sync_metrics_event(
+            event_bus=self._resolve_event_bus(),
+            topic=self._topic,
+            source=self._source,
+            reset_after_emit=self._reset_after_emit,
+            use_background_loop=self._use_background_loop,
+        )
 
     def _resolve_event_bus(self) -> Optional[Any]:
         """Resolve event bus from provider when configured."""

@@ -348,9 +348,10 @@ def get_tools_from_message(message: str) -> Set[str]:
 def select_tools_by_keywords(
     message: str,
     all_tool_names: Set[str],
-    registry: Optional["ToolRegistry"] = None,
     is_small: bool = False,
     max_tools_for_small: int = 10,
+    *,
+    registry: Optional["ToolRegistry"] = None,
 ) -> Set[str]:
     """Select tools using keyword matching via ToolMetadataRegistry.
 
@@ -360,9 +361,9 @@ def select_tools_by_keywords(
     Args:
         message: User message
         all_tool_names: Set of all available tool names
-        registry: Optional tool registry for critical tools discovery
         is_small: Whether this is a small model
         max_tools_for_small: Max tools for small models
+        registry: Optional tool registry for critical tools discovery
 
     Returns:
         Set of selected tool names

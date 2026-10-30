@@ -373,6 +373,148 @@ def parse_provider_stream_chunk(
     )
 
 
+def build_provider_request_payload(
+    messages: List[Message],
+    temperature: float,
+    max_tokens: int,
+    tools: Optional[List[ToolDefinition]],
+    stream: bool,
+    *,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build an OpenAI-format chat payload for the provider pair.
+
+    Shared by AzureOpenAIProvider and HuggingFaceProvider. ``model`` is only
+    included when given: Azure addresses the deployment in the URL instead.
+    Unlike :func:`build_openai_messages` this keeps the providers' historical
+    lenient message shape (no role validation or orphan repair).
+    """
+    formatted_messages = []
+    for msg in messages:
+        formatted_msg: Dict[str, Any] = {"role": msg.role, "content": msg.content}
+        if msg.role == "tool" and hasattr(msg, "tool_call_id"):
+            formatted_msg["tool_call_id"] = msg.tool_call_id
+        if msg.tool_calls:
+            formatted_msg["tool_calls"] = [
+                {
+                    "id": tc.get("id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": tc.get("name", ""),
+                        "arguments": (
+                            json_dumps(tc.get("arguments", {}))
+                            if isinstance(tc.get("arguments"), dict)
+                            else tc.get("arguments", "{}")
+                        ),
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        formatted_messages.append(formatted_msg)
+
+    payload: Dict[str, Any] = {} if model is None else {"model": model}
+    payload.update(
+        {
+            "messages": formatted_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": stream,
+        }
+    )
+
+    if tools:
+        payload["tools"] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+            for tool in tools
+        ]
+        payload["tool_choice"] = "auto"
+
+    return payload
+
+
+def parse_provider_response(
+    result: Dict[str, Any],
+    model: str,
+    response_factory: Callable[..., Any],
+) -> Any:
+    """Parse a non-streaming OpenAI-format response for the provider pair.
+
+    Usage goes through the single-sourced parser (which also recovers
+    ``prompt_tokens_details.cached_tokens``); the native dict is the fallback.
+    ``response_factory`` receives CompletionResponse keyword arguments.
+    """
+    from victor.providers.usage_parsing import parse_usage_dict
+
+    choices = result.get("choices", [])
+    if not choices:
+        return response_factory(content="", role="assistant", model=model, raw_response=result)
+
+    choice = choices[0]
+    message = choice.get("message", {})
+
+    usage = None
+    if usage_data := result.get("usage"):
+        usage = parse_usage_dict("openai", usage_data) or {
+            "prompt_tokens": usage_data.get("prompt_tokens", 0),
+            "completion_tokens": usage_data.get("completion_tokens", 0),
+            "total_tokens": usage_data.get("total_tokens", 0),
+        }
+
+    return response_factory(
+        content=message.get("content", "") or "",
+        role="assistant",
+        tool_calls=normalize_provider_tool_calls(message.get("tool_calls")),
+        stop_reason=choice.get("finish_reason"),
+        usage=usage,
+        model=model,
+        raw_response=result,
+    )
+
+
+async def iter_provider_sse_chunks(
+    response: Any,
+    parse_chunk: Callable[[Dict[str, Any], List[Dict[str, Any]]], Any],
+    chunk_factory: Callable[..., Any],
+    on_decode_error: Optional[Callable[[str], None]] = None,
+) -> Any:
+    """Yield parsed chunks from an OpenAI-style ``data:`` SSE stream.
+
+    Shared by the Azure, Hugging Face and Vertex streams. Blank and non-data
+    lines are skipped; ``[DONE]`` yields a final chunk (built with
+    ``chunk_factory``) carrying the accumulated tool calls; undecodable data
+    lines are skipped after ``on_decode_error(line)`` when given.
+    """
+    accumulated_tool_calls: List[Dict[str, Any]] = []
+    async for line in response.aiter_lines():
+        if not line.strip() or not line.startswith("data: "):
+            continue
+
+        data_str = line[6:]
+        if data_str.strip() == "[DONE]":
+            yield chunk_factory(
+                content="",
+                tool_calls=(accumulated_tool_calls if accumulated_tool_calls else None),
+                stop_reason="stop",
+                is_final=True,
+            )
+            break
+
+        try:
+            chunk_data = json_loads(data_str)
+        except JSONDecodeError:
+            if on_decode_error is not None:
+                on_decode_error(line)
+            continue
+        yield parse_chunk(chunk_data, accumulated_tool_calls)
+
+
 def parse_openai_stream_chunk(chunk_data: Dict[str, Any]) -> Dict[str, Any]:
     """Parse OpenAI-compatible streaming chunk.
 

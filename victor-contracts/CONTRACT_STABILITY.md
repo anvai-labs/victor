@@ -44,8 +44,7 @@ follow the same Stable policy. `safety_patterns.py` and `safety_policy.py` are
 Stable too but behave as host-required bridges (see below).
 
 Some Stable modules expose explicitly named host hooks — for example
-`team_schema.get_runtime_team_registry()`,
-`multi_agent.get_runtime_persona_provider()`, and
+`team_schema.get_runtime_team_registry()` and
 `capabilities.runtime` — which import the `victor-ai` host only when called.
 Everything else in these modules works with `victor-contracts` alone.
 
@@ -62,13 +61,12 @@ Importing a bridge module never requires the host; **accessing any attribute
 does**. Without `victor-ai` installed, attribute access raises
 `ModuleNotFoundError` for the underlying `victor.*` module.
 
-The 16 supported bridge modules (each verified to have in-tree consumers);
+The 15 supported bridge modules (each verified to have in-tree consumers);
 `safety_patterns` and `safety_policy` use the same mechanism:
 
 | Bridge module | Resolves against |
 |---------------|------------------|
 | `capability_runtime` | host capability registry and config helpers |
-| `chain_runtime` | host chain execution helpers |
 | `database_runtime` | `victor.core.database` (project DB access) |
 | `embeddings_runtime` | host embedding providers (`victor.storage.vector_stores`) |
 | `enrichment_runtime` | host enrichment services |
@@ -86,7 +84,13 @@ The 16 supported bridge modules (each verified to have in-tree consumers);
 
 ### Deprecated
 
-No surfaces are currently deprecated.
+Deprecated in 0.13.0; accessing them emits `DeprecationWarning`. Removable no
+earlier than **0.14.0**.
+
+| Deprecated surface | Why | Replacement |
+|--------------------|-----|-------------|
+| `chain_runtime` (`ChainRegistry`, `get_chain_registry`) | Bridges to the host's versioned chain registry, which nothing reads at runtime | Deliver chains via the vertical's `get_chains()` / `get_composed_chains()` hook; the host registers them on activation |
+| `multi_agent.get_runtime_persona_provider()` | Returns the host's versioned persona provider, which nothing reads at runtime | Deliver personas via the vertical's `get_personas()` hook; the host registers them on activation |
 
 ### Removed in 0.12.0
 

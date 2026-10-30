@@ -68,3 +68,39 @@ def test_removed_bridge_modules_are_not_importable(module: str) -> None:
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(f"victor_contracts.{module}")
+
+
+def test_versioned_registries_are_deprecated_but_package_imports_stay_quiet(
+    monkeypatch,
+) -> None:
+    import importlib
+    import sys
+    import warnings
+
+    # Fresh imports so the module-level warnings fire; monkeypatch restores
+    # the original module objects (and their singletons) afterwards.
+    for module in (
+        "victor.framework.chains",
+        "victor.framework.chains.registry",
+        "victor.framework.multi_agent.persona_provider",
+    ):
+        monkeypatch.delitem(sys.modules, module, raising=False)
+    with pytest.warns(DeprecationWarning, match=r"deprecated.*victor-contracts 0\.14\.0"):
+        importlib.import_module("victor.framework.chains")
+    with pytest.warns(DeprecationWarning, match=r"deprecated.*victor-contracts 0\.14\.0"):
+        importlib.import_module("victor.framework.multi_agent.persona_provider")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        importlib.import_module("victor.framework.multi_agent")
+
+
+def test_lazy_persona_provider_export_warns_at_caller() -> None:
+    import victor.framework.multi_agent as multi_agent
+
+    with pytest.warns(DeprecationWarning, match="FrameworkPersonaProvider") as record:
+        provider_class = multi_agent.FrameworkPersonaProvider
+    assert provider_class.__name__ == "FrameworkPersonaProvider"
+    assert len(record) == 1
+    assert record[0].filename == __file__
+    assert "FrameworkPersonaProvider" in dir(multi_agent)

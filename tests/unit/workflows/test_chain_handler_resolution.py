@@ -130,6 +130,73 @@ class TestResolveChainHandler:
         result = executor._resolve_chain_handler("chain:nonexistent:missing")
         assert result is None
 
+    def test_directly_registered_chain_resolves(self, executor, reset_chain_registry, caplog):
+        """A chain delivered via register_from_vertical() (no factory) resolves."""
+        from victor.framework.chain_registry import get_chain_registry
+        from victor.tools.composition import RunnableLambda
+
+        runnable = RunnableLambda(lambda x: x)
+        get_chain_registry().register_from_vertical("coding", {"explore_file": runnable})
+
+        with caplog.at_level("WARNING"):
+            result = executor._resolve_chain_handler("chain:coding:explore_file")
+
+        assert result is not None
+        assert callable(result)
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    def test_directly_registered_bare_chain_resolves_with_vertical(
+        self, executor, reset_chain_registry
+    ):
+        """chain:vertical:name falls back to an un-namespaced direct chain."""
+        from victor.framework.chain_registry import register_chain
+        from victor.tools.composition import RunnableLambda
+
+        register_chain("shared", RunnableLambda(lambda x: x))
+        assert executor._resolve_chain_handler("chain:coding:shared") is not None
+
+    def test_factory_takes_precedence_over_direct_chain(self, executor, reset_chain_registry):
+        """When both exist under one key, the factory is used (fresh chain)."""
+        from victor.framework.chain_registry import get_chain_registry
+
+        registry = get_chain_registry()
+        registry.register("dual", "direct", vertical="v")
+        calls = []
+        registry.register_factory(
+            "dual", lambda: calls.append(1) or "made", vertical="v", replace=True
+        )
+
+        assert executor._resolve_chain_handler("chain:v:dual") is not None
+        assert calls == [1]
+
+    def test_vertical_scoped_chain_beats_bare_factory(self, executor, reset_chain_registry):
+        """The most specific key wins: coding:foo (direct) over bare foo (factory)."""
+        from victor.framework.chain_registry import get_chain_registry
+
+        registry = get_chain_registry()
+        registry.register("foo", "VERTICAL_DIRECT", vertical="coding")
+        made = []
+        registry.register_factory("foo", lambda: made.append(1) or "BARE_FACTORY")
+
+        wrapped = []
+        executor._create_chain_wrapper = lambda runnable, ref: wrapped.append(runnable) or runnable
+        assert executor._resolve_chain_handler("chain:coding:foo") == "VERTICAL_DIRECT"
+        assert made == []
+        # Without the vertical, the bare factory is used.
+        assert executor._resolve_chain_handler("chain:foo") == "BARE_FACTORY"
+        assert made == [1]
+
+    def test_unknown_chain_returns_none_and_warns(self, executor, reset_chain_registry, caplog):
+        """An unknown chain returns None and logs the not-found warning."""
+        from victor.framework.chain_registry import register_chain
+
+        register_chain("other", object(), vertical="coding")
+        with caplog.at_level("WARNING", logger="victor.workflows.executors.compute"):
+            result = executor._resolve_chain_handler("chain:coding:missing")
+
+        assert result is None
+        assert any("not found in registry" in r.message for r in caplog.records)
+
     def test_empty_chain_reference(self, executor, reset_chain_registry):
         """Empty chain reference (chain:) returns None."""
         result = executor._resolve_chain_handler("chain:")

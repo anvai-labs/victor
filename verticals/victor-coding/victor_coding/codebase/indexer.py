@@ -58,7 +58,7 @@ from victor_contracts.utils.ast_helpers import (
 )
 
 if TYPE_CHECKING:
-    from victor_coding.codebase.embeddings.base import BaseEmbeddingProvider
+    from victor_contracts.embeddings_runtime import BaseEmbeddingProvider
     from victor_contracts.verticals.protocols.storage import GraphStoreProtocol
 
 
@@ -3008,6 +3008,13 @@ class CodebaseIndex:
                 persist_directory=config.get("persist_directory", str(default_persist_dir)),
                 extra_config=config.get("extra_config", {}),
             )
+
+            # Resolving this name imports the bridge module, which registers the
+            # structural bridge provider before the registry lookup below.
+            from victor_contracts.search_runtime import STRUCTURAL_CODEBASE_VECTOR_STORE
+
+            if embedding_config.vector_store == STRUCTURAL_CODEBASE_VECTOR_STORE:
+                logger.debug("Using the structural codebase indexing bridge")
 
             # Create embedding provider
             self.embedding_provider = EmbeddingRegistry.create(embedding_config)

@@ -79,3 +79,49 @@ def test_feedback_summaries_still_pass_through_existing_mappings() -> None:
     assert team_feedback.summarize_team_feedback(
         SimpleNamespace(trace={"team_feedback_summary": {"t": 1}})
     ) == {"t": 1}
+
+
+def test_extract_sequence_reads_mapping_keys_and_attributes() -> None:
+    from victor.evaluation.summary_mapping import extract_sequence
+
+    assert extract_sequence({"events": ("a", "b")}, "events") == ["a", "b"]
+    assert extract_sequence(type("T", (), {"events": ["x"]})(), "events") == ["x"]
+    assert extract_sequence({"events": None}, "events") == []
+    assert extract_sequence({"events": "not-a-list"}, "events") == []
+    assert extract_sequence(None, "events") == []
+
+
+def test_as_event_mapping_accepts_mappings_and_to_dict() -> None:
+    from victor.evaluation.summary_mapping import as_event_mapping
+
+    class _Event:
+        def to_dict(self) -> dict:
+            return {"kind": "k"}
+
+    assert as_event_mapping({"a": 1}) == {"a": 1}
+    assert as_event_mapping(_Event()) == {"kind": "k"}
+    assert as_event_mapping(None) is None
+    assert as_event_mapping(["not", "a", "mapping"]) is None
+
+
+def test_optional_coercions() -> None:
+    from enum import Enum
+
+    from victor.evaluation.summary_mapping import (
+        coerce_optional_float,
+        coerce_optional_int,
+        coerce_optional_text,
+    )
+
+    class _Kind(Enum):
+        RETRY = " retry "
+
+    assert coerce_optional_text(_Kind.RETRY) == "retry"
+    assert coerce_optional_text("   ") is None
+    assert coerce_optional_text(None) is None
+    assert coerce_optional_float("1.5") == 1.5
+    assert coerce_optional_float("") is None
+    assert coerce_optional_float("x") is None
+    assert coerce_optional_int("7") == 7
+    assert coerce_optional_int(None) is None
+    assert coerce_optional_int("7.5") is None

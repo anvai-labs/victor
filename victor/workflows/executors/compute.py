@@ -249,7 +249,7 @@ class ComputeNodeExecutor:
 
         Implements the Agent-as-Tool protocol from research:
         - Parses "chain:vertical:name" or "chain:name"
-        - Creates chain from registry (lazy evaluation)
+        - Resolves the most specific factory or registered chain
         - Wraps Runnable as ComputeHandler with standardized protocol
 
         Args:
@@ -259,7 +259,7 @@ class ComputeNodeExecutor:
             ComputeHandler wrapper or None if chain not found
         """
         from victor.workflows.compute_registry import CHAIN_HANDLER_PREFIX
-        from victor.framework.chain_registry import create_chain
+        from victor.framework.chain_registry import get_chain_registry
 
         # Parse "chain:vertical:name" or "chain:name"
         chain_ref = handler_name[len(CHAIN_HANDLER_PREFIX) :]
@@ -268,8 +268,22 @@ class ComputeNodeExecutor:
         else:
             vertical, name = None, chain_ref
 
-        # Create chain from registry (lazy evaluation)
-        runnable = create_chain(name, vertical=vertical)
+        # Most specific key wins: the vertical-scoped factory, then the
+        # vertical-scoped registered chain, then the same two for the bare
+        # name. A factory yields a fresh chain per resolution; a registered
+        # chain (how verticals deliver chains via register_from_vertical) is a
+        # shared, stateless Runnable. Probing with has_factory() keeps the get()
+        # path from logging create()'s "no factory" warning.
+        registry = get_chain_registry()
+        scopes = [vertical, None] if vertical else [None]
+        runnable = None
+        for scope in scopes:
+            if registry.has_factory(name, vertical=scope):
+                runnable = registry.create(name, vertical=scope)
+            elif registry.has(name, vertical=scope):
+                runnable = registry.get(name, vertical=scope)
+            if runnable is not None:
+                break
         if runnable is None:
             logger.warning(
                 f"Chain '{chain_ref}' not found in registry " f"(vertical={vertical}, name={name})"
