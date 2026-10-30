@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Deprecated
+
+- `victor.framework.chains` (the versioned chain registry) and
+  `victor.framework.multi_agent.FrameworkPersonaProvider` /
+  `victor.framework.multi_agent.persona_provider`: nothing reads them at runtime.
+  They emit `DeprecationWarning` and will be removed in a future release, no earlier
+  than the one shipping victor-contracts 0.14.0 (backlog F-019). Use
+  `victor.framework.chain_registry` / `victor.framework.persona_registry`, which the
+  host fills from each vertical's `get_composed_chains()` / `get_personas()` hook.
+  The SDK bridges to them are deprecated in victor-contracts 0.13.0.
+
 ### Fixed
 
 - Opting in to structural codebase indexing (`codebase_structural_indexing_enabled`)

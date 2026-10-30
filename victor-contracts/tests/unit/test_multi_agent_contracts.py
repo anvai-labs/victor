@@ -93,3 +93,23 @@ def test_persona_team_maps_topology_and_leader_to_canonical_semantics() -> None:
 
 def test_multi_agent_exposes_runtime_persona_provider_adapter() -> None:
     assert callable(get_runtime_persona_provider)
+
+
+def test_runtime_persona_provider_hook_is_deprecated() -> None:
+    import pytest
+
+    from victor_contracts.registries import set_default_persona_registry
+
+    provider_module = pytest.importorskip("victor.framework.multi_agent.persona_provider")
+    try:
+        with pytest.warns(
+            DeprecationWarning, match=r"get_runtime_persona_provider is deprecated.*0\.14\.0"
+        ) as record:
+            get_runtime_persona_provider()
+        assert len(record) == 1
+        assert record[0].filename == __file__
+    finally:
+        # The call constructs the host provider, which installs itself as the
+        # SDK default persona registry; undo that global state.
+        provider_module.FrameworkPersonaProvider.reset_instance()
+        set_default_persona_registry(None)
