@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-PROMPT-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration
+- **SDK-PROMPT-01 — MERGED** (2026-10-29), owner: RepoReel integration
   session; branch `fix/vertical-prompt-propagation`, baseline
   `36c43ad94bc2d4503813e68c132fbc816774f041`. Fetched/reconciled #1595 and
   #1590; other active worktrees do not modify this prompt owner. Actual research
@@ -90,8 +90,8 @@ edit. A mock test is not live provider or C5 evidence.
   verify complete policy on five/three turns with zero real model-network calls;
   the old installed runtime is refused before native dispatch by the consumer's
   new prompt guard. Candidate wheel bytes, package locations and dependencies
-  qualify separately. Next: independent commit-bound review, required PR CI and
-  merge, then actual model research. HTTP per-job policy, unified sessions, FEP
+  qualify separately. Independent commit-bound review, required PR CI and merge
+  are completed below before actual model research. HTTP per-job policy, unified sessions, FEP
   acceptance, content quality and RepoReel MVP acceptance remain open. The
   canonical tracker remains the upstream status owner. PR
   [#1597](https://github.com/anvai-labs/victor/pull/1597) has a clean independent
@@ -114,6 +114,19 @@ edit. A mock test is not live provider or C5 evidence.
   proposal. Local Qwen also spends five normal calls but repeats one source ID
   and produces no brief. This tiny diagnostic is not a held-out model ranking,
   three-repository content review or local-generation MVP acceptance.
+  Final updated-base source `64eb7fdccd6ee7fca7066e3170854a45a4dbc11f` has a
+  fresh clean independent Sol review and commit-bound attestation. All applicable
+  CI finishes: **41 successful checks, one skipped and one neutral**, including
+  successful Vertical Py3.12; zero failures/pending. #1597 merges as
+  `d70cea739b8db78930251a3b2d066375be3208cf`. A subsequent explicit GLM consumer
+  trial mechanically admits briefs across all three pinned repositories in
+  **8/9/9 normal requests** (OpenPGP/AgentBrowser/RepoReel), with no authored brief
+  inputs and unchanged local default. A separate source-grounded consumer critic
+  then flags blocking comment/body/context defects in all three drafts; none
+  proceeds to narration. Targeted evidence repair and re-review precede curriculum
+  handoff. Source merge is not release, shared HTTP-policy, local-generation or
+  MVP acceptance. Next: consumer editorial/content qualification; preserve the
+  prompt/trace invariant in any future service adapter.
 
 - **SDK-VALIDATION-01 — MERGED**, [#1594](https://github.com/anvai-labs/victor/pull/1594)
   (2026-10-29), owner: RepoReel integration session; branch
