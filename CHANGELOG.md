@@ -5,7 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Requires `victor-contracts>=0.12.0`.
+## [0.21.0] - 2026-10-29
+
+Requires `victor-contracts>=0.12.0` (released alongside as `sdk-v0.12.0`).
+
+### Added
+
+- `victor graph similar --mode structural`: structural clone detection over
+  SCIP-normalized AST tokens (exact, template and MinHash near-clone tiers)
+  that finds logic duplicated under renamed variables (#1578).
+- YAML workflows accept `type: team` nodes (compiled to `TeamStepWorkflow`
+  with strict validation); a guard test loads every bundled vertical
+  workflow (#1588).
 
 ### Changed
 
@@ -16,7 +27,32 @@ Requires `victor-contracts>=0.12.0`.
   characterization goldens). Both `ChunkingConfig` names are now the SDK
   class, which raises `ValueError` for settings the old loop could not finish
   with (`chunk_size <= 0`, negative `min_chunk_size`, `chunk_overlap` outside
-  `[0, chunk_size)` or above `min_chunk_size`). Defaults are unaffected.
+  `[0, chunk_size)` or above `min_chunk_size`). Defaults are unaffected
+  (#1596).
+- Deduplication round driven by the structural clone scan: shared
+  `DecisionSupportMixin` and TOON serializer (#1582), the coding vertical's
+  `codebase_analyzer` fork removed (#1583), `BaseEventEmitter` for the five
+  observability emitters (#1584), shared text-list/manifest/summary/extension
+  helpers (#1585), `AdhocMetricsMixin` for the FEP-0014 collectors (#1586) and
+  a template `detect_calls_edges` for the language plugins (#1587). Duplicated
+  lines 8,986 → 7,935.
+
+### Fixed
+
+- SCIP: Java scopes preserved and polyglot joins strengthened (#1577);
+  failures isolated across automatic compiler index providers (#1579); site
+  source files retained (#1580); every registered source extension
+  discovered (#1581).
+- Scoped SDK agent creation enforced and failed runtimes cleaned up (#1589);
+  disabled factory startup settings honored (#1591); session tool scope
+  enforced through pipeline dispatch (#1592); strict schema errors retained
+  for model correction (#1594); vertical prompt policy propagated through
+  live system prompts (#1597).
+
+### CI
+
+- Performance baseline benchmarks run under the PR's test toolchain (#1575)
+  and the baseline regression check is real (warn mode) (#1576).
 
 ## [0.20.0] - 2026-10-29
 
