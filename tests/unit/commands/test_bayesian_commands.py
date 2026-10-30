@@ -60,6 +60,28 @@ def test_bayesian_reliability_supports_export() -> None:
     )
 
 
+def test_bayesian_belief_supports_export() -> None:
+    from victor.ui.commands.bayesian import bayesian_app
+
+    service = MagicMock()
+    service.render_belief.return_value = "Belief output"
+
+    with patch(
+        "victor.ui.commands.bayesian.get_bayesian_monitoring_service",
+        return_value=service,
+    ):
+        result = runner.invoke(
+            bayesian_app,
+            ["belief", "belief-123", "--export", "/tmp/belief.csv"],
+        )
+
+    assert result.exit_code == 0
+    assert "Belief output" in result.output
+    assert "Belief evolution exported to /tmp/belief.csv" in result.output
+    service.render_belief.assert_called_once_with("belief-123")
+    service.export_belief_csv.assert_called_once_with("belief-123", "/tmp/belief.csv")
+
+
 def test_top_level_cli_registers_bayesian_group() -> None:
     from victor.ui.cli import app
 
