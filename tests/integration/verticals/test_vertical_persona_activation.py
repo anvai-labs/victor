@@ -45,7 +45,10 @@ def _fresh_persona_registry():
 
 
 def _runtime_vertical(module: str, cls: str):
-    return ensure_runtime_vertical(getattr(importlib.import_module(module), cls))
+    # ci-fast runs changed test files without the verticals installed; the
+    # verticals-integration job installs (and verifies) every first-party vertical.
+    package = pytest.importorskip(module)
+    return ensure_runtime_vertical(getattr(package, cls))
 
 
 @pytest.mark.parametrize("module,cls,_name", PERSONA_VERTICALS)
@@ -83,6 +86,7 @@ def test_activation_registers_personas_in_flat_registry(module, cls, name) -> No
 
 @pytest.mark.parametrize("module,_cls,_name", PERSONA_VERTICALS)
 def test_teams_package_import_is_warning_free(module, _cls, _name) -> None:
+    pytest.importorskip(module)
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
         importlib.import_module(f"{module}.teams")
