@@ -47,54 +47,24 @@ def test_sdk_runtime_adapters_resolve_host_types() -> None:
     assert ProviderRegistry.__name__ == "ProviderRegistry"
 
 
-# --- Deprecated bridge modules (victor-contracts CONTRACT_STABILITY.md) ------
+# --- Removed bridge modules (victor-contracts 0.12.0) -----------------------
 #
-# The six consumer-less bridges warn on attribute access starting with SDK
-# 0.9.0 but must keep resolving host symbols until removal (>= 0.10.0).
+# The six consumer-less bridges deprecated in SDK 0.9.0 were removed in 0.12.0
+# (CONTRACT_STABILITY.md). Importing them must fail loudly, never resolve.
+
+_REMOVED_BRIDGES = (
+    "agent_spec_runtime",
+    "graph_runtime",
+    "handler_runtime",
+    "subagent_runtime",
+    "tool_runtime",
+    "workflow_executor_runtime",
+)
 
 
-def test_deprecated_agent_spec_runtime_warns_and_resolves() -> None:
-    with pytest.warns(DeprecationWarning, match=r"agent_spec_runtime is deprecated.*0\.10\.0"):
-        from victor_contracts.agent_spec_runtime import AgentSpec
+@pytest.mark.parametrize("module", _REMOVED_BRIDGES)
+def test_removed_bridge_modules_are_not_importable(module: str) -> None:
+    import importlib
 
-    assert AgentSpec.__name__ == "AgentSpec"
-
-
-def test_deprecated_graph_runtime_warns_and_resolves() -> None:
-    with pytest.warns(DeprecationWarning, match=r"graph_runtime is deprecated.*0\.10\.0"):
-        from victor_contracts.graph_runtime import END, StateGraph
-
-    assert StateGraph.__name__ == "StateGraph"
-    assert END == "__end__"
-
-
-def test_deprecated_handler_runtime_warns_and_resolves() -> None:
-    with pytest.warns(DeprecationWarning, match=r"handler_runtime is deprecated.*0\.10\.0"):
-        from victor_contracts.handler_runtime import BaseHandler
-
-    assert BaseHandler.__name__ == "BaseHandler"
-
-
-def test_deprecated_subagent_runtime_warns_and_resolves() -> None:
-    with pytest.warns(DeprecationWarning, match=r"subagent_runtime is deprecated.*0\.10\.0"):
-        from victor_contracts.subagent_runtime import set_role_tool_provider
-
-    assert callable(set_role_tool_provider)
-
-
-def test_deprecated_tool_runtime_warns_and_resolves() -> None:
-    with pytest.warns(DeprecationWarning, match=r"tool_runtime is deprecated.*0\.10\.0"):
-        from victor_contracts.tool_runtime import RuntimeToolSet
-
-    assert RuntimeToolSet.__name__ == "ToolSet"
-
-
-def test_deprecated_workflow_executor_runtime_warns_and_resolves() -> None:
-    with pytest.warns(
-        DeprecationWarning, match=r"workflow_executor_runtime is deprecated.*0\.10\.0"
-    ):
-        from victor_contracts.workflow_executor_runtime import WorkflowExecutor
-
-    from victor.workflows.state_graph_adapter import StateGraphWorkflowExecutor
-
-    assert WorkflowExecutor is StateGraphWorkflowExecutor
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module(f"victor_contracts.{module}")

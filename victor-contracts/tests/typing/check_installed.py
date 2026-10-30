@@ -32,15 +32,13 @@ def main() -> None:
     if legacy_schema is not schema:
         raise RuntimeError("Legacy submodule must preserve the canonical SDK module identity")
 
-    valid = """from victor_contracts.team_schema import MemoryConfig, TeamMemberSpec
-from victor_contracts.handler_runtime import handler_decorator
+    valid = """from victor_contracts.chunking import ChunkingConfig, ChunkSpan, TextChunker
+from victor_contracts.team_schema import MemoryConfig, TeamMemberSpec
 from victor_sdk import TeamMemberSpec as LegacyMemberSpec
 
-@handler_decorator("sample")
-class Handler:
-    pass
-
-handler: Handler = Handler()
+chunker = TextChunker(ChunkingConfig(chunk_size=400))
+spans: list[ChunkSpan] = chunker.chunk_markdown("# Title\\n\\nbody")
+first_start: int = spans[0].start_char if spans else 0
 member = TeamMemberSpec(
     role="researcher", goal="Inspect", memory_config=MemoryConfig(enabled=False)
 )
@@ -74,7 +72,10 @@ legacy: TeamMemberSpec = LegacyMemberSpec(role="reviewer", goal="Review")
         positive = check(valid)
         if positive.returncode != 0:
             raise RuntimeError(positive.stdout + positive.stderr)
-        negative = check(valid + '\nmember.goal = 42\nMemoryConfig(enabled="yes")\n')
+        negative = check(
+            valid
+            + '\nmember.goal = 42\nMemoryConfig(enabled="yes")\nChunkingConfig(chunk_size="big")\n'
+        )
         if negative.returncode != 1 or not all(
             diagnostic in negative.stdout for diagnostic in ("[assignment]", "[arg-type]")
         ):

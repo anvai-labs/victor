@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-import importlib
-from typing import Any
+
+from victor_contracts._lazy import make_lazy_getattr
 
 __all__ = [
     "FileChangeEvent",
@@ -26,10 +26,4 @@ _LAZY_IMPORTS = {
 }
 
 
-def __getattr__(name: str) -> Any:
-    """Lazy-bridge to the Victor host runtime."""
-    module_name = _LAZY_IMPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    module = importlib.import_module(module_name)
-    return getattr(module, name)
+__getattr__ = make_lazy_getattr(__name__, _LAZY_IMPORTS)
