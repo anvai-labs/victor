@@ -16,10 +16,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
+from victor.core.utils import normalize_text_list
+from victor.evaluation.benchmarks.manifest_loader import ManifestBenchmarkMixin
 from victor.evaluation.harness import BaseBenchmarkRunner
 from victor.evaluation.protocol import (
     BenchmarkFailureCategory,
@@ -33,8 +34,11 @@ from victor.evaluation.protocol import (
 )
 
 
-class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
+class DeepResearchBenchmarkRunner(ManifestBenchmarkMixin, BaseBenchmarkRunner):
     """Runner for DR3-style deep-research report benchmarks."""
+
+    _manifest_dataset_label = "Deep research benchmark"
+    _manifest_label = "Deep research"
 
     def __init__(self, dataset_path: Path):
         self._dataset_path = dataset_path
@@ -119,41 +123,6 @@ class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
         result.error_message = "Report did not satisfy required claims or citations"
         result.failure_category = BenchmarkFailureCategory.TASK_COMPLETION
         return result
-
-    def _load_manifest(self, dataset_path: Path) -> tuple[list[dict[str, Any]], BenchmarkMetadata]:
-        if not dataset_path.exists():
-            raise FileNotFoundError(f"Benchmark dataset not found: {dataset_path}")
-
-        if dataset_path.suffix == ".jsonl":
-            records = []
-            for line in dataset_path.read_text().splitlines():
-                if line.strip():
-                    records.append(json.loads(line))
-            return records, self._build_manifest_metadata({}, records)
-
-        payload = json.loads(dataset_path.read_text())
-        if isinstance(payload, list):
-            return payload, self._build_manifest_metadata({}, payload)
-
-        if not isinstance(payload, dict):
-            raise ValueError(
-                "Deep research benchmark dataset payload must be a list or object manifest"
-            )
-
-        records = payload.get("tasks", [])
-        if not isinstance(records, list):
-            raise ValueError("Deep research manifest 'tasks' must be a list")
-
-        defaults = payload.get("defaults", {}) or {}
-        if not isinstance(defaults, dict):
-            raise ValueError("Deep research manifest 'defaults' must be an object")
-        self._defaults = defaults
-
-        metadata = payload.get("metadata", {}) or {}
-        if not isinstance(metadata, dict):
-            raise ValueError("Deep research manifest 'metadata' must be an object")
-
-        return records, self._build_manifest_metadata(metadata, records)
 
     def _build_manifest_metadata(
         self,
@@ -298,15 +267,7 @@ class DeepResearchBenchmarkRunner(BaseBenchmarkRunner):
             f"{file_lines}"
         )
 
-    @staticmethod
-    def _normalize_list(value: Any) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, (list, tuple, set)):
-            items = value
-        else:
-            items = [value]
-        return [str(item).strip() for item in items if str(item).strip()]
+    _normalize_list = staticmethod(normalize_text_list)
 
     @staticmethod
     def _match_requirements(requirements: list[str], report: str) -> list[str]:

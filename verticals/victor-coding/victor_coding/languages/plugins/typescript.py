@@ -14,18 +14,15 @@
 
 """TypeScript language plugin."""
 
-import logging
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
     BaseLanguagePlugin,
     BuildSystem,
-    CallEdge,
     CommentStyle,
     ConfigurableASTTraverser,
     DocCommentPattern,
-    EdgeDetectionResult,
     Formatter,
     LanguageCapabilities,
     LanguageConfig,
@@ -37,9 +34,7 @@ from victor_coding.languages.base import (
 )
 
 if TYPE_CHECKING:
-    from tree_sitter import Node, Tree
-
-logger = logging.getLogger(__name__)
+    from tree_sitter import Node
 
 
 class TypeScriptPlugin(BaseLanguagePlugin):
@@ -240,49 +235,6 @@ class TypeScriptPlugin(BaseLanguagePlugin):
             manifest_file="tsconfig.json",
         )
 
-    def detect_calls_edges(
-        self,
-        tree: "Tree",
-        source_code: str,
-        file_path: Path,
-    ) -> EdgeDetectionResult:
-        """Detect CALLS edges in TypeScript source code.
-
-        Finds function calls, method calls, and property access chains.
-        Handles TypeScript-specific features like interfaces and type annotations.
-
-        Args:
-            tree: Parsed tree-sitter tree
-            source_code: Raw source code text
-            file_path: Path to source file
-
-        Returns:
-            EdgeDetectionResult with detected calls
-        """
-        calls: List[CallEdge] = []
-        call_nodes = self._find_call_nodes(tree.root_node)
-
-        for call_node, caller_name, caller_line in call_nodes:
-            callee_name = self._extract_callee_name(call_node)
-            if callee_name and caller_name:
-                calls.append(
-                    CallEdge(
-                        caller_name=caller_name,
-                        callee_name=callee_name,
-                        caller_line=caller_line,
-                    )
-                )
-
-        logger.debug(f"Detected {len(calls)} CALLS edges in {file_path.name}")
-
-        return EdgeDetectionResult(
-            calls=calls,
-            metadata={
-                "language": "typescript",
-                "file": str(file_path),
-            },
-        )
-
     def _find_call_nodes(
         self,
         root: "Node",
@@ -367,12 +319,3 @@ class TypeScriptPlugin(BaseLanguagePlugin):
                 if text:
                     return text.strip("\"'")
         return None
-
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node."""
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text

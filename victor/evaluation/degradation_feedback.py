@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable, Mapping, Optional
 
+from victor.evaluation.summary_mapping import extract_value as _extract_value
+
 
 def _coerce_optional_text(value: Any) -> Optional[str]:
     if value is None:
@@ -29,12 +31,6 @@ def _coerce_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _extract_value(value: Any, key: str, default: Any = None) -> Any:
-    if isinstance(value, Mapping):
-        return value.get(key, default)
-    return getattr(value, key, default)
 
 
 def _extract_sequence(value: Any, key: str) -> list[Any]:

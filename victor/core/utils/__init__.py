@@ -30,6 +30,7 @@ from victor.core.utils.text_normalizer import (
     normalize_for_filename,
     normalize_for_git_branch,
     normalize_for_test_filename,
+    normalize_text_list,
     sanitize_class_name,
     slugify,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "sanitize_class_name",
     "normalize_for_test_filename",
     "TextNormalizationPresets",
+    "normalize_text_list",
     # Math utilities
     "clamp",
     "coerce_float",

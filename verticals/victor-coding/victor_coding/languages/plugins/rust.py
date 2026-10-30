@@ -227,7 +227,7 @@ class RustPlugin(BaseLanguagePlugin):
         # before the main pass.
         struct_fields = self._collect_struct_fields(tree.root_node)
         impl_returns = self._collect_impl_method_returns(tree.root_node)
-        for call_node, caller_name, caller_line, receiver_type in self._find_call_nodes(
+        for call_node, caller_name, caller_line, receiver_type in self._find_call_sites(
             tree.root_node, struct_fields, impl_returns
         ):
             callee_name = self._extract_callee_name(call_node)
@@ -328,7 +328,7 @@ class RustPlugin(BaseLanguagePlugin):
         walk(root, None)
         return result
 
-    def _find_call_nodes(
+    def _find_call_sites(
         self,
         root: "Node",
         struct_fields: Optional[dict] = None,
@@ -739,12 +739,3 @@ class RustPlugin(BaseLanguagePlugin):
                     return result
 
         return None
-
-    def _get_node_text(self, node: "Node") -> Optional[str]:
-        """Get text content of a node."""
-        if node is None or not hasattr(node, "text"):
-            return None
-        text = node.text
-        if isinstance(text, bytes):
-            return text.decode("utf-8", errors="ignore")
-        return text

@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import Any, List
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -155,6 +155,30 @@ class TestInitializeSkillMatcherUsesRegistry:
     """AgentFactory._initialize_skill_matcher passes the populated registry."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("enabled, expected", [(False, 0), (True, 1), (None, 1)])
+    async def test_factory_honors_skill_startup_setting(self, monkeypatch, enabled, expected):
+        from victor.framework import skill_matcher as matcher_mod, skills as skills_mod
+        from victor.framework.agent_factory import AgentFactory
+
+        settings = SimpleNamespace()
+        if enabled is not None:
+            settings.skill_auto_select_enabled = enabled
+        factory = AgentFactory(settings=settings, enable_observability=False)
+        factory._orchestrator = SimpleNamespace()
+        constructor = MagicMock(return_value=SimpleNamespace(initialize=AsyncMock()))
+        registry = MagicMock()
+        registry._external_loaded = True
+        get_registry = MagicMock(return_value=registry)
+        monkeypatch.setattr(matcher_mod, "SkillMatcher", constructor)
+        monkeypatch.setattr(skills_mod, "get_skill_registry", get_registry)
+        await factory._initialize_skill_matcher()
+        task = getattr(factory, "_skill_matcher_init_task", None)
+        if task is not None:
+            await task
+        assert constructor.call_count == expected
+        assert get_registry.call_count == expected
+
+    @pytest.mark.asyncio
     async def test_matcher_initialized_with_populated_registry(self, monkeypatch):
         from victor.framework import skill_matcher as matcher_mod
         from victor.framework.agent_factory import AgentFactory
@@ -184,6 +208,7 @@ class TestInitializeSkillMatcherUsesRegistry:
         monkeypatch.setattr(matcher_mod, "SkillMatcher", _RecordingMatcher)
 
         factory = AgentFactory.__new__(AgentFactory)
+        factory._settings = SimpleNamespace()
         factory._orchestrator = SimpleNamespace()
 
         # Bootstrap must attach the matcher and return without waiting for the

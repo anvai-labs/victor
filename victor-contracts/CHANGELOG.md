@@ -10,7 +10,40 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
-## [0.11.0] - release candidate
+## [0.12.0] - release candidate
+
+### Removed
+
+- The six runtime bridge modules deprecated in 0.9.0 are removed; importing
+  them raises `ModuleNotFoundError`. None had consumers in the Victor monorepo.
+  Replacements:
+  - `agent_spec_runtime` — use `victor.agent.specs.models` in host-runtime code
+  - `graph_runtime` — use `victor.framework.graph` (`StateGraph`, `END`)
+  - `handler_runtime` — use `victor_contracts.workflow_runtime`
+    (`register_compute_handler`) or `victor.framework.handler_registry`
+  - `subagent_runtime` — use `victor.agent.subagents.protocols`
+  - `tool_runtime` — use `victor.framework.tools` (`RuntimeToolSet`)
+  - `workflow_executor_runtime` — use `victor_contracts.workflow_runtime`
+- The internal `_deprecation` module (the deprecated-bridge registry) is removed
+  with them.
+
+### Added
+
+- `victor_contracts.chunking`: a dependency-free chunking core —
+  `ChunkingConfig` (same fields and defaults as the framework and RAG copies),
+  `TextChunker` (`chunk_text`, `chunk_markdown`, `chunk_code`,
+  `estimate_chunks`) and the immutable `ChunkSpan(text, start_char, end_char)`.
+  Spans are byte-for-byte equal to the existing framework and RAG chunkers,
+  which can now delegate to it. Unlike those copies, `ChunkingConfig` rejects
+  settings that made chunking loop forever (`chunk_size <= 0`, negative
+  `min_chunk_size`, `chunk_overlap` outside `[0, chunk_size)` or greater than
+  `min_chunk_size`) with `ValueError`.
+- Internal `victor_contracts._lazy.make_lazy_getattr`, the shared PEP 562
+  `__getattr__` factory now used by every bridge module. Unknown attributes
+  raise `AttributeError("module '<bridge>' has no attribute '<name>'")`
+  uniformly.
+
+## [0.11.0] - 2026-10-29
 
 ### Added
 

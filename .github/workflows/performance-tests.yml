@@ -192,6 +192,34 @@ jobs:
             pip install --no-cache-dir --no-deps -e ./victor-sdk
           fi
 
+      - name: Use the PR's test toolchain for the baseline
+        # The baseline measures the BASE branch's code, but must run under the
+        # PR's test runner: a tool pin added on the head (pytest<9.2, #1553) is
+        # absent from the base until promotion, and the base's unpinned pytest
+        # 9.2 breaks pytest-benchmark (Function._nodeid) for every benchmark.
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          git show "$HEAD_SHA:pyproject.toml" > "$RUNNER_TEMP/head-pyproject.toml"
+          mapfile -t SPECS < <(python - "$RUNNER_TEMP/head-pyproject.toml" <<'PY'
+          import re, sys, tomllib
+          with open(sys.argv[1], "rb") as fh:
+              dev = tomllib.load(fh)["project"]["optional-dependencies"]["dev"]
+          for spec in dev:
+              name = re.split(r"[\s<>=!~;\[]", spec, maxsplit=1)[0].lower()
+              if name in {"pytest", "pytest-benchmark", "pytest-asyncio"}:
+                  print(spec)
+          PY
+          )
+          echo "Head test toolchain: ${SPECS[*]}"
+          if [ ${#SPECS[@]} -eq 0 ]; then
+            echo "::error::no pytest requirement found in the head pyproject dev extra"
+            exit 1
+          fi
+          pip install "${SPECS[@]}"
+          pip list 2>/dev/null | grep -iE '^(pytest|pytest-benchmark|pytest-asyncio) '
+
       - name: Run baseline tests
         run: |
           pytest tests/performance/ \
@@ -220,34 +248,18 @@ jobs:
             --columns=mean,stddev,ops
 
       - name: Check for regressions
+        # Warn-only for now (owner decision): regressions surface as ::warning::
+        # annotations plus a step-summary table; switch --mode to fail once the
+        # noise policy has a track record. The job checks out the BASE branch, so
+        # take the comparison script from the PR head like the toolchain step.
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          python -c "
-          import json
-          import sys
-
-          with open('baseline.json') as f:
-              baseline = json.load(f)
-          with open('output.json') as f:
-              current = json.load(f)
-
-          regressions = []
-          for test in baseline['benchmarks']:
-              if test in current['benchmarks']:
-                  baseline_mean = baseline['benchmarks'][test]['stats']['mean']
-                  current_mean = current['benchmarks'][test]['stats']['mean']
-                  change_pct = ((current_mean - baseline_mean) / baseline_mean) * 100
-
-                  if change_pct > 20:  # 20% regression threshold
-                      regressions.append((test, change_pct))
-
-          if regressions:
-              print('❌ PERFORMANCE REGRESSIONS DETECTED:')
-              for test, change_pct in regressions:
-                  print(f'  {test}: +{change_pct:.1f}%')
-              sys.exit(1)
-          else:
-              print('✅ No significant regressions detected')
-          "
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          git show "$HEAD_SHA:scripts/ci/benchmark_regressions.py" \
+            > "$RUNNER_TEMP/benchmark_regressions.py"
+          python "$RUNNER_TEMP/benchmark_regressions.py" baseline.json output.json \
+            --mode warn --threshold 20
 
   notify:
     name: Notify on failure

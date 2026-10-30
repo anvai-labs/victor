@@ -372,7 +372,16 @@ class TestIsPathExcluded:
                 assert is_path_excluded(path, root_path, patterns), path
 
 
-@pytest.mark.parametrize("source", ["victor/deps/manager.py", "app/coverage/parser.py"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "victor/deps/manager.py",
+        "app/coverage/parser.py",
+        "site/hooks/plugin.py",
+        "site/assets/app.js",
+        "web/site/source.py",
+    ],
+)
 def test_ambiguous_source_directories_are_not_universally_excluded(tmp_path, source):
     assert not is_path_excluded(tmp_path / source, tmp_path, get_exclusion_patterns(tmp_path))
 

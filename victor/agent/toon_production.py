@@ -39,6 +39,7 @@ Usage:
 
 from __future__ import annotations
 
+from victor.agent.format_strategies import toon_serialize
 from victor.core.json_utils import json_dumps
 import logging
 from dataclasses import dataclass, field
@@ -239,55 +240,7 @@ class ToonFormatter:
         Returns:
             TOON-formatted string
         """
-        return self._toon_serialize(data)
-
-    def _toon_serialize(self, data: Any, indent: int = 0) -> str:
-        """Serialize data to TOON format.
-
-        TOON rules:
-        - Lists: Use | delimiter between items
-        - Dicts: Use : delimiter, one key-value per line
-        - Strings: Quoted if contain special characters
-        - Numbers: Unquoted
-        - Indentation: 2 spaces per nesting level
-        """
-        if isinstance(data, str):
-            # Quote if contains special characters
-            if any(c in data for c in ["|", ":", "\n", '"']):
-                return f'"{data}"'
-            return data
-
-        if isinstance(data, (int, float, bool)) or data is None:
-            return str(data)
-
-        if isinstance(data, list):
-            if not data:
-                return "[]"
-
-            # Simple list: single line with | delimiter
-            if all(not isinstance(item, (list, dict)) for item in data):
-                items = [self._toon_serialize(item, indent) for item in data]
-                return " | ".join(items)
-
-            # Complex list: multi-line
-            lines = []
-            for item in data:
-                serialized = self._toon_serialize(item, indent + 1)
-                lines.append("  " * indent + serialized)
-            return "\n".join(lines)
-
-        if isinstance(data, dict):
-            if not data:
-                return "{}"
-
-            lines = []
-            for key, value in data.items():
-                key_str = str(key)
-                value_str = self._toon_serialize(value, indent + 1)
-                lines.append("  " * indent + f"{key_str}: {value_str}")
-            return "\n".join(lines)
-
-        return str(data)
+        return toon_serialize(data)
 
     def _format_json(self, data: Any) -> str:
         """Format data as JSON (fallback).

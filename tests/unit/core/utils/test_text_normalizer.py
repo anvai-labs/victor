@@ -446,3 +446,51 @@ class TestErrorMessages:
 
         with pytest.raises(ValueError, match="no valid characters"):
             normalize_for_filename("---")
+
+
+class TestNormalizeTextList:
+    """normalize_text_list: shared scalar-or-collection text normalizer."""
+
+    def test_none_yields_empty_list(self):
+        from victor.core.utils import normalize_text_list
+
+        assert normalize_text_list(None) == []
+
+    def test_list_and_tuple_items_are_stripped_and_blank_items_dropped(self):
+        from victor.core.utils import normalize_text_list
+
+        assert normalize_text_list([" a ", "", "  ", "b", 3]) == ["a", "b", "3"]
+        assert normalize_text_list(("x", " y")) == ["x", "y"]
+
+    def test_set_items_are_kept(self):
+        from victor.core.utils import normalize_text_list
+
+        assert sorted(normalize_text_list({" p ", "q"})) == ["p", "q"]
+
+    def test_scalar_is_wrapped_not_iterated(self):
+        from victor.core.utils import normalize_text_list
+
+        # A string is a single item, never split into characters.
+        assert normalize_text_list("  hello  ") == ["hello"]
+        assert normalize_text_list(0) == ["0"]
+        # A dict is not a list/tuple/set: it is one item, not its keys.
+        assert normalize_text_list({"k": "v"}) == ["{'k': 'v'}"]
+
+    def test_blank_scalar_yields_empty_list(self):
+        from victor.core.utils import normalize_text_list
+
+        assert normalize_text_list("   ") == []
+        assert normalize_text_list("") == []
+
+    def test_legacy_private_names_delegate_to_shared_helper(self):
+        from victor.core.utils import normalize_text_list
+        from victor.evaluation import runtime_feedback
+        from victor.evaluation.benchmarks.browser_tasks import BrowserTaskBenchmarkRunner
+        from victor.evaluation.benchmarks.deep_research import DeepResearchBenchmarkRunner
+        from victor.storage.memory.unified import UnifiedMemoryCoordinator
+
+        assert runtime_feedback._coerce_text_list is normalize_text_list
+        assert BrowserTaskBenchmarkRunner._normalize_list is normalize_text_list
+        assert DeepResearchBenchmarkRunner._normalize_list is normalize_text_list
+        assert UnifiedMemoryCoordinator._normalize_hint_list is normalize_text_list
+        assert UnifiedMemoryCoordinator._normalize_hint_list(["  g ", None]) == ["g", "None"]

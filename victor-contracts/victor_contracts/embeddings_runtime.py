@@ -11,8 +11,9 @@ access, inside a Victor host.
 
 from __future__ import annotations
 
-import importlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from victor_contracts._lazy import make_lazy_getattr
 
 if TYPE_CHECKING:
     from victor.storage.vector_stores import (
@@ -58,13 +59,4 @@ _LAZY_IMPORTS = {
 }
 
 
-def __getattr__(name: str) -> Any:
-    """Resolve embedding helpers lazily from the Victor host runtime."""
-    module_name = _LAZY_IMPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(
-            f"module 'victor_contracts.embeddings_runtime' has no attribute {name!r}"
-        )
-
-    module = importlib.import_module(module_name)
-    return getattr(module, name)
+__getattr__ = make_lazy_getattr(__name__, _LAZY_IMPORTS)

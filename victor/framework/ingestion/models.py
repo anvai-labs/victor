@@ -27,6 +27,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict
 
+# The SDK core owns the chunking configuration (shared with the RAG vertical);
+# re-exported here for existing imports.
+from victor_contracts.chunking import ChunkingConfig
+
 
 class DocumentType(Enum):
     """Supported document types for chunking strategies."""
@@ -40,32 +44,6 @@ class DocumentType(Enum):
     YAML = "yaml"
     CSV = "csv"
     AUTO = "auto"  # Auto-detect from content
-
-
-@dataclass
-class ChunkingConfig:
-    """Configuration for document chunking.
-
-    This is a domain-agnostic configuration that verticals can extend
-    or use with custom defaults.
-
-    Attributes:
-        chunk_size: Target chunk size in characters
-        chunk_overlap: Overlap between chunks for context continuity
-        min_chunk_size: Minimum chunk size (skip smaller chunks)
-        max_chunk_size: Maximum chunk size (hard limit)
-        respect_sentence_boundaries: Try to break at sentence ends
-        respect_paragraph_boundaries: Try to break at paragraphs
-        code_aware: Use code-aware chunking for code files
-    """
-
-    chunk_size: int = 1344  # Optimized for BGE embeddings (384 * 3.5)
-    chunk_overlap: int = 134  # ~10% overlap
-    min_chunk_size: int = 200
-    max_chunk_size: int = 2000
-    respect_sentence_boundaries: bool = True
-    respect_paragraph_boundaries: bool = True
-    code_aware: bool = True
 
 
 @dataclass

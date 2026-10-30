@@ -214,9 +214,13 @@ class Agent:
             model: Model identifier. If None, uses provider/profile default.
             temperature: Sampling temperature (0.0 to 1.0)
             max_tokens: Maximum tokens to generate
-            tools: Tool configuration - ToolSet, list of category names, or None
+            tools: ToolSet, list of tool names, or None to retain runtime defaults.
+                Use ToolSet.from_categories() for categories. Explicit scopes
+                must leave at least one registered tool; empty scopes fail closed.
+                Alias-only registries or scopes that split registered alias
+                implementations are rejected when dispatch cannot separate them.
             thinking: Enable extended thinking mode (Claude only)
-            airgapped: Disable network-dependent tools
+            airgapped: Filter known network-dependent tools; not OS/network isolation
             profile: Profile name from ~/.victor/profiles.yaml
             workspace: Working directory for file operations
             config: Advanced configuration. Accepts AgentConfig (deprecated) or
@@ -312,6 +316,9 @@ class Agent:
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("Shell safety policy configuration skipped: %s", exc)
 
+        if airgapped:
+            settings.security.airgapped_mode = True
+
         # Resolve a string vertical name into the actual VerticalBase class
         # before any attribute access. The public docstring/example accepts
         # vertical="coding"; without this step the get_config() call below
@@ -355,48 +362,72 @@ class Agent:
             )
             orchestrator = await factory.create()
 
-            # FEP-0018: wire the verifier from session_config to the
-            # turn_executor → AgenticLoop. Framework-owned path; the UI
-            # never reaches into the orchestrator directly.
-            _verify_mode = getattr(session_config, "verify_mode", "none")
-            if _verify_mode and _verify_mode != "none":
-                _te = getattr(orchestrator, "turn_executor", None)
-                if _te is not None:
-                    _verifier = _build_verifier(_verify_mode, orchestrator)
-                    if _verifier is not None:
-                        _te._verifier = _verifier
-                        _te._max_verify_retries = 2
+            agent = None
+            try:
+                # FEP-0018: wire the verifier from session_config to the
+                # turn_executor → AgenticLoop. Framework-owned path; the UI
+                # never reaches into the orchestrator directly.
+                _verify_mode = getattr(session_config, "verify_mode", "none")
+                if _verify_mode and _verify_mode != "none":
+                    _te = getattr(orchestrator, "turn_executor", None)
+                    if _te is not None:
+                        _verifier = _build_verifier(_verify_mode, orchestrator)
+                        if _verifier is not None:
+                            _te._verifier = _verifier
+                            _te._max_verify_retries = 2
 
-            # FEP-0019: propagate the LSP diagnostics feedback mode to the
-            # orchestrator so the auto-activated middleware honors it.
-            _lsp_feedback = getattr(session_config, "lsp_feedback", "errors")
-            if _lsp_feedback:
-                from victor.framework.lsp_middleware import set_lsp_feedback_mode
+                # FEP-0019: propagate the LSP diagnostics feedback mode to the
+                # orchestrator so the auto-activated middleware honors it.
+                _lsp_feedback = getattr(session_config, "lsp_feedback", "errors")
+                if _lsp_feedback:
+                    from victor.framework.lsp_middleware import set_lsp_feedback_mode
 
-                set_lsp_feedback_mode(orchestrator, _lsp_feedback)
+                    set_lsp_feedback_mode(orchestrator, _lsp_feedback)
 
-            # FEP-0019 Phase 3: enable proactive LSP context injection. The flag
-            # is read off the turn_executor by AgenticLoop.__init__ — same path
-            # as the verifier above; no loop-construction-site changes needed.
-            if getattr(session_config, "lsp_perception", False):
-                _te = getattr(orchestrator, "turn_executor", None)
-                if _te is not None:
-                    _te._lsp_context_enabled = True
+                # FEP-0019 Phase 3: enable proactive LSP context injection. The flag
+                # is read off the turn_executor by AgenticLoop.__init__ — same path
+                # as the verifier above; no loop-construction-site changes needed.
+                if getattr(session_config, "lsp_perception", False):
+                    _te = getattr(orchestrator, "turn_executor", None)
+                    if _te is not None:
+                        _te._lsp_context_enabled = True
 
-            resolved_provider = (
-                provider
-                or getattr(orchestrator, "provider_name", None)
-                or getattr(getattr(orchestrator, "provider", None), "name", None)
-                or "unknown"
-            )
-            resolved_model = model or getattr(orchestrator, "model", None)
-            return cls(
-                orchestrator,
-                provider=resolved_provider,
-                model=resolved_model,
-                vertical=vertical,
-                vertical_config=vertical_config,
-            )
+                resolved_provider = (
+                    provider
+                    or getattr(orchestrator, "provider_name", None)
+                    or getattr(getattr(orchestrator, "provider", None), "name", None)
+                    or "unknown"
+                )
+                resolved_model = model or getattr(orchestrator, "model", None)
+                agent = cls(
+                    orchestrator,
+                    provider=resolved_provider,
+                    model=resolved_model,
+                    vertical=vertical,
+                    vertical_config=vertical_config,
+                )
+                if tools is not None or airgapped:
+                    from victor.framework._internal import _configure_creation_tool_scope
+
+                    _configure_creation_tool_scope(orchestrator, tools, airgapped)
+                return agent
+            except BaseException:
+                from victor.framework._internal import _finish_creation_cleanup
+
+                async def _cleanup_owned_runtime() -> None:
+                    if agent is not None:
+                        await agent.close()
+                    else:
+                        cleanup = getattr(orchestrator, "close", None) or getattr(
+                            orchestrator, "shutdown", None
+                        )
+                        if cleanup is not None:
+                            result = cleanup()
+                            if inspect.isawaitable(result):
+                                await result
+
+                await _finish_creation_cleanup(_cleanup_owned_runtime())
+                raise
         except InitializationError as e:
             if e.stage == "credentials":
                 raise ProviderError(str(e), provider=provider) from e

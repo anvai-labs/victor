@@ -82,7 +82,9 @@ _KIND_TO_TYPE = {
 # Enclosing-symbol types whose names constitute a codegraph scope chain;
 # walking parent_id through them reconstructs what python_parser carries as
 # Symbol.scope_chain but GraphNode does not persist as a field.
-_CONTAINER_TYPES = frozenset({"class", "function", "method"})
+_CONTAINER_TYPES = frozenset(
+    {"class", "function", "method", "constructor", "interface", "struct", "trait", "enum"}
+)
 
 
 def _norm_rel(path: str) -> str:
@@ -348,7 +350,13 @@ def join_occurrences(
                 # absence by construction, not a join failure — uncounted.
                 continue
             definition_symbols.add(occurrence.symbol)
-            node_id = _unique_join(parts, nodes, kinds.get(occurrence.symbol), chain_for)
+            node_id = _unique_join(
+                parts,
+                nodes,
+                kinds.get(occurrence.symbol),
+                chain_for,
+                definition_line=_definition_line(occurrence),
+            )
             if node_id is None:
                 definitions_unjoined += 1
                 continue
@@ -413,8 +421,14 @@ def _unique_join(
     nodes: list[Any],
     kind: Optional[int],
     chain_for: Any,
+    *,
+    definition_line: Optional[int] = None,
 ) -> Optional[str]:
-    """Unique (file, name, scope, kind) match; ambiguity stays unjoined."""
+    """Unique metadata match; definition lines can resolve scoped overloads.
+
+    Missing bounds remain competing candidates. Same-line/overlapping definitions
+    stay ambiguous; producer overload ordinals never select an arbitrary node.
+    """
 
     file_marker = parts["file"]
     if file_marker:
@@ -444,7 +458,31 @@ def _unique_join(
     # Same name, multiple scopes (e.g. methods of same-named classes):
     # disambiguate by the scip path's trailing scope components.
     matched = [n for n in named if _scope_matches(chain_for(n), n.name, parts["path"])]
-    return matched[0].node_id if len(matched) == 1 else None
+    if len(matched) == 1:
+        return matched[0].node_id
+    if definition_line is None:
+        return None
+    positioned = []
+    for node in matched:
+        start, end = getattr(node, "line", None), getattr(node, "end_line", None)
+        valid = type(start) is int and type(end) is int and 1 <= start <= end
+        if not valid:
+            return None  # cannot eliminate a competitor with unknown source bounds
+        if start <= definition_line <= end:
+            positioned.append(node)
+    return positioned[0].node_id if len(positioned) == 1 else None
+
+
+def _definition_line(occurrence: Any) -> Optional[int]:
+    """One-based source line, with absent ranges kept unknown (not line one)."""
+    packed = list(getattr(occurrence, "range", ()) or ())
+    if packed:
+        return packed[0] + 1
+    single = _typed_range(occurrence, "single_line_range")
+    if single is not None:
+        return single.line + 1
+    multi = _typed_range(occurrence, "multi_line_range")
+    return multi.start_line + 1 if multi is not None else None
 
 
 def _suffix_match(nodes_by_file: dict[str, list[Any]], relative_path: str) -> list[Any]:

@@ -857,18 +857,31 @@ class TestRegistrationNeverMutatesTheGlobalRegistry:
     tests and sessions. The unified factory must never touch it.
     """
 
-    def test_register_handlers_never_touches_the_global_path(self):
+    def test_register_handlers_never_touches_the_global_path(self, monkeypatch):
         """The legacy loop called register_compute_handler, which lazily
         redirects into the victor HOST runtime — unavailable in isolated
         vertical installs and polluting globally when present. The unified
-        factory must never import that path."""
+        factory must never resolve that path."""
         import sys
+
+        from victor_contracts import workflow_runtime
 
         from victor_dataanalysis.handlers import HANDLERS, register_handlers
 
-        sys.modules.pop("victor_contracts.workflow_executor_runtime", None)
+        # Point the lazy bridge at a module that cannot be imported: any
+        # resolution of register_compute_handler would now raise.
+        monkeypatch.setitem(
+            workflow_runtime._LAZY_IMPORTS,
+            "register_compute_handler",
+            "victor_dataanalysis_tests_forbidden_global_registry",
+        )
+        with pytest.raises(ModuleNotFoundError):
+            workflow_runtime.register_compute_handler  # noqa: B018 - guard self-check
+        # A direct host import would bypass the bridge; it must not appear either.
+        host_registry = "victor.workflows.compute_registry"
+        monkeypatch.delitem(sys.modules, host_registry, raising=False)
         result = register_handlers()
-        assert "victor_contracts.workflow_executor_runtime" not in sys.modules
+        assert host_registry not in sys.modules
         assert result == HANDLERS  # no-registrar call returns the table
 
     def test_register_handlers_signature_keeps_registrar_param(self):

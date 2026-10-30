@@ -241,6 +241,7 @@ class SystemPromptBuilder:
         self._merged_task_hints = None
 
         # Prompt caching for static mode
+        self._custom_prompt: Optional[str] = None
         self._cached_prompt: Optional[str] = None
         self._cache_key: Optional[str] = None
         self._evolved_content_resolver: Any = None
@@ -642,6 +643,23 @@ class SystemPromptBuilder:
             "Do not attempt to call unlisted tools."
         )
 
+    def set_custom_prompt(self, prompt: Optional[str]) -> None:
+        """Replace domain instructions while preserving framework guidance.
+
+        Domain policy is mandatory even when optional sections are pruned.
+        Passing None or blank text clears the previous domain instructions.
+        """
+        if prompt is not None and not isinstance(prompt, str):
+            raise TypeError("custom prompt must be a string or None")
+        custom_prompt = prompt if prompt and prompt.strip() else None
+        if custom_prompt != self._custom_prompt:
+            self._custom_prompt = custom_prompt
+            self.invalidate_cache()
+
+    def get_custom_prompt(self) -> Optional[str]:
+        """Return this builder's domain instructions, without framework sections."""
+        return self._custom_prompt
+
     def build(self) -> str:
         """Build the system prompt.
 
@@ -717,6 +735,17 @@ class SystemPromptBuilder:
                 kind="system_base",
             )
         )
+
+        if self._custom_prompt:
+            document.upsert(
+                PromptBlock(
+                    name="custom_domain_prompt",
+                    content=self._custom_prompt,
+                    priority=15,
+                    header="",
+                    kind="domain",
+                )
+            )
 
         if "concise_mode" in sections_to_include and self.concise_mode:
             document.upsert(

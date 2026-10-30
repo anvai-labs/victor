@@ -34,11 +34,14 @@ from these modules (usually via the top-level `victor_contracts` namespace):
 - `protocols.py` — extension protocols
 - `validation.py` — vertical package validation (backs the
   `victor-contracts check` CLI in `cli.py`)
+- `chunking.py` — dependency-free text/markdown/code chunking core
+  (`ChunkingConfig`, `TextChunker`, `ChunkSpan`; added in 0.12.0)
 
 The remaining definition-layer modules (`capabilities/`, `framework/`,
 `providers/`, `safety/`, `skills/`, `conversation.py`, `multi_agent.py`,
-`registries.py`, `rl.py`, `runtime_evaluation.py`, `safety_patterns.py`,
-`safety_policy.py`, `workflows.py`, `utils/`) follow the same Stable policy.
+`registries.py`, `rl.py`, `runtime_evaluation.py`, `workflows.py`, `utils/`)
+follow the same Stable policy. `safety_patterns.py` and `safety_policy.py` are
+Stable too but behave as host-required bridges (see below).
 
 Some Stable modules expose explicitly named host hooks — for example
 `team_schema.get_runtime_team_registry()`,
@@ -49,22 +52,25 @@ Everything else in these modules works with `victor-contracts` alone.
 ### Stable bridge — host required
 
 These modules use a `_LAZY_IMPORTS` table plus a module-level `__getattr__`
-(PEP 562) to resolve symbols from the installed `victor-ai` host at first
-attribute access. They exist so runtime-side code (including the first-party
-verticals) can reach host functionality through the `victor_contracts`
-namespace without a module-scope dependency on `victor.*`.
+(PEP 562, built by the internal `_lazy.make_lazy_getattr` helper) to resolve
+symbols from the installed `victor-ai` host at first attribute access. They
+exist so runtime-side code (including the first-party verticals) can reach
+host functionality through the `victor_contracts` namespace without a
+module-scope dependency on `victor.*`.
 
 Importing a bridge module never requires the host; **accessing any attribute
 does**. Without `victor-ai` installed, attribute access raises
 `ModuleNotFoundError` for the underlying `victor.*` module.
 
-The 15 supported bridge modules (each verified to have in-tree consumers):
+The 16 supported bridge modules (each verified to have in-tree consumers);
+`safety_patterns` and `safety_policy` use the same mechanism:
 
 | Bridge module | Resolves against |
 |---------------|------------------|
 | `capability_runtime` | host capability registry and config helpers |
 | `chain_runtime` | host chain execution helpers |
 | `database_runtime` | `victor.core.database` (project DB access) |
+| `embeddings_runtime` | host embedding providers (`victor.storage.vector_stores`) |
 | `enrichment_runtime` | host enrichment services |
 | `feature_flag_runtime` | host feature flags |
 | `graph_rag_runtime` | host graph-RAG services |
@@ -80,12 +86,16 @@ The 15 supported bridge modules (each verified to have in-tree consumers):
 
 ### Deprecated
 
-The following bridge modules have **zero consumers** in the Victor monorepo
-(core, first-party verticals, and examples) and duplicate surfaces available
-elsewhere. They are classified Deprecated: warnings begin with the 0.9.0
-release, and removal happens **no earlier than 0.10.0**:
+No surfaces are currently deprecated.
 
-| Deprecated module | Replacement |
+### Removed in 0.12.0
+
+The following bridge modules had **zero consumers** in the Victor monorepo
+(core, first-party verticals, and examples) and duplicated surfaces available
+elsewhere. They were deprecated with warnings from 0.9.0 and **removed in
+0.12.0**; importing them now raises `ModuleNotFoundError`:
+
+| Removed module | Replacement |
 |-------------------|-------------|
 | `agent_spec_runtime` | Import from `victor.agent.specs.models` in host-runtime code (runtime-internal surface; not a contract) |
 | `graph_runtime` | `victor.framework.graph` (`StateGraph`, `END`) — the framework public API |
@@ -94,13 +104,12 @@ release, and removal happens **no earlier than 0.10.0**:
 | `tool_runtime` | `victor.framework.tools` (`RuntimeToolSet`) |
 | `workflow_executor_runtime` | `victor_contracts.workflow_runtime` (same surface, resolved against the current host workflow modules) |
 
-> **Status note:** as of 0.9.0 these six modules emit `DeprecationWarning` on
-> attribute access while continuing to resolve host symbols as before.
 
 ### Internal
 
 No semver stability guarantee; may change in any release:
 
+- `_lazy` — the shared lazy-import helper behind the bridge modules.
 - `testing/` — drop-in contract test helpers for vertical test suites.
   Useful, but the helper API itself is best-effort and may change between
   minor releases.
@@ -122,9 +131,7 @@ Legacy root imports such as `from victor_sdk import TeamMemberSpec` are checked.
 The runtime import hook also preserves `victor_sdk.team_schema` module identity,
 but static checkers cannot resolve these dynamically created legacy submodules.
 Use `victor_contracts.team_schema` for static typing; no legacy submodule stub
-coverage is claimed. The deprecated handler bridge's previously advertised
-`sync_handlers_with_executor` never resolved to a host implementation and is no
-longer listed; existing working deprecated exports retain their warnings.
+coverage is claimed.
 
 ## Deprecation Policy
 

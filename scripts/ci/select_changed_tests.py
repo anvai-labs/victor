@@ -1145,7 +1145,10 @@ def select(changed: list[str]) -> list[str]:
             # Fail-closed only when NOTHING covers the source: an explicit
             # RELATED_TESTS entry (e.g. the MCP lifecycle contracts for
             # transport-only changes) is coverage, even without a mirror file.
-            if not candidates and not existing_related:
+            # A deleted source has nothing left to test; its importers are
+            # caught by the collect-only check, so it never blocks selection.
+            deleted = not (ROOT / p).exists()
+            if not candidates and not existing_related and not deleted:
                 unmapped_sources.append(p)
     if unmapped_sources:
         joined = "\n  - ".join(unmapped_sources)

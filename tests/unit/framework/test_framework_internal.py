@@ -32,6 +32,18 @@ from victor.framework.tools import ToolSet
 class TestConfigureToolsWithToolConfigurator:
     """Test configure_tools using ToolConfigurator from Phase 7.5."""
 
+    @pytest.mark.parametrize("as_toolset", [False, True])
+    def test_airgap_filters_effective_replacement(self, as_toolset):
+        enabled = {"read", "http", "web_search"}
+        orchestrator = SimpleNamespace(
+            tools=dict.fromkeys(enabled),
+            get_enabled_tools=lambda: enabled,
+            set_enabled_tools=lambda names: (enabled.clear(), enabled.update(names)),
+        )
+        requested = ToolSet.from_tools(list(enabled)) if as_toolset else list(enabled)
+        configure_tools(orchestrator, requested, airgapped=True)
+        assert enabled == {"read"}
+
     def test_configure_with_toolset(self):
         """Test configuring tools from a ToolSet."""
         mock_orchestrator = MagicMock()

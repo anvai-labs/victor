@@ -33,7 +33,7 @@ A node with no successors terminates its path. There is no `type: end` node.
 | `parallel` | `parallel_nodes`, `join_strategy` | Referenced child nodes |
 | `transform` | `transform` | Registered function or supported transform expression |
 | `hitl` | `hitl_type`, `prompt`, `fallback` | Application-managed human response and resume integration |
-| `team` | Team configuration | Configured team runtime |
+| `team` | `goal`, `members`, optional `team_formation`, `total_tool_budget`, `output_key` | Configured sub-agent runtime and provider (one per member) |
 
 ## Transform nodes
 
@@ -75,6 +75,48 @@ Define each referenced child and successor node. Supported join strategies are `
 `any`, `first`, and `merge`; failure behavior depends on the selected strategy. This
 node group is distinct from StateGraph `Send` fan-out. See the
 [single-engine decision](../architecture/adr/030-single-graph-execution-engine.md).
+
+## Team nodes
+
+A team node runs an ad-hoc multi-agent team as one workflow step and merges its
+result into the workflow state under `output_key` (default `team_result`).
+
+```yaml
+- id: implement
+  type: team
+  goal: "Implement $ctx.feature"   # $ctx.<key> is filled from workflow state
+  team_formation: pipeline   # sequential | parallel | hierarchical | pipeline | consensus
+  total_tool_budget: 50
+  max_iterations: 30
+  timeout_seconds: 300
+  merge_mode: team_wins      # team_wins | graph_wins | merge | error
+  output_key: team_result
+  members:
+    - id: researcher
+      role: researcher       # researcher | planner | executor | reviewer | writer | analyst
+      goal: "Find the code that needs to change"
+      tool_budget: 15
+      tools: [read, grep]
+    - id: implementer
+      role: executor
+      goal: "Make the change and add tests"
+      tool_budget: 25
+      tools: [read, write]
+  next: [report]
+```
+
+`goal` and a non-empty `members` list are required, and every member needs its own
+`goal`. In the team goal, `$ctx.<key>` is replaced with that workflow-state value when
+the step runs; do not use `${key}` (the loader expands it as an environment variable)
+or `{{key}}` (team steps do not render it). Members may also set `id`, `name`,
+`backstory`, `expertise`, `personality`, `agent_category` (`specialist` or
+`supervisor`), `is_manager`, `can_delegate` and `delegation_targets` (ids of other
+members). `tools` is the member's tool allow-list (`allowed_tools` is accepted as an
+alias). A `hierarchical` team needs at least two members and exactly one supervisor.
+`merge_strategy` accepts `dict` (default) or `list`. The loader rejects unknown member
+keys, formations, roles, merge modes and strategies instead of ignoring them or
+falling back to a default. See `verticals/victor-coding/victor_coding/workflows/team_node_example.yaml`
+for a full example.
 
 ## Execution limits
 

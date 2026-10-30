@@ -44,6 +44,7 @@ def _run_source(name: str, source: str, path: str) -> str | None:
     is_package = path.endswith("__init__.py")
     module.__package__ = name if is_package else name.rpartition(".")[0]
     try:
+        # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
         exec(compile(source, path, "exec"), module.__dict__)  # noqa: S102 - trusted repo source
     except Exception as exc:
         return _describe(exc)
@@ -63,7 +64,7 @@ def smoke(
     for path in paths:
         name = _module_name(path)
         try:
-            importlib.import_module(name)
+            importlib.import_module(name)  # nosemgrep - repo module names
             continue
         except Exception as exc:
             failure = _describe(exc)

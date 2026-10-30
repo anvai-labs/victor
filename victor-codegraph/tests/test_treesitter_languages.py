@@ -165,6 +165,67 @@ public class Dog extends Base implements Speaker {
 """
 
 
+def test_java_record_and_annotation_members_keep_type_scope():
+    parsed = _parse(
+        "java",
+        """record Pair<T>(T left, T right) implements View {
+            Pair { check(); }
+            Pair(T both) { this(both, both); }
+            public T first() { return left; }
+            static void check() {}
+            record Nested(int value) {}
+        }
+        @interface Marker { String value() default "ok"; }
+        interface View {}""",
+        "java",
+    )
+    symbols = _by_name(parsed)
+    assert symbols["Pair"].symbol_type == CodeSymbolType.CLASS
+    assert symbols["first"].symbol_type == CodeSymbolType.METHOD
+    assert symbols["first"].scope_chain == ["Pair"]
+    assert symbols["Nested"].scope_chain == ["Pair"]
+    assert symbols["Marker"].symbol_type == CodeSymbolType.INTERFACE
+    assert symbols["value"].symbol_type == CodeSymbolType.METHOD
+    assert symbols["value"].scope_chain == ["Marker"]
+    constructors = [s for s in parsed.symbols if s.symbol_type == CodeSymbolType.CONSTRUCTOR]
+    assert len(constructors) == 2  # source declarations only; no implicit Nested constructor
+    assert {s.simple_name for s in constructors} == {"constructor"}
+    assert {s.signature for s in constructors} == {"(T left, T right)", "(T both)"}
+    assert all(s.scope_chain == ["Pair"] for s in constructors)
+    calls = [r for r in _rels(parsed, CodeRelationType.CALLS) if r.context == "check"]
+    assert len(calls) == 1
+    assert calls[0].from_symbol_id in {s.id for s in constructors}
+    assert calls[0].to_symbol_id == symbols["check"].id
+    contains = {
+        (r.from_symbol_id, r.to_symbol_id) for r in _rels(parsed, CodeRelationType.CONTAINS)
+    }
+    assert all((symbols["Pair"].id, s.id) in contains for s in constructors)
+    assert (symbols["Marker"].id, symbols["value"].id) in contains
+    assert len(_rels(parsed, CodeRelationType.IMPLEMENTS)) == 1
+
+
+def test_java_explicit_constructors_are_distinct_and_do_not_become_methods():
+    parsed = _parse(
+        "java",
+        """class Box {
+            Box() { init(); }
+            Box(int size) { init(); }
+            void Box(String ordinaryMethod) {}
+            static void init() {}
+            class Inner { Inner() { init(); } }
+        }""",
+        "java",
+    )
+    constructors = [s for s in parsed.symbols if s.symbol_type == CodeSymbolType.CONSTRUCTOR]
+    assert len(constructors) == 3
+    assert len({s.id for s in constructors}) == 3
+    assert {tuple(s.scope_chain) for s in constructors} == {("Box",), ("Box", "Inner")}
+    ordinary = next(s for s in parsed.symbols if s.simple_name == "Box" and s.scope_chain)
+    assert ordinary.symbol_type == CodeSymbolType.METHOD
+    calls = [r for r in _rels(parsed, CodeRelationType.CALLS) if r.context == "init"]
+    assert {r.from_symbol_id for r in calls} == {s.id for s in constructors}
+
+
 def test_java_inheritance_and_calls():
     parsed = _parse("java", JAVA, "java")
     syms = _by_name(parsed)
