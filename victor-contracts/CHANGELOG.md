@@ -10,7 +10,7 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
-## [0.13.0] - release candidate
+## [0.13.0] - 2026-10-30
 
 ### Deprecated
 
