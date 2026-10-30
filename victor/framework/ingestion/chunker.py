@@ -232,9 +232,11 @@ class BaseChunker(TextChunker):
 
         return chunks
 
-    # The text, markdown and code strategies live in the SDK core. It calls
-    # them through the public names, which route back through these private
-    # hooks so a subclass override (e.g. ``_chunk_text``) applies everywhere.
+    # Override rule: customize a strategy by overriding the private hook
+    # (``_chunk_text``, ``_chunk_markdown``, ``_chunk_code``); every call site,
+    # including the SDK core's own sub-splitting, reaches it. The public
+    # ``chunk_*`` names are routing shims for the SDK core: do not override
+    # them, and never call them from a private hook (that recurses).
     def chunk_text(self, content: str) -> List[ChunkSpan]:
         return self._chunk_text(content)
 
@@ -246,15 +248,15 @@ class BaseChunker(TextChunker):
 
     def _chunk_text(self, content: str) -> List[ChunkSpan]:
         """Chunk plain text with sentence boundaries."""
-        return TextChunker.chunk_text(self, content)
+        return super().chunk_text(content)
 
     def _chunk_markdown(self, content: str) -> List[ChunkSpan]:
         """Chunk markdown by headers, splitting long sections as text."""
-        return TextChunker.chunk_markdown(self, content)
+        return super().chunk_markdown(content)
 
     def _chunk_code(self, content: str) -> List[ChunkSpan]:
         """Chunk code preserving function/class boundaries."""
-        return TextChunker.chunk_code(self, content)
+        return super().chunk_code(content)
 
     def _chunk_html(self, content: str) -> List[Tuple[str, int, int]]:
         """Chunk HTML preserving semantic structure.

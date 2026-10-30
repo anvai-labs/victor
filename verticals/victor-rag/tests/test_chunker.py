@@ -64,6 +64,24 @@ SAMPLES: dict[str, tuple[str, str]] = {
     "arr.json": ("", json.dumps([{"n": n, "w": "ü" * (n * 5 % 60)} for n in range(50)])),
     "yaml": ("conf.yaml", "key: value\nother: 2\n"),
     "bad.json": ("", "[{"),
+    # sections at exactly the SMALL limits (max 220, min 25) and one either side
+    "edges.md": (
+        "edges.md",
+        "".join(
+            f"## S{n}\n" + "z" * (k - 6) + "\n" for n, k in enumerate((24, 25, 26, 219, 220, 221))
+        ),
+    ),
+    "defs.rs": (
+        "defs.rs",
+        "".join(
+            f"{kw} Thing{n} {{\n" + "  body();\n" * 25 + "}\n"
+            for n, kw in enumerate(("struct", "impl", "interface", "fn"))
+        ),
+    ),
+    "fence.md": (
+        "fence.md",
+        "# Top\n" + "Words. " * 30 + "\n```\n# comment\n```\n## Tail\n" + "End. " * 40,
+    ),
 }
 
 
@@ -73,7 +91,13 @@ async def _embed(text: str) -> list[float]:
 
 async def _record() -> dict[str, Any]:
     result: dict[str, Any] = {"documents": {}, "strategies": {}, "detect": {}}
-    for label, cfg in (("default", {}), ("small", SMALL)):
+    flat = {"chunk_size": 200, "chunk_overlap": 0, "min_chunk_size": 0, "max_chunk_size": 300}
+    configs = (
+        ("default", {}),
+        ("small", SMALL),
+        ("flat", {**flat, "respect_sentence_boundaries": False}),
+    )
+    for label, cfg in configs:
         chunker = DocumentChunker(ChunkingConfig(**cfg))
         for name, (source, content) in SAMPLES.items():
             doc = Document(id=name, content=content, source=source, metadata={"m": 1})
@@ -142,3 +166,16 @@ async def test_subclass_text_override_reaches_markdown_and_code():
     spy = Spy(ChunkingConfig(**SMALL))
     assert "spy" in [text for text, _, _ in spy._chunk_markdown(SAMPLES["guide.md"][1])]
     assert "spy" in [text for text, _, _ in spy._chunk_code(SAMPLES["mod.py"][1])]
+
+
+def test_private_hook_uses_cooperative_super():
+    from victor_contracts.chunking import TextChunker
+
+    class Mixin(TextChunker):
+        def chunk_code(self, content: str):
+            return [("mixin", 0, 5)]
+
+    class Combined(DocumentChunker, Mixin):
+        pass
+
+    assert Combined()._chunk_code("def f():\n    pass\n") == [("mixin", 0, 5)]

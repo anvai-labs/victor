@@ -253,8 +253,8 @@ class DocumentChunker(TextChunker):
 
         return chunks
 
-    # The SDK core calls its strategies through the public names; route them
-    # back through the private hooks so subclass overrides apply everywhere.
+    # Override the private ``_chunk_*`` hooks, not these public shims (the SDK
+    # core routes through them), and never call a shim from a hook: it recurses.
     def chunk_text(self, content: str) -> List[ChunkSpan]:
         return self._chunk_text(content)
 
@@ -265,13 +265,13 @@ class DocumentChunker(TextChunker):
         return self._chunk_code(content)
 
     def _chunk_text(self, content: str) -> List[ChunkSpan]:
-        return TextChunker.chunk_text(self, content)
+        return super().chunk_text(content)
 
     def _chunk_markdown(self, content: str) -> List[ChunkSpan]:
-        return TextChunker.chunk_markdown(self, content)
+        return super().chunk_markdown(content)
 
     def _chunk_code(self, content: str) -> List[ChunkSpan]:
-        return TextChunker.chunk_code(self, content)
+        return super().chunk_code(content)
 
     def _chunk_html(self, content: str) -> Sequence[Tuple[str, int, int]]:
         """Chunk HTML preserving semantic structure.

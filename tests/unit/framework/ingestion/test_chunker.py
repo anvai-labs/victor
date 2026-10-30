@@ -77,6 +77,29 @@ _JSON_LIST = json.dumps(
     ensure_ascii=False,
 )
 
+# Sections sized exactly at the "small" config's limits (max 240, min 30),
+# one either side, so off-by-one changes in the size checks show up.
+_BOUNDARY_MD = "".join(
+    f"# H{n}\n" + "x" * (size - 5) + "\n" for n, size in enumerate((29, 30, 31, 239, 240, 241))
+)
+_POLYGLOT = "\n".join(
+    [
+        "struct Point {\n" + "  x: i32,\n" * 30 + "}",
+        "impl Point {\n" + "  fn norm() {}\n" * 30 + "}",
+        "interface Shape {\n" + "  area(): number;\n" * 30 + "}",
+        "fn main() {\n" + "  run();\n" * 30 + "}",
+        "func Go() {\n" + "  do()\n" * 30 + "}",
+        "function js() {\n" + "  call();\n" * 30 + "}",
+    ]
+)
+_FENCED = (
+    "# Real header\n"
+    + "Intro words. " * 20
+    + "\n```bash\n# not a header\necho hi\n## also not\n```\n"
+    + "## Next\n"
+    + "More words here. " * 25
+)
+
 CONTENTS: dict[str, str] = {
     "empty": "",
     "blank": "   \n\n  ",
@@ -89,6 +112,9 @@ CONTENTS: dict[str, str] = {
     "json_dict": _JSON_DICT,
     "json_list": _JSON_LIST,
     "json_invalid": '{"broken": [1, 2,',
+    "boundary_md": _BOUNDARY_MD,
+    "polyglot": _POLYGLOT,
+    "fenced": _FENCED,
 }
 
 CONFIGS: dict[str, dict[str, Any]] = {
@@ -206,3 +232,17 @@ def test_overridden_strategy_is_used_by_markdown_and_code():
     assert calls
     assert any(c.content == "spy" for c in md)
     assert any(c.content == "spy" for c in code)
+
+
+def test_cooperative_mro_reaches_sdk_mixin():
+    """Private hooks call ``super()``, so a TextChunker mixin later in the MRO is used."""
+    from victor_contracts.chunking import TextChunker
+
+    class Mixin(TextChunker):
+        def chunk_text(self, content: str):
+            return [("mixin", 0, 5)]
+
+    class Combined(BaseChunker, Mixin):
+        pass
+
+    assert [c.content for c in Combined().chunk("Some text. " * 50)] == ["mixin"]
