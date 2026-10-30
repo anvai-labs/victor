@@ -151,3 +151,13 @@ class TestRegisterDataAnalysisPersonas:
         monkeypatch.setattr(registries, "_default_persona_registry", None)
 
         assert register_data_analysis_personas() == 0
+
+
+def test_teams_package_exposes_personas_for_activation() -> None:
+    """The host registers personas via the teams package's get_personas() hook."""
+    from victor_dataanalysis.teams import get_personas
+    from victor_dataanalysis.teams.personas import DATA_ANALYSIS_PERSONAS
+
+    personas = get_personas()
+    assert personas is DATA_ANALYSIS_PERSONAS
+    assert personas

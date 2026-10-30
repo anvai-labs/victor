@@ -108,3 +108,13 @@ class TestApplyPersonaToSpec:
 
         assert result is spec
         assert not spec.backstory
+
+
+def test_teams_package_exposes_personas_for_activation() -> None:
+    """The host registers personas via the teams package's get_personas() hook."""
+    from victor_research.teams import get_personas
+    from victor_research.teams.personas import RESEARCH_PERSONAS
+
+    personas = get_personas()
+    assert personas is RESEARCH_PERSONAS
+    assert personas
