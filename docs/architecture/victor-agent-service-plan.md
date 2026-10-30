@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-VALIDATION-01 — LOCAL_PASS** (2026-10-29), owner: RepoReel integration
+- **SDK-VALIDATION-01 — MERGED** (2026-10-29), owner: RepoReel integration
   session; branch `fix/tool-validation-feedback`, baseline
   `adc2da6edf35a61634b57082cc799c30fe026c08`. Fetched/reconciled develop and
   merged #1593 before selection. A real local-model source-research fixture
@@ -90,6 +90,17 @@ edit. A mock test is not live provider or C5 evidence.
   the three-error cap. All 165 affected tests pass; Black/Ruff/configured MyPy
   pass. Collection finds 36,936 tests; a final post-edit collection and independent
   follow-up review precede push. PR CI, release and live acceptance remain pending.
+  Final source `5c5a81e25f79dbdffaea6b7880d9cb8548f8f2cc` has a clean
+  independent follow-up review and commit-bound attestation. The post-edit repeat
+  collects 36,936 tests in 40.81s. [#1594](https://github.com/anvai-labs/victor/pull/1594)
+  merges as `7bc29b54c76fa8198f988c629ecea9cde0bc4572` after all 40 CI checks
+  succeed, including Vertical Py3.12; two checks skip and one is neutral, with no
+  failures/pending. Canonical develop is fast-forwarded and the implementation
+  worktree/branch removed. The installed consumer candidate returns actual nested
+  field/pattern errors to a local model; research still fails source/role/completion
+  checks, so neither model-content acceptance nor a live service capability follows.
+  Release/HTTP policy and full research/curriculum qualification remain separate.
+  This documentation checkpoint changes no runtime source or FEP acceptance.
 
 - **SDK-SCOPE-RUN-01 — MERGED**, [#1592](https://github.com/anvai-labs/victor/pull/1592) (2026-10-29), owner: RepoReel integration session;
   branch `fix/session-tool-pipeline-gate`, baseline
