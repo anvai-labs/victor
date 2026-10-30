@@ -67,40 +67,30 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **SDK-VALIDATION-01 — MERGED** (2026-10-29), owner: RepoReel integration
-  session; branch `fix/tool-validation-feedback`, baseline
+- **SDK-VALIDATION-01 — MERGED**, [#1594](https://github.com/anvai-labs/victor/pull/1594)
+  (2026-10-29), owner: RepoReel integration session; branch
+  `fix/tool-validation-feedback`, baseline
   `adc2da6edf35a61634b57082cc799c30fe026c08`. Fetched/reconciled develop and
-  merged #1593 before selection. A real local-model source-research fixture
-  receives only `Argument validation failed` for an underscore in a nested ID;
-  it cannot see the available field/pattern errors and its next reply truncates.
-  `ToolValidationResult.__bool__` returns `valid`, so the executor's truthiness
-  test discards details for every invalid result. Next: RED in the existing
-  executor test owner, retain detailed strict refusals without executing tools,
-  affected checks, independent review and PR CI. This is error feedback, not
-  automatic retry, model-content acceptance or HTTP/live-service qualification.
-  Both existing-owner RED cases fail with the generic error on baseline; they now
-  report exact required/nested schema locations and never execute rejected tools.
-  The repair checks result presence explicitly, preserving the three-error cap
-  and generic fallback. All 163 affected unit/integration/service tests pass;
-  touched Black/Ruff and configured MyPy pass. First attempted test/Black commands
-  selected an environment lacking pytest/a compiled Black dependency; the retained
-  successful checks use the qualified test environment and available formatter.
-  First review requests an explicit nested-tool execution counter. The regression
-  now checks zero calls, required/nested errors, empty-error generic fallback and
-  the three-error cap. All 165 affected tests pass; Black/Ruff/configured MyPy
-  pass. Collection finds 36,936 tests; a final post-edit collection and independent
-  follow-up review precede push. PR CI, release and live acceptance remain pending.
-  Final source `5c5a81e25f79dbdffaea6b7880d9cb8548f8f2cc` has a clean
-  independent follow-up review and commit-bound attestation. The post-edit repeat
-  collects 36,936 tests in 40.81s. [#1594](https://github.com/anvai-labs/victor/pull/1594)
-  merges as `7bc29b54c76fa8198f988c629ecea9cde0bc4572` after all 40 CI checks
-  succeed, including Vertical Py3.12; two checks skip and one is neutral, with no
-  failures/pending. Canonical develop is fast-forwarded and the implementation
-  worktree/branch removed. The installed consumer candidate returns actual nested
-  field/pattern errors to a local model; research still fails source/role/completion
-  checks, so neither model-content acceptance nor a live service capability follows.
-  Release/HTTP policy and full research/curriculum qualification remain separate.
-  This documentation checkpoint changes no runtime source or FEP acceptance.
+  merged #1593 before selection. A real local-model fixture received only
+  `Argument validation failed` for a nested ID: the executor's truthiness check
+  discarded errors because invalid `ToolValidationResult` evaluates to false.
+  Two existing-owner RED cases reproduce the generic error. The repair checks
+  result presence explicitly, preserving rejection before execution, the
+  three-error cap and generic empty-error fallback. An independent review requests
+  an explicit execution counter; the final nested fixture proves zero calls.
+  Required/nested/empty/four-error controls and all 165 affected tests pass.
+  Post-edit collection finds 36,936 tests in 40.81s; Black/Ruff/configured MyPy
+  pass. Earlier environment-selection failures remain retained, not counted.
+  Source `5c5a81e25f79dbdffaea6b7880d9cb8548f8f2cc` has a clean independent
+  follow-up review and commit-bound attestation. CI finishes with **40 successful
+  checks, two skipped and one neutral**, including successful Vertical Py3.12;
+  zero failed/pending. Merge is `7bc29b54c76fa8198f988c629ecea9cde0bc4572`.
+  Canonical develop is fast-forwarded and the implementation worktree/branch
+  removed. The installed consumer returns actual nested field/pattern errors to
+  Qwen, but research still fails source/role/completion checks. No model-content,
+  release, HTTP-policy or live-service acceptance follows. Further work is native
+  provider/task-completion and research/curriculum qualification. This checkpoint
+  changes no runtime source or FEP acceptance status.
 
 - **SDK-SCOPE-RUN-01 — MERGED**, [#1592](https://github.com/anvai-labs/victor/pull/1592) (2026-10-29), owner: RepoReel integration session;
   branch `fix/session-tool-pipeline-gate`, baseline
