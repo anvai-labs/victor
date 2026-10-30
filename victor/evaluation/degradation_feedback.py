@@ -5,49 +5,17 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable, Mapping, Optional
 
+from victor.evaluation.summary_mapping import as_event_mapping as _as_event_mapping
+from victor.evaluation.summary_mapping import coerce_optional_float as _coerce_float
+from victor.evaluation.summary_mapping import coerce_optional_int as _coerce_int
+from victor.evaluation.summary_mapping import coerce_optional_text as _coerce_optional_text
+from victor.evaluation.summary_mapping import extract_sequence as _extract_sequence
 from victor.evaluation.summary_mapping import extract_value as _extract_value
 
 
-def _coerce_optional_text(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    text = str(getattr(value, "value", value)).strip()
-    return text or None
-
-
-def _coerce_float(value: Any) -> Optional[float]:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _coerce_int(value: Any) -> Optional[int]:
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _extract_sequence(value: Any, key: str) -> list[Any]:
-    raw_value = _extract_value(value, key, [])
-    if raw_value is None:
-        return []
-    if isinstance(raw_value, (list, tuple)):
-        return list(raw_value)
-    return []
-
-
 def _normalize_event(event: Any) -> Optional[dict[str, Any]]:
+    event = _as_event_mapping(event)
     if event is None:
-        return None
-    if hasattr(event, "to_dict"):
-        event = event.to_dict()
-    if not isinstance(event, Mapping):
         return None
 
     source = _coerce_optional_text(event.get("source"))
@@ -79,11 +47,8 @@ def _normalize_event(event: Any) -> Optional[dict[str, Any]]:
 
 
 def _normalize_recovery_event(event: Any) -> Optional[dict[str, Any]]:
+    event = _as_event_mapping(event)
     if event is None:
-        return None
-    if hasattr(event, "to_dict"):
-        event = event.to_dict()
-    if not isinstance(event, Mapping):
         return None
 
     source = _coerce_optional_text(event.get("source")) or "streaming_recovery"

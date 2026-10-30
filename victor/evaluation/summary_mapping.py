@@ -60,4 +60,57 @@ def extract_summary_mapping(value: Any, key: str) -> Optional[dict[str, Any]]:
     return None
 
 
-__all__ = ["extract_summary_mapping", "extract_value"]
+def extract_sequence(value: Any, key: str) -> list[Any]:
+    """Return ``key`` (mapping key or attribute) as a list when it is a sequence, else ``[]``."""
+    raw_value = extract_value(value, key, [])
+    if isinstance(raw_value, (list, tuple)):
+        return list(raw_value)
+    return []
+
+
+def as_event_mapping(value: Any) -> Optional[Mapping[str, Any]]:
+    """Return ``value`` (or its ``to_dict()``) when it is a mapping, else None."""
+    if value is None:
+        return None
+    if hasattr(value, "to_dict"):
+        value = value.to_dict()
+    return value if isinstance(value, Mapping) else None
+
+
+def coerce_optional_text(value: Any) -> Optional[str]:
+    """Stripped text of ``value`` (unwrapping enum ``.value``); None when blank."""
+    if value is None:
+        return None
+    text = str(getattr(value, "value", value)).strip()
+    return text or None
+
+
+def coerce_optional_float(value: Any) -> Optional[float]:
+    """``float(value)``; None for None, ``""`` or unparseable input."""
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def coerce_optional_int(value: Any) -> Optional[int]:
+    """``int(value)``; None for None, ``""`` or unparseable input."""
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+__all__ = [
+    "as_event_mapping",
+    "coerce_optional_float",
+    "coerce_optional_int",
+    "coerce_optional_text",
+    "extract_sequence",
+    "extract_summary_mapping",
+    "extract_value",
+]

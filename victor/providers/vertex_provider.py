@@ -34,8 +34,6 @@ References:
 - https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference
 """
 
-from victor.core.json_utils import json_loads
-from json import JSONDecodeError
 import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -54,6 +52,7 @@ from victor.providers.base import (
     ToolDefinition,
 )
 from victor.providers.logging import ProviderLogger
+from victor.providers.openai_compat import iter_provider_sse_chunks
 
 # Vertex AI models available
 VERTEX_MODELS = {
@@ -362,29 +361,13 @@ class VertexAIProvider(BaseProvider):
 
             async with self.client.stream("POST", url, json=payload, headers=headers) as response:
                 response.raise_for_status()
-                accumulated_tool_calls: List[Dict[str, Any]] = []
-
-                async for line in response.aiter_lines():
-                    if not line.strip() or not line.startswith("data: "):
-                        continue
-
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        yield StreamChunk(
-                            content="",
-                            tool_calls=(accumulated_tool_calls if accumulated_tool_calls else None),
-                            stop_reason="stop",
-                            is_final=True,
-                        )
-                        break
-
-                    try:
-                        chunk_data = json_loads(data_str)
-                        yield self._parse_stream_chunk(chunk_data, accumulated_tool_calls)
-                    except JSONDecodeError:
-                        self._provider_logger.logger.warning(
-                            f"Vertex AI JSON decode error on line: {line[:100]}"
-                        )
+                async for chunk in iter_provider_sse_chunks(
+                    response,
+                    self._parse_stream_chunk,
+                    StreamChunk,
+                    on_decode_error=self._log_sse_decode_error,
+                ):
+                    yield chunk
 
         except httpx.TimeoutException as e:
             raise ProviderTimeoutError(
@@ -537,6 +520,9 @@ class VertexAIProvider(BaseProvider):
             model=model,
             raw_response=result,
         )
+
+    def _log_sse_decode_error(self, line: str) -> None:
+        self._provider_logger.logger.warning(f"Vertex AI JSON decode error on line: {line[:100]}")
 
     def _parse_stream_chunk(self, chunk_data, accumulated_tool_calls) -> StreamChunk:
         """Parse Vertex AI stream chunk."""

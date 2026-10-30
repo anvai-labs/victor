@@ -28,6 +28,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from victor.agent.edge_decision_cache import (
+    CachedEdgeDecider,
+    extract_labeled_float,
+    extract_labeled_text,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,7 +84,7 @@ class TaskClassification:
         }
 
 
-class TaskClassifier:
+class TaskClassifier(CachedEdgeDecider[TaskClassification]):
     """Classifies tasks using edge model.
 
     Uses the fast edge model (qwen3.5:2b) to provide more accurate
@@ -92,6 +98,9 @@ class TaskClassifier:
         # Returns: task_type="create_simple", confidence=0.95
     """
 
+    _STATS_TOTAL_KEY = "total_classifications"
+    _LOG_NAME = "TaskClassifier"
+
     # Task classification micro-prompt
     CLASSIFICATION_PROMPT = """Classify this query into a task type:
 
@@ -104,26 +113,6 @@ TASK_TYPE: <primary task type>
 CONFIDENCE: <0.0-1.0>
 ALTERNATIVES: <type1>:<score>, <type2>:<score>
 REASONING: <one sentence>"""
-
-    def __init__(
-        self,
-        enabled: bool = True,
-        use_cache: bool = True,
-        cache_ttl: int = 3600,
-    ):
-        """Initialize the task classifier.
-
-        Args:
-            enabled: Whether the classifier is enabled
-            use_cache: Whether to cache classifications
-            cache_ttl: Cache time-to-live in seconds
-        """
-        self.enabled = enabled
-        self.use_cache = use_cache
-        self.cache_ttl = cache_ttl
-        self._cache: Dict[str, tuple[TaskClassification, float]] = {}
-        self._classification_count = 0
-        self._cache_hits = 0
 
     async def classify(
         self,
@@ -141,38 +130,11 @@ REASONING: <one sentence>"""
         Returns:
             TaskClassification with task type and confidence
         """
-        import time
-
-        self._classification_count += 1
-        start_time = time.time()
-
-        if not self.enabled:
-            # Fallback to heuristic-based classification
-            return self._heuristic_classify(query, start_time)
-
-        # Check cache
-        if self.use_cache:
-            cached = self._get_from_cache(query)
-            if cached:
-                self._cache_hits += 1
-                logger.debug("[TaskClassifier] Cache hit for query")
-                return cached
-
-        # Use edge model for classification
-        try:
-            classification = await self._edge_model_classify(
-                query, context, valid_types, start_time
-            )
-
-            # Cache the result
-            if self.use_cache:
-                self._add_to_cache(query, classification)
-
-            return classification
-
-        except Exception as e:
-            logger.warning(f"[TaskClassifier] Edge model failed: {e}, using heuristic")
-            return self._heuristic_classify(query, start_time)
+        return await self._decide(
+            query,
+            lambda start_time: self._edge_model_classify(query, context, valid_types, start_time),
+            lambda start_time: self._heuristic_classify(query, start_time),
+        )
 
     def _heuristic_classify(self, query: str, start_time: float) -> TaskClassification:
         """Fallback heuristic-based task classification.
@@ -265,9 +227,9 @@ REASONING: <one sentence>"""
 
             # Parse response
             task_type = self._extract_task_type(response, types)
-            confidence = self._extract_confidence(response)
+            confidence = extract_labeled_float(response, "CONFIDENCE", 0.8)
             alternatives = self._extract_alternatives(response, types)
-            reasoning = self._extract_reasoning(response)
+            reasoning = extract_labeled_text(response, "REASONING", "No reasoning provided")
 
             latency_ms = (time.time() - start_time) * 1000
 
@@ -302,18 +264,6 @@ REASONING: <one sentence>"""
                 return task_type
         return "unknown"  # Default if not found or invalid
 
-    def _extract_confidence(self, response: str) -> float:
-        """Extract confidence from response."""
-        import re
-
-        match = re.search(r"CONFIDENCE:\s*([0-9.]+)", response, re.IGNORECASE)
-        if match:
-            try:
-                return float(match.group(1))
-            except ValueError:
-                pass
-        return 0.8  # Default
-
     def _extract_alternatives(self, response: str, valid_types: List[str]) -> Dict[str, float]:
         """Extract alternative task types from response."""
         import re
@@ -332,59 +282,6 @@ REASONING: <one sentence>"""
             except (ValueError, AttributeError):
                 pass
         return alternatives
-
-    def _extract_reasoning(self, response: str) -> str:
-        """Extract reasoning from response."""
-        import re
-
-        match = re.search(r"REASONING:\s*(.+)", response, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        return "No reasoning provided"
-
-    def _get_from_cache(self, query: str) -> Optional[TaskClassification]:
-        """Get classification from cache if available."""
-        import time
-
-        if query in self._cache:
-            classification, timestamp = self._cache[query]
-            if time.time() - timestamp < self.cache_ttl:
-                return classification
-            else:
-                # Expired, remove from cache
-                del self._cache[query]
-        return None
-
-    def _add_to_cache(self, query: str, classification: TaskClassification) -> None:
-        """Add classification to cache."""
-        import time
-
-        self._cache[query] = (classification, time.time())
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get classifier statistics.
-
-        Returns:
-            Dict with classification counts and cache statistics
-        """
-        cache_hit_rate = (
-            (self._cache_hits / self._classification_count)
-            if self._classification_count > 0
-            else 0.0
-        )
-
-        return {
-            "total_classifications": self._classification_count,
-            "cache_hits": self._cache_hits,
-            "cache_hit_rate": cache_hit_rate,
-            "cache_size": len(self._cache),
-        }
-
-    def reset_statistics(self) -> None:
-        """Reset statistics."""
-        self._classification_count = 0
-        self._cache_hits = 0
-        self._cache.clear()
 
 
 # Singleton instance
