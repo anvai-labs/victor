@@ -180,7 +180,9 @@ jobs:
 
       - name: Install and run Semgrep
         run: |
-          pip install semgrep
+          # Pinned: semgrep 1.183.0 hits an internal matching error on
+          # release.yml (curl-eval rule), failing the scan as incomplete.
+          pip install semgrep==1.182.1
           semgrep_status=0
           semgrep scan \
             --config auto \
