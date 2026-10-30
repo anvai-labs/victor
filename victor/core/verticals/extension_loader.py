@@ -102,6 +102,7 @@ from typing import (
     Set,
 )
 
+from victor.core.events.periodic import PeriodicMetricsReporter
 from victor.core.verticals.extension_cache_manager import ExtensionCacheManager
 from victor.core.verticals.extension_module_resolver import ExtensionModuleResolver
 
@@ -1509,8 +1510,10 @@ class VerticalExtensionLoader(ABC):
                     cls._cache_manager._cache.pop(key, None)
 
 
-class ExtensionLoaderMetricsReporter:
+class ExtensionLoaderMetricsReporter(PeriodicMetricsReporter):
     """Periodic publisher for extension-loader metrics snapshots."""
+
+    _THREAD_NAME = "ext-loader-metrics-reporter"
 
     def __init__(
         self,
@@ -1520,59 +1523,19 @@ class ExtensionLoaderMetricsReporter:
         source: str = "ExtensionLoaderMetricsReporter",
         reset_after_emit: bool = False,
     ) -> None:
-        if interval_seconds <= 0:
-            raise ValueError("interval_seconds must be > 0")
+        super().__init__(
+            interval_seconds=interval_seconds,
+            topic=topic,
+            source=source,
+            reset_after_emit=reset_after_emit,
+        )
 
-        self._interval_seconds = interval_seconds
-        self._topic = topic
-        self._source = source
-        self._reset_after_emit = reset_after_emit
-        self._stop_event = threading.Event()
-        self._lock = threading.Lock()
-        self._thread: Optional[threading.Thread] = None
-
-    @property
-    def is_running(self) -> bool:
-        """Return True while periodic reporter thread is active."""
-        with self._lock:
-            return self._thread is not None and self._thread.is_alive()
-
-    def start(self) -> None:
-        """Start periodic metrics emission if not already running."""
-        with self._lock:
-            if self._thread is not None and self._thread.is_alive():
-                return
-            self._stop_event.clear()
-            self._thread = threading.Thread(
-                target=self._run_loop,
-                name="ext-loader-metrics-reporter",
-                daemon=True,
-            )
-            self._thread.start()
-
-    def stop(self, *, timeout: float = 2.0) -> None:
-        """Stop periodic metrics emission."""
-        with self._lock:
-            thread = self._thread
-            if thread is None:
-                return
-            self._stop_event.set()
-        thread.join(timeout=timeout)
-        with self._lock:
-            if self._thread is thread:
-                self._thread = None
-
-    def _run_loop(self) -> None:
-        """Loop that emits extension-loader metrics at fixed intervals."""
-        while not self._stop_event.wait(self._interval_seconds):
-            try:
-                VerticalExtensionLoader.emit_extension_loader_metrics_event(
-                    topic=self._topic,
-                    source=self._source,
-                    reset_after_emit=self._reset_after_emit,
-                )
-            except Exception as e:
-                logger.debug("ExtensionLoaderMetricsReporter loop error: %s", e)
+    def _emit(self) -> None:
+        VerticalExtensionLoader.emit_extension_loader_metrics_event(
+            topic=self._topic,
+            source=self._source,
+            reset_after_emit=self._reset_after_emit,
+        )
 
 
 def start_extension_loader_metrics_reporter(

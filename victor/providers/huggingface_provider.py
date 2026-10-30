@@ -38,12 +38,13 @@ References:
 - https://huggingface.co/docs/inference-endpoints/
 """
 
-from victor.core.json_utils import json_dumps, json_loads
 from victor.providers.openai_compat import (
+    build_provider_request_payload,
+    iter_provider_sse_chunks,
     normalize_provider_tool_calls,
+    parse_provider_response,
     parse_provider_stream_chunk,
 )
-from json import JSONDecodeError
 import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -344,27 +345,10 @@ class HuggingFaceProvider(BaseProvider):
 
             async with self.client.stream("POST", url, json=payload) as response:
                 response.raise_for_status()
-                accumulated_tool_calls: List[Dict[str, Any]] = []
-
-                async for line in response.aiter_lines():
-                    if not line.strip() or not line.startswith("data: "):
-                        continue
-
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        yield StreamChunk(
-                            content="",
-                            tool_calls=(accumulated_tool_calls if accumulated_tool_calls else None),
-                            stop_reason="stop",
-                            is_final=True,
-                        )
-                        break
-
-                    try:
-                        chunk_data = json_loads(data_str)
-                        yield self._parse_stream_chunk(chunk_data, accumulated_tool_calls)
-                    except JSONDecodeError:
-                        pass
+                async for chunk in iter_provider_sse_chunks(
+                    response, self._parse_stream_chunk, StreamChunk
+                ):
+                    yield chunk
 
         except httpx.TimeoutException as e:
             raise ProviderTimeoutError(
@@ -382,82 +366,13 @@ class HuggingFaceProvider(BaseProvider):
         self, messages, model, temperature, max_tokens, tools, stream, **kwargs
     ) -> Dict[str, Any]:
         """Build OpenAI-compatible request payload."""
-        formatted_messages = []
-        for msg in messages:
-            formatted_msg = {"role": msg.role, "content": msg.content}
-            if msg.role == "tool" and hasattr(msg, "tool_call_id"):
-                formatted_msg["tool_call_id"] = msg.tool_call_id
-            if msg.tool_calls:
-                formatted_msg["tool_calls"] = [
-                    {
-                        "id": tc.get("id", ""),
-                        "type": "function",
-                        "function": {
-                            "name": tc.get("name", ""),
-                            "arguments": (
-                                json_dumps(tc.get("arguments", {}))
-                                if isinstance(tc.get("arguments"), dict)
-                                else tc.get("arguments", "{}")
-                            ),
-                        },
-                    }
-                    for tc in msg.tool_calls
-                ]
-            formatted_messages.append(formatted_msg)
-
-        payload = {
-            "model": model,
-            "messages": formatted_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "stream": stream,
-        }
-
-        if tools:
-            payload["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.parameters,
-                    },
-                }
-                for tool in tools
-            ]
-            payload["tool_choice"] = "auto"
-
-        return payload
+        return build_provider_request_payload(
+            messages, temperature, max_tokens, tools, stream, model=model
+        )
 
     def _parse_response(self, result: Dict[str, Any], model: str) -> CompletionResponse:
-        """Parse HF response (OpenAI format)."""
-        choices = result.get("choices", [])
-        if not choices:
-            return CompletionResponse(
-                content="", role="assistant", model=model, raw_response=result
-            )
-
-        choice = choices[0]
-        message = choice.get("message", {})
-        tool_calls = self._normalize_tool_calls(message.get("tool_calls"))
-
-        usage = None
-        if usage_data := result.get("usage"):
-            usage = {
-                "prompt_tokens": usage_data.get("prompt_tokens", 0),
-                "completion_tokens": usage_data.get("completion_tokens", 0),
-                "total_tokens": usage_data.get("total_tokens", 0),
-            }
-
-        return CompletionResponse(
-            content=message.get("content", "") or "",
-            role="assistant",
-            tool_calls=tool_calls,
-            stop_reason=choice.get("finish_reason"),
-            usage=usage,
-            model=model,
-            raw_response=result,
-        )
+        """Parse an OpenAI-format response (shared implementation)."""
+        return parse_provider_response(result, model, CompletionResponse)
 
     def _normalize_tool_calls(self, tool_calls) -> Optional[List[Dict[str, Any]]]:
         """Normalize tool calls to Victor format (shared implementation)."""

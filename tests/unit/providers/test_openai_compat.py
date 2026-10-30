@@ -1,5 +1,7 @@
 """Tests for OpenAI-compatible utilities."""
 
+import json
+
 import pytest
 
 from victor.providers.openai_compat import (
@@ -622,3 +624,117 @@ class TestExtractToolCallsFromContent:
         content = '{"type": "object", "value": 42}'
         tool_calls, remaining = extract_tool_calls_from_content(content)
         assert len(tool_calls) == 0
+
+
+class TestProviderPairHelpers:
+    """Shared Azure/Hugging Face/Vertex payload, response and SSE helpers."""
+
+    def _messages(self):
+        return [
+            Message(role="user", content="hi"),
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    {"id": "c1", "name": "read", "arguments": {"path": "a"}},
+                    {"id": "c2", "name": "grep", "arguments": '{"q": 1}'},
+                ],
+            ),
+            Message(role="tool", content="r", tool_call_id="c1"),
+        ]
+
+    def test_payload_omits_model_unless_given(self):
+        from victor.providers.openai_compat import build_provider_request_payload
+
+        without = build_provider_request_payload(self._messages(), 0.2, 50, None, False)
+        with_model = build_provider_request_payload(
+            self._messages(), 0.2, 50, None, True, model="m"
+        )
+        assert "model" not in without
+        assert with_model["model"] == "m" and with_model["stream"] is True
+        assert "tools" not in without and "tool_choice" not in without
+
+    def test_payload_serializes_tool_calls_and_tools(self):
+        from victor.providers.openai_compat import build_provider_request_payload
+
+        tools = [ToolDefinition(name="read", description="d", parameters={"type": "object"})]
+        payload = build_provider_request_payload(self._messages(), 0.2, 50, tools, False)
+        calls = payload["messages"][1]["tool_calls"]
+        assert json.loads(calls[0]["function"]["arguments"]) == {"path": "a"}
+        assert calls[1]["function"]["arguments"] == '{"q": 1}'
+        assert payload["messages"][2]["tool_call_id"] == "c1"
+        assert payload["tools"][0]["function"]["name"] == "read"
+        assert payload["tool_choice"] == "auto"
+
+    def test_parse_response_recovers_cached_tokens(self):
+        from victor.providers.base import CompletionResponse
+        from victor.providers.openai_compat import parse_provider_response
+
+        result = {
+            "choices": [
+                {
+                    "message": {
+                        "content": None,
+                        "tool_calls": [{"id": "1", "function": {"name": "f", "arguments": "{bad"}}],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 2,
+                "total_tokens": 7,
+                "prompt_tokens_details": {"cached_tokens": 3},
+            },
+        }
+        response = parse_provider_response(result, "m", CompletionResponse)
+        assert response.content == ""
+        assert response.tool_calls == [{"id": "1", "name": "f", "arguments": {}}]
+        assert response.usage["cache_read_input_tokens"] == 3
+        assert response.stop_reason == "tool_calls"
+
+    def test_parse_response_without_choices_or_usage(self):
+        from victor.providers.base import CompletionResponse
+        from victor.providers.openai_compat import parse_provider_response
+
+        empty = parse_provider_response({"choices": []}, "m", CompletionResponse)
+        assert empty.content == "" and empty.usage is None and empty.model == "m"
+
+    async def test_sse_iterator_skips_noise_and_finishes_on_done(self):
+        from victor.providers.base import StreamChunk
+        from victor.providers.openai_compat import (
+            iter_provider_sse_chunks,
+            parse_provider_stream_chunk,
+        )
+
+        class _Response:
+            async def aiter_lines(self):
+                for line in [
+                    "",
+                    ": keepalive",
+                    'data: {"choices":[{"delta":{"content":"he"}}]}',
+                    "data: {broken",
+                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t",'
+                    '"function":{"name":"f","arguments":"{}"}}]}}]}',
+                    "data: [DONE]",
+                    'data: {"choices":[{"delta":{"content":"after"}}]}',
+                ]:
+                    yield line
+
+        decode_errors = []
+        chunks = [
+            chunk
+            async for chunk in iter_provider_sse_chunks(
+                _Response(),
+                lambda data, acc: parse_provider_stream_chunk(
+                    data, acc, lambda kw: StreamChunk(**kw)
+                ),
+                StreamChunk,
+                on_decode_error=decode_errors.append,
+            )
+        ]
+        assert [c.content for c in chunks] == ["he", "", ""]
+        assert decode_errors == ["data: {broken"]
+        final = chunks[-1]
+        assert final.is_final and final.stop_reason == "stop"
+        assert final.tool_calls and final.tool_calls[0]["name"] == "f"

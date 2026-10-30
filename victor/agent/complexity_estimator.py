@@ -33,6 +33,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
+from victor.agent.edge_decision_cache import (
+    CachedEdgeDecider,
+    extract_labeled_float,
+    extract_labeled_text,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,7 +102,7 @@ class ComplexityEstimate:
         }
 
 
-class ComplexityEstimator:
+class ComplexityEstimator(CachedEdgeDecider[ComplexityEstimate]):
     """Estimates query complexity using edge model.
 
     Uses the fast edge model (qwen3.5:2b) to provide more accurate
@@ -109,6 +115,9 @@ class ComplexityEstimator:
         estimate = await estimator.estimate("create a new file")
         # Returns: score=0.1, band=TRIVIAL, confidence=0.95
     """
+
+    _STATS_TOTAL_KEY = "total_estimates"
+    _LOG_NAME = "ComplexityEstimator"
 
     # Complexity estimation micro-prompt
     COMPLEXITY_PROMPT = """Rate the complexity of this query on a scale of 0-1:
@@ -128,26 +137,6 @@ BAND: <TRIVIAL|SIMPLE|MODERATE|COMPLEX|EXPERT>
 CONFIDENCE: <0.0-1.0>
 REASONING: <one sentence>"""
 
-    def __init__(
-        self,
-        enabled: bool = True,
-        use_cache: bool = True,
-        cache_ttl: int = 3600,
-    ):
-        """Initialize the complexity estimator.
-
-        Args:
-            enabled: Whether the estimator is enabled
-            use_cache: Whether to cache estimates
-            cache_ttl: Cache time-to-live in seconds
-        """
-        self.enabled = enabled
-        self.use_cache = use_cache
-        self.cache_ttl = cache_ttl
-        self._cache: Dict[str, tuple[ComplexityEstimate, float]] = {}
-        self._estimate_count = 0
-        self._cache_hits = 0
-
     async def estimate(
         self,
         query: str,
@@ -162,36 +151,11 @@ REASONING: <one sentence>"""
         Returns:
             ComplexityEstimate with score, band, and reasoning
         """
-        import time
-
-        self._estimate_count += 1
-        start_time = time.time()
-
-        if not self.enabled:
-            # Fallback to heuristic-based estimation
-            return self._heuristic_estimate(query, start_time)
-
-        # Check cache
-        if self.use_cache:
-            cached = self._get_from_cache(query)
-            if cached:
-                self._cache_hits += 1
-                logger.debug("[ComplexityEstimator] Cache hit for query")
-                return cached
-
-        # Use edge model for estimation
-        try:
-            estimate = await self._edge_model_estimate(query, context, start_time)
-
-            # Cache the result
-            if self.use_cache:
-                self._add_to_cache(query, estimate)
-
-            return estimate
-
-        except Exception as e:
-            logger.warning(f"[ComplexityEstimator] Edge model failed: {e}, using heuristic")
-            return self._heuristic_estimate(query, start_time)
+        return await self._decide(
+            query,
+            lambda start_time: self._edge_model_estimate(query, context, start_time),
+            lambda start_time: self._heuristic_estimate(query, start_time),
+        )
 
     def _heuristic_estimate(self, query: str, start_time: float) -> ComplexityEstimate:
         """Fallback heuristic-based complexity estimation.
@@ -267,10 +231,10 @@ REASONING: <one sentence>"""
             )
 
             # Parse response
-            score = self._extract_score(response)
+            score = extract_labeled_float(response, "COMPLEXITY", 0.5)
             band = self._extract_band(response)
-            confidence = self._extract_confidence(response)
-            reasoning = self._extract_reasoning(response)
+            confidence = extract_labeled_float(response, "CONFIDENCE", 0.8)
+            reasoning = extract_labeled_text(response, "REASONING", "No reasoning provided")
 
             latency_ms = (time.time() - start_time) * 1000
 
@@ -293,18 +257,6 @@ REASONING: <one sentence>"""
             logger.error(f"[ComplexityEstimator] Edge model error: {e}")
             raise
 
-    def _extract_score(self, response: str) -> float:
-        """Extract complexity score from response."""
-        import re
-
-        match = re.search(r"COMPLEXITY:\s*([0-9.]+)", response, re.IGNORECASE)
-        if match:
-            try:
-                return float(match.group(1))
-            except ValueError:
-                pass
-        return 0.5  # Default if not found
-
     def _extract_band(self, response: str) -> ComplexityBand:
         """Extract complexity band from response."""
         import re
@@ -317,69 +269,6 @@ REASONING: <one sentence>"""
             except ValueError:
                 pass
         return ComplexityBand.MODERATE  # Default
-
-    def _extract_confidence(self, response: str) -> float:
-        """Extract confidence from response."""
-        import re
-
-        match = re.search(r"CONFIDENCE:\s*([0-9.]+)", response, re.IGNORECASE)
-        if match:
-            try:
-                return float(match.group(1))
-            except ValueError:
-                pass
-        return 0.8  # Default
-
-    def _extract_reasoning(self, response: str) -> str:
-        """Extract reasoning from response."""
-        import re
-
-        match = re.search(r"REASONING:\s*(.+)", response, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        return "No reasoning provided"
-
-    def _get_from_cache(self, query: str) -> Optional[ComplexityEstimate]:
-        """Get estimate from cache if available."""
-        import time
-
-        if query in self._cache:
-            estimate, timestamp = self._cache[query]
-            if time.time() - timestamp < self.cache_ttl:
-                return estimate
-            else:
-                # Expired, remove from cache
-                del self._cache[query]
-        return None
-
-    def _add_to_cache(self, query: str, estimate: ComplexityEstimate) -> None:
-        """Add estimate to cache."""
-        import time
-
-        self._cache[query] = (estimate, time.time())
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get estimator statistics.
-
-        Returns:
-            Dict with estimation counts and cache statistics
-        """
-        cache_hit_rate = (
-            (self._cache_hits / self._estimate_count) if self._estimate_count > 0 else 0.0
-        )
-
-        return {
-            "total_estimates": self._estimate_count,
-            "cache_hits": self._cache_hits,
-            "cache_hit_rate": cache_hit_rate,
-            "cache_size": len(self._cache),
-        }
-
-    def reset_statistics(self) -> None:
-        """Reset statistics."""
-        self._estimate_count = 0
-        self._cache_hits = 0
-        self._cache.clear()
 
 
 # Singleton instance
