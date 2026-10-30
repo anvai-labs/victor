@@ -66,9 +66,15 @@ def test_both_tools_are_read_only_and_safe(tools):
 
 
 def test_registry_discovers_both_tools():
+    # Discovery runs once per singleton; a sibling test in the shard may have
+    # left a pre-populated instance, so discover on a fresh one.
+    SharedToolRegistry.reset_instance()
     registry = SharedToolRegistry.get_instance()
     registry.get_tool_classes()
-    assert {"codebase_verify", "codebase_verify_batch"} <= set(registry._tool_classes)
+    try:
+        assert {"codebase_verify", "codebase_verify_batch"} <= set(registry._tool_classes)
+    finally:
+        SharedToolRegistry.reset_instance()
 
 
 @pytest.fixture
