@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Requires `victor-contracts>=0.12.0`.
+
+### Changed
+
+- The framework `BaseChunker` (`victor.framework.ingestion`) and the RAG
+  vertical's `DocumentChunker` now delegate their text, markdown and code
+  strategies to the SDK core `victor_contracts.chunking.TextChunker`; HTML,
+  JSON, document-type detection and the public APIs are unchanged (pinned by
+  characterization goldens). Both `ChunkingConfig` names are now the SDK
+  class, which raises `ValueError` for settings the old loop could not finish
+  with (`chunk_size <= 0`, negative `min_chunk_size`, `chunk_overlap` outside
+  `[0, chunk_size)` or above `min_chunk_size`). Defaults are unaffected.
+
 ## [0.20.0] - 2026-10-29
 
 Requires `victor-contracts>=0.11.0` (released alongside as `sdk-v0.11.0`).
