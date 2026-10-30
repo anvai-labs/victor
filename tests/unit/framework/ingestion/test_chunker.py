@@ -131,6 +131,20 @@ CONFIGS: dict[str, dict[str, Any]] = {
 
 DOC_TYPES = ["text", "markdown", "code", "html", "json"]
 
+# The lxml-backed HTML strategy's offsets for non-HTML input follow the
+# installed bs4/lxml get_text() whitespace (changed between bs4 4.12 and
+# 4.15), so the html strategy is pinned only on inputs stable across them.
+_HTML_STABLE = {"empty", "blank", "tiny", "html", "json_invalid"}
+
+
+def _pinned(content_name: str, doc_type: str) -> bool:
+    return doc_type != "html" or content_name in _HTML_STABLE
+
+
+GOLDEN_KEYS = [
+    f"{c}/{n}/{t}" for c in CONFIGS for n in CONTENTS for t in DOC_TYPES if _pinned(n, t)
+]
+
 DETECTION_CASES: list[tuple[str, str]] = [
     ("notes.md", "plain"),
     ("page.HTML", "plain"),
@@ -161,7 +175,7 @@ def _actual() -> dict[str, Any]:
         chunker = BaseChunker(ChunkingConfig(**cfg))
         for content_name, content in CONTENTS.items():
             out["estimates"][f"{cfg_name}/{content_name}"] = chunker.estimate_chunks(content)
-            for doc_type in DOC_TYPES:
+            for doc_type in (t for t in DOC_TYPES if _pinned(content_name, t)):
                 chunks = chunker.chunk(content, doc_type=doc_type, metadata={"k": "v"})
                 assert all(c.doc_type == doc_type and c.metadata == {"k": "v"} for c in chunks)
                 out["chunks"][f"{cfg_name}/{content_name}/{doc_type}"] = [
@@ -191,7 +205,7 @@ def golden() -> dict[str, Any]:
 
 @pytest.mark.parametrize(
     "key",
-    [f"{c}/{n}/{t}" for c in CONFIGS for n in CONTENTS for t in DOC_TYPES],
+    GOLDEN_KEYS,
 )
 def test_chunk_output_matches_golden(actual: dict[str, Any], golden: dict[str, Any], key: str):
     assert actual["chunks"][key] == golden["chunks"][key]
