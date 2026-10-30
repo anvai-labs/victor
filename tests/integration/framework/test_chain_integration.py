@@ -43,8 +43,40 @@ def _import_vertical_attr(module_path: str, attr_name: str):
     return getattr(module, attr_name)
 
 
+EXPECTED_CODING_CHAINS = (
+    "explore_file",
+    "analyze_function",
+    "safe_edit",
+    "git_status",
+    "search_with_context",
+    "lint",
+    "test_discovery",
+    "review_analysis",
+)
+
+
+def _activate_coding_chains() -> dict:
+    """Register the coding vertical's chains the way vertical activation does.
+
+    Activation (``step_handlers.apply_chains``) passes
+    ``CodingAssistant.get_composed_chains()`` to the framework integration
+    registry service, which calls ``ChainRegistry.register_from_vertical``.
+    A fresh service instance is used so its fingerprint dedup cannot leak
+    between tests.
+    """
+    from victor.framework.framework_integration_registry_service import (
+        FrameworkIntegrationRegistryService,
+    )
+
+    coding_assistant = _import_vertical_attr("victor.coding.assistant", "CodingAssistant")
+    chains = coding_assistant.get_composed_chains()
+    count = FrameworkIntegrationRegistryService().register_chains("coding", chains)
+    assert count == len(chains)
+    return chains
+
+
 class TestCodingChainRegistry:
-    """Tests for Coding vertical's chain registry integration."""
+    """Coding chains are discoverable in the flat ChainRegistry after activation."""
 
     @pytest.fixture(autouse=True)
     def reset_registry_before_tests(self):
@@ -55,232 +87,100 @@ class TestCodingChainRegistry:
         yield
         reset_chain_registry()
 
-    def test_coding_chains_import_and_register(self):
-        """Importing coding.composed_chains makes chains available."""
-        # The chains are defined in CODING_CHAINS dict but may not auto-register
-        # This test verifies the chains exist and can be accessed
-        try:
-            # Import the module
-            CODING_CHAINS = _import_vertical_attr("victor.coding.composed_chains", "CODING_CHAINS")
+    def test_registry_is_empty_before_activation(self):
+        """Importing the chains module alone does not populate the flat registry."""
+        from victor.framework.chain_registry import get_chain_registry
 
-            # Get the global registry
-            from victor.framework.chain_registry import get_chain_registry
+        _import_vertical_attr("victor.coding.composed_chains", "CODING_CHAINS")
 
-            registry = get_chain_registry()
-
-            # Chains exist in the module dict
-            assert len(CODING_CHAINS) > 0
-
-            # Registry infrastructure should exist
-            assert registry is not None
-        except (ImportError, ModuleNotFoundError):
-            # If chains module doesn't exist, that's okay
-            # Just verify the infrastructure is in place
-            from victor.framework.chain_registry import get_chain_registry
-
-            registry = get_chain_registry()
-            # Registry should exist even if empty
-            assert registry is not None
+        assert get_chain_registry().list_chains(vertical="coding") == []
 
     def test_coding_eight_chains_registered(self):
-        """Exactly 8 coding chains are registered (or infrastructure in place)."""
-        try:
-            CODING_CHAINS = _import_vertical_attr("victor.coding.composed_chains", "CODING_CHAINS")
-            from victor.framework.chain_registry import get_chain_registry
+        """Activation registers exactly the eight composed coding chains."""
+        from victor.framework.chain_registry import get_chain_registry
 
-            registry = get_chain_registry()
+        _activate_coding_chains()
 
-            # Get all coding chains
-            coding_chains = registry.find_by_vertical("coding")
-
-            # Should have exactly 8 chains (or 0 if not yet registered)
-            assert len(coding_chains) >= 0
-            if len(coding_chains) > 0:
-                assert len(coding_chains) == 8
-        except (ImportError, ModuleNotFoundError):
-            # Skip if chains module doesn't exist yet
-            pytest.skip("Coding chains module not yet implemented")
+        coding_chains = get_chain_registry().find_by_vertical("coding")
+        assert len(coding_chains) == 8
 
     def test_coding_chain_names_complete(self):
-        """All expected coding chain names are registered (if implemented)."""
-        try:
-            from victor.framework.chain_registry import get_chain_registry
+        """All expected coding chains are listed under the coding namespace."""
+        from victor.framework.chain_registry import get_chain_registry
 
-            registry = get_chain_registry()
-            coding_chains = registry.list_chains(vertical="coding")
+        _activate_coding_chains()
 
-            # If no chains registered yet, skip
-            if len(coding_chains) == 0:
-                pytest.skip("No coding chains registered yet")
+        listed = set(get_chain_registry().list_chains(vertical="coding"))
+        assert listed == {f"coding:{name}" for name in EXPECTED_CODING_CHAINS}
 
-            # Extract short names (remove "coding:" prefix)
-            chain_names = [name.split(":", 1)[1] if ":" in name else name for name in coding_chains]
+    def test_coding_chain_metadata(self):
+        """Each activated chain carries direct-registration metadata."""
+        from victor.framework.chain_registry import get_chain_registry
 
-            # Expected 8 chains from composed_chains.py
-            expected_chains = [
-                "explore_file_chain",
-                "analyze_function_chain",
-                "safe_edit_chain",
-                "git_status_chain",
-                "search_with_context_chain",
-                "lint_chain",
-                "test_discovery_chain",
-                "review_analysis_chain",
-            ]
+        _activate_coding_chains()
 
-            for expected in expected_chains:
-                assert expected in chain_names, f"Missing chain: {expected}"
-        except Exception:
-            pytest.skip("Chain names test skipped - infrastructure not ready")
-
-    def test_coding_chain_metadata_complete(self):
-        """All coding chains have complete metadata (if registered)."""
-        try:
-            from victor.framework.chain_registry import get_chain_registry
-
-            registry = get_chain_registry()
-            metadata_list = registry.list_metadata(vertical="coding")
-
-            # If no chains, skip
-            if len(metadata_list) == 0:
-                pytest.skip("No coding chain metadata yet")
-
-            # Should have metadata for all chains
-            assert len(metadata_list) > 0
-
-            # Check metadata completeness
-            for meta in metadata_list:
-                # Required fields
-                assert meta.name  # Non-empty name
-                assert meta.vertical == "coding"
-                assert meta.description  # Non-empty description
-                assert meta.version  # Version string
-                assert isinstance(meta.tags, list)
-                assert len(meta.tags) > 0  # At least one tag
-        except Exception:
-            pytest.skip("Chain metadata test skipped")
+        metadata_list = get_chain_registry().list_metadata(vertical="coding")
+        assert sorted(m.name for m in metadata_list) == sorted(EXPECTED_CODING_CHAINS)
+        for meta in metadata_list:
+            assert meta.vertical == "coding"
+            assert meta.is_factory is False
+            assert meta.full_name == f"coding:{meta.name}"
 
     def test_coding_chain_version_semver(self):
         """Chain versions follow SemVer format."""
-        from victor.framework.chain_registry import get_chain_registry
         import re
 
-        registry = get_chain_registry()
-        metadata_list = registry.list_metadata(vertical="coding")
+        from victor.framework.chain_registry import get_chain_registry
 
-        # SemVer pattern: X.Y.Z
-        semver_pattern = r"^\d+\.\d+\.\d+$"
+        _activate_coding_chains()
 
+        metadata_list = get_chain_registry().list_metadata(vertical="coding")
+        assert metadata_list
         for meta in metadata_list:
-            assert re.match(
-                semver_pattern, meta.version
-            ), f"{meta.name} has invalid version: {meta.version}"
-
-    def test_coding_chain_categories(self):
-        """Coding chains are properly categorized (if registered)."""
-        try:
-            from victor.framework.chain_registry import get_chain_registry
-
-            registry = get_chain_registry()
-            metadata_list = registry.list_metadata(vertical="coding")
-
-            # If no chains, skip
-            if len(metadata_list) == 0:
-                pytest.skip("No coding chains for category test")
-
-            # Check that chains are tagged by category
-            categories = set()
-            for meta in metadata_list:
-                if meta.tags:
-                    categories.update(meta.tags)
-
-            # Should have multiple categories
-            assert len(categories) > 0
-        except Exception:
-            pytest.skip("Chain categories test skipped")
+            assert re.match(r"^\d+\.\d+\.\d+$", meta.version), meta
 
     def test_coding_chain_get_by_name(self):
-        """Individual chains can be retrieved by name (if registered)."""
-        try:
-            from victor.framework.chain_registry import get_chain_registry
+        """Individual chains are retrievable and are the vertical's objects."""
+        from victor.framework.chain_registry import get_chain, get_chain_registry
 
-            registry = get_chain_registry()
+        chains = _activate_coding_chains()
+        registry = get_chain_registry()
 
-            # Try to get specific chains
-            explore_chain = registry.get("explore_file_chain", vertical="coding")
-            edit_chain = registry.get("safe_edit_chain", vertical="coding")
-
-            # If no chains registered, that's okay
-            if explore_chain is None and edit_chain is None:
-                pytest.skip("No coding chains registered for retrieval test")
-
-            # Otherwise, at least one should be found
-            assert explore_chain is not None or edit_chain is not None
-        except Exception:
-            pytest.skip("Chain retrieval test skipped")
+        assert registry.get("explore_file", vertical="coding") is chains["explore_file"]
+        assert get_chain("safe_edit", vertical="coding") is chains["safe_edit"]
 
     def test_coding_chain_has_check(self):
-        """Chain existence can be checked with has()."""
-        try:
-            from victor.framework.chain_registry import get_chain_registry
+        """has() reports activated chains and rejects unknown ones."""
+        from victor.framework.chain_registry import get_chain_registry
 
-            registry = get_chain_registry()
+        _activate_coding_chains()
+        registry = get_chain_registry()
 
-            # If no chains, skip
-            if len(registry.list_chains(vertical="coding")) == 0:
-                pytest.skip("No coding chains for has() test")
-
-            # Existing chains
-            has_explore = registry.has("explore_file_chain", vertical="coding")
-            has_safe = registry.has("safe_edit_chain", vertical="coding")
-
-            # At least one should exist
-            assert has_explore or has_safe
-
-            # Non-existent chain
-            assert not registry.has("nonexistent_chain", vertical="coding")
-        except Exception:
-            pytest.skip("Chain has() test skipped")
+        assert registry.has("explore_file", vertical="coding")
+        assert registry.has("safe_edit", vertical="coding")
+        assert not registry.has("nonexistent_chain", vertical="coding")
+        assert not registry.has("explore_file", vertical="devops")
 
     def test_coding_chain_metadata_retrieval(self):
-        """Chain metadata can be retrieved individually (if registered)."""
-        try:
-            from victor.framework.chain_registry import get_chain_registry
+        """Chain metadata can be retrieved individually."""
+        from victor.framework.chain_registry import get_chain_registry
 
-            registry = get_chain_registry()
+        _activate_coding_chains()
 
-            # Get metadata for specific chain
-            meta = registry.get_metadata("explore_file_chain", vertical="coding")
+        meta = get_chain_registry().get_metadata("explore_file", vertical="coding")
+        assert meta is not None
+        assert meta.name == "explore_file"
+        assert meta.vertical == "coding"
 
-            if meta is None:
-                pytest.skip("No explore_file_chain metadata found")
+    def test_activated_chain_resolves_as_compute_handler(self):
+        """A workflow ``chain:coding:<name>`` handler resolves after activation."""
+        from victor.workflows.executors.compute import ComputeNodeExecutor
 
-            assert meta.name == "explore_file_chain"
-            assert meta.vertical == "coding"
-            assert meta.description != ""
-            assert len(meta.tags) > 0
-        except Exception:
-            pytest.skip("Chain metadata retrieval test skipped")
+        _activate_coding_chains()
 
-    def test_coding_chain_tags_discovery(self):
-        """Chains can be discovered by tags (if registered)."""
-        try:
-            from victor.framework.chain_registry import get_chain_registry
-
-            registry = get_chain_registry()
-
-            # Find chains with specific tags
-            exploration_chains = registry.find_by_tag("exploration")
-            analysis_chains = registry.find_by_tags(["analysis"])
-
-            # If no chains registered, that's okay
-            if len(exploration_chains) == 0 and len(analysis_chains) == 0:
-                pytest.skip("No coding chains for tag discovery test")
-
-            # Otherwise, at least one tag should find chains
-            assert len(exploration_chains) > 0 or len(analysis_chains) > 0
-        except Exception:
-            pytest.skip("Chain tag discovery test skipped")
+        handler = ComputeNodeExecutor()._resolve_chain_handler("chain:coding:explore_file")
+        assert handler is not None
+        assert callable(handler)
 
 
 class TestChainFactoryRegistration:
@@ -662,40 +562,36 @@ class TestChainIntegrationScenarios:
     """End-to-end integration scenarios for chain registry."""
 
     def test_coding_chains_full_workflow(self):
-        """Complete workflow: register, discover, retrieve, use chains (if exists)."""
+        """Complete workflow: activate, discover, retrieve and inspect coding chains."""
+        from victor.framework.chain_registry import get_chain_registry, reset_chain_registry
+
+        reset_chain_registry()
         try:
-            explore_file_chain = _import_vertical_attr(
-                "victor.coding.composed_chains",
-                "explore_file_chain",
-            )
             CODING_CHAINS = _import_vertical_attr("victor.coding.composed_chains", "CODING_CHAINS")
             list_chains = _import_vertical_attr("victor.coding.composed_chains", "list_chains")
-            from victor.framework.chain_registry import get_chain_registry
 
-            # 1. Import triggers registration
+            # 1. Activation registers the vertical's chains
+            _activate_coding_chains()
             registry = get_chain_registry()
 
             # 2. Discover chains
             coding_chains = registry.list_chains(vertical="coding")
-            if len(coding_chains) == 0:
-                pytest.skip("No coding chains registered")
-
             assert len(coding_chains) == 8
 
             # 3. Get specific chain
-            explore = registry.get("explore_file_chain", vertical="coding")
-            assert explore is not None
+            explore = registry.get("explore_file", vertical="coding")
+            assert explore is CODING_CHAINS["explore_file"]
 
             # 4. Get metadata
-            meta = registry.get_metadata("explore_file_chain", vertical="coding")
-            assert meta.name == "explore_file_chain"
+            meta = registry.get_metadata("explore_file", vertical="coding")
+            assert meta.name == "explore_file"
             assert meta.vertical == "coding"
 
-            # 5. Verify backward compatibility
+            # 5. Module-level helpers stay consistent with the registry
             assert "explore_file" in CODING_CHAINS
             assert "explore_file" in list_chains()
-        except (ImportError, ModuleNotFoundError):
-            pytest.skip("composed_chains module not yet implemented")
+        finally:
+            reset_chain_registry()
 
     def test_cross_vertical_chain_discovery(self):
         """Chains can be discovered across multiple verticals."""

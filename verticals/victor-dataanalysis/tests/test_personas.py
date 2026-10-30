@@ -107,3 +107,47 @@ class TestApplyPersonaToSpec:
 
         assert result is spec
         assert not spec.backstory
+
+
+class _RecordingPersonaRegistry:
+    """Minimal PersonaRegistryProtocol double that records registrations."""
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def register_persona(self, **kwargs) -> None:
+        self.calls.append(kwargs)
+
+
+class TestRegisterDataAnalysisPersonas:
+    """register_data_analysis_personas uses the default persona registry."""
+
+    def test_registers_into_default_registry(self, monkeypatch):
+        from victor_contracts import multi_agent, registries
+
+        from victor_dataanalysis.teams.personas import register_data_analysis_personas
+
+        recorder = _RecordingPersonaRegistry()
+        monkeypatch.setattr(registries, "_default_persona_registry", recorder)
+
+        def _no_runtime_hook():
+            raise AssertionError("get_runtime_persona_provider must not be used")
+
+        monkeypatch.setattr(multi_agent, "get_runtime_persona_provider", _no_runtime_hook)
+
+        count = register_data_analysis_personas()
+
+        assert count == len(DATA_ANALYSIS_PERSONAS)
+        assert {c["name"] for c in recorder.calls} == set(DATA_ANALYSIS_PERSONAS)
+        assert {c["vertical"] for c in recorder.calls} == {"dataanalysis"}
+        by_name = {c["name"]: c for c in recorder.calls}
+        assert by_name["statistician"]["category"] == "research"
+
+    def test_returns_zero_without_default_registry(self, monkeypatch):
+        from victor_contracts import registries
+
+        from victor_dataanalysis.teams.personas import register_data_analysis_personas
+
+        monkeypatch.setattr(registries, "_default_persona_registry", None)
+
+        assert register_data_analysis_personas() == 0

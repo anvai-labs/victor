@@ -18,6 +18,7 @@ These tests verify the ChainRegistry functionality for cross-vertical
 chain discovery and access.
 """
 
+import threading
 import pytest
 from unittest.mock import MagicMock
 
@@ -564,6 +565,20 @@ class TestChainRegistrySingleton:
         instance2 = ChainRegistry.get_instance()
         assert instance1 is not instance2
 
+    def test_get_chain_registry_is_class_singleton(self):
+        """get_chain_registry() and ChainRegistry.get_instance() are one object."""
+        assert get_chain_registry() is ChainRegistry.get_instance()
+        get_chain_registry().register("shared", "S")
+        assert ChainRegistry.get_instance().get("shared") == "S"
+
+    def test_reset_chain_registry_resets_class_singleton(self):
+        """reset_chain_registry() replaces the instance seen by both accessors."""
+        before = ChainRegistry.get_instance()
+        reset_chain_registry()
+        after = get_chain_registry()
+        assert after is not before
+        assert after is ChainRegistry.get_instance()
+
     def test_reset_chain_registry_function(self):
         """reset_chain_registry() convenience function works."""
         instance1 = get_chain_registry()
@@ -864,3 +879,191 @@ class TestChainRegistryClear:
         assert not registry.has("b")
         assert len(registry.list_chains()) == 0
         assert len(registry.list_factories()) == 0
+
+
+# =============================================================================
+# Characterisation Tests (pinned before the NamespacedRegistry extraction)
+# =============================================================================
+
+
+class TestChainRegistryCharacterisation:
+    """Pin public behaviour that the shared-base refactor must preserve."""
+
+    def test_batch_update_registers_and_resets_depth(self):
+        """Registrations inside batch_update are visible; the lock is released."""
+        registry = ChainRegistry()
+        with registry.batch_update():
+            with registry.batch_update():
+                registry.register("a", "A", vertical="v", tags=["t"])
+            registry.register("b", "B", vertical="v")
+        assert registry.list_chains(vertical="v") == ["v:a", "v:b"]
+        assert registry.find_by_tag("t") == {"v:a": "A"}
+        assert _lock_released(registry)
+
+    def test_batch_update_resets_depth_on_exception(self):
+        """An exception inside batch_update propagates and the lock is released."""
+        registry = ChainRegistry()
+        with pytest.raises(RuntimeError):
+            with registry.batch_update():
+                registry.register("a", "A")
+                raise RuntimeError("boom")
+        assert _lock_released(registry)
+        assert registry.get("a") == "A"
+
+    def test_batch_update_duplicate_skipped_with_warning(self, caplog):
+        """Duplicate registration inside a batch is skipped with a warning."""
+        registry = ChainRegistry()
+        with caplog.at_level("WARNING", logger="victor.framework.chain_registry"):
+            with registry.batch_update():
+                registry.register("a", "A")
+                registry.register("a", "B")
+        assert registry.get("a") == "A"
+        assert any("already registered" in r.message for r in caplog.records)
+
+    def test_batch_update_holds_lock_against_other_threads(self):
+        """Another thread cannot register while a batch is open."""
+        import threading
+
+        registry = ChainRegistry()
+        started = threading.Event()
+        done = threading.Event()
+
+        def other():
+            started.set()
+            registry.register("other", "O")
+            done.set()
+
+        with registry.batch_update():
+            t = threading.Thread(target=other)
+            t.start()
+            started.wait(1)
+            assert not done.wait(0.1)
+            assert not registry.has("other")
+        t.join(2)
+        assert registry.get("other") == "O"
+
+    def test_has_does_not_fall_back_but_get_does(self):
+        """has() checks only the exact key; get() falls back to the bare name."""
+        registry = ChainRegistry()
+        registry.register("bare", "B")
+        assert registry.has("bare") is True
+        assert registry.has("bare", vertical="coding") is False
+        assert registry.get("bare", vertical="coding") == "B"
+        assert registry.get_metadata("bare", vertical="coding").name == "bare"
+
+    def test_find_by_tags_empty_returns_copy_of_all(self):
+        """find_by_tags([]) returns a copy of every direct chain."""
+        registry = ChainRegistry()
+        registry.register("a", "A")
+        result = registry.find_by_tags([])
+        assert result == {"a": "A"}
+        result["x"] = "mutated"
+        assert registry.list_chains() == ["a"]
+
+    def test_find_by_tags_match_all_no_overlap(self):
+        """match_all with disjoint tags returns an empty dict."""
+        registry = ChainRegistry()
+        registry.register("a", "A", tags=["x"])
+        registry.register("b", "B", tags=["y"])
+        assert registry.find_by_tags(["x", "y"], match_all=True) == {}
+        assert registry.find_by_tags(["missing"], match_all=True) == {}
+
+    def test_factory_is_indexed_but_not_returned_by_finders(self):
+        """Factory metadata is indexed; find_* only return direct chains."""
+        registry = ChainRegistry()
+        registry.register_factory("f", lambda: "F", vertical="v", tags=["lazy"])
+        assert registry._tag_index == {"lazy": {"v:f"}}
+        assert registry.find_by_tag("lazy") == {}
+        assert registry.find_by_vertical("v") == {}
+        assert registry.has("f", vertical="v")
+        assert registry.list_chains() == []
+
+    def test_unregister_factory_clears_metadata_and_indexes(self):
+        """Unregistering a factory removes its metadata and index entries."""
+        registry = ChainRegistry()
+        registry.register_factory("f", lambda: "F", vertical="v", tags=["lazy"])
+        assert registry.unregister("f", vertical="v") is True
+        assert registry.get_metadata("f", vertical="v") is None
+        assert registry._tag_index == {}
+        assert registry._vertical_index == {}
+        assert registry.unregister("f", vertical="v") is False
+
+    def test_register_factory_duplicate_warns(self, caplog):
+        """Duplicate factory registration is skipped at WARNING level."""
+        registry = ChainRegistry()
+        registry.register("x", "X")
+        with caplog.at_level("WARNING", logger="victor.framework.chain_registry"):
+            registry.register_factory("x", lambda: "F")
+        assert any("already registered" in r.message for r in caplog.records)
+        assert registry.list_factories() == []
+
+    def test_register_direct_over_factory_key_is_allowed(self):
+        """Direct register() does not check the factory table."""
+        registry = ChainRegistry()
+        registry.register_factory("x", lambda: "F")
+        registry.register("x", "X")
+        assert registry.get("x") == "X"
+        assert registry.create("x") == "F"
+        assert registry.get_metadata("x").is_factory is False
+
+    def test_create_missing_factory_warns(self, caplog):
+        """create() of an unknown name logs a WARNING and returns None."""
+        registry = ChainRegistry()
+        with caplog.at_level("WARNING", logger="victor.framework.chain_registry"):
+            assert registry.create("nope", vertical="v") is None
+        assert any("No factory registered" in r.message for r in caplog.records)
+
+    def test_create_falls_back_to_bare_factory(self):
+        """create(name, vertical) falls back to an un-namespaced factory."""
+        registry = ChainRegistry()
+        registry.register_factory("f", lambda: "F")
+        assert registry.create("f", vertical="v") == "F"
+
+    def test_list_metadata_by_vertical_includes_factories(self):
+        """list_metadata(vertical) covers both chains and factories."""
+        registry = ChainRegistry()
+        registry.register("c", "C", vertical="v")
+        registry.register_factory("f", lambda: "F", vertical="v")
+        names = sorted(m.name for m in registry.list_metadata(vertical="v"))
+        assert names == ["c", "f"]
+
+    def test_register_from_vertical_replaces_by_default(self, caplog):
+        """register_from_vertical replaces by default and logs at INFO."""
+        registry = ChainRegistry()
+        registry.register("a", "OLD", vertical="v")
+        with caplog.at_level("INFO", logger="victor.framework.chain_registry"):
+            assert registry.register_from_vertical("v", {"a": "NEW", "b": "B"}) == 2
+        assert registry.get("a", vertical="v") == "NEW"
+        assert any("Registered 2 chains from vertical 'v'" in r.message for r in caplog.records)
+
+    def test_register_from_vertical_no_replace_counts_skips(self):
+        """With replace=False skipped duplicates are still counted (no exception)."""
+        registry = ChainRegistry()
+        registry.register("a", "OLD", vertical="v")
+        assert registry.register_from_vertical("v", {"a": "NEW"}, replace=False) == 1
+        assert registry.get("a", vertical="v") == "OLD"
+
+    def test_clear_empties_indexes(self):
+        """clear() empties every index."""
+        registry = ChainRegistry()
+        registry.register("a", "A", vertical="v", tags=["t"])
+        registry.clear()
+        assert registry._tag_index == {}
+        assert registry._vertical_index == {}
+        assert registry.to_dict() == {}
+
+
+def _lock_released(registry) -> bool:
+    """True when another thread can take the registry lock (no batch left open)."""
+    acquired = []
+
+    def probe() -> None:
+        ok = registry._lock.acquire(timeout=1)
+        acquired.append(ok)
+        if ok:
+            registry._lock.release()
+
+    t = threading.Thread(target=probe)
+    t.start()
+    t.join()
+    return acquired[0]
