@@ -85,7 +85,11 @@ edit. A mock test is not live provider or C5 evidence.
   touched Black/Ruff and configured MyPy pass. First attempted test/Black commands
   selected an environment lacking pytest/a compiled Black dependency; the retained
   successful checks use the qualified test environment and available formatter.
-  Collection, independent review and PR CI remain pending; no release/live claim.
+  First review requests an explicit nested-tool execution counter. The regression
+  now checks zero calls, required/nested errors, empty-error generic fallback and
+  the three-error cap. All 165 affected tests pass; Black/Ruff/configured MyPy
+  pass. Collection finds 36,936 tests; a final post-edit collection and independent
+  follow-up review precede push. PR CI, release and live acceptance remain pending.
 
 - **SDK-SCOPE-RUN-01 — MERGED**, [#1592](https://github.com/anvai-labs/victor/pull/1592) (2026-10-29), owner: RepoReel integration session;
   branch `fix/session-tool-pipeline-gate`, baseline

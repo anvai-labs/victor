@@ -1166,7 +1166,15 @@ class TestToolExecutorValidateArguments:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_strict_validation_blocks_execution(self):
+    @pytest.mark.parametrize(
+        ("errors", "expected"),
+        [
+            (["path is required"], "Invalid arguments: path is required"),
+            ([], "Argument validation failed"),
+            (["one", "two", "three", "four"], "Invalid arguments: one; two; three"),
+        ],
+    )
+    async def test_strict_validation_blocks_execution(self, errors, expected):
         """Test that STRICT validation failures block execution."""
         from victor.agent.tool_executor import ValidationMode
         from victor.tools.base import ToolValidationResult
@@ -1177,7 +1185,7 @@ class TestToolExecutorValidateArguments:
         mock_tool.name = "validated_tool"
         mock_tool.execute = AsyncMock(return_value="should not be called")
         mock_tool.validate_parameters_detailed = MagicMock(
-            return_value=ToolValidationResult.failure(["path is required"])
+            return_value=ToolValidationResult.failure(errors)
         )
         registry.register(mock_tool)
 
@@ -1189,12 +1197,14 @@ class TestToolExecutorValidateArguments:
         result = await executor.execute("validated_tool", {})
 
         assert result.success is False
-        assert result.error == "Invalid arguments: path is required"
+        assert result.error == expected
         mock_tool.execute.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_strict_validation_reports_nested_schema_location_without_execution(self):
         from victor.agent.tool_executor import ValidationMode
+
+        executions = []
 
         class NestedTool(BaseTool):
             name = "nested_contract"
@@ -1218,6 +1228,7 @@ class TestToolExecutorValidateArguments:
                 }
 
             async def execute(self, _exec_ctx, **kwargs):
+                executions.append(kwargs)
                 raise AssertionError("Invalid arguments must never execute the tool")
 
         registry = ToolRegistry()
@@ -1227,6 +1238,7 @@ class TestToolExecutorValidateArguments:
         assert result.success is False
         assert "items.0.id" in result.error
         assert "^[a-z-]+$" in result.error
+        assert executions == []
 
 
 class TestToolExecutorUnknownArguments:
