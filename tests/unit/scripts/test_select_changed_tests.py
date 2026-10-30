@@ -430,9 +430,22 @@ def test_non_python_and_unmapped_yield_nothing():
     assert select(["README.md", ".github/workflows/ci-fast.yml", "Makefile"]) == []
 
 
-def test_source_without_mirror_test_fails_closed():
+def test_source_without_mirror_test_fails_closed(tmp_path, monkeypatch):
+    (tmp_path / "victor").mkdir()
+    (tmp_path / "victor" / "this_module_has_no_test_zzz.py").write_text("X = 1\n")
+    (tmp_path / "tests" / "unit").mkdir(parents=True)
+    monkeypatch.setattr(_mod, "ROOT", tmp_path)
     with pytest.raises(_mod.SelectionError, match="no mirrored unit test"):
         select(["victor/this_module_has_no_test_zzz.py"])
+
+
+def test_deleted_source_without_mirror_test_does_not_block(tmp_path, monkeypatch):
+    # The file is absent from the working tree (deleted by the change):
+    # nothing is left to test, and collect-only guards its importers.
+    (tmp_path / "victor").mkdir()
+    (tmp_path / "tests" / "unit").mkdir(parents=True)
+    monkeypatch.setattr(_mod, "ROOT", tmp_path)
+    assert select(["victor/this_module_was_deleted_zzz.py"]) == []
 
 
 def test_retired_source_maps_to_its_replacement_suite():
