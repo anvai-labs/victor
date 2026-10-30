@@ -61,16 +61,10 @@ class OptimizationMetricsCollector:
         # Component 3: Paradigm Router
         self.metrics["components"]["paradigm_router"] = self._collect_router_metrics()
 
-        # Component 4: Complexity Estimator
-        self.metrics["components"]["complexity_estimator"] = self._collect_estimator_metrics()
-
-        # Component 5: Task Classifier
-        self.metrics["components"]["task_classifier"] = self._collect_classifier_metrics()
-
-        # Component 6: Threshold Optimizer
+        # Component 4: Threshold Optimizer
         self.metrics["components"]["threshold_optimizer"] = self._collect_optimizer_metrics()
 
-        # Component 7: Enhanced Prompts (static)
+        # Component 5: Enhanced Prompts (static)
         self.metrics["components"]["enhanced_prompts"] = self._collect_prompt_metrics()
 
         # Calculate aggregate metrics
@@ -131,46 +125,6 @@ class OptimizationMetricsCollector:
             }
         except Exception as e:
             logger.error(f"Error collecting router metrics: {e}")
-            return {"enabled": False, "status": "error", "error": str(e)}
-
-    def _collect_estimator_metrics(self) -> Dict[str, Any]:
-        """Collect Complexity Estimator metrics."""
-        try:
-            from victor.agent.complexity_estimator import get_complexity_estimator
-
-            estimator = get_complexity_estimator()
-            stats = estimator.get_statistics()
-
-            return {
-                "enabled": estimator.enabled,
-                "status": "active" if estimator.enabled else "disabled",
-                "total_estimates": stats.get("total_estimates", 0),
-                "cache_hits": stats.get("cache_hits", 0),
-                "cache_hit_rate": stats.get("cache_hit_rate", 0.0),
-                "cache_size": stats.get("cache_size", 0),
-            }
-        except Exception as e:
-            logger.error(f"Error collecting estimator metrics: {e}")
-            return {"enabled": False, "status": "error", "error": str(e)}
-
-    def _collect_classifier_metrics(self) -> Dict[str, Any]:
-        """Collect Task Classifier metrics."""
-        try:
-            from victor.agent.task_classifier import get_task_classifier
-
-            classifier = get_task_classifier()
-            stats = classifier.get_statistics()
-
-            return {
-                "enabled": classifier.enabled,
-                "status": "active" if classifier.enabled else "disabled",
-                "total_classifications": stats.get("total_classifications", 0),
-                "cache_hits": stats.get("cache_hits", 0),
-                "cache_hit_rate": stats.get("cache_hit_rate", 0.0),
-                "cache_size": stats.get("cache_size", 0),
-            }
-        except Exception as e:
-            logger.error(f"Error collecting classifier metrics: {e}")
             return {"enabled": False, "status": "error", "error": str(e)}
 
     def _collect_optimizer_metrics(self) -> Dict[str, Any]:
@@ -280,10 +234,6 @@ class OptimizationMetricsCollector:
                 print(f"    Fast-path rate: {component.get('fast_path_percentage', 0):.1f}%")
             elif name == "paradigm_router":
                 print(f"    Small model usage: {component.get('small_model_usage', 0):.1f}%")
-            elif name == "complexity_estimator":
-                print(f"    Cache hit rate: {component.get('cache_hit_rate', 0):.1f}%")
-            elif name == "task_classifier":
-                print(f"    Cache hit rate: {component.get('cache_hit_rate', 0):.1f}%")
             print("")
 
         print("AGGREGATE METRICS:")

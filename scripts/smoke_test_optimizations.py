@@ -18,7 +18,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import List
 from datetime import datetime
 
 # Ensure project root is in path for imports
@@ -176,46 +176,6 @@ class OptimizationSmokeTest:
 
         return True
 
-    def test_complexity_estimator(self) -> bool:
-        """Test Complexity Estimator is working."""
-        from victor.agent.complexity_estimator import (
-            get_complexity_estimator,
-            ComplexityBand,
-        )
-
-        estimator = get_complexity_estimator()
-        assert estimator.enabled is True, "Estimator should be enabled"
-
-        # Test heuristic estimation
-        estimate = estimator._heuristic_estimate("simple query", 0.0)
-        assert 0.0 <= estimate.score <= 1.0, "Score should be 0-1"
-        assert estimate.band in ComplexityBand, "Should have valid band"
-        assert estimate.latency_ms >= 0, "Latency should be non-negative"
-
-        logger.info(f"  Sample score: {estimate.score:.2f}")
-        logger.info(f"  Band: {estimate.band.value}")
-        logger.info(f"  Latency: {estimate.latency_ms:.1f}ms")
-
-        return True
-
-    def test_task_classifier(self) -> bool:
-        """Test Task Classifier is working."""
-        from victor.agent.task_classifier import get_task_classifier
-
-        classifier = get_task_classifier()
-        assert classifier.enabled is True, "Classifier should be enabled"
-
-        # Test heuristic classification
-        classification = classifier._heuristic_classify("create a file", 0.0)
-        assert classification.task_type is not None, "Should classify task"
-        assert 0.0 <= classification.confidence <= 1.0, "Confidence should be 0-1"
-        assert classification.latency_ms >= 0, "Latency should be non-negative"
-
-        logger.info(f"  Classified as: {classification.task_type}")
-        logger.info(f"  Confidence: {classification.confidence:.2f}")
-
-        return True
-
     def test_threshold_optimizer(self) -> bool:
         """Test Threshold Optimizer is working."""
         from victor.agent.threshold_optimizer import (
@@ -305,8 +265,6 @@ class OptimizationSmokeTest:
             ("Tool Output Pruner", self.test_tool_output_pruner, True),
             ("Planning Gate", self.test_planning_gate, True),
             ("Paradigm Router", self.test_paradigm_router, True),
-            ("Complexity Estimator", self.test_complexity_estimator, False),
-            ("Task Classifier", self.test_task_classifier, False),
             ("Threshold Optimizer", self.test_threshold_optimizer, False),
             ("Enhanced Prompts", self.test_enhanced_prompts, True),
             ("Integration", self.test_integration, True),
