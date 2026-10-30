@@ -276,7 +276,8 @@ modules.
 
 ### Phase 2a: SDK removal and kernel deprecation (victor-contracts 0.14.0, one PR)
 
-- [ ] Delete `chain_runtime.py` and `get_runtime_persona_provider`, and update `test_lazy.py`,
+- [ ] Replace `chain_runtime.py` with an inert deprecated shim (no host import; deleted in
+      0.15.0) and delete `get_runtime_persona_provider`; update `test_lazy.py`,
       `test_runtime_adapter_exports.py` and `test_multi_agent_contracts.py`.
 - [ ] Add the `provider=None`, `provider_getter`/`auto_register`, and default-registry-hook
       deprecation warnings, with tests.
@@ -420,7 +421,13 @@ def get_personas() -> dict[str, VerticalPersona]:
   3. The inert Stable kernel surfaces (`provider_getter`, `auto_register`, the `provider=None`
      default path, `set/get_default_persona_registry`) follow CONTRACT_STABILITY to the letter:
      deprecated in 0.14.0, removed no earlier than 0.15.0.
-  4. Delivery: Phase 2a ships in victor-contracts 0.14.0 together with victor-ai 0.22.0 in one
+  4. `chain_runtime` is **not** deleted in 0.14.0: the published victor-coding 0.13.0 imports it
+     unguarded at module import (`composed_chains.py:734`), so 0.14.0 replaces the bridge with an
+     inert, host-free shim (accepts `register_chain`, stores nothing, warns) and deletes it no
+     earlier than 0.15.0, once victor-ai requires verticals >= 0.14.0. The published verticals also
+     import `get_default_persona_registry` at module load (under 0.14.0 that only warns; the SDK
+     CHANGELOG carries an upgrade note), so Phase 3 carries the same constraint.
+  5. Delivery: Phase 2a ships in victor-contracts 0.14.0 together with victor-ai 0.22.0 in one
      promotion (SDK tag verified on PyPI before the victor-ai tag); Phase 2b ships in the next
      victor-ai release requiring `victor-contracts>=0.14.0`.
 
@@ -428,7 +435,8 @@ def get_personas() -> dict[str, VerticalPersona]:
 
 1. **v1.0** (2026-10-30): Initial draft
 2. **v1.1** (2026-10-30): Accepted with the owner decisions above; the persona gap moved
-   to a standalone fix (PR #1615) ahead of Phase 2a
+   to a standalone fix (PR #1615) ahead of Phase 2a; `chain_runtime` becomes an inert shim in
+   0.14.0 (published victor-coding 0.13.0 imports it at module load)
 
 ## Acceptance Criteria
 

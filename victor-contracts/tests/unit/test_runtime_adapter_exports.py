@@ -11,7 +11,6 @@ from victor_contracts.capability_runtime import (
     detect_enhanced_index_factory,
 )
 from victor_contracts.capabilities import create_runtime_capability_loader
-from victor_contracts.chain_runtime import ChainRegistry, get_chain_registry
 from victor_contracts.init_runtime import InitSynthesizer
 from victor_contracts.lsp_runtime import LSPServiceProtocol
 from victor_contracts.processing_runtime import (
@@ -134,9 +133,7 @@ def test_capability_runtime_lazy_proxy_falls_back_without_host_runtime(
     assert calls == 1
 
 
-def test_chain_provider_and_init_runtime_exports_host_helpers() -> None:
-    assert ChainRegistry.__name__ == "ChainRegistry"
-    assert callable(get_chain_registry)
+def test_provider_and_init_runtime_exports_host_helpers() -> None:
     assert InitSynthesizer.__name__ == "InitSynthesizer"
     assert Message.__name__ == "Message"
     assert ProviderRegistry.__name__ == "ProviderRegistry"

@@ -555,12 +555,11 @@ _REGISTRATION_POLICY = RegistrationPolicy(
 )
 
 
-def _register_research_personas(
-    provider: PersonaRegistryProtocol | None = None,
-) -> None:
-    """Register all research personas with the framework persona provider."""
+def _register_research_personas(provider: PersonaRegistryProtocol) -> None:
+    """Register all research personas with an explicit host persona registry.
+
+    Not called at import: personas reach the host through the vertical's
+    ``get_personas()`` hook on activation (FEP-0042). This helper is for a
+    host that registers personas itself.
+    """
     register_vertical_personas(RESEARCH_PERSONAS, _REGISTRATION_POLICY, provider)
-
-
-# Auto-register on import
-_register_research_personas()

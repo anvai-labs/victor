@@ -680,7 +680,6 @@ from victor_dataanalysis.teams.personas import (
     get_persona_by_expertise,
     apply_persona_to_spec,
     list_personas,
-    register_data_analysis_personas,
 )
 
 
@@ -727,7 +726,6 @@ __all__ = [
     "get_persona_by_expertise",
     "apply_persona_to_spec",
     "list_personas",
-    "register_data_analysis_personas",
 ]
 
 logger = logging.getLogger(__name__)

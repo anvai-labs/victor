@@ -13,7 +13,6 @@ from victor_contracts.multi_agent import (
     TeamSpec,
     TeamTemplate,
     TeamTopology,
-    get_runtime_persona_provider,
 )
 from victor_contracts.team_schema import TeamFormation as SchemaTeamFormation
 from victor_contracts.team_schema import TeamMemberSpec as SchemaTeamMemberSpec
@@ -91,25 +90,11 @@ def test_persona_team_maps_topology_and_leader_to_canonical_semantics() -> None:
     assert member.agent_category is TeamAgentCategory.SUPERVISOR
 
 
-def test_multi_agent_exposes_runtime_persona_provider_adapter() -> None:
-    assert callable(get_runtime_persona_provider)
+def test_runtime_persona_provider_hook_removed() -> None:
+    """get_runtime_persona_provider was deprecated in 0.13.0 and removed in 0.14.0."""
+    import victor_contracts
+    from victor_contracts import multi_agent
 
-
-def test_runtime_persona_provider_hook_is_deprecated() -> None:
-    import pytest
-
-    from victor_contracts.registries import set_default_persona_registry
-
-    provider_module = pytest.importorskip("victor.framework.multi_agent.persona_provider")
-    try:
-        with pytest.warns(
-            DeprecationWarning, match=r"get_runtime_persona_provider is deprecated.*0\.14\.0"
-        ) as record:
-            get_runtime_persona_provider()
-        assert len(record) == 1
-        assert record[0].filename == __file__
-    finally:
-        # The call constructs the host provider, which installs itself as the
-        # SDK default persona registry; undo that global state.
-        provider_module.FrameworkPersonaProvider.reset_instance()
-        set_default_persona_registry(None)
+    assert not hasattr(multi_agent, "get_runtime_persona_provider")
+    assert "get_runtime_persona_provider" not in multi_agent.__all__
+    assert not hasattr(victor_contracts, "get_runtime_persona_provider")

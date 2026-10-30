@@ -57,7 +57,7 @@ from victor.framework.capabilities.base import (
     BaseCapabilityProvider,
     CapabilityMetadata,
 )
-from victor_contracts.registries import set_default_persona_registry
+from victor_contracts.registries import _install_default_persona_registry
 from victor.framework.multi_agent import PERSONA_PROVIDER_DEPRECATION
 
 warnings.warn(PERSONA_PROVIDER_DEPRECATION, DeprecationWarning, stacklevel=2)
@@ -153,7 +153,10 @@ class FrameworkPersonaProvider(BaseCapabilityProvider["PersonaTraits"]):
         self._capabilities: Dict[str, "PersonaTraits"] = {}
         self._metadata_full: Dict[str, CapabilityMetadata] = {}
         self._initialized = True
-        set_default_persona_registry(self)
+        # The public SDK setter is deprecated (victor-contracts 0.14.0) and this
+        # whole module already warns; use the SDK's non-warning internal setter
+        # (no process-wide warnings.catch_warnings, which is not thread-safe).
+        _install_default_persona_registry(self)
 
     @classmethod
     def reset_instance(cls) -> None:
