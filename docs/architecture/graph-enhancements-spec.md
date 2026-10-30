@@ -637,7 +637,7 @@ class GraphEnhancedAgent:
 | 5.1 | Implement Requirement Graph | `victor/framework/requirement_graph.py` |
 | 5.2 | Build Requirement→Symbol mapper | `victor/framework/requirement_mapper.py` |
 | 5.3 | Implement graph-aware embeddings | `victor/processing/graph_embeddings.py` |
-| 5.4 | Integrate with ProximaDB ORION | `victor_coding/codebase/embeddings/proximadb_provider.py` |
+| 5.4 | Integrate with ProximaDB ORION | `victor/storage/vector_stores/proximadb_provider.py` |
 
 **Deliverables**:
 - Requirement graph construction

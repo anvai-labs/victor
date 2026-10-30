@@ -26,6 +26,7 @@ from victor.framework.search.codebase_embedding_bridge import (
     build_codebase_index_manifest,
     enable_structural_codebase_embeddings,
     get_structural_codebase_embedding_provider_class,
+    register_structural_codebase_embedding_provider,
     has_compatible_codebase_index_manifest,
     write_codebase_index_manifest,
 )
@@ -193,7 +194,6 @@ def test_resolve_language_honors_explicit_suffix_overrides(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_structural_bridge_indexes_grounded_file_chunks(tmp_path, monkeypatch) -> None:
-    pytest.importorskip("victor_coding.codebase.embeddings.base")
     provider_class = get_structural_codebase_embedding_provider_class()
     assert provider_class is not None
 
@@ -214,12 +214,8 @@ async def test_structural_bridge_indexes_grounded_file_chunks(tmp_path, monkeypa
         encoding="utf-8",
     )
 
-    from victor_coding.codebase.embeddings.base import (
-        EmbeddingConfig as CodingEmbeddingConfig,
-    )
-
     provider = provider_class(
-        CodingEmbeddingConfig(
+        EmbeddingConfig(
             vector_store=STRUCTURAL_CODEBASE_VECTOR_STORE,
             persist_directory=str(tmp_path / ".victor" / "embeddings"),
             embedding_model_type="sentence-transformers",
@@ -286,7 +282,6 @@ async def test_structural_bridge_indexes_grounded_file_chunks(tmp_path, monkeypa
 async def test_structural_bridge_replaces_by_file_for_incremental_updates(
     tmp_path, monkeypatch
 ) -> None:
-    pytest.importorskip("victor_coding.codebase.embeddings.base")
     provider_class = get_structural_codebase_embedding_provider_class()
     assert provider_class is not None
 
@@ -302,12 +297,8 @@ async def test_structural_bridge_replaces_by_file_for_incremental_updates(
         encoding="utf-8",
     )
 
-    from victor_coding.codebase.embeddings.base import (
-        EmbeddingConfig as CodingEmbeddingConfig,
-    )
-
     provider = provider_class(
-        CodingEmbeddingConfig(
+        EmbeddingConfig(
             vector_store=STRUCTURAL_CODEBASE_VECTOR_STORE,
             persist_directory=str(tmp_path / ".victor" / "embeddings"),
             embedding_model_type="sentence-transformers",
@@ -338,3 +329,87 @@ async def test_structural_bridge_replaces_by_file_for_incremental_updates(
 
     await provider.delete_document("symbol:src/parser.py:parse_json")
     assert fake_provider.deleted_files == ["src/parser.py", "src/parser.py"]
+
+
+def test_opt_in_structural_config_resolves_through_core_registry() -> None:
+    # Regression: the bridge used to register only in victor-coding's private
+    # registry, while the indexer resolves providers from this core registry,
+    # so opting in to structural indexing raised KeyError.
+    assert register_structural_codebase_embedding_provider() is True
+    config = enable_structural_codebase_embeddings(
+        {"vector_store": "lancedb", "extra_config": {"structural_indexing_enabled": True}}
+    )
+    assert config["vector_store"] == STRUCTURAL_CODEBASE_VECTOR_STORE
+    assert config["extra_config"]["upstream_vector_store"] == "lancedb"
+    provider_class = EmbeddingRegistry.get(STRUCTURAL_CODEBASE_VECTOR_STORE)
+    assert provider_class is get_structural_codebase_embedding_provider_class()
+    assert issubclass(provider_class, BaseEmbeddingProvider)
+
+
+def test_registration_is_idempotent_and_unknown_store_still_fails() -> None:
+    assert register_structural_codebase_embedding_provider() is True
+    assert register_structural_codebase_embedding_provider() is True
+    with pytest.raises(KeyError, match="Unknown embedding provider"):
+        EmbeddingRegistry.get("no_such_vector_store")
+
+
+def test_default_config_keeps_direct_vector_store() -> None:
+    config = enable_structural_codebase_embeddings({"vector_store": "lancedb"})
+    assert config["vector_store"] == "lancedb"
+
+
+def _bridge_config(tmp_path, **extra: Any) -> EmbeddingConfig:
+    return EmbeddingConfig(
+        vector_store=STRUCTURAL_CODEBASE_VECTOR_STORE,
+        persist_directory=str(tmp_path / ".victor" / "embeddings"),
+        embedding_model_type="sentence-transformers",
+        embedding_model_name="test-model",
+        extra_config={"upstream_vector_store": "lancedb", **extra},
+    )
+
+
+def test_registry_cache_separates_bridge_configs_by_behaviour(tmp_path, monkeypatch) -> None:
+    register_structural_codebase_embedding_provider()
+    monkeypatch.setattr(EmbeddingRegistry, "_provider_cache", {}, raising=False)
+
+    codegraph = EmbeddingRegistry.create(
+        _bridge_config(tmp_path, code_chunking_strategy="victor_codegraph")
+    )
+    # Legacy strategy names normalise to the same engine: same instance.
+    legacy_name = EmbeddingRegistry.create(
+        _bridge_config(tmp_path, code_chunking_strategy="symbol_span")
+    )
+    smaller_chunks = EmbeddingRegistry.create(
+        _bridge_config(tmp_path, code_chunking_strategy="victor_codegraph", chunk_size=64)
+    )
+    other_upstream = EmbeddingRegistry.create(
+        _bridge_config(
+            tmp_path, code_chunking_strategy="victor_codegraph", upstream_vector_store="proximadb"
+        )
+    )
+    other_root = EmbeddingRegistry.create(
+        _bridge_config(
+            tmp_path, code_chunking_strategy="victor_codegraph", workspace_root=str(tmp_path / "x")
+        )
+    )
+    same = EmbeddingRegistry.create(
+        _bridge_config(tmp_path, code_chunking_strategy="victor_codegraph")
+    )
+
+    assert legacy_name is codegraph
+    assert smaller_chunks is not codegraph
+    assert other_upstream is not codegraph
+    assert other_root is not codegraph
+    assert same is codegraph
+
+
+def test_registry_cache_key_unchanged_for_providers_without_extras(tmp_path) -> None:
+    config = EmbeddingConfig(
+        vector_store="lancedb",
+        persist_directory=str(tmp_path),
+        extra_config={"anything": 1},
+    )
+    other_extra = config.model_copy(update={"extra_config": {"anything": 2}})
+    assert EmbeddingRegistry._get_config_key(config) == EmbeddingRegistry._get_config_key(
+        other_extra
+    )
