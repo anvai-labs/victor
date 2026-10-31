@@ -5,6 +5,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-31
+
+Requires `victor-contracts>=0.16.0` (published first); victor-coding 0.15.0 ships with it
+(verticals tag `verticals-v0.15.0`).
+
+### Fixed
+
+- **Default text chunking no longer hangs.** `ChunkingConfig()`'s defaults (overlap 128,
+  min-chunk 100) made the text strategy's only loop-exit unreachable, so
+  `TextChunkingStrategy()`, the registry path and the markdown/JSON fallbacks spun forever on
+  ANY input. Overlap is now validated (`0 <= overlap < chunk_size`) and the loop breaks when
+  the window stops advancing; previously-working configs produce byte-identical chunks (#1631).
+- **Safety rules can no longer be silently disarmed by enum-path mismatches.** One
+  `SafetyLevel` str-Enum across every import path (SDK top level, `safety.framework`, host
+  `victor.framework.config`): a rule leveled via the SDK top-level export previously matched
+  no branch of the enforcer's identity comparison and was silently ALLOWED (#1632).
+- **The safety enforcer is now fail-closed everywhere.** A rule whose `check_fn` raises now
+  blocks (`(False, "Safety rule could not be evaluated: ...")`) instead of being allowed by
+  the core twin while the SDK twin blocked it; which semantics you got depended on which
+  vertical instantiated the enforcer. SDK `SafetyConfig`/`SafetyEnforcer` gain the
+  `SafetyRule`-style host bridge so all verticals share one behavior, and levels compare by
+  value (#1633). **Behavior change**: a crashing safety predicate now blocks the operation.
+
+### Changed
+
+- victor-coding: `JavaScriptPlugin`/`TypeScriptPlugin` share an `EcmaScriptPluginBase`
+  (~330 lines); language plugins declare per-language extractor tables instead of carrying
+  nine near-identical name-extractor methods (#1625, #1626). Behavior pinned by goldens +
+  1,038-file old-vs-new differential (0 mismatches).
+- `victor_contracts.rl` `RLOutcome`/`RLRecommendation` match the runtime classes field for
+  field (ISO-8601 `timestamp`, required `quality_score`, `is_baseline=False`) — see the SDK
+  changelog (#1631).
+- Loader-built `CapabilityEntry` objects are now identity-equal to the SDK class the
+  verticals use; the safety/prompt provider protocol submodules re-export the SDK objects
+  (#1630).
+
+### Removed
+
+- Dead protocol forks (−1,345 lines), each proven zero-reference incl. published tags:
+  `core/verticals/protocols/service_provider.py`, ten shadowed hook protocols in
+  `providers.py`, and `core/verticals/format_adapter.py` (#1629).
+
+(Also in this release: the round-4 dedup batch #1625–#1628 — shared helpers, one SDK↔core
+object per name for capabilities/safety/vertical-protocol types.)
+
 ## [0.23.0] - 2026-10-31
 
 Requires `victor-contracts>=0.14.0`. Release order: this release is published **before**

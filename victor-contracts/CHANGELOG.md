@@ -10,6 +10,8 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-31
+
 ### Changed
 
 - `RLOutcome` and `RLRecommendation` (`victor_contracts.rl`, also re-exported from
