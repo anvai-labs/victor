@@ -300,6 +300,12 @@ modules.
 
 ### Phase 3: Kernel removal (victor-contracts 0.15.0 or later)
 
+Prerequisite (victor-ai 0.23.0): the host refuses first-party verticals older than 0.14.0
+before importing them (`FIRST_PARTY_MIN_VERTICAL_VERSIONS` in the compatibility gate,
+checked in the loader's entry-point preflight; editable installs skipped), and the
+vertical extras require `>=0.14.0`. Owner decision 2026-10-30: gate old verticals, then
+remove.
+
 - [ ] Make `provider` required, delete `provider_getter`, `auto_register` and the
       default-persona-registry hooks, and update the persona-kernel module docstring.
 

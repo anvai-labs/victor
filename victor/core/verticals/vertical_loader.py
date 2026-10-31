@@ -117,6 +117,23 @@ class VerticalActivationResult:
     services_registered: bool
 
 
+def _is_editable_install(dist: Any) -> bool:
+    """Return True for a PEP 660 editable install (PEP 610 ``direct_url.json``)."""
+
+    try:
+        raw = dist.read_text("direct_url.json")
+    except Exception:
+        return False
+    if not raw:
+        return False
+    try:
+        import json
+
+        return bool(json.loads(raw).get("dir_info", {}).get("editable", False))
+    except ValueError:
+        return False
+
+
 class VerticalLoader:
     """Loader for dynamic vertical activation and management.
 
@@ -335,6 +352,8 @@ class VerticalLoader:
         if module_name is None:
             return
 
+        self._preflight_distribution_version(module_name)
+
         manifest = load_vertical_package_manifest_for_module(module_name)
         if manifest is None:
             return
@@ -347,6 +366,27 @@ class VerticalLoader:
                 warning,
             )
         report.raise_if_incompatible()
+
+    def _preflight_distribution_version(self, module_name: str) -> None:
+        """Refuse a too-old first-party vertical before its module is imported."""
+
+        import importlib.metadata as metadata
+
+        top_level = module_name.split(".", 1)[0]
+        try:
+            distributions = metadata.packages_distributions().get(top_level, [])
+        except Exception:  # pragma: no cover - metadata backend failure
+            return
+        gate = VerticalCompatibilityGate()
+        for distribution in distributions:
+            try:
+                dist = metadata.distribution(distribution)
+            except metadata.PackageNotFoundError:
+                continue
+            if _is_editable_install(dist):
+                # Source checkouts run current code; their recorded version can lag.
+                continue
+            gate.assess_distribution(distribution, dist.version).raise_if_incompatible()
 
     def _parse_entry_point_module_name(self, value: str) -> Optional[str]:
         """Extract the module portion from a setuptools entry-point value."""

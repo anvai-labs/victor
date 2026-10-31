@@ -579,7 +579,7 @@ graph = [
 ]
 
 coding = [
-    "victor-coding>=0.6.0,<1.0.0",
+    "victor-coding>=0.14.0,<1.0.0",
     # Language grammars required by victor-coding's tree-sitter indexer
     "tree-sitter-python>=0.23",
     "tree-sitter-javascript>=0.23",
@@ -591,11 +591,11 @@ coding = [
 ]
 
 research = [
-    "victor-research>=0.6.0,<1.0.0",
+    "victor-research>=0.14.0,<1.0.0",
 ]
 
 devops = [
-    "victor-devops>=0.6.0,<1.0.0",
+    "victor-devops>=0.14.0,<1.0.0",
 ]
 
 invest = [
@@ -603,9 +603,9 @@ invest = [
 ]
 
 verticals = [
-    "victor-coding>=0.6.0,<1.0.0",
-    "victor-research>=0.6.0,<1.0.0",
-    "victor-devops>=0.6.0,<1.0.0",
+    "victor-coding>=0.14.0,<1.0.0",
+    "victor-research>=0.14.0,<1.0.0",
+    "victor-devops>=0.14.0,<1.0.0",
     "victor-invest>=0.5.0,<1.0.0",
 ]
 
