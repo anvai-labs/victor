@@ -41,6 +41,18 @@ IDENTITY_PAIRS = [
         "victor_contracts.safety_policy",
         "SafetyLevel",
     ),
+    (
+        "victor.framework.capability_loader",
+        "CapabilityEntry",
+        "victor_contracts.capabilities.runtime",
+        "CapabilityEntry",
+    ),
+    (
+        "victor.framework",
+        "CapabilityEntry",
+        "victor_contracts.capabilities.runtime",
+        "CapabilityEntry",
+    ),
 ]
 
 
@@ -179,3 +191,50 @@ def test_capability_config_scope_port_runtime_checkable_preserved() -> None:
     assert resolve_capability_config_scope_key(_NoneScope()) == resolve_capability_config_scope_key(
         _Unscoped()
     )
+
+
+# --------------------------------------------------------------------------
+# CapabilityEntry: framework loader re-exports the SDK dataclass
+# --------------------------------------------------------------------------
+
+
+def test_capability_entry_shape_preserved() -> None:
+    import dataclasses
+
+    from victor.framework.capability_loader import CapabilityEntry
+    from victor.framework.protocols import CapabilityType, OrchestratorCapability
+
+    assert [f.name for f in dataclasses.fields(CapabilityEntry)] == [
+        "capability",
+        "handler",
+        "getter_handler",
+        "source_module",
+        "metadata",
+    ]
+    cap = OrchestratorCapability(
+        name="x", capability_type=CapabilityType.TOOL, getter="get_x", version="1.10"
+    )
+    entry = CapabilityEntry(capability=cap, source_module="m", metadata={"k": "v"})
+    assert entry.name == "x"
+    assert entry.version == "1.10"
+    assert entry.capability_type is CapabilityType.TOOL
+    assert type(dataclasses.replace(entry, source_module="n")) is CapabilityEntry
+
+
+def test_loader_built_entry_isinstance_sdk_capability_entry() -> None:
+    from victor.framework.capability_loader import CapabilityLoader
+    from victor.framework.protocols import CapabilityType
+    from victor_contracts.capabilities import CapabilityEntry as SDKCapabilityEntry
+
+    loader = CapabilityLoader()
+    loader.register_capability(
+        name="sdk_identity_cap",
+        handler=lambda payload: payload,
+        capability_type=CapabilityType.TOOL,
+    )
+    entry = loader.get_capability("sdk_identity_cap")
+    assert entry is not None
+    # Loader-built entries must satisfy SDK-side isinstance checks (verticals
+    # import CapabilityEntry from victor_contracts.capabilities).
+    assert isinstance(entry, SDKCapabilityEntry)
+    assert type(entry) is SDKCapabilityEntry
