@@ -10,7 +10,7 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
-## [0.15.0] - release candidate
+## [0.15.0] - 2026-10-31
 
 FEP-0042 Phase 3 (backlog F-019): removes the surfaces deprecated in 0.14.0.
 
