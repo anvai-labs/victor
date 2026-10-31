@@ -15,29 +15,21 @@
 """JavaScript language plugin."""
 
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import Optional
 
 from victor_coding.languages.base import (
-    BaseLanguagePlugin,
     BuildSystem,
     CommentStyle,
-    ConfigurableASTTraverser,
     DocCommentPattern,
-    Formatter,
-    LanguageCapabilities,
     LanguageConfig,
     Linter,
     QueryPattern,
-    TestRunner,
-    TraversalConfig,
     TreeSitterQueries,
 )
-
-if TYPE_CHECKING:
-    from tree_sitter import Node
+from victor_coding.languages.plugins._ecmascript import EcmaScriptPluginBase
 
 
-class JavaScriptPlugin(BaseLanguagePlugin):
+class JavaScriptPlugin(EcmaScriptPluginBase):
     """JavaScript language plugin.
 
     Supports:
@@ -49,6 +41,10 @@ class JavaScriptPlugin(BaseLanguagePlugin):
 
     # Historically shared by the JavaScript and TypeScript call-edge walkers.
     _call_edge_language = "javascript/typescript"
+
+    _vitest_parallel_args = ("--pool", "threads")
+    _jest_parallel_args = ("--maxWorkers=auto",)
+    _detects_mocha = True
 
     def _create_config(self) -> LanguageConfig:
         return LanguageConfig(
@@ -76,27 +72,6 @@ class JavaScriptPlugin(BaseLanguagePlugin):
                 block_start="/**",
                 block_end="*/",
             ),
-        )
-
-    def _create_capabilities(self) -> LanguageCapabilities:
-        return LanguageCapabilities(
-            supports_syntax_analysis=True,
-            supports_semantic_analysis=True,
-            supports_type_checking=False,  # No native types
-            supports_rename=True,
-            supports_extract_function=True,
-            supports_inline=True,
-            supports_organize_imports=True,
-            supports_test_discovery=True,
-            supports_test_execution=True,
-            supports_coverage=True,
-            supports_debugging=True,
-            supports_breakpoints=True,
-            supports_step_debugging=True,
-            supports_formatting=True,
-            supports_linting=True,
-            supports_completion=True,
-            supports_control_flow_graph=True,
         )
 
     def _create_tree_sitter_queries(self) -> TreeSitterQueries:
@@ -154,63 +129,6 @@ class JavaScriptPlugin(BaseLanguagePlugin):
             ],
         )
 
-    def get_test_runner(self, project_root: Path) -> Optional[TestRunner]:
-        """Get jest, mocha, or vitest runner."""
-        package_json = project_root / "package.json"
-
-        if package_json.exists():
-            content = package_json.read_text()
-
-            # Check for vitest
-            if '"vitest"' in content:
-                return TestRunner(
-                    name="vitest",
-                    command=["npx", "vitest"],
-                    file_pattern="*.test.js",
-                    run_args=["run"],
-                    coverage_args=["--coverage"],
-                    parallel_args=["--pool", "threads"],
-                    output_format="json",
-                    json_args=["--reporter=json"],
-                )
-
-            # Check for jest
-            if '"jest"' in content:
-                return TestRunner(
-                    name="jest",
-                    command=["npx", "jest"],
-                    file_pattern="*.test.js",
-                    coverage_args=["--coverage"],
-                    parallel_args=["--maxWorkers=auto"],
-                    output_format="json",
-                    json_args=["--json"],
-                )
-
-            # Check for mocha
-            if '"mocha"' in content:
-                return TestRunner(
-                    name="mocha",
-                    command=["npx", "mocha"],
-                    file_pattern="*.test.js",
-                    run_args=["--recursive"],
-                )
-
-        # Default to jest
-        return TestRunner(
-            name="jest",
-            command=["npx", "jest"],
-            file_pattern="*.test.js",
-        )
-
-    def get_formatter(self, project_root: Path) -> Optional[Formatter]:
-        """Get prettier formatter."""
-        return Formatter(
-            name="prettier",
-            command=["npx", "prettier", "--write", "."],
-            check_args=["--check"],
-            config_file=".prettierrc",
-        )
-
     def get_linter(self, project_root: Path) -> Optional[Linter]:
         """Get eslint linter."""
         return Linter(
@@ -243,82 +161,3 @@ class JavaScriptPlugin(BaseLanguagePlugin):
             install_command=[pm, "install"],
             manifest_file="package.json",
         )
-
-    def _find_call_nodes(
-        self,
-        root: "Node",
-    ) -> List[tuple["Node", str, Optional[int]]]:
-        """Find all call nodes with their enclosing function context.
-
-        Uses the shared ConfigurableASTTraverser to eliminate code duplication.
-        """
-        config = TraversalConfig(
-            function_types=[
-                "function_declaration",
-                "function_expression",
-                "method_definition",
-                "arrow_function",
-            ],
-            class_types=["class_declaration"],
-            call_types=["call_expression", "new_expression"],
-            name_field="identifier",
-            scope_body_types=["class_body"],
-        )
-        traverser = ConfigurableASTTraverser(config, self._get_node_text)
-        return traverser.find_call_nodes(root)
-
-    def _extract_function_name(self, node: "Node") -> Optional[str]:
-        """Extract function name from a function node."""
-        if node.type == "function_declaration":
-            for child in node.children:
-                if child.type == "identifier":
-                    return self._get_node_text(child)
-
-        if node.type == "method_definition":
-            for child in node.children:
-                if child.type in ("property_identifier", "identifier"):
-                    return self._get_node_text(child)
-
-        if node.type == "function_expression":
-            found_function = False
-            for child in node.children:
-                if child.type == "identifier":
-                    if found_function:
-                        return self._get_node_text(child)
-                elif child.type == "function":
-                    found_function = True
-
-        return None
-
-    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Extract the name of the called function from a call node."""
-        for child in call_node.children:
-            if child.type == "member_expression":
-                return self._extract_member_name(child)
-            elif child.type == "identifier":
-                return self._get_node_text(child)
-            elif child.type == "subscript_expression":
-                return self._extract_subscript_name(child)
-
-        return None
-
-    def _extract_member_name(self, member_node: "Node") -> Optional[str]:
-        """Extract member name from a member_expression node."""
-        for child in reversed(member_node.children):
-            if child.type == "property_identifier":
-                return self._get_node_text(child)
-            elif child.type == "member_expression":
-                result = self._extract_member_name(child)
-                if result:
-                    return result
-
-        return None
-
-    def _extract_subscript_name(self, subscript_node: "Node") -> Optional[str]:
-        """Extract method name from subscript expression."""
-        for child in subscript_node.children:
-            if child.type == "string":
-                text = self._get_node_text(child)
-                if text:
-                    return text.strip("\"'")
-        return None
