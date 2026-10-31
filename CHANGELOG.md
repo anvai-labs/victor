@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-31
+
+Requires `victor-contracts>=0.14.0`. Release order: this release is published **before**
+victor-contracts 0.15.0 (`sdk-v0.15.0`), so a fresh install always resolves a host that refuses
+first-party verticals older than 0.14.0.
+
 ### Changed
 
 - First-party verticals older than **0.14.0** are refused before import with an upgrade hint
@@ -20,7 +26,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   0.22.0 (FEP-0042 phase 2b). Nothing read them at runtime; use
   `victor.framework.chain_registry` / `victor.framework.persona_registry`, which the host fills
   from each vertical's `get_composed_chains()` / `get_personas()` hook on activation.
-- victor-contracts 0.15.0 (release candidate, FEP-0042 phase 3) removes `chain_runtime`, the
+- victor-contracts 0.15.0 (released right after this version, FEP-0042 phase 3) removes `chain_runtime`, the
   persona kernel's default-registry path (`register_vertical_personas` now requires
   `provider`), `RegistrationPolicy.provider_getter` / `auto_register` and
   `set/get_default_persona_registry`. Published first-party verticals < 0.14.0 fail at import
