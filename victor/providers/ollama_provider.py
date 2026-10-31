@@ -33,7 +33,10 @@ from victor.providers.base import (
     ToolDefinition,
 )
 from victor.providers.logging import ProviderLogger
-from victor.providers.runtime_capabilities import ProviderRuntimeCapabilities
+from victor.providers.runtime_capabilities import (
+    ProviderRuntimeCapabilities,
+    cached_config_context_window,
+)
 
 logger = logging.getLogger(__name__)
 from victor.providers.ollama_capability_detector import TOOL_SUPPORT_PATTERNS
@@ -210,16 +213,9 @@ class OllamaProvider(BaseProvider):
 
     def get_context_window(self, model: str) -> int:
         """Get context window size using cached discovery or config fallback."""
-        cache_key = f"{self.base_url}:{model}"
-
-        if cache_key in self._context_window_cache:
-            return self._context_window_cache[cache_key]
-
-        from victor.config.config_loaders import get_provider_limits
-
-        limits = get_provider_limits("ollama", model)
-        self._context_window_cache[cache_key] = limits.context_window
-        return limits.context_window
+        return cached_config_context_window(
+            self._context_window_cache, provider="ollama", base_url=self.base_url, model=model
+        )
 
     async def discover_capabilities(self, model: str) -> ProviderRuntimeCapabilities:
         """Async capability discovery using /api/show."""

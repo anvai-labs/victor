@@ -10,6 +10,68 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-31
+
+### Changed
+
+- `RLOutcome` and `RLRecommendation` (`victor_contracts.rl`, also re-exported from
+  `victor_contracts`) now match the runtime classes in `victor.framework.rl.base` field for
+  field, instead of drifting from them. Both names stay importable and still construct
+  without a host; constructed values are now field-complete for host-side RL storage
+  (`RLOutcome(**dataclasses.asdict(outcome))` builds the runtime class, and its
+  `from_dict`/`to_dict` round-trip preserves the values). The shapes are pinned
+  differentially against the host in `tests/unit/test_rl_contracts.py`.
+  - `RLOutcome.timestamp` is an ISO-8601 string (was a POSIX `float` from `time.time()`),
+    the format the RL learners and the outcome store read.
+  - `RLOutcome.quality_score` is required (was silently defaulted to `0.0`, which recorded
+    zero-quality outcomes for verticals that omitted it).
+  - `RLOutcome` gains the `segment_rewards` field (`Optional[Dict[int, float]]`, `None`).
+  - `RLRecommendation.value`, `confidence`, `reason` and `sample_size` are required (all
+    five fields were defaulted), `is_baseline` defaults to `False` (was `True` — a
+    learned recommendation no longer presents itself as a provider baseline), and the
+    class gains the `metadata` field.
+- `SafetyLevel` is now defined exactly once, as a `str, Enum` owned by
+  `victor_contracts.safety.framework` and re-exported from the
+  `victor_contracts.safety` top level (which previously declared a separate
+  str-Enum fork). Every import path — `victor_contracts.SafetyLevel`,
+  `victor_contracts.safety.SafetyLevel`, `victor_contracts.safety.framework.SafetyLevel`
+  and the host-bound `victor.framework.config.SafetyLevel` — yields the same
+  enum object, so safety rules leveled through any path enforce identically
+  under the host runtime enforcer (previously a rule leveled via the top-level
+  fork was silently disarmed: fail-open).
+- The `str` mixin is additive: members now compare equal to (and hash like)
+  their lowercase value strings (`SafetyLevel.LOW == "low"`) and serialize
+  directly under `json.dumps` as their value. `str()`/f-string rendering keeps
+  the `SafetyLevel.LOW` form on Python 3.12+; no member set, order or `.value`
+  changed. Two behavioral notes for external consumers:
+- Ordering comparisons are now silently legal and **lexicographic**, not by
+  severity (`min(SafetyLevel)` is `HIGH`, `max` is `OFF`). No in-repo or
+  published-vertical consumer orders levels; new code should compare via the
+  level-int helper, not operators.
+- Under the host runtime enforcer, rules leveled with raw value strings
+  (`"high"`) or foreign str-Enum members now **block** correctly; both were
+  silently allowed before the unification (plain-Enum identity comparison
+  never matched). Pickles of the old top-level fork members unpickle to the
+  unified enum transparently.
+
+
+- `victor_contracts.safety.framework.SafetyConfig` and `SafetyEnforcer` now bind their
+  `SafetyLevel` objects to the host runtime through the same lazy hook `SafetyRule` uses
+  (`victor.framework.config`, resolved once per process; never imported at module scope).
+  With a host registered, SDK-created safety objects evaluate levels with the host's enum,
+  so host and SDK enforcers reach identical allow/block decisions; without a host they keep
+  self-contained SDK semantics, which are fail-closed like the host's.
+- `SafetyConfig.from_dict` now parses the `level` key like the host `SafetyConfig`:
+  case-insensitive lookup and a friendly `ValueError` naming the valid levels (previously a
+  raw `ValueError` from the enum constructor, and capitalized values were rejected). The
+  parsing and field defaults now live in the new shared helpers `parse_safety_level` and
+  `safety_config_kwargs`, which the host `SafetyConfig.from_dict` also uses.
+- Safety construction now validates levels eagerly: `SafetyConfig(level=...)`,
+  `SafetyRule(level=...)` and the enforcer's config binding raise a friendly `ValueError` for
+  invalid level values (`"bogus"`, `None`, ...) that were previously stored silently, and
+  `SafetyConfig.from_dict` no longer accepts a `SafetyLevel` member in the dict (pass the level
+  string). `SafetyLevel` instances pass through coercion unchanged, with identity preserved.
+
 ## [0.15.0] - 2026-10-31
 
 FEP-0042 Phase 3 (backlog F-019): removes the surfaces deprecated in 0.14.0.

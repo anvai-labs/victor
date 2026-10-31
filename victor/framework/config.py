@@ -509,23 +509,19 @@ Classes promoted from verticals:
     - ToolConfig: Tool behavior configuration (promoted from all verticals)
 """
 
-from enum import Enum
-
-
-class SafetyLevel(Enum):
-    """Safety enforcement levels for operations.
-
-    Defines how strictly safety rules are enforced:
-    - OFF: No safety checks
-    - LOW: Warn only, don't block operations
-    - MEDIUM: Block dangerous operations, warn risky ones
-    - HIGH: Block anything not explicitly allowed
-    """
-
-    OFF = "off"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+# SafetyLevel is defined once in the SDK as a str-Enum and re-exported here,
+# so ``victor.framework.config.SafetyLevel``,
+# ``victor_contracts.safety.framework.SafetyLevel``, the top-level
+# ``victor_contracts.safety.SafetyLevel`` (former str-Enum fork, collapsed)
+# and the ``victor_contracts.safety_policy`` host adapter all yield the same
+# enum object. The str mixin is additive (members compare equal to their
+# lowercase value strings); leveling compares by value, not enum identity.
+# Semantics: the config level gates rule enforcement. LOW = warn only (MEDIUM
+# rules skip, HIGH rules still block); MEDIUM = block dangerous, warn risky;
+# HIGH = block anything not explicitly allowed. OFF disables OFF-leveled rules
+# only: blocked_operations and triggered MEDIUM/HIGH rules still block.
+from victor_contracts.safety.framework import SafetyLevel as SafetyLevel
+from victor_contracts.safety.framework import safety_config_kwargs
 
 
 @dataclass
@@ -573,23 +569,7 @@ class SafetyConfig:
         Raises:
             ValueError: If level is not a valid SafetyLevel
         """
-        level_value = config.get("level", "medium")
-        try:
-            # Case-insensitive lookup
-            level = SafetyLevel(level_value.lower())
-        except (ValueError, KeyError, AttributeError) as e:
-            raise ValueError(
-                f"Invalid safety level: {level_value}. Must be one of "
-                f"{[level.value for level in SafetyLevel]}"
-            ) from e
-
-        return cls(
-            level=level,
-            require_confirmation=config.get("require_confirmation", False),
-            blocked_operations=config.get("blocked_operations", []),
-            audit_log=config.get("audit_log", True),
-            dry_run=config.get("dry_run", False),
-        )
+        return cls(**safety_config_kwargs(config))
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for serialization.
@@ -883,6 +863,10 @@ class SafetyEnforcer:
             - allowed: True if operation is allowed, False if blocked
             - reason: Human-readable reason if blocked, None if allowed
 
+        Fails closed: a registered rule whose ``check_fn`` raises is treated as
+        unevaluable and blocks the operation (matching the SDK twin in
+        ``victor_contracts.safety.framework``).
+
         Example:
             allowed, reason = enforcer.check_operation(
                 "git push --force origin main",
@@ -900,56 +884,69 @@ class SafetyEnforcer:
             if blocked.lower() in operation.lower():
                 return False, f"Blocked by configuration: '{blocked}'"
 
-        # Check registered rules
+        # Check registered rules. Fail-closed policy (mirrors the SDK twin in
+        # ``victor_contracts.safety.framework.SafetyEnforcer``): a rule whose
+        # check_fn raises is UNEVALUABLE and must block the operation, never
+        # silently allow it. Levels are compared by value so a foreign
+        # SafetyLevel object (e.g. another enum class with the same values)
+        # cannot silently disarm a triggered rule.
         for rule in self.rules:
             try:
-                # Check if rule applies
-                if rule.check_fn(operation):
-                    # Rule triggered - check enforcement level
-                    if rule.level == SafetyLevel.HIGH:
-                        # HIGH level - always block (unless overridden by config)
-                        if rule.allow_override and self.config.level == SafetyLevel.LOW:
-                            continue  # Allow due to override
-                        return (
-                            False,
-                            f"Blocked by safety rule: {rule.name} - {rule.description}",
-                        )
-
-                    elif rule.level == SafetyLevel.MEDIUM:
-                        # MEDIUM level - block unless config is LOW
-                        if self.config.level == SafetyLevel.LOW:
-                            continue  # Warn only, don't block
-                        return (
-                            False,
-                            f"Blocked by safety rule: {rule.name} - {rule.description}",
-                        )
-
-                    elif rule.level == SafetyLevel.LOW:
-                        # LOW level - warn but don't block (unless config is HIGH)
-                        if self.config.level == SafetyLevel.HIGH:
-                            return (
-                                False,
-                                f"Blocked by safety rule: {rule.name} - {rule.description}",
-                            )
-                        # Warn but allow
-                        if self.config.audit_log:
-                            # Log warning (would integrate with logging system)
-                            pass
-
-                    elif rule.level == SafetyLevel.OFF:
-                        # Rule disabled
-                        pass
-
+                if not rule.check_fn(operation):
+                    continue
             except Exception:
-                # Rule check failed - log and continue
+                return False, f"Safety rule could not be evaluated: {rule.name}"
+
+            # Rule triggered - check enforcement level
+            rule_level = self._level_value(rule.level)
+            config_level = self._level_value(self.config.level)
+
+            if rule_level == SafetyLevel.HIGH.value:
+                # HIGH level - always block (unless overridden by config)
+                if rule.allow_override and config_level == SafetyLevel.LOW.value:
+                    continue  # Allow due to override
+                return (
+                    False,
+                    f"Blocked by safety rule: {rule.name} - {rule.description}",
+                )
+
+            elif rule_level == SafetyLevel.MEDIUM.value:
+                # MEDIUM level - block unless config is LOW
+                if config_level == SafetyLevel.LOW.value:
+                    continue  # Warn only, don't block
+                return (
+                    False,
+                    f"Blocked by safety rule: {rule.name} - {rule.description}",
+                )
+
+            elif rule_level == SafetyLevel.LOW.value:
+                # LOW level - warn but don't block (unless config is HIGH)
+                if config_level == SafetyLevel.HIGH.value:
+                    return (
+                        False,
+                        f"Blocked by safety rule: {rule.name} - {rule.description}",
+                    )
+                # Warn but allow
                 if self.config.audit_log:
-                    # Log error (would integrate with logging system)
+                    # Log warning (would integrate with logging system)
                     pass
+
+            elif rule_level == SafetyLevel.OFF.value:
+                # Rule disabled
+                pass
 
         return True, None
 
+    @staticmethod
+    def _level_value(level: Any) -> str:
+        """Normalize a SafetyLevel (or its value) to a comparable string."""
+        return str(getattr(level, "value", level))
+
     def get_rules_by_level(self, level: SafetyLevel) -> list[SafetyRule]:
         """Get all rules with a specific enforcement level.
+
+        Levels are compared by value (like ``check_operation``) so foreign
+        SafetyLevel objects with matching values resolve to the same rules.
 
         Args:
             level: SafetyLevel to filter by
@@ -957,7 +954,8 @@ class SafetyEnforcer:
         Returns:
             List of rules with the specified level
         """
-        return [rule for rule in self.rules if rule.level == level]
+        level_value = self._level_value(level)
+        return [rule for rule in self.rules if self._level_value(rule.level) == level_value]
 
     def clear_rules(self) -> None:
         """Remove all registered rules."""

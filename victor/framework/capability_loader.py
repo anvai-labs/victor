@@ -66,7 +66,6 @@ import importlib
 import importlib.util
 import logging
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
@@ -76,8 +75,12 @@ from victor.framework.protocols import (
     OrchestratorCapability,
 )
 from victor.framework.strict_mode import ensure_not_private_fallback
+
+# CapabilityEntry lives once in the SDK (promoted from this module) and is
+# re-exported here as the SAME object, so loader-built entries and
+# vertical-declared SDK entries are one class for isinstance/==.
+from victor_contracts.capabilities.runtime import CapabilityEntry as CapabilityEntry
 from victor_contracts.capabilities import (
-    CapabilityEntry as SDKCapabilityEntry,
     CapabilityType as SDKCapabilityType,
     OrchestratorCapability as SDKOrchestratorCapability,
 )
@@ -133,48 +136,6 @@ def _coerce_capability(
             deprecated_message=getattr(capability, "deprecated_message", ""),
         )
     raise TypeError(f"Unsupported capability object: {capability!r}")
-
-
-# =============================================================================
-# Capability Entry for Dynamic Loading
-# =============================================================================
-
-
-@dataclass
-class CapabilityEntry:
-    """Entry for a dynamically loaded capability.
-
-    This extends OrchestratorCapability with loader-specific metadata
-    for tracking source module and handler functions.
-
-    Attributes:
-        capability: The underlying OrchestratorCapability
-        handler: The callable that implements the capability (setter)
-        getter_handler: Optional getter callable
-        source_module: Module name this capability was loaded from
-        metadata: Additional loader-specific metadata
-    """
-
-    capability: OrchestratorCapability
-    handler: Optional[Callable] = None
-    getter_handler: Optional[Callable] = None
-    source_module: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def name(self) -> str:
-        """Get capability name."""
-        return self.capability.name
-
-    @property
-    def version(self) -> str:
-        """Get capability version."""
-        return self.capability.version
-
-    @property
-    def capability_type(self) -> CapabilityType:
-        """Get capability type."""
-        return self.capability.capability_type
 
 
 # =============================================================================
@@ -454,7 +415,6 @@ class CapabilityLoader(DynamicModuleLoader):
         self,
         entry: Union[
             CapabilityEntry,
-            SDKCapabilityEntry,
             OrchestratorCapability,
             SDKOrchestratorCapability,
             Dict[str, Any],
@@ -470,7 +430,7 @@ class CapabilityLoader(DynamicModuleLoader):
         Returns:
             Registered capability name or None
         """
-        if isinstance(entry, (CapabilityEntry, SDKCapabilityEntry)):
+        if isinstance(entry, CapabilityEntry):
             return self._register_capability_internal(
                 capability=_coerce_capability(entry.capability),
                 handler=entry.handler,

@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
+# Copyright 2025 Vijaykumar Singh <vijaykumar@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,75 +37,18 @@ Usage:
 
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Dict, List, Protocol, runtime_checkable
+# The definitions below live once in the SDK (promoted from this module) and
+# are re-exported here as the SAME objects, so ``isinstance`` checks and
+# dataclass identity agree with ``victor.core.verticals.protocols`` and
+# ``victor_contracts.verticals.protocols``.
+from victor_contracts.verticals.protocols.promoted import (
+    SafetyExtensionProtocol as SafetyExtensionProtocol,
+)
 
+# SafetyPattern stays a core dataclass re-export (the SDK spelling is
+# SafetyPatternData); implementers returning the core dataclass satisfy the
+# protocol identically at runtime.
 from victor.security.safety.types import SafetyPattern
-
-# =============================================================================
-# Safety Extension Protocol
-# =============================================================================
-
-
-@runtime_checkable
-class SafetyExtensionProtocol(Protocol):
-    r"""Protocol for vertical-specific safety patterns.
-
-    Extends the framework's core safety checker with domain-specific
-    dangerous operation patterns.
-
-    Example:
-        class GitSafetyExtension(SafetyExtensionProtocol):
-            def get_bash_patterns(self) -> List[SafetyPattern]:
-                return [
-                    SafetyPattern(
-                        pattern=r"git\s+reset\s+--hard",
-                        description="Discard uncommitted changes",
-                        risk_level="HIGH",
-                        category="git",
-                    ),
-                    SafetyPattern(
-                        pattern=r"git\s+push\s+.*--force",
-                        description="Force push (may lose commits)",
-                        risk_level="HIGH",
-                        category="git",
-                    ),
-                ]
-    """
-
-    @abstractmethod
-    def get_bash_patterns(self) -> List[SafetyPattern]:
-        """Get bash command patterns for this vertical.
-
-        Returns:
-            List of safety patterns for dangerous bash commands
-        """
-        ...
-
-    def get_file_patterns(self) -> List[SafetyPattern]:
-        """Get file operation patterns for this vertical.
-
-        Returns:
-            List of safety patterns for dangerous file operations
-        """
-        return []
-
-    def get_tool_restrictions(self) -> Dict[str, List[str]]:
-        """Get tool-specific argument restrictions.
-
-        Returns:
-            Dict mapping tool names to list of restricted argument patterns
-        """
-        return {}
-
-    def get_category(self) -> str:
-        """Get the category name for these patterns.
-
-        Returns:
-            Category identifier (e.g., "coding", "devops")
-        """
-        return "custom"
-
 
 __all__ = [
     "SafetyExtensionProtocol",

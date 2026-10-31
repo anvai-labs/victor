@@ -41,27 +41,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
-from enum import Enum
 
+from victor.framework.capabilities._rule_registry import CustomRuleRegistry
+from victor_contracts.safety import SafetyAction as SafetyAction
+from victor_contracts.safety import SafetyCategory as SafetyCategory
 
-class SafetyCategory(Enum):
-    """Categories of safety rules."""
-
-    GIT = "git"  # Git operation safety
-    FILE = "file"  # File operation safety
-    SHELL = "shell"  # Shell command safety
-    DOCKER = "docker"  # Docker operation safety
-    NETWORK = "network"  # Network operation safety
-    SYSTEM = "system"  # System-level operations
-
-
-class SafetyAction(Enum):
-    """Actions to take when safety rule is triggered."""
-
-    ALLOW = "allow"  # Allow the operation
-    WARN = "warn"  # Allow with warning
-    BLOCK = "block"  # Block the operation
-    REQUIRE_CONFIRMATION = "require_confirmation"  # Require user confirmation
+# SafetyCategory and SafetyAction are defined once in the SDK and re-exported
+# above (identical members/values/order), so enum identity and equality hold
+# for rules built from either import path. SafetyRule below intentionally
+# stays local: its ``matches`` semantics differ from the SDK runtime rule.
 
 
 @dataclass
@@ -124,7 +112,7 @@ class SafetyRule:
         }
 
 
-class SafetyRulesCapabilityProvider:
+class SafetyRulesCapabilityProvider(CustomRuleRegistry[SafetyRule]):
     """Generic safety rules capability provider.
 
     Provides reusable safety pattern definitions for:
@@ -325,21 +313,6 @@ class SafetyRulesCapabilityProvider:
         ),
     ]
 
-    def __init__(
-        self,
-        custom_rules: Optional[List[SafetyRule]] = None,
-        strict_mode: bool = False,
-    ):
-        """Initialize the safety rules capability provider.
-
-        Args:
-            custom_rules: Optional custom rules to add/override defaults
-            strict_mode: Whether to enable strict safety enforcement
-        """
-        self._custom_rules = custom_rules or []
-        self._strict_mode = strict_mode
-        self._rule_cache: Optional[Dict[SafetyCategory, List[SafetyRule]]] = None
-
     def get_rules(self, category: Optional[SafetyCategory] = None) -> List[SafetyRule]:
         """Get safety rules, optionally filtered by category.
 
@@ -450,46 +423,6 @@ class SafetyRulesCapabilityProvider:
                 warnings.append(f"{rule.description} (severity: {rule.severity}/10)")
 
         return warnings
-
-    def add_rule(self, rule: SafetyRule) -> None:
-        """Add a custom safety rule.
-
-        Args:
-            rule: SafetyRule to add
-        """
-        self._custom_rules.append(rule)
-        self._rule_cache = None  # Clear cache
-
-    def remove_rule(self, rule_id: str) -> bool:
-        """Remove a custom safety rule by ID.
-
-        Args:
-            rule_id: ID of the rule to remove
-
-        Returns:
-            True if rule was removed, False if not found
-        """
-        for i, rule in enumerate(self._custom_rules):
-            if rule.rule_id == rule_id:
-                self._custom_rules.pop(i)
-                self._rule_cache = None
-                return True
-        return False
-
-    def get_rule(self, rule_id: str) -> Optional[SafetyRule]:
-        """Get a specific rule by ID.
-
-        Args:
-            rule_id: Rule identifier
-
-        Returns:
-            SafetyRule or None if not found
-        """
-        all_rules = self.get_rules()
-        for rule in all_rules:
-            if rule.rule_id == rule_id:
-                return rule
-        return None
 
     def list_categories(self) -> List[SafetyCategory]:
         """List all available safety categories.

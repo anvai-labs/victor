@@ -13,30 +13,7 @@ from enum import Enum
 from typing import Any, Dict, Mapping, Optional, Sequence
 
 from victor.teams.types import MemberResult
-from victor.teams.worktree_runtime import WorktreeExecutionPlan
-
-
-def _normalize_text(value: Any) -> Optional[str]:
-    """Coerce any value to a stripped string, returning None for blank/None input."""
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _normalize_paths(values: Any) -> tuple[str, ...]:
-    """Normalize a path or sequence of paths to a deduplicated tuple with trailing slashes removed."""
-    if values is None:
-        return ()
-    if isinstance(values, str):
-        values = [values]
-    normalized: list[str] = []
-    for value in list(values or []):
-        text = _normalize_text(value)
-        if text is None:
-            continue
-        normalized.append(text.rstrip("/"))
-    return tuple(dict.fromkeys(normalized))
+from victor.teams.worktree_runtime import WorktreeExecutionPlan, _normalize_paths
 
 
 def _path_matches_any(path: str, scopes: Sequence[str]) -> bool:

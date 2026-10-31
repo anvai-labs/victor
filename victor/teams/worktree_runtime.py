@@ -22,6 +22,7 @@ from victor.teams.types import TeamFormation
 
 
 def _normalize_text(value: Any) -> Optional[str]:
+    """Coerce any value to a stripped string, returning None for blank/None input."""
     if value is None:
         return None
     text = str(value).strip()
@@ -36,6 +37,10 @@ def _slug(value: Any) -> str:
 
 
 def _normalize_paths(values: Any) -> tuple[str, ...]:
+    """Normalize a path or sequence of paths to a deduplicated tuple without trailing slashes.
+
+    Shared by the worktree planner (claimed scopes) and the merge analyzer (changed files).
+    """
     if values is None:
         return ()
     if isinstance(values, str):

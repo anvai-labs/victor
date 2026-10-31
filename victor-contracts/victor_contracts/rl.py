@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 class LearnerType(str, Enum):
@@ -86,37 +86,53 @@ class BaseRLConfig:
 
 
 # ── Promoted from victor.framework.rl.base ─────────────────────────────
+#
+# These two dataclasses mirror the runtime shapes in
+# ``victor.framework.rl.base`` (reached through the ``rl_runtime`` bridge)
+# field for field: same names, same types, same defaults, same required
+# arguments. They are deliberately NOT a host re-export — ``rl.py`` is a
+# Stable, host-free module and the top-level package imports these names
+# eagerly — so the shapes are pinned against the host by
+# ``tests/unit/test_rl_contracts.py`` instead.
 
 
 @dataclass
 class RLOutcome:
     """Result of a model execution, used for RL learning.
 
-    Promoted from victor.framework.rl.base for contract-only vertical development.
+    Promoted from victor.framework.rl.base for contract-only vertical
+    development. Field-for-field compatible with the runtime ``RLOutcome``
+    (which also carries the ``to_dict``/``from_dict`` storage round-trip);
+    ``timestamp`` is an ISO-8601 string, not a POSIX float.
     """
 
     provider: str
     model: str
     task_type: str
     success: bool
-    quality_score: float = 0.0
-    timestamp: float = field(default_factory=time.time)
+    quality_score: float
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     metadata: Dict[str, Any] = field(default_factory=dict)
     vertical: str = ""
+    segment_rewards: Optional[Dict[int, float]] = None
 
 
 @dataclass
 class RLRecommendation:
     """RL learner recommendation for decision-making.
 
-    Promoted from victor.framework.rl.base for contract-only vertical development.
+    Promoted from victor.framework.rl.base for contract-only vertical
+    development. Field-for-field compatible with the runtime
+    ``RLRecommendation``: ``value``/``confidence``/``reason``/``sample_size``
+    are required and ``is_baseline`` defaults to ``False``.
     """
 
-    value: Any = None
-    confidence: float = 0.0
-    reason: str = ""
-    sample_size: int = 0
-    is_baseline: bool = True
+    value: Any
+    confidence: float
+    reason: str
+    sample_size: int
+    is_baseline: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = [

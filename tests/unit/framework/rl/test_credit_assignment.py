@@ -793,3 +793,32 @@ class TestCreditAssignmentScenarios:
         assert len(signals) > 0
         for signal in signals:
             assert signal.methodology == CreditMethodology.HINDSIGHT
+
+
+class TestLLMCriticProviderResolution:
+    """The critic builds its provider lazily through the registry and caches it."""
+
+    def test_provider_is_created_once_and_cached(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from victor.framework.rl.credit_assignment import LLMCriticCreditAssigner
+
+        registry = MagicMock()
+        monkeypatch.setattr("victor.providers.registry.get_provider_registry", lambda: registry)
+        critic = LLMCriticCreditAssigner(provider_name="zai")
+        assert critic._get_provider() is registry.create.return_value
+        assert critic._get_provider() is registry.create.return_value
+        registry.create.assert_called_once_with("zai")
+
+    def test_failed_creation_yields_none_and_retries(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from victor.framework.rl.credit_assignment import LLMCriticCreditAssigner
+
+        registry = MagicMock()
+        registry.create.side_effect = KeyError("unknown")
+        monkeypatch.setattr("victor.providers.registry.get_provider_registry", lambda: registry)
+        critic = LLMCriticCreditAssigner(provider_name="nope")
+        assert critic._get_provider() is None
+        assert critic._get_provider() is None
+        assert registry.create.call_count == 2

@@ -1106,8 +1106,12 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
         """Get the DI service container via explicit port method."""
         return self._container
 
-    def get_capability_config_scope_key(self) -> Optional[str]:
-        """Get stable scope key for framework capability-config service storage."""
+    def get_capability_config_scope_key(self) -> str:
+        """Get stable scope key for framework capability-config service storage.
+
+        Always returns a value (falls back to a per-instance key), matching the
+        SDK port's ``-> str`` contract.
+        """
         if self.active_session_id:
             normalized_active = str(self.active_session_id).strip()
             if normalized_active:

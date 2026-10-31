@@ -1,4 +1,4 @@
-# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
+# Copyright 2025 Vijaykumar Singh <vijaykumar@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,13 +37,20 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from abc import abstractmethod
-from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Any, List
 
 from victor.core.vertical_types import TaskTypeHint
 
+# The protocol below lives once in the SDK (promoted from this module) and is
+# re-exported here as the SAME object, so ``isinstance`` checks agree with
+# ``victor.core.verticals.protocols`` and ``victor_contracts.verticals.protocols``.
+# TaskTypeHint stays the core dataclass; the SDK spelling is TaskTypeHintData.
+from victor_contracts.verticals.protocols.promoted import (
+    PromptContributorProtocol as PromptContributorProtocol,
+)
+
 # =============================================================================
-# Prompt Contributor Protocol
+# Prompt Section Contribution (core-only; not promoted to the SDK)
 # =============================================================================
 
 
@@ -64,65 +71,6 @@ class PromptSectionContribution:
     required: bool = False
     priority: int = 50
     default_strategies: tuple[str, ...] = ()
-
-
-@runtime_checkable
-class PromptContributorProtocol(Protocol):
-    """Protocol for contributing to system prompts.
-
-    Verticals can contribute domain-specific task hints and system
-    prompt sections without modifying framework code.
-
-    Example:
-        class CodingPromptContributor(PromptContributorProtocol):
-            def get_task_type_hints(self) -> Dict[str, TaskTypeHint]:
-                return {
-                    "edit": TaskTypeHint(
-                        task_type="edit",
-                        hint="[EDIT] Read target file first, then modify.",
-                        tool_budget=5,
-                        priority_tools=["read_file", "edit_files"],
-                    ),
-                }
-
-            def get_system_prompt_section(self) -> str:
-                return "When modifying code, always run tests afterward."
-    """
-
-    @abstractmethod
-    def get_task_type_hints(self) -> Dict[str, TaskTypeHint]:
-        """Get task-type-specific prompt hints.
-
-        Returns:
-            Dict mapping task types to their hints
-        """
-        ...
-
-    def get_system_prompt_section(self) -> str:
-        """Get a section to append to the system prompt.
-
-        Returns:
-            Additional system prompt text (or empty string)
-        """
-        return ""
-
-    def get_grounding_rules(self) -> str:
-        """Get vertical-specific grounding rules.
-
-        Returns:
-            Grounding rules text (or empty string for default)
-        """
-        return ""
-
-    def get_priority(self) -> int:
-        """Get priority for prompt section ordering.
-
-        Lower values appear first.
-
-        Returns:
-            Priority value (default 50)
-        """
-        return 50
 
 
 def collect_prompt_section_contributions(

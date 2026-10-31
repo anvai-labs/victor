@@ -1,4 +1,18 @@
-"""Framework-style safety rule helpers for external vertical compatibility."""
+"""Framework-style safety rule helpers for external vertical compatibility.
+
+Host bridge
+-----------
+``SafetyRule``, ``SafetyConfig`` and ``SafetyEnforcer`` lazily bind their
+``SafetyLevel`` objects to the host runtime (``victor.framework.config``) the
+first time one is constructed with the host importable, mirroring the
+``victor_contracts.safety_policy`` host adapter. The SDK never imports
+``victor`` at module scope: the binding goes through
+:func:`_host_safety_module`, an ``importlib`` hook resolved once per process.
+With the host registered, SDK-created safety objects evaluate levels with the
+host's enum, so host and SDK enforcers reach identical allow/block decisions
+(both fail closed when a rule predicate raises). Without a host, the objects
+keep self-contained SDK semantics, which are fail-closed as well.
+"""
 
 from __future__ import annotations
 
@@ -8,13 +22,113 @@ import importlib
 from typing import Any, Callable, Dict, Optional, Tuple
 
 
-class SafetyLevel(Enum):
-    """Safety enforcement levels for operation checks."""
+class SafetyLevel(str, Enum):
+    """Safety enforcement levels for operation checks.
+
+    This is the single ``SafetyLevel`` definition in the SDK: it is re-exported
+    from the ``victor_contracts.safety`` top level and bound as
+    ``victor.framework.config.SafetyLevel`` by the host runtime, so every import
+    path yields the same enum object. The ``str`` mixin is additive: members
+    compare equal to (and hash like) their lowercase value strings, while
+    ``str()``/f-strings still render as ``SafetyLevel.LOW`` on Python 3.12+.
+    """
 
     OFF = "off"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class _Unresolved:
+    """Sentinel for the not-yet-resolved host hook."""
+
+
+_UNRESOLVED = _Unresolved()
+_host_config_module: Any = _UNRESOLVED
+
+
+def _host_safety_module() -> Optional[Any]:
+    """Return the host ``victor.framework.config`` module, or ``None``.
+
+    The import is attempted once per process and the result — including an
+    import FAILURE — is cached permanently (no retry): once resolved host-less,
+    the SDK keeps its self-contained fail-closed semantics for the rest of the
+    process. Tests can simulate a host-less environment by monkeypatching
+    ``_host_config_module`` to ``None``.
+    """
+    global _host_config_module
+    if _host_config_module is _UNRESOLVED:
+        try:
+            _host_config_module = importlib.import_module("victor.framework.config")
+        except Exception:
+            _host_config_module = None
+    return _host_config_module
+
+
+def _coerce_level(level: Any) -> Any:
+    """Normalize a level to the SDK enum, then to the host enum when registered.
+
+    ``SafetyLevel`` instances pass through UNCHANGED: the host re-exports this
+    very enum, so re-binding them would only swap objects when a foreign host
+    module resolves (e.g. a cross-tree import), which breaks identity asserts.
+    Strings and foreign enums are parsed via :func:`parse_safety_level` (friendly
+    ``ValueError`` for invalid values) and bound to the host enum when the host
+    hook is registered; a partial or incompatible host import (missing or
+    value-mismatched ``SafetyLevel``) keeps the self-contained SDK enum.
+    """
+    if isinstance(level, SafetyLevel):
+        return level
+
+    coerced = parse_safety_level(getattr(level, "value", level))
+    host_module = _host_safety_module()
+    if host_module is None:
+        return coerced
+    try:
+        return host_module.SafetyLevel(coerced.value)
+    except (AttributeError, ValueError):
+        return coerced
+
+
+def parse_safety_level(value: Any) -> SafetyLevel:
+    """Parse a level string (case-insensitive) into :class:`SafetyLevel`.
+
+    Shared by the SDK and host ``SafetyConfig.from_dict`` implementations so
+    both accept the same inputs and raise the same friendly ``ValueError``.
+    """
+    try:
+        # Case-insensitive lookup
+        return SafetyLevel(value.lower())
+    except (ValueError, KeyError, AttributeError) as e:
+        raise ValueError(
+            f"Invalid safety level: {value}. Must be one of "
+            f"{[level.value for level in SafetyLevel]}"
+        ) from e
+
+
+def safety_config_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a safety-config dictionary to ``SafetyConfig`` constructor kwargs.
+
+    Shared by the SDK and host ``SafetyConfig.from_dict`` implementations so
+    both honor the same defaults and level parsing.
+    """
+    level = config.get("level", "medium")
+    # Dict payloads are serialized data (``to_dict`` emits the value string):
+    # the level must be a plain string. Enum members are rejected explicitly —
+    # with the str mixin they ARE str instances, so the isinstance(str) gate
+    # alone would let them through (pre-unification they raised only by
+    # accident: plain-Enum members have no .lower()).
+    if isinstance(level, SafetyLevel) or not isinstance(level, str):
+        raise ValueError(
+            f"Invalid safety level: {level!r}. Must be one of "
+            f"{[lvl.value for lvl in SafetyLevel]}"
+        )
+    return {
+        "level": parse_safety_level(level),
+        "require_confirmation": config.get("require_confirmation", False),
+        "blocked_operations": config.get("blocked_operations", []),
+        "audit_log": config.get("audit_log", True),
+        "dry_run": config.get("dry_run", False),
+    }
 
 
 @dataclass
@@ -27,16 +141,18 @@ class SafetyConfig:
     audit_log: bool = True
     dry_run: bool = False
 
+    def __post_init__(self) -> None:
+        """Use the host runtime SafetyLevel enum when available."""
+        self.level = _coerce_level(self.level)
+
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "SafetyConfig":
-        """Create a safety config from a dictionary."""
-        return cls(
-            level=SafetyLevel(config.get("level", "medium")),
-            require_confirmation=config.get("require_confirmation", False),
-            blocked_operations=config.get("blocked_operations", []),
-            audit_log=config.get("audit_log", True),
-            dry_run=config.get("dry_run", False),
-        )
+        """Create a safety config from a dictionary.
+
+        Level parsing matches the host ``SafetyConfig.from_dict``: the lookup is
+        case-insensitive and invalid levels raise a friendly ``ValueError``.
+        """
+        return cls(**safety_config_kwargs(config))
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a serializable dictionary representation."""
@@ -61,16 +177,7 @@ class SafetyRule:
 
     def __post_init__(self) -> None:
         """Use the host runtime SafetyLevel enum when available."""
-
-        self.level = SafetyLevel(getattr(self.level, "value", self.level))
-        try:
-            runtime_config = importlib.import_module("victor.framework.config")
-            runtime_level = runtime_config.SafetyLevel
-        except Exception:
-            return
-
-        level_value = getattr(self.level, "value", self.level)
-        self.level = runtime_level(level_value)
+        self.level = _coerce_level(self.level)
 
 
 class SafetyEnforcer:
@@ -78,6 +185,16 @@ class SafetyEnforcer:
 
     def __init__(self, config: SafetyConfig):
         self.config = config
+        # Delegate level evaluation to the host hook when registered (the same
+        # lazy binding SafetyRule/SafetyConfig apply to themselves): the
+        # enforcer normalizes its config's level so SDK and host objects share
+        # one enum and reach identical decisions. The mutation is idempotent
+        # and intended: SDK configs are already bound by their own
+        # ``__post_init__`` (a no-op pass-through), while foreign or duck-typed
+        # configs are upgraded in place.
+        level = getattr(config, "level", None)
+        if level is not None:
+            config.level = _coerce_level(level)
         self.rules: list[SafetyRule] = []
 
     @staticmethod
@@ -103,7 +220,12 @@ class SafetyEnforcer:
         operation: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, Optional[str]]:
-        """Check whether an operation is allowed."""
+        """Check whether an operation is allowed.
+
+        Fails closed: a registered rule whose ``check_fn`` raises is treated as
+        unevaluable and blocks the operation (matching the host twin in
+        ``victor.framework.config.SafetyEnforcer``).
+        """
         del context
         if self.config.dry_run:
             return True, f"[DRY RUN] Would execute: {operation}"
@@ -157,4 +279,6 @@ __all__ = [
     "SafetyEnforcer",
     "SafetyLevel",
     "SafetyRule",
+    "parse_safety_level",
+    "safety_config_kwargs",
 ]

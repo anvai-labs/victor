@@ -30,8 +30,9 @@ class ChunkingConfig:
     """Configuration for document chunking.
 
     Attributes:
-        chunk_size: Target chunk size in characters (default: 512)
-        chunk_overlap: Overlap between chunks in characters (default: 50)
+        chunk_size: Target chunk size in characters (default: 1024)
+        chunk_overlap: Overlap between chunks in characters (default: 128);
+            must be smaller than ``chunk_size``
         min_chunk_size: Minimum chunk size - avoid tiny chunks (default: 100)
         max_chunk_size: Maximum chunk size - hard limit (default: 2000)
         respect_boundaries: Try to break at natural boundaries (default: True)
@@ -44,11 +45,27 @@ class ChunkingConfig:
     respect_boundaries: bool = True
 
     def __post_init__(self) -> None:
-        """Validate configuration."""
+        """Validate configuration.
+
+        ``chunk_overlap`` must satisfy ``0 <= chunk_overlap < chunk_size``:
+        the strategies advance to ``chunk_end - chunk_overlap``, so an
+        overlap of at least ``chunk_size`` never moves the window forward and
+        the chunking loop never terminates. Same guard as the SDK's
+        ``victor_contracts.chunking.ChunkingConfig``.
+
+        Raises:
+            ValueError: If ``chunk_size`` is not positive, ``chunk_overlap``
+                is negative or not smaller than ``chunk_size``,
+                ``min_chunk_size`` is negative, or ``max_chunk_size`` is
+                smaller than ``chunk_size``.
+        """
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
-        if self.chunk_overlap < 0:
-            raise ValueError("chunk_overlap must be non-negative")
+        if not 0 <= self.chunk_overlap < self.chunk_size:
+            raise ValueError(
+                "chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size, got "
+                f"chunk_overlap={self.chunk_overlap}, chunk_size={self.chunk_size}"
+            )
         if self.min_chunk_size < 0:
             raise ValueError("min_chunk_size must be non-negative")
         if self.max_chunk_size < self.chunk_size:

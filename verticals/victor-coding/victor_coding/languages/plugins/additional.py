@@ -32,6 +32,7 @@ These plugins support embedding-based indexing for:
 - Markdown/reStructuredText
 """
 
+from types import MappingProxyType
 from typing import Any, List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
@@ -41,6 +42,7 @@ from victor_coding.languages.base import (
     LanguageConfig,
     QueryPattern,
     TreeSitterQueries,
+    declarator_name,
 )
 
 if TYPE_CHECKING:
@@ -49,6 +51,14 @@ if TYPE_CHECKING:
 
 class CPlugin(BaseLanguagePlugin):
     """C language plugin."""
+
+    _function_name_types = frozenset({"identifier"})
+    # Callee hooks: foo() / ptr->method() (field_identifier of the outermost
+    # field_expression only; C does not recurse into nested field_expressions).
+    _callee_name_types = frozenset({"identifier"})
+    _callee_path_types = MappingProxyType(
+        {"field_expression": (frozenset({"field_identifier"}), frozenset())}
+    )
 
     def _create_config(self) -> LanguageConfig:
         return LanguageConfig(
@@ -176,79 +186,24 @@ class CPlugin(BaseLanguagePlugin):
         return results
 
     def _extract_function_name_c(self, node: "Node") -> Optional[str]:
-        """Extract function name from a function definition node.
-
-        Args:
-            node: Function definition node
-
-        Returns:
-            Function name or None
-        """
-        # Look for function_declarator
-        for child in node.children:
-            if child.type == "function_declarator":
-                # Get the declarator (identifier)
-                for grandchild in child.children:
-                    if grandchild.type == "declarator":
-                        for ggchild in grandchild.children:
-                            if ggchild.type == "identifier":
-                                return self._get_node_text(ggchild)
-                    elif grandchild.type == "identifier":
-                        return self._get_node_text(grandchild)
-
-        # Fallback: look for identifier directly
-        for child in node.children:
-            if child.type == "identifier":
-                return self._get_node_text(child)
-
-        return None
-
-    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Extract the name of the called function from a call node.
-
-        Handles:
-        - Simple calls: foo()
-        - Field expression calls: ptr->method()
-
-        Args:
-            call_node: Call expression node
-
-        Returns:
-            Callee name or None
-        """
-        # Get the function part of the call
-        for child in call_node.children:
-            if child.type == "field_expression":
-                # ptr->method() -> extract "method"
-                return self._extract_field_name_c(child)
-            elif child.type == "identifier":
-                # foo() -> extract "foo"
-                return self._get_node_text(child)
-
-        return None
-
-    def _extract_field_name_c(self, field_node: "Node") -> Optional[str]:
-        """Extract field name from a field_expression node.
-
-        For ptr->method, extracts "method".
-
-        Args:
-            field_node: Field expression node
-
-        Returns:
-            Field name or None
-        """
-        # field_expression: argument . field: (field_identifier)
-        # or for pointer access: argument -> field: (field_identifier)
-        for child in reversed(field_node.children):
-            if child.type == "field_identifier":
-                return self._get_node_text(child)
-
-        return None
+        """Extract function name from a function definition node."""
+        return declarator_name(node, self._function_name_types, self._get_node_text)
 
 
 class KotlinPlugin(BaseLanguagePlugin):
     """Kotlin language plugin."""
+
+    # Callee hooks: foo() / obj?.a.method() (last identifier of a
+    # navigation_expression chain).
+    _callee_name_types = frozenset({"identifier"})
+    _callee_path_types = MappingProxyType(
+        {
+            "navigation_expression": (
+                frozenset({"identifier"}),
+                frozenset({"navigation_expression"}),
+            )
+        }
+    )
 
     def _create_config(self) -> LanguageConfig:
         return LanguageConfig(
@@ -411,54 +366,6 @@ class KotlinPlugin(BaseLanguagePlugin):
 
         traverse(root)
         return results
-
-    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Extract the name of the called function from a call node.
-
-        Handles:
-        - Simple calls: foo()
-        - Navigation expressions: obj.method()
-        - Safe navigation: obj?.method()
-
-        Args:
-            call_node: Call expression node
-
-        Returns:
-            Callee name or None
-        """
-        for child in call_node.children:
-            if child.type == "navigation_expression":
-                # obj.method() -> extract "method"
-                return self._extract_navigation_name(child)
-            elif child.type == "identifier":
-                # foo() -> extract "foo"
-                return self._get_node_text(child)
-
-        return None
-
-    def _extract_navigation_name(self, navigation_node: "Node") -> Optional[str]:
-        """Extract method name from a navigation_expression node.
-
-        For obj.method, extracts "method".
-        Handles safe navigation: obj?.method
-
-        Args:
-            navigation_node: Navigation expression node
-
-        Returns:
-            Method name or None
-        """
-        # navigation_expression can be nested: obj1.obj2.method
-        # We want the last identifier (not simple_identifier!)
-        for child in reversed(navigation_node.children):
-            if child.type == "identifier":
-                return self._get_node_text(child)
-            elif child.type == "navigation_expression":
-                result = self._extract_navigation_name(child)
-                if result:
-                    return result
-
-        return None
 
 
 class CSharpPlugin(BaseLanguagePlugin):
