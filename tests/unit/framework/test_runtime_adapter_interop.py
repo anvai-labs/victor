@@ -86,16 +86,12 @@ def test_multi_agent_package_no_longer_exports_persona_provider() -> None:
     assert "FrameworkPersonaProvider" not in multi_agent.__all__
 
 
-def test_chain_runtime_shim_is_detached_from_the_host_versioned_registry() -> None:
-    """Since victor-contracts 0.14.0 chain_runtime is an inert SDK shim: it no longer
-    resolves to victor.framework.chains, so registrations never reach the host."""
-    from victor_contracts import chain_runtime
+def test_chain_runtime_bridge_removed() -> None:
+    """victor-contracts 0.15.0 deleted the inert chain_runtime shim (FEP-0042)."""
+    import importlib
 
-    with pytest.warns(DeprecationWarning, match="inert compatibility shim"):
-        registry = chain_runtime.get_chain_registry()
-    assert type(registry).__module__ == "victor_contracts.chain_runtime"
-    registry.register_chain(name="interop_probe", version="1.0.0", chain=object())
-    assert registry.get_chain("interop_probe") is None
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("victor_contracts.chain_runtime")
 
 
 def test_runtime_persona_provider_sdk_hook_removed() -> None:
