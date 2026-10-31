@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-research"
-version = "0.13.0"
+version = "0.14.0"
 description = "Research vertical for Victor AI - Web research, information gathering, and knowledge synthesis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,7 +33,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "victor-contracts[yaml]>=0.7.0,<1.0",
+    "victor-contracts[yaml]>=0.11.0,<1.0",
 ]
 
 [project.optional-dependencies]
