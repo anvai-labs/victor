@@ -28,6 +28,29 @@ the deprecation policy are defined in
     five fields were defaulted), `is_baseline` defaults to `False` (was `True` — a
     learned recommendation no longer presents itself as a provider baseline), and the
     class gains the `metadata` field.
+- `SafetyLevel` is now defined exactly once, as a `str, Enum` owned by
+  `victor_contracts.safety.framework` and re-exported from the
+  `victor_contracts.safety` top level (which previously declared a separate
+  str-Enum fork). Every import path — `victor_contracts.SafetyLevel`,
+  `victor_contracts.safety.SafetyLevel`, `victor_contracts.safety.framework.SafetyLevel`
+  and the host-bound `victor.framework.config.SafetyLevel` — yields the same
+  enum object, so safety rules leveled through any path enforce identically
+  under the host runtime enforcer (previously a rule leveled via the top-level
+  fork was silently disarmed: fail-open).
+- The `str` mixin is additive: members now compare equal to (and hash like)
+  their lowercase value strings (`SafetyLevel.LOW == "low"`) and serialize
+  directly under `json.dumps` as their value. `str()`/f-string rendering keeps
+  the `SafetyLevel.LOW` form on Python 3.12+; no member set, order or `.value`
+  changed. Two behavioral notes for external consumers:
+- Ordering comparisons are now silently legal and **lexicographic**, not by
+  severity (`min(SafetyLevel)` is `HIGH`, `max` is `OFF`). No in-repo or
+  published-vertical consumer orders levels; new code should compare via the
+  level-int helper, not operators.
+- Under the host runtime enforcer, rules leveled with raw value strings
+  (`"high"`) or foreign str-Enum members now **block** correctly; both were
+  silently allowed before the unification (plain-Enum identity comparison
+  never matched). Pickles of the old top-level fork members unpickle to the
+  unified enum transparently.
 
 ## [0.15.0] - 2026-10-31
 

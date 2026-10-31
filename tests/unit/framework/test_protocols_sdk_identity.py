@@ -165,8 +165,11 @@ def test_enum_members_values_and_order_preserved() -> None:
     ]
     assert issubclass(CapabilityType, str)
     assert [m.value for m in SafetyLevel] == ["off", "low", "medium", "high"]
-    # Plain Enum (not a str-mixin): a member is not equal to its raw value.
-    assert SafetyLevel.LOW != "low"
+    # SafetyLevel is now a str-Enum (additive str-ness from the SDK unification):
+    # a member compares equal to its raw value. str()/f-string still render the
+    # member name path, not the value (pinned in the SDK suite).
+    assert issubclass(SafetyLevel, str)
+    assert SafetyLevel.LOW == "low"
 
 
 def test_capability_config_scope_port_runtime_checkable_preserved() -> None:

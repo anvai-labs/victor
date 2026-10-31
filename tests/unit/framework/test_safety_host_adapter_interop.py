@@ -55,3 +55,40 @@ def test_safety_pattern_identity_is_shared() -> None:
     assert CoreInfrastructureScanner is SdkInfrastructureScanner
     assert CoreSecretScanner is SdkSecretScanner
     assert core_validate_source_credibility is sdk_validate_source_credibility
+
+
+def test_sdk_top_level_level_cannot_disarm_core_enforcer() -> None:
+    """Round-5 triage repro: a rule leveled via the SDK top-level enum must block.
+
+    Before the SDK SafetyLevel unification, ``victor_contracts.SafetyLevel`` was
+    a separate str-Enum, so that foreign member compared unequal to every
+    ``SafetyLevel`` branch in the core enforcer's enum-identity leveling and
+    ``check_operation`` silently ALLOWED the operation (fail-open: the exact
+    ``(True, None)`` repro from the triage). With one enum object the HIGH
+    branch is hit again at the enum-identity layer. (The enforcer's own
+    fail-closed hardening for genuinely unknown level objects is tracked
+    separately and intentionally NOT changed here.)
+    """
+    import victor_contracts
+
+    assert victor_contracts.SafetyLevel is CoreSafetyLevel
+
+    enforcer = CoreSafetyEnforcer(config=CoreSafetyConfig(level=CoreSafetyLevel.LOW))
+    enforcer.add_rule(
+        CoreSafetyRule(
+            name="block_delete",
+            description="Block deletes",
+            check_fn=lambda operation: "delete" in operation,
+            level=victor_contracts.SafetyLevel.HIGH,
+            allow_override=False,
+        )
+    )
+
+    allowed, reason = enforcer.check_operation("delete all data")
+
+    assert allowed is False
+    assert reason == "Blocked by safety rule: block_delete - Block deletes"
+    # Level filtering is enum-identity based in core; the SDK member must be
+    # found there too (it used to be an object from a foreign enum class).
+    assert enforcer.get_rules_by_level(victor_contracts.SafetyLevel.HIGH) == [enforcer.rules[0]]
+    assert enforcer.get_rules_by_level(CoreSafetyLevel.MEDIUM) == []

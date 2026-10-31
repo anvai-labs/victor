@@ -509,13 +509,13 @@ Classes promoted from verticals:
     - ToolConfig: Tool behavior configuration (promoted from all verticals)
 """
 
-# SafetyLevel is defined once in the SDK (identical members, values and order)
-# and re-exported here, so ``victor.framework.config.SafetyLevel``,
-# ``victor_contracts.safety.framework.SafetyLevel`` and the
-# ``victor_contracts.safety_policy`` host adapter all yield the same enum.
-# NOTE: the SDK's top-level ``victor_contracts.safety.SafetyLevel`` is still a
-# separate str-Enum (an SDK-side fork to collapse in a future contracts
-# release); it is NOT the object bound here.
+# SafetyLevel is defined once in the SDK as a str-Enum and re-exported here,
+# so ``victor.framework.config.SafetyLevel``,
+# ``victor_contracts.safety.framework.SafetyLevel``, the top-level
+# ``victor_contracts.safety.SafetyLevel`` (former str-Enum fork, collapsed)
+# and the ``victor_contracts.safety_policy`` host adapter all yield the same
+# enum object. The str mixin is additive (members compare equal to their
+# lowercase value strings); core leveling stays enum-identity based.
 # Semantics: OFF = no checks; LOW = warn only; MEDIUM = block dangerous, warn
 # risky; HIGH = block anything not explicitly allowed.
 from victor_contracts.safety.framework import SafetyLevel as SafetyLevel

@@ -81,14 +81,18 @@ def test_provider_rules_use_sdk_enums_and_local_rule_semantics() -> None:
 
 
 def test_config_safety_level_binding_is_pinned() -> None:
-    """config binds the SDK framework enum, not the SDK top-level str-Enum fork."""
+    """config, the SDK framework module and the SDK top level yield ONE enum.
+
+    The SDK top-level ``victor_contracts.safety.SafetyLevel`` used to be a
+    separate str-Enum fork (pinned with ``is not`` before the collapse); it is
+    now the same object as the framework enum bound here, so rules leveled
+    through any import path level identically under the core enforcer.
+    """
     import victor.framework.config as config
     from victor_contracts.safety.framework import SafetyLevel as FrameworkLevel
 
     assert config.SafetyLevel is FrameworkLevel
     assert config.SafetyLevel.LOW.value == "low"
-    # The SDK top-level SafetyLevel is still a separate str-Enum fork; pin that
-    # this binding is NOT it, so an accidental swap cannot pass silently.
     import victor_contracts
 
-    assert config.SafetyLevel is not victor_contracts.SafetyLevel
+    assert config.SafetyLevel is victor_contracts.SafetyLevel
