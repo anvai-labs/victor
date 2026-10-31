@@ -52,6 +52,24 @@ the deprecation policy are defined in
   never matched). Pickles of the old top-level fork members unpickle to the
   unified enum transparently.
 
+
+- `victor_contracts.safety.framework.SafetyConfig` and `SafetyEnforcer` now bind their
+  `SafetyLevel` objects to the host runtime through the same lazy hook `SafetyRule` uses
+  (`victor.framework.config`, resolved once per process; never imported at module scope).
+  With a host registered, SDK-created safety objects evaluate levels with the host's enum,
+  so host and SDK enforcers reach identical allow/block decisions; without a host they keep
+  self-contained SDK semantics, which are fail-closed like the host's.
+- `SafetyConfig.from_dict` now parses the `level` key like the host `SafetyConfig`:
+  case-insensitive lookup and a friendly `ValueError` naming the valid levels (previously a
+  raw `ValueError` from the enum constructor, and capitalized values were rejected). The
+  parsing and field defaults now live in the new shared helpers `parse_safety_level` and
+  `safety_config_kwargs`, which the host `SafetyConfig.from_dict` also uses.
+- Safety construction now validates levels eagerly: `SafetyConfig(level=...)`,
+  `SafetyRule(level=...)` and the enforcer's config binding raise a friendly `ValueError` for
+  invalid level values (`"bogus"`, `None`, ...) that were previously stored silently, and
+  `SafetyConfig.from_dict` no longer accepts a `SafetyLevel` member in the dict (pass the level
+  string). `SafetyLevel` instances pass through coercion unchanged, with identity preserved.
+
 ## [0.15.0] - 2026-10-31
 
 FEP-0042 Phase 3 (backlog F-019): removes the surfaces deprecated in 0.14.0.

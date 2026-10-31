@@ -127,3 +127,147 @@ def test_safety_level_str_enum_behavior_is_pinned() -> None:
     # Enum previously raised TypeError under json.dumps).
     assert json.dumps(SafetyLevel.LOW) == '"low"'
     assert json.dumps({"level": SafetyLevel.LOW}) == '{"level": "low"}'
+
+
+def test_framework_safety_config_coerces_to_host_level_when_available() -> None:
+    pytest.importorskip("victor", reason="host-level coercion requires the victor-ai package")
+    from victor.framework.config import SafetyLevel as HostSafetyLevel
+
+    assert SafetyConfig(level=SafetyLevel.HIGH).level == HostSafetyLevel.HIGH
+    # Raw strings and foreign enums with the same values bind to the host too
+    assert SafetyConfig(level="high").level == HostSafetyLevel.HIGH
+
+
+def test_framework_safety_enforcer_coerces_config_level_when_available() -> None:
+    pytest.importorskip("victor", reason="host-level coercion requires the victor-ai package")
+    from victor.framework.config import SafetyLevel as HostSafetyLevel
+
+    enforcer = SafetyEnforcer(SafetyConfig(level=SafetyLevel.LOW))
+
+    assert enforcer.config.level == HostSafetyLevel.LOW
+
+
+def test_framework_safety_objects_stay_self_contained_without_host(monkeypatch) -> None:
+    """Without a host registered, SDK objects keep SDK enum semantics."""
+    import victor_contracts.safety.framework as sdk_framework
+
+    monkeypatch.setattr(sdk_framework, "_host_config_module", None, raising=False)
+
+    assert SafetyConfig(level="high").level is SafetyLevel.HIGH
+    rule = SafetyRule(
+        name="standalone",
+        description="Standalone",
+        check_fn=lambda operation: True,
+        level="high",
+    )
+    assert rule.level is SafetyLevel.HIGH
+
+
+def test_framework_safety_level_resolution_delegates_to_the_host_module(
+    monkeypatch,
+) -> None:
+    """Level resolution flows through the registered host hook.
+
+    The host re-exports this module's SafetyLevel (same object) and SafetyLevel
+    instances pass through coercion unchanged, so identity on enum inputs
+    cannot prove delegation: construct with a string, patch the host module's
+    enum with a marker, and assert the resolved level follows it. Unregistering
+    the bridge fails this test.
+    """
+    pytest.importorskip("victor", reason="host-level coercion requires the victor-ai package")
+    from enum import Enum
+
+    import victor.framework.config as host_config
+    import victor_contracts.safety.framework as sdk_framework
+
+    assert sdk_framework._host_safety_module() is host_config
+
+    class MarkerLevel(Enum):
+        OFF = "off"
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+
+    monkeypatch.setattr(host_config, "SafetyLevel", MarkerLevel, raising=False)
+
+    assert SafetyConfig(level="high").level is MarkerLevel.HIGH
+
+
+def test_framework_safety_enum_instances_pass_through_with_identity_preserved(
+    monkeypatch,
+) -> None:
+    """SafetyLevel instances are never re-bound, even when the host differs."""
+    pytest.importorskip("victor", reason="host-level coercion requires the victor-ai package")
+    from enum import Enum
+
+    import victor.framework.config as host_config
+
+    class MarkerLevel(Enum):
+        OFF = "off"
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+
+    monkeypatch.setattr(host_config, "SafetyLevel", MarkerLevel, raising=False)
+
+    assert SafetyConfig(level=SafetyLevel.HIGH).level is SafetyLevel.HIGH
+    rule = SafetyRule(
+        name="passthrough",
+        description="identity preserved",
+        check_fn=lambda operation: True,
+        level=SafetyLevel.MEDIUM,
+    )
+    assert rule.level is SafetyLevel.MEDIUM
+
+
+def test_framework_safety_enforcer_fails_closed_on_raising_check_fn() -> None:
+    """A rule whose check_fn raises must block, never allow (fail-closed)."""
+
+    def exploding(operation: str) -> bool:
+        raise RuntimeError("predicate exploded")
+
+    enforcer = SafetyEnforcer(SafetyConfig(level=SafetyLevel.LOW))
+    enforcer.add_rule(
+        SafetyRule(
+            name="exploding",
+            description="Raises",
+            check_fn=exploding,
+            level=SafetyLevel.MEDIUM,
+        )
+    )
+
+    assert enforcer.check_operation("anything") == (
+        False,
+        "Safety rule could not be evaluated: exploding",
+    )
+
+
+def test_framework_safety_config_from_dict_parses_levels_like_host() -> None:
+    """Level parsing is case-insensitive and raises a friendly ValueError."""
+    config = SafetyConfig.from_dict({"level": "High"})
+
+    assert config.level is SafetyLevel.HIGH
+
+    with pytest.raises(ValueError, match="Invalid safety level"):
+        SafetyConfig.from_dict({"level": "extreme"})
+
+
+def test_framework_safety_construction_rejects_invalid_levels() -> None:
+    """Invalid level values raise a friendly ValueError at construction.
+
+    Previously ``SafetyConfig(level="bogus")`` stored the bad value silently;
+    ``from_dict`` accepted same-enum members. Both now validate eagerly.
+    """
+    with pytest.raises(ValueError, match="Invalid safety level"):
+        SafetyConfig(level="bogus")
+    with pytest.raises(ValueError, match="Invalid safety level"):
+        SafetyConfig(level=None)
+    with pytest.raises(ValueError, match="Invalid safety level"):
+        SafetyRule(
+            name="bad_level",
+            description="Bad level",
+            check_fn=lambda operation: True,
+            level="bogus",
+        )
+    with pytest.raises(ValueError, match="Invalid safety level"):
+        SafetyConfig.from_dict({"level": SafetyLevel.HIGH})
