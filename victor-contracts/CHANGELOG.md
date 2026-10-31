@@ -10,7 +10,7 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
-## [0.14.0] - release candidate
+## [0.14.0] - 2026-10-30
 
 FEP-0042 Phase 2a (backlog F-019).
 

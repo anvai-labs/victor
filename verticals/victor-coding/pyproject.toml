@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-coding"
-version = "0.13.0"
+version = "0.14.0"
 description = "Coding vertical for Victor AI - Software development, debugging, and code generation"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -34,7 +34,7 @@ classifiers = [
     "Topic :: Software Development",
 ]
 dependencies = [
-    "victor-contracts[yaml]>=0.6.0,<1.0",  # Definition-layer contract for external verticals
+    "victor-contracts[yaml]>=0.11.0,<1.0",  # Definition-layer contract for external verticals
     "victor-codegraph[treesitter]>=0.1.0",  # Shared code->CPG chunker (ADR-014); [treesitter] supplies the grammars the delegation parses JS/Go/TS/Rust with
     "defusedxml>=0.7,<1.0",  # XXE-hardened XML parsing for coverage reports
 ]
