@@ -28,13 +28,15 @@ class ModeLevel(Enum):
     EXTENDED = "extended"
 
 
+# Budget validation upper bound 5x'd (500 -> 2500) 2026-10-31 so the 5x'd default
+# mode budgets (e.g. devops migration max_iterations=600) remain valid.
 @dataclass
 class ModeConfig:
     """Simplified mode configuration with core operational parameters.
 
     Attributes:
-        tool_budget: Maximum number of tool calls allowed (1-500)
-        max_iterations: Maximum conversation iterations (1-500)
+        tool_budget: Maximum number of tool calls allowed (1-2500)
+        max_iterations: Maximum conversation iterations (1-2500)
         exploration_multiplier: Factor for exploration iterations (0.1-10.0)
         allowed_tools: Optional set of allowed tool names
     """
@@ -50,16 +52,16 @@ class ModeConfig:
                 self.tool_budget = int(self.tool_budget)
             except (TypeError, ValueError) as e:
                 raise ValueError(f"tool_budget must be an integer: {e}") from e
-        if not (1 <= self.tool_budget <= 500):
-            raise ValueError(f"tool_budget must be between 1 and 500, got {self.tool_budget}")
+        if not (1 <= self.tool_budget <= 2500):
+            raise ValueError(f"tool_budget must be between 1 and 2500, got {self.tool_budget}")
         if not isinstance(self.max_iterations, int):
             try:
                 self.max_iterations = int(self.max_iterations)
             except (TypeError, ValueError) as e:
                 raise ValueError(f"max_iterations must be an integer: {e}") from e
-        if not (1 <= self.max_iterations <= 500):
+        if not (1 <= self.max_iterations <= 2500):
             raise ValueError(
-                f"max_iterations must be between 1 and 500, " f"got {self.max_iterations}"
+                f"max_iterations must be between 1 and 2500, " f"got {self.max_iterations}"
             )
         if not isinstance(self.exploration_multiplier, (int, float)):
             try:
@@ -77,8 +79,8 @@ class ModeConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ModeConfig:
         return cls(
-            tool_budget=data.get("tool_budget", 15),
-            max_iterations=data.get("max_iterations", 10),
+            tool_budget=data.get("tool_budget", 75),
+            max_iterations=data.get("max_iterations", 50),
             exploration_multiplier=data.get("exploration_multiplier", 1.0),
             allowed_tools=data.get("allowed_tools"),
         )
@@ -90,8 +92,8 @@ class ModeDefinition:
 
     Attributes:
         name: Mode identifier (1-50 chars)
-        tool_budget: Maximum tool calls allowed (1-500)
-        max_iterations: Maximum conversation iterations (1-500)
+        tool_budget: Maximum tool calls allowed (1-2500)
+        max_iterations: Maximum conversation iterations (1-2500)
         temperature: LLM temperature setting (0.0-2.0)
         description: Human-readable description (max 500 chars)
         exploration_multiplier: Factor for exploration iterations (0.1-10.0)
@@ -122,16 +124,16 @@ class ModeDefinition:
                 self.tool_budget = int(self.tool_budget)
             except (TypeError, ValueError) as e:
                 raise ValueError(f"tool_budget must be an integer: {e}") from e
-        if not (1 <= self.tool_budget <= 500):
-            raise ValueError(f"tool_budget must be between 1 and 500, " f"got {self.tool_budget}")
+        if not (1 <= self.tool_budget <= 2500):
+            raise ValueError(f"tool_budget must be between 1 and 2500, " f"got {self.tool_budget}")
         if not isinstance(self.max_iterations, int):
             try:
                 self.max_iterations = int(self.max_iterations)
             except (TypeError, ValueError) as e:
                 raise ValueError(f"max_iterations must be an integer: {e}") from e
-        if not (1 <= self.max_iterations <= 500):
+        if not (1 <= self.max_iterations <= 2500):
             raise ValueError(
-                f"max_iterations must be between 1 and 500, " f"got {self.max_iterations}"
+                f"max_iterations must be between 1 and 2500, " f"got {self.max_iterations}"
             )
         if not isinstance(self.temperature, (int, float)):
             try:
@@ -165,8 +167,8 @@ class ModeDefinition:
     def from_dict(cls, data: Dict[str, Any]) -> ModeDefinition:
         return cls(
             name=data.get("name", ""),
-            tool_budget=data.get("tool_budget", 15),
-            max_iterations=data.get("max_iterations", 10),
+            tool_budget=data.get("tool_budget", 75),
+            max_iterations=data.get("max_iterations", 50),
             temperature=data.get("temperature", 0.7),
             description=data.get("description", ""),
             exploration_multiplier=data.get("exploration_multiplier", 1.0),
@@ -215,7 +217,7 @@ class VerticalModeConfig:
     modes: Dict[str, ModeDefinition] = field(default_factory=dict)
     task_budgets: Dict[str, int] = field(default_factory=dict)
     default_mode: str = "standard"
-    default_budget: int = 10
+    default_budget: int = 50  # 5x'd 2026-10-31: agents run longer autonomous sessions
 
 
 class StaticModeConfigProvider:

@@ -50,7 +50,7 @@ class PipelineSettings(BaseModel):
     # Parallel exploration — spawn concurrent subagents during READING stage
     parallel_exploration: bool = True
     max_exploration_agents: int = 3
-    exploration_tool_budget: int = 10
+    exploration_tool_budget: int = 50
     exploration_timeout: int = 90  # seconds (increase for local models)
 
     runtime_intelligence_enabled: bool = Field(
@@ -75,11 +75,12 @@ class PipelineSettings(BaseModel):
     serialization_include_format_hint: bool = True
     serialization_min_rows_for_tabular: int = 3
     serialization_debug_mode: bool = False
-    max_exploration_iterations: int = 200
-    max_exploration_iterations_action: int = 500
-    max_exploration_iterations_analysis: int = 1000
+    # 5x'd 2026-10-31: agents run longer autonomous sessions
+    max_exploration_iterations: int = 1000
+    max_exploration_iterations_action: int = 2500
+    max_exploration_iterations_analysis: int = 5000
     min_content_threshold: int = 50
-    max_research_iterations: int = 50
+    max_research_iterations: int = 250
     recovery_empty_response_threshold: int = 5
     recovery_blocked_consecutive_threshold: int = DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD
     recovery_blocked_total_threshold: int = DEFAULT_BLOCKED_TOTAL_THRESHOLD

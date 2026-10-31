@@ -27,14 +27,14 @@ class TestModeDefinitions:
         assert "deep" in configs
         deep = configs["deep"]
         assert isinstance(deep, ModeConfig)
-        assert deep.tool_budget == 30
-        assert deep.max_iterations == 60
+        assert deep.tool_budget == 150  # 5x'd 2026-10-31
+        assert deep.max_iterations == 300  # 5x'd 2026-10-31 (was 60)
 
     def test_academic_mode_is_most_thorough(self, provider):
         configs = provider.get_mode_configs()
 
         academic = configs["academic"]
-        assert academic.tool_budget == 50
+        assert academic.tool_budget == 250  # 5x'd 2026-10-31
         assert academic.tool_budget > configs["deep"].tool_budget
 
     def test_default_mode_is_standard(self, provider):
@@ -43,16 +43,16 @@ class TestModeDefinitions:
 
 class TestTaskBudgets:
     def test_known_task_budgets(self, provider):
-        assert provider.get_tool_budget_for_task("simple_lookup") == 3
-        assert provider.get_tool_budget_for_task("fact_check") == 8
-        assert provider.get_tool_budget_for_task("literature_review") == 40
-        assert provider.get_tool_budget_for_task("comprehensive_report") == 50
+        assert provider.get_tool_budget_for_task("simple_lookup") == 15  # 5x'd 2026-10-31
+        assert provider.get_tool_budget_for_task("fact_check") == 40  # 5x'd 2026-10-31
+        assert provider.get_tool_budget_for_task("literature_review") == 200  # 5x'd 2026-10-31
+        assert provider.get_tool_budget_for_task("comprehensive_report") == 250  # 5x'd 2026-10-31
 
     def test_unknown_task_falls_back_to_default_budget(self, provider):
-        assert provider.get_tool_budget_for_task("no_such_task") == 15
+        assert provider.get_tool_budget_for_task("no_such_task") == 75  # 5x'd 2026-10-31
 
     def test_default_budget_without_task_type(self, provider):
-        assert provider.get_default_tool_budget() == 15
+        assert provider.get_default_tool_budget() == 75  # 5x'd 2026-10-31
 
     def test_deeper_tasks_get_larger_budgets(self, provider):
         lookup = provider.get_tool_budget_for_task("simple_lookup")

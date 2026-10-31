@@ -65,7 +65,7 @@ class ChatServiceConfig:
 
     def __init__(
         self,
-        max_iterations: int = 200,
+        max_iterations: int = 1000,  # 5x'd 2026-10-31: agents run longer autonomous sessions
         max_continuation_prompts: int = 3,
         stream_chunk_size: int = 100,
         enable_response_caching: bool = True,

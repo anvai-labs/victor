@@ -217,9 +217,9 @@ class FileReadRange:
 class TaskConfig:
     """Configuration for a specific task type."""
 
-    max_exploration_iterations: int = 8
+    max_exploration_iterations: int = 40  # 5x'd 2026-10-31: agents run longer sessions
     force_action_after_target_read: bool = False
-    tool_budget: int = 50
+    tool_budget: int = 250
     loop_repeat_threshold: int = 4  # Warning at 3, block at 4
     needs_tools: bool = True
     required_tools: List[str] = field(default_factory=list)
@@ -254,7 +254,7 @@ class UnifiedTaskProgress:
 
     # Tool budget
     tool_calls: int = 0
-    tool_budget: int = 50
+    tool_budget: int = 250
 
     # Milestone tracking
     milestones: Set[Milestone] = field(default_factory=set)
@@ -301,9 +301,9 @@ class UnifiedTaskConfigLoader:
     DEFAULT_CONFIG: Dict[str, Any] = {
         "task_types": {
             "edit": {
-                "max_exploration_iterations": 10,
+                "max_exploration_iterations": 50,
                 "force_action_after_target_read": True,
-                "tool_budget": 25,
+                "tool_budget": 125,
                 "loop_repeat_threshold": 8,
                 "required_tools": ["edit", "read"],
                 "stage_tools": {
@@ -318,9 +318,9 @@ class UnifiedTaskConfigLoader:
                 },
             },
             "create": {
-                "max_exploration_iterations": 10,
+                "max_exploration_iterations": 50,
                 "force_action_after_target_read": False,
-                "tool_budget": 25,
+                "tool_budget": 125,
                 "loop_repeat_threshold": 8,
                 "required_tools": ["write"],
                 "stage_tools": {
@@ -334,9 +334,9 @@ class UnifiedTaskConfigLoader:
                 },
             },
             "create_simple": {
-                "max_exploration_iterations": 10,
+                "max_exploration_iterations": 50,
                 "force_action_after_target_read": False,
-                "tool_budget": 20,
+                "tool_budget": 100,
                 "loop_repeat_threshold": 6,
                 "required_tools": ["write"],
                 "stage_tools": {
@@ -350,9 +350,9 @@ class UnifiedTaskConfigLoader:
                 },
             },
             "search": {
-                "max_exploration_iterations": 10,
+                "max_exploration_iterations": 50,
                 "force_action_after_target_read": False,
-                "tool_budget": 25,
+                "tool_budget": 125,
                 "loop_repeat_threshold": 6,
                 "required_tools": ["code_search", "read"],
                 "stage_tools": {
@@ -366,9 +366,9 @@ class UnifiedTaskConfigLoader:
                 },
             },
             "analyze": {
-                "max_exploration_iterations": 20,
+                "max_exploration_iterations": 100,
                 "force_action_after_target_read": False,
-                "tool_budget": 40,
+                "tool_budget": 200,
                 "loop_repeat_threshold": 10,
                 "required_tools": ["read", "shell"],
                 "stage_tools": {
@@ -382,9 +382,9 @@ class UnifiedTaskConfigLoader:
                 },
             },
             "research": {
-                "max_exploration_iterations": 10,
+                "max_exploration_iterations": 50,
                 "force_action_after_target_read": False,
-                "tool_budget": 20,
+                "tool_budget": 100,
                 "loop_repeat_threshold": 6,
                 "required_tools": ["web_search", "web_fetch"],
                 "stage_tools": {
@@ -401,9 +401,9 @@ class UnifiedTaskConfigLoader:
                 # Architecture/design questions require codebase exploration
                 # to understand key components, structure, and patterns.
                 # Increased limits from 3/5 to match "analyze" task type.
-                "max_exploration_iterations": 20,
+                "max_exploration_iterations": 100,
                 "force_action_after_target_read": False,
-                "tool_budget": 40,
+                "tool_budget": 200,
                 "loop_repeat_threshold": 10,
                 "needs_tools": True,
                 "required_tools": ["read", "ls", "code_search"],
@@ -418,9 +418,9 @@ class UnifiedTaskConfigLoader:
                 },
             },
             "general": {
-                "max_exploration_iterations": 15,
+                "max_exploration_iterations": 75,
                 "force_action_after_target_read": False,
-                "tool_budget": 35,
+                "tool_budget": 175,
                 "loop_repeat_threshold": 8,
                 "required_tools": ["read", "ls"],
                 "stage_tools": {
@@ -552,7 +552,7 @@ class UnifiedTaskConfigLoader:
         task_data = task_configs.get(task_type.value, task_configs.get("general", {}))
 
         return TaskConfig(
-            max_exploration_iterations=task_data.get("max_exploration_iterations", 8),
+            max_exploration_iterations=task_data.get("max_exploration_iterations", 40),
             force_action_after_target_read=task_data.get("force_action_after_target_read", False),
             tool_budget=task_data.get("tool_budget", 50),
             loop_repeat_threshold=task_data.get(

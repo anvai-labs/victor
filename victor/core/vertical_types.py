@@ -97,35 +97,35 @@ class StandardTaskHints:
     GENERAL: TaskTypeHint = TaskTypeHint(
         task_type="general",
         hint="[GENERAL] Moderate exploration. 3-6 tool calls. Answer concisely.",
-        tool_budget=8,
+        tool_budget=40,
         priority_tools=["read", "grep", "ls"],
     )
 
     SEARCH: TaskTypeHint = TaskTypeHint(
         task_type="search",
         hint="[SEARCH] Use grep/ls for exploration. Summarize after 2-4 calls.",
-        tool_budget=6,
+        tool_budget=30,
         priority_tools=["grep", "ls", "read"],
     )
 
     CREATE: TaskTypeHint = TaskTypeHint(
         task_type="create",
         hint="[CREATE] Read 1-2 relevant files for context, then create. Follow existing patterns.",
-        tool_budget=5,
+        tool_budget=25,
         priority_tools=["read", "write"],
     )
 
     EDIT: TaskTypeHint = TaskTypeHint(
         task_type="edit",
         hint="[EDIT] Read target file first, then modify. Focused changes only.",
-        tool_budget=5,
+        tool_budget=25,
         priority_tools=["read", "edit"],
     )
 
     ANALYZE: TaskTypeHint = TaskTypeHint(
         task_type="analyze",
         hint="[ANALYZE] Examine content carefully. Read related files. Structured findings.",
-        tool_budget=12,
+        tool_budget=60,
         priority_tools=["read", "grep"],
     )
 

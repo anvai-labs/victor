@@ -362,7 +362,7 @@ class InfrastructureBuildersMixin:
 
         base_tool_calls = getattr(self.settings, "tool_budget", 30)
         base_iterations = getattr(self.settings, "max_iterations", 50)
-        base_exploration = getattr(self.settings, "max_exploration_iterations", 8)
+        base_exploration = getattr(self.settings, "max_exploration_iterations", 40)
         base_action = getattr(self.settings, "max_action_iterations", 12)
 
         config = BudgetConfig(

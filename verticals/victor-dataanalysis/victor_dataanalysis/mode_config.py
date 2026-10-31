@@ -36,8 +36,8 @@ from victor_contracts.verticals.mode_config import ModeDefinition
 _DATA_ANALYSIS_MODES: Dict[str, ModeDefinition] = {
     "research": ModeDefinition(
         name="research",
-        tool_budget=80,
-        max_iterations=150,
+        tool_budget=400,
+        max_iterations=750,
         temperature=0.8,
         description="Deep research analysis with multiple iterations",
         exploration_multiplier=3.0,
@@ -55,16 +55,17 @@ _DATA_ANALYSIS_MODES: Dict[str, ModeDefinition] = {
 }
 
 # Data Analysis-specific task type budgets
+# 5x'd 2026-10-31: agents run longer autonomous sessions
 _DATA_ANALYSIS_TASK_BUDGETS: Dict[str, int] = {
-    "data_profiling": 8,
-    "basic_stats": 10,
-    "visualization": 12,
-    "correlation": 15,
-    "regression": 20,
-    "clustering": 20,
-    "time_series": 25,
-    "ml_pipeline": 40,
-    "full_report": 50,
+    "data_profiling": 40,
+    "basic_stats": 50,
+    "visualization": 60,
+    "correlation": 75,
+    "regression": 100,
+    "clustering": 100,
+    "time_series": 125,
+    "ml_pipeline": 200,
+    "full_report": 250,
 }
 
 
@@ -81,7 +82,7 @@ def _register_data_analysis_modes() -> None:
         modes=_DATA_ANALYSIS_MODES,
         task_budgets=_DATA_ANALYSIS_TASK_BUDGETS,
         default_mode="standard",
-        default_budget=25,
+        default_budget=125,  # 5x'd 2026-10-31
     )
 
 
@@ -110,7 +111,7 @@ class DataAnalysisModeConfigProvider(RegistryBasedModeConfigProvider):
         super().__init__(
             vertical="data_analysis",
             default_mode="standard",
-            default_budget=25,
+            default_budget=125,  # 5x'd 2026-10-31
         )
 
     def get_mode_for_complexity(self, complexity: str) -> str:

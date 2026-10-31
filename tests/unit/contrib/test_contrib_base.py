@@ -114,7 +114,7 @@ class TestModeConfigContrib:
 
         assert isinstance(mode, ModeDefinition)
         assert mode.name == "quick"
-        assert mode.tool_budget == 5
+        assert mode.tool_budget == 25  # 5x'd 2026-10-31 (was 5)
 
     def test_mode_helper_mixin_creates_standard_mode(self):
         """Test ModeHelperMixin creates standard mode."""
@@ -125,7 +125,7 @@ class TestModeConfigContrib:
 
         assert isinstance(mode, ModeDefinition)
         assert mode.name == "standard"
-        assert mode.tool_budget == 15
+        assert mode.tool_budget == 75  # 5x'd 2026-10-31 (was 15)
 
     def test_mode_helper_mixin_creates_thorough_mode(self):
         """Test ModeHelperMixin creates thorough mode."""
@@ -136,7 +136,7 @@ class TestModeConfigContrib:
 
         assert isinstance(mode, ModeDefinition)
         assert mode.name == "thorough"
-        assert mode.tool_budget == 30
+        assert mode.tool_budget == 150  # 5x'd 2026-10-31 (was 30)
 
 
 class TestWorkflowsContrib:

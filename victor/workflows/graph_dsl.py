@@ -237,7 +237,7 @@ class GraphNode(Generic[S]):
     # For agent nodes
     agent_role: Optional[str] = None
     agent_goal: Optional[str] = None
-    tool_budget: int = 15
+    tool_budget: int = 75
     allowed_tools: Optional[List[str]] = None
 
     # For chaining (>> operator)
@@ -387,7 +387,7 @@ class WorkflowGraph(Generic[S]):
         role: str,
         goal: str,
         *,
-        tool_budget: int = 15,
+        tool_budget: int = 75,
         allowed_tools: Optional[List[str]] = None,
         output_key: Optional[str] = None,
     ) -> "WorkflowGraph[S]":

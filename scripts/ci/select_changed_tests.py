@@ -935,6 +935,47 @@ RELATED_TESTS = {
         "tests/unit/core/test_tool_base.py",
         *MCP_SCHEMA_TESTS,
     ),
+    # 5x'd stamina-budget defaults (2026-10-31): sources without a mirrored
+    # test file are pinned by the suites that consume their defaults.
+    **dict.fromkeys(
+        (
+            "victor/config/orchestrator_constants.py",
+            "victor/core/task_types.py",
+        ),
+        (
+            "tests/unit/agent/test_task_complexity.py",
+            "tests/unit/classification/test_task_classifier.py",
+            "tests/unit/framework/test_task_types.py",
+        ),
+    ),
+    "victor/agent/factory/infrastructure_builders.py": (
+        "tests/unit/agent/test_orchestrator_factory.py",
+        "tests/unit/agent/test_budget_manager.py",
+    ),
+    "victor/agent/hybrid_orchestrator.py": ("tests/unit/agent/test_hybrid_orchestrator.py",),
+    "victor/agent/planning/autonomous.py": (
+        "tests/unit/agent/test_planning.py",
+        "tests/unit/agent/test_planning_delegation.py",
+    ),
+    "victor/config/code_correction_settings.py": (
+        "tests/unit/config/test_phase4_config_groups.py",
+    ),
+    "victor/config/exploration_settings.py": (
+        "tests/unit/agent/test_turn_evaluation_controller.py",
+        "tests/unit/agent/test_turn_policy.py",
+    ),
+    "victor/config/groups/recovery_config.py": ("tests/unit/config/test_phase4_config_groups.py",),
+    "victor/config/pipeline_settings.py": ("tests/unit/config/test_settings_stratification.py",),
+    "victor/contrib/mode_config/mode_helpers.py": ("tests/unit/contrib/test_contrib_base.py",),
+    "victor/core/vertical_types.py": (
+        "tests/unit/agent/test_tool_optimization_integration.py",
+        "tests/unit/agent/test_code_correction_middleware_protocol.py",
+    ),
+    "victor/framework/capabilities/task_hints.py": (
+        "tests/unit/contracts/test_contracts_capability_contracts.py",
+        "tests/unit/agent/services/test_ratchet_activation.py",
+    ),
+    "victor/framework/conversations/node.py": ("tests/unit/framework/conversations/test_node.py",),
 }
 
 

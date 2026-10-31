@@ -35,7 +35,7 @@ Usage:
     config = UnifiedAgentConfig(
         mode="background",
         task="Implement feature X",
-        tool_budget=100
+        tool_budget=500
     )
     agent = await factory.create_agent(config=config)
 
@@ -161,8 +161,9 @@ class UnifiedAgentConfig:
     max_tokens: int = 4096
 
     # Resource limits
-    tool_budget: int = 50
-    max_iterations: int = 25
+    tool_budget: int = 250
+    max_iterations: int = 125
+    # 5x'd 2026-10-31: agents run longer autonomous sessions
 
     # Features
     enable_observability: bool = True
@@ -344,7 +345,7 @@ class UnifiedAgentConfig:
         cls,
         provider: str = "anthropic",
         model: Optional[str] = None,
-        tool_budget: int = 50,
+        tool_budget: int = 250,
         enable_semantic_search: bool = False,
         **kwargs: Any,
     ) -> "UnifiedAgentConfig":
@@ -374,7 +375,7 @@ class UnifiedAgentConfig:
         cls,
         task: str,
         mode_type: ExecutionModeType = ExecutionModeType.BUILD,
-        tool_budget: int = 100,
+        tool_budget: int = 500,
         websocket: bool = False,
         **kwargs: Any,
     ) -> "UnifiedAgentConfig":
@@ -442,8 +443,8 @@ class UnifiedAgentConfig:
         """
         return cls(
             mode="foreground",
-            tool_budget=15,
-            max_iterations=10,
+            tool_budget=75,
+            max_iterations=50,
             enable_semantic_search=False,
             enable_analytics=False,
             enable_tool_cache=False,
@@ -458,8 +459,8 @@ class UnifiedAgentConfig:
         """
         return cls(
             mode="foreground",
-            tool_budget=200,
-            max_iterations=100,
+            tool_budget=1000,
+            max_iterations=500,
             max_concurrent_tools=10,
             enable_semantic_search=True,
         )

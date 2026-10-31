@@ -228,7 +228,7 @@ class AutonomousPlanner:
         self,
         goal: str,
         context: Optional[str] = None,
-        max_steps: int = 10,
+        max_steps: int = 50,
     ) -> ExecutionPlan:
         """Generate an execution plan for a goal.
 
@@ -274,7 +274,7 @@ class AutonomousPlanner:
         self,
         goal: str,
         context: Optional[str] = None,
-        max_steps: int = 10,
+        max_steps: int = 50,
         complexity: Optional[TaskComplexity] = None,
     ) -> ExecutionPlan:
         """Generate an execution plan using readable token-efficient schema.

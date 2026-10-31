@@ -10,4 +10,4 @@ class CodeCorrectionSettings(BaseModel):
 
     code_correction_enabled: bool = True
     code_correction_auto_fix: bool = True
-    code_correction_max_iterations: int = 3
+    code_correction_max_iterations: int = 15

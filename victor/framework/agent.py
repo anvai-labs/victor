@@ -253,7 +253,7 @@ class Agent:
 
             # With SessionConfig (preferred for CLI/runtime overrides)
             from victor.framework.session_config import SessionConfig
-            config = SessionConfig.from_cli_flags(tool_budget=50, enable_smart_routing=True)
+            config = SessionConfig.from_cli_flags(tool_budget=250, enable_smart_routing=True)
             agent = await Agent.create(session_config=config)
 
             # With vertical (domain-specific assistant)
@@ -464,8 +464,8 @@ class Agent:
         formation: "TeamFormation" = None,
         provider: str = "anthropic",
         model: Optional[str] = None,
-        total_tool_budget: int = 100,
-        max_iterations: int = 50,
+        total_tool_budget: int = 500,
+        max_iterations: int = 250,
         timeout_seconds: int = 600,
         shared_context: Optional[Dict[str, Any]] = None,
         config: Optional[FrameworkCompatibleAgentConfig] = None,

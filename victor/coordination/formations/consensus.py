@@ -44,11 +44,11 @@ class ConsensusFormation(BaseFormationStrategy):
     Use case: Critical decisions, validation, quality assurance
     """
 
-    def __init__(self, max_rounds: int = 3, agreement_threshold: float = 0.7):
+    def __init__(self, max_rounds: int = 15, agreement_threshold: float = 0.7):
         """Initialize consensus formation.
 
         Args:
-            max_rounds: Maximum number of consensus rounds (default: 3)
+            max_rounds: Maximum number of consensus rounds (default: 15)
             agreement_threshold: Fraction of agents that must agree (0.0-1.0)
         """
         if not isinstance(max_rounds, int) or max_rounds < 1 or not 0 < agreement_threshold <= 1:

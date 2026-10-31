@@ -89,7 +89,7 @@ class TestTeamMember:
             name="Executor",
             goal="Do something",
         )
-        assert member.tool_budget == 15
+        assert member.tool_budget == 75  # 5x'd 2026-10-31 (was 15)
         assert member.allowed_tools is None
         assert member.can_delegate is False
         assert member.reports_to is None
@@ -167,8 +167,8 @@ class TestTeamConfig:
             goal="Goal",
             members=[member],
         )
-        assert config.max_iterations == 50
-        assert config.total_tool_budget == 100
+        assert config.max_iterations == 250  # 5x'd 2026-10-31 (was 50)
+        assert config.total_tool_budget == 500  # 5x'd 2026-10-31 (was 100)
         assert config.shared_context == {}
         assert config.allow_dynamic_membership is False
         assert config.timeout_seconds == 600

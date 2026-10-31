@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-_MAX_CONTINUATION_TURNS = 10
+_MAX_CONTINUATION_TURNS = 50  # 5x'd 2026-10-31: agents run longer autonomous sessions
 
 
 @dataclass

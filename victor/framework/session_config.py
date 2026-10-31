@@ -491,7 +491,7 @@ class SessionConfig:
         Example::
 
             config = SessionConfig.from_cli_flags(
-                tool_budget=50,
+                tool_budget=250,
                 enable_smart_routing=True,
                 tool_preview=False,
             )

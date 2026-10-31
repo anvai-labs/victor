@@ -130,22 +130,24 @@ class BudgetLimits:
         warning_threshold_pct: % of budget used to trigger warnings (0.0-1.0)
 
     **Design Notes:**
-    - Budgets scale exponentially with complexity (2 → 6 → 15 → 50 → 60)
-    - action_task (50) allows building non-trivial features
-    - analysis_task (60) supports deep codebase exploration
-    - max_session_budget (300) prevents runaway tool usage
-    - warning_threshold_pct (0.83) gives early warning at 250/300 calls
+    - Budgets scale exponentially with complexity (100 → 250 → 500 → 1000 → 2500)
+    - action_task (1000) allows building non-trivial features
+    - analysis_task (2500) supports deep codebase exploration
+    - max_session_budget (10000) prevents runaway tool usage
+    - warning_threshold_pct (0.90) gives early warning at 9000/10000 calls
+
+    5x'd 2026-10-31: agents run longer autonomous sessions.
     """
 
     # Significantly increased to match Claude Code's approach of unlimited exploration
     # Claude Code lets the model explore as much as needed to complete the task
-    simple_task: int = 20  # Quick tasks still bounded (was 5)
-    medium_task: int = 50  # Multi-file tasks need room (was 15)
-    complex_task: int = 100  # Complex tasks get generous budget (was 30)
-    action_task: int = 200  # BUILD mode tasks - let task completion decide (was 75)
-    analysis_task: int = 500  # PLAN/EXPLORE modes - effectively unlimited (was 100)
-    max_session_budget: int = 2000  # Very high - rely on task completion detection (was 500)
-    warning_threshold_pct: float = 0.90  # Only warn at 90% (1800/2000)
+    simple_task: int = 100  # Quick tasks still bounded (was 20)
+    medium_task: int = 250  # Multi-file tasks need room (was 50)
+    complex_task: int = 500  # Complex tasks get generous budget (was 100)
+    action_task: int = 1000  # BUILD mode tasks - let task completion decide (was 200)
+    analysis_task: int = 2500  # PLAN/EXPLORE modes - effectively unlimited (was 500)
+    max_session_budget: int = 10000  # Very high - rely on task completion detection (was 2000)
+    warning_threshold_pct: float = 0.90  # Only warn at 90% (9000/10000)
 
 
 @dataclass(frozen=True)

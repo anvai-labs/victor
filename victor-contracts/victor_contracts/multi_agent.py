@@ -184,7 +184,7 @@ class TeamTemplate:
     member_slots: Dict[str, int] = field(default_factory=dict)
     shared_context_keys: List[str] = field(default_factory=list)
     escalation_threshold: float = 0.8
-    max_iterations: int = 10
+    max_iterations: int = 50  # 5x'd 2026-10-31: agents run longer autonomous sessions
     config: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

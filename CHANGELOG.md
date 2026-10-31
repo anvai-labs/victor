@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Default agent stamina budgets multiplied ×5** ("agents run tirelessly"): tool budgets
+  (`BudgetLimits` 20/50/100/200/500 → 100/250/500/1000/2500, session cap 2000 → 10000),
+  iteration/turn caps (agentic loop 10 → 50, chat iterations 50 → 250, `AgenticLoop`/
+  `UnifiedAgentConfig`/`AgentConfig` defaults, per-complexity `max_turns` tiers 10/20/40/10/60/80
+  → 50/100/200/50/300/400, per-task-type `tool_budget`/`max_iterations` registry tables,
+  exploration/research iteration caps incl. `task_tool_config.yaml`, continuation turns 10 → 50,
+  code-correction iterations 3 → 15, workflow/graph execution and conversational/team/mode
+  budget defaults across core, `victor-contracts` and all verticals) for longer autonomous
+  runs. Stuck-agent detection thresholds (`turn_policy`, no-tool/blocked/loop-repeat
+  detectors, continuation-prompt force-completion guards, consecutive-tool-call runaway
+  guard) are intentionally **unchanged** — bigger budgets make them more important.
+
 ## [0.24.0] - 2026-10-31
 
 Requires `victor-contracts>=0.16.0` (published first); victor-coding 0.15.0 ships with it
