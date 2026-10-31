@@ -509,23 +509,16 @@ Classes promoted from verticals:
     - ToolConfig: Tool behavior configuration (promoted from all verticals)
 """
 
-from enum import Enum
-
-
-class SafetyLevel(Enum):
-    """Safety enforcement levels for operations.
-
-    Defines how strictly safety rules are enforced:
-    - OFF: No safety checks
-    - LOW: Warn only, don't block operations
-    - MEDIUM: Block dangerous operations, warn risky ones
-    - HIGH: Block anything not explicitly allowed
-    """
-
-    OFF = "off"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+# SafetyLevel is defined once in the SDK (identical members, values and order)
+# and re-exported here, so ``victor.framework.config.SafetyLevel``,
+# ``victor_contracts.safety.framework.SafetyLevel`` and the
+# ``victor_contracts.safety_policy`` host adapter all yield the same enum.
+# NOTE: the SDK's top-level ``victor_contracts.safety.SafetyLevel`` is still a
+# separate str-Enum (an SDK-side fork to collapse in a future contracts
+# release); it is NOT the object bound here.
+# Semantics: OFF = no checks; LOW = warn only; MEDIUM = block dangerous, warn
+# risky; HIGH = block anything not explicitly allowed.
+from victor_contracts.safety.framework import SafetyLevel as SafetyLevel
 
 
 @dataclass

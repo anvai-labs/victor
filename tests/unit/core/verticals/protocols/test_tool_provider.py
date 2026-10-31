@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""victor.core.verticals.protocols.tool_provider re-exports the SDK selection types (one definition)."""
+"""victor.core.verticals.protocols.tool_provider re-exports the SDK selection types and protocols (one definition)."""
 
 import importlib
 
@@ -35,6 +35,26 @@ PAIRS = [
         "ToolSelectionResult",
         "victor_contracts.verticals.protocols.promoted_types",
         "ToolSelectionResult",
+    ),
+    (
+        "ToolSelectionStrategyProtocol",
+        "victor_contracts.verticals.protocols.promoted",
+        "ToolSelectionStrategyProtocol",
+    ),
+    (
+        "VerticalToolSelectionProviderProtocol",
+        "victor_contracts.verticals.protocols.promoted",
+        "VerticalToolSelectionProviderProtocol",
+    ),
+    (
+        "TieredToolConfigProviderProtocol",
+        "victor_contracts.verticals.protocols.promoted",
+        "TieredToolConfigProviderProtocol",
+    ),
+    (
+        "VerticalTieredToolProviderProtocol",
+        "victor_contracts.verticals.protocols.promoted",
+        "VerticalTieredToolProviderProtocol",
     ),
 ]
 

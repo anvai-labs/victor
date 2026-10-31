@@ -38,6 +38,14 @@ from typing import (
 from victor.core.protocol_support import IncompatibleVersionError as IncompatibleVersionError
 from victor.core.protocol_support import verify_protocol_conformance as verify_protocol_conformance
 
+# Capability contracts are defined once in the SDK and re-exported here (same
+# class objects), so ``isinstance``/enum identity holds across both import paths.
+from victor_contracts.capabilities import (
+    CapabilityConfigScopePortProtocol as CapabilityConfigScopePortProtocol,
+)
+from victor_contracts.capabilities import CapabilityType as CapabilityType
+from victor_contracts.capabilities import OrchestratorCapability as _SDKOrchestratorCapability
+
 if TYPE_CHECKING:
     from victor.framework.state import Stage
 
@@ -490,13 +498,10 @@ class ServiceContainerPortProtocol(Protocol):
         ...
 
 
-@runtime_checkable
-class CapabilityConfigScopePortProtocol(Protocol):
-    """Protocol for orchestrators exposing capability-config scope identity."""
-
-    def get_capability_config_scope_key(self) -> Optional[str]:
-        """Return stable capability-config scope key for this orchestrator/session."""
-        ...
+# CapabilityConfigScopePortProtocol is re-exported from the SDK (see imports).
+# The SDK annotates ``get_capability_config_scope_key`` as returning ``str``
+# (the former core copy said ``Optional[str]``); runtime_checkable matching is
+# name-based and the SDK resolver normalizes ``None``, so behaviour is unchanged.
 
 
 @runtime_checkable
@@ -530,39 +535,11 @@ class ObservabilityPortProtocol(Protocol):
 # =============================================================================
 
 
-class CapabilityType(str, Enum):
-    """Types of orchestrator capabilities.
-
-    Categorizes capabilities for discovery and documentation.
-    """
-
-    TOOL = "tool"
-    """Tool-related capabilities (enable, disable, budget)."""
-
-    PROMPT = "prompt"
-    """Prompt building capabilities (system prompt, hints)."""
-
-    MODE = "mode"
-    """Mode/configuration capabilities (adaptive mode, budgets)."""
-
-    SAFETY = "safety"
-    """Safety-related capabilities (patterns, middleware)."""
-
-    RL = "rl"
-    """Reinforcement learning capabilities (hooks, learners)."""
-
-    TEAM = "team"
-    """Team/multi-agent capabilities (specs, coordination)."""
-
-    WORKFLOW = "workflow"
-    """Workflow capabilities (sequences, dependencies)."""
-
-    VERTICAL = "vertical"
-    """Vertical integration capabilities (context, extensions)."""
+# CapabilityType is re-exported from the SDK (identical members, values, order).
 
 
 @dataclass
-class OrchestratorCapability:
+class OrchestratorCapability(_SDKOrchestratorCapability):
     """Explicit capability declaration for orchestrator features.
 
     Replaces hasattr/getattr duck-typing with explicit contracts.
@@ -588,52 +565,11 @@ class OrchestratorCapability:
         required: Whether this capability is mandatory
         deprecated: Whether this capability is deprecated
         deprecated_message: Message explaining deprecation and migration path
+
+    Fields, defaults, ``__post_init__`` validation and ``_is_valid_version`` are
+    inherited (no new fields are declared here) from :class:`victor_contracts.capabilities.OrchestratorCapability`
+    (the single definition); the framework adds version negotiation below.
     """
-
-    name: str
-    capability_type: CapabilityType
-    version: str = "1.0"
-    setter: Optional[str] = None
-    getter: Optional[str] = None
-    attribute: Optional[str] = None
-    description: str = ""
-    required: bool = False
-    deprecated: bool = False
-    deprecated_message: str = ""
-
-    def __post_init__(self) -> None:
-        """Validate capability declaration."""
-        # Validate access method
-        if not any([self.setter, self.getter, self.attribute]):
-            raise ValueError(
-                f"Capability '{self.name}' must specify at least one of: "
-                "setter, getter, or attribute"
-            )
-        # Validate version format
-        if not self._is_valid_version(self.version):
-            raise ValueError(
-                f"Capability '{self.name}' has invalid version '{self.version}'. "
-                "Expected format: 'MAJOR.MINOR' (e.g., '1.0', '2.1')"
-            )
-
-    @staticmethod
-    def _is_valid_version(version: str) -> bool:
-        """Validate version string format.
-
-        Args:
-            version: Version string to validate
-
-        Returns:
-            True if version is valid MAJOR.MINOR format
-        """
-        try:
-            parts = version.split(".")
-            if len(parts) != 2:
-                return False
-            major, minor = int(parts[0]), int(parts[1])
-            return major >= 0 and minor >= 0
-        except (ValueError, AttributeError):
-            return False
 
     def is_compatible_with(self, required_version: str) -> bool:
         """Check if this capability's version is compatible with required version.

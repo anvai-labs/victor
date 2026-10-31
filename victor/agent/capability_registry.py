@@ -45,10 +45,8 @@ import logging
 from typing import Any, Callable, Dict, Optional, Set
 
 from victor.core.protocol_support import IncompatibleVersionError
-from victor.framework.protocols import (
-    CapabilityType,
-    OrchestratorCapability,
-)
+from victor.framework.protocols import OrchestratorCapability
+from victor_contracts.capabilities import CapabilityType
 
 logger = logging.getLogger(__name__)
 
