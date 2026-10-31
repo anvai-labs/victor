@@ -20,6 +20,17 @@ from victor_contracts.verticals.manifest import ExtensionManifest
 
 logger = logging.getLogger(__name__)
 
+# Oldest first-party vertical releases this framework supports. Older ones call
+# SDK hooks at import that victor-contracts removes (FEP-0042 phase 3), so they
+# are refused before their modules are imported, with an upgrade hint.
+FIRST_PARTY_MIN_VERTICAL_VERSIONS: dict[str, str] = {
+    "victor-coding": "0.14.0",
+    "victor-dataanalysis": "0.14.0",
+    "victor-devops": "0.14.0",
+    "victor-rag": "0.14.0",
+    "victor-research": "0.14.0",
+}
+
 
 class VerticalCompatibilityError(ValueError):
     """Raised when a vertical is incompatible with the running framework.
@@ -120,6 +131,37 @@ class VerticalCompatibilityGate:
             framework_version,
             report,
         )
+        return report
+
+    def assess_distribution(self, distribution: str, version: str) -> VerticalCompatibilityReport:
+        """Check an installed vertical distribution against the supported minimum.
+
+        Only first-party distributions listed in
+        ``FIRST_PARTY_MIN_VERTICAL_VERSIONS`` are checked; anything else (or an
+        unparseable version) passes, since the manifest checks still apply.
+        """
+
+        report = VerticalCompatibilityReport(
+            vertical_name=distribution,
+            vertical_version=version,
+            framework_version=self._get_framework_version(),
+        )
+        from packaging.utils import canonicalize_name
+        from packaging.version import InvalidVersion, Version
+
+        minimum = FIRST_PARTY_MIN_VERTICAL_VERSIONS.get(canonicalize_name(distribution))
+        if minimum is None:
+            return report
+        try:
+
+            too_old = Version(version) < Version(minimum)
+        except InvalidVersion:
+            return report
+        if too_old:
+            report.errors.append(
+                f"{distribution} {version} is older than the minimum supported "
+                f"{minimum}; upgrade with: pip install -U '{distribution}>={minimum}'"
+            )
         return report
 
     def assess_vertical(

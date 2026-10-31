@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- First-party verticals older than **0.14.0** are refused before import with an upgrade hint
+  (`pip install -U 'victor-<name>>=0.14.0'`) instead of failing later: they call SDK hooks at
+  import that victor-contracts 0.15.0 removes (FEP-0042 phase 3). Editable source installs are
+  not checked. The `coding`, `research`, `devops` and `verticals` extras now require
+  `>=0.14.0`.
+
 ### Removed
 
 - `victor.framework.chains` (the versioned chain registry) and
