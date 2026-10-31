@@ -624,17 +624,9 @@ def test_provider_protocol_docstrings_are_package_neutral():
         "try:\n    try:",
     )
 
+    # Only the locally-defined provider protocols live in this submodule; the
+    # SDK-backed ones are re-exported at the package level.
     provider_names = (
-        "MiddlewareProvider",
-        "SafetyProvider",
-        "WorkflowProvider",
-        "TeamProvider",
-        "RLProvider",
-        "EnrichmentProvider",
-        "ToolProvider",
-        "HandlerProvider",
-        "CapabilityProvider",
-        "ModeConfigProvider",
         "PromptContributorProvider",
         "ToolDependencyProvider",
         "TieredToolConfigProvider",
