@@ -15,6 +15,7 @@
 """C++ language plugin."""
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
@@ -29,6 +30,7 @@ from victor_coding.languages.base import (
     QueryPattern,
     TestRunner,
     TreeSitterQueries,
+    declarator_name,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +46,25 @@ class CppPlugin(BaseLanguagePlugin):
     - Linting: clang-tidy, cppcheck
     - Building: CMake, Make
     """
+
+    _function_name_types = frozenset({"identifier", "field_identifier"})
+    # Callee hooks: foo() / obj.a.method() / ns::Klass::create() (last name
+    # segment of the path) / foo<T>() (template_function re-entered: its only
+    # name child is the template identifier).
+    _callee_name_types = frozenset({"identifier"})
+    _callee_path_types = MappingProxyType(
+        {
+            "field_expression": (
+                frozenset({"field_identifier"}),
+                frozenset({"field_expression"}),
+            ),
+            "qualified_identifier": (
+                frozenset({"identifier"}),
+                frozenset({"qualified_identifier"}),
+            ),
+        }
+    )
+    _callee_wrapper_types = frozenset({"template_function"})
 
     def _create_config(self) -> LanguageConfig:
         return LanguageConfig(
@@ -311,95 +332,4 @@ class CppPlugin(BaseLanguagePlugin):
 
         C++ functions can have complex declarators. This handles the common cases.
         """
-        # Look for function_declarator
-        for child in node.children:
-            if child.type == "function_declarator":
-                # Get the declarator (identifier or field_identifier)
-                for grandchild in child.children:
-                    if grandchild.type == "declarator":
-                        for ggchild in grandchild.children:
-                            if ggchild.type in ("identifier", "field_identifier"):
-                                return self._get_node_text(ggchild)
-                    elif grandchild.type in ("identifier", "field_identifier"):
-                        return self._get_node_text(grandchild)
-
-        # Fallback: look for identifier directly
-        for child in node.children:
-            if child.type in ("identifier", "field_identifier"):
-                return self._get_node_text(child)
-
-        return None
-
-    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Extract the name of the called function from a call node.
-
-        Handles:
-        - Simple calls: foo()
-        - Field access calls: obj.method()
-        - Template calls: foo<T>()
-        - Namespace-qualified calls: std::foo()
-        """
-        # Get the function part of the call
-        for child in call_node.children:
-            if child.type == "field_expression":
-                # obj.method() -> extract "method"
-                return self._extract_field_name(child)
-            elif child.type == "template_function":
-                # foo<T>() -> extract "foo"
-                return self._extract_template_name(child)
-            elif child.type == "identifier":
-                # foo() -> extract "foo"
-                return self._get_node_text(child)
-            elif child.type == "qualified_identifier":
-                # std::foo -> extract "foo"
-                return self._extract_qualified_name(child)
-
-        return None
-
-    def _extract_field_name(self, field_node: "Node") -> Optional[str]:
-        """Extract field name from a field_expression node.
-
-        For obj.method, extracts "method".
-        For obj.field1.field2, extracts "field2" (the final field).
-        """
-        # field_expression: object (identifier or field_expression) . field: (field_identifier)
-        for child in reversed(field_node.children):
-            if child.type == "field_identifier":
-                return self._get_node_text(child)
-            elif child.type == "field_expression":
-                result = self._extract_field_name(child)
-                if result:
-                    return result
-
-        return None
-
-    def _extract_template_name(self, template_node: "Node") -> Optional[str]:
-        """Extract the base name from a template function.
-
-        For foo<T>(), extracts "foo".
-        """
-        for child in template_node.children:
-            if child.type == "identifier":
-                return self._get_node_text(child)
-            elif child.type == "field_expression":
-                return self._extract_field_name(child)
-
-        return None
-
-    def _extract_qualified_name(self, qualified_node: "Node") -> Optional[str]:
-        """Extract the final identifier from a qualified identifier.
-
-        For std::foo, extracts "foo".
-        For ns::Class::method, extracts "method".
-        """
-        # qualified_identifier: identifier :: identifier (or nested)
-        # We want the last identifier
-        for child in reversed(qualified_node.children):
-            if child.type == "identifier":
-                return self._get_node_text(child)
-            elif child.type == "qualified_identifier":
-                result = self._extract_qualified_name(child)
-                if result:
-                    return result
-
-        return None
+        return declarator_name(node, self._function_name_types, self._get_node_text)

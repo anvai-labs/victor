@@ -25,12 +25,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
+    AbstractSet,
     Any,
+    Callable,
     Dict,
     Iterable,
     List,
+    Mapping,
     Optional,
     Protocol,
     Tuple,
@@ -41,6 +45,67 @@ if TYPE_CHECKING:
     from tree_sitter import Node, Tree
 
 logger = logging.getLogger(__name__)
+
+#: ``(leaf_types, nested_types)`` arguments for :func:`last_named_child`.
+PathNameTypes = Tuple[AbstractSet[str], AbstractSet[str]]
+
+
+def last_named_child(
+    node: "Node",
+    leaf_types: AbstractSet[str],
+    nested_types: AbstractSet[str],
+    get_text: Callable[["Node"], Optional[str]],
+) -> Optional[str]:
+    """Name at the right end of a dotted / scoped path node.
+
+    Scans ``node``'s children right to left. The first ``leaf_types`` child
+    wins and its text is returned; a ``nested_types`` child (the same path
+    shape one level down) is searched recursively and its result returned
+    when non-empty. For ``obj.a.method`` / ``std::mem::drop`` this yields
+    ``method`` / ``drop``.
+
+    Args:
+        node: The path node (attribute, field/selector expression, ...).
+        leaf_types: Child node types holding a name segment.
+        nested_types: Child node types to recurse into; empty disables recursion.
+        get_text: Node-text accessor (typically ``BaseLanguagePlugin._get_node_text``).
+    """
+    for child in reversed(node.children):
+        if child.type in leaf_types:
+            return get_text(child)
+        if child.type in nested_types:
+            result = last_named_child(child, leaf_types, nested_types, get_text)
+            if result:
+                return result
+    return None
+
+
+def declarator_name(
+    node: "Node",
+    name_types: AbstractSet[str],
+    get_text: Callable[["Node"], Optional[str]],
+) -> Optional[str]:
+    """Function name of a C-family ``function_definition`` node.
+
+    Looks in the ``function_declarator`` child first (also one level inside a
+    child typed ``declarator``), then falls back to a direct child of the
+    definition. ``name_types`` are the node types accepted as the name.
+    """
+    for child in node.children:
+        if child.type == "function_declarator":
+            for grandchild in child.children:
+                if grandchild.type == "declarator":
+                    for ggchild in grandchild.children:
+                        if ggchild.type in name_types:
+                            return get_text(ggchild)
+                elif grandchild.type in name_types:
+                    return get_text(grandchild)
+
+    for child in node.children:
+        if child.type in name_types:
+            return get_text(child)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -665,8 +730,34 @@ class BaseLanguagePlugin(ABC):
         """
         return ()
 
+    #: Child node types whose own text is the callee name (``foo()``).
+    _callee_name_types: AbstractSet[str] = frozenset()
+    #: Child node type -> ``(leaf_types, nested_types)``: the callee is the
+    #: :func:`last_named_child` of that child (``obj.method()``, ``a::b()``).
+    _callee_path_types: Mapping[str, PathNameTypes] = MappingProxyType({})
+    #: Child node types wrapping another callee expression (``(fn)()``):
+    #: :meth:`_extract_callee_name` is re-entered on that child.
+    _callee_wrapper_types: AbstractSet[str] = frozenset()
+
     def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Return the called symbol's name for ``call_node``, or ``None``."""
+        """Return the called symbol's name for ``call_node``, or ``None``.
+
+        Default: the first child of ``call_node`` whose type appears in
+        :attr:`_callee_name_types`, :attr:`_callee_path_types` or
+        :attr:`_callee_wrapper_types` decides the result (which may be
+        ``None``); later children are not consulted. With the empty default
+        tables no callee is ever found.
+        """
+        for child in call_node.children:
+            child_type = child.type
+            if child_type in self._callee_name_types:
+                return self._get_node_text(child)
+            path_types = self._callee_path_types.get(child_type)
+            if path_types is not None:
+                leaf_types, nested_types = path_types
+                return last_named_child(child, leaf_types, nested_types, self._get_node_text)
+            if child_type in self._callee_wrapper_types:
+                return self._extract_callee_name(child)
         return None
 
 

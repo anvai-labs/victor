@@ -15,6 +15,7 @@
 """Go language plugin."""
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
@@ -46,6 +47,19 @@ class GoPlugin(BaseLanguagePlugin):
     - Linting: golangci-lint, staticcheck
     - Building: go build
     """
+
+    # Callee hooks: foo() / pkg.Type.Method() (last field_identifier of a
+    # selector chain) / (fn)() re-entered.
+    _callee_name_types = frozenset({"identifier"})
+    _callee_path_types = MappingProxyType(
+        {
+            "selector_expression": (
+                frozenset({"field_identifier"}),
+                frozenset({"selector_expression"}),
+            )
+        }
+    )
+    _callee_wrapper_types = frozenset({"parenthesized_expression"})
 
     def _create_config(self) -> LanguageConfig:
         return LanguageConfig(
@@ -199,42 +213,3 @@ class GoPlugin(BaseLanguagePlugin):
         )
         traverser = ConfigurableASTTraverser(config, self._get_node_text)
         return traverser.find_call_nodes(root)
-
-    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Extract the name of the called function from a call node.
-
-        Handles:
-        - Simple calls: foo()
-        - Selector calls: obj.method()
-        - Package calls: pkg.Func()
-        """
-        # Go call_expression structure: (function: identifier or selector_expression)
-        for child in call_node.children:
-            if child.type == "selector_expression":
-                # obj.method() -> extract "method"
-                return self._extract_selector_name(child)
-            elif child.type == "identifier":
-                # foo() -> extract "foo"
-                return self._get_node_text(child)
-            elif child.type == "parenthesized_expression":
-                # Handle parenthesized expressions
-                return self._extract_callee_name(child)
-
-        return None
-
-    def _extract_selector_name(self, selector_node: "Node") -> Optional[str]:
-        """Extract selector name from a selector_expression node.
-
-        For obj.method, extracts "method".
-        For pkg.Type.method, extracts "method" (the final selector).
-        """
-        # selector_expression: operand (identifier or selector_expression) . selector (field_identifier)
-        for child in reversed(selector_node.children):
-            if child.type == "field_identifier":
-                return self._get_node_text(child)
-            elif child.type == "selector_expression":
-                result = self._extract_selector_name(child)
-                if result:
-                    return result
-
-        return None
