@@ -12,6 +12,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `use_enhanced_*` flags: nothing called `route_async()` (the agentic loop routes through
   the synchronous `route()`), and the edge-model hook imported a `decide_sync` that
   `victor.framework.agentic_loop` never defined. Routing behaviour is unchanged.
+- Import-time persona registration in victor-coding, victor-devops and victor-research
+  (`teams/personas.py`) and victor-dataanalysis's `register_data_analysis_personas()`
+  (also dropped from `victor_dataanalysis.teams` exports): every call went through the
+  persona kernel's default-registry path, which no host installs, so it registered
+  nothing (FEP-0042 Phase 2a). Personas reach the host's flat persona registry through
+  the vertical's `get_personas()` hook on activation. The private
+  `_register_*_personas(provider)` helpers remain for a host that registers personas
+  itself and now require `provider`. Importing a vertical's `teams` package emits no
+  `DeprecationWarning`.
+- victor-devops's `FrameworkPersonaProvider = PersonaRegistryProtocol` alias in
+  `victor_devops.teams.personas`; use `victor_contracts.PersonaRegistryProtocol`.
 
 ### Deprecated
 

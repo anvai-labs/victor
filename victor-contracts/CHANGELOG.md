@@ -10,6 +10,65 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+## [0.14.0] - release candidate
+
+FEP-0042 Phase 2a (backlog F-019).
+
+### Upgrade notes
+
+- Published first-party verticals **0.13.0** keep working with 0.14.0 but emit deprecation
+  warnings at import: victor-coding/devops/research call `get_default_persona_registry()` while
+  loading `teams.personas`, and victor-coding registers its chains through the inert
+  `chain_runtime` shim. Upgrade the verticals to **>= 0.14.0**, which use neither. Running with
+  `-W error::DeprecationWarning` turns these into import errors.
+- Published victor-dataanalysis 0.13.0's `register_data_analysis_personas()` (never called by
+  the host) now logs a registration failure and returns 0, because
+  `get_runtime_persona_provider` is gone.
+
+### Removed
+
+- `victor_contracts.multi_agent.get_runtime_persona_provider()` (and its
+  `__all__` entry), deprecated in 0.13.0. Deliver personas through the
+  vertical's `get_personas()` hook; the host registers them on activation and
+  reads them from its flat `victor.framework.persona_registry`.
+
+### Changed
+
+- `victor_contracts.chain_runtime` (`ChainRegistry`, `get_chain_registry`),
+  deprecated in 0.13.0, is now an **inert, host-free compatibility shim**
+  instead of being removed: published victor-coding 0.13.0 registers chains
+  through it at import, unguarded. It no longer imports
+  `victor.framework.chains`; `ChainRegistry.register_chain(...)` accepts and
+  discards registrations, lookups return `None` / `[]`, and
+  `get_chain_registry()` returns a process-wide instance. Accessing either name
+  still emits `DeprecationWarning`; removable no earlier than 0.15.0. Deliver
+  chains through the vertical's `get_chains()` / `get_composed_chains()` hook.
+
+### Deprecated
+
+Each emits `DeprecationWarning` (attributed to the caller) and keeps working;
+removable no earlier than 0.15.0. Nothing in the Victor host installs a default
+persona registry, so these paths registered nothing.
+
+- `verticals.register_vertical_personas(personas, policy)` without `provider=`
+  (the default-registry fallback). In 0.15.0 `provider` becomes required.
+  Verticals expose personas through `get_personas()`; a host that registers
+  personas itself passes `provider=` explicitly (that path does not warn).
+- `verticals.RegistrationPolicy.provider_getter` and `auto_register`: never
+  read. Warns only when set to a non-default value; drop the argument.
+- `registries.set_default_persona_registry()` /
+  `get_default_persona_registry()` (also re-exported from `victor_contracts`).
+  `set_default_team_registry()` / `get_default_team_registry()` are unaffected.
+
+### Added
+
+- (internal, `testing/`) `victor_contracts.testing.personas`:
+  `assert_import_registers_no_personas(*modules)` imports modules in a fresh
+  interpreter with `DeprecationWarning` as an error and fails on any import-time
+  persona registration; `assert_explicit_persona_registration(register, personas,
+  vertical)` checks an explicit-provider helper; `RecordingPersonaRegistry` is the
+  recording double both use.
+
 ## [0.13.0] - 2026-10-30
 
 ### Deprecated

@@ -7,6 +7,10 @@
 
 from victor_contracts.team_schema import TeamMemberSpec
 
+from victor_contracts.testing.personas import (
+    assert_explicit_persona_registration,
+    assert_import_registers_no_personas,
+)
 from victor_devops.teams.personas import (
     DEVOPS_PERSONAS,
     DevOpsPersona,
@@ -111,3 +115,25 @@ def test_teams_package_exposes_personas_for_activation() -> None:
     personas = get_personas()
     assert personas is DEVOPS_PERSONAS
     assert personas
+
+
+class TestPersonaRegistration:
+    """FEP-0042: personas reach the host through ``get_personas()`` on activation;
+    nothing registers at import, and the explicit-provider helper still works."""
+
+    def test_teams_import_registers_nothing_and_emits_no_deprecation(self):
+        assert_import_registers_no_personas("victor_devops.teams", "victor_devops.teams.personas")
+
+    def test_explicit_provider_helper_registers_every_persona_without_warning(self):
+        from victor_devops.teams.personas import _register_personas_with_framework
+
+        calls = assert_explicit_persona_registration(
+            _register_personas_with_framework, DEVOPS_PERSONAS, "devops"
+        )
+        assert calls
+
+    def test_framework_persona_provider_alias_removed(self):
+        from victor_devops.teams import personas
+
+        assert not hasattr(personas, "FrameworkPersonaProvider")
+        assert "FrameworkPersonaProvider" not in personas.__all__

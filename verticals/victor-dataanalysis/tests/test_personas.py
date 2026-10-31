@@ -7,6 +7,10 @@
 
 from victor_contracts import TeamMemberSpec
 
+from victor_contracts.testing.personas import (
+    assert_explicit_persona_registration,
+    assert_import_registers_no_personas,
+)
 from victor_dataanalysis.teams.personas import (
     DATA_ANALYSIS_PERSONAS,
     DataAnalysisPersona,
@@ -109,48 +113,31 @@ class TestApplyPersonaToSpec:
         assert not spec.backstory
 
 
-class _RecordingPersonaRegistry:
-    """Minimal PersonaRegistryProtocol double that records registrations."""
+class TestPersonaRegistration:
+    """FEP-0042: personas reach the host through ``get_personas()`` on activation;
+    nothing registers at import, and the explicit-provider helper still works."""
 
-    def __init__(self) -> None:
-        self.calls: list = []
+    def test_teams_import_registers_nothing_and_emits_no_deprecation(self):
+        assert_import_registers_no_personas(
+            "victor_dataanalysis.teams", "victor_dataanalysis.teams.personas"
+        )
 
-    def register_persona(self, **kwargs) -> None:
-        self.calls.append(kwargs)
+    def test_explicit_provider_helper_registers_every_persona_without_warning(self):
+        from victor_dataanalysis.teams.personas import _register_personas_with_framework
 
-
-class TestRegisterDataAnalysisPersonas:
-    """register_data_analysis_personas uses the default persona registry."""
-
-    def test_registers_into_default_registry(self, monkeypatch):
-        from victor_contracts import multi_agent, registries
-
-        from victor_dataanalysis.teams.personas import register_data_analysis_personas
-
-        recorder = _RecordingPersonaRegistry()
-        monkeypatch.setattr(registries, "_default_persona_registry", recorder)
-
-        def _no_runtime_hook():
-            raise AssertionError("get_runtime_persona_provider must not be used")
-
-        monkeypatch.setattr(multi_agent, "get_runtime_persona_provider", _no_runtime_hook)
-
-        count = register_data_analysis_personas()
-
-        assert count == len(DATA_ANALYSIS_PERSONAS)
-        assert {c["name"] for c in recorder.calls} == set(DATA_ANALYSIS_PERSONAS)
-        assert {c["vertical"] for c in recorder.calls} == {"dataanalysis"}
-        by_name = {c["name"]: c for c in recorder.calls}
+        calls = assert_explicit_persona_registration(
+            _register_personas_with_framework, DATA_ANALYSIS_PERSONAS, "dataanalysis"
+        )
+        by_name = {c["name"]: c for c in calls}
         assert by_name["statistician"]["category"] == "research"
 
-    def test_returns_zero_without_default_registry(self, monkeypatch):
-        from victor_contracts import registries
+    def test_register_data_analysis_personas_removed(self):
+        from victor_dataanalysis import teams
+        from victor_dataanalysis.teams import personas
 
-        from victor_dataanalysis.teams.personas import register_data_analysis_personas
-
-        monkeypatch.setattr(registries, "_default_persona_registry", None)
-
-        assert register_data_analysis_personas() == 0
+        for module in (teams, personas):
+            assert not hasattr(module, "register_data_analysis_personas")
+            assert "register_data_analysis_personas" not in module.__all__
 
 
 def test_teams_package_exposes_personas_for_activation() -> None:

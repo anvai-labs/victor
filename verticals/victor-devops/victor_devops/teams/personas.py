@@ -70,8 +70,6 @@ from victor_contracts.verticals import (
 )
 from victor_contracts import PersonaRegistryProtocol
 
-FrameworkPersonaProvider = PersonaRegistryProtocol
-
 
 class DevOpsExpertiseCategory(str, Enum):
     """Categories of expertise for DevOps roles.
@@ -513,15 +511,14 @@ _REGISTRATION_POLICY = RegistrationPolicy(
 )
 
 
-def _register_personas_with_framework(
-    provider: PersonaRegistryProtocol | None = None,
-) -> None:
-    """Register all DevOps personas with the framework persona provider."""
+def _register_personas_with_framework(provider: PersonaRegistryProtocol) -> None:
+    """Register all DevOps personas with an explicit host persona registry.
+
+    Not called at import: personas reach the host through the vertical's
+    ``get_personas()`` hook on activation (FEP-0042). This helper is for a
+    host that registers personas itself.
+    """
     register_vertical_personas(DEVOPS_PERSONAS, _REGISTRATION_POLICY, provider)
-
-
-# Auto-register on import
-_register_personas_with_framework()
 
 
 __all__ = [
@@ -530,7 +527,6 @@ __all__ = [
     "FrameworkCommunicationStyle",
     "ExpertiseLevel",
     "PersonaTemplate",
-    "FrameworkPersonaProvider",
     # DevOps-specific types
     "DevOpsExpertiseCategory",
     "DevOpsCommunicationStyle",
