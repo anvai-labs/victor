@@ -10,6 +10,25 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+### Changed
+
+- `RLOutcome` and `RLRecommendation` (`victor_contracts.rl`, also re-exported from
+  `victor_contracts`) now match the runtime classes in `victor.framework.rl.base` field for
+  field, instead of drifting from them. Both names stay importable and still construct
+  without a host; constructed values are now field-complete for host-side RL storage
+  (`RLOutcome(**dataclasses.asdict(outcome))` builds the runtime class, and its
+  `from_dict`/`to_dict` round-trip preserves the values). The shapes are pinned
+  differentially against the host in `tests/unit/test_rl_contracts.py`.
+  - `RLOutcome.timestamp` is an ISO-8601 string (was a POSIX `float` from `time.time()`),
+    the format the RL learners and the outcome store read.
+  - `RLOutcome.quality_score` is required (was silently defaulted to `0.0`, which recorded
+    zero-quality outcomes for verticals that omitted it).
+  - `RLOutcome` gains the `segment_rewards` field (`Optional[Dict[int, float]]`, `None`).
+  - `RLRecommendation.value`, `confidence`, `reason` and `sample_size` are required (all
+    five fields were defaulted), `is_baseline` defaults to `False` (was `True` — a
+    learned recommendation no longer presents itself as a provider baseline), and the
+    class gains the `metadata` field.
+
 ## [0.15.0] - 2026-10-31
 
 FEP-0042 Phase 3 (backlog F-019): removes the surfaces deprecated in 0.14.0.

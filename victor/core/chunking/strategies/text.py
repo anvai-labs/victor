@@ -82,8 +82,15 @@ class TextChunkingStrategy(ChunkingStrategy):
                     )
                 )
 
-            # Move to next chunk with overlap
-            current_pos = chunk_end - self.config.chunk_overlap
+            # Move to next chunk with overlap. Stop as soon as the window
+            # stops advancing: with ``chunk_overlap >= chunk_size`` (rejected
+            # by ChunkingConfig) it would never move, and when the window
+            # already reaches the end of the content the overlap step lands on
+            # the same position forever, re-reading the final window.
+            next_pos = chunk_end - self.config.chunk_overlap
+            if next_pos <= current_pos:
+                break
+            current_pos = next_pos
             if current_pos >= len(content) - self.config.min_chunk_size:
                 break
 
