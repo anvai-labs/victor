@@ -26,6 +26,7 @@ from victor.evaluation.judge_calibration_harness import (
     VerifiableTask,
     alternating_scripted_executor,
     binary_categorize,
+    load_module_from_path,
     make_scripted_executor,
 )
 
@@ -347,3 +348,34 @@ def test_keep_workspaces_retains_auto_created_dir(tmp_path: Path, monkeypatch) -
     kept = list(root.glob("judge_calibration_*"))
     assert len(kept) == 1, "keep_workspaces should retain the temp dir"
     assert any(kept[0].iterdir()), "kept workspace should contain the per-task dirs"
+
+
+# --- Verifier module loader ------------------------------------------------------------------------
+
+
+def test_load_module_from_path_executes_the_file_without_registering_it(tmp_path: Path) -> None:
+    import sys
+
+    source = tmp_path / "answer.py"
+    source.write_text("VALUE = 41 + 1\n")
+    module = load_module_from_path(source, "_test_loader_answer")
+    assert module is not None and module.VALUE == 42
+    assert "_test_loader_answer" not in sys.modules
+
+
+@pytest.mark.parametrize(
+    "content",
+    [None, "def broken(:\n", "raise RuntimeError('boom')\n"],
+    ids=["missing", "syntax-error", "raises-on-import"],
+)
+def test_load_module_from_path_returns_none_on_failure(tmp_path: Path, content) -> None:
+    source = tmp_path / "bad.py"
+    if content is not None:
+        source.write_text(content)
+    assert load_module_from_path(source, "_test_loader_bad") is None
+
+
+def test_load_module_from_path_returns_none_without_a_loader(tmp_path: Path) -> None:
+    source = tmp_path / "notes.txt"
+    source.write_text("VALUE = 1\n")
+    assert load_module_from_path(source, "_test_loader_txt") is None

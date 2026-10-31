@@ -49,9 +49,11 @@ Interpretation caveats (record them wherever a report is consumed):
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import (
     Any,
     Callable,
@@ -185,6 +187,30 @@ class CalibrationJudge(Protocol):
 def binary_categorize(score: float) -> Hashable:
     """Default categorizer for Cohen's κ: complete at ≥ 0.5."""
     return score >= 0.5
+
+
+def load_module_from_path(path: Path, name: str) -> Optional[ModuleType]:
+    """Import a workspace module from a file path for a task verifier.
+
+    The module is executed without touching ``sys.path`` or ``sys.modules``, so verifiers can
+    load an agent-edited file under a unique name per task variant.
+
+    Args:
+        path: Python source file to execute.
+        name: Module name to bind (unique per task variant to avoid cross-talk).
+
+    Returns:
+        The executed module, or None if the file is missing, unloadable or raises on import.
+    """
+    try:
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
 
 
 @dataclass(frozen=True)

@@ -31,26 +31,16 @@ Agreement caveat: with the default ``variants=1`` (6 tasks) α is smoke-level on
 from __future__ import annotations
 
 import ast
-import importlib.util
 import re
 from pathlib import Path
 
-from victor.evaluation.judge_calibration_harness import Transcript, VerifiableTask
+from victor.evaluation.judge_calibration_harness import (
+    Transcript,
+    VerifiableTask,
+    load_module_from_path,
+)
 
 _MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)#\s]+\.md)(?:#[^)]*)?\)")
-
-
-def _load_module(path: Path, name: str):
-    """Import a module from a file path without touching sys.path. Returns None on failure."""
-    try:
-        spec = importlib.util.spec_from_file_location(name, path)
-        if spec is None or spec.loader is None:
-            return None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    except Exception:
-        return None
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -104,7 +94,7 @@ def _code_fix_task(i: int) -> VerifiableTask:
         (ws / f"{module_name}.py").write_text(buggy)
 
     def verify(ws: Path, _t: Transcript) -> float:
-        module = _load_module(ws / f"{module_name}.py", f"_calib_{module_name}_{i}")
+        module = load_module_from_path(ws / f"{module_name}.py", f"_calib_{module_name}_{i}")
         if module is None:
             return 0.0
         try:

@@ -17,6 +17,7 @@ from __future__ import annotations
 """Provider registry for managing and discovering LLM providers."""
 
 import importlib
+import logging
 import os
 import platform
 import subprocess
@@ -28,7 +29,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 from victor.core.registry import BaseRegistry
 from victor.providers.base import BaseProvider, ProviderNotFoundError
 
-__all__ = ["ProviderRegistry", "ProviderNotFoundError", "TIER_1_PROVIDERS"]
+__all__ = [
+    "ProviderRegistry",
+    "ProviderNotFoundError",
+    "TIER_1_PROVIDERS",
+    "create_provider_or_none",
+]
+
+logger = logging.getLogger(__name__)
 
 #: Tier-1 support-tier providers (primary registry keys) per ADR-029
 #: (docs/architecture/adr/029-provider-support-tiers.md): integration-tested,
@@ -425,6 +433,29 @@ def get_provider_registry() -> _ProviderRegistryImpl:
         The singleton provider registry instance
     """
     return _registry_instance
+
+
+def create_provider_or_none(name: Optional[str], *, purpose: str) -> Optional[BaseProvider]:
+    """Instantiate a registered provider by name, returning None if disabled or unavailable.
+
+    For optional LLM consumers (e.g. RL prompt optimizers and critics) that degrade to
+    heuristics when no provider can be built. The registry maps the name to its class and
+    resolves the Sandhi transport variant, so any registered provider works.
+
+    Args:
+        name: Registered provider name; a falsy value disables provider creation.
+        purpose: Short description of the consumer, used in the failure log message.
+
+    Returns:
+        A new provider instance, or None when ``name`` is falsy or creation fails.
+    """
+    if not name:
+        return None
+    try:
+        return get_provider_registry().create(name)
+    except Exception as e:
+        logger.debug("Failed to create %s provider for %s: %s", name, purpose, e)
+        return None
 
 
 # Auto-register all providers

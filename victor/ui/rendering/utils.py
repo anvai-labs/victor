@@ -405,6 +405,29 @@ def format_bash_command_invocation(tool_name: str, arguments: dict[str, Any]) ->
         return f"[dim]$[/] [bold cyan]{tool_name}[/]"
 
 
+def generate_text_preview(text: str, num_lines: int = 3, max_line_length: int = 120) -> str:
+    """Return the first ``num_lines`` lines of ``text`` for a collapsed tool-output preview.
+
+    Args:
+        text: Full text to preview (falsy input yields an empty preview)
+        num_lines: Number of leading lines to keep; ``"..."`` is appended if more follow
+        max_line_length: Lines longer than this are cut and suffixed with ``"..."``
+
+    Returns:
+        Preview text with ellipses marking truncation
+    """
+    if not text:
+        return ""
+    lines = text.split("\n")
+    preview = "\n".join(lines[:num_lines])
+    if len(lines) > num_lines:
+        preview += "..."
+    return "\n".join(
+        line[:max_line_length] + "..." if len(line) > max_line_length else line
+        for line in preview.split("\n")
+    )
+
+
 def render_file_preview(console: Console, path: str, content: str) -> None:
     """Render a file content preview panel.
 

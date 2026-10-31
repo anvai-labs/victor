@@ -32,22 +32,13 @@ corpus — deterministic, no LLM/network in the verifiers.
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
-from victor.evaluation.judge_calibration_harness import Transcript, VerifiableTask
-
-
-def _load_module(path: Path, name: str):
-    try:
-        spec = importlib.util.spec_from_file_location(name, path)
-        if spec is None or spec.loader is None:
-            return None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    except Exception:
-        return None
+from victor.evaluation.judge_calibration_harness import (
+    Transcript,
+    VerifiableTask,
+    load_module_from_path,
+)
 
 
 def _record_answer_task(i: int) -> VerifiableTask:
@@ -122,7 +113,7 @@ def _apply_fix_task(i: int) -> VerifiableTask:
         (ws / f"{module_name}.py").write_text(broken)
 
     def verify(ws: Path, _t: Transcript) -> float:
-        module = _load_module(ws / f"{module_name}.py", f"_eg_{module_name}_{i}")
+        module = load_module_from_path(ws / f"{module_name}.py", f"_eg_{module_name}_{i}")
         if module is None or not hasattr(module, "get_status"):
             return 0.0
         try:
@@ -187,7 +178,7 @@ def _create_from_desc_task(i: int) -> VerifiableTask:
         (ws / "README.txt").write_text("Utilities live in this directory.\n")
 
     def verify(ws: Path, _t: Transcript) -> float:
-        module = _load_module(ws / f"{module_name}.py", f"_eg_{module_name}_{i}")
+        module = load_module_from_path(ws / f"{module_name}.py", f"_eg_{module_name}_{i}")
         if module is None or not hasattr(module, "greet"):
             return 0.0
         try:

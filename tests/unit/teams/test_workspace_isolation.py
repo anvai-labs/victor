@@ -349,3 +349,19 @@ def test_workspace_isolation_service_marks_low_risk_merge_ready():
     assert contract["next_action"] == "merge"
     assert contract["review_required_members"] == []
     assert contract["blocking_issues"] == []
+
+
+def test_policy_flags_accept_bool_and_truthy_strings():
+    policy = WorkspaceIsolationPolicy.from_context(
+        {
+            "worktree_isolation": " Yes ",
+            "materialize_worktrees": "off",
+            "dry_run_worktrees": True,
+            "allow_risky_worktree_merge": "1",
+        }
+    )
+    assert policy.worktree_isolation is True
+    assert policy.materialize_worktrees is False
+    assert policy.dry_run_worktrees is True
+    assert policy.allow_risky_worktree_merge is True
+    assert WorkspaceIsolationPolicy.from_context({}).worktree_isolation is False
