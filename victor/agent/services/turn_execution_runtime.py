@@ -1105,7 +1105,7 @@ class TurnExecutor:
         max_iterations_setting = (
             iter_override
             if iter_override is not None
-            else getattr(self._chat_context.settings, "chat_max_iterations", 10)
+            else getattr(self._chat_context.settings, "chat_max_iterations", 50)
         )
         task_budget = max(task_classification.tool_budget * 2, 1)
         iteration_budget = min(task_budget, max_iterations_setting, max_iterations)

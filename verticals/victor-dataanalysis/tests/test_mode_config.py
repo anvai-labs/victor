@@ -27,8 +27,8 @@ class TestModeDefinitions:
 
         assert "research" in configs
         research = configs["research"]
-        assert research.tool_budget == 80
-        assert research.max_iterations == 150
+        assert research.tool_budget == 400  # 5x'd 2026-10-31
+        assert research.max_iterations == 750  # 5x'd 2026-10-31 (was 150)
 
     def test_shared_modes_available_via_registry(self, provider):
         configs = provider.get_mode_configs()
@@ -48,15 +48,15 @@ class TestModeDefinitions:
 
 class TestTaskBudgets:
     def test_known_task_budgets(self, provider):
-        assert provider.get_tool_budget_for_task("data_profiling") == 8
-        assert provider.get_tool_budget_for_task("ml_pipeline") == 40
-        assert provider.get_tool_budget_for_task("full_report") == 50
+        assert provider.get_tool_budget_for_task("data_profiling") == 40  # 5x'd 2026-10-31
+        assert provider.get_tool_budget_for_task("ml_pipeline") == 200  # 5x'd 2026-10-31
+        assert provider.get_tool_budget_for_task("full_report") == 250  # 5x'd 2026-10-31
 
     def test_unknown_task_falls_back_to_default_budget(self, provider):
-        assert provider.get_tool_budget_for_task("no_such_task") == 25
+        assert provider.get_tool_budget_for_task("no_such_task") == 125  # 5x'd 2026-10-31
 
     def test_default_budget_without_task_type(self, provider):
-        assert provider.get_default_tool_budget() == 25
+        assert provider.get_default_tool_budget() == 125  # 5x'd 2026-10-31
 
     def test_ml_costs_more_than_profiling(self, provider):
         assert provider.get_tool_budget_for_task("ml_pipeline") > provider.get_tool_budget_for_task(

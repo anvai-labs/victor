@@ -27,8 +27,8 @@ from victor_contracts.verticals.mode_config import (
 _RESEARCH_MODES: Dict[str, ModeDefinition] = {
     "deep": ModeDefinition(
         name="deep",
-        tool_budget=30,
-        max_iterations=60,
+        tool_budget=150,
+        max_iterations=300,
         temperature=0.8,
         description="Comprehensive research with full verification cycle",
         exploration_multiplier=2.0,
@@ -44,8 +44,8 @@ _RESEARCH_MODES: Dict[str, ModeDefinition] = {
     ),
     "academic": ModeDefinition(
         name="academic",
-        tool_budget=50,
-        max_iterations=100,
+        tool_budget=250,
+        max_iterations=500,
         temperature=0.8,
         description="Thorough literature review with extensive citation",
         exploration_multiplier=3.0,
@@ -61,13 +61,14 @@ _RESEARCH_MODES: Dict[str, ModeDefinition] = {
     ),
 }
 
+# 5x'd 2026-10-31: agents run longer autonomous sessions
 _RESEARCH_TASK_BUDGETS: Dict[str, int] = {
-    "simple_lookup": 3,
-    "fact_check": 8,
-    "comparison": 12,
-    "trend_analysis": 20,
-    "literature_review": 40,
-    "comprehensive_report": 50,
+    "simple_lookup": 15,
+    "fact_check": 40,
+    "comparison": 60,
+    "trend_analysis": 100,
+    "literature_review": 200,
+    "comprehensive_report": 250,
 }
 
 
@@ -77,7 +78,7 @@ def _build_mode_config(default_mode: str = "standard") -> VerticalModeConfig:
         modes=dict(_RESEARCH_MODES),
         task_budgets=dict(_RESEARCH_TASK_BUDGETS),
         default_mode=default_mode,
-        default_budget=15,
+        default_budget=75,  # 5x'd 2026-10-31
     )
 
 

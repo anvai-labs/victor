@@ -67,7 +67,7 @@ async def test_consensus_default_rounds_can_converge_after_disagreement():
     assert result["success"] is True
     assert result["consensus_rounds"] == 2
     assert result["consensus_achieved"] is True
-    assert ConsensusFormation().max_rounds == 3
+    assert ConsensusFormation().max_rounds == 15  # 5x'd 2026-10-31 (was 3)
 
 
 @pytest.mark.parametrize(

@@ -332,7 +332,7 @@ class TestChatServiceConfig(BaseChatServiceTest):
         """Test default configuration values."""
         config = ChatServiceConfig()
 
-        assert config.max_iterations == 200
+        assert config.max_iterations == 1000  # 5x'd 2026-10-31 stamina budgets
         assert config.max_continuation_prompts == 3
         assert config.stream_chunk_size == 100
         assert config.enable_response_caching is True

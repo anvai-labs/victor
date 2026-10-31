@@ -189,7 +189,7 @@ class TestToolConfig:
         assert config.enabled_tools == []
         assert config.disabled_tools == []
         assert config.tool_settings == {}
-        assert config.max_tool_budget == 100
+        assert config.max_tool_budget == 500  # 5x'd 2026-10-31 (was 100)
         assert config.require_confirmation is False
 
     def test_custom_values(self):
@@ -753,9 +753,9 @@ class TestExecutionConfigValidation:
     def test_default_config_passes(self):
         """Default ExecutionConfig should pass all validations."""
         config = ExecutionConfig()
-        assert config.max_iterations == 25
+        assert config.max_iterations == 125  # 5x'd 2026-10-31 (was 25)
         assert config.timeout is None
-        assert config.recursion_limit == 100
+        assert config.recursion_limit == 500  # 5x'd 2026-10-31 (was 100)
 
     def test_max_iterations_below_one_raises(self):
         """max_iterations must be >= 1."""

@@ -1064,9 +1064,9 @@ class TestGraphConfig:
         config = GraphConfig()
 
         # Test focused config structure (ISP compliance)
-        assert config.execution.max_iterations == 25
+        assert config.execution.max_iterations == 125  # 5x'd 2026-10-31 (was 25)
         assert config.execution.timeout is None
-        assert config.execution.recursion_limit == 100
+        assert config.execution.recursion_limit == 500  # 5x'd 2026-10-31 (was 100)
         assert config.checkpoint.checkpointer is None
         assert config.interrupt.interrupt_before == []
         assert config.interrupt.interrupt_after == []

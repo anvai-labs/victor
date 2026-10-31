@@ -44,9 +44,9 @@ class TestTaskTypeDefinition:
         assert defn.name == "test_task"
         assert defn.category == TaskCategory.ANALYSIS
         assert defn.hint == ""
-        assert defn.tool_budget == 10
+        assert defn.tool_budget == 50  # 5x'd 2026-10-31 (was 10)
         assert defn.priority_tools == []
-        assert defn.max_iterations == 30
+        assert defn.max_iterations == 150  # 5x'd 2026-10-31 (was 30)
         assert defn.aliases == set()
         assert defn.vertical is None
         assert defn.needs_tools is True
@@ -189,31 +189,31 @@ class TestTaskTypeRegistry:
         registry = TaskTypeRegistry.get_instance()
 
         budget = registry.get_tool_budget("edit")
-        assert budget == 25
+        assert budget == 125  # 5x'd 2026-10-31 (was 25)
 
         budget = registry.get_tool_budget("simple")
-        assert budget == 2
+        assert budget == 10  # 5x'd 2026-10-31 (was 2)
 
         budget = registry.get_tool_budget("analyze")
-        assert budget == 40
+        assert budget == 200  # 5x'd 2026-10-31 (was 40)
 
-        # Unknown type returns default of 10
+        # Unknown type returns default of 50 (5x'd 2026-10-31)
         budget = registry.get_tool_budget("nonexistent")
-        assert budget == 10
+        assert budget == 50
 
     def test_get_max_iterations(self):
         """Test getting max iterations for task types."""
         registry = TaskTypeRegistry.get_instance()
 
         iterations = registry.get_max_iterations("edit")
-        assert iterations == 10
+        assert iterations == 50  # 5x'd 2026-10-31 (was 10)
 
         iterations = registry.get_max_iterations("analyze")
-        assert iterations == 20
+        assert iterations == 100  # 5x'd 2026-10-31 (was 20)
 
-        # Unknown type returns default of 30
+        # Unknown type returns default of 150 (5x'd 2026-10-31)
         iterations = registry.get_max_iterations("nonexistent")
-        assert iterations == 30
+        assert iterations == 150
 
     def test_get_priority_tools(self):
         """Test getting priority tools for task types."""
@@ -323,7 +323,7 @@ class TestVerticalRegistration:
         # With vertical, should get override
         devops_edit = registry.get("edit", vertical="devops")
         assert devops_edit is not None
-        assert devops_edit.tool_budget == 50
+        assert devops_edit.tool_budget == 50  # explicit fixture value, unchanged
         assert "DEVOPS" in devops_edit.hint
 
         # Without vertical, should get core
@@ -440,7 +440,7 @@ class TestVerticalRegistrationHooks:
         # Check Data Analysis override for "analyze"
         da_analyze = registry.get("analyze", vertical="data_analysis")
         assert da_analyze is not None
-        assert da_analyze.tool_budget == 50  # Higher budget for data analysis
+        assert da_analyze.tool_budget == 250  # Higher budget for data analysis (5x'd 2026-10-31)
 
     def test_register_coding_task_types(self):
         """Test Coding task type registration."""
@@ -453,7 +453,7 @@ class TestVerticalRegistrationHooks:
         # Check Coding overrides
         coding_refactor = registry.get("refactor", vertical="coding")
         assert coding_refactor is not None
-        assert coding_refactor.tool_budget == 35
+        assert coding_refactor.tool_budget == 175  # 5x'd 2026-10-31 (was 35)
 
     def test_register_research_task_types(self):
         """Test Research task type registration."""
@@ -466,7 +466,7 @@ class TestVerticalRegistrationHooks:
         # Check Research override
         research = registry.get("research", vertical="research")
         assert research is not None
-        assert research.tool_budget == 40
+        assert research.tool_budget == 200  # 5x'd 2026-10-31 (was 40)
 
     def test_setup_vertical_task_types(self):
         """Test the setup function registers all verticals."""
@@ -509,12 +509,12 @@ class TestConvenienceFunctions:
     def test_get_task_budget_function(self):
         """Test the convenience function for getting budgets."""
         budget = get_task_budget("edit")
-        assert budget == 25
+        assert budget == 125  # 5x'd 2026-10-31 (was 25)
 
         # With vertical
         setup_vertical_task_types()
         budget = get_task_budget("analyze", vertical="data_analysis")
-        assert budget == 50
+        assert budget == 250  # 5x'd 2026-10-31 (was 50)
 
 
 class TestEdgeCases:

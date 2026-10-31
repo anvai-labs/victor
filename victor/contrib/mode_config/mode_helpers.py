@@ -49,8 +49,8 @@ class ModeHelperMixin:
     @staticmethod
     def create_quick_mode(
         name: str = "quick",
-        tool_budget: int = 5,
-        max_iterations: int = 10,
+        tool_budget: int = 25,
+        max_iterations: int = 50,
         description: str = "Quick tasks with minimal exploration",
     ) -> ModeDefinition:
         """Create a quick mode configuration.
@@ -76,8 +76,8 @@ class ModeHelperMixin:
     @staticmethod
     def create_standard_mode(
         name: str = "standard",
-        tool_budget: int = 15,
-        max_iterations: int = 40,
+        tool_budget: int = 75,
+        max_iterations: int = 200,
         description: str = "Balanced mode for typical tasks",
     ) -> ModeDefinition:
         """Create a standard mode configuration.
@@ -103,8 +103,8 @@ class ModeHelperMixin:
     @staticmethod
     def create_thorough_mode(
         name: str = "thorough",
-        tool_budget: int = 30,
-        max_iterations: int = 80,
+        tool_budget: int = 150,
+        max_iterations: int = 400,
         description: str = "Thorough analysis and comprehensive changes",
     ) -> ModeDefinition:
         """Create a thorough mode configuration.
@@ -130,8 +130,8 @@ class ModeHelperMixin:
     @staticmethod
     def create_exploration_mode(
         name: str = "explore",
-        tool_budget: int = 20,
-        max_iterations: int = 60,
+        tool_budget: int = 100,
+        max_iterations: int = 300,
         description: str = "Extended exploration for understanding",
     ) -> ModeDefinition:
         """Create an exploration mode configuration.
@@ -212,8 +212,8 @@ class ModeHelperMixin:
             "standard": self.create_standard_mode(),
             "default": self.create_standard_mode(
                 name="default",
-                tool_budget=10,
-                max_iterations=30,
+                tool_budget=50,
+                max_iterations=150,
                 description="Default operational mode",
             ),
         }

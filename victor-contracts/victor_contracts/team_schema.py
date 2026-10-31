@@ -345,8 +345,8 @@ class TeamSpec:
     vertical: str
     formation: TeamFormation
     members: List[TeamMemberSpec]
-    total_tool_budget: int = 100
-    max_iterations: int = 50
+    total_tool_budget: int = 500
+    max_iterations: int = 250
     tags: List[str] = field(default_factory=list)
     task_types: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)

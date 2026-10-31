@@ -213,16 +213,16 @@ class HybridOrchestrationRouter:
             # Map complexity level to TaskComplexity
             task_complexity_map = {
                 ComplexityLevel.SIMPLE: TaskComplexity.SIMPLE,
-                ComplexityLevel.MODERATE: TaskComplexity.MODERATE,
+                ComplexityLevel.MODERATE: TaskComplexity.MEDIUM,
                 ComplexityLevel.COMPLEX: TaskComplexity.COMPLEX,
             }
 
             belief = self.bayesian_service.create_belief_state(
                 task_type=task_type,
                 complexity=task_complexity_map.get(
-                    complexity_analysis.level, TaskComplexity.MODERATE
+                    complexity_analysis.level, TaskComplexity.MEDIUM
                 ),
-                tool_budget=10,
+                tool_budget=50,
                 initial_belief={"Yes": 0.5, "No": 0.5},
             )
 

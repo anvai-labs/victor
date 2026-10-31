@@ -528,7 +528,7 @@ class BaseConversationProtocol:
 
     def __init__(
         self,
-        max_turns: int = 10,
+        max_turns: int = 50,
         require_all_participants: bool = False,
     ):
         """Initialize base protocol.
@@ -589,7 +589,7 @@ class RequestResponseProtocol(BaseConversationProtocol):
     def __init__(
         self,
         questioner: str,
-        max_questions: int = 5,
+        max_questions: int = 25,
     ):
         """Initialize request-response protocol.
 
@@ -640,7 +640,7 @@ class DebateProtocol(BaseConversationProtocol):
     def __init__(
         self,
         proposition: str,
-        rounds: int = 3,
+        rounds: int = 15,
         moderator: Optional[str] = None,
     ):
         """Initialize debate protocol.
@@ -722,7 +722,7 @@ class ConsensusProtocol(BaseConversationProtocol):
     def __init__(
         self,
         threshold: float = 0.7,
-        max_voting_rounds: int = 3,
+        max_voting_rounds: int = 15,
     ):
         """Initialize consensus protocol.
 
@@ -730,7 +730,7 @@ class ConsensusProtocol(BaseConversationProtocol):
             threshold: Required agreement threshold (0.0 - 1.0)
             max_voting_rounds: Maximum voting rounds
         """
-        super().__init__(max_turns=30)
+        super().__init__(max_turns=150)
         self.threshold = threshold
         self.max_voting_rounds = max_voting_rounds
         self._voting_round = 0

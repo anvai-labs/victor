@@ -64,37 +64,37 @@ RAG_ROLES: Dict[str, RAGRoleConfig] = {
     "document_parser": RAGRoleConfig(
         base_role="researcher",
         tools=["read", "ls", "web_fetch"],
-        tool_budget=15,
+        tool_budget=75,
         description="Parses and extracts content from documents",
     ),
     "content_indexer": RAGRoleConfig(
         base_role="executor",
         tools=["rag_ingest", "rag_stats"],
-        tool_budget=20,
+        tool_budget=100,
         description="Indexes content into the knowledge base",
     ),
     "search_specialist": RAGRoleConfig(
         base_role="researcher",
         tools=["rag_search", "rag_query", "rag_list"],
-        tool_budget=20,
+        tool_budget=100,
         description="Searches and retrieves relevant information",
     ),
     "answer_synthesizer": RAGRoleConfig(
         base_role="executor",
         tools=["rag_query", "rag_search"],
-        tool_budget=15,
+        tool_budget=75,
         description="Synthesizes answers from retrieved context",
     ),
     "fact_checker": RAGRoleConfig(
         base_role="reviewer",
         tools=["rag_search", "rag_query"],
-        tool_budget=15,
+        tool_budget=75,
         description="Verifies facts and citations in answers",
     ),
     "index_manager": RAGRoleConfig(
         base_role="executor",
         tools=["rag_list", "rag_delete", "rag_stats"],
-        tool_budget=15,
+        tool_budget=75,
         description="Manages and maintains the knowledge base index",
     ),
 }
@@ -117,8 +117,8 @@ class RAGTeamSpec:
     description: str
     formation: TeamFormation
     members: List[TeamMemberSpec]
-    total_tool_budget: int = 100
-    max_iterations: int = 50
+    total_tool_budget: int = 500
+    max_iterations: int = 250
 
 
 # Pre-defined team specifications with rich personas
@@ -132,7 +132,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="researcher",
                 goal="Parse and extract content from input documents",
                 name="Document Parser",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are an expert document parser with deep knowledge of various file formats "
                     "including PDF, Markdown, HTML, and plain text. You understand document structure, "
@@ -147,7 +147,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="executor",
                 goal="Process and chunk content for optimal retrieval",
                 name="Content Indexer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a content indexing specialist who understands semantic chunking and "
                     "embedding strategies. You know how to split documents to preserve meaning while "
@@ -162,7 +162,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="reviewer",
                 goal="Validate ingestion and ensure content quality",
                 name="Quality Validator",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are a quality assurance specialist who verifies that documents are "
                     "properly ingested. You check for completeness, proper chunking, and that "
@@ -172,7 +172,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 personality="detail-oriented; catches issues early",
             ),
         ],
-        total_tool_budget=45,
+        total_tool_budget=225,
     ),
     "search_team": RAGTeamSpec(
         name="Multi-Strategy Search Team",
@@ -183,7 +183,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="researcher",
                 goal="Perform semantic vector search for relevant content",
                 name="Semantic Searcher",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a semantic search specialist who understands embedding spaces and "
                     "similarity matching. You craft queries that capture semantic meaning and "
@@ -197,7 +197,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="researcher",
                 goal="Perform keyword and metadata-based search",
                 name="Keyword Searcher",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a keyword search expert who understands full-text search, filters, "
                     "and metadata queries. You use precise terminology and filters to find "
@@ -210,7 +210,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="planner",
                 goal="Merge and rank results from multiple search strategies",
                 name="Result Ranker",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are a search result ranking specialist who combines results from "
                     "multiple strategies. You understand relevance scoring, deduplication, "
@@ -220,7 +220,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 personality="analytical; balances precision and recall",
             ),
         ],
-        total_tool_budget=40,
+        total_tool_budget=200,
     ),
     "synthesis_team": RAGTeamSpec(
         name="Answer Synthesis Team",
@@ -231,7 +231,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="researcher",
                 goal="Retrieve and organize relevant context for the query",
                 name="Context Gatherer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are an expert at gathering relevant context from the knowledge base. "
                     "You understand what information is needed to answer questions accurately "
@@ -245,7 +245,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="executor",
                 goal="Synthesize a comprehensive answer from retrieved context",
                 name="Answer Synthesizer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are an expert at synthesizing clear, accurate answers from multiple "
                     "sources. You weave together information coherently, handle contradictions "
@@ -258,7 +258,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="reviewer",
                 goal="Verify facts and ensure proper source citations",
                 name="Fact Checker",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a rigorous fact checker who verifies every claim against sources. "
                     "You ensure citations are accurate, detect any hallucinations, and confirm "
@@ -268,7 +268,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 personality="skeptical and thorough; trusts but verifies",
             ),
         ],
-        total_tool_budget=45,
+        total_tool_budget=225,
     ),
     "maintenance_team": RAGTeamSpec(
         name="Index Maintenance Team",
@@ -279,7 +279,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="researcher",
                 goal="Analyze index health and identify issues",
                 name="Index Analyst",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are an expert at analyzing knowledge base health. You identify stale "
                     "content, duplicates, indexing issues, and performance bottlenecks. You "
@@ -293,7 +293,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 role="executor",
                 goal="Clean up and optimize the knowledge base",
                 name="Index Maintainer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a knowledge base maintainer who keeps the index healthy and "
                     "performant. You remove stale content, optimize structures, and ensure "
@@ -303,7 +303,7 @@ RAG_TEAM_SPECS: Dict[str, RAGTeamSpec] = {
                 personality="efficient and careful; never breaks what's working",
             ),
         ],
-        total_tool_budget=35,
+        total_tool_budget=175,
     ),
 }
 

@@ -28,52 +28,53 @@ from victor_contracts.verticals.mode_config import (
 _CODING_MODES: Dict[str, ModeDefinition] = {
     "architect": ModeDefinition(
         name="architect",
-        tool_budget=40,
-        max_iterations=100,
+        tool_budget=200,
+        max_iterations=500,
         temperature=0.8,
         description="Architecture analysis and design tasks",
         exploration_multiplier=2.5,
     ),
     "refactor": ModeDefinition(
         name="refactor",
-        tool_budget=25,
-        max_iterations=60,
+        tool_budget=125,
+        max_iterations=300,
         temperature=0.6,
         description="Code refactoring with safety checks",
         exploration_multiplier=1.5,
     ),
     "debug": ModeDefinition(
         name="debug",
-        tool_budget=15,
-        max_iterations=40,
+        tool_budget=75,
+        max_iterations=200,
         temperature=0.5,
         description="Debugging and issue investigation",
         exploration_multiplier=1.2,
     ),
     "test": ModeDefinition(
         name="test",
-        tool_budget=15,
-        max_iterations=40,
+        tool_budget=75,
+        max_iterations=200,
         temperature=0.5,
         description="Test creation and execution",
         exploration_multiplier=1.0,
     ),
 }
 
+# 5x'd 2026-10-31: agents run longer autonomous sessions
 _CODING_TASK_BUDGETS: Dict[str, int] = {
-    "code_generation": 3,
-    "create_simple": 2,
-    "create": 5,
-    "edit": 5,
-    "search": 6,
-    "action": 15,
-    "analysis_deep": 25,
-    "analyze": 12,
-    "design": 25,
-    "refactor": 15,
-    "debug": 12,
-    "test": 10,
-    "general": 8,
+    "code_generation": 15,
+    "create_simple": 10,
+    "create": 25,
+    "edit": 25,
+    "search": 30,
+    "action": 75,
+    "analysis_deep": 125,
+    "analyze": 60,
+    "design": 125,
+    "refactor": 75,
+    "debug": 60,
+    "test": 50,
+    "general": 40,
 }
 
 
@@ -83,7 +84,7 @@ def _build_mode_config(default_mode: str = "default") -> VerticalModeConfig:
         modes=dict(_CODING_MODES),
         task_budgets=dict(_CODING_TASK_BUDGETS),
         default_mode=default_mode,
-        default_budget=10,
+        default_budget=50,  # 5x'd 2026-10-31
     )
 
 
@@ -113,7 +114,7 @@ def get_mode_config(mode_name: str) -> ModeConfig | None:
 
 def get_tool_budget(mode_name: str | None = None, task_type: str | None = None) -> int:
     if task_type is not None:
-        return _CODING_TASK_BUDGETS.get(task_type, 10)
+        return _CODING_TASK_BUDGETS.get(task_type, 50)
     if mode_name is not None:
         mode_definition = _CODING_MODES.get(mode_name.lower())
         if mode_definition is not None:

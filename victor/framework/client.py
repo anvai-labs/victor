@@ -14,7 +14,7 @@ Usage in CLI (victor/ui/commands/chat.py):
     from victor.framework.client import VictorClient
     from victor.framework.session_config import SessionConfig
 
-    config = SessionConfig.from_cli_flags(tool_budget=50, enable_smart_routing=True)
+    config = SessionConfig.from_cli_flags(tool_budget=250, enable_smart_routing=True)
     client = VictorClient(config)
     result = await client.chat("Hello")
     # OR streaming:
@@ -287,7 +287,7 @@ class VictorClient:
         from victor.framework.client import VictorClient
         from victor.framework.session_config import SessionConfig
 
-        config = SessionConfig.from_cli_flags(tool_budget=50)
+        config = SessionConfig.from_cli_flags(tool_budget=250)
         async with VictorClient(config) as client:
             result = await client.chat("Write a hello world")
             print(result.content)

@@ -34,7 +34,7 @@ class TestTaskClassifierSimple:
         result = classifier.classify("List all files in the directory")
 
         assert result.complexity == TaskComplexity.SIMPLE
-        assert result.tool_budget == 20  # BUDGET_LIMITS.simple_task
+        assert result.tool_budget == 100  # BUDGET_LIMITS.simple_task (5x'd 2026-10-31)
 
     def test_show_files_simple(self):
         """Test that 'show files' is classified as SIMPLE."""
@@ -47,7 +47,7 @@ class TestTaskClassifierSimple:
         result = classifier.classify("Show me the Python files in src/")
 
         assert result.complexity == TaskComplexity.SIMPLE
-        assert result.tool_budget == 20  # BUDGET_LIMITS.simple_task
+        assert result.tool_budget == 100  # 5x'd 2026-10-31
 
     def test_git_status_simple(self):
         """Test that 'git status' is classified as SIMPLE."""
@@ -88,8 +88,8 @@ class TestTaskClassifierMedium:
         result = classifier.classify("Explain the file victor/agent/orchestrator.py")
 
         assert result.complexity == TaskComplexity.MEDIUM
-        # Budget is sourced from BUDGET_LIMITS.medium_task (generous-exploration policy)
-        assert result.tool_budget == 50
+        # Budget is sourced from BUDGET_LIMITS.medium_task (5x'd 2026-10-31)
+        assert result.tool_budget == 250
 
     def test_find_classes_simple(self):
         """Test that 'find classes' is classified as SIMPLE (search task)."""
@@ -149,8 +149,8 @@ class TestTaskClassifierComplex:
 
         # ANALYSIS is correct for exploration/analysis tasks
         assert result.complexity == TaskComplexity.ANALYSIS
-        # Budget is sourced from BUDGET_LIMITS.analysis_task (deep-exploration policy)
-        assert result.tool_budget == 500
+        # Budget is sourced from BUDGET_LIMITS.analysis_task (5x'd 2026-10-31)
+        assert result.tool_budget == 2500
 
     def test_refactor_complex(self):
         """Test that 'refactor' is classified as COMPLEX."""
@@ -196,8 +196,8 @@ class TestTaskClassifierGeneration:
         result = classifier.classify("Create a simple function that calculates factorial")
 
         assert result.complexity == TaskComplexity.GENERATION
-        # GENERATION budget is sourced from BUDGET_LIMITS.simple_task (may need file reads)
-        assert result.tool_budget == 20
+        # GENERATION budget is sourced from BUDGET_LIMITS.simple_task (5x'd 2026-10-31)
+        assert result.tool_budget == 100
 
     def test_write_code_generation(self):
         """Test that 'write code' is classified as GENERATION."""
@@ -239,16 +239,16 @@ class TestTaskClassificationBehavior:
         result = classifier.classify("List files in the directory")
 
         assert result.complexity == TaskComplexity.SIMPLE
-        assert result.tool_budget == 20  # BUDGET_LIMITS.simple_task
+        assert result.tool_budget == 100  # BUDGET_LIMITS.simple_task (5x'd 2026-10-31)
 
-        # Should not force below budget
-        assert not result.should_force_completion_after(19)
+        # Should not force below budget (boundary relative to the 5x'd budget)
+        assert not result.should_force_completion_after(99)
 
         # Should force at budget
-        assert result.should_force_completion_after(20)
+        assert result.should_force_completion_after(100)
 
         # Should force above budget
-        assert result.should_force_completion_after(21)
+        assert result.should_force_completion_after(101)
 
     def test_confidence_score(self):
         """Test that confidence score is reasonable."""

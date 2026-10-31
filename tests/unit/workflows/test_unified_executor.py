@@ -41,7 +41,7 @@ class TestExecutorConfig:
         config = ExecutorConfig()
 
         assert config.enable_checkpointing is True
-        assert config.max_iterations == 25
+        assert config.max_iterations == 125  # 5x'd 2026-10-31 (was 25)
         assert config.timeout is None
         assert config.interrupt_nodes == []
 
@@ -130,7 +130,7 @@ class TestStateGraphExecutor:
 
         assert executor.orchestrator is None
         assert executor.config.enable_checkpointing is True
-        assert executor.config.max_iterations == 25
+        assert executor.config.max_iterations == 125  # 5x'd 2026-10-31 (was 25)
 
     def test_initialization_with_custom_config(self):
         """Test initialization with custom config."""

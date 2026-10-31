@@ -79,7 +79,7 @@ RESEARCH_ROLES: Dict[str, ResearchRoleConfig] = {
             "read_file",
             "grep",
         ],
-        tool_budget=30,
+        tool_budget=150,
         description="Searches and gathers information from multiple sources",
     ),
     "research_analyst": ResearchRoleConfig(
@@ -90,7 +90,7 @@ RESEARCH_ROLES: Dict[str, ResearchRoleConfig] = {
             "grep",
             "code_search",
         ],
-        tool_budget=25,
+        tool_budget=125,
         description="Analyzes and extracts key findings from sources",
     ),
     "fact_verifier": ResearchRoleConfig(
@@ -100,7 +100,7 @@ RESEARCH_ROLES: Dict[str, ResearchRoleConfig] = {
             "web_fetch",
             "read_file",
         ],
-        tool_budget=20,
+        tool_budget=100,
         description="Verifies claims and cross-references sources",
     ),
     "report_writer": ResearchRoleConfig(
@@ -110,7 +110,7 @@ RESEARCH_ROLES: Dict[str, ResearchRoleConfig] = {
             "edit_files",
             "read_file",
         ],
-        tool_budget=20,
+        tool_budget=100,
         description="Synthesizes findings into comprehensive reports",
     ),
     "literature_searcher": ResearchRoleConfig(
@@ -120,7 +120,7 @@ RESEARCH_ROLES: Dict[str, ResearchRoleConfig] = {
             "web_fetch",
             "read_file",
         ],
-        tool_budget=35,
+        tool_budget=175,
         description="Searches academic databases and repositories",
     ),
     "market_analyst": ResearchRoleConfig(
@@ -130,7 +130,7 @@ RESEARCH_ROLES: Dict[str, ResearchRoleConfig] = {
             "web_fetch",
             "read_file",
         ],
-        tool_budget=25,
+        tool_budget=125,
         description="Analyzes market trends and competitive landscape",
     ),
 }
@@ -158,8 +158,8 @@ class ResearchTeamSpec:
     description: str
     formation: TeamFormation
     members: List[TeamMemberSpec]
-    total_tool_budget: int = 100
-    max_iterations: int = 50
+    total_tool_budget: int = 500
+    max_iterations: int = 250
 
     def __post_init__(self):
         """Emit deprecation warning on instantiation."""
@@ -198,7 +198,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Search and gather information from multiple authoritative sources",
                 name="Primary Researcher",
-                tool_budget=30,
+                tool_budget=150,
                 backstory=(
                     "You are a seasoned investigative researcher with experience at major "
                     "think tanks and research institutions. You know how to find information "
@@ -219,7 +219,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="analyst",
                 goal="Analyze and extract key findings with proper context",
                 name="Research Analyst",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a senior research analyst who has distilled complex information "
                     "for decision-makers in government and industry. You see patterns in data "
@@ -240,7 +240,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Verify claims and cross-reference sources for accuracy",
                 name="Fact Verifier",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a former journalist with a decade of experience in fact-checking. "
                     "You've developed a sixth sense for claims that don't quite add up. You "
@@ -255,7 +255,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="writer",
                 goal="Synthesize findings into a comprehensive, well-cited report",
                 name="Report Writer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are an accomplished research writer who has authored reports for "
                     "academic journals, policy briefs, and executive summaries. You know how "
@@ -271,7 +271,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="clear and thorough; makes complex simple without losing accuracy",
             ),
         ],
-        total_tool_budget=95,
+        total_tool_budget=475,
         vertical="research",
     ),
     "fact_check_team": TeamSpec(
@@ -283,7 +283,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="analyst",
                 goal="Parse statements and identify specific verifiable claims",
                 name="Claim Analyst",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a logical analyst trained in formal reasoning and argumentation. "
                     "You can dissect complex statements into their component claims, identify "
@@ -303,7 +303,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Search for evidence supporting or refuting identified claims",
                 name="Evidence Researcher",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are an evidence specialist who knows where to find authoritative "
                     "information for any domain. You prioritize primary sources: original "
@@ -323,7 +323,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Evaluate evidence quality and determine verdicts",
                 name="Verdict Reviewer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a senior fact-checker who has rendered verdicts on thousands of "
                     "claims. You evaluate evidence quality, consider source reliability, and "
@@ -339,7 +339,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="judicious and fair; explains reasoning transparently",
             ),
         ],
-        total_tool_budget=70,
+        total_tool_budget=350,
         vertical="research",
     ),
     "literature_team": TeamSpec(
@@ -351,7 +351,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="planner",
                 goal="Define review scope, inclusion criteria, and search strategy",
                 name="Review Planner",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are a methodologist who designs systematic reviews. You know how to "
                     "define PICO frameworks, establish inclusion/exclusion criteria, and create "
@@ -371,7 +371,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Search academic databases and gather relevant literature",
                 name="Literature Searcher",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are an expert literature searcher who knows the quirks of every major "
                     "database: PubMed, Scopus, Web of Science, arXiv, SSRN, and domain-specific "
@@ -391,7 +391,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="analyst",
                 goal="Screen papers and extract key data according to protocol",
                 name="Paper Analyst",
-                tool_budget=30,
+                tool_budget=150,
                 backstory=(
                     "You are a data extraction specialist who can read papers quickly but "
                     "carefully. You screen for inclusion criteria, extract structured data "
@@ -411,7 +411,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="writer",
                 goal="Synthesize findings into a cohesive literature review",
                 name="Review Writer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are an academic writer who has published extensively in peer-reviewed "
                     "journals. You know how to structure a literature review that tells a "
@@ -427,7 +427,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="scholarly and clear; writes for both experts and newcomers",
             ),
         ],
-        total_tool_budget=95,
+        total_tool_budget=475,
         vertical="research",
     ),
     "competitive_team": TeamSpec(
@@ -439,7 +439,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Research competitor products, features, and market positioning",
                 name="Competitor Researcher",
-                tool_budget=30,
+                tool_budget=150,
                 backstory=(
                     "You are a competitive intelligence specialist who has worked for Fortune "
                     "500 companies. You know how to find information about competitors through "
@@ -454,7 +454,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="analyst",
                 goal="Analyze market trends, opportunities, and threats",
                 name="Market Analyst",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a market analyst with experience at investment banks and strategy "
                     "consultancies. You understand market dynamics: TAM/SAM/SOM, growth drivers, "
@@ -473,7 +473,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="writer",
                 goal="Create actionable competitive analysis report",
                 name="Analysis Writer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a business writer who creates reports that drive decisions. You "
                     "structure competitive analyses with executive summaries, detailed findings, "
@@ -489,7 +489,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="actionable and concise; respects the reader's time",
             ),
         ],
-        total_tool_budget=70,
+        total_tool_budget=350,
         vertical="research",
     ),
     "synthesis_team": TeamSpec(
@@ -501,7 +501,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Gather and organize source materials by theme",
                 name="Source Curator",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are an information architect who organizes knowledge. You gather "
                     "diverse sources - reports, articles, data sets, interviews - and organize "
@@ -521,7 +521,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="analyst",
                 goal="Identify themes, patterns, and connections across sources",
                 name="Theme Analyst",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a qualitative researcher who excels at thematic analysis. You "
                     "read across diverse sources and identify recurring themes, contradictions, "
@@ -540,7 +540,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="writer",
                 goal="Write synthesized report that tells a coherent story",
                 name="Synthesis Writer",
-                tool_budget=25,
+                tool_budget=125,
                 is_manager=True,  # Coordinates the synthesis
                 backstory=(
                     "You are a master synthesizer who has written definitive reports on complex "
@@ -560,7 +560,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Review synthesis for coherence, completeness, and accuracy",
                 name="Quality Reviewer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a quality assurance specialist for research outputs. You check "
                     "that syntheses are internally consistent, that claims are supported, and "
@@ -575,7 +575,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="meticulous and fair; improves everything they touch",
             ),
         ],
-        total_tool_budget=80,
+        total_tool_budget=400,
         vertical="research",
     ),
     "technical_research_team": TeamSpec(
@@ -587,7 +587,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Research technical concepts, APIs, and implementations",
                 name="Technical Researcher",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are a technical researcher who bridges documentation and implementation. "
                     "You can read RFC documents, API specifications, and source code to understand "
@@ -603,7 +603,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="analyst",
                 goal="Analyze technical trade-offs and best practices",
                 name="Technical Analyst",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a senior engineer who evaluates technologies for architectural "
                     "decisions. You understand performance characteristics, scalability limits, "
@@ -622,7 +622,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="writer",
                 goal="Document technical findings with examples and recommendations",
                 name="Technical Writer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a technical writer who makes complex technology accessible. You "
                     "write for developers who need to understand and implement. Your documentation "
@@ -637,7 +637,7 @@ RESEARCH_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="clear and practical; writes what developers need",
             ),
         ],
-        total_tool_budget=80,
+        total_tool_budget=400,
         vertical="research",
     ),
 }

@@ -445,7 +445,7 @@ def _create_chat_service(
     from victor.agent.services.chat_service import ChatService, ChatServiceConfig
 
     config = ChatServiceConfig(
-        max_iterations=200,
+        max_iterations=1000,
         stream_chunk_size=100,
     )
 

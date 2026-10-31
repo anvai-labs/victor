@@ -101,7 +101,7 @@ class DelegationRequest:
     suggested_role: Optional[str] = None
     priority: DelegationPriority = DelegationPriority.NORMAL
     required_tools: Optional[List[str]] = None
-    tool_budget: int = 10
+    tool_budget: int = 50
     context: Optional[Dict[str, Any]] = None
     deadline_seconds: Optional[float] = None
     await_result: bool = True

@@ -43,7 +43,10 @@ class RecoverySettings(BaseModel):
     # Maximum number of chat iterations per session to prevent infinite loops.
     # Includes both tool calls and model responses.
     chat_max_iterations: int = Field(
-        default=50, ge=1, description="Maximum chat iterations per session"
+        # 5x'd 2026-10-31: agents run longer autonomous sessions
+        default=250,
+        ge=1,
+        description="Maximum chat iterations per session",
     )
 
     # Maximum consecutive tool calls before forcing completion
