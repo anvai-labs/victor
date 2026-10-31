@@ -53,25 +53,46 @@ def test_quiet_module_passes_import_probe(module_root: Path) -> None:
     assert_import_registers_no_personas("quiet_personas")
 
 
-def test_import_time_default_registration_fails_probe(module_root: Path) -> None:
-    _write_module(module_root, "loud_personas", "register_vertical_personas(PERSONAS, POLICY)\n")
-    with pytest.raises(
-        AssertionError, match=r"(?s)loud_personas.*DeprecationWarning: register_vertical_personas"
-    ):
+def test_import_time_registration_fails_probe(module_root: Path) -> None:
+    _write_module(
+        module_root,
+        "loud_personas",
+        """
+        class _Provider:
+            def register_persona(self, **kwargs):
+                pass
+
+        register_vertical_personas(PERSONAS, POLICY, _Provider())
+        """,
+    )
+    with pytest.raises(AssertionError, match=r"import-time persona registration: \['p1'\]"):
         assert_import_registers_no_personas("loud_personas")
 
 
-def test_import_time_explicit_default_registry_write_fails_probe(module_root: Path) -> None:
+def test_import_time_registration_via_kernel_module_fails_probe(module_root: Path) -> None:
     _write_module(
         module_root,
         "sneaky_personas",
         """
-        from victor_contracts import registries
-        register_vertical_personas(PERSONAS, POLICY, registries._current_default_persona_registry())
+        from victor_contracts.verticals import persona_kernel
+        persona_kernel.register_vertical_personas(PERSONAS, POLICY, object())
         """,
     )
     with pytest.raises(AssertionError, match=r"import-time persona registration: \['p1'\]"):
         assert_import_registers_no_personas("sneaky_personas")
+
+
+def test_import_time_sdk_deprecation_fails_probe(module_root: Path) -> None:
+    _write_module(
+        module_root,
+        "warny_personas",
+        """
+        import warnings
+        warnings.warn("victor-contracts: something is deprecated", DeprecationWarning)
+        """,
+    )
+    with pytest.raises(AssertionError, match=r"(?s)warny_personas.*DeprecationWarning"):
+        assert_import_registers_no_personas("warny_personas")
 
 
 def test_import_probe_requires_a_module() -> None:
@@ -111,7 +132,7 @@ def test_explicit_registration_rejects_sdk_deprecation_warning() -> None:
 
     def register(provider: Any) -> None:
         warnings.warn(
-            "register_vertical_personas() without provider= is deprecated",
+            "register_vertical_personas() something is deprecated",
             DeprecationWarning,
             stacklevel=2,
         )

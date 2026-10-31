@@ -274,33 +274,40 @@ modules.
 
 **Deliverable**: deprecated surfaces warn; flat registries unchanged.
 
-### Phase 2a: SDK removal and kernel deprecation (victor-contracts 0.14.0, one PR)
+### Phase 2a: SDK removal and kernel deprecation (victor-contracts 0.14.0, one PR) — done (#1617, released 0.14.0)
 
-- [ ] Replace `chain_runtime.py` with an inert deprecated shim (no host import; deleted in
+- [x] Replace `chain_runtime.py` with an inert deprecated shim (no host import; deleted in
       0.15.0) and delete `get_runtime_persona_provider`; update `test_lazy.py`,
       `test_runtime_adapter_exports.py` and `test_multi_agent_contracts.py`.
-- [ ] Add the `provider=None`, `provider_getter`/`auto_register`, and default-registry-hook
+- [x] Add the `provider=None`, `provider_getter`/`auto_register`, and default-registry-hook
       deprecation warnings, with tests.
-- [ ] In the same PR, update the verticals: drop the import-time calls and
+- [x] In the same PR, update the verticals: drop the import-time calls and
       `register_data_analysis_personas` (the `get_personas()` factories for devops, research
       and dataanalysis already landed in PR #1615), remove the devops alias, and update the vertical persona
       tests (`victor-coding/tests/test_personas.py:127-138`,
       `victor-dataanalysis/tests/test_personas.py:134-136`).
-- [ ] Update the CHANGELOG `[0.14.0]` and the `CONTRACT_STABILITY.md` "Removed in 0.14.0" /
+- [x] Update the CHANGELOG `[0.14.0]` and the `CONTRACT_STABILITY.md` "Removed in 0.14.0" /
       "Deprecated" tables.
 
 **Deliverable**: contracts 0.14.0 tagged (`sdk-v0.14.0`) and verified on PyPI.
 
-### Phase 2b: Host removal (victor-ai, after 0.14.0 is on PyPI)
+### Phase 2b: Host removal (victor-ai, after 0.14.0 is on PyPI) — done (victor-ai 0.23.0)
 
-- [ ] Delete the host modules, the lazy export and the tests listed above. Raise the floor to
+- [x] Delete the host modules, the lazy export and the tests listed above. Raise the floor to
       `victor-contracts>=0.14.0`.
-- [ ] Update `docs/development/repository-map.md` (it links `victor/framework/chains`) and the
+- [x] Update `docs/development/repository-map.md` (it links `victor/framework/chains`) and the
       F-019 backlog entry.
 
-### Phase 3: Kernel removal (victor-contracts 0.15.0 or later)
+### Phase 3: Kernel removal (victor-contracts 0.15.0 or later) — implemented (pending release)
 
-- [ ] Make `provider` required, delete `provider_getter`, `auto_register` and the
+Prerequisite (victor-ai 0.23.0): the host refuses first-party verticals older than 0.14.0
+before importing them (`FIRST_PARTY_MIN_VERTICAL_VERSIONS` in the compatibility gate,
+checked in the loader's entry-point preflight; editable installs skipped), and the
+vertical extras require `>=0.14.0`. Owner decision 2026-10-30: gate old verticals, then
+remove.
+
+- [x] Delete the inert `chain_runtime` shim (importing it raises `ModuleNotFoundError`).
+- [x] Make `provider` required, delete `provider_getter`, `auto_register` and the
       default-persona-registry hooks, and update the persona-kernel module docstring.
 
 ### Testing Strategy

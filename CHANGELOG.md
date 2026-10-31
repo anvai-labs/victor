@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-31
+
+Requires `victor-contracts>=0.14.0`. Release order: this release is published **before**
+victor-contracts 0.15.0 (`sdk-v0.15.0`), so a fresh install always resolves a host that refuses
+first-party verticals older than 0.14.0.
+
+### Changed
+
+- First-party verticals older than **0.14.0** are refused before import with an upgrade hint
+  (`pip install -U 'victor-<name>>=0.14.0'`) instead of failing later: they call SDK hooks at
+  import that victor-contracts 0.15.0 removes (FEP-0042 phase 3). Editable source installs are
+  not checked. The `coding`, `research`, `devops` and `verticals` extras now require
+  `>=0.14.0`.
+
+### Removed
+
+- `victor.framework.chains` (the versioned chain registry) and
+  `victor.framework.multi_agent.persona_provider` / `FrameworkPersonaProvider`, deprecated in
+  0.22.0 (FEP-0042 phase 2b). Nothing read them at runtime; use
+  `victor.framework.chain_registry` / `victor.framework.persona_registry`, which the host fills
+  from each vertical's `get_composed_chains()` / `get_personas()` hook on activation.
+- victor-contracts 0.15.0 (released right after this version, FEP-0042 phase 3) removes `chain_runtime`, the
+  persona kernel's default-registry path (`register_vertical_personas` now requires
+  `provider`), `RegistrationPolicy.provider_getter` / `auto_register` and
+  `set/get_default_persona_registry`. Published first-party verticals < 0.14.0 fail at import
+  against it; see `victor-contracts/CHANGELOG.md`.
+
 ## [0.22.0] - 2026-10-30
 
 Requires `victor-contracts>=0.14.0` (released alongside as `sdk-v0.14.0`); first-party

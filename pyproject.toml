@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.22.0"
+version = "0.23.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -562,7 +562,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.22.0",
+    "victor-native>=0.23.0",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
@@ -579,7 +579,7 @@ graph = [
 ]
 
 coding = [
-    "victor-coding>=0.6.0,<1.0.0",
+    "victor-coding>=0.14.0,<1.0.0",
     # Language grammars required by victor-coding's tree-sitter indexer
     "tree-sitter-python>=0.23",
     "tree-sitter-javascript>=0.23",
@@ -591,11 +591,11 @@ coding = [
 ]
 
 research = [
-    "victor-research>=0.6.0,<1.0.0",
+    "victor-research>=0.14.0,<1.0.0",
 ]
 
 devops = [
-    "victor-devops>=0.6.0,<1.0.0",
+    "victor-devops>=0.14.0,<1.0.0",
 ]
 
 invest = [
@@ -603,9 +603,9 @@ invest = [
 ]
 
 verticals = [
-    "victor-coding>=0.6.0,<1.0.0",
-    "victor-research>=0.6.0,<1.0.0",
-    "victor-devops>=0.6.0,<1.0.0",
+    "victor-coding>=0.14.0,<1.0.0",
+    "victor-research>=0.14.0,<1.0.0",
+    "victor-devops>=0.14.0,<1.0.0",
     "victor-invest>=0.5.0,<1.0.0",
 ]
 

@@ -10,6 +10,59 @@ the deprecation policy are defined in
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-31
+
+FEP-0042 Phase 3 (backlog F-019): removes the surfaces deprecated in 0.14.0.
+
+### Upgrade notes
+
+- Published first-party verticals **< 0.14.0** do not work with 0.15.0: victor-coding,
+  victor-devops and victor-research 0.13.0 import `get_default_persona_registry` while loading
+  `teams.personas`, and victor-coding 0.13.0 imports `chain_runtime` at module load, so they
+  fail at import. Upgrade every first-party vertical to **>= 0.14.0** (they use none of the
+  removed names). victor-ai >= 0.23.0 refuses first-party verticals < 0.14.0 before importing
+  them, with a message naming the vertical and the required version.
+- victor-ai **0.22.0** has no such gate: with first-party verticals < 0.14.0 installed, their
+  activation hooks fail with `ImportError`. Upgrade the verticals (or victor-ai to >= 0.23.0,
+  which explains the problem instead).
+- victor-ai **<= 0.21.0** imports the removed `set_default_persona_registry` eagerly, so
+  `import victor.framework.multi_agent` fails against 0.15.0; upgrade victor-ai to
+  >= 0.23.0. (victor-ai 0.22.0 keeps working: the private helper its deprecated
+  `FrameworkPersonaProvider` imports is retained as a no-op.)
+- Release order: victor-contracts 0.15.0 is published only after victor-ai 0.23.0, so a fresh
+  `pip install victor-ai` resolves a host that carries the gate.
+- Third-party code that calls `register_vertical_personas(personas, policy)` without a
+  provider now gets `TypeError`; pass the host persona registry as `provider`, or expose
+  personas through the vertical's `get_personas()` hook instead.
+
+### Removed
+
+Each was deprecated with warnings in 0.13.0 or 0.14.0.
+
+- `victor_contracts.chain_runtime` (`ChainRegistry`, `get_chain_registry`), the inert shim
+  since 0.14.0. Importing it raises `ModuleNotFoundError`. Deliver chains through the
+  vertical's `get_chains()` / `get_composed_chains()` hook; the host registers them in its
+  flat `victor.framework.chain_registry` on activation.
+- The default-registry fallback of `verticals.register_vertical_personas`: `provider` is now a
+  required argument (typed `PersonaRegistryProtocol`), passing `None` raises `TypeError`, and
+  the return type is `int` (was `Optional[int]`). Expose personas through `get_personas()`;
+  a host that registers personas itself passes its registry as `provider`.
+- `verticals.RegistrationPolicy.provider_getter` and `auto_register` (never read). Passing
+  either now raises `TypeError`; drop the argument.
+- `registries.set_default_persona_registry()` / `get_default_persona_registry()` and their
+  top-level `victor_contracts` re-exports and `__all__` entries (plus the private
+  `_install_default_persona_registry` / `_current_default_persona_registry` helpers). Use
+  `get_personas()` in verticals and pass `provider=` in hosts.
+  `set_default_team_registry()` / `get_default_team_registry()` are unaffected.
+
+### Changed
+
+- (internal, `testing/`) `assert_import_registers_no_personas` no longer installs a recording
+  default persona registry; it replaces `register_vertical_personas` (on both
+  `victor_contracts.verticals` and `victor_contracts.verticals.persona_kernel`) with a recorder
+  before the probed imports and fails on any import-time call, as well as on SDK
+  `DeprecationWarning`s.
+
 ## [0.14.0] - 2026-10-30
 
 FEP-0042 Phase 2a (backlog F-019).

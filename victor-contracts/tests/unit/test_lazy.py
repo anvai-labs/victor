@@ -31,11 +31,11 @@ LAZY_BRIDGES = (
     "workflow_runtime",
 )
 
-# Deprecated in 0.9.0, removed in 0.12.0 (CONTRACT_STABILITY.md). chain_runtime
-# is no longer a lazy bridge either: since 0.14.0 it is an inert, host-free shim
-# (tests/unit/test_chain_runtime_shim.py).
+# Deprecated in 0.9.0, removed in 0.12.0 (CONTRACT_STABILITY.md); chain_runtime
+# was an inert shim in 0.14.0 and was removed in 0.15.0 (FEP-0042).
 REMOVED_BRIDGES = (
     "agent_spec_runtime",
+    "chain_runtime",
     "graph_runtime",
     "handler_runtime",
     "subagent_runtime",
