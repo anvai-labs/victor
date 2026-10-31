@@ -1,5 +1,6 @@
 """SDK-owned safety contracts and pattern declarations."""
 
+from victor_contracts.safety.framework import SafetyLevel
 from victor_contracts.safety.patterns import (
     SafetyPatternDeclaration,
     SafetyPatternType,
@@ -31,20 +32,10 @@ from victor_contracts.safety.runtime import (
     SafetyStats,
 )
 
-from enum import Enum
-
-
-class SafetyLevel(str, Enum):
-    """Safety enforcement level.
-
-    Promoted from victor.framework.config for contract-only vertical development.
-    """
-
-    OFF = "off"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
+# SafetyLevel is owned by victor_contracts.safety.framework (the object the host
+# runtime binds as victor.framework.config.SafetyLevel) and only re-exported
+# here; this top-level name used to be a separate str-Enum fork, so rules
+# leveled through it were silently disarmed by the host enforcer.
 
 __all__ = [
     "ANONYMIZATION_SUGGESTIONS",

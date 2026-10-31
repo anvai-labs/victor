@@ -8,8 +8,16 @@ import importlib
 from typing import Any, Callable, Dict, Optional, Tuple
 
 
-class SafetyLevel(Enum):
-    """Safety enforcement levels for operation checks."""
+class SafetyLevel(str, Enum):
+    """Safety enforcement levels for operation checks.
+
+    This is the single ``SafetyLevel`` definition in the SDK: it is re-exported
+    from the ``victor_contracts.safety`` top level and bound as
+    ``victor.framework.config.SafetyLevel`` by the host runtime, so every import
+    path yields the same enum object. The ``str`` mixin is additive: members
+    compare equal to (and hash like) their lowercase value strings, while
+    ``str()``/f-strings still render as ``SafetyLevel.LOW`` on Python 3.12+.
+    """
 
     OFF = "off"
     LOW = "low"
