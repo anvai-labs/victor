@@ -16,6 +16,7 @@
 
 import logging
 from pathlib import Path
+from types import MappingProxyType
 from typing import List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
@@ -32,6 +33,7 @@ from victor_coding.languages.base import (
     QueryPattern,
     TestRunner,
     TreeSitterQueries,
+    last_named_child,
 )
 
 if TYPE_CHECKING:
@@ -49,6 +51,22 @@ class RustPlugin(BaseLanguagePlugin):
     - Linting: clippy
     - Building: cargo build
     """
+
+    # Callee hooks: foo() / obj.a.method() / std::mem::drop() (last name
+    # segment of the field or scoped path).
+    _callee_name_types = frozenset({"identifier"})
+    _callee_path_types = MappingProxyType(
+        {
+            "field_expression": (
+                frozenset({"field_identifier"}),
+                frozenset({"field_expression"}),
+            ),
+            "scoped_identifier": (
+                frozenset({"identifier"}),
+                frozenset({"scoped_identifier"}),
+            ),
+        }
+    )
 
     def _create_config(self) -> LanguageConfig:
         return LanguageConfig(
@@ -673,69 +691,20 @@ class RustPlugin(BaseLanguagePlugin):
         return None
 
     def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Extract the name of the called function from a call node.
+        """Extract the name of the called function or macro from a call node.
 
-        Handles:
-        - Simple calls: foo()
-        - Field access calls: obj.method()
-        - Scoped calls: std::mem::drop()
-        - Macro calls: println!, vec!
+        Call expressions use the table-driven base hook (``foo()``,
+        ``obj.method()``, ``std::mem::drop()``). Macro invocations
+        (``println!``, ``std::println!``) accept only an identifier or a
+        scoped identifier as the macro name.
         """
-        # For macro invocations
         if call_node.type == "macro_invocation":
             for child in call_node.children:
                 if child.type == "identifier":
                     return self._get_node_text(child)
                 elif child.type == "scoped_identifier":
                     # std::println -> extract "println"
-                    return self._extract_scoped_name(child)
+                    leaf_types, nested_types = self._callee_path_types["scoped_identifier"]
+                    return last_named_child(child, leaf_types, nested_types, self._get_node_text)
             return None
-
-        # For call expressions
-        for child in call_node.children:
-            if child.type == "field_expression":
-                # obj.method() -> extract "method"
-                return self._extract_field_name(child)
-            elif child.type == "scoped_identifier":
-                # std::mem::drop() -> extract "drop"
-                return self._extract_scoped_name(child)
-            elif child.type == "identifier":
-                # foo() -> extract "foo"
-                return self._get_node_text(child)
-
-        return None
-
-    def _extract_field_name(self, field_node: "Node") -> Optional[str]:
-        """Extract field name from a field_expression node.
-
-        For obj.method, extracts "method".
-        For obj.field1.field2, extracts "field2" (the final field).
-        """
-        # field_expression: value (identifier or field_expression) . field_ref (field_identifier)
-        for child in reversed(field_node.children):
-            if child.type == "field_identifier":
-                return self._get_node_text(child)
-            elif child.type == "field_expression":
-                result = self._extract_field_name(child)
-                if result:
-                    return result
-
-        return None
-
-    def _extract_scoped_name(self, scoped_node: "Node") -> Optional[str]:
-        """Extract the final identifier from a scoped identifier.
-
-        For std::mem::drop, extracts "drop".
-        For std::collections::HashMap, extracts "HashMap".
-        """
-        # scoped_identifier: [identifier::] identifier
-        # We want the last identifier
-        for child in reversed(scoped_node.children):
-            if child.type == "identifier":
-                return self._get_node_text(child)
-            elif child.type == "scoped_identifier":
-                result = self._extract_scoped_name(child)
-                if result:
-                    return result
-
-        return None
+        return super()._extract_callee_name(call_node)

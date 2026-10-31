@@ -15,6 +15,7 @@
 """Python language plugin."""
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import List, Optional, TYPE_CHECKING
 
 from victor_coding.languages.base import (
@@ -46,6 +47,12 @@ class PythonPlugin(BaseLanguagePlugin):
     - Linting: ruff, flake8, pylint
     - Type checking: mypy, pyright
     """
+
+    # Callee hooks: foo() / obj.a.method() (last identifier of an attribute chain).
+    _callee_name_types = frozenset({"identifier"})
+    _callee_path_types = MappingProxyType(
+        {"attribute": (frozenset({"identifier"}), frozenset({"attribute"}))}
+    )
 
     def _create_config(self) -> LanguageConfig:
         return LanguageConfig(
@@ -264,53 +271,3 @@ class PythonPlugin(BaseLanguagePlugin):
         )
         traverser = ConfigurableASTTraverser(config, self._get_node_text)
         return traverser.find_call_nodes(root)
-
-    def _extract_callee_name(self, call_node: "Node") -> Optional[str]:
-        """Extract the name of the called function from a call node.
-
-        Handles:
-        - Simple calls: foo()
-        - Attribute calls: obj.method()
-        - Chained calls: obj.method1().method2()
-
-        Args:
-            call_node: Tree-sitter call node
-
-        Returns:
-            Callee name or None
-        """
-        # Get the function part of the call
-        for child in call_node.children:
-            if child.type == "attribute":
-                # obj.method() -> extract "method"
-                return self._extract_attribute_name(child)
-            elif child.type == "identifier":
-                # foo() -> extract "foo"
-                return self._get_node_text(child)
-
-        return None
-
-    def _extract_attribute_name(self, attr_node: "Node") -> Optional[str]:
-        """Extract attribute name from an attribute node.
-
-        For obj.method, extracts "method".
-        For obj.method1.method2, extracts "method2" (the final attribute).
-
-        Args:
-            attr_node: Tree-sitter attribute node
-
-        Returns:
-            Attribute name or None
-        """
-        # Attribute node structure: (object (attribute) attribute: (identifier))
-        # We want the last identifier (the method being called)
-        for child in reversed(attr_node.children):
-            if child.type == "identifier":
-                return self._get_node_text(child)
-            elif child.type == "attribute":
-                # Recurse for chained attributes
-                result = self._extract_attribute_name(child)
-                if result:
-                    return result
-
-        return None

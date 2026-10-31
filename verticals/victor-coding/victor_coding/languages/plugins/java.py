@@ -277,22 +277,6 @@ class JavaPlugin(BaseLanguagePlugin):
 
         return None
 
-    def _extract_field_name(self, field_node: "Node") -> Optional[str]:
-        """Extract field name from a field_access node.
-
-        For obj.method, extracts "method".
-        For obj.field1.field2, extracts "field2" (the final field).
-        """
-        for child in reversed(field_node.children):
-            if child.type == "identifier":
-                return self._get_node_text(child)
-            elif child.type == "field_access":
-                result = self._extract_field_name(child)
-                if result:
-                    return result
-
-        return None
-
     def _get_qualified_name(self, node: "Node") -> Optional[str]:
         """Extract the final identifier from a qualified name.
 
