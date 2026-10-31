@@ -34,90 +34,16 @@ Usage:
 
 from __future__ import annotations
 
-from abc import abstractmethod
-from dataclasses import dataclass
-from typing import Dict, Protocol, runtime_checkable
-
-# =============================================================================
-# Data Types
-# =============================================================================
-
-
-@dataclass
-class ModeConfig:
-    """Configuration for an operational mode.
-
-    Attributes:
-        name: Mode name (e.g., "fast", "thorough")
-        tool_budget: Tool call budget
-        max_iterations: Maximum iterations
-        temperature: Temperature setting
-        description: Human-readable description
-    """
-
-    name: str
-    tool_budget: int
-    max_iterations: int
-    temperature: float = 0.7
-    description: str = ""
-
-
-# =============================================================================
-# Mode Config Provider Protocol
-# =============================================================================
-
-
-@runtime_checkable
-class ModeConfigProviderProtocol(Protocol):
-    """Protocol for providing mode configurations.
-
-    Verticals can define domain-specific operational modes with
-    appropriate tool budgets and iteration limits.
-
-    Example:
-        class CodingModeProvider(ModeConfigProviderProtocol):
-            def get_mode_configs(self) -> Dict[str, ModeConfig]:
-                return {
-                    "fast": ModeConfig(
-                        name="fast",
-                        tool_budget=5,
-                        max_iterations=10,
-                        description="Quick code changes",
-                    ),
-                    "thorough": ModeConfig(
-                        name="thorough",
-                        tool_budget=30,
-                        max_iterations=60,
-                        description="Deep code analysis",
-                    ),
-                }
-    """
-
-    @abstractmethod
-    def get_mode_configs(self) -> Dict[str, ModeConfig]:
-        """Get mode configurations for this vertical.
-
-        Returns:
-            Dict mapping mode names to configurations
-        """
-        ...
-
-    def get_default_mode(self) -> str:
-        """Get the default mode name.
-
-        Returns:
-            Name of the default mode
-        """
-        return "default"
-
-    def get_default_tool_budget(self) -> int:
-        """Get default tool budget when no mode is specified.
-
-        Returns:
-            Default tool call budget
-        """
-        return 10
-
+# The definitions below live once in the SDK (promoted from this module) and
+# are re-exported here as the SAME objects, so ``isinstance`` checks and
+# dataclass identity agree with ``victor.core.verticals.protocols`` and
+# ``victor_contracts.verticals.protocols``.
+from victor_contracts.verticals.protocols.promoted import (
+    ModeConfigProviderProtocol as ModeConfigProviderProtocol,
+)
+from victor_contracts.verticals.protocols.promoted_types import (
+    ModeConfig as ModeConfig,
+)
 
 __all__ = [
     "ModeConfig",

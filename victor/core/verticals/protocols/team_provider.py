@@ -37,79 +37,14 @@ Usage:
 
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
-
-# =============================================================================
-# Team Spec Provider Protocol
-# =============================================================================
-
-
-@runtime_checkable
-class TeamSpecProviderProtocol(Protocol):
-    """Protocol for providing team specifications.
-
-    Enables verticals to define multi-agent team configurations
-    for complex task execution.
-
-    Example:
-        class CodingTeamSpecProvider(TeamSpecProviderProtocol):
-            def get_team_specs(self) -> Dict[str, Any]:
-                return {
-                    "code_review_team": TeamSpec(
-                        name="code_review_team",
-                        formation=TeamFormation.PIPELINE,
-                        agents=[...],
-                    ),
-                }
-    """
-
-    @abstractmethod
-    def get_team_specs(self) -> Dict[str, Any]:
-        """Get team specifications for this vertical.
-
-        Returns:
-            Dict mapping team names to TeamSpec instances
-        """
-        ...
-
-    def get_default_team(self) -> Optional[str]:
-        """Get the default team name.
-
-        Returns:
-            Default team name or None
-        """
-        return None
-
-
-# =============================================================================
-# Vertical Team Provider Protocol
-# =============================================================================
-
-
-@runtime_checkable
-class VerticalTeamProviderProtocol(Protocol):
-    """Protocol for verticals providing team specifications.
-
-    This protocol enables type-safe isinstance() checks instead of hasattr()
-    when integrating vertical team specs with the framework.
-
-    Example:
-        class CodingVertical(VerticalBase, VerticalTeamProviderProtocol):
-            @classmethod
-            def get_team_spec_provider(cls) -> Optional[TeamSpecProviderProtocol]:
-                return CodingTeamSpecProvider()
-    """
-
-    @classmethod
-    def get_team_spec_provider(cls) -> Optional[TeamSpecProviderProtocol]:
-        """Get the team specification provider for this vertical.
-
-        Returns:
-            TeamSpecProviderProtocol implementation or None
-        """
-        ...
-
+# The definitions below live once in the SDK (promoted from this module) and
+# are re-exported here as the SAME objects, so ``isinstance`` checks and
+# dataclass identity agree with ``victor.core.verticals.protocols`` and
+# ``victor_contracts.verticals.protocols``.
+from victor_contracts.verticals.protocols.promoted import (
+    TeamSpecProviderProtocol as TeamSpecProviderProtocol,
+    VerticalTeamProviderProtocol as VerticalTeamProviderProtocol,
+)
 
 __all__ = [
     "TeamSpecProviderProtocol",

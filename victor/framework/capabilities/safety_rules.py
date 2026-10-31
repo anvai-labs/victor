@@ -41,29 +41,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
-from enum import Enum
 
 from victor.framework.capabilities._rule_registry import CustomRuleRegistry
+from victor_contracts.safety import SafetyAction as SafetyAction
+from victor_contracts.safety import SafetyCategory as SafetyCategory
 
-
-class SafetyCategory(Enum):
-    """Categories of safety rules."""
-
-    GIT = "git"  # Git operation safety
-    FILE = "file"  # File operation safety
-    SHELL = "shell"  # Shell command safety
-    DOCKER = "docker"  # Docker operation safety
-    NETWORK = "network"  # Network operation safety
-    SYSTEM = "system"  # System-level operations
-
-
-class SafetyAction(Enum):
-    """Actions to take when safety rule is triggered."""
-
-    ALLOW = "allow"  # Allow the operation
-    WARN = "warn"  # Allow with warning
-    BLOCK = "block"  # Block the operation
-    REQUIRE_CONFIRMATION = "require_confirmation"  # Require user confirmation
+# SafetyCategory and SafetyAction are defined once in the SDK and re-exported
+# above (identical members/values/order), so enum identity and equality hold
+# for rules built from either import path. SafetyRule below intentionally
+# stays local: its ``matches`` semantics differ from the SDK runtime rule.
 
 
 @dataclass
