@@ -68,40 +68,22 @@ def test_removed_bridge_modules_are_not_importable(module: str) -> None:
         importlib.import_module(f"victor_contracts.{module}")
 
 
-def test_versioned_registries_are_deprecated_but_package_imports_stay_quiet(
-    monkeypatch,
-) -> None:
+@pytest.mark.parametrize(
+    "module", ["victor.framework.chains", "victor.framework.multi_agent.persona_provider"]
+)
+def test_versioned_registries_are_removed(module) -> None:
+    """FEP-0042 phase 2b: the deprecated versioned registries are gone."""
     import importlib
-    import sys
-    import warnings
 
-    # Fresh imports so the module-level warnings fire; monkeypatch restores
-    # the original module objects (and their singletons) afterwards.
-    for module in (
-        "victor.framework.chains",
-        "victor.framework.chains.registry",
-        "victor.framework.multi_agent.persona_provider",
-    ):
-        monkeypatch.delitem(sys.modules, module, raising=False)
-    with pytest.warns(DeprecationWarning, match=r"deprecated.*victor-contracts 0\.14\.0"):
-        importlib.import_module("victor.framework.chains")
-    with pytest.warns(DeprecationWarning, match=r"deprecated.*victor-contracts 0\.14\.0"):
-        importlib.import_module("victor.framework.multi_agent.persona_provider")
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        importlib.import_module("victor.framework.multi_agent")
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module(module)
 
 
-def test_lazy_persona_provider_export_warns_at_caller() -> None:
+def test_multi_agent_package_no_longer_exports_persona_provider() -> None:
     import victor.framework.multi_agent as multi_agent
 
-    with pytest.warns(DeprecationWarning, match="FrameworkPersonaProvider") as record:
-        provider_class = multi_agent.FrameworkPersonaProvider
-    assert provider_class.__name__ == "FrameworkPersonaProvider"
-    assert len(record) == 1
-    assert record[0].filename == __file__
-    assert "FrameworkPersonaProvider" in dir(multi_agent)
+    assert not hasattr(multi_agent, "FrameworkPersonaProvider")
+    assert "FrameworkPersonaProvider" not in multi_agent.__all__
 
 
 def test_chain_runtime_shim_is_detached_from_the_host_versioned_registry() -> None:
@@ -120,25 +102,3 @@ def test_runtime_persona_provider_sdk_hook_removed() -> None:
     from victor_contracts import multi_agent
 
     assert not hasattr(multi_agent, "get_runtime_persona_provider")
-
-
-def test_constructing_persona_provider_adds_no_sdk_hook_warning(monkeypatch) -> None:
-    """The deprecated host provider calls the deprecated SDK default-registry hook;
-    that hook's warning is suppressed inside the provider (one deprecation per surface)."""
-    import warnings
-
-    from victor_contracts import registries
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        from victor.framework.multi_agent.persona_provider import FrameworkPersonaProvider
-
-    monkeypatch.setattr(registries, "_default_persona_registry", None)
-    FrameworkPersonaProvider.reset_instance()
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            provider = FrameworkPersonaProvider()
-        assert registries._current_default_persona_registry() is provider
-    finally:
-        FrameworkPersonaProvider.reset_instance()

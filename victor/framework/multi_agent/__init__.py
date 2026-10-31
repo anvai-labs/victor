@@ -57,9 +57,6 @@ Example:
     )
 """
 
-import warnings
-from typing import TYPE_CHECKING, Any, List
-
 from victor.framework.multi_agent.personas import (
     CommunicationStyle,
     ExpertiseLevel,
@@ -67,8 +64,6 @@ from victor.framework.multi_agent.personas import (
     PersonaTraits,
 )
 
-if TYPE_CHECKING:
-    from victor.framework.multi_agent.persona_provider import FrameworkPersonaProvider
 from victor.framework.multi_agent.teams import (
     TaskAssignmentStrategy,
     TeamAgentCategory,
@@ -86,7 +81,6 @@ __all__ = [
     "ExpertiseLevel",
     "PersonaTemplate",
     "PersonaTraits",
-    "FrameworkPersonaProvider",
     # Teams
     "TaskAssignmentStrategy",
     "TeamAgentCategory",
@@ -97,30 +91,3 @@ __all__ = [
     "TeamTemplate",
     "TeamTopology",
 ]
-
-
-PERSONA_PROVIDER_DEPRECATION = (
-    "victor.framework.multi_agent.FrameworkPersonaProvider (persona_provider) is "
-    "deprecated and will be removed in a future victor-ai release (no earlier than the "
-    "one shipping victor-contracts 0.14.0): nothing reads it at runtime. Use "
-    "victor.framework.persona_registry, which the host fills from each vertical's "
-    "get_personas() hook."
-)
-
-
-def __getattr__(name: str) -> Any:
-    # FrameworkPersonaProvider is deprecated (backlog F-019): resolve it lazily
-    # so importing this package stays quiet, and attribute the warning to the
-    # caller instead of the submodule import.
-    if name == "FrameworkPersonaProvider":
-        warnings.warn(PERSONA_PROVIDER_DEPRECATION, DeprecationWarning, stacklevel=2)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            from victor.framework.multi_agent.persona_provider import FrameworkPersonaProvider
-
-        return FrameworkPersonaProvider
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> List[str]:
-    return sorted([*globals(), "FrameworkPersonaProvider"])
