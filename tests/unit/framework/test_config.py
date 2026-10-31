@@ -409,6 +409,134 @@ class TestSafetyEnforcer:
         assert allowed is True
         assert "[DRY RUN]" in reason
 
+    def test_check_operation_rule_check_fn_raises_blocks(self):
+        """check_operation must fail closed when a rule's check_fn raises.
+
+        Triage repro (round-5 pool item A2/A1): a rule leveled via the SDK's
+        top-level SafetyLevel enum plus a raising check_fn used to be skipped
+        entirely and the operation ALLOWED. The SDK twin enforcer already
+        blocked; the core enforcer now matches its fail-closed semantics.
+        """
+        from victor_contracts.safety import SafetyLevel as SdkTopLevelSafetyLevel
+
+        def exploding_check(operation: str) -> bool:
+            raise RuntimeError("predicate exploded")
+
+        enforcer = SafetyEnforcer(config=SafetyConfig(level=SafetyLevel.HIGH))
+        enforcer.add_rule(
+            SafetyRule(
+                name="exploding_rule",
+                description="Predicate that raises",
+                check_fn=exploding_check,
+                level=SdkTopLevelSafetyLevel.HIGH,
+            )
+        )
+
+        allowed, reason = enforcer.check_operation("rm -rf /")
+
+        assert allowed is False
+        assert reason == "Safety rule could not be evaluated: exploding_rule"
+
+    def test_check_operation_raising_check_fn_blocks_even_at_low_config(self):
+        """A raising check_fn blocks regardless of config level (SDK twin parity).
+
+        The SDK enforcer evaluates the raise before any level gating, so even a
+        LOW config cannot disarm an unevaluable rule.
+        """
+        enforcer = SafetyEnforcer(config=SafetyConfig(level=SafetyLevel.LOW))
+
+        def exploding_check(operation: str) -> bool:
+            raise RuntimeError("predicate exploded")
+
+        enforcer.add_rule(
+            SafetyRule(
+                name="exploding_rule",
+                description="Predicate that raises",
+                check_fn=exploding_check,
+                level=SafetyLevel.MEDIUM,
+            )
+        )
+
+        allowed, reason = enforcer.check_operation("safe operation")
+
+        assert allowed is False
+        assert reason == "Safety rule could not be evaluated: exploding_rule"
+
+    def test_check_operation_allow_and_block_paths_unchanged(self):
+        """Normal allow/block decisions are unchanged by the fail-closed hardening."""
+        enforcer = SafetyEnforcer(config=SafetyConfig(level=SafetyLevel.HIGH))
+        enforcer.add_rule(
+            SafetyRule(
+                name="quiet_rule",
+                description="Never triggers",
+                check_fn=lambda op: False,
+                level=SafetyLevel.HIGH,
+            )
+        )
+
+        allowed, reason = enforcer.check_operation("safe operation")
+        assert allowed is True
+        assert reason is None
+
+        enforcer.add_rule(
+            SafetyRule(
+                name="deny_rule",
+                description="Always triggers",
+                check_fn=lambda op: True,
+                level=SafetyLevel.HIGH,
+            )
+        )
+
+        allowed, reason = enforcer.check_operation("safe operation")
+        assert allowed is False
+        assert reason == "Blocked by safety rule: deny_rule - Always triggers"
+
+    def test_check_operation_rule_with_foreign_level_object_blocks(self):
+        """A triggered rule keeps enforcing when leveled with a foreign enum.
+
+        Levels are compared by value, so the SDK's top-level SafetyLevel enum
+        (a separate str-Enum with identical values) can no longer silently
+        disarm a triggered rule.
+        """
+        from victor_contracts.safety import SafetyLevel as SdkTopLevelSafetyLevel
+
+        enforcer = SafetyEnforcer(config=SafetyConfig(level=SafetyLevel.HIGH))
+        enforcer.add_rule(
+            SafetyRule(
+                name="foreign_level_rule",
+                description="Leveled via a foreign enum",
+                check_fn=lambda op: True,
+                level=SdkTopLevelSafetyLevel.HIGH,
+            )
+        )
+
+        allowed, reason = enforcer.check_operation("dangerous operation")
+
+        assert allowed is False
+        assert reason == "Blocked by safety rule: foreign_level_rule - Leveled via a foreign enum"
+
+        # Level filtering is value-based as well
+        matching = enforcer.get_rules_by_level(SdkTopLevelSafetyLevel.HIGH)
+        assert [rule.name for rule in matching] == ["foreign_level_rule"]
+
+    def test_check_operation_high_rule_overridable_at_low_config(self):
+        """An overridable HIGH rule is skipped when the config level is LOW."""
+        enforcer = SafetyEnforcer(config=SafetyConfig(level=SafetyLevel.LOW))
+        enforcer.add_rule(
+            SafetyRule(
+                name="overridable",
+                description="Can be overridden",
+                check_fn=lambda op: True,
+                level=SafetyLevel.HIGH,
+                allow_override=True,
+            )
+        )
+
+        allowed, reason = enforcer.check_operation("dangerous operation")
+
+        assert allowed is True
+        assert reason is None
+
     def test_get_rules_by_level(self):
         """get_rules_by_level should filter rules by level."""
         enforcer = SafetyEnforcer(config=SafetyConfig())
