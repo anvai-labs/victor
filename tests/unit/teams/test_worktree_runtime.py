@@ -385,3 +385,19 @@ def test_git_worktree_runtime_cleanup_reports_branch_deletion(tmp_path):
     assert cleanup["errors"] == []
     assert cleanup["branch_deleted"] == [branch_name]
     assert not runtime._branch_exists(str(repo_root), branch_name)
+
+
+def test_normalize_paths_coerces_strips_and_dedupes():
+    from victor.teams.worktree_runtime import _normalize_paths
+
+    assert _normalize_paths(None) == ()
+    assert _normalize_paths("") == ()
+    assert _normalize_paths("src/") == ("src",)
+    assert _normalize_paths(["  src/a/ ", "src/a", None, "", "   ", "docs"]) == ("src/a", "docs")
+    assert _normalize_paths(("b", "a", "b/")) == ("b", "a")
+
+
+def test_merge_analyzer_shares_the_worktree_path_normalizer():
+    from victor.teams import merge_analyzer, worktree_runtime
+
+    assert merge_analyzer._normalize_paths is worktree_runtime._normalize_paths

@@ -47,6 +47,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from enum import Enum
 
+from victor.framework.capabilities._rule_registry import CustomRuleRegistry
+
 
 class RuleCategory(Enum):
     """Categories of grounding rules."""
@@ -99,7 +101,7 @@ class GroundingRule:
         }
 
 
-class GroundingRulesCapability:
+class GroundingRulesCapability(CustomRuleRegistry[GroundingRule]):
     """Generic grounding rules capability provider.
 
     Provides centralized grounding rules for common vertical constraints:
@@ -263,21 +265,6 @@ class GroundingRulesCapability:
         ],
     }
 
-    def __init__(
-        self,
-        custom_rules: Optional[List[GroundingRule]] = None,
-        strict_mode: bool = False,
-    ):
-        """Initialize the grounding rules capability.
-
-        Args:
-            custom_rules: Optional custom rules to add/override defaults
-            strict_mode: Whether to enable strict rule enforcement
-        """
-        self._custom_rules = custom_rules or []
-        self._strict_mode = strict_mode
-        self._rule_cache: Optional[Dict[str, List[GroundingRule]]] = None
-
     def get_rules(self, category: Optional[RuleCategory] = None) -> List[GroundingRule]:
         """Get grounding rules, optionally filtered by category.
 
@@ -386,46 +373,6 @@ class GroundingRulesCapability:
                 continue
 
         return result
-
-    def add_rule(self, rule: GroundingRule) -> None:
-        """Add a custom grounding rule.
-
-        Args:
-            rule: GroundingRule to add
-        """
-        self._custom_rules.append(rule)
-        self._rule_cache = None  # Clear cache
-
-    def remove_rule(self, rule_id: str) -> bool:
-        """Remove a custom grounding rule by ID.
-
-        Args:
-            rule_id: ID of the rule to remove
-
-        Returns:
-            True if rule was removed, False if not found
-        """
-        for i, rule in enumerate(self._custom_rules):
-            if rule.rule_id == rule_id:
-                self._custom_rules.pop(i)
-                self._rule_cache = None
-                return True
-        return False
-
-    def get_rule(self, rule_id: str) -> Optional[GroundingRule]:
-        """Get a specific rule by ID.
-
-        Args:
-            rule_id: Rule identifier
-
-        Returns:
-            GroundingRule or None if not found
-        """
-        all_rules = self.get_rules()
-        for rule in all_rules:
-            if rule.rule_id == rule_id:
-                return rule
-        return None
 
     def list_categories(self) -> List[RuleCategory]:
         """List all available rule categories.

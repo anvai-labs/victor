@@ -65,6 +65,7 @@ from rich.panel import Panel
 
 from victor.ui.rendering.markdown import render_markdown_with_hooks
 from victor.ui.rendering.utils import (
+    generate_text_preview,
     format_duration,
     format_tool_args,
     format_tool_display_name,
@@ -415,28 +416,8 @@ class OutputFormatter:
             self.config.stderr.flush()
 
     def _generate_preview(self, text: str, num_lines: int = 3) -> str:
-        """Generate a preview of the first few lines of output.
-
-        Args:
-            text: Full tool output
-            num_lines: Number of lines to include in preview
-
-        Returns:
-            Preview string with first N lines
-        """
-        if not text:
-            return ""
-        lines = text.split("\n")
-        preview = "\n".join(lines[:num_lines])
-        if len(lines) > num_lines:
-            preview += "..."
-        # Truncate long lines
-        max_line_length = 120
-        preview = "\n".join(
-            line[:max_line_length] + "..." if len(line) > max_line_length else line
-            for line in preview.split("\n")
-        )
-        return preview
+        """Generate a preview of the first few lines of output (see ``generate_text_preview``)."""
+        return generate_text_preview(text, num_lines)
 
     def expand_last_tool_output(self) -> None:
         """Expand the last tool output to show full content.

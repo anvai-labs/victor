@@ -1291,20 +1291,6 @@ class UnifiedTeamCoordinator(ObservabilityMixin, RLMixin):
     ) -> Optional[WorktreeExecutionPlan]:
         return self._workspace_isolation.plan(members, context=context, formation=formation)
 
-    @staticmethod
-    def _coerce_context_flag(
-        context: Dict[str, Any],
-        key: str,
-        *,
-        default: bool = False,
-    ) -> bool:
-        raw_value = context.get(key)
-        if raw_value is None:
-            return default
-        if isinstance(raw_value, bool):
-            return raw_value
-        return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
-
     def _materialize_worktree_plan(
         self,
         worktree_plan: Optional[WorktreeExecutionPlan],

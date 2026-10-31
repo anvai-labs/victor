@@ -1267,26 +1267,12 @@ class LLMCriticCreditAssigner(BaseCreditAssigner[ActionMetadata]):
         return scores
 
     def _get_provider(self) -> Optional[Any]:
-        """Get or create LLM provider (same pattern as GEPA)."""
-        if self._provider is not None:
-            return self._provider
-        if not self._provider_name:
-            return None
-        try:
-            from victor.providers.registry import get_provider_registry
+        """Get or lazily create the critic's LLM provider (None when disabled/unavailable)."""
+        if self._provider is None:
+            from victor.providers.registry import create_provider_or_none
 
-            # The registry maps the name to its class (OpenAIProvider, ZAIProvider,
-            # ...) and resolves the Sandhi transport variant. Deriving the class
-            # from ``name.title()`` only worked for ollama and anthropic.
-            self._provider = get_provider_registry().create(self._provider_name)
-            return self._provider
-        except Exception as e:
-            logger.debug(
-                "Failed to create %s provider for LLM-as-Critic: %s",
-                self._provider_name,
-                e,
-            )
-            return None
+            self._provider = create_provider_or_none(self._provider_name, purpose="LLM-as-Critic")
+        return self._provider
 
 
 # ============================================================================

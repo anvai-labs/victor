@@ -74,21 +74,13 @@ class GEPAStrategy:
         Uses the configured provider name to instantiate. Defaults to
         ollama (free, local). Set _provider_name to None to disable.
         """
-        if self._provider is not None:
-            return self._provider
-        if not self._provider_name:
-            return None
-        try:
-            from victor.providers.registry import get_provider_registry
+        if self._provider is None:
+            from victor.providers.registry import create_provider_or_none
 
-            # The registry maps the name to its class (OpenAIProvider, ZAIProvider,
-            # ...) and resolves the Sandhi transport variant. Deriving the class
-            # from ``name.title()`` only worked for ollama and anthropic.
-            self._provider = get_provider_registry().create(self._provider_name)
-            return self._provider
-        except Exception as e:
-            logger.debug("Failed to create %s provider: %s", self._provider_name, e)
-            return None
+            self._provider = create_provider_or_none(
+                self._provider_name, purpose="GEPA prompt evolution"
+            )
+        return self._provider
 
     def _call_llm(self, prompt: str, max_tokens: int = 500) -> Optional[str]:
         """Call LLM via Victor's provider abstraction (free local or cloud).

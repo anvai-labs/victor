@@ -205,3 +205,26 @@ def test_registry_create_lmstudio():
         )
         assert isinstance(provider, LMStudioProvider)
         assert provider.name == "lmstudio"
+
+
+def test_get_context_window_uses_config_limits_and_caches_per_endpoint(lmstudio_provider):
+    """Config fallback is looked up under this provider's name once per base_url+model."""
+    from types import SimpleNamespace
+
+    with patch(
+        "victor.config.config_loaders.get_provider_limits",
+        return_value=SimpleNamespace(context_window=12345),
+    ) as limits:
+        assert lmstudio_provider.get_context_window("m1") == 12345
+        assert lmstudio_provider.get_context_window("m1") == 12345
+        limits.assert_called_once_with("lmstudio", "m1")
+        assert lmstudio_provider._context_window_cache == {
+            f"{lmstudio_provider.base_url}:m1": 12345
+        }
+
+
+def test_get_context_window_prefers_discovered_cache_entry(lmstudio_provider):
+    lmstudio_provider._context_window_cache[f"{lmstudio_provider.base_url}:m2"] = 777
+    with patch("victor.config.config_loaders.get_provider_limits") as limits:
+        assert lmstudio_provider.get_context_window("m2") == 777
+        limits.assert_not_called()

@@ -30,6 +30,7 @@ from victor.ui.rendering.metrics import StreamingMetrics
 logger = logging.getLogger(__name__)
 
 from victor.ui.rendering.utils import (
+    generate_text_preview,
     expand_tool_output,
     format_bash_command_invocation,
     format_duration,
@@ -862,28 +863,8 @@ class LiveDisplayRenderer:
         return self._content_buffer
 
     def _generate_preview(self, text: str, num_lines: int = 3) -> str:
-        """Generate a preview of the first few lines of output.
-
-        Args:
-            text: Full text to generate preview from
-            num_lines: Number of lines to include in preview
-
-        Returns:
-            Preview text with ellipsis if truncated
-        """
-        if not text:
-            return ""
-        lines = text.split("\n")
-        preview = "\n".join(lines[:num_lines])
-        if len(lines) > num_lines:
-            preview += "..."
-        # Truncate long lines
-        max_line_length = 120
-        preview = "\n".join(
-            line[:max_line_length] + "..." if len(line) > max_line_length else line
-            for line in preview.split("\n")
-        )
-        return preview
+        """Generate a preview of the first few lines of output (see ``generate_text_preview``)."""
+        return generate_text_preview(text, num_lines)
 
     def _calculate_adaptive_preview_lines(
         self,
