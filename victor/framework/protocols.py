@@ -500,8 +500,12 @@ class ServiceContainerPortProtocol(Protocol):
 
 # CapabilityConfigScopePortProtocol is re-exported from the SDK (see imports).
 # The SDK annotates ``get_capability_config_scope_key`` as returning ``str``
-# (the former core copy said ``Optional[str]``); runtime_checkable matching is
-# name-based and the SDK resolver normalizes ``None``, so behaviour is unchanged.
+# (the former core copy said ``Optional[str]``). The orchestrator now always
+# returns a value: with no session it falls back to a per-instance
+# ``orchestrator:{id}`` key, where the SDK resolver previously normalized
+# ``None`` to the SHARED global bucket — session-less orchestrators therefore
+# no longer share one capability-config bucket (0.24.0 behavior change,
+# documented in the changelog).
 
 
 @runtime_checkable

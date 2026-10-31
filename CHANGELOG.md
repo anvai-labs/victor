@@ -37,6 +37,11 @@ Requires `victor-contracts>=0.16.0` (published first); victor-coding 0.15.0 ship
 - `victor_contracts.rl` `RLOutcome`/`RLRecommendation` match the runtime classes field for
   field (ISO-8601 `timestamp`, required `quality_score`, `is_baseline=False`) — see the SDK
   changelog (#1631).
+- Session-less orchestrators no longer share one capability-config bucket:
+  `get_capability_config_scope_key()` always returns a value (per-instance
+  `orchestrator:{id}` fallback) where the SDK resolver previously normalized
+  `None` to the shared global bucket (#1628). No in-repo consumer pinned the
+  shared behavior; isolation is the safer default.
 - Loader-built `CapabilityEntry` objects are now identity-equal to the SDK class the
   verticals use; the safety/prompt provider protocol submodules re-export the SDK objects
   (#1630).
