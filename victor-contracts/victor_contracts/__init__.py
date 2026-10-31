@@ -176,9 +176,7 @@ from victor_contracts.core.plugins import PluginContext, VictorPlugin
 from victor_contracts.registries import (
     PersonaRegistryProtocol,
     TeamRegistryProtocol,
-    get_default_persona_registry,
     get_default_team_registry,
-    set_default_persona_registry,
     set_default_team_registry,
 )
 
@@ -394,9 +392,7 @@ __all__ = [
     "update_capability_config_section",
     "PersonaRegistryProtocol",
     "TeamRegistryProtocol",
-    "get_default_persona_registry",
     "get_default_team_registry",
-    "set_default_persona_registry",
     "set_default_team_registry",
     "PluginContext",
     "VictorPlugin",

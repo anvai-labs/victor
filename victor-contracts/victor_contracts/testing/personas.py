@@ -58,21 +58,23 @@ _IMPORT_PROBE = textwrap.dedent("""
         message=r".*(victor.contracts|register_vertical_personas|RegistrationPolicy)",
         category=DeprecationWarning,
     )
-    from victor_contracts import registries
+    import victor_contracts.verticals as verticals
+    from victor_contracts.verticals import persona_kernel
 
     calls = []
 
-    class Recorder:
-        def register_persona(self, **kwargs):
-            calls.append(kwargs)
+    def recording_register(personas, policy, provider=None):
+        calls.extend(personas)
+        return len(personas)
 
-    # Installed directly (not via the deprecated setter) so a module that still
-    # registers through the default-registry path is caught even if it does not warn.
-    registries._default_persona_registry = Recorder()
+    # Patched before the probed imports bind the name, on both public import paths,
+    # so any import-time call into the persona kernel is recorded (not executed).
+    persona_kernel.register_vertical_personas = recording_register
+    verticals.register_vertical_personas = recording_register
     for module in sys.argv[1:]:
         importlib.import_module(module)
     if calls:
-        raise SystemExit(f"import-time persona registration: {[c['name'] for c in calls]}")
+        raise SystemExit(f"import-time persona registration: {list(calls)}")
     """)
 
 
@@ -90,9 +92,11 @@ class RecordingPersonaRegistry:
 def assert_import_registers_no_personas(*modules: str, timeout: float = 120.0) -> None:
     """Assert that importing ``modules`` in a fresh interpreter registers no personas.
 
-    The probe runs with ``DeprecationWarning`` as an error and a recording default
-    persona registry installed, so it fails if an import calls the deprecated
-    default-registry path or writes to the default registry.
+    The probe runs with SDK ``DeprecationWarning`` as an error and the persona
+    kernel's ``register_vertical_personas`` replaced by a recorder (on both
+    ``victor_contracts.verticals`` and ``victor_contracts.verticals.persona_kernel``),
+    so it fails if an import registers personas through the kernel or triggers an
+    SDK deprecation.
 
     Args:
         modules: Fully qualified module names, imported in order.
