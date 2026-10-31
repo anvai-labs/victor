@@ -11,17 +11,21 @@ Design notes (from the four-vertical characterization):
   field sets, hint tables, scale thresholds, and the framework mapping — all
   expressed declaratively via :class:`TraitSpec` (the ALGORITHM is identical).
 - The four registration variants (category-by-id vs by-role, tag policies,
-  preferred-tools policy, provider choice, auto-registration) collapse into
-  :class:`RegistrationPolicy` fields.
-- Import-time auto-registration is preserved exactly when ``auto_register``
-  is set — import-order-sensitive root tests depend on it.
+  preferred-tools policy) collapse into :class:`RegistrationPolicy` fields.
+- Personas reach the host through the vertical's ``get_personas()`` hook, which
+  the host registers on activation. :func:`register_vertical_personas` remains
+  as an explicit-provider translator for hosts that register personas
+  themselves. Its default-registry path (``provider=None``) and the
+  ``provider_getter`` / ``auto_register`` policy fields are deprecated since
+  victor-contracts 0.14.0 and removable no earlier than 0.15.0 (FEP-0042).
 """
 
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -283,9 +287,9 @@ class RegistrationPolicy:
       "expertise_role" | "top3_expertise_role_vertical" | "expertise".
     - ``preferred_tools``: "expertise" (coding) or none.
     - ``description``: "name_role" (default) — all four use this form.
-    - ``provider_getter``: which registry (default/persona-runtime).
-    - ``auto_register``: register at import (coding/devops/research) vs
-      explicit call returning a count (dataanalysis).
+    - ``provider_getter`` / ``auto_register``: deprecated since
+      victor-contracts 0.14.0 (removable no earlier than 0.15.0). Nothing reads
+      them; setting either to a non-default value emits ``DeprecationWarning``.
     """
 
     vertical: str
@@ -299,18 +303,51 @@ class RegistrationPolicy:
     version: str = "1.0.0"
     author: str = "victor"
 
+    def __post_init__(self) -> None:
+        for name, default in (("provider_getter", "default"), ("auto_register", True)):
+            if getattr(self, name) != default:
+                # stacklevel 3: __post_init__ <- generated __init__ <- caller.
+                warnings.warn(
+                    f"RegistrationPolicy.{name} is deprecated since victor-contracts "
+                    "0.14.0 and will be removed no earlier than 0.15.0: it is never "
+                    "read. Expose personas through the vertical's get_personas() hook "
+                    "(the host registers them on activation) and drop this argument.",
+                    DeprecationWarning,
+                    stacklevel=3,
+                )
+
 
 def register_vertical_personas(
     personas: Dict[str, VerticalPersona],
     policy: RegistrationPolicy,
     provider: Any = None,
 ) -> Optional[int]:
-    """Register a vertical's personas per the policy. Returns the provider's
-    registration result count when the provider returns one."""
-    if provider is None:
-        from victor_contracts import get_default_persona_registry
+    """Register a vertical's personas with ``provider`` per the policy.
 
-        provider = get_default_persona_registry()
+    Returns the number of personas registered, or ``None`` when no provider is
+    available.
+
+    .. deprecated:: 0.14.0
+        Calling without ``provider`` (falling back to the process default
+        persona registry) is deprecated and removable no earlier than 0.15.0,
+        when ``provider`` becomes required. Verticals expose personas through
+        their ``get_personas()`` hook instead; hosts pass ``provider=``.
+    """
+    if provider is None:
+        from victor_contracts.registries import _current_default_persona_registry
+
+        warnings.warn(
+            "register_vertical_personas() without provider= is deprecated since "
+            "victor-contracts 0.14.0 and will be removed no earlier than 0.15.0 (provider "
+            "becomes required): no Victor host installs a default persona registry by "
+            "default, so this path normally registers nothing. Expose personas through "
+            "the vertical's get_personas() hook (the host registers them on activation); "
+            "a host that "
+            "registers personas itself should pass provider= explicitly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        provider = _current_default_persona_registry()
     if provider is None:
         return None
 

@@ -84,13 +84,35 @@ The 15 supported bridge modules (each verified to have in-tree consumers);
 
 ### Deprecated
 
-Deprecated in 0.13.0; accessing them emits `DeprecationWarning`. Removable no
-earlier than **0.14.0**.
+Using these emits `DeprecationWarning` (attributed to the caller) while they
+keep working. Removable no earlier than **0.15.0**.
+
+**Deprecated — inert shim in 0.14.0, removal ≥0.15.0.** Deprecated in 0.13.0.
+Since 0.14.0 it no longer bridges to the host: it is self-contained, never
+imports `victor-ai`, and discards what is registered through it. It stays only
+so already-published verticals that register chains at import (victor-coding
+0.13.0) keep importing. It is not one of the 15 supported bridges.
 
 | Deprecated surface | Why | Replacement |
 |--------------------|-----|-------------|
-| `chain_runtime` (`ChainRegistry`, `get_chain_registry`) | Bridges to the host's versioned chain registry, which nothing reads at runtime | Deliver chains via the vertical's `get_chains()` / `get_composed_chains()` hook; the host registers them on activation |
-| `multi_agent.get_runtime_persona_provider()` | Returns the host's versioned persona provider, which nothing reads at runtime | Deliver personas via the vertical's `get_personas()` hook; the host registers them on activation |
+| `chain_runtime` (`ChainRegistry`, `get_chain_registry`) | Nothing reads the versioned chain registry; registrations are discarded | Deliver chains via the vertical's `get_chains()` / `get_composed_chains()` hook; the host registers them on activation (read them with the host's `victor.framework.chain_registry`) |
+
+**Deprecated in 0.14.0.** No host installs a default persona registry, so these
+paths register nothing.
+
+| Deprecated surface | Why | Replacement |
+|--------------------|-----|-------------|
+| `verticals.register_vertical_personas(personas, policy)` with no `provider=` | Falls back to the default persona registry, which no Victor host installs by default, so it normally registers nothing; `provider` becomes required in 0.15.0 | Expose personas via the vertical's `get_personas()` hook (the host registers them on activation); a host that registers personas itself passes `provider=` explicitly |
+| `verticals.RegistrationPolicy.provider_getter` / `auto_register` (non-default values) | Never read | Drop the argument |
+| `registries.set_default_persona_registry()` / `get_default_persona_registry()` (also top-level `victor_contracts`) | No Victor host installs or reads a default persona registry by default (only the deprecated `FrameworkPersonaProvider` sets one) | Verticals: `get_personas()`; hosts: pass `provider=` to `register_vertical_personas` |
+
+### Removed in 0.14.0
+
+Deprecated with warnings in 0.13.0 and **removed in 0.14.0**:
+
+| Removed surface | Replacement |
+|-----------------|-------------|
+| `multi_agent.get_runtime_persona_provider()` | Deliver personas via the vertical's `get_personas()` hook; the host registers them on activation (read them with the host's `victor.framework.persona_registry`) |
 
 ### Removed in 0.12.0
 

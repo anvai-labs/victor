@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-import importlib
-import warnings
 from typing import Any, Dict, List, Optional
 
 from victor_contracts.constants import get_canonical_name
@@ -14,29 +12,6 @@ from victor_contracts.team_schema import (
     TeamFormation,
     TeamMemberSpec,
 )
-
-
-def get_runtime_persona_provider() -> Any:
-    """Return the Victor host persona provider when the runtime package is installed.
-
-    .. deprecated:: 0.13.0
-        Removable no earlier than 0.14.0. The host persona provider has no
-        runtime readers; deliver personas through the vertical's
-        ``get_personas()`` hook, which the host registers on activation.
-    """
-
-    warnings.warn(
-        "victor_contracts.multi_agent.get_runtime_persona_provider is deprecated since "
-        "victor-contracts 0.13.0 and will be removed no earlier than 0.14.0: the host "
-        "persona provider has no runtime readers. Deliver personas through the "
-        "vertical's get_personas() hook; the host registers them on activation.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        module = importlib.import_module("victor.framework.multi_agent.persona_provider")
-    return module.get_persona_provider()
 
 
 class CommunicationStyle(Enum):
@@ -323,5 +298,4 @@ __all__ = [
     "TeamSpec",
     "TeamTemplate",
     "TeamTopology",
-    "get_runtime_persona_provider",
 ]

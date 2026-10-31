@@ -46,7 +46,7 @@ DEPRECATION NOTICE:
 import logging
 import warnings
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from victor_contracts.team_schema import TeamFormation, TeamMemberSpec, TeamSpec
 from victor_contracts import TeamRegistryProtocol, get_default_team_registry
@@ -755,7 +755,15 @@ class ResearchTeamSpecProvider:
         return list_team_types()
 
 
+def get_personas() -> Dict[str, Any]:
+    """Personas the host registers on activation (FEP-0042)."""
+    from victor_research.teams.personas import RESEARCH_PERSONAS
+
+    return RESEARCH_PERSONAS
+
+
 __all__ = [
+    "get_personas",
     # Types
     "ResearchRoleConfig",
     "TeamSpec",  # Canonical from framework.team_schema (use this)

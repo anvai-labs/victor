@@ -7,6 +7,10 @@
 
 from victor_contracts.team_schema import TeamMemberSpec
 
+from victor_contracts.testing.personas import (
+    assert_explicit_persona_registration,
+    assert_import_registers_no_personas,
+)
 from victor_research.teams.personas import (
     RESEARCH_PERSONAS,
     ResearchPersona,
@@ -108,3 +112,31 @@ class TestApplyPersonaToSpec:
 
         assert result is spec
         assert not spec.backstory
+
+
+def test_teams_package_exposes_personas_for_activation() -> None:
+    """The host registers personas via the teams package's get_personas() hook."""
+    from victor_research.teams import get_personas
+    from victor_research.teams.personas import RESEARCH_PERSONAS
+
+    personas = get_personas()
+    assert personas is RESEARCH_PERSONAS
+    assert personas
+
+
+class TestPersonaRegistration:
+    """FEP-0042: personas reach the host through ``get_personas()`` on activation;
+    nothing registers at import, and the explicit-provider helper still works."""
+
+    def test_teams_import_registers_nothing_and_emits_no_deprecation(self):
+        assert_import_registers_no_personas(
+            "victor_research.teams", "victor_research.teams.personas"
+        )
+
+    def test_explicit_provider_helper_registers_every_persona_without_warning(self):
+        from victor_research.teams.personas import _register_research_personas
+
+        calls = assert_explicit_persona_registration(
+            _register_research_personas, RESEARCH_PERSONAS, "research"
+        )
+        assert calls

@@ -16,10 +16,15 @@
 
 Coding was the only personas vertical with NO test file. These pin the
 observable contract before the kernel extraction: inventory, trait
-normalization, prompt hints, backstory shape, helper semantics, and the
-import-time registration side effect (registration tuples included).
+normalization, prompt hints, backstory shape, helper semantics, and explicit-provider
+registration (registration tuples included). Import-time registration was
+removed by FEP-0042.
 """
 
+from victor_contracts.testing.personas import (
+    assert_explicit_persona_registration,
+    assert_import_registers_no_personas,
+)
 from victor_coding.teams.personas import (
     CODING_PERSONAS,
     CodingPersonaTraits,
@@ -120,24 +125,19 @@ class TestPersonaSemantics:
         assert apply_persona_to_spec(spec2, "no_such_persona") is spec2
 
 
-class TestRegistration:
-    def test_import_time_registration_happened(self):
-        """The module auto-registers at import — the side effect the kernel
-        must preserve exactly (import-order-sensitive tests exist in root)."""
-        from victor_contracts import get_default_persona_registry
+class TestPersonaRegistration:
+    """FEP-0042: personas reach the host through ``get_personas()`` on activation;
+    nothing registers at import, and the explicit-provider helper still works."""
 
-        provider = get_default_persona_registry()
-        if provider is None:
-            return  # provider unavailable in this env; registration no-ops
-        for pid in ("architect", "debugger", "quality_guardian"):
-            assert provider.get_persona(pid) is not None, pid
+    def test_teams_import_registers_nothing_and_emits_no_deprecation(self):
+        assert_import_registers_no_personas("victor_coding.teams", "victor_coding.teams.personas")
 
-    def test_registration_tuples(self):
-        from victor_contracts import get_default_persona_registry
+    def test_explicit_provider_helper_registers_every_persona_without_warning(self):
+        from victor_coding.teams.personas import _register_personas_with_framework
 
-        provider = get_default_persona_registry()
-        if provider is None:
-            return
-        # spot-check one full tuple the kernel must reproduce
-        p = provider.get_persona("debugger")
-        assert p is not None
+        calls = assert_explicit_persona_registration(
+            _register_personas_with_framework, CODING_PERSONAS, "coding"
+        )
+        debugger = next(c for c in calls if c["name"] == "debugger")
+        assert debugger["category"] == "execution"
+        assert debugger["tags"] == ["debugging", "troubleshooting", "root-cause"]

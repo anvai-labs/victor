@@ -13,7 +13,6 @@ from victor_contracts._lazy import make_lazy_getattr
 # Every bridge module whose module-level ``__getattr__`` comes from the helper.
 LAZY_BRIDGES = (
     "capability_runtime",
-    "chain_runtime",
     "database_runtime",
     "embeddings_runtime",
     "enrichment_runtime",
@@ -32,7 +31,9 @@ LAZY_BRIDGES = (
     "workflow_runtime",
 )
 
-# Deprecated in 0.9.0, removed in 0.12.0 (CONTRACT_STABILITY.md).
+# Deprecated in 0.9.0, removed in 0.12.0 (CONTRACT_STABILITY.md). chain_runtime
+# is no longer a lazy bridge either: since 0.14.0 it is an inert, host-free shim
+# (tests/unit/test_chain_runtime_shim.py).
 REMOVED_BRIDGES = (
     "agent_spec_runtime",
     "graph_runtime",
@@ -131,23 +132,3 @@ def test_non_deprecated_names_do_not_warn() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert module.loads is json.loads
-
-
-@pytest.mark.parametrize("name", ["ChainRegistry", "get_chain_registry"])
-def test_chain_runtime_names_are_deprecated(name: str) -> None:
-    chain_runtime = importlib.import_module("victor_contracts.chain_runtime")
-    pytest.importorskip("victor.framework.chains")
-    with pytest.warns(
-        DeprecationWarning, match=rf"chain_runtime\.{name} is deprecated.*0\.14\.0"
-    ) as record:
-        getattr(chain_runtime, name)
-    # One warning, attributed to the caller (the host's import-time warning is
-    # suppressed on this path).
-    assert len(record) == 1
-    assert record[0].filename == __file__
-
-
-def test_unknown_chain_runtime_name_still_attribute_error() -> None:
-    chain_runtime = importlib.import_module("victor_contracts.chain_runtime")
-    with pytest.raises(AttributeError):
-        _ = chain_runtime.not_a_name

@@ -37,7 +37,7 @@ enabling cross-vertical team discovery via:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from victor_contracts import TeamFormation, TeamMemberSpec
 
@@ -680,10 +680,18 @@ from victor_dataanalysis.teams.personas import (
     get_persona_by_expertise,
     apply_persona_to_spec,
     list_personas,
-    register_data_analysis_personas,
 )
 
+
+def get_personas() -> Dict[str, Any]:
+    """Personas the host registers on activation (FEP-0042)."""
+    from victor_dataanalysis.teams.personas import DATA_ANALYSIS_PERSONAS
+
+    return DATA_ANALYSIS_PERSONAS
+
+
 __all__ = [
+    "get_personas",
     # Types
     "DataAnalysisRoleConfig",
     "DataAnalysisTeamSpec",
@@ -718,7 +726,6 @@ __all__ = [
     "get_persona_by_expertise",
     "apply_persona_to_spec",
     "list_personas",
-    "register_data_analysis_personas",
 ]
 
 logger = logging.getLogger(__name__)

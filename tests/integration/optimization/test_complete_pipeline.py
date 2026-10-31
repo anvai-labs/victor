@@ -33,15 +33,6 @@ from victor.agent.paradigm_router import (
     ModelTier,
     get_paradigm_router,
 )
-from victor.agent.complexity_estimator import (
-    ComplexityEstimator,
-    ComplexityBand,
-    get_complexity_estimator,
-)
-from victor.agent.task_classifier import (
-    TaskClassifier,
-    get_task_classifier,
-)
 from victor.agent.threshold_optimizer import (
     ThresholdOptimizer,
     ThresholdType,
@@ -69,16 +60,6 @@ class TestCompleteOptimizationPipeline:
         assert router is not None
         assert router.enabled is True
 
-        # Complexity Estimator
-        estimator = get_complexity_estimator()
-        assert estimator is not None
-        assert estimator.enabled is True
-
-        # Task Classifier
-        classifier = get_task_classifier()
-        assert classifier is not None
-        assert classifier.enabled is True
-
         # Threshold Optimizer
         optimizer = get_threshold_optimizer()
         assert optimizer is not None
@@ -90,38 +71,26 @@ class TestCompleteOptimizationPipeline:
         task_type = "create_simple"
         context = {"task_type": task_type}
 
-        # Step 1: Task Classification (Enhancement 2)
-        classifier = get_task_classifier()
-        # Using heuristic (synchronous)
-        classification = classifier._heuristic_classify(query, 0.0)
-        assert classification.task_type in ["create_simple", "action"]
-        assert classification.confidence >= 0.6
+        query_complexity = 0.2  # low complexity, as the runtime supplies it
 
-        # Step 2: Complexity Estimation (Enhancement 1)
-        estimator = get_complexity_estimator()
-        # Using heuristic (synchronous)
-        estimate = estimator._heuristic_estimate(query, 0.0)
-        assert estimate.score < 0.4  # Should be low complexity
-        assert estimate.band in [ComplexityBand.TRIVIAL, ComplexityBand.SIMPLE]
-
-        # Step 3: Planning Gate (Phase 3)
+        # Step 1: Planning Gate (Phase 3)
         gate = PlanningGate(enabled=True)
         use_planning = gate.should_use_llm_planning(
             task_type=task_type,
             tool_budget=2,
-            query_complexity=estimate.score,
+            query_complexity=query_complexity,
             query_length=len(query),
             context=context,
         )
         assert use_planning is False  # Should skip planning
 
-        # Step 4: Paradigm Router (Phase 4)
+        # Step 2: Paradigm Router (Phase 4)
         router = get_paradigm_router()
         decision = router.route(
             task_type=task_type,
             query=query,
             history_length=0,
-            query_complexity=estimate.score,
+            query_complexity=query_complexity,
         )
         assert decision.paradigm == ProcessingParadigm.DIRECT
         assert decision.model_tier == ModelTier.SMALL
@@ -137,34 +106,25 @@ class TestCompleteOptimizationPipeline:
         query = "design a comprehensive authentication system with OAuth2, JWT tokens, rate limiting, and multi-factor support"
         task_type = "design"
 
-        # Step 1: Task Classification
-        classifier = get_task_classifier()
-        classification = classifier._heuristic_classify(query, 0.0)
-        assert classification.task_type == "design"
+        query_complexity = 0.8  # high complexity, as the runtime supplies it
 
-        # Step 2: Complexity Estimation
-        estimator = get_complexity_estimator()
-        estimate = estimator._heuristic_estimate(query, 0.0)
-        assert estimate.score >= 0.6  # Should be high complexity
-        assert estimate.band in [ComplexityBand.COMPLEX, ComplexityBand.EXPERT]
-
-        # Step 3: Planning Gate
+        # Step 1: Planning Gate
         gate = PlanningGate(enabled=True)
         use_planning = gate.should_use_llm_planning(
             task_type=task_type,
             tool_budget=15,
-            query_complexity=estimate.score,
+            query_complexity=query_complexity,
             query_length=len(query),
         )
         assert use_planning is True  # Should use planning
 
-        # Step 4: Paradigm Router
+        # Step 2: Paradigm Router
         router = get_paradigm_router()
         decision = router.route(
             task_type=task_type,
             query=query,
             history_length=0,
-            query_complexity=estimate.score,
+            query_complexity=query_complexity,
         )
         assert decision.paradigm == ProcessingParadigm.DEEP
         assert decision.model_tier == ModelTier.LARGE
@@ -276,19 +236,6 @@ class TestCompleteOptimizationPipeline:
         router_stats = router.get_statistics()
         # Should have at least 2 more routings
         assert router_stats["total_routings"] >= initial_count + 2
-
-        # Complexity Estimator (singleton, stats structure check)
-        estimator = get_complexity_estimator()
-        estimator_stats = estimator.get_statistics()
-        # Just verify stats structure is correct
-        assert "total_estimates" in estimator_stats
-
-        # Task Classifier (singleton, stats structure check)
-        classifier = get_task_classifier()
-        classifier._heuristic_classify("create file", 0.0)
-        classifier_stats = classifier.get_statistics()
-        # Just verify stats structure is correct
-        assert "total_classifications" in classifier_stats
 
         # Threshold Optimizer
         optimizer = get_threshold_optimizer()
@@ -412,18 +359,6 @@ class TestOptimizationPipelineConfiguration:
         assert router_enabled.enabled is True
         assert router_disabled.enabled is False
 
-        # Complexity Estimator
-        estimator_enabled = ComplexityEstimator(enabled=True)
-        estimator_disabled = ComplexityEstimator(enabled=False)
-        assert estimator_enabled.enabled is True
-        assert estimator_disabled.enabled is False
-
-        # Task Classifier
-        classifier_enabled = TaskClassifier(enabled=True)
-        classifier_disabled = TaskClassifier(enabled=False)
-        assert classifier_enabled.enabled is True
-        assert classifier_disabled.enabled is False
-
         # Threshold Optimizer
         optimizer_enabled = ThresholdOptimizer(enabled=True)
         optimizer_disabled = ThresholdOptimizer(enabled=False)
@@ -442,34 +377,11 @@ class TestOptimizationPipelineConfiguration:
         # All components default to enabled
         assert get_output_pruner().enabled is True
         assert get_paradigm_router().enabled is True
-        assert get_complexity_estimator().enabled is True
-        assert get_task_classifier().enabled is True
         assert get_threshold_optimizer().enabled is True
 
 
 class TestOptimizationPipelineFallback:
     """Test graceful fallback behavior."""
-
-    def test_estimator_fallback_to_heuristic(self):
-        """Test estimators fallback to heuristics when edge model unavailable."""
-        estimator = ComplexityEstimator(enabled=True)
-
-        # Heuristic should always work
-        estimate = estimator._heuristic_estimate("create a file", 0.0)
-        assert estimate.score >= 0.0
-        assert estimate.score <= 1.0
-        assert estimate.band is not None
-        assert estimate.confidence > 0.0
-
-    def test_classifier_fallback_to_heuristic(self):
-        """Test classifier falls back to heuristics when edge model unavailable."""
-        classifier = TaskClassifier(enabled=True)
-
-        # Heuristic should always work
-        classification = classifier._heuristic_classify("create file", 0.0)
-        assert classification.task_type is not None
-        assert classification.confidence > 0.0
-        assert classification.latency_ms >= 0.0
 
     def test_disabled_components_use_defaults(self):
         """Test disabled components use safe default behaviors."""

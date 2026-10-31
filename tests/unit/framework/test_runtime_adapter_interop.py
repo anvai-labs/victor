@@ -6,7 +6,6 @@ from victor_contracts.capability_runtime import (
     CodebaseIndexFactoryProtocol,
     create_lazy_capability_proxy,
 )
-from victor_contracts.chain_runtime import get_chain_registry
 from victor_contracts.init_runtime import InitSynthesizer
 from victor_contracts.lsp_runtime import CompletionItemKind
 from victor_contracts.processing_runtime import FileEditor
@@ -42,7 +41,6 @@ def test_sdk_runtime_adapters_resolve_host_types() -> None:
     assert callable(get_rl_coordinator_async)
     assert CodebaseIndexFactoryProtocol.__name__ == "CodebaseIndexFactoryProtocol"
     assert callable(create_lazy_capability_proxy)
-    assert callable(get_chain_registry)
     assert InitSynthesizer.__name__ == "InitSynthesizer"
     assert ProviderRegistry.__name__ == "ProviderRegistry"
 
@@ -104,3 +102,43 @@ def test_lazy_persona_provider_export_warns_at_caller() -> None:
     assert len(record) == 1
     assert record[0].filename == __file__
     assert "FrameworkPersonaProvider" in dir(multi_agent)
+
+
+def test_chain_runtime_shim_is_detached_from_the_host_versioned_registry() -> None:
+    """Since victor-contracts 0.14.0 chain_runtime is an inert SDK shim: it no longer
+    resolves to victor.framework.chains, so registrations never reach the host."""
+    from victor_contracts import chain_runtime
+
+    with pytest.warns(DeprecationWarning, match="inert compatibility shim"):
+        registry = chain_runtime.get_chain_registry()
+    assert type(registry).__module__ == "victor_contracts.chain_runtime"
+    registry.register_chain(name="interop_probe", version="1.0.0", chain=object())
+    assert registry.get_chain("interop_probe") is None
+
+
+def test_runtime_persona_provider_sdk_hook_removed() -> None:
+    from victor_contracts import multi_agent
+
+    assert not hasattr(multi_agent, "get_runtime_persona_provider")
+
+
+def test_constructing_persona_provider_adds_no_sdk_hook_warning(monkeypatch) -> None:
+    """The deprecated host provider calls the deprecated SDK default-registry hook;
+    that hook's warning is suppressed inside the provider (one deprecation per surface)."""
+    import warnings
+
+    from victor_contracts import registries
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from victor.framework.multi_agent.persona_provider import FrameworkPersonaProvider
+
+    monkeypatch.setattr(registries, "_default_persona_registry", None)
+    FrameworkPersonaProvider.reset_instance()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            provider = FrameworkPersonaProvider()
+        assert registries._current_default_persona_registry() is provider
+    finally:
+        FrameworkPersonaProvider.reset_instance()

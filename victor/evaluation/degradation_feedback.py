@@ -6,11 +6,10 @@ from collections import Counter
 from typing import Any, Iterable, Mapping, Optional
 
 from victor.evaluation.summary_mapping import as_event_mapping as _as_event_mapping
+from victor.evaluation.summary_mapping import collect_events as _collect_events
 from victor.evaluation.summary_mapping import coerce_optional_float as _coerce_float
 from victor.evaluation.summary_mapping import coerce_optional_int as _coerce_int
 from victor.evaluation.summary_mapping import coerce_optional_text as _coerce_optional_text
-from victor.evaluation.summary_mapping import extract_sequence as _extract_sequence
-from victor.evaluation.summary_mapping import extract_value as _extract_value
 
 
 def _normalize_event(event: Any) -> Optional[dict[str, Any]]:
@@ -133,36 +132,13 @@ def _variance(values: list[float]) -> float:
 
 def extract_degradation_events(value: Any) -> list[dict[str, Any]]:
     """Extract normalized degradation events from task, trace, or payload objects."""
-    events: list[dict[str, Any]] = []
-    for item in _extract_sequence(value, "degradation_events"):
-        normalized = _normalize_event(item)
-        if normalized is not None:
-            events.append(normalized)
-    for item in _extract_sequence(value, "recovery_events"):
-        normalized = _normalize_recovery_event(item)
-        if normalized is not None:
-            events.append(normalized)
-
-    for container_name in ("metadata", "failure_details", "completion_signals"):
-        container = _extract_value(value, container_name)
-        if isinstance(container, Mapping):
-            for item in _extract_sequence(container, "degradation_events"):
-                normalized = _normalize_event(item)
-                if normalized is not None:
-                    events.append(normalized)
-            for item in _extract_sequence(container, "recovery_events"):
-                normalized = _normalize_recovery_event(item)
-                if normalized is not None:
-                    events.append(normalized)
-
-    trace = _extract_value(value, "trace")
-    if trace is not None and trace is not value:
-        events.extend(extract_degradation_events(trace))
-
-    deduped: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
-    for event in events:
-        key = (
+    return _collect_events(
+        value,
+        [
+            ("degradation_events", _normalize_event),
+            ("recovery_events", _normalize_recovery_event),
+        ],
+        lambda event: (
             event.get("source"),
             event.get("kind"),
             event.get("failure_type"),
@@ -176,12 +152,8 @@ def extract_degradation_events(value: Any) -> list[dict[str, Any]]:
             event.get("time_to_recover_seconds"),
             event.get("iteration"),
             tuple(event.get("reasons") or []),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(event)
-    return deduped
+        ),
+    )
 
 
 def summarize_degradation_feedback(value: Any) -> Optional[dict[str, Any]]:

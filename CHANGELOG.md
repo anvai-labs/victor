@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-30
+
+Requires `victor-contracts>=0.14.0` (released alongside as `sdk-v0.14.0`); first-party
+verticals 0.14.0 are released alongside as `verticals-v0.14.0`.
+
+### Removed
+
+- victor-coding's private embedding fork `victor_coding.codebase.embeddings.{base,
+  registry,lancedb_provider,proximadb_provider}` (unreachable: the indexer already used
+  the core providers). Import the embedding API from
+  `victor_contracts.embeddings_runtime` (or `victor_coding.codebase.embeddings`, which
+  re-exports it).
+- Dormant `victor.agent.complexity_estimator` / `victor.agent.task_classifier` (and their
+  shared `edge_decision_cache` core) together with `ParadigmRouter.route_async()` and its
+  `use_enhanced_*` flags: nothing called `route_async()` (the agentic loop routes through
+  the synchronous `route()`), and the edge-model hook imported a `decide_sync` that
+  `victor.framework.agentic_loop` never defined. Routing behaviour is unchanged.
+- Import-time persona registration in victor-coding, victor-devops and victor-research
+  (`teams/personas.py`) and victor-dataanalysis's `register_data_analysis_personas()`
+  (also dropped from `victor_dataanalysis.teams` exports): every call went through the
+  persona kernel's default-registry path, which no host installs, so it registered
+  nothing (FEP-0042 Phase 2a). Personas reach the host's flat persona registry through
+  the vertical's `get_personas()` hook on activation. The private
+  `_register_*_personas(provider)` helpers remain for a host that registers personas
+  itself and now require `provider`. Importing a vertical's `teams` package emits no
+  `DeprecationWarning`.
+- victor-devops's `FrameworkPersonaProvider = PersonaRegistryProtocol` alias in
+  `victor_devops.teams.personas`; use `victor_contracts.PersonaRegistryProtocol`.
+
+### Changed
+
+- Duplicated code consolidated (round-3 clone scan; −1,946 net lines of non-test Python):
+  one namespaced-registry base for the chain/persona registries, shared OpenAI-compatible
+  payload/response/SSE helpers for the Azure, Hugging Face and Vertex providers, a shared
+  periodic metrics-reporter base, single-sourced Python native fallbacks (`FitResult`,
+  truncation, tiktoken loader), and shared evaluation-feedback helpers (`collect_events`).
+- Hugging Face responses now report cached prompt tokens (`cache_read_input_tokens`) like
+  Azure.
+- Removed the unused `victor/framework/rl/monitoring/cli.py` copy of the `bayesian` CLI.
+
 ### Deprecated
 
 - `victor.framework.chains` (the versioned chain registry) and
@@ -18,19 +58,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `chain:` workflow handlers now resolve chains that verticals deliver on activation
+  (previously only factory-registered chains resolved); the most specific key wins.
+- devops, research and dataanalysis personas now reach the persona registry (and
+  `victor capabilities`) through each vertical's `get_personas()` hook; only coding's did.
+- Chain and persona registries: `get_*_registry()` and `X.get_instance()` were two
+  different singletons; writes no longer skip the lock while another thread holds
+  `batch_update()`; subclasses no longer share their parent's singleton.
+- `RustContextFitter` coerces a non-numeric message priority to the default instead of
+  raising.
 - Opting in to structural codebase indexing (`codebase_structural_indexing_enabled`)
   no longer fails with `KeyError: 'victor_structural_bridge'`: the bridge provider now
   registers in Victor's embedding registry, which the coding indexer resolves from, and
   bridge instances are cached per behaviour-defining config (upstream store, workspace
   root, chunk size/overlap, language overrides).
-
-### Removed
-
-- victor-coding's private embedding fork `victor_coding.codebase.embeddings.{base,
-  registry,lancedb_provider,proximadb_provider}` (unreachable: the indexer already used
-  the core providers). Import the embedding API from
-  `victor_contracts.embeddings_runtime` (or `victor_coding.codebase.embeddings`, which
-  re-exports it).
 
 ## [0.21.0] - 2026-10-29
 

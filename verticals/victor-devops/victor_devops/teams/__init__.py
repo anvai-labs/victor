@@ -37,10 +37,17 @@ enabling cross-vertical team discovery via:
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from victor_contracts.team_schema import TeamFormation, TeamMemberSpec, TeamSpec
 from victor_contracts import TeamRegistryProtocol, get_default_team_registry
+
+
+def get_personas() -> Dict[str, Any]:
+    """Personas the host registers on activation (FEP-0042)."""
+    from victor_devops.teams.personas import DEVOPS_PERSONAS
+
+    return DEVOPS_PERSONAS
 
 
 @dataclass
@@ -617,6 +624,7 @@ class DevOpsTeamSpecProvider:
 
 
 __all__ = [
+    "get_personas",
     # Types
     "DevOpsRoleConfig",
     "TeamSpec",

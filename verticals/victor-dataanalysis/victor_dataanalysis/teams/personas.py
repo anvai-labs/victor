@@ -69,6 +69,7 @@ from victor_contracts.verticals import (
     make_persona_helpers,
     register_vertical_personas,
 )
+from victor_contracts import PersonaRegistryProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -534,22 +535,17 @@ _REGISTRATION_POLICY = RegistrationPolicy(
         "business_analyst": "planning",
     },
     tag_policy="expertise",
-    auto_register=False,
 )
 
 
-def register_data_analysis_personas() -> int:
-    """Register data-analysis personas with the default host persona registry.
+def _register_personas_with_framework(provider: PersonaRegistryProtocol) -> None:
+    """Register all data-analysis personas with an explicit host persona registry.
 
-    Uses ``victor_contracts.get_default_persona_registry()`` like the other
-    verticals.
-
-    Returns:
-        Number of personas registered, or 0 when no default registry is set
-        (the host sets one when its persona provider is constructed).
+    Not called at import: personas reach the host through the vertical's
+    ``get_personas()`` hook on activation (FEP-0042). This helper is for a
+    host that registers personas itself.
     """
-    result = register_vertical_personas(DATA_ANALYSIS_PERSONAS, _REGISTRATION_POLICY)
-    return result if result is not None else 0
+    register_vertical_personas(DATA_ANALYSIS_PERSONAS, _REGISTRATION_POLICY, provider)
 
 
 __all__ = [
@@ -573,5 +569,4 @@ __all__ = [
     "get_persona_by_expertise",
     "apply_persona_to_spec",
     "list_personas",
-    "register_data_analysis_personas",
 ]
