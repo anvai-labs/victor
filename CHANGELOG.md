@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- `victor.framework.chains` (the versioned chain registry) and
+  `victor.framework.multi_agent.persona_provider` / `FrameworkPersonaProvider`, deprecated in
+  0.22.0 (FEP-0042 phase 2b). Nothing read them at runtime; use
+  `victor.framework.chain_registry` / `victor.framework.persona_registry`, which the host fills
+  from each vertical's `get_composed_chains()` / `get_personas()` hook on activation.
+
 ## [0.22.0] - 2026-10-30
 
 Requires `victor-contracts>=0.14.0` (released alongside as `sdk-v0.14.0`); first-party

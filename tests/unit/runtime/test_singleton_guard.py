@@ -40,14 +40,14 @@ class TestSingletonGuard:
     def test_singleton_count_does_not_increase(self):
         """Track files with singleton pattern.
 
-        Current audited count: 74 files with _instance: Optional.
+        Current audited count: 70 files with _instance: Optional.
         This cap prevents new singletons from being added.
         As singletons are migrated to DI, lower this number.
         """
         singletons = _count_singleton_classes(VICTOR_ROOT)
         # +1: ModelCapabilityLoader (tool_calling/capabilities.py);
         # -1: chain/persona registries share NamespacedRegistry's singleton.
-        MAX_FILES = 74
+        MAX_FILES = 70
         assert len(singletons) <= MAX_FILES, (
             f"Found {len(singletons)} files with singleton pattern "
             f"(cap is {MAX_FILES}). Use DI via ExecutionContext or "
