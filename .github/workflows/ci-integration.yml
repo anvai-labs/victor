@@ -21,7 +21,10 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # 30m: core-integration runs single-process (see below); parallel workers
+    # multiplied the torch runtime past the runner pool's memory ceiling and
+    # got the job evicted mid-run (exit 143 runner shutdown, 5 occurrences).
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -37,13 +40,13 @@ jobs:
           # integration tests can no longer exist without running anywhere.
           # verticals/ is owned by the verticals-integration job below.
           - name: core-integration
-            # -n 4, not -n auto: auto sizes workers to the runner's core count,
-            # whose spawn-time memory spike got the runner pod evicted mid-job
-            # four times (exit 143 "runner has received a shutdown signal",
-            # ~3 min in, tests passing) while the single-process sibling suites
-            # ran green. A fixed small pool keeps the suite parallel but bounded.
+            # Single-process, like the sibling suites: this job installs torch,
+            # so N xdist workers means N full runtimes — on the runner pool that
+            # exceeded the memory ceiling and the runner was evicted ~3 minutes
+            # in (exit 143 "runner has received a shutdown signal") with -n auto
+            # AND with -n 4, while every single-process sibling suite ran green.
             path: >-
-              tests/integration -n 4
+              tests/integration
               --ignore=tests/integration/providers
               --ignore=tests/integration/workflows
               --ignore=tests/integration/tools
