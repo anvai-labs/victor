@@ -120,10 +120,18 @@ def find_project_root(start: Optional[Path] = None) -> Path:
     temp_root = Path(tempfile.gettempdir()).resolve()
 
     # Phase 1: Walk up looking for existing .victor/project.db or .git boundary
-    project_markers = frozenset({
-        "pyproject.toml", "package.json", "setup.py", "setup.cfg",
-        "Cargo.toml", "go.mod", "CLAUDE.md", "QWEN.md",
-    })
+    project_markers = frozenset(
+        {
+            "pyproject.toml",
+            "package.json",
+            "setup.py",
+            "setup.cfg",
+            "Cargo.toml",
+            "go.mod",
+            "CLAUDE.md",
+            "QWEN.md",
+        }
+    )
     fallback_marker: Optional[Path] = None
 
     for ancestor in (resolved, *resolved.parents):

@@ -715,8 +715,7 @@ class RLCoordinator:
                     base_url=base_url,
                 )
                 logger.debug(
-                    "GEPA main model spec updated via set_session_provider: "
-                    "%s/%s base_url=%s",
+                    "GEPA main model spec updated via set_session_provider: " "%s/%s base_url=%s",
                     provider,
                     model,
                     base_url or "default",

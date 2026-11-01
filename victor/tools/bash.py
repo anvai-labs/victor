@@ -777,9 +777,7 @@ def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
     return _validate_single_readonly_command(sanitized.strip())
 
 
-def _validate_remote_exec_readonly(
-    cmd: str, base_cmd: str
-) -> tuple[bool, str]:
+def _validate_remote_exec_readonly(cmd: str, base_cmd: str) -> tuple[bool, str]:
     """Validate remote-exec commands (ssh, scp, rsync) for readonly mode.
 
     ssh: extract the remote command and validate it recursively.
@@ -813,10 +811,26 @@ def _validate_ssh_readonly(tokens: list[str]) -> tuple[bool, str]:
       - Combined short flags: -tt, -vv, -46K etc.
     """
     # Flags that consume the next token as their value argument.
-    _SSH_VALUE_FLAGS = frozenset({
-        "-p", "-o", "-l", "-i", "-F", "-J", "-W",
-        "-L", "-R", "-D", "-E", "-S", "-M", "-m", "-c", "-w",
-    })
+    _SSH_VALUE_FLAGS = frozenset(
+        {
+            "-p",
+            "-o",
+            "-l",
+            "-i",
+            "-F",
+            "-J",
+            "-W",
+            "-L",
+            "-R",
+            "-D",
+            "-E",
+            "-S",
+            "-M",
+            "-m",
+            "-c",
+            "-w",
+        }
+    )
 
     i = 1
     while i < len(tokens):

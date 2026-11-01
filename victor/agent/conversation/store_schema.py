@@ -780,17 +780,16 @@ class ConversationStoreSchema:
         Idempotent: safe to re-run if interrupted mid-migration.
         """
         # Check if messages FK still references ui_session
-        fk_info = conn.execute(
-            "PRAGMA foreign_key_list(messages)"
-        ).fetchall()
-        references_ui_session = any(
-            row[2] == "ui_session" for row in fk_info
-        )
+        fk_info = conn.execute("PRAGMA foreign_key_list(messages)").fetchall()
+        references_ui_session = any(row[2] == "ui_session" for row in fk_info)
 
         # Also check for leftover temp tables from a previous interrupted run
-        has_messages_old = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='messages_old'"
-        ).fetchone() is not None
+        has_messages_old = (
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='messages_old'"
+            ).fetchone()
+            is not None
+        )
 
         if not references_ui_session and not has_messages_old:
             return  # Already migrated or fresh schema
@@ -846,9 +845,12 @@ class ConversationStoreSchema:
         conn.execute("DROP TABLE messages_old")
 
         # --- compaction_events ---
-        has_ce_old = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='compaction_events_old'"
-        ).fetchone() is not None
+        has_ce_old = (
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='compaction_events_old'"
+            ).fetchone()
+            is not None
+        )
         if has_ce_old:
             conn.execute("DROP TABLE IF EXISTS compaction_events")
             conn.execute("ALTER TABLE compaction_events_old RENAME TO compaction_events")
