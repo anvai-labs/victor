@@ -403,30 +403,7 @@ class LMStudioProvider(BaseProvider):
         Set LMSTUDIO_ENDPOINTS="http://<your-server>:1234,http://127.0.0.1:1234"
         to prioritize LAN servers.
         """
-        import os
-
-        candidates: List[str] = []
-
-        # Check environment variable first
-        env_endpoints = os.environ.get("LMSTUDIO_ENDPOINTS", "")
-        if env_endpoints:
-            candidates = [u.strip() for u in env_endpoints.split(",") if u.strip()]
-
-        if base_url is None:
-            base_url = "http://127.0.0.1:1234"
-
-        # Only process base_url if no env var candidates
-        if not candidates:
-            if isinstance(base_url, (list, tuple)):
-                candidates = [str(u).strip() for u in base_url if str(u).strip()]
-            elif isinstance(base_url, str):
-                if "," in base_url:
-                    candidates = [u.strip() for u in base_url.split(",") if u.strip()]
-                else:
-                    candidates = [base_url]
-            else:
-                candidates = [str(base_url)]
-
+        candidates, base_url = self._resolve_endpoint_candidates(base_url)
         for url in candidates:
             try:
                 with httpx.Client(timeout=httpx.Timeout(2)) as client:
@@ -483,30 +460,7 @@ class LMStudioProvider(BaseProvider):
             - False if no models loaded
             - None if couldn't determine
         """
-        import os
-
-        candidates: List[str] = []
-
-        # Check environment variable first
-        env_endpoints = os.environ.get("LMSTUDIO_ENDPOINTS", "")
-        if env_endpoints:
-            candidates = [u.strip() for u in env_endpoints.split(",") if u.strip()]
-
-        if base_url is None:
-            base_url = "http://127.0.0.1:1234"
-
-        # Only process base_url if no env var candidates
-        if not candidates:
-            if isinstance(base_url, (list, tuple)):
-                candidates = [str(u).strip() for u in base_url if str(u).strip()]
-            elif isinstance(base_url, str):
-                if "," in base_url:
-                    candidates = [u.strip() for u in base_url.split(",") if u.strip()]
-                else:
-                    candidates = [base_url]
-            else:
-                candidates = [str(base_url)]
-
+        candidates, base_url = self._resolve_endpoint_candidates(base_url)
         for url in candidates:
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(2)) as client:

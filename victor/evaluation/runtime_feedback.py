@@ -2152,34 +2152,10 @@ def _aggregate_feedback_payloads(
         denominator = sum(weight for _, weight in weighted_pairs)
         return round(numerator / max(denominator, 1e-9), 4)
 
-    def weighted_metadata_average(field_name: str) -> Optional[float]:
-        weighted_pairs = [
-            (float(metadata[field_name]), weight)
-            for metadata, weight in zip(metadata_list, weights)
-            if metadata.get(field_name) is not None
-        ]
-        if not weighted_pairs:
-            return None
-        numerator = sum(value * weight for value, weight in weighted_pairs)
-        denominator = sum(weight for _, weight in weighted_pairs)
-        return round(numerator / max(denominator, 1e-9), 4)
-
-    def weighted_distribution(field_name: str) -> dict[str, float]:
-        aggregated: dict[str, float] = {}
-        for metadata, weight in zip(metadata_list, weights):
-            distribution = metadata.get(field_name) or {}
-            if not isinstance(distribution, Mapping):
-                continue
-            for key, value in distribution.items():
-                label = str(key).strip()
-                if not label:
-                    continue
-                try:
-                    count = float(value)
-                except (TypeError, ValueError):
-                    continue
-                aggregated[label] = round(aggregated.get(label, 0.0) + (count * weight), 4)
-        return aggregated
+    weighted_metadata_average = lambda field: _weighted_metadata_average(
+        metadata_list, weights, field
+    )
+    weighted_distribution = lambda field: _weighted_distribution(metadata_list, weights, field)
 
     metadata_list = [dict(payload.get("metadata") or {}) for payload in validated_payloads]
     selection_policy_counts = weighted_distribution("topology_selection_policies")
@@ -2392,34 +2368,10 @@ def _aggregate_topology_feedback_metadata(
     ]
     metadata_list = [dict(payload.get("metadata") or {}) for payload in topology_payloads]
 
-    def weighted_metadata_average(field_name: str) -> Optional[float]:
-        weighted_pairs = [
-            (float(metadata[field_name]), weight)
-            for metadata, weight in zip(metadata_list, weights)
-            if metadata.get(field_name) is not None
-        ]
-        if not weighted_pairs:
-            return None
-        numerator = sum(value * weight for value, weight in weighted_pairs)
-        denominator = sum(weight for _, weight in weighted_pairs)
-        return round(numerator / max(denominator, 1e-9), 4)
-
-    def weighted_distribution(field_name: str) -> dict[str, float]:
-        aggregated: dict[str, float] = {}
-        for metadata, weight in zip(metadata_list, weights):
-            distribution = metadata.get(field_name) or {}
-            if not isinstance(distribution, Mapping):
-                continue
-            for key, value in distribution.items():
-                label = str(key).strip()
-                if not label:
-                    continue
-                try:
-                    count = float(value)
-                except (TypeError, ValueError):
-                    continue
-                aggregated[label] = round(aggregated.get(label, 0.0) + (count * weight), 4)
-        return aggregated
+    weighted_metadata_average = lambda field: _weighted_metadata_average(
+        metadata_list, weights, field
+    )
+    weighted_distribution = lambda field: _weighted_distribution(metadata_list, weights, field)
 
     action_distribution = weighted_distribution("topology_actions")
     final_action_distribution = weighted_distribution("topology_final_actions")

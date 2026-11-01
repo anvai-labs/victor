@@ -115,30 +115,11 @@ async def run_graph_execution(
     )
 
 
-async def stream_graph_execution(
-    *,
-    state: Any,
-    current_node: str,
-    end_node_token: str,
-    entry_point: str,
-    node_count: int,
-    thread_id: str,
-    iteration_controller: Any,
-    timeout_manager: Any,
-    interrupt_handler: Any,
-    node_executor: Any,
-    checkpoint_manager: Any,
-    event_emitter: Any,
-    hook: Optional[Any],
-    validate_state: Optional[Callable[[str, Any], Optional[str]]],
-    snapshot_state: Callable[[Any], Any],
-    get_next_node: Callable[[str, Any], Union[str, List[Any], Tuple[str, ...]]],
-    execute_parallel: Callable[[List[Any], Any, Any, Any], Awaitable[Any]],
-    record_state_history: bool = False,
-    sequential_fanout: bool = False,
-    node_observer: Optional[NodeLifecycleObserver] = None,
-):
-    """Stream compiled graph execution using the same runtime path as invoke()."""
+async def stream_graph_execution(**kwargs: Any):
+    """Stream compiled graph execution using the same runtime path as invoke().
+
+    Accepts the same keyword arguments as run_graph_execution().
+    """
     queue: asyncio.Queue[Any] = asyncio.Queue()
     sentinel = object()
 
@@ -148,26 +129,7 @@ async def stream_graph_execution(
     async def _runner() -> GraphRuntimeOutcome:
         try:
             return await _run_graph_execution_loop(
-                state=state,
-                current_node=current_node,
-                end_node_token=end_node_token,
-                entry_point=entry_point,
-                node_count=node_count,
-                thread_id=thread_id,
-                iteration_controller=iteration_controller,
-                timeout_manager=timeout_manager,
-                interrupt_handler=interrupt_handler,
-                node_executor=node_executor,
-                checkpoint_manager=checkpoint_manager,
-                event_emitter=event_emitter,
-                hook=hook,
-                validate_state=validate_state,
-                snapshot_state=snapshot_state,
-                get_next_node=get_next_node,
-                execute_parallel=execute_parallel,
-                record_state_history=record_state_history,
-                sequential_fanout=sequential_fanout,
-                node_observer=node_observer,
+                **kwargs,
                 on_node_complete=_on_node_complete,
             )
         finally:
