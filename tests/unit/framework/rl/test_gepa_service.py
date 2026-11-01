@@ -285,7 +285,7 @@ class TestGEPATierManagerBaseUrl:
         set_session_provider is called), so the GEPAModelSpec starts with base_url=''.
         After set_session_provider, the spec must be updated with the real base_url.
         """
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         from victor.framework.rl.coordinator import get_rl_coordinator
 
