@@ -415,3 +415,124 @@ class TestShellGitCommitAttribution:
         twice = _maybe_attribute_shell_git_commit(once)
         assert once.count(self.TRAILER) == 1
         assert twice == once
+
+
+class TestReadonlyRemoteExec:
+    """Remote-exec commands (ssh, scp, rsync) — readonly analysis of payload.
+
+    ssh: extract the remote command and validate it recursively.
+    scp/rsync: check direction — pull is readonly, push is not.
+    """
+
+    @staticmethod
+    def _valid(cmd: str) -> bool:
+        from victor.tools.bash import _validate_readonly_command
+
+        return _validate_readonly_command(cmd)[0]
+
+    # --- SSH: readonly remote commands ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh vsingh@aiserver1 'ps aux | grep sandhi'",
+            "ssh host 'cat /etc/hostname'",
+            "ssh host 'ls -la /tmp/'",
+            "ssh host 'grep -rn error /var/log/syslog'",
+            "ssh host 'ps aux | grep inferflux | grep -v grep'",
+            "ssh -p 22 host 'uptime'",
+            "ssh -o StrictHostKeyChecking=no host 'df -h'",
+            "ssh host 'free -h && df -h /'",
+            "ssh host 'cat /etc/sandhi/streaming-v0.14.0.json'",
+            "ssh host 'tail -50 ~/.victor/logs/victor.log'",
+            "ssh host 'wc -l /var/log/syslog'",
+            # user@host forms
+            "ssh user@host 'ps aux'",
+            "ssh vsingh@aiserver1 'cat /etc/hostname'",
+            # multiple -o flags + user@host + quoted command
+            "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@host 'ps aux | grep sandhi'",
+            "ssh -o opt1 -o opt2 user@host 'uptime'",
+            # boolean flags mixed with value flags
+            "ssh -t -o opt host 'df -h'",
+            "ssh -tt host 'ls -la /tmp/'",
+            "ssh -v -o opt user@host 'cat /etc/hostname'",
+        ],
+    )
+    def test_ssh_readonly_remote_commands_allowed(self, cmd):
+        assert self._valid(cmd) is True
+
+    # --- SSH: mutating remote commands ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh host 'rm -rf /tmp/foo'",
+            "ssh host 'echo hello > /tmp/file'",
+            "ssh host 'systemctl restart nginx'",
+            "ssh host 'apt-get install foo'",
+            "ssh host 'kill -9 1234'",
+        ],
+    )
+    def test_ssh_mutating_remote_commands_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- SSH: no command (interactive session) ---
+
+    def test_ssh_interactive_session_rejected(self):
+        assert self._valid("ssh host") is False
+        assert self._valid("ssh vsingh@aiserver1") is False
+
+    # --- SCP: direction-based ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "scp host:/remote/file.txt ./local/",
+            "scp vsingh@aiserver1:/tmp/diag.sh ./",
+            "scp -P 22 host:/remote/file.txt ./local/",
+            "scp -r host:/remote/dir ./local/",
+        ],
+    )
+    def test_scp_pull_readonly(self, cmd):
+        assert self._valid(cmd) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "scp ./file.txt host:/remote/path",
+            "scp ./diag.sh vsingh@aiserver1:/tmp/",
+            "scp -r ./dir host:/remote/path",
+        ],
+    )
+    def test_scp_push_not_readonly(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- rsync: direction-based ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "rsync host:/src/ ./dst/",
+            "rsync vsingh@aiserver1:/tmp/data ./local/",
+        ],
+    )
+    def test_rsync_pull_readonly(self, cmd):
+        assert self._valid(cmd) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "rsync ./src/ host:/dst/",
+            "rsync ./data vsingh@aiserver1:/tmp/",
+        ],
+    )
+    def test_rsync_push_not_readonly(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- Compound: ssh in chains ---
+
+    def test_ssh_readonly_in_chain_allowed(self):
+        assert self._valid("ssh host 'ps aux' && cat output.txt") is True
+
+    def test_ssh_mutating_in_chain_rejected(self):
+        assert self._valid("ssh host 'rm -rf /' && cat output.txt") is False

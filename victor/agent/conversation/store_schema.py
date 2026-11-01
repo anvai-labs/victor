@@ -200,6 +200,10 @@ class ConversationStoreSchema:
                 self.migrate_sessions_table(conn)
                 conn.commit()
 
+            # Migrate FK from ui_session → sessions (idempotent, checks actual FK state)
+            self.migrate_fk_to_sessions(conn)
+            conn.commit()
+
             self.ensure_critical_tables(conn)
             conn.commit()
 
@@ -345,27 +349,26 @@ class ConversationStoreSchema:
 
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
                 content,
-                message_id UNINDEXED,
                 session_id UNINDEXED,
                 content='messages',
                 content_rowid='rowid'
             );
 
             CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
-                INSERT INTO messages_fts(rowid, content, message_id, session_id)
-                VALUES (NEW.rowid, NEW.content, NEW.id, NEW.session_id);
+                INSERT INTO messages_fts(rowid, content, session_id)
+                VALUES (NEW.rowid, NEW.content, NEW.session_id);
             END;
 
             CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
-                INSERT INTO messages_fts(messages_fts, rowid, content, message_id, session_id)
-                VALUES ('delete', OLD.rowid, OLD.content, OLD.id, OLD.session_id);
+                INSERT INTO messages_fts(messages_fts, rowid, content, session_id)
+                VALUES ('delete', OLD.rowid, OLD.content, OLD.session_id);
             END;
 
             CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
-                INSERT INTO messages_fts(messages_fts, rowid, content, message_id, session_id)
-                VALUES ('delete', OLD.rowid, OLD.content, OLD.id, OLD.session_id);
-                INSERT INTO messages_fts(rowid, content, message_id, session_id)
-                VALUES (NEW.rowid, NEW.content, NEW.id, NEW.session_id);
+                INSERT INTO messages_fts(messages_fts, rowid, content, session_id)
+                VALUES ('delete', OLD.rowid, OLD.content, OLD.session_id);
+                INSERT INTO messages_fts(rowid, content, session_id)
+                VALUES (NEW.rowid, NEW.content, NEW.session_id);
             END;
 
             CREATE INDEX IF NOT EXISTS idx_messages_tool_results
@@ -768,6 +771,141 @@ class ConversationStoreSchema:
 
         if columns_added:
             logger.info(f"Migrated sessions table: added columns {columns_added}")
+
+    def migrate_fk_to_sessions(self, conn: sqlite3.Connection) -> None:
+        """Migrate messages/compaction_events FK from ui_session to sessions.
+
+        SQLite cannot ALTER FK constraints, so we recreate the tables.
+        After migration, ui_session is dropped (it was a duplicate of sessions).
+        Idempotent: safe to re-run if interrupted mid-migration.
+        """
+        # Check if messages FK still references ui_session
+        fk_info = conn.execute(
+            "PRAGMA foreign_key_list(messages)"
+        ).fetchall()
+        references_ui_session = any(
+            row[2] == "ui_session" for row in fk_info
+        )
+
+        # Also check for leftover temp tables from a previous interrupted run
+        has_messages_old = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='messages_old'"
+        ).fetchone() is not None
+
+        if not references_ui_session and not has_messages_old:
+            return  # Already migrated or fresh schema
+
+        logger.info("Migrating messages/compaction_events FK: ui_session → sessions")
+
+        # Disable FK checks during recreation
+        conn.execute("PRAGMA foreign_keys = OFF")
+
+        # --- messages ---
+        # If messages_old exists from a prior interrupted run, drop the
+        # (possibly empty) new messages and rename old back first.
+        if has_messages_old:
+            conn.execute("DROP TABLE IF EXISTS messages")
+            conn.execute("ALTER TABLE messages_old RENAME TO messages")
+
+        conn.execute("ALTER TABLE messages RENAME TO messages_old")
+        conn.executescript("""
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TIMESTAMP NOT NULL,
+                token_count INTEGER NOT NULL,
+                priority INTEGER NOT NULL,
+                tool_name TEXT,
+                tool_call_id TEXT,
+                metadata TEXT,
+                metadata_json TEXT DEFAULT '{}',
+                agent_id TEXT,
+                parent_session_id TEXT,
+                team_id TEXT,
+                member_id TEXT,
+                plan_id TEXT,
+                plan_step_id TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+        """)
+        # Explicit column list to handle schema drift between old and new
+        conn.execute("""
+            INSERT OR IGNORE INTO messages
+                (id, session_id, role, content, timestamp, token_count, priority,
+                 tool_name, tool_call_id, metadata, agent_id,
+                 parent_session_id, team_id, member_id, plan_id, plan_step_id)
+            SELECT id, session_id, role, content, timestamp, token_count, priority,
+                 tool_name, tool_call_id, metadata, agent_id,
+                   parent_session_id, team_id, member_id, plan_id, plan_step_id
+            FROM messages_old
+            WHERE session_id IN (SELECT session_id FROM sessions)
+        """)
+        conn.execute("DROP TABLE messages_old")
+
+        # --- compaction_events ---
+        has_ce_old = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='compaction_events_old'"
+        ).fetchone() is not None
+        if has_ce_old:
+            conn.execute("DROP TABLE IF EXISTS compaction_events")
+            conn.execute("ALTER TABLE compaction_events_old RENAME TO compaction_events")
+
+        conn.execute("ALTER TABLE compaction_events RENAME TO compaction_events_old")
+        conn.executescript("""
+            CREATE TABLE compaction_events (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                agent_id TEXT,
+                parent_session_id TEXT,
+                team_id TEXT,
+                member_id TEXT,
+                plan_id TEXT,
+                plan_step_id TEXT,
+                strategy TEXT NOT NULL,
+                messages_removed INTEGER DEFAULT 0,
+                tokens_freed INTEGER DEFAULT 0,
+                summary TEXT,
+                created_at TIMESTAMP NOT NULL,
+                metadata TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO compaction_events
+            SELECT * FROM compaction_events_old
+            WHERE session_id IN (SELECT session_id FROM sessions)
+        """)
+        conn.execute("DROP TABLE compaction_events_old")
+
+        # Rebuild indexes
+        conn.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_messages_session_time
+                ON messages(session_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_messages_priority
+                ON messages(session_id, priority DESC);
+            CREATE INDEX IF NOT EXISTS idx_messages_tool_results
+                ON messages(session_id, role, tool_name, timestamp DESC)
+                WHERE role IN ('tool_call', 'tool');
+            CREATE INDEX IF NOT EXISTS idx_messages_exchange
+                ON messages(session_id, role, timestamp)
+                WHERE role IN ('user', 'assistant');
+            CREATE INDEX IF NOT EXISTS idx_compaction_events_session_agent_time
+                ON compaction_events(session_id, agent_id, created_at DESC);
+        """)
+
+        # Drop ui_session — duplicate of sessions, only needed for the old FK
+        try:
+            conn.execute("DROP TABLE IF EXISTS ui_session")
+            logger.info("Dropped duplicate ui_session table")
+        except sqlite3.OperationalError as e:
+            logger.debug("ui_session drop skipped: %s", e)
+
+        conn.execute("PRAGMA foreign_keys = ON")
+        logger.info("FK migration complete: messages/compaction_events → sessions")
 
     def get_or_create_provider_id(
         self, conn: sqlite3.Connection, provider: Optional[str]

@@ -1205,8 +1205,8 @@ class Schema:
             cls.AGENT_CURRICULUM_STAGE,
             cls.AGENT_CURRICULUM_METRIC,
             cls.AGENT_POLICY_SNAPSHOT,
-            # UI
-            cls.UI_SESSION,
+            # UI — ui_session removed (was duplicate of sessions; FK migration
+            # moves messages/compaction_events to reference sessions directly)
             cls.UI_FAILED_CALL,
         ]
 
@@ -1217,7 +1217,7 @@ class Schema:
             cls.RL_OUTCOME_INDEXES,
             cls.RL_Q_VALUE_INDEXES,
             cls.RL_TRANSITION_INDEXES,
-            cls.UI_SESSION_INDEXES,
+            # UI_SESSION_INDEXES removed — ui_session table dropped
             cls.UI_FAILED_CALL_INDEXES,
             # FEP-0012 decision-learning indexes
             cls.DECISION_LOG_INDEXES,
@@ -1242,9 +1242,8 @@ class Schema:
             cls.MODE_Q_VALUE,
             cls.MODE_TASK_STAT,
             cls.MODE_TRANSITION_HISTORY,
-            # Profile learning
-            cls.PROFILE_INTERACTION,
-            cls.PROFILE_METRIC,
+            # Profile learning — interaction_history and profile_metrics removed
+            # (0 rows, no INSERT code; can be re-added when profile learning is active)
             # Changes
             cls.CHANGES_GROUP,
             cls.CHANGES_FILE,
@@ -1262,7 +1261,7 @@ class Schema:
             cls.GRAPH_INDEXES,
             cls.GRAPH_MODULE_METRIC_INDEXES,
             cls.MODE_INDEXES,
-            cls.PROFILE_INDEXES,
+            # PROFILE_INDEXES removed — interaction_history/profile_metrics dropped
             cls.CHANGES_INDEXES,
             cls.LOCAL_CLASSIFIER_DELTA_INDEXES,
         ]

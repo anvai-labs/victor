@@ -637,6 +637,11 @@ _SHELL_SAFE_BUILTINS = frozenset(
 )
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
+# Remote-exec commands that need payload/direction analysis for readonly mode.
+# These are NOT in READONLY_COMMANDS_UNIX — they require special handling because
+# their readonly-ness depends on what they do remotely, not the command name alone.
+_REMOTE_EXEC_COMMANDS: Set[str] = {"ssh", "scp", "rsync"}
+
 
 def _scan_substitutions(text: str) -> "tuple[List[str], str]":
     """Quote-aware scan for command substitutions.
@@ -772,6 +777,158 @@ def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
     return _validate_single_readonly_command(sanitized.strip())
 
 
+def _validate_remote_exec_readonly(
+    cmd: str, base_cmd: str
+) -> tuple[bool, str]:
+    """Validate remote-exec commands (ssh, scp, rsync) for readonly mode.
+
+    ssh: extract the remote command and validate it recursively.
+    scp/rsync: check direction — pull (remote→local) is readonly, push is not.
+    """
+    try:
+        tokens = shlex.split(cmd.strip())
+    except ValueError:
+        tokens = cmd.strip().split()
+
+    if not tokens:
+        return False, base_cmd
+
+    if base_cmd == "ssh":
+        return _validate_ssh_readonly(tokens)
+    elif base_cmd == "scp":
+        return _validate_scp_readonly(tokens)
+    elif base_cmd == "rsync":
+        return _validate_rsync_readonly(tokens)
+
+    return False, base_cmd
+
+
+def _validate_ssh_readonly(tokens: list[str]) -> tuple[bool, str]:
+    """Validate ssh command: extract remote command and validate recursively.
+
+    Parses ssh's argument syntax to find the host, then treats everything
+    after the host as the remote command.  Handles:
+      - Value flags: -p, -o, -l, -i, -F, -J, -W, -L, -R, -D, -E, -S, -M, -m, -c, -w
+      - Boolean flags: -t, -T, -N, -f, -q, -v, -4, -6, -A, -a, -C, -g, -K, -k, -X, -x, -Y, -y
+      - Combined short flags: -tt, -vv, -46K etc.
+    """
+    # Flags that consume the next token as their value argument.
+    _SSH_VALUE_FLAGS = frozenset({
+        "-p", "-o", "-l", "-i", "-F", "-J", "-W",
+        "-L", "-R", "-D", "-E", "-S", "-M", "-m", "-c", "-w",
+    })
+
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if not tok.startswith("-"):
+            # First non-flag token is the host; everything after is the command.
+            i += 1
+            break
+        # Combined short flags like -tt or -vv: each char is a boolean flag
+        # unless the first char is a value flag (e.g. -p22 is unusual but
+        # -p 22 is standard).  For combined flags, treat the whole token as
+        # boolean and move on.
+        if len(tok) > 2 and tok[0] == "-" and tok[1] != "-":
+            # Combined flags (-tt, -vv, -46K): all boolean, skip as one token.
+            i += 1
+            continue
+        if tok in _SSH_VALUE_FLAGS:
+            i += 2  # skip flag + its value
+        else:
+            i += 1  # boolean flag
+
+    if i >= len(tokens):
+        # No host or no remote command
+        return False, "ssh (interactive session)" if i == len(tokens) else "ssh (no host)"
+
+    # If we stopped at exactly the host (nothing after it), it's interactive.
+    if i == len(tokens):
+        return False, "ssh (interactive session)"
+
+    # Reconstruct the remote command from remaining tokens and validate it
+    # recursively through the full readonly pipeline.
+    remote_cmd = " ".join(tokens[i:])
+    valid, failing = _validate_readonly_command(remote_cmd)
+    if not valid:
+        return False, f"ssh remote: {failing}"
+    return True, ""
+
+
+def _validate_scp_readonly(tokens: list[str]) -> tuple[bool, str]:
+    """Validate scp: pull (remote:file → local) is readonly, push is not."""
+    # scp [-flags] source destination
+    # Remote paths contain ':' (e.g., host:/path or user@host:/path)
+    positional = [t for t in tokens[1:] if not t.startswith("-")]
+    # Skip flag values for -P (port)
+    filtered = []
+    skip_next = False
+    for t in tokens[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if t in ("-P",):
+            skip_next = True
+            continue
+        if not t.startswith("-"):
+            filtered.append(t)
+
+    if len(filtered) < 2:
+        return False, "scp (insufficient arguments)"
+
+    source = filtered[-2]
+    dest = filtered[-1]
+
+    source_is_remote = ":" in source
+    dest_is_remote = ":" in dest
+
+    if source_is_remote and not dest_is_remote:
+        # Pull: remote → local = readonly
+        return True, ""
+    elif dest_is_remote and not source_is_remote:
+        # Push: local → remote = NOT readonly
+        return False, "scp (push to remote)"
+    else:
+        # Both remote or both local — ambiguous/unusual
+        return False, "scp (ambiguous direction)"
+
+
+def _validate_rsync_readonly(tokens: list[str]) -> tuple[bool, str]:
+    """Validate rsync: pull (remote:src → local) is readonly, push is not."""
+    # rsync [-flags] source destination
+    # Remote paths contain ':' (e.g., host:/path)
+    filtered = []
+    skip_next = False
+    for t in tokens[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        # rsync flags with values
+        if t in ("-e", "--rsh", "--port", "--user", "--group"):
+            skip_next = True
+            continue
+        if t.startswith("--") and "=" in t:
+            continue
+        if not t.startswith("-"):
+            filtered.append(t)
+
+    if len(filtered) < 2:
+        return False, "rsync (insufficient arguments)"
+
+    source = filtered[-2]
+    dest = filtered[-1]
+
+    source_is_remote = ":" in source
+    dest_is_remote = ":" in dest
+
+    if source_is_remote and not dest_is_remote:
+        return True, ""
+    elif dest_is_remote and not source_is_remote:
+        return False, "rsync (push to remote)"
+    else:
+        return False, "rsync (ambiguous direction)"
+
+
 def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     """Validate a single (already split, substitution-free) shell command."""
     # Strip leading control-flow keywords, loop headers, and assignments. What
@@ -792,6 +949,11 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     # binaries in the allowlist; accept them past the allowlist gate but still
     # apply the redirect / pipe-to-shell checks below (so `echo x > f` is caught).
     if base_cmd not in readonly_commands and base_cmd not in _SHELL_SAFE_BUILTINS:
+        # Remote-exec commands (ssh, scp, rsync) need payload/direction analysis
+        # rather than a blanket reject. The readonly-ness depends on what the
+        # remote command does (ssh) or the transfer direction (scp/rsync).
+        if base_cmd in _REMOTE_EXEC_COMMANDS:
+            return _validate_remote_exec_readonly(cmd, base_cmd)
         return False, base_cmd
 
     # Allow bare --version / --help / -V / -h for any command (they're always readonly)

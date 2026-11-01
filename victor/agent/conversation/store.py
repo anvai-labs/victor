@@ -973,6 +973,7 @@ class ConversationStore:
                     1 if session.is_reasoning else 0,
                 ),
             )
+
             if "provider" in session_columns:
                 conn.execute(
                     "UPDATE sessions SET provider = ? WHERE session_id = ?",

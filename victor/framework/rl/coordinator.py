@@ -539,6 +539,7 @@ class RLCoordinator:
         # global settings default).
         self._session_provider: Optional[str] = None
         self._session_model: Optional[str] = None
+        self._session_base_url: str = ""
 
         # Async writer queue for non-blocking outcome recording
         self._writer_queue: Optional[AsyncWriterQueue] = None
@@ -687,15 +688,41 @@ class RLCoordinator:
         except Exception as e:
             logger.debug("RL: Phase 1 migration skipped: %s", e)
 
-    def set_session_provider(self, provider: str, model: str) -> None:
+    def set_session_provider(self, provider: str, model: str, base_url: str = "") -> None:
         """Set the session-scoped provider/model for GEPA reflection.
 
         Called by the orchestrator on init so GEPA uses the ACTUAL session
         provider (e.g., zai/glm-5.2 from -p zai-coding), not the global
         settings default (which may be ollama on a dev machine).
+
+        If the prompt_optimizer learner was already created (GEPA init races
+        ahead of this call during orchestrator __init__), propagate the
+        base_url immediately so cached GEPA services are invalidated and
+        rebuilt with the correct endpoint.
         """
         self._session_provider = provider
         self._session_model = model
+        self._session_base_url = base_url
+
+        # Fix GEPA timing bug: if the prompt_optimizer was already created
+        # with an empty base_url, update it now with the real endpoint.
+        learner = self._learners.get("prompt_optimizer")
+        if learner is not None and hasattr(learner, "set_main_model_spec"):
+            try:
+                learner.set_main_model_spec(
+                    provider=provider,
+                    model=model,
+                    base_url=base_url,
+                )
+                logger.debug(
+                    "GEPA main model spec updated via set_session_provider: "
+                    "%s/%s base_url=%s",
+                    provider,
+                    model,
+                    base_url or "default",
+                )
+            except Exception as exc:
+                logger.debug("Failed to update GEPA main model spec: %s", exc)
 
     def set_repo_context(self, repo_id: Optional[str]) -> None:
         """Set current repo context for outcome isolation.
@@ -1050,6 +1077,7 @@ class RLCoordinator:
                                     provider=str(main_provider),
                                     model=str(main_model),
                                     timeout_s=120.0 if _local else 60.0,
+                                    base_url=self._session_base_url or "",
                                 )
 
                         tier_mgr = GEPATierManager(gepa_cfg, main_model_spec=main_model_spec)

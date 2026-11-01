@@ -209,3 +209,102 @@ class TestGEPAStrategyAdapter:
         assert categorize_tool("execute_bash") == "execution"
         assert categorize_tool("graph") == "analysis"
         assert categorize_tool("unknown_tool") == "general"
+
+
+class TestGEPATierManagerBaseUrl:
+    """Tests for GEPA base_url inheritance from session profile."""
+
+    def test_gepa_model_spec_carries_base_url(self):
+        """GEPAModelSpec preserves base_url for provider instantiation."""
+        from victor.config.gepa_settings import GEPAModelSpec
+
+        spec = GEPAModelSpec(
+            provider="inferflux",
+            model="qwen3-coder-30b",
+            base_url="https://aiserver1:18788/v1",
+        )
+        assert spec.base_url == "https://aiserver1:18788/v1"
+        assert spec.provider == "inferflux"
+        assert spec.model == "qwen3-coder-30b"
+
+    def test_gepa_model_spec_default_base_url_empty(self):
+        """GEPAModelSpec defaults base_url to empty string."""
+        from victor.config.gepa_settings import GEPAModelSpec
+
+        spec = GEPAModelSpec(provider="ollama", model="qwen3:8b")
+        assert spec.base_url == ""
+
+    def test_tier_manager_get_service_passes_base_url(self):
+        """get_service passes base_url from main_model_spec to provider build."""
+        from unittest.mock import patch, MagicMock
+
+        from victor.config.gepa_settings import GEPAModelSpec
+
+        config = GEPASettings()
+        spec = GEPAModelSpec(
+            provider="inferflux",
+            model="qwen3-coder-30b",
+            base_url="https://aiserver1:18788/v1",
+            timeout_s=60.0,
+        )
+        mgr = GEPATierManager(config, main_model_spec=spec)
+
+        mock_provider = MagicMock()
+        with patch.object(mgr, "_build_provider", return_value=mock_provider) as mock_build:
+            service = mgr.get_service()
+
+        mock_build.assert_called_once_with("inferflux", "https://aiserver1:18788/v1")
+        assert service is not None
+        assert service._model == "qwen3-coder-30b"
+
+    def test_coordinator_set_session_provider_stores_base_url(self):
+        """set_session_provider stores base_url and forwards it to GEPAModelSpec."""
+        from victor.framework.rl.coordinator import get_rl_coordinator
+
+        coordinator = get_rl_coordinator()
+        coordinator.set_session_provider(
+            "inferflux", "qwen3-coder-30b", base_url="https://aiserver1:18788/v1"
+        )
+        assert coordinator._session_provider == "inferflux"
+        assert coordinator._session_model == "qwen3-coder-30b"
+        assert coordinator._session_base_url == "https://aiserver1:18788/v1"
+
+    def test_coordinator_set_session_provider_default_base_url_empty(self):
+        """set_session_provider defaults base_url to empty string when not provided."""
+        from victor.framework.rl.coordinator import get_rl_coordinator
+
+        coordinator = get_rl_coordinator()
+        coordinator.set_session_provider("ollama", "qwen3:8b")
+        assert coordinator._session_base_url == ""
+
+    def test_coordinator_set_session_provider_updates_gepa_after_init(self):
+        """When GEPA already initialized with empty base_url, set_session_provider
+        propagates the correct base_url to the tier manager and clears cached services.
+
+        This is the timing bug: GEPA init runs during orchestrator __init__ (before
+        set_session_provider is called), so the GEPAModelSpec starts with base_url=''.
+        After set_session_provider, the spec must be updated with the real base_url.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from victor.framework.rl.coordinator import get_rl_coordinator
+
+        coordinator = get_rl_coordinator()
+
+        # Simulate GEPA having already initialized with empty base_url
+        mock_learner = MagicMock()
+        coordinator._learners["prompt_optimizer"] = mock_learner
+
+        # Call set_session_provider with the real base_url
+        coordinator.set_session_provider(
+            "inferflux",
+            "qwen3-coder-30b",
+            base_url="https://aiserver1:18788/v1",
+        )
+
+        # The learner's set_main_model_spec should have been called with base_url
+        mock_learner.set_main_model_spec.assert_called_once_with(
+            provider="inferflux",
+            model="qwen3-coder-30b",
+            base_url="https://aiserver1:18788/v1",
+        )
