@@ -39,8 +39,9 @@ class TestUnifiedAgentConfig:
 
         assert config.mode == "foreground"
         assert config.provider == "anthropic"
-        assert config.tool_budget == 50
-        assert config.max_iterations == 25
+        # 5x'd stamina budgets (#1637): defaults 50/25 -> 250/125
+        assert config.tool_budget == 250
+        assert config.max_iterations == 125
 
     def test_foreground_factory_method(self):
         """Test foreground() factory method."""
@@ -85,8 +86,9 @@ class TestUnifiedAgentConfig:
         """Test minimal() preset."""
         config = UnifiedAgentConfig.minimal()
 
-        assert config.tool_budget == 15
-        assert config.max_iterations == 10
+        # 5x'd stamina budgets (#1637): minimal 15/10 -> 75/50
+        assert config.tool_budget == 75
+        assert config.max_iterations == 50
         assert config.enable_semantic_search is False
         assert config.enable_analytics is False
         assert config.enable_tool_cache is False
@@ -95,8 +97,9 @@ class TestUnifiedAgentConfig:
         """Test high_budget() preset."""
         config = UnifiedAgentConfig.high_budget()
 
-        assert config.tool_budget == 200
-        assert config.max_iterations == 100
+        # 5x'd stamina budgets (#1637): high_budget 200/100 -> 1000/500
+        assert config.tool_budget == 1000
+        assert config.max_iterations == 500
         assert config.max_concurrent_tools == 10
         assert config.enable_semantic_search is True
 
