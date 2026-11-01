@@ -304,30 +304,7 @@ class OllamaProvider(BaseProvider):
         Set OLLAMA_ENDPOINTS="http://<your-server>:11434,http://localhost:11434"
         to prioritize LAN servers.
         """
-        import os
-
-        candidates: List[str] = []
-
-        # Check environment variable first
-        env_endpoints = os.environ.get("OLLAMA_ENDPOINTS", "")
-        if env_endpoints:
-            candidates = [u.strip() for u in env_endpoints.split(",") if u.strip()]
-
-        if base_url is None:
-            base_url = "http://localhost:11434"
-
-        # Only process base_url if no env var candidates
-        if not candidates:
-            if isinstance(base_url, (list, tuple)):
-                candidates = [str(u).strip() for u in base_url if str(u).strip()]
-            elif isinstance(base_url, str):
-                if "," in base_url:
-                    candidates = [u.strip() for u in base_url.split(",") if u.strip()]
-                else:
-                    candidates = [base_url]
-            else:
-                candidates = [str(base_url)]
-
+        candidates, base_url = self._resolve_ollama_candidates(base_url)
         for url in candidates:
             try:
                 with httpx.Client(base_url=url, timeout=httpx.Timeout(2)) as client:
@@ -359,30 +336,7 @@ class OllamaProvider(BaseProvider):
         Set OLLAMA_ENDPOINTS="http://<your-server>:11434,http://localhost:11434"
         to prioritize LAN servers.
         """
-        import os
-
-        candidates: List[str] = []
-
-        # Check environment variable first
-        env_endpoints = os.environ.get("OLLAMA_ENDPOINTS", "")
-        if env_endpoints:
-            candidates = [u.strip() for u in env_endpoints.split(",") if u.strip()]
-
-        if base_url is None:
-            base_url = "http://localhost:11434"
-
-        # Only process base_url if no env var candidates
-        if not candidates:
-            if isinstance(base_url, (list, tuple)):
-                candidates = [str(u).strip() for u in base_url if str(u).strip()]
-            elif isinstance(base_url, str):
-                if "," in base_url:
-                    candidates = [u.strip() for u in base_url.split(",") if u.strip()]
-                else:
-                    candidates = [base_url]
-            else:
-                candidates = [str(base_url)]
-
+        candidates, base_url = self._resolve_ollama_candidates(base_url)
         # Use module logger since this is a classmethod
         from victor.providers.logging import logger as provider_logger
 

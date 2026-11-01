@@ -13,7 +13,46 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
-class WorkflowExecutionContextModel(BaseModel):
+class _ExpandedDataMixin:
+    """Dict-like interface that expands the ``data`` field at top level.
+
+    Shared by WorkflowExecutionContextModel and WorkflowStateModel to avoid
+    duplicating keys/items/values across both classes.
+    """
+
+    def to_dict(self) -> dict:
+        raise NotImplementedError
+
+    def keys(self) -> list:
+        """Return list of keys (dict-like interface)."""
+        dict_repr = self.to_dict()
+        keys = list(dict_repr.keys())
+        if hasattr(self, "data"):
+            keys.remove("data")
+            keys.extend(self.data.keys())
+        return keys
+
+    def items(self) -> list:
+        """Return list of (key, value) tuples (dict-like interface)."""
+        dict_repr = self.to_dict()
+        items = list(dict_repr.items())
+        if hasattr(self, "data") and "data" in dict_repr:
+            items = [kv for kv in items if kv[0] != "data"]
+            items.extend(self.data.items())
+        return items
+
+    def values(self) -> list:
+        """Return list of values (dict-like interface)."""
+        dict_repr = self.to_dict()
+        if hasattr(self, "data") and "data" in dict_repr:
+            values = [v for k, v in dict_repr.items() if k != "data"]
+            values.extend(self.data.values())
+        else:
+            values = list(dict_repr.values())
+        return values
+
+
+class WorkflowExecutionContextModel(_ExpandedDataMixin, BaseModel):
     """Unified execution context for all workflow runtimes (Pydantic v2).
 
     This model replaces the WorkflowExecutionContext TypedDict with:
@@ -206,39 +245,6 @@ class WorkflowExecutionContextModel(BaseModel):
         dict_repr = self.to_dict()
         return dict_repr.get(dict_key, default)
 
-    def keys(self) -> list:
-        """Return list of keys (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        keys = list(dict_repr.keys())
-        if hasattr(self, "data"):
-            # Remove "data" key and add its contents at top level
-            keys.remove("data")
-            keys.extend(self.data.keys())
-        return keys
-
-    def items(self) -> list:
-        """Return list of (key, value) tuples (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        items = list(dict_repr.items())
-        if hasattr(self, "data") and "data" in dict_repr:
-            # Remove "data" entry and add its contents at top level
-            items = [kv for kv in items if kv[0] != "data"]
-            items.extend(self.data.items())
-        return items
-
-    def values(self) -> list:
-        """Return list of values (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        values = list(dict_repr.values())
-        if hasattr(self, "data") and "data" in dict_repr:
-            # Remove "data" value and add its contents at top level
-            values = [v for k, v in dict_repr.items() if k != "data"]
-            values.extend(self.data.values())
-        return values
-
     def __getitem__(self, key: str) -> Any:
         """Get item by key (dict-like subscript access)."""
         return self.get(key)
@@ -258,7 +264,7 @@ class WorkflowExecutionContextModel(BaseModel):
                 self.data[key] = value
 
 
-class WorkflowStateModel(BaseModel):
+class WorkflowStateModel(_ExpandedDataMixin, BaseModel):
     """Generic state for compiled workflow execution (Pydantic v2).
 
     Simpler model for compiled workflow execution without all the
@@ -365,39 +371,6 @@ class WorkflowStateModel(BaseModel):
         dict_key = f"_{key}" if not key.startswith("_") else key
         dict_repr = self.to_dict()
         return dict_repr.get(dict_key, default)
-
-    def keys(self) -> list:
-        """Return list of keys (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        keys = list(dict_repr.keys())
-        if hasattr(self, "data"):
-            # Remove "data" key and add its contents at top level
-            keys.remove("data")
-            keys.extend(self.data.keys())
-        return keys
-
-    def items(self) -> list:
-        """Return list of (key, value) tuples (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        items = list(dict_repr.items())
-        if hasattr(self, "data") and "data" in dict_repr:
-            # Remove "data" entry and add its contents at top level
-            items = [kv for kv in items if kv[0] != "data"]
-            items.extend(self.data.items())
-        return items
-
-    def values(self) -> list:
-        """Return list of values (dict-like interface)."""
-        dict_repr = self.to_dict()
-        # Include data field contents at top level
-        values = list(dict_repr.values())
-        if hasattr(self, "data") and "data" in dict_repr:
-            # Remove "data" value and add its contents at top level
-            values = [v for k, v in dict_repr.items() if k != "data"]
-            values.extend(self.data.values())
-        return values
 
 
 __all__ = [

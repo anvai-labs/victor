@@ -65,6 +65,20 @@ def _topology_metric_aggregations(weighted_metadata_average):
     return {key: weighted_metadata_average(key) for key in _TOPOLOGY_METRIC_KEYS}
 
 
+_DEGRADATION_DISTRIBUTION_KEYS = (
+    "degradation_sources",
+    "degradation_kinds",
+    "degradation_failure_types",
+    "degradation_providers",
+    "degradation_reasons",
+)
+
+
+def _degradation_distribution_aggregations(weighted_distribution):
+    """Degradation distribution aggregations (dict form)."""
+    return {key: weighted_distribution(key) for key in _DEGRADATION_DISTRIBUTION_KEYS}
+
+
 AGGREGATED_RUNTIME_FEEDBACK_SOURCE = "validated_evaluation_truth_aggregate"
 SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE = "session_topology_runtime_feedback"
 AGGREGATED_SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE = "session_topology_runtime_feedback_aggregate"
@@ -2261,61 +2275,7 @@ def _aggregate_feedback_payloads(
                 4,
             ),
             **_topology_metric_aggregations(weighted_metadata_average),
-            "degradation_feedback_coverage": weighted_metadata_average(
-                "degradation_feedback_coverage"
-            ),
-            "degradation_event_count": weighted_metadata_average("degradation_event_count"),
-            "degraded_task_count": weighted_metadata_average("degraded_task_count"),
-            "recovered_task_count": weighted_metadata_average("recovered_task_count"),
-            "degradation_recovery_rate": weighted_metadata_average("degradation_recovery_rate"),
-            "avg_degradation_adaptation_cost": weighted_metadata_average(
-                "avg_degradation_adaptation_cost"
-            ),
-            "avg_degradation_time_to_recover_seconds": weighted_metadata_average(
-                "avg_degradation_time_to_recover_seconds"
-            ),
-            "avg_degradation_cost_variance": weighted_metadata_average(
-                "avg_degradation_cost_variance"
-            ),
-            "avg_degradation_recovery_time_variance": weighted_metadata_average(
-                "avg_degradation_recovery_time_variance"
-            ),
-            "avg_degradation_intervention_count": weighted_metadata_average(
-                "avg_degradation_intervention_count"
-            ),
-            "avg_degradation_confidence": weighted_metadata_average("avg_degradation_confidence"),
-            "avg_degradation_drift_score": weighted_metadata_average("avg_degradation_drift_score"),
-            "content_degradation_task_count": weighted_metadata_average(
-                "content_degradation_task_count"
-            ),
-            "confidence_degradation_task_count": weighted_metadata_average(
-                "confidence_degradation_task_count"
-            ),
-            "provider_degradation_task_count": weighted_metadata_average(
-                "provider_degradation_task_count"
-            ),
-            "persistent_degradation_task_count": weighted_metadata_average(
-                "persistent_degradation_task_count"
-            ),
-            "drift_task_count": weighted_metadata_average("drift_task_count"),
-            "degradation_drift_rate": weighted_metadata_average("degradation_drift_rate"),
-            "degradation_intervention_task_count": weighted_metadata_average(
-                "degradation_intervention_task_count"
-            ),
-            "degradation_intervention_rate": weighted_metadata_average(
-                "degradation_intervention_rate"
-            ),
-            "high_adaptation_cost_task_count": weighted_metadata_average(
-                "high_adaptation_cost_task_count"
-            ),
-            "degradation_high_cost_rate": weighted_metadata_average("degradation_high_cost_rate"),
-            "degradation_confidence_rate": weighted_metadata_average("degradation_confidence_rate"),
-            "degradation_stability_score": weighted_metadata_average("degradation_stability_score"),
-            "degradation_sources": weighted_distribution("degradation_sources"),
-            "degradation_kinds": weighted_distribution("degradation_kinds"),
-            "degradation_failure_types": weighted_distribution("degradation_failure_types"),
-            "degradation_providers": weighted_distribution("degradation_providers"),
-            "degradation_reasons": weighted_distribution("degradation_reasons"),
+            **_degradation_distribution_aggregations(weighted_distribution),
             "optimization_feasible_tasks": weighted_metadata_average("optimization_feasible_tasks"),
             "optimization_infeasible_tasks": weighted_metadata_average(
                 "optimization_infeasible_tasks"
@@ -2546,50 +2506,7 @@ def _aggregate_topology_feedback_metadata(
         "source": AGGREGATED_SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE,
         "topology_feedback_sources": list(dict.fromkeys(sources)),
         **_topology_metric_aggregations(weighted_metadata_average),
-        "avg_degradation_adaptation_cost": weighted_metadata_average(
-            "avg_degradation_adaptation_cost"
-        ),
-        "avg_degradation_time_to_recover_seconds": weighted_metadata_average(
-            "avg_degradation_time_to_recover_seconds"
-        ),
-        "avg_degradation_cost_variance": weighted_metadata_average("avg_degradation_cost_variance"),
-        "avg_degradation_recovery_time_variance": weighted_metadata_average(
-            "avg_degradation_recovery_time_variance"
-        ),
-        "avg_degradation_intervention_count": weighted_metadata_average(
-            "avg_degradation_intervention_count"
-        ),
-        "avg_degradation_confidence": weighted_metadata_average("avg_degradation_confidence"),
-        "avg_degradation_drift_score": weighted_metadata_average("avg_degradation_drift_score"),
-        "content_degradation_task_count": weighted_metadata_average(
-            "content_degradation_task_count"
-        ),
-        "confidence_degradation_task_count": weighted_metadata_average(
-            "confidence_degradation_task_count"
-        ),
-        "provider_degradation_task_count": weighted_metadata_average(
-            "provider_degradation_task_count"
-        ),
-        "persistent_degradation_task_count": weighted_metadata_average(
-            "persistent_degradation_task_count"
-        ),
-        "drift_task_count": weighted_metadata_average("drift_task_count"),
-        "degradation_drift_rate": weighted_metadata_average("degradation_drift_rate"),
-        "degradation_intervention_task_count": weighted_metadata_average(
-            "degradation_intervention_task_count"
-        ),
-        "degradation_intervention_rate": weighted_metadata_average("degradation_intervention_rate"),
-        "high_adaptation_cost_task_count": weighted_metadata_average(
-            "high_adaptation_cost_task_count"
-        ),
-        "degradation_high_cost_rate": weighted_metadata_average("degradation_high_cost_rate"),
-        "degradation_confidence_rate": weighted_metadata_average("degradation_confidence_rate"),
-        "degradation_stability_score": weighted_metadata_average("degradation_stability_score"),
-        "degradation_sources": weighted_distribution("degradation_sources"),
-        "degradation_kinds": weighted_distribution("degradation_kinds"),
-        "degradation_failure_types": weighted_distribution("degradation_failure_types"),
-        "degradation_providers": weighted_distribution("degradation_providers"),
-        "degradation_reasons": weighted_distribution("degradation_reasons"),
+        **_degradation_distribution_aggregations(weighted_distribution),
         "tasks_with_team_feedback": weighted_metadata_average("tasks_with_team_feedback"),
         "team_feedback_coverage": weighted_metadata_average("team_feedback_coverage"),
         "team_formations": weighted_distribution("team_formations"),
