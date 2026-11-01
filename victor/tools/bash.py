@@ -642,6 +642,83 @@ _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # their readonly-ness depends on what they do remotely, not the command name alone.
 _REMOTE_EXEC_COMMANDS: Set[str] = {"ssh", "scp", "rsync"}
 
+# find actions that mutate: -delete removes files, the -fprint family writes
+# named files (bare -print/-ls/-print0 stay stdout-only and readonly).
+_FIND_WRITE_ACTIONS: frozenset = frozenset({"-delete", "-fprint", "-fprintf", "-fprint0", "-fls"})
+# find actions that execute a command per matched file. The wrapped command is
+# validated recursively; {} stays in as an opaque argument, so base-command
+# allowlisting carries the decision.
+_FIND_EXEC_ACTIONS: frozenset = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+# find tests/options that consume exactly one argument — skipping the value
+# keeps a flag-shaped argument (e.g. `find . -name -delete`, matching files
+# NAMED "-delete") from being misread as an action flag.
+_FIND_VALUE_TESTS: frozenset = frozenset(
+    {
+        "-name",
+        "-iname",
+        "-lname",
+        "-ilname",
+        "-path",
+        "-ipath",
+        "-wholename",
+        "-iwholename",
+        "-regex",
+        "-iregex",
+        "-type",
+        "-xtype",
+        "-user",
+        "-group",
+        "-uid",
+        "-gid",
+        "-perm",
+        "-newer",
+        "-anewer",
+        "-cnewer",
+        "-size",
+        "-inum",
+        "-links",
+        "-mtime",
+        "-atime",
+        "-ctime",
+        "-maxdepth",
+        "-mindepth",
+        "-fstype",
+        "-context",
+    }
+)
+
+
+def _validate_find_readonly(tokens: list[str]) -> tuple[bool, str]:
+    """Validate a find invocation's action flags for readonly mode.
+
+    ``-delete`` and the ``-fprint`` family are always rejected; ``-exec`` /
+    ``-execdir`` / ``-ok`` / ``-okdir`` run a command per match, so that
+    command (tokens up to the ``;`` / ``+`` terminator) is validated
+    recursively through the full readonly pipeline.
+    """
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _FIND_WRITE_ACTIONS:
+            return False, f"find {tok}"
+        if tok in _FIND_EXEC_ACTIONS:
+            j = i + 1
+            while j < len(tokens) and tokens[j] not in (";", "+"):
+                j += 1
+            wrapped = tokens[i + 1 : j]
+            if wrapped:
+                valid, failing = _validate_readonly_command(" ".join(wrapped))
+                if not valid:
+                    return False, f"find {tok}: {failing}"
+            # Continue past the terminator: multiple -exec clauses may follow.
+            i = j + 1
+            continue
+        if tok in _FIND_VALUE_TESTS:
+            i += 2  # skip the test plus its argument
+            continue
+        i += 1
+    return True, ""
+
 
 def _scan_substitutions(text: str) -> "tuple[List[str], str]":
     """Quote-aware scan for command substitutions.
@@ -1030,6 +1107,13 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     # containing the text "-i" is not misclassified.
     if base_cmd == "sed" and any(t == "-i" or t.startswith("-i") for t in _tokens[1:]):
         return False, "sed -i"
+
+    # find's action flags can execute (-exec family) or delete/write
+    # (-delete, -fprint*) even though plain find is readonly.
+    if base_cmd == "find":
+        find_valid, find_reason = _validate_find_readonly(_tokens)
+        if not find_valid:
+            return False, find_reason
 
     # Binary evidence inspection for research tasks. These tools can also
     # write files, so readonly mode permits only stdout-oriented forms.

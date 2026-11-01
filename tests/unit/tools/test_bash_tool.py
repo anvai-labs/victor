@@ -627,3 +627,68 @@ class TestReadonlyRemoteExecHardening:
     )
     def test_env_wrapped_readonly_allowed(self, cmd):
         assert self._valid(cmd) is True
+
+
+class TestReadonlyFindActions:
+    """find's action flags: -exec family validated recursively, delete/write
+    actions rejected, plain readonly finds untouched.
+
+    Regression (pre-existing hole): `find . -exec rm {} ;`, `find -delete` and
+    the -fprint family all executed under readonly mode because the allowlist
+    only checked the base command.
+    """
+
+    @staticmethod
+    def _valid(cmd):
+        from victor.tools.bash import _validate_readonly_command
+
+        return _validate_readonly_command(cmd)[0]
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -name x -exec rm {} ;",
+            "find /tmp -delete",
+            "find . -name '*.log' -exec rm {} +",
+            "find . -execdir sh -c 'x' ;",
+            "find . -name x -ok rm {} ;",
+            "find . -exec cp {} /tmp/stolen ;",
+            # unterminated form: the compound splitter consumes `;` first
+            "find . -name x -exec rm {}",
+            # mutating clause after a benign one
+            "find . -name x -exec cat {} ; -delete",
+        ],
+    )
+    def test_find_exec_and_delete_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -fprint /tmp/out",
+            "find . -fprintf /tmp/out '%p'",
+            "find . -fprint0 /tmp/out",
+            "find . -fls /tmp/out",
+        ],
+    )
+    def test_find_file_writing_actions_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -name '*.py'",
+            "find . -type f -name x -print",
+            "find . -maxdepth 2 -ls",
+            # readonly -exec: the wrapped command validates cleanly ({} stays
+            # an opaque argument)
+            "find . -name x -exec cat {} ;",
+            "find . -name x -exec grep foo {} +",
+            # a test VALUE that looks like an action flag is not one
+            "find . -name -delete",
+            "find . -newer ref.txt -print",
+            "find . \\( -name a -o -name b \\) -ls",
+        ],
+    )
+    def test_readonly_find_forms_still_allowed(self, cmd):
+        assert self._valid(cmd) is True
