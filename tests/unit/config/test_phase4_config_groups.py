@@ -11,6 +11,20 @@ import pytest
 from victor.config.groups.recovery_config import RecoverySettings
 from victor.config.groups.analytics_config import AnalyticsSettings
 from victor.config.groups.network_config import NetworkSettings
+from victor.config.code_correction_settings import CodeCorrectionSettings
+
+
+class TestCodeCorrectionSettings:
+    """Tests for CodeCorrectionSettings."""
+
+    def test_default_values(self):
+        """Test that default values are set correctly."""
+        settings = CodeCorrectionSettings()
+
+        assert settings.code_correction_enabled is True
+        assert settings.code_correction_auto_fix is True
+        # 5x'd 2026-10-31: agents run longer autonomous sessions (was 3)
+        assert settings.code_correction_max_iterations == 15
 
 
 class TestRecoverySettings:
@@ -23,7 +37,8 @@ class TestRecoverySettings:
         assert settings.recovery_empty_response_threshold == 5
         assert settings.recovery_blocked_consecutive_threshold == 4
         assert settings.recovery_blocked_total_threshold == 6
-        assert settings.chat_max_iterations == 50
+        assert settings.chat_max_iterations == 250  # 5x'd 2026-10-31 (was 50)
+        # max_consecutive_tool_calls stays 20: stuck-agent guard, intentionally unchanged
         assert settings.max_consecutive_tool_calls == 20
         assert settings.max_continuation_prompts == 3
         assert settings.force_response_on_error is True

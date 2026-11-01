@@ -361,7 +361,7 @@ class TeamMember:
     role: "SubAgentRole"
     name: str
     goal: str
-    tool_budget: int = 15
+    tool_budget: int = 75
     allowed_tools: Optional[List[str]] = None
     agent_category: TeamAgentCategory = TeamAgentCategory.SPECIALIST
     can_delegate: bool = False
@@ -710,8 +710,8 @@ class TeamConfig:
     goal: str
     members: List[TeamMember]
     formation: TeamFormation = TeamFormation.SEQUENTIAL
-    max_iterations: int = 50
-    total_tool_budget: int = 100
+    max_iterations: int = 250  # 5x'd 2026-10-31: agents run longer autonomous sessions
+    total_tool_budget: int = 500
     shared_context: Dict[str, Any] = field(default_factory=dict)
     on_member_complete: Optional[Callable[[str, Any], None]] = None
     allow_dynamic_membership: bool = False

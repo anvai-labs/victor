@@ -1604,7 +1604,10 @@ class Settings(BaseSettings):
         default=True, description="Automatically apply code corrections"
     )
     code_correction_max_iterations: int = Field(
-        default=3, ge=1, description="Maximum correction iterations per file"
+        # 5x'd 2026-10-31: agents run longer autonomous sessions
+        default=15,
+        ge=1,
+        description="Maximum correction iterations per file",
     )
 
     # ==========================================================================

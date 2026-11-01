@@ -596,7 +596,7 @@ class OrchestratorServiceProvider:
         # Get budget settings from settings
         base_tool_calls = getattr(self._settings, "tool_budget", 30)
         base_iterations = getattr(self._settings, "max_iterations", 50)
-        base_exploration = getattr(self._settings, "max_exploration_iterations", 8)
+        base_exploration = getattr(self._settings, "max_exploration_iterations", 40)
         base_action = getattr(self._settings, "max_action_iterations", 12)
 
         config = BudgetConfig(

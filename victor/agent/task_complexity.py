@@ -260,44 +260,46 @@ class ComplexityBudget:
 # BUDGET_LIMITS) is generous exploration bounded by task-completion detection, not by
 # tiny hard caps — so budgets are sourced from BUDGET_LIMITS to prevent re-drift.
 COMPLEXITY_BUDGETS: Dict[TaskComplexity, ComplexityBudget] = {
+    # 5x'd 2026-10-31: agents run longer autonomous sessions (tool budgets derive
+    # from BUDGET_LIMITS, which was 5x'd at the source).
     TaskComplexity.SIMPLE: ComplexityBudget(
-        tool_budget=BUDGET_LIMITS.simple_task,  # 20
-        max_turns=10,
+        tool_budget=BUDGET_LIMITS.simple_task,  # 100
+        max_turns=50,
         max_continuation_requests=4,
         timeout_seconds=120,
         per_tool_timeout_seconds=15,
     ),
     TaskComplexity.MEDIUM: ComplexityBudget(
-        tool_budget=BUDGET_LIMITS.medium_task,  # 50
-        max_turns=20,
+        tool_budget=BUDGET_LIMITS.medium_task,  # 250
+        max_turns=100,
         max_continuation_requests=10,
         timeout_seconds=300,
         per_tool_timeout_seconds=30,
     ),
     TaskComplexity.COMPLEX: ComplexityBudget(
-        tool_budget=BUDGET_LIMITS.complex_task,  # 100
-        max_turns=40,
+        tool_budget=BUDGET_LIMITS.complex_task,  # 500
+        max_turns=200,
         max_continuation_requests=20,
         timeout_seconds=600,
         per_tool_timeout_seconds=60,
     ),
     TaskComplexity.GENERATION: ComplexityBudget(
-        tool_budget=BUDGET_LIMITS.simple_task,  # 20
-        max_turns=10,
+        tool_budget=BUDGET_LIMITS.simple_task,  # 100
+        max_turns=50,
         max_continuation_requests=4,
         timeout_seconds=120,
         per_tool_timeout_seconds=15,
     ),
     TaskComplexity.ACTION: ComplexityBudget(
-        tool_budget=BUDGET_LIMITS.action_task,  # 200
-        max_turns=60,
+        tool_budget=BUDGET_LIMITS.action_task,  # 1000
+        max_turns=300,
         max_continuation_requests=30,
         timeout_seconds=900,
         per_tool_timeout_seconds=60,
     ),
     TaskComplexity.ANALYSIS: ComplexityBudget(
-        tool_budget=BUDGET_LIMITS.analysis_task,  # 500
-        max_turns=80,
+        tool_budget=BUDGET_LIMITS.analysis_task,  # 2500
+        max_turns=400,
         max_continuation_requests=40,
         timeout_seconds=1200,
         per_tool_timeout_seconds=60,

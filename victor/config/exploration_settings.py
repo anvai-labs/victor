@@ -13,14 +13,18 @@ from victor.core.loop_thresholds import (
 
 
 class ExplorationSettings(BaseModel):
-    """Exploration iteration limits, recovery, and continuation prompts."""
+    """Exploration iteration limits, recovery, and continuation prompts.
 
-    max_exploration_iterations: int = 8
-    max_exploration_iterations_action: int = 12
-    max_exploration_iterations_analysis: int = 50
-    chat_max_iterations: int = 50
+    Iteration caps 5x'd 2026-10-31: agents run longer autonomous sessions.
+    Stuck-agent / continuation-prompt guards below are intentionally unchanged.
+    """
+
+    max_exploration_iterations: int = 40
+    max_exploration_iterations_action: int = 60
+    max_exploration_iterations_analysis: int = 250
+    chat_max_iterations: int = 250
     max_consecutive_tool_calls: int = 20
-    max_research_iterations: int = 6
+    max_research_iterations: int = 30
     min_content_threshold: int = 150
     recovery_empty_response_threshold: int = 5
     recovery_blocked_consecutive_threshold: int = DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD

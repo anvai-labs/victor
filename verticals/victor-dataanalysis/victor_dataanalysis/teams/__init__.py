@@ -64,37 +64,37 @@ DATA_ANALYSIS_ROLES: Dict[str, DataAnalysisRoleConfig] = {
     "data_loader": DataAnalysisRoleConfig(
         base_role="researcher",
         tools=["read_file", "bash", "code_search"],
-        tool_budget=15,
+        tool_budget=75,
         description="Loads and validates data from various sources",
     ),
     "data_profiler": DataAnalysisRoleConfig(
         base_role="analyst",
         tools=["bash", "read_file", "write_file"],
-        tool_budget=25,
+        tool_budget=125,
         description="Profiles data and generates summary statistics",
     ),
     "data_cleaner": DataAnalysisRoleConfig(
         base_role="executor",
         tools=["bash", "write_file", "edit_files", "read_file"],
-        tool_budget=30,
+        tool_budget=150,
         description="Cleans and transforms data",
     ),
     "visualizer": DataAnalysisRoleConfig(
         base_role="executor",
         tools=["bash", "write_file", "read_file"],
-        tool_budget=25,
+        tool_budget=125,
         description="Creates charts and visualizations",
     ),
     "statistical_analyst": DataAnalysisRoleConfig(
         base_role="executor",
         tools=["bash", "read_file", "write_file"],
-        tool_budget=35,
+        tool_budget=175,
         description="Runs statistical tests and analyses",
     ),
     "model_trainer": DataAnalysisRoleConfig(
         base_role="executor",
         tools=["bash", "read_file", "write_file"],
-        tool_budget=40,
+        tool_budget=200,
         description="Trains and tunes machine learning models",
     ),
 }
@@ -117,8 +117,8 @@ class DataAnalysisTeamSpec:
     description: str
     formation: TeamFormation
     members: List[TeamMemberSpec]
-    total_tool_budget: int = 100
-    max_iterations: int = 50
+    total_tool_budget: int = 500
+    max_iterations: int = 250
 
 
 # Pre-defined team specifications with rich personas
@@ -132,7 +132,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="researcher",
                 goal="Load data and understand its structure and schema",
                 name="Data Loader",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a data engineer who has worked with every data format imaginable: "
                     "CSV, JSON, Parquet, databases, APIs, and legacy systems. You know the quirks "
@@ -148,7 +148,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="analyst",
                 goal="Generate comprehensive data profiles and summary statistics",
                 name="Data Profiler",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a statistical profiling expert who can summarize any dataset in "
                     "minutes. You compute not just means and medians, but distributions, "
@@ -168,7 +168,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="executor",
                 goal="Create insightful visualizations that reveal patterns",
                 name="Data Visualizer",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a data visualization artist who follows Tufte's principles. You "
                     "create charts that reveal rather than obscure. You choose the right chart "
@@ -183,7 +183,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="writer",
                 goal="Synthesize insights into an EDA report",
                 name="Insight Synthesizer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a data storyteller who turns exploratory analysis into actionable "
                     "insights. You know which findings matter and which are noise. You structure "
@@ -194,7 +194,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 personality="insightful and actionable; focuses on 'so what?'",
             ),
         ],
-        total_tool_budget=80,
+        total_tool_budget=400,
     ),
     "cleaning_team": DataAnalysisTeamSpec(
         name="Data Cleaning Team",
@@ -205,7 +205,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="analyst",
                 goal="Assess data quality issues and document problems",
                 name="Quality Assessor",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a data quality detective who finds every issue. You check for "
                     "missing values, duplicates, inconsistent formats, invalid values, and "
@@ -224,7 +224,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="planner",
                 goal="Design a cleaning strategy that preserves data integrity",
                 name="Cleaning Strategist",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are a data quality strategist who balances thoroughness with pragmatism. "
                     "You prioritize cleaning steps by impact and risk. You know when to impute, "
@@ -243,7 +243,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="executor",
                 goal="Execute cleaning transformations accurately",
                 name="Data Cleaner",
-                tool_budget=30,
+                tool_budget=150,
                 backstory=(
                     "You are a data wrangling expert who writes clean, efficient pandas code. "
                     "You apply transformations systematically, handling edge cases and logging "
@@ -258,7 +258,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="reviewer",
                 goal="Validate that cleaned data meets quality standards",
                 name="Quality Validator",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a quality gatekeeper who ensures cleaning was successful. You run "
                     "validation checks, compare before/after statistics, and verify that no "
@@ -269,7 +269,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 personality="skeptical and careful; doesn't trust without verification",
             ),
         ],
-        total_tool_budget=70,
+        total_tool_budget=350,
     ),
     "statistics_team": DataAnalysisTeamSpec(
         name="Statistical Analysis Team",
@@ -280,7 +280,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="researcher",
                 goal="Formulate hypotheses and design the analysis",
                 name="Research Designer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a research methodologist who designs rigorous statistical studies. "
                     "You translate business questions into testable hypotheses. You choose "
@@ -299,7 +299,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="executor",
                 goal="Prepare data and execute statistical tests",
                 name="Statistical Analyst",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are a statistical analyst who can run any test correctly. You verify "
                     "assumptions before applying tests. You use scipy, statsmodels, and pingouin "
@@ -313,7 +313,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="analyst",
                 goal="Interpret results and assess practical significance",
                 name="Result Interpreter",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a statistical interpreter who bridges numbers and meaning. You "
                     "distinguish between statistical and practical significance. You explain "
@@ -331,7 +331,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="writer",
                 goal="Write a clear statistical report with conclusions",
                 name="Statistical Writer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a statistical writer who makes complex analyses accessible. You "
                     "structure reports with methods, results, and discussion sections. You "
@@ -346,7 +346,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 personality="clear and precise; writes for the target audience",
             ),
         ],
-        total_tool_budget=85,
+        total_tool_budget=425,
     ),
     "ml_team": DataAnalysisTeamSpec(
         name="Machine Learning Team",
@@ -357,7 +357,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="researcher",
                 goal="Define the ML problem and success metrics",
                 name="Problem Definer",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are an ML strategist who ensures we solve the right problem. You "
                     "translate business goals into ML objectives. You define appropriate "
@@ -376,7 +376,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="executor",
                 goal="Engineer predictive features from raw data",
                 name="Feature Engineer",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a feature engineering expert who creates predictive signals. You "
                     "understand domain knowledge and encode it into features. You handle "
@@ -395,7 +395,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="executor",
                 goal="Train, tune, and validate ML models",
                 name="Model Trainer",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are an ML practitioner who trains models that generalize. You use "
                     "proper cross-validation, avoid data leakage, and tune hyperparameters "
@@ -414,7 +414,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="reviewer",
                 goal="Evaluate models fairly and recommend the best one",
                 name="Model Evaluator",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are an ML evaluator who assesses models beyond accuracy. You compute "
                     "multiple metrics, analyze errors, and test for fairness. You validate on "
@@ -425,7 +425,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 personality="critical and fair; judges models by their weaknesses",
             ),
         ],
-        total_tool_budget=90,
+        total_tool_budget=450,
     ),
     "visualization_team": DataAnalysisTeamSpec(
         name="Visualization Team",
@@ -436,7 +436,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="analyst",
                 goal="Identify the key stories that visualizations should tell",
                 name="Story Analyst",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a data story designer who identifies what matters. You understand "
                     "the audience and their questions. You identify the key messages that "
@@ -454,7 +454,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="executor",
                 goal="Create clear, beautiful, and accurate visualizations",
                 name="Visualization Creator",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are a visualization craftsman who creates charts that inform and "
                     "inspire. You follow best practices: clear labels, appropriate scales, "
@@ -468,7 +468,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="reviewer",
                 goal="Ensure visualizations are accurate and effective",
                 name="Visualization Reviewer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a visualization critic who ensures quality. You check that charts "
                     "don't mislead, axes are appropriate, and messages are clear. You test "
@@ -479,7 +479,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 personality="critical and constructive; makes good charts great",
             ),
         ],
-        total_tool_budget=65,
+        total_tool_budget=325,
     ),
     "reporting_team": DataAnalysisTeamSpec(
         name="Reporting Team",
@@ -490,7 +490,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="researcher",
                 goal="Gather and organize analysis outputs",
                 name="Content Gatherer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are an organized analyst who collects and structures all analysis "
                     "outputs. You gather charts, tables, statistics, and insights. You organize "
@@ -508,7 +508,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="writer",
                 goal="Write a compelling analysis report",
                 name="Report Writer",
-                tool_budget=25,
+                tool_budget=125,
                 is_manager=True,  # Coordinates the report
                 backstory=(
                     "You are a technical writer who creates reports that drive decisions. You "
@@ -527,7 +527,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 role="reviewer",
                 goal="Review report for accuracy and clarity",
                 name="Report Reviewer",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are an editor who ensures reports are accurate and clear. You check "
                     "that claims are supported, numbers are correct, and writing is concise. "
@@ -537,7 +537,7 @@ DATA_ANALYSIS_TEAM_SPECS: Dict[str, DataAnalysisTeamSpec] = {
                 personality="meticulous and helpful; makes reports shine",
             ),
         ],
-        total_tool_budget=50,
+        total_tool_budget=250,
     ),
 }
 

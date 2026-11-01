@@ -49,7 +49,7 @@ Usage:
         current_mode="explore",
         task_type="analysis",
         tool_calls_made=5,
-        tool_budget=10,
+        tool_budget=50,
         quality_score=0.7,
     )
 
@@ -489,16 +489,16 @@ class AdaptiveModeController:
     # they were tiny vestigial values (analyze=8, analysis_deep=15) that contradicted
     # the framework-wide generous-exploration policy and could prematurely stop tasks.
     DEFAULT_TOOL_BUDGETS = {
-        "code_generation": BUDGET_LIMITS.simple_task,  # 20
-        "create_simple": BUDGET_LIMITS.simple_task,  # 20
-        "create": BUDGET_LIMITS.medium_task,  # 50
-        "edit": BUDGET_LIMITS.medium_task,  # 50
-        "search": BUDGET_LIMITS.medium_task,  # 50
-        "action": BUDGET_LIMITS.action_task,  # 200
-        "analysis_deep": BUDGET_LIMITS.analysis_task,  # 500
-        "analyze": BUDGET_LIMITS.complex_task,  # 100
-        "design": BUDGET_LIMITS.complex_task,  # 100
-        "general": BUDGET_LIMITS.medium_task,  # 50
+        "code_generation": BUDGET_LIMITS.simple_task,  # 100
+        "create_simple": BUDGET_LIMITS.simple_task,  # 100
+        "create": BUDGET_LIMITS.medium_task,  # 250
+        "edit": BUDGET_LIMITS.medium_task,  # 250
+        "search": BUDGET_LIMITS.medium_task,  # 250
+        "action": BUDGET_LIMITS.action_task,  # 1000
+        "analysis_deep": BUDGET_LIMITS.analysis_task,  # 2500
+        "analyze": BUDGET_LIMITS.complex_task,  # 500
+        "design": BUDGET_LIMITS.complex_task,  # 500
+        "general": BUDGET_LIMITS.medium_task,  # 250
     }
 
     # Provider-aware iteration thresholds for loop detection
@@ -646,7 +646,7 @@ class AdaptiveModeController:
         tool_calls_made: int,
         tool_budget: int,
         iteration_count: int = 0,
-        iteration_budget: int = 20,
+        iteration_budget: int = 100,
         quality_score: float = 0.5,
         grounding_score: float = 0.5,
         time_in_mode_seconds: float = 0.0,

@@ -27,8 +27,8 @@ class TestModeDefinitions:
         assert "migration" in configs
         migration = configs["migration"]
         assert isinstance(migration, ModeConfig)
-        assert migration.tool_budget == 60
-        assert migration.max_iterations == 120
+        assert migration.tool_budget == 300  # 5x'd 2026-10-31
+        assert migration.max_iterations == 600  # 5x'd 2026-10-31 (was 120)
 
     def test_default_mode_is_standard(self, provider):
         assert provider.get_default_mode() == "standard"
@@ -36,15 +36,15 @@ class TestModeDefinitions:
 
 class TestTaskBudgets:
     def test_known_task_budgets(self, provider):
-        assert provider.get_tool_budget_for_task("dockerfile_simple") == 5
-        assert provider.get_tool_budget_for_task("terraform_full") == 40
-        assert provider.get_tool_budget_for_task("kubernetes_helm") == 25
+        assert provider.get_tool_budget_for_task("dockerfile_simple") == 25  # 5x'd 2026-10-31
+        assert provider.get_tool_budget_for_task("terraform_full") == 200  # 5x'd 2026-10-31
+        assert provider.get_tool_budget_for_task("kubernetes_helm") == 125  # 5x'd 2026-10-31
 
     def test_unknown_task_falls_back_to_default_budget(self, provider):
-        assert provider.get_tool_budget_for_task("no_such_task") == 20
+        assert provider.get_tool_budget_for_task("no_such_task") == 100  # 5x'd 2026-10-31
 
     def test_default_budget_without_task_type(self, provider):
-        assert provider.get_default_tool_budget() == 20
+        assert provider.get_default_tool_budget() == 100  # 5x'd 2026-10-31
 
     def test_complex_tasks_get_larger_budgets_than_simple(self, provider):
         simple = provider.get_tool_budget_for_task("dockerfile_simple")

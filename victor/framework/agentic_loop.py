@@ -592,7 +592,7 @@ class AgenticLoop(TopologyPlanningMixin):
         turn_executor: Optional["TurnExecutor"] = None,
         memory_coordinator: Optional["UnifiedMemoryCoordinator"] = None,
         runtime_intelligence: Optional[Any] = None,
-        max_iterations: int = 10,
+        max_iterations: int = 50,  # 5x'd 2026-10-31: agents run longer autonomous sessions
         enable_fulfillment_check: bool = True,
         enable_adaptive_iterations: bool = True,
         plateau_window: int = 3,

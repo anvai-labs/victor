@@ -74,11 +74,12 @@ class TaskToolConfigLoader:
     - Force-action hints and thresholds
     """
 
-    # Fallback config when YAML is not available
+    # Fallback config when YAML is not available.
+    # Exploration budgets 5x'd 2026-10-31: agents run longer autonomous sessions.
     DEFAULT_CONFIG: Dict[str, Any] = {
         "task_types": {
             "edit": {
-                "max_exploration_iterations": 8,  # Increased from 3 - edits often need context
+                "max_exploration_iterations": 40,  # Increased from 3 - edits often need context
                 "force_action_after_target_read": True,
                 "required_tools": ["edit", "read"],
                 "stage_tools": {
@@ -93,7 +94,7 @@ class TaskToolConfigLoader:
                 },
             },
             "search": {
-                "max_exploration_iterations": 8,
+                "max_exploration_iterations": 40,
                 "force_action_after_target_read": False,
                 "required_tools": ["code_search", "read"],
                 "stage_tools": {
@@ -107,7 +108,7 @@ class TaskToolConfigLoader:
                 },
             },
             "create": {
-                "max_exploration_iterations": 8,  # Increased from 3 - creates often need context
+                "max_exploration_iterations": 40,  # Increased from 3 - creates often need context
                 "force_action_after_target_read": False,
                 "required_tools": ["write"],
                 "stage_tools": {
@@ -121,7 +122,7 @@ class TaskToolConfigLoader:
                 },
             },
             "create_simple": {
-                "max_exploration_iterations": 1,
+                "max_exploration_iterations": 5,
                 "force_action_after_target_read": False,
                 "skip_exploration": True,
                 "required_tools": ["write"],
@@ -137,7 +138,7 @@ class TaskToolConfigLoader:
                 },
             },
             "analyze": {
-                "max_exploration_iterations": 20,
+                "max_exploration_iterations": 100,
                 "force_action_after_target_read": False,
                 "required_tools": ["read", "shell"],
                 "stage_tools": {
@@ -153,7 +154,7 @@ class TaskToolConfigLoader:
             "design": {
                 # Architecture/design questions require thorough codebase exploration
                 # Increased from 2 to 20 to allow proper analysis
-                "max_exploration_iterations": 20,
+                "max_exploration_iterations": 100,
                 "force_action_after_target_read": False,
                 "needs_tools": True,  # Design tasks NEED tools to explore the codebase
                 "required_tools": ["ls", "read", "code_search"],
@@ -173,7 +174,7 @@ class TaskToolConfigLoader:
                 },
             },
             "general": {
-                "max_exploration_iterations": 15,
+                "max_exploration_iterations": 75,
                 "force_action_after_target_read": False,
                 "required_tools": ["read", "ls"],
                 "stage_tools": {

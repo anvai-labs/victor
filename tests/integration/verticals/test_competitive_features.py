@@ -495,10 +495,14 @@ class TestModeConfigFeatures:
         standard_mode = registry.get_mode(None, "standard")
 
         # Then default modes should be available
+        # (get_mode(None, ...) returns the BUILT-IN default modes per its
+        # docstring; the 5x stamina budgets changed quick 5->25, standard
+        # 15->75 (#1637). The fixture's explicit "default"-vertical modes
+        # are not consulted for None lookups.)
         assert quick_mode is not None
-        assert quick_mode.tool_budget == 5
+        assert quick_mode.tool_budget == 25
         assert standard_mode is not None
-        assert standard_mode.tool_budget == 15
+        assert standard_mode.tool_budget == 75
 
     @pytest.mark.asyncio
     @pytest.mark.integration

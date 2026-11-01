@@ -33,7 +33,7 @@ Usage:
     # Look up a task type
     definition = registry.get("edit")
     print(definition.hint)  # "[EDIT] Modify existing code..."
-    print(definition.tool_budget)  # 25
+    print(definition.tool_budget)  # 125
 
     # Resolve alias to canonical name
     canonical = registry.resolve_alias("bugfix")  # → "edit"
@@ -168,9 +168,9 @@ class TaskTypeDefinition:
     name: str
     category: TaskCategory
     hint: str = ""
-    tool_budget: int = 10
+    tool_budget: int = 50  # 5x'd 2026-10-31: agents run longer autonomous sessions
     priority_tools: List[str] = field(default_factory=list)
-    max_iterations: int = 30
+    max_iterations: int = 150  # 5x'd 2026-10-31
     aliases: Set[str] = field(default_factory=set)
     vertical: Optional[str] = None
     needs_tools: bool = True
@@ -365,10 +365,10 @@ class TaskTypeRegistry:
             vertical: Optional vertical for specific override
 
         Returns:
-            Tool budget, or 10 (default) if task type not found
+            Tool budget, or 50 (default) if task type not found
         """
         definition = self.get(task_type, vertical)
-        return definition.tool_budget if definition else 10
+        return definition.tool_budget if definition else 50
 
     def get_max_iterations(self, task_type: str, vertical: Optional[str] = None) -> int:
         """Get the max iterations for a task type.
@@ -378,10 +378,10 @@ class TaskTypeRegistry:
             vertical: Optional vertical for specific override
 
         Returns:
-            Max iterations, or 30 (default) if task type not found
+            Max iterations, or 150 (default) if task type not found
         """
         definition = self.get(task_type, vertical)
-        return definition.max_iterations if definition else 30
+        return definition.max_iterations if definition else 150
 
     def get_priority_tools(self, task_type: str, vertical: Optional[str] = None) -> List[str]:
         """Get priority tools for a task type.
@@ -587,8 +587,8 @@ class TaskTypeRegistry:
                 name="edit",
                 category=TaskCategory.MODIFICATION,
                 hint="[EDIT] Modify existing code. Read target files first, then make focused changes.",
-                tool_budget=25,
-                max_iterations=10,
+                tool_budget=125,
+                max_iterations=50,
                 priority_tools=["read", "edit", "code_search"],
                 aliases={
                     # Core semantic aliases
@@ -630,8 +630,8 @@ class TaskTypeRegistry:
                 name="create",
                 category=TaskCategory.MODIFICATION,
                 hint="[CREATE] Create new files. Explore context first, then write files.",
-                tool_budget=25,
-                max_iterations=10,
+                tool_budget=125,
+                max_iterations=50,
                 priority_tools=["write", "read", "ls"],
                 aliases={
                     # Core semantic aliases
@@ -669,8 +669,8 @@ class TaskTypeRegistry:
                 name="create_simple",
                 category=TaskCategory.MODIFICATION,
                 hint="[GENERATE] Write code directly. Minimal exploration. Display or save as requested.",
-                tool_budget=5,
-                max_iterations=3,
+                tool_budget=25,
+                max_iterations=15,
                 priority_tools=["write"],
                 aliases={"generate", "generation", "simple_create"},
                 stage_tools={
@@ -690,8 +690,8 @@ class TaskTypeRegistry:
                 name="search",
                 category=TaskCategory.ANALYSIS,
                 hint="[SEARCH] Find code or files. Use search tools, then read relevant results.",
-                tool_budget=25,
-                max_iterations=10,
+                tool_budget=125,
+                max_iterations=50,
                 priority_tools=[
                     "code_search",
                     "semantic_code_search",
@@ -730,8 +730,8 @@ class TaskTypeRegistry:
                 name="analyze",
                 category=TaskCategory.ANALYSIS,
                 hint="[ANALYZE] Analyze code metrics. Read files and run analysis commands.",
-                tool_budget=40,
-                max_iterations=20,
+                tool_budget=200,
+                max_iterations=100,
                 priority_tools=["read", "code_search", "shell"],
                 aliases={
                     # Core semantic aliases
@@ -771,8 +771,8 @@ class TaskTypeRegistry:
                 name="analysis_deep",
                 category=TaskCategory.ANALYSIS,
                 hint="[DEEP ANALYSIS] Thorough exploration required. Examine all relevant modules. Comprehensive output.",
-                tool_budget=60,
-                max_iterations=50,
+                tool_budget=300,
+                max_iterations=250,
                 priority_tools=[
                     "read",
                     "code_search",
@@ -805,8 +805,8 @@ class TaskTypeRegistry:
                 name="design",
                 category=TaskCategory.ANALYSIS,
                 hint="[DESIGN] Architecture/design questions. Explore codebase to understand patterns and structure.",
-                tool_budget=40,
-                max_iterations=20,
+                tool_budget=200,
+                max_iterations=100,
                 priority_tools=["read", "ls", "code_search"],
                 aliases={
                     # Core semantic aliases
@@ -840,8 +840,8 @@ class TaskTypeRegistry:
                 name="action",
                 category=TaskCategory.EXECUTION,
                 hint="[ACTION] Execute task. Multiple tool calls allowed. Continue until complete.",
-                tool_budget=50,
-                max_iterations=12,
+                tool_budget=250,
+                max_iterations=60,
                 priority_tools=["shell", "git_commit", "run_tests"],
                 aliases={"execute", "run", "do"},
             )
@@ -853,8 +853,8 @@ class TaskTypeRegistry:
                 name="research",
                 category=TaskCategory.ANALYSIS,
                 hint="[RESEARCH] Web research task. Search and fetch information from the web. Use 4-phase approach: discover → search → analyze → synthesize.",
-                tool_budget=45,  # Increased from 20 - allow comprehensive research
-                max_iterations=25,  # Increased from 10 - allow multi-phase analysis
+                tool_budget=225,  # Increased from 20 - allow comprehensive research
+                max_iterations=125,  # Increased from 10 - allow multi-phase analysis
                 priority_tools=["web_search", "web_fetch", "read", "grep"],
                 aliases={
                     # Core semantic aliases
@@ -892,8 +892,8 @@ class TaskTypeRegistry:
                 name="general",
                 category=TaskCategory.CONVERSATION,
                 hint="[GENERAL] General task. Explore as needed and complete the task.",
-                tool_budget=35,
-                max_iterations=15,
+                tool_budget=175,
+                max_iterations=75,
                 priority_tools=["read", "ls", "code_search"],
                 aliases={"default", "chat", "help", "ambiguous"},
                 stage_tools={
@@ -917,8 +917,8 @@ class TaskTypeRegistry:
                 name="simple",
                 category=TaskCategory.CONVERSATION,
                 hint="[SIMPLE] Simple query. 1-2 tool calls max. Answer immediately after.",
-                tool_budget=2,
-                max_iterations=3,
+                tool_budget=10,
+                max_iterations=15,
                 priority_tools=["ls", "read"],
                 aliases={"quick", "brief"},
             )
@@ -934,8 +934,8 @@ class TaskTypeRegistry:
                 name="refactor",
                 category=TaskCategory.MODIFICATION,
                 hint="[REFACTOR] Restructure existing code. Read carefully, then make incremental changes.",
-                tool_budget=30,
-                max_iterations=15,
+                tool_budget=150,
+                max_iterations=75,
                 priority_tools=["read", "edit", "code_search"],
                 aliases={"restructure", "reorganize"},
             )
@@ -946,8 +946,8 @@ class TaskTypeRegistry:
                 name="debug",
                 category=TaskCategory.ANALYSIS,
                 hint="[DEBUG] Find and fix bugs. Read code, trace issues, then fix.",
-                tool_budget=25,
-                max_iterations=12,
+                tool_budget=125,
+                max_iterations=60,
                 priority_tools=["read", "code_search", "shell"],
                 aliases={"troubleshoot", "diagnose"},
             )
@@ -958,8 +958,8 @@ class TaskTypeRegistry:
                 name="test",
                 category=TaskCategory.EXECUTION,
                 hint="[TEST] Write or run tests. Create test files or execute test commands.",
-                tool_budget=25,
-                max_iterations=10,
+                tool_budget=125,
+                max_iterations=50,
                 priority_tools=["write", "shell", "read"],
                 aliases={"unit_test", "testing"},
             )
@@ -974,8 +974,8 @@ class TaskTypeRegistry:
                 name="fact_check",
                 category=TaskCategory.ANALYSIS,
                 hint="[FACT CHECK] Verify claims with sources. Search for authoritative information.",
-                tool_budget=20,
-                max_iterations=10,
+                tool_budget=100,
+                max_iterations=50,
                 priority_tools=["web_search", "web_fetch"],
             )
         )
@@ -985,8 +985,8 @@ class TaskTypeRegistry:
                 name="literature_review",
                 category=TaskCategory.ANALYSIS,
                 hint="[LITERATURE REVIEW] Systematic review of knowledge. Search broadly and synthesize.",
-                tool_budget=35,
-                max_iterations=20,
+                tool_budget=175,
+                max_iterations=100,
                 priority_tools=["web_search", "web_fetch"],
             )
         )
@@ -996,8 +996,8 @@ class TaskTypeRegistry:
                 name="competitive_analysis",
                 category=TaskCategory.ANALYSIS,
                 hint="[COMPETITIVE ANALYSIS] Compare products/services. Research and compare features.",
-                tool_budget=35,
-                max_iterations=20,
+                tool_budget=175,
+                max_iterations=100,
                 priority_tools=["web_search", "web_fetch"],
             )
         )
@@ -1007,8 +1007,8 @@ class TaskTypeRegistry:
                 name="trend_research",
                 category=TaskCategory.ANALYSIS,
                 hint="[TREND RESEARCH] Identify patterns and emerging developments.",
-                tool_budget=35,
-                max_iterations=20,
+                tool_budget=175,
+                max_iterations=100,
                 priority_tools=["web_search", "web_fetch"],
             )
         )
@@ -1018,8 +1018,8 @@ class TaskTypeRegistry:
                 name="technical_research",
                 category=TaskCategory.ANALYSIS,
                 hint="[TECHNICAL RESEARCH] Deep dive into technical topics.",
-                tool_budget=35,
-                max_iterations=20,
+                tool_budget=175,
+                max_iterations=100,
                 priority_tools=["web_search", "web_fetch", "read"],
             )
         )
@@ -1150,8 +1150,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="infrastructure",
             category=TaskCategory.MODIFICATION,
             hint="[INFRA] Create or modify infrastructure configs. Review existing setup first.",
-            tool_budget=30,
-            max_iterations=15,
+            tool_budget=150,
+            max_iterations=75,
             priority_tools=[
                 "read",
                 "write",
@@ -1168,8 +1168,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="ci_cd",
             category=TaskCategory.MODIFICATION,
             hint="[CI/CD] Configure CI/CD pipelines. Understand workflow structure first.",
-            tool_budget=25,
-            max_iterations=12,
+            tool_budget=125,
+            max_iterations=60,
             priority_tools=["read", "write", "code_search"],
             aliases={"pipeline", "workflow", "github_actions"},
         ),
@@ -1182,8 +1182,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="kubernetes",
             category=TaskCategory.MODIFICATION,
             hint="[K8S] Create or modify Kubernetes manifests. Check existing resources.",
-            tool_budget=30,
-            max_iterations=15,
+            tool_budget=150,
+            max_iterations=75,
             priority_tools=["read", "write", "shell"],
             aliases={"k8s", "helm"},
         ),
@@ -1196,8 +1196,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="terraform",
             category=TaskCategory.MODIFICATION,
             hint="[TERRAFORM] Create or modify Terraform configs. Plan before applying.",
-            tool_budget=35,
-            max_iterations=18,
+            tool_budget=175,
+            max_iterations=90,
             priority_tools=["read", "write", "shell", "code_search"],
             aliases={"tf", "iac"},
         ),
@@ -1210,8 +1210,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="dockerfile",
             category=TaskCategory.MODIFICATION,
             hint="[DOCKER] Create or modify Dockerfiles. Follow best practices.",
-            tool_budget=20,
-            max_iterations=10,
+            tool_budget=100,
+            max_iterations=50,
             priority_tools=["read", "write"],
             aliases={"docker"},
         ),
@@ -1224,8 +1224,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="docker_compose",
             category=TaskCategory.MODIFICATION,
             hint="[COMPOSE] Create or modify docker-compose files. Check service dependencies.",
-            tool_budget=25,
-            max_iterations=12,
+            tool_budget=125,
+            max_iterations=60,
             priority_tools=["read", "write", "code_search"],
             aliases={"compose"},
         ),
@@ -1238,8 +1238,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="monitoring",
             category=TaskCategory.MODIFICATION,
             hint="[MONITORING] Configure monitoring and alerting. Review current setup first.",
-            tool_budget=30,
-            max_iterations=15,
+            tool_budget=150,
+            max_iterations=75,
             priority_tools=["read", "write", "code_search"],
             aliases={"observability", "alerts"},
         ),
@@ -1252,8 +1252,8 @@ def register_devops_task_types(registry: TaskTypeRegistry) -> None:
             name="edit",
             category=TaskCategory.MODIFICATION,
             hint="[DEVOPS EDIT] Edit infrastructure files carefully. Verify syntax and dependencies.",
-            tool_budget=30,
-            max_iterations=12,
+            tool_budget=150,
+            max_iterations=60,
             priority_tools=["read", "edit", "shell"],
             force_action_after_read=True,
         ),
@@ -1275,8 +1275,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="data_profiling",
             category=TaskCategory.ANALYSIS,
             hint="[PROFILE] Profile dataset. Examine structure, types, distributions.",
-            tool_budget=30,
-            max_iterations=15,
+            tool_budget=150,
+            max_iterations=75,
             priority_tools=["read", "shell", "notebook_edit"],
         ),
     )
@@ -1288,8 +1288,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="statistical_analysis",
             category=TaskCategory.ANALYSIS,
             hint="[STATS] Perform statistical analysis. Calculate metrics and significance.",
-            tool_budget=40,
-            max_iterations=20,
+            tool_budget=200,
+            max_iterations=100,
             priority_tools=["read", "shell", "notebook_edit"],
             aliases={"statistics"},
         ),
@@ -1302,8 +1302,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="correlation_analysis",
             category=TaskCategory.ANALYSIS,
             hint="[CORRELATION] Analyze relationships between variables.",
-            tool_budget=30,
-            max_iterations=15,
+            tool_budget=150,
+            max_iterations=75,
             priority_tools=["read", "shell", "notebook_edit"],
         ),
     )
@@ -1315,8 +1315,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="regression",
             category=TaskCategory.ANALYSIS,
             hint="[REGRESSION] Build regression models. Fit and evaluate.",
-            tool_budget=40,
-            max_iterations=20,
+            tool_budget=200,
+            max_iterations=100,
             priority_tools=["read", "shell", "notebook_edit", "write"],
         ),
     )
@@ -1328,8 +1328,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="clustering",
             category=TaskCategory.ANALYSIS,
             hint="[CLUSTERING] Cluster data points. Find patterns and groupings.",
-            tool_budget=40,
-            max_iterations=20,
+            tool_budget=200,
+            max_iterations=100,
             priority_tools=["read", "shell", "notebook_edit"],
         ),
     )
@@ -1341,8 +1341,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="time_series",
             category=TaskCategory.ANALYSIS,
             hint="[TIME SERIES] Analyze temporal patterns. Decompose and forecast.",
-            tool_budget=45,
-            max_iterations=25,
+            tool_budget=225,
+            max_iterations=125,
             priority_tools=["read", "shell", "notebook_edit"],
         ),
     )
@@ -1354,8 +1354,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="visualization",
             category=TaskCategory.MODIFICATION,
             hint="[VIZ] Create data visualizations. Choose appropriate chart types.",
-            tool_budget=25,
-            max_iterations=12,
+            tool_budget=125,
+            max_iterations=60,
             priority_tools=["read", "shell", "notebook_edit", "write"],
             aliases={"chart", "plot", "graph"},
         ),
@@ -1368,8 +1368,8 @@ def register_data_analysis_task_types(registry: TaskTypeRegistry) -> None:
             name="analyze",
             category=TaskCategory.ANALYSIS,
             hint="[DATA ANALYZE] Analyze data comprehensively. Profile, explore, and summarize.",
-            tool_budget=50,
-            max_iterations=25,
+            tool_budget=250,
+            max_iterations=125,
             priority_tools=["read", "shell", "notebook_edit"],
         ),
     )
@@ -1390,8 +1390,8 @@ def register_coding_task_types(registry: TaskTypeRegistry) -> None:
             name="code_generation",
             category=TaskCategory.MODIFICATION,
             hint="[CODEGEN] Generate code from specification. Follow project patterns.",
-            tool_budget=20,
-            max_iterations=10,
+            tool_budget=100,
+            max_iterations=50,
             priority_tools=["read", "write", "code_search"],
         ),
     )
@@ -1403,8 +1403,8 @@ def register_coding_task_types(registry: TaskTypeRegistry) -> None:
             name="refactor",
             category=TaskCategory.MODIFICATION,
             hint="[REFACTOR] Refactor code systematically. Preserve behavior, improve structure.",
-            tool_budget=35,
-            max_iterations=20,
+            tool_budget=175,
+            max_iterations=100,
             priority_tools=["read", "edit", "code_search", "run_tests"],
         ),
     )
@@ -1416,8 +1416,8 @@ def register_coding_task_types(registry: TaskTypeRegistry) -> None:
             name="debug",
             category=TaskCategory.ANALYSIS,
             hint="[DEBUG] Debug code issues. Read stack traces, add logging, trace execution.",
-            tool_budget=30,
-            max_iterations=15,
+            tool_budget=150,
+            max_iterations=75,
             priority_tools=["read", "code_search", "shell", "edit"],
         ),
     )
@@ -1429,8 +1429,8 @@ def register_coding_task_types(registry: TaskTypeRegistry) -> None:
             name="test",
             category=TaskCategory.EXECUTION,
             hint="[TEST] Write and run tests. Ensure coverage and edge cases.",
-            tool_budget=30,
-            max_iterations=15,
+            tool_budget=150,
+            max_iterations=75,
             priority_tools=["write", "shell", "read", "code_search"],
         ),
     )
@@ -1451,8 +1451,8 @@ def register_research_task_types(registry: TaskTypeRegistry) -> None:
             name="general_query",
             category=TaskCategory.ANALYSIS,
             hint="[QUERY] Answer research question. Search and synthesize information.",
-            tool_budget=25,
-            max_iterations=12,
+            tool_budget=125,
+            max_iterations=60,
             priority_tools=["web_search", "web_fetch"],
         ),
     )
@@ -1464,8 +1464,8 @@ def register_research_task_types(registry: TaskTypeRegistry) -> None:
             name="research",
             category=TaskCategory.ANALYSIS,
             hint="[RESEARCH] Comprehensive web research. Search deeply, verify sources.",
-            tool_budget=40,
-            max_iterations=20,
+            tool_budget=200,
+            max_iterations=100,
             priority_tools=["web_search", "web_fetch"],
         ),
     )

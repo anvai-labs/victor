@@ -27,8 +27,8 @@ from victor_contracts.verticals.mode_config import (
 _DEVOPS_MODES: Dict[str, ModeDefinition] = {
     "migration": ModeDefinition(
         name="migration",
-        tool_budget=60,
-        max_iterations=120,
+        tool_budget=300,
+        max_iterations=600,
         temperature=0.7,
         description="Large-scale infrastructure migrations",
         exploration_multiplier=2.5,
@@ -45,17 +45,18 @@ _DEVOPS_MODES: Dict[str, ModeDefinition] = {
     ),
 }
 
+# 5x'd 2026-10-31: agents run longer autonomous sessions
 _DEVOPS_TASK_BUDGETS: Dict[str, int] = {
-    "dockerfile_simple": 5,
-    "dockerfile_complex": 10,
-    "docker_compose": 12,
-    "ci_cd_basic": 15,
-    "ci_cd_advanced": 25,
-    "kubernetes_manifest": 15,
-    "kubernetes_helm": 25,
-    "terraform_module": 20,
-    "terraform_full": 40,
-    "monitoring_setup": 20,
+    "dockerfile_simple": 25,
+    "dockerfile_complex": 50,
+    "docker_compose": 60,
+    "ci_cd_basic": 75,
+    "ci_cd_advanced": 125,
+    "kubernetes_manifest": 75,
+    "kubernetes_helm": 125,
+    "terraform_module": 100,
+    "terraform_full": 200,
+    "monitoring_setup": 100,
 }
 
 
@@ -65,7 +66,7 @@ def _build_mode_config(default_mode: str = "standard") -> VerticalModeConfig:
         modes=dict(_DEVOPS_MODES),
         task_budgets=dict(_DEVOPS_TASK_BUDGETS),
         default_mode=default_mode,
-        default_budget=20,
+        default_budget=100,  # 5x'd 2026-10-31
     )
 
 

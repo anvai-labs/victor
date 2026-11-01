@@ -79,7 +79,7 @@ DEVOPS_ROLES: Dict[str, DevOpsRoleConfig] = {
             "git_status",
             "overview",
         ],
-        tool_budget=20,
+        tool_budget=100,
         description="Assesses current infrastructure state and configurations",
     ),
     "deployment_planner": DevOpsRoleConfig(
@@ -91,7 +91,7 @@ DEVOPS_ROLES: Dict[str, DevOpsRoleConfig] = {
             "web_fetch",
             "overview",
         ],
-        tool_budget=15,
+        tool_budget=75,
         description="Plans deployment and migration strategies",
     ),
     "infrastructure_engineer": DevOpsRoleConfig(
@@ -105,7 +105,7 @@ DEVOPS_ROLES: Dict[str, DevOpsRoleConfig] = {
             "git_status",
             "git_diff",
         ],
-        tool_budget=35,
+        tool_budget=175,
         description="Implements infrastructure configurations",
     ),
     "deployment_validator": DevOpsRoleConfig(
@@ -117,7 +117,7 @@ DEVOPS_ROLES: Dict[str, DevOpsRoleConfig] = {
             "test",
             "git_diff",
         ],
-        tool_budget=25,
+        tool_budget=125,
         description="Validates deployments and runs infrastructure tests",
     ),
     "container_specialist": DevOpsRoleConfig(
@@ -129,7 +129,7 @@ DEVOPS_ROLES: Dict[str, DevOpsRoleConfig] = {
             "shell",
             "docker",
         ],
-        tool_budget=30,
+        tool_budget=150,
         description="Creates and optimizes container configurations",
     ),
     "monitoring_engineer": DevOpsRoleConfig(
@@ -141,7 +141,7 @@ DEVOPS_ROLES: Dict[str, DevOpsRoleConfig] = {
             "shell",
             "web_fetch",
         ],
-        tool_budget=30,
+        tool_budget=150,
         description="Configures monitoring and observability stacks",
     ),
     "security_reviewer": DevOpsRoleConfig(
@@ -152,7 +152,7 @@ DEVOPS_ROLES: Dict[str, DevOpsRoleConfig] = {
             "shell",
             "web_search",
         ],
-        tool_budget=20,
+        tool_budget=100,
         description="Reviews infrastructure for security issues",
     ),
 }
@@ -170,7 +170,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Assess current infrastructure state and identify dependencies",
                 name="Infrastructure Assessor",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a seasoned infrastructure architect who has assessed hundreds of "
                     "production environments. You have an encyclopedic knowledge of cloud services, "
@@ -193,7 +193,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="planner",
                 goal="Design deployment strategy with rollback plan",
                 name="Deployment Strategist",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a deployment strategist who has orchestrated zero-downtime migrations "
                     "for Fortune 500 companies. You think in terms of blast radius, rollback windows, "
@@ -214,7 +214,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Implement infrastructure changes following the deployment plan",
                 name="Infrastructure Engineer",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are a hands-on infrastructure engineer who writes declarative, idempotent "
                     "configurations. You've managed infrastructure at scale and know the difference "
@@ -236,7 +236,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Validate deployment and run infrastructure tests",
                 name="Deployment Validator",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a deployment gatekeeper who has prevented countless production incidents. "
                     "You verify configurations against security baselines, run smoke tests, and check "
@@ -253,7 +253,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="detail-oriented and skeptical; trusts but verifies",
             ),
         ],
-        total_tool_budget=95,
+        total_tool_budget=475,
     ),
     "container_team": TeamSpec(
         name="Container Management Team",
@@ -265,7 +265,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Analyze application requirements for containerization",
                 name="Containerization Analyst",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a containerization expert who has migrated legacy applications to "
                     "containers. You understand the nuances of process isolation, filesystem "
@@ -286,7 +286,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Create optimized, secure Dockerfiles and compose configurations",
                 name="Container Engineer",
-                tool_budget=30,
+                tool_budget=150,
                 backstory=(
                     "You are a Docker craftsman who writes Dockerfiles that are small, fast, and "
                     "secure. You use multi-stage builds, minimize layers, leverage build cache "
@@ -306,7 +306,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Build, test, and validate containers meet security and performance standards",
                 name="Container Tester",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a container quality gatekeeper who ensures images are production-ready. "
                     "You run vulnerability scans, check for secrets in images, verify resource limits, "
@@ -323,7 +323,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="security-conscious; rejects insecure configurations",
             ),
         ],
-        total_tool_budget=65,
+        total_tool_budget=325,
     ),
     "monitoring_team": TeamSpec(
         name="Observability Team",
@@ -335,7 +335,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Analyze monitoring requirements and identify key metrics",
                 name="Observability Analyst",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are an observability expert who understands that monitoring is about "
                     "answering questions before they're asked. You identify the golden signals "
@@ -357,7 +357,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Configure monitoring stack with dashboards and alerts",
                 name="Monitoring Engineer",
-                tool_budget=30,
+                tool_budget=150,
                 backstory=(
                     "You are a monitoring engineer who builds observability platforms that scale. "
                     "You configure Prometheus exporters, create meaningful Grafana dashboards, "
@@ -375,7 +375,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="systematic; believes in infrastructure as code for monitoring too",
             ),
         ],
-        total_tool_budget=45,
+        total_tool_budget=225,
     ),
     "cicd_team": TeamSpec(
         name="CI/CD Pipeline Team",
@@ -387,7 +387,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Analyze existing CI/CD setup and requirements",
                 name="Pipeline Analyst",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a CI/CD specialist who has designed pipelines for monorepos, "
                     "microservices, and everything in between. You understand build dependencies, "
@@ -408,7 +408,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="planner",
                 goal="Design CI/CD pipeline stages and workflows",
                 name="Pipeline Architect",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are a pipeline architect who designs workflows that are fast, reliable, "
                     "and secure. You structure pipelines with proper stages: build, test, security "
@@ -422,7 +422,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Implement CI/CD pipeline configurations",
                 name="Pipeline Engineer",
-                tool_budget=30,
+                tool_budget=150,
                 backstory=(
                     "You are a pipeline engineer who writes YAML that works first time. You "
                     "understand the quirks of different CI systems, handle secrets properly, "
@@ -436,7 +436,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Validate pipeline security and functionality",
                 name="Pipeline Validator",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a pipeline security reviewer who ensures pipelines don't become "
                     "attack vectors. You check for exposed secrets, verify least-privilege "
@@ -447,7 +447,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="security-minded; suspicious of overly permissive pipelines",
             ),
         ],
-        total_tool_budget=70,
+        total_tool_budget=350,
     ),
     "security_audit_team": TeamSpec(
         name="Security Audit Team",
@@ -459,7 +459,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Scan infrastructure for security vulnerabilities",
                 name="Vulnerability Scanner",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a security scanner who thinks like an attacker. You look for "
                     "exposed ports, default credentials, unpatched systems, and misconfigurations. "
@@ -477,7 +477,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Review configurations for security best practices",
                 name="Configuration Auditor",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a configuration auditor who spots insecure settings. You check "
                     "encryption at rest and in transit, validate IAM policies follow least "
@@ -491,7 +491,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="planner",
                 goal="Synthesize findings into remediation plan",
                 name="Security Remediation Planner",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are a security strategist who turns findings into actionable plans. "
                     "You prioritize remediation by risk, consider operational impact, and "
@@ -506,7 +506,7 @@ DEVOPS_TEAM_SPECS: Dict[str, TeamSpec] = {
                 personality="pragmatic; balances security with operability",
             ),
         ],
-        total_tool_budget=50,
+        total_tool_budget=250,
     ),
 }
 

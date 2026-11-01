@@ -115,7 +115,7 @@ def create_interaction_runtime_components(
     if resolved_chat_service is None:
         resolved_chat_service = ChatService(
             config=ChatServiceConfig(
-                max_iterations=200,
+                max_iterations=1000,
                 stream_chunk_size=100,
             ),
             provider_service=resolved_services.provider,

@@ -111,7 +111,7 @@ class TestConfigExports:
 
     def test_unified_agent_config_exported(self):
         """UnifiedAgentConfig should be available from victor.framework."""
-        assert UnifiedAgentConfig.high_budget().tool_budget == 200
+        assert UnifiedAgentConfig.high_budget().tool_budget == 1000  # 5x'd 2026-10-31 (was 200)
 
 
 class TestEventType:
@@ -290,8 +290,8 @@ class TestAgentConfig:
     def test_default_config(self):
         """Default config should have sensible values."""
         config = AgentConfig.default()
-        assert config.tool_budget == 50
-        assert config.max_iterations == 25
+        assert config.tool_budget == 250  # 5x'd 2026-10-31 (was 50)
+        assert config.max_iterations == 125  # 5x'd 2026-10-31 (was 25)
         # Default OFF (co-design review item 16): the read-only allowlist
         # gate makes it sound to enable, but it still changes execution
         # ordering/timing for a broad swath of tool calls, so it's opt-in.
@@ -306,8 +306,8 @@ class TestAgentConfig:
     def test_high_budget_config(self):
         """High budget config should have increased limits."""
         config = AgentConfig.high_budget()
-        assert config.tool_budget == 200
-        assert config.max_iterations == 100
+        assert config.tool_budget == 1000  # 5x'd 2026-10-31 (was 200)
+        assert config.max_iterations == 500  # 5x'd 2026-10-31 (was 100)
 
     def test_to_settings_dict(self):
         """to_settings_dict should return Settings-compatible dict."""

@@ -70,7 +70,7 @@ class PromptContribution:
     name: str
     task_type: str
     hint: str
-    tool_budget: int = 15
+    tool_budget: int = 75
     priority: int = 50
     system_section: str = ""
 
@@ -118,19 +118,19 @@ class PromptContributionCapability:
             name="read_first",
             task_type="edit",
             hint="Always read the file before making edits",
-            tool_budget=5,
+            tool_budget=25,
         ),
         PromptContribution(
             name="verify_changes",
             task_type="edit",
             hint="Verify changes compile and pass tests",
-            tool_budget=10,
+            tool_budget=50,
         ),
         PromptContribution(
             name="search_code",
             task_type="search",
             hint="Use grep to search code before reading",
-            tool_budget=10,
+            tool_budget=50,
         ),
     ]
 

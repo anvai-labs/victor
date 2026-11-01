@@ -132,7 +132,7 @@ class AgenticLoopStateModel(BaseModel):
     # Core loop state
     query: str
     iteration: int = Field(default=0, ge=0)
-    max_iterations: int = Field(default=10, ge=1, le=100)
+    max_iterations: int = Field(default=50, ge=1, le=100)  # 5x'd 2026-10-31
 
     # Stage tracking
     stage: Optional[str] = Field(default=None)

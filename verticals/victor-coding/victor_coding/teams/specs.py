@@ -101,7 +101,7 @@ CODING_ROLES: Dict[str, CodingRoleConfig] = {
             "refs",
             "ls",
         ],
-        tool_budget=25,
+        tool_budget=125,
         description="Researches and analyzes codebase patterns",
     ),
     "code_planner": CodingRoleConfig(
@@ -112,7 +112,7 @@ CODING_ROLES: Dict[str, CodingRoleConfig] = {
             "plan",
             "grep",
         ],
-        tool_budget=15,
+        tool_budget=75,
         description="Plans implementation approach",
     ),
     "code_executor": CodingRoleConfig(
@@ -124,7 +124,7 @@ CODING_ROLES: Dict[str, CodingRoleConfig] = {
             "shell",
             "git",
         ],
-        tool_budget=40,
+        tool_budget=200,
         description="Implements code changes",
     ),
     "code_reviewer": CodingRoleConfig(
@@ -136,7 +136,7 @@ CODING_ROLES: Dict[str, CodingRoleConfig] = {
             "shell",
             "grep",
         ],
-        tool_budget=20,
+        tool_budget=100,
         description="Reviews code and runs tests",
     ),
     "test_writer": CodingRoleConfig(
@@ -147,7 +147,7 @@ CODING_ROLES: Dict[str, CodingRoleConfig] = {
             "test",
             "shell",
         ],
-        tool_budget=30,
+        tool_budget=150,
         description="Writes and runs tests",
     ),
     "doc_writer": CodingRoleConfig(
@@ -158,7 +158,7 @@ CODING_ROLES: Dict[str, CodingRoleConfig] = {
             "edit",
             "grep",
         ],
-        tool_budget=20,
+        tool_budget=100,
         description="Writes documentation",
     ),
     "security_reviewer": CodingRoleConfig(
@@ -169,7 +169,7 @@ CODING_ROLES: Dict[str, CodingRoleConfig] = {
             "code_search",
             "shell",
         ],
-        tool_budget=20,
+        tool_budget=100,
         description="Reviews code for security issues",
     ),
 }
@@ -209,8 +209,8 @@ class CodingTeamSpec:
     description: str
     formation: TeamFormation
     members: List[TeamMemberSpec]
-    total_tool_budget: int = 100
-    max_iterations: int = 50
+    total_tool_budget: int = 500
+    max_iterations: int = 250
 
     def __post_init__(self):
         """Emit deprecation warning on instantiation."""
@@ -322,7 +322,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Analyze codebase for relevant patterns and dependencies",
                 name="Code Researcher",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a meticulous code archaeologist with expertise in understanding "
                     "large codebases. You've analyzed hundreds of projects and have an eye for "
@@ -336,7 +336,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="planner",
                 goal="Design implementation approach based on research",
                 name="Implementation Planner",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a pragmatic software architect who values clean, maintainable "
                     "solutions. You've designed systems ranging from startups to enterprise. "
@@ -350,7 +350,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Implement the feature according to plan",
                 name="Feature Implementer",
-                tool_budget=40,
+                tool_budget=200,
                 backstory=(
                     "You are a skilled craftsman who takes pride in writing clean, efficient "
                     "code. You follow established patterns in the codebase and write code that "
@@ -364,7 +364,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Review code and run tests",
                 name="Code Reviewer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a detail-oriented reviewer who has caught countless bugs before "
                     "they reached production. You check for logic errors, edge cases, security "
@@ -374,7 +374,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 ),
             ),
         ],
-        total_tool_budget=100,
+        total_tool_budget=500,
     ),
     "bug_fix_team": TeamSpec(
         name="Bug Fix Team",
@@ -386,7 +386,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Investigate bug root cause through code analysis",
                 name="Bug Investigator",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a debugging expert who loves solving puzzles. You've tracked down "
                     "the most elusive bugs across race conditions, memory leaks, and edge cases. "
@@ -401,7 +401,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Apply the fix based on investigation",
                 name="Bug Fixer",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a surgeon who makes precise, minimal fixes. You understand that "
                     "the best bug fix changes as little as possible while fully addressing the "
@@ -414,7 +414,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Verify fix with tests",
                 name="Fix Verifier",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a quality gatekeeper who ensures fixes actually work. You run "
                     "existing tests, verify the new regression test catches the bug, and check "
@@ -423,7 +423,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 ),
             ),
         ],
-        total_tool_budget=70,
+        total_tool_budget=350,
     ),
     "refactoring_team": TeamSpec(
         name="Refactoring Team",
@@ -435,7 +435,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="planner",
                 goal="Plan refactoring approach and identify affected areas",
                 name="Refactoring Planner",
-                tool_budget=20,
+                tool_budget=100,
                 is_manager=True,
                 backstory=(
                     "You are a refactoring strategist who has safely restructured legacy "
@@ -450,7 +450,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Execute refactoring changes",
                 name="Refactoring Executor",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are a refactoring specialist who transforms code while preserving "
                     "behavior. You extract methods, rename for clarity, reduce duplication, "
@@ -463,7 +463,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Ensure tests pass and code quality maintained",
                 name="Quality Verifier",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are the guardian of code quality who ensures refactoring improves "
                     "rather than degrades the codebase. You verify that behavior is preserved, "
@@ -473,7 +473,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 ),
             ),
         ],
-        total_tool_budget=75,
+        total_tool_budget=375,
     ),
     "review_team": TeamSpec(
         name="Code Review Team",
@@ -485,7 +485,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Check for security vulnerabilities",
                 name="Security Reviewer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a security-focused reviewer who has prevented countless breaches. "
                     "You look for injection vulnerabilities, authentication flaws, data "
@@ -498,7 +498,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Check code style and conventions",
                 name="Style Reviewer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a consistency advocate who ensures code is readable and "
                     "maintainable. You check naming conventions, formatting, documentation, "
@@ -511,7 +511,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Check logic correctness and edge cases",
                 name="Logic Reviewer",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a logic specialist who thinks in terms of invariants and edge "
                     "cases. You trace through code paths to find potential bugs. You check "
@@ -524,7 +524,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="planner",
                 goal="Synthesize findings into actionable feedback",
                 name="Review Synthesizer",
-                tool_budget=10,
+                tool_budget=50,
                 backstory=(
                     "You are a diplomatic communicator who turns review findings into "
                     "constructive feedback. You prioritize issues by severity and impact. "
@@ -534,7 +534,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 ),
             ),
         ],
-        total_tool_budget=55,
+        total_tool_budget=275,
     ),
     "testing_team": TeamSpec(
         name="Testing Team",
@@ -546,7 +546,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Analyze existing test coverage and identify gaps",
                 name="Coverage Analyzer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a test coverage expert who knows that lines covered doesn't mean "
                     "well tested. You identify untested edge cases, error paths, and complex "
@@ -560,7 +560,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Write tests for uncovered areas",
                 name="Test Writer",
-                tool_budget=35,
+                tool_budget=175,
                 backstory=(
                     "You are a testing craftsman who writes tests that actually catch bugs. "
                     "You test behavior, not implementation. You write clear test names that "
@@ -573,7 +573,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="reviewer",
                 goal="Run tests and verify coverage improvement",
                 name="Test Verifier",
-                tool_budget=15,
+                tool_budget=75,
                 backstory=(
                     "You are a test quality reviewer who ensures tests actually work and add "
                     "value. You run the full test suite and check for flaky tests. You verify "
@@ -583,7 +583,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 ),
             ),
         ],
-        total_tool_budget=70,
+        total_tool_budget=350,
     ),
     "documentation_team": TeamSpec(
         name="Documentation Team",
@@ -595,7 +595,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="researcher",
                 goal="Analyze code to understand functionality",
                 name="Code Analyzer",
-                tool_budget=20,
+                tool_budget=100,
                 backstory=(
                     "You are a code comprehension expert who can understand any codebase. "
                     "You read code for intent, not just mechanics. You identify key concepts, "
@@ -609,7 +609,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 role="executor",
                 goal="Write documentation",
                 name="Doc Writer",
-                tool_budget=25,
+                tool_budget=125,
                 backstory=(
                     "You are a technical writer who makes complex things simple. You write "
                     "for your audience: API docs for developers, guides for users, READMEs "
@@ -619,7 +619,7 @@ CODING_TEAM_SPECS: Dict[str, TeamSpec] = {
                 ),
             ),
         ],
-        total_tool_budget=45,
+        total_tool_budget=225,
     ),
 }
 

@@ -74,8 +74,8 @@ class AgentConfig:
     """
 
     # Tool execution
-    tool_budget: int = 50
-    max_iterations: int = 25
+    tool_budget: int = 250
+    max_iterations: int = 125
     # Default OFF (co-design review item 16): a read-only allowlist gate
     # makes this sound to enable, but it still changes execution
     # ordering/timing for a broad swath of tool calls, so it ships opt-in.
@@ -152,8 +152,8 @@ class AgentConfig:
         for quick, lightweight operations.
         """
         return cls(
-            tool_budget=15,
-            max_iterations=10,
+            tool_budget=75,
+            max_iterations=50,
             enable_semantic_search=False,
             enable_analytics=False,
             enable_tool_cache=False,
@@ -167,8 +167,8 @@ class AgentConfig:
         require extensive exploration or many operations.
         """
         return cls(
-            tool_budget=200,
-            max_iterations=100,
+            tool_budget=1000,
+            max_iterations=500,
             max_concurrent_tools=10,
             enable_semantic_search=True,
         )
@@ -220,17 +220,17 @@ class ExecutionConfig:
     """Controls execution limits for graph execution.
 
     Attributes:
-        max_iterations: Maximum cycles allowed (default: 25)
+        max_iterations: Maximum cycles allowed (default: 125)
         timeout: Overall execution timeout in seconds (None = no limit)
-        recursion_limit: Maximum recursion depth (default: 100)
+        recursion_limit: Maximum recursion depth (default: 500)
 
     Example:
         config = ExecutionConfig(max_iterations=50, timeout=300.0)
     """
 
-    max_iterations: int = 25
+    max_iterations: int = 125
     timeout: Optional[float] = None
-    recursion_limit: int = 100
+    recursion_limit: int = 500
 
     def __post_init__(self) -> None:
         """Validate execution configuration limits."""
@@ -441,9 +441,9 @@ class GraphConfig:
         """
         return cls(
             execution=ExecutionConfig(
-                max_iterations=kwargs.get("max_iterations", 25),
+                max_iterations=kwargs.get("max_iterations", 125),
                 timeout=kwargs.get("timeout"),
-                recursion_limit=kwargs.get("recursion_limit", 100),
+                recursion_limit=kwargs.get("recursion_limit", 500),
             ),
             checkpoint=CheckpointConfig(
                 checkpointer=kwargs.get("checkpointer"),
@@ -680,7 +680,7 @@ class ToolConfig:
     enabled_tools: List[str] = field(default_factory=list)
     disabled_tools: List[str] = field(default_factory=list)
     tool_settings: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    max_tool_budget: int = 100
+    max_tool_budget: int = 500
     require_confirmation: bool = False
 
     @classmethod
@@ -697,7 +697,7 @@ class ToolConfig:
             enabled_tools=config.get("enabled_tools", []),
             disabled_tools=config.get("disabled_tools", []),
             tool_settings=config.get("tool_settings", {}),
-            max_tool_budget=config.get("max_tool_budget", 100),
+            max_tool_budget=config.get("max_tool_budget", 500),
             require_confirmation=config.get("require_confirmation", False),
         )
 

@@ -71,9 +71,9 @@ class StreamingChatContext:
     # record_provider_diagnostics(); surfaced on the stream_completed record.
     provider_diagnostics: Dict[str, Any] = field(default_factory=dict)
 
-    # Iteration control
-    max_total_iterations: int = 30
-    max_exploration_iterations: int = 10
+    # Iteration control (5x'd 2026-10-31: agents run longer autonomous sessions)
+    max_total_iterations: int = 150
+    max_exploration_iterations: int = 50
     total_iterations: int = 0
     force_completion: bool = False
     force_completion_warning_shown: bool = False  # Prevent duplicate warnings

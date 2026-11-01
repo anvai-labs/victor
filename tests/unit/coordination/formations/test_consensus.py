@@ -67,6 +67,9 @@ async def test_consensus_default_rounds_can_converge_after_disagreement():
     assert result["success"] is True
     assert result["consensus_rounds"] == 2
     assert result["consensus_achieved"] is True
+    # v0.25.0 holds consensus at 3 rounds (the 5x to 15 compounds echoing
+    # transcripts into an OOM; see consensus.py). #1642 restores the
+    # budgeted value with a bounded output preview.
     assert ConsensusFormation().max_rounds == 3
 
 

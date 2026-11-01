@@ -44,6 +44,11 @@ class ConsensusFormation(BaseFormationStrategy):
     Use case: Critical decisions, validation, quality assurance
     """
 
+    # v0.25.0 keeps max_rounds at 3: the 5x to 15 (#1637) compounds an
+    # echoing member's transcript ~4x per round (~14 GB by round 11),
+    # OOM-killing the CI runner during the promotion battery. The proper
+    # fix — a bounded per-member output preview — lands with #1642 next
+    # release, at which point this default returns to the budgeted value.
     def __init__(self, max_rounds: int = 3, agreement_threshold: float = 0.7):
         """Initialize consensus formation.
 

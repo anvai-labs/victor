@@ -59,7 +59,7 @@ class ConversationalNodeConfig:
         emit_events: Whether to emit EventBus events
     """
 
-    max_turns: int = 10
+    max_turns: int = 50
     timeout_seconds: float = 300.0
     require_consensus: bool = False
     consensus_threshold: float = 0.7

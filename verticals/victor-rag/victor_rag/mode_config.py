@@ -37,24 +37,24 @@ from victor_contracts.verticals.mode_config import ModeDefinition
 _RAG_MODES: Dict[str, ModeDefinition] = {
     "bulk_ingest": ModeDefinition(
         name="bulk_ingest",
-        tool_budget=50,
-        max_iterations=100,
+        tool_budget=250,
+        max_iterations=500,
         temperature=0.5,
         description="Bulk document ingestion with high tool budget",
         exploration_multiplier=2.0,
     ),
     "deep_search": ModeDefinition(
         name="deep_search",
-        tool_budget=25,
-        max_iterations=50,
+        tool_budget=125,
+        max_iterations=250,
         temperature=0.6,
         description="Deep search across knowledge base",
         exploration_multiplier=1.5,
     ),
     "synthesis": ModeDefinition(
         name="synthesis",
-        tool_budget=15,
-        max_iterations=30,
+        tool_budget=75,
+        max_iterations=150,
         temperature=0.7,
         description="Document synthesis and summarization",
         exploration_multiplier=1.0,
@@ -62,13 +62,14 @@ _RAG_MODES: Dict[str, ModeDefinition] = {
 }
 
 # RAG-specific task type budgets
+# 5x'd 2026-10-31: agents run longer autonomous sessions
 _RAG_TASK_BUDGETS: Dict[str, int] = {
-    "query": 5,
-    "search": 8,
-    "ingest": 10,
-    "synthesis": 6,
-    "maintenance": 15,
-    "index": 12,
+    "query": 25,
+    "search": 40,
+    "ingest": 50,
+    "synthesis": 30,
+    "maintenance": 75,
+    "index": 60,
 }
 
 

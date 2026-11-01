@@ -118,8 +118,9 @@ class TestAgentBuildOptions:
             options = AgentBuildOptions(config=AgentConfig.high_budget())
 
         assert isinstance(options.config, UnifiedAgentConfig)
-        assert options.config.tool_budget == 200
-        assert options.config.max_iterations == 100
+        # 5x'd 2026-10-31: stamina budgets (was 200/100)
+        assert options.config.tool_budget == 1000
+        assert options.config.max_iterations == 500
 
 
 # =============================================================================
@@ -286,7 +287,7 @@ class TestBuilderPresets:
         builder = AgentBuilder().preset(BuilderPreset.MINIMAL)
         assert not builder._options.enable_observability
         assert isinstance(builder._options.config, UnifiedAgentConfig)
-        assert builder._options.config.tool_budget == 15
+        assert builder._options.config.tool_budget == 75  # 5x'd 2026-10-31 (was 15)
 
     def test_preset_high_budget(self):
         """Test HIGH_BUDGET preset."""

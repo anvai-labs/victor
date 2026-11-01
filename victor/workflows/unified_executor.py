@@ -86,7 +86,7 @@ class ExecutorConfig:
     """
 
     enable_checkpointing: bool = True
-    max_iterations: int = 25
+    max_iterations: int = 125
     timeout: Optional[float] = None
     interrupt_nodes: List[str] = field(default_factory=list)
     default_profile: Optional[str] = None  # Default profile for nodes without explicit profile

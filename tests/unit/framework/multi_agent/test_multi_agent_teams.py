@@ -255,13 +255,13 @@ class TestTeamTemplateCreation:
         assert template.escalation_threshold == 0.8
 
     def test_default_max_iterations(self):
-        """TeamTemplate should default to 10 max_iterations."""
+        """TeamTemplate should default to 50 max_iterations (5x'd 2026-10-31)."""
         template = TeamTemplate(
             name="Team",
             description="Desc",
         )
 
-        assert template.max_iterations == 10
+        assert template.max_iterations == 50  # 5x'd 2026-10-31 (was 10)
 
     def test_default_config_empty(self):
         """TeamTemplate should default to empty config."""

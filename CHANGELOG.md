@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-31
+
+Requires `victor-contracts>=0.17.0` (published first); first-party verticals 0.16.0 ship
+alongside (`verticals-v0.16.0`).
+
+### Changed
+
+- **Default agent stamina budgets multiplied ×5** (#1637): tool budgets (BudgetLimits
+  100/250/500/1000/2500, session cap 10,000), every `tool_budget` default (agent profiles,
+  the task-type registry, `task_tool_config.yaml`, ~160 team-spec entries, SDK task hints),
+  and every iteration/turn cap (loop 50, chat 250, exploration up to 5,000, complexity tiers
+  50–400 turns, conversation/consensus rounds, planner steps, `recursion_limit` 500,
+  `ChatService` 1,000, `WorkflowEngine` 125). Stuck-agent detectors (no-tool turns, nudge,
+  blocked, consecutive-tool-calls, continuation prompts) and infra limits (retries, timeouts,
+  truncation, concurrency) are deliberately unchanged.
+- victor-contracts `ModeConfig`/`ModeDefinition` defaults ×5 with the validation bound widened
+  500 → 2500 (SDK 0.17.0).
+
+### Fixed
+
+- The bayesian task-complexity path referenced nonexistent `TaskComplexity.MODERATE` and always
+  fell back to the SIMPLE budget tier (#1637).
+
+### Changed
+
+- **Default agent stamina budgets multiplied ×5** ("agents run tirelessly"): tool budgets
+  (`BudgetLimits` 20/50/100/200/500 → 100/250/500/1000/2500, session cap 2000 → 10000),
+  iteration/turn caps (agentic loop 10 → 50, chat iterations 50 → 250, `AgenticLoop`/
+  `UnifiedAgentConfig`/`AgentConfig` defaults, per-complexity `max_turns` tiers 10/20/40/10/60/80
+  → 50/100/200/50/300/400, per-task-type `tool_budget`/`max_iterations` registry tables,
+  exploration/research iteration caps incl. `task_tool_config.yaml`, continuation turns 10 → 50,
+  code-correction iterations 3 → 15, workflow/graph execution and conversational/team/mode
+  budget defaults across core, `victor-contracts` and all verticals) for longer autonomous
+  runs. Stuck-agent detection thresholds (`turn_policy`, no-tool/blocked/loop-repeat
+  detectors, continuation-prompt force-completion guards, consecutive-tool-call runaway
+  guard) are intentionally **unchanged** — bigger budgets make them more important.
+
 ## [0.24.0] - 2026-10-31
 
 Requires `victor-contracts>=0.16.0` (published first); victor-coding 0.15.0 ships with it
@@ -37,6 +74,11 @@ Requires `victor-contracts>=0.16.0` (published first); victor-coding 0.15.0 ship
 - `victor_contracts.rl` `RLOutcome`/`RLRecommendation` match the runtime classes field for
   field (ISO-8601 `timestamp`, required `quality_score`, `is_baseline=False`) — see the SDK
   changelog (#1631).
+- Session-less orchestrators no longer share one capability-config bucket:
+  `get_capability_config_scope_key()` always returns a value (per-instance
+  `orchestrator:{id}` fallback) where the SDK resolver previously normalized
+  `None` to the shared global bucket (#1628). No in-repo consumer pinned the
+  shared behavior; isolation is the safer default.
 - Loader-built `CapabilityEntry` objects are now identity-equal to the SDK class the
   verticals use; the safety/prompt provider protocol submodules re-export the SDK objects
   (#1630).

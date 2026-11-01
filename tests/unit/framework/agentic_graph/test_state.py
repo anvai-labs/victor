@@ -29,7 +29,7 @@ class TestAgenticLoopStateModel:
         state = AgenticLoopStateModel(query="Test task")
         assert state.query == "Test task"
         assert state.iteration == 0
-        assert state.max_iterations == 10
+        assert state.max_iterations == 50  # 5x'd 2026-10-31 (was 10)
         assert state.stage is None
         assert state.perception is None
 
@@ -70,7 +70,7 @@ class TestAgenticLoopStateModel:
         """Test that default values are set correctly."""
         state = AgenticLoopStateModel(query="Test")
         assert state.iteration == 0
-        assert state.max_iterations == 10
+        assert state.max_iterations == 50  # 5x'd 2026-10-31 (was 10)
         assert state.progress_scores == []
         assert state.tool_results == []
 

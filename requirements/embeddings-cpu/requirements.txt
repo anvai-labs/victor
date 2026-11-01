@@ -300,7 +300,7 @@ urllib3==2.8.0
     # via
     #   lance-namespace-urllib3-client
     #   requests
-victor-contracts==0.16.0
+victor-contracts==0.17.0
     # via victor-ai (pyproject.toml)
 wcwidth==0.8.3
     # via prompt-toolkit

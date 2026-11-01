@@ -145,7 +145,7 @@ class TestNestedModelDefaults:
     def test_pipeline_settings_defaults(self):
         ps = PipelineSettings()
         assert ps.runtime_intelligence_enabled is True
-        assert ps.max_exploration_iterations == 200
+        assert ps.max_exploration_iterations == 1000  # 5x'd 2026-10-31 (was 200)
         assert ps.recovery_empty_response_threshold == 5
         assert ps.session_idle_timeout == 180
 
