@@ -37,8 +37,13 @@ jobs:
           # integration tests can no longer exist without running anywhere.
           # verticals/ is owned by the verticals-integration job below.
           - name: core-integration
+            # -n 4, not -n auto: auto sizes workers to the runner's core count,
+            # whose spawn-time memory spike got the runner pod evicted mid-job
+            # four times (exit 143 "runner has received a shutdown signal",
+            # ~3 min in, tests passing) while the single-process sibling suites
+            # ran green. A fixed small pool keeps the suite parallel but bounded.
             path: >-
-              tests/integration -n auto
+              tests/integration -n 4
               --ignore=tests/integration/providers
               --ignore=tests/integration/workflows
               --ignore=tests/integration/tools
