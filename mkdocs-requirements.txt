@@ -1,8 +1,8 @@
 # Validated documentation toolchain; install without Victor runtime dependencies.
 mkdocs==1.6.1
-mkdocs-material==9.7.7
-mkdocstrings[python]==1.0.7
-mkdocstrings-python==2.0.9
+mkdocs-material==9.8.0
+mkdocstrings[python]==1.0.8
+mkdocstrings-python==2.0.10
 mkdocs-git-revision-date-localized-plugin==1.6.0
 pymdown-extensions==12.3
 # Patched lexer; validate API signature highlighting when updating this toolchain.
