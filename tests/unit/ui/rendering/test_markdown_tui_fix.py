@@ -1,6 +1,6 @@
 """Tests for markdown rendering fixes to prevent TUI overflow.
 
-Covers the patched code block renderer (word_wrap + reduced padding)
+Covers the scoped code block renderer (word_wrap + reduced padding)
 and the enhanced table overflow prevention (no_wrap=False, overflow='fold').
 """
 
@@ -8,16 +8,14 @@ import io
 import re
 
 from rich.console import Console
-from rich.markdown import Markdown
 
-import victor.ui.rendering.markdown  # noqa: F401 - applies monkey patches
-from victor.ui.rendering.markdown import render_enhanced_table
+from victor.ui.rendering.markdown import _markdown_block, render_enhanced_table
 
 
 def _render_to_string(renderable, width: int = 80) -> str:
     """Render a Rich renderable to a string at a given width."""
     buf = io.StringIO()
-    console = Console(file=buf, force_terminal=True, width=width)
+    console = Console(file=buf, force_terminal=True, width=width, height=25)
     console.print(renderable)
     return buf.getvalue()
 
@@ -32,31 +30,26 @@ class TestPatchedCodeBlockRender:
 
     def test_code_block_renders_via_markdown(self) -> None:
         """Code blocks in markdown render without errors."""
-        md = Markdown("```python\nx = 1\n```")
+        md = _markdown_block("```python\nx = 1\n```")
         output = _render_to_string(md)
         assert "x" in output
         assert "1" in output
 
     def test_code_block_wraps_long_lines(self) -> None:
         """Long lines in code blocks wrap within the console width."""
-        long_line = "x = " + "'a' * 200"
-        md = Markdown(f"```python\n{long_line}\n```")
+        long_line = "x = '" + "a" * 200 + "'"
+        md = _markdown_block(f"```python\n{long_line}\n```")
         output = _render_to_string(md, width=60)
         for line in output.splitlines():
             clean = _strip_ansi(line)
             assert len(clean) <= 62, f"Line too wide ({len(clean)}): {clean[:80]}"
 
-    def test_patched_renderer_uses_lexer_name(self) -> None:
-        """The patched renderer uses self.lexer_name (not self.language)."""
-        from victor.ui.rendering.markdown import _patched_code_block_render
-
-        import inspect
-
-        source = inspect.getsource(_patched_code_block_render)
-        assert "self.lexer_name" in source
-        assert "self.theme" in source
-        assert "word_wrap=True" in source
-        assert "padding=(0, 1)" in source
+    def test_renderer_preserves_full_wrapped_content(self) -> None:
+        output = _strip_ansi(
+            _render_to_string(_markdown_block("```text\n" + "x" * 200 + "\n```"), width=40)
+        )
+        assert output.count("x") == 200
+        assert all(len(line) <= 40 for line in output.splitlines())
 
 
 class TestEnhancedTableOverflow:
@@ -94,3 +87,9 @@ class TestEnhancedTableOverflow:
         for col in table.columns:
             assert col.no_wrap is False
             assert col.overflow == "fold"
+
+
+def test_importing_victor_renderer_keeps_rich_code_block_behavior_local():
+    from rich.markdown import CodeBlock
+
+    assert CodeBlock.__rich_console__.__module__ == "rich.markdown"

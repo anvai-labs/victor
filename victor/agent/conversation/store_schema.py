@@ -66,7 +66,49 @@ _MESSAGES_FTS_DDL = """
                 );
             """
 
-_CRITICAL_TABLES_DDL = """
+_MESSAGES_FTS_TRIGGERS = (
+    """CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, content, session_id)
+        VALUES (NEW.rowid, NEW.content, NEW.session_id);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, content, session_id)
+        VALUES ('delete', OLD.rowid, OLD.content, OLD.session_id);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, content, session_id)
+        VALUES ('delete', OLD.rowid, OLD.content, OLD.session_id);
+        INSERT INTO messages_fts(rowid, content, session_id)
+        VALUES (NEW.rowid, NEW.content, NEW.session_id);
+    END""",
+)
+
+_MESSAGES_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TIMESTAMP NOT NULL,
+                token_count INTEGER NOT NULL,
+                priority INTEGER NOT NULL,
+                tool_name TEXT,
+                tool_call_id TEXT,
+                metadata TEXT,
+                metadata_json TEXT DEFAULT '{}',
+                agent_id TEXT,
+                parent_session_id TEXT,
+                team_id TEXT,
+                member_id TEXT,
+                plan_id TEXT,
+                plan_step_id TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            )
+"""
+
+_CRITICAL_TABLES_DDL = (
+    """
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 created_at TIMESTAMP NOT NULL,
@@ -93,27 +135,10 @@ _CRITICAL_TABLES_DDL = """
                 cost_usd_micros INTEGER DEFAULT 0
             );
 
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp TIMESTAMP NOT NULL,
-                token_count INTEGER NOT NULL,
-                priority INTEGER NOT NULL,
-                tool_name TEXT,
-                tool_call_id TEXT,
-                metadata TEXT,
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-
+"""
+    + _MESSAGES_TABLE_DDL
+    + ";"
+    + """
             CREATE TABLE IF NOT EXISTS context_summaries (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -124,7 +149,10 @@ _CRITICAL_TABLES_DDL = """
                 FOREIGN KEY (session_id) REFERENCES sessions(session_id)
                     ON DELETE CASCADE
             );
-""" + _COMPACTION_EVENTS_DDL + ";"
+"""
+    + _COMPACTION_EVENTS_DDL
+    + ";"
+)
 
 
 logger = logging.getLogger(__name__)
@@ -784,191 +812,139 @@ class ConversationStoreSchema:
             logger.info(f"Migrated sessions table: added columns {columns_added}")
 
     def migrate_fk_to_sessions(self, conn: sqlite3.Connection) -> None:
-        """Migrate messages/compaction_events FK from ui_session to sessions.
+        """Atomically retarget legacy conversation foreign keys to sessions.
 
-        SQLite cannot ALTER FK constraints, so we recreate the tables.
-        After migration, ui_session is dropped (it was a duplicate of sessions).
-        Idempotent: safe to re-run if interrupted mid-migration.
+        Repair each table independently, including leftovers from the former
+        non-atomic migration. Preserve legacy UI payloads and recover missing
+        session headers rather than discarding their conversation history.
         """
-        # Check if messages FK still references ui_session
-        fk_info = conn.execute("PRAGMA foreign_key_list(messages)").fetchall()
-        references_ui_session = any(row[2] == "ui_session" for row in fk_info)
-
-        # Also check for leftover temp tables from a previous interrupted run
-        has_messages_old = (
-            conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='messages_old'"
-            ).fetchone()
-            is not None
-        )
-
-        if not references_ui_session and not has_messages_old:
-            return  # Already migrated or fresh schema
-
-        logger.info("Migrating messages/compaction_events FK: ui_session → sessions")
-
-        # Disable FK checks during recreation
-        conn.execute("PRAGMA foreign_keys = OFF")
-
-        # --- messages ---
-        # If messages_old exists from a prior interrupted run, drop the
-        # (possibly empty) new messages and rename old back first.
-        if has_messages_old:
-            conn.execute("DROP TABLE IF EXISTS messages")
-            conn.execute("ALTER TABLE messages_old RENAME TO messages")
-
-        conn.execute("ALTER TABLE messages RENAME TO messages_old")
-        conn.executescript("""
-            CREATE TABLE messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp TIMESTAMP NOT NULL,
-                token_count INTEGER NOT NULL,
-                priority INTEGER NOT NULL,
-                tool_name TEXT,
-                tool_call_id TEXT,
-                metadata TEXT,
-                metadata_json TEXT DEFAULT '{}',
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-        """)
-        # Explicit column list to handle schema drift between old and new.
-        # Rows whose session_id has no sessions row (legacy ui_session-only
-        # sessions) are reported so the drop is visible, not silent.
-        self._report_orphan_drops(conn, "messages_old", "message(s)")
-        # metadata_json is carried over only when the legacy table has it —
-        # apply_hybrid_compaction_schema adds that column lazily, so older
-        # databases legitimately lack it (the new column then keeps its '{}').
-        legacy_has_json = "metadata_json" in {
-            row[1] for row in conn.execute("PRAGMA table_info(messages_old)")
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        json_col = ", metadata_json" if legacy_has_json else ""
-        conn.execute(f"""
-            INSERT OR IGNORE INTO messages
-                (id, session_id, role, content, timestamp, token_count, priority,
-                 tool_name, tool_call_id, metadata{json_col}, agent_id,
-                 parent_session_id, team_id, member_id, plan_id, plan_step_id)
-            SELECT id, session_id, role, content, timestamp, token_count, priority,
-                 tool_name, tool_call_id, metadata{json_col}, agent_id,
-                   parent_session_id, team_id, member_id, plan_id, plan_step_id
-            FROM messages_old
-            WHERE session_id IN (SELECT session_id FROM sessions)
-        """)
-        conn.execute("DROP TABLE messages_old")
-
-        # Rebuild the FTS index: the pre-migration messages_fts carried a stale
-        # message_id column (content-table queries against it error out), and
-        # the re-insertion above reassigns rowids — the old index would point
-        # at the wrong rows. Recreate in the current shape and repopulate so
-        # search stays exact; ensure_critical_tables (re)creates the sync
-        # triggers via IF NOT EXISTS right after this migration.
-        conn.executescript("""
-            DROP TRIGGER IF EXISTS messages_fts_insert;
-            DROP TRIGGER IF EXISTS messages_fts_delete;
-            DROP TRIGGER IF EXISTS messages_fts_update;
-            DROP TABLE IF EXISTS messages_fts;
-        """)
-        conn.execute(_MESSAGES_FTS_DDL)
-        # Repopulate explicitly (NOT via populate_fts5_index: on an
-        # external-content FTS5 table COUNT(*) consults the content table, so
-        # its "already populated" check compares messages to itself and skips).
-        conn.execute("""
-            INSERT INTO messages_fts(rowid, content, session_id)
-            SELECT rowid, content, session_id FROM messages
-        """)
-        repopulated = conn.execute("SELECT changes()").fetchone()[0]
-        logger.info("FK migration: rebuilt messages_fts with %d rows", repopulated)
-
-        # --- compaction_events ---
-        # Guard: a legacy DB that predates compaction_events has nothing to
-        # migrate; ensure_critical_tables creates it fresh right after this.
-        has_compaction_events = (
-            conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='compaction_events'"
-            ).fetchone()
-            is not None
-        )
-        if has_compaction_events:
-            has_ce_old = (
-                conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                    " AND name='compaction_events_old'"
-                ).fetchone()
-                is not None
+        pending = [
+            table
+            for table in ("messages", "compaction_events")
+            if f"{table}_old" in tables
+            or any(
+                row[2] == "ui_session" for row in conn.execute(f"PRAGMA foreign_key_list({table})")
             )
-            if has_ce_old:
-                conn.execute("DROP TABLE IF EXISTS compaction_events")
-                conn.execute("ALTER TABLE compaction_events_old RENAME TO compaction_events")
-
-            conn.execute("ALTER TABLE compaction_events RENAME TO compaction_events_old")
-            conn.executescript(_COMPACTION_EVENTS_DDL.replace("IF NOT EXISTS ", "") + ";")
-            self._report_orphan_drops(conn, "compaction_events_old", "compaction event(s)")
-            conn.execute("""
-                INSERT OR IGNORE INTO compaction_events
-                SELECT * FROM compaction_events_old
-                WHERE session_id IN (SELECT session_id FROM sessions)
-            """)
-            conn.execute("DROP TABLE compaction_events_old")
-
-        # Rebuild indexes
-        conn.executescript(
-            """
-            CREATE INDEX IF NOT EXISTS idx_messages_session_time
-                ON messages(session_id, timestamp);
-            CREATE INDEX IF NOT EXISTS idx_messages_priority
-                ON messages(session_id, priority DESC);
-            CREATE INDEX IF NOT EXISTS idx_messages_tool_results
-                ON messages(session_id, role, tool_name, timestamp DESC)
-                WHERE role IN ('tool_call', 'tool');
-            CREATE INDEX IF NOT EXISTS idx_messages_exchange
-                ON messages(session_id, role, timestamp)
-                WHERE role IN ('user', 'assistant');
-        """
-            + (
-                "CREATE INDEX IF NOT EXISTS idx_compaction_events_session_agent_time"
-                " ON compaction_events(session_id, agent_id, created_at DESC);"
-                if has_compaction_events
-                else ""
+        ]
+        repair_fts = "messages" in tables and (
+            "messages_fts" not in tables
+            or any(
+                row[1] == "message_id" for row in conn.execute("PRAGMA table_info(messages_fts)")
             )
         )
+        if not pending and not repair_fts:
+            return
+        if conn.in_transaction:
+            raise sqlite3.OperationalError(
+                "FK migration requires a connection without pending writes"
+            )
 
-        # Drop ui_session — duplicate of sessions, only needed for the old FK
+        fk_enabled = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        conn.execute("PRAGMA foreign_keys = OFF")
         try:
-            conn.execute("DROP TABLE IF EXISTS ui_session")
-            logger.info("Dropped duplicate ui_session table")
-        except sqlite3.OperationalError as e:
-            logger.debug("ui_session drop skipped: %s", e)
+            conn.execute("BEGIN IMMEDIATE")
+            # Interrupted runs may leave triggers pointing at a missing FTS
+            # table. SQLite validates all triggers during ALTER TABLE, including
+            # unrelated compaction renames, so remove them before any DDL.
+            if "messages" in tables or "messages" in pending:
+                for name in ("insert", "delete", "update"):
+                    conn.execute(f"DROP TRIGGER IF EXISTS messages_fts_{name}")
+            for table in pending:
+                old = f"{table}_old"
+                sources = [old] if old in tables else []
+                if table in tables:
+                    sources.append(table)
+                replacement = f"{table}_new"
+                ddl = _MESSAGES_TABLE_DDL if table == "messages" else _COMPACTION_EVENTS_DDL
+                conn.execute(ddl.replace(f"IF NOT EXISTS {table}", replacement, 1))
+                for source in sources:
+                    self._recover_session_headers(conn, source)
+                    columns = self._shared_columns(conn, replacement, source)
+                    # A partial migration can leave both versions. Current rows
+                    # win for shared IDs; unique source rows are all preserved.
+                    conn.execute(
+                        f"INSERT OR REPLACE INTO {replacement} ({columns})"
+                        f" SELECT {columns} FROM {source}"
+                    )
+                for source in sources:
+                    conn.execute(f"DROP TABLE {source}")
+                conn.execute(f"ALTER TABLE {replacement} RENAME TO {table}")
 
-        conn.execute("PRAGMA foreign_keys = ON")
-        logger.info("FK migration complete: messages/compaction_events → sessions")
+            if "messages" in tables or "messages" in pending:
+                conn.execute("DROP TABLE IF EXISTS messages_fts")
+                conn.execute(_MESSAGES_FTS_DDL)
+                conn.execute("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
+                for trigger in _MESSAGES_FTS_TRIGGERS:
+                    conn.execute(trigger)
+                for name, columns, predicate in (
+                    ("session_time", "session_id, timestamp", ""),
+                    ("priority", "session_id, priority DESC", ""),
+                    (
+                        "tool_results",
+                        "session_id, role, tool_name, timestamp DESC",
+                        " WHERE role IN ('tool_call', 'tool')",
+                    ),
+                    (
+                        "exchange",
+                        "session_id, role, timestamp",
+                        " WHERE role IN ('user', 'assistant')",
+                    ),
+                    ("session_agent_time", "session_id, agent_id, timestamp", ""),
+                    ("team_time", "team_id, timestamp", ""),
+                    ("plan_step_time", "plan_id, plan_step_id, timestamp", ""),
+                ):
+                    conn.execute(
+                        f"CREATE INDEX IF NOT EXISTS idx_messages_{name} ON messages({columns}){predicate}"
+                    )
+            if "compaction_events" in pending:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_compaction_events_session_agent_time"
+                    " ON compaction_events(session_id, agent_id, created_at DESC)"
+                )
+            for table in pending:
+                if conn.execute(f"PRAGMA foreign_key_check({table})").fetchall():
+                    raise sqlite3.IntegrityError(f"Foreign key violation after migrating {table}")
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.execute(f"PRAGMA foreign_keys = {fk_enabled}")
+        logger.info("FK migration complete: %s → sessions; legacy UI payloads retained", pending)
 
     @staticmethod
-    def _report_orphan_drops(conn: sqlite3.Connection, old_table: str, label: str) -> None:
-        """Warn loudly when a migration source holds rows with no sessions row.
+    def _shared_columns(conn: sqlite3.Connection, target: str, source: str) -> str:
+        """Quote shared column names from trusted SQLite schema metadata."""
+        source_columns = {row[1] for row in conn.execute(f"PRAGMA table_info({source})")}
+        return ", ".join(
+            '"' + row[1].replace('"', '""') + '"'
+            for row in conn.execute(f"PRAGMA table_info({target})")
+            if row[1] in source_columns
+        )
 
-        The ui_session→sessions FK migration only carries rows whose
-        session_id exists in ``sessions``; counting what will be dropped on
-        the ``old_table`` first keeps that loss visible instead of silent.
-        """
-        orphaned = conn.execute(
-            f"SELECT COUNT(*) FROM {old_table}"
-            " WHERE session_id NOT IN (SELECT session_id FROM sessions)"
-        ).fetchone()[0]
-        if orphaned:
+    @staticmethod
+    def _recover_session_headers(conn: sqlite3.Connection, source: str) -> None:
+        """Retain conversations whose legacy session header was never mirrored."""
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+        timestamp = "timestamp" if source.startswith("messages") else "created_at"
+        recover_columns = ["session_id"] + [
+            col for col in ("created_at", "last_active", "last_activity") if col in columns
+        ]
+        values = ["session_id"] + [
+            f"COALESCE(MIN({timestamp}), CURRENT_TIMESTAMP)" for _ in recover_columns[1:]
+        ]
+        conn.execute(
+            f"INSERT INTO sessions ({', '.join(recover_columns)})"
+            f" SELECT {', '.join(values)} FROM {source}"
+            " WHERE session_id NOT IN (SELECT session_id FROM sessions) GROUP BY session_id"
+        )
+        recovered = conn.execute("SELECT changes()").fetchone()[0]
+        if recovered:
             logger.warning(
-                "FK migration dropped %d %s whose session_id exists only in legacy"
-                " ui_session (no sessions row); they are not carried over",
-                orphaned,
-                label,
+                "FK migration recovered %d legacy session header(s) from %s", recovered, source
             )
 
     def get_or_create_provider_id(
