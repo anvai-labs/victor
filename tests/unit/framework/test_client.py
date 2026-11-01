@@ -403,3 +403,55 @@ def test_get_available_providers_returns_static_surface():
 
     client = VictorClient.__new__(VictorClient)
     assert client.get_available_providers() == ["anthropic", "openai", "ollama", "google"]
+
+
+def test_context_window_returns_none_when_no_agent():
+    """context_window() returns None when no agent is initialized."""
+    config = SessionConfig.from_cli_flags()
+    client = VictorClient(config, container=object())
+    assert client.context_window() is None
+
+
+def test_context_window_returns_none_when_no_provider():
+    """context_window() returns None when orchestrator has no provider."""
+    config = SessionConfig.from_cli_flags()
+    client = VictorClient(config, container=object())
+    client._agent = SimpleNamespace(_orchestrator=SimpleNamespace(provider=None))
+    assert client.context_window() is None
+
+
+def test_context_window_returns_none_when_no_model():
+    """context_window() returns None when model is not set."""
+    config = SessionConfig.from_cli_flags()
+    client = VictorClient(config, container=object())
+    mock_provider = MagicMock()
+    mock_provider.context_window = MagicMock(return_value=200000)
+    client._agent = SimpleNamespace(
+        _orchestrator=SimpleNamespace(provider=mock_provider, model=None)
+    )
+    assert client.context_window() is None
+
+
+def test_context_window_returns_value_from_provider():
+    """context_window() returns the provider's context window for the model."""
+    config = SessionConfig.from_cli_flags()
+    client = VictorClient(config, container=object())
+    mock_provider = MagicMock()
+    mock_provider.context_window = MagicMock(return_value=200000)
+    client._agent = SimpleNamespace(
+        _orchestrator=SimpleNamespace(provider=mock_provider, model="claude-3-sonnet")
+    )
+    assert client.context_window() == 200000
+    mock_provider.context_window.assert_called_once_with("claude-3-sonnet")
+
+
+def test_context_window_returns_none_on_exception():
+    """context_window() returns None when provider raises an exception."""
+    config = SessionConfig.from_cli_flags()
+    client = VictorClient(config, container=object())
+    mock_provider = MagicMock()
+    mock_provider.context_window = MagicMock(side_effect=ValueError("unknown model"))
+    client._agent = SimpleNamespace(
+        _orchestrator=SimpleNamespace(provider=mock_provider, model="unknown-model")
+    )
+    assert client.context_window() is None
