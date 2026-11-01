@@ -8,7 +8,8 @@ from typing import Iterable, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from rich.console import Group, RenderableType
+from rich.console import Console, ConsoleOptions, Group, RenderableType
+from rich.markdown import CodeBlock as RichCodeBlock
 from rich.markdown import Markdown
 from rich.markup import escape as escape_markup
 from rich.panel import Panel
@@ -16,6 +17,27 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
+
+# Rich's CodeBlock already uses word_wrap=True by default, but we ensure
+# padding is minimal for narrow TUI panes (conversation area ~90 chars wide).
+_original_code_block_render = RichCodeBlock.__rich_console__
+
+
+def _patched_code_block_render(self, console: Console, options: ConsoleOptions):
+    """Render code block with word_wrap and reduced padding for TUI."""
+    code = str(self.text).rstrip()
+    syntax = Syntax(
+        code,
+        self.lexer_name,
+        theme=self.theme,
+        word_wrap=True,
+        padding=(0, 1),  # Reduced from default (1,) for narrow panes
+    )
+    yield syntax
+
+
+# Apply the patch for better TUI rendering
+RichCodeBlock.__rich_console__ = _patched_code_block_render
 
 _DIAGRAM_LANGS = {"mermaid"}
 _TOKEN_PATTERN = re.compile(
@@ -421,10 +443,12 @@ def render_enhanced_table(
         header_style=f"bold {style}",
         border_style="dim",
         padding=(0, 1),
+        expand=False,  # Don't expand beyond content width
     )
 
     for header in headers:
-        table.add_column(header, no_wrap=len(header) < 20)
+        # Allow wrapping for all columns to prevent overflow
+        table.add_column(header, no_wrap=False, overflow="fold")
 
     for row in rows:
         table.add_row(*[str(cell) for cell in row])
