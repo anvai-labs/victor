@@ -40,6 +40,8 @@ class AgentState:
     budget_used: int = 0
     budget_total: Optional[int] = None
     context_pct: Optional[float] = None
+    context_used: Optional[int] = None
+    context_total: Optional[int] = None
 
 
 class AgentStatePanel(Static):
@@ -67,6 +69,22 @@ class AgentStatePanel(Static):
             row("budget", f"{state.budget_used}/{state.budget_total}")
         else:
             row("budget", str(state.budget_used))
-        if state.context_pct is not None:
+        if state.context_used is not None and state.context_total is not None:
+            # Show context usage as "used/total (pct%)" for full visibility
+            used_str = _format_tokens(state.context_used)
+            total_str = _format_tokens(state.context_total)
+            pct_str = f"{state.context_pct:.0f}%" if state.context_pct is not None else ""
+            context_value = f"{used_str}/{total_str}"
+            if pct_str:
+                context_value += f" ({pct_str})"
+            row("context", context_value)
+        elif state.context_pct is not None:
             row("context", f"{state.context_pct:.0f}%")
         return table
+
+
+def _format_tokens(tokens: int) -> str:
+    """Format token count with K suffix for thousands."""
+    if tokens >= 1000:
+        return f"{tokens / 1000:.1f}K"
+    return str(tokens)

@@ -92,6 +92,77 @@ VICTOR_DIR_NAME = _get_secure_victor_dir_name()
 GLOBAL_VICTOR_DIR = _get_secure_global_victor_dir()
 
 
+def find_project_root(start: Optional[Path] = None) -> Path:
+    """Resolve the project root by walking up from *start* (default: cwd).
+
+    Resolution order:
+    1. If an existing ``.victor/project.db`` is found in an ancestor, use its
+       parent (the project that already owns state).
+    2. If a ``.git`` boundary is hit (directory = regular repo or submodule;
+       file = submodule/worktree), use that directory as the project root.
+    3. If a project marker is found (pyproject.toml, package.json, setup.py,
+       Cargo.toml, go.mod, CLAUDE.md, QWEN.md), use its directory.
+    4. Fall back to *start* (cwd).
+
+    The search is bounded at the system temp root to avoid adopting a stray
+    ``/tmp/.victor`` planted by another process.
+
+    Handles:
+    - Regular git repos (``.git/`` directory)
+    - Submodules (``.git`` file pointing to parent's modules dir)
+    - Git worktrees (``.git`` file pointing to main worktree)
+    - Nested repos (each ``.git`` is a separate project boundary)
+    - Non-git projects (falls back to project markers or cwd)
+    """
+    import tempfile
+
+    resolved = (Path(start) if start else Path.cwd()).resolve()
+    temp_root = Path(tempfile.gettempdir()).resolve()
+
+    # Phase 1: Walk up looking for existing .victor/project.db or .git boundary
+    project_markers = frozenset(
+        {
+            "pyproject.toml",
+            "package.json",
+            "setup.py",
+            "setup.cfg",
+            "Cargo.toml",
+            "go.mod",
+            "CLAUDE.md",
+            "QWEN.md",
+        }
+    )
+    fallback_marker: Optional[Path] = None
+
+    for ancestor in (resolved, *resolved.parents):
+        if ancestor == temp_root:
+            break
+
+        # Existing Victor state — strongest signal
+        if (ancestor / ".victor" / "project.db").exists():
+            return ancestor
+
+        # Git boundary — .git can be a directory (regular repo) or a file
+        # (submodule / worktree).  Both are project boundaries.
+        git_path = ancestor / ".git"
+        if git_path.exists():
+            return ancestor
+
+        # Track the first project marker as a fallback
+        if fallback_marker is None:
+            for marker in project_markers:
+                if (ancestor / marker).exists():
+                    fallback_marker = ancestor
+                    break
+
+    # Phase 2: Use project marker if found
+    if fallback_marker is not None:
+        return fallback_marker
+
+    # Phase 3: Fall back to start directory
+    return resolved
+
+
 class ProjectPaths:
     """Centralized path management for Victor.
 
@@ -127,9 +198,12 @@ class ProjectPaths:
         """Initialize paths for a project.
 
         Args:
-            project_root: Project root directory. Defaults to current working directory.
+            project_root: Project root directory. If None, resolves by walking
+                up from cwd to find git root, existing .victor/, or project
+                markers.  Handles submodules, worktrees, nested repos, and
+                non-git projects.
         """
-        self._project_root = Path(project_root) if project_root else Path.cwd()
+        self._project_root = Path(project_root) if project_root else find_project_root()
 
     @property
     def project_root(self) -> Path:

@@ -402,6 +402,29 @@ class StaticEmbeddingCollection:
 
         logger.debug(f"Collection '{self.name}': initialized with {len(items)} items")
 
+    def _compute_similarities(
+        self, query_embedding, query, top_k, threshold, use_weighted_similarity
+    ):
+        """Shared similarity computation for sync/async search."""
+        if use_weighted_similarity:
+            corpus_texts = [self._items[pid].text for pid in self._item_ids]
+            similarities = EmbeddingService.weighted_cosine_similarity(
+                query_embedding, query, self._embeddings, corpus_texts
+            )
+        else:
+            similarities = EmbeddingService.cosine_similarity_matrix(
+                query_embedding, self._embeddings
+            )
+        top_indices = np.argsort(similarities)[::-1][:top_k]
+        results = []
+        for idx in top_indices:
+            score = float(similarities[idx])
+            if score >= threshold:
+                item_id = self._item_ids[idx]
+                item = self._items[item_id]
+                results.append((item, score))
+        return results
+
     async def search(
         self,
         query: str,
@@ -429,32 +452,9 @@ class StaticEmbeddingCollection:
         # Get query embedding
         query_embedding = await self.embedding_service.embed_text(query)
 
-        # Calculate similarities
-        if use_weighted_similarity:
-            # Get corpus texts for weighted similarity
-            corpus_texts = [self._items[pid].text for pid in self._item_ids]
-            similarities = EmbeddingService.weighted_cosine_similarity(
-                query_embedding, query, self._embeddings, corpus_texts
-            )
-        else:
-            # Use standard cosine similarity (backward compatible)
-            similarities = EmbeddingService.cosine_similarity_matrix(
-                query_embedding, self._embeddings
-            )
-
-        # Get top-k indices
-        top_indices = np.argsort(similarities)[::-1][:top_k]
-
-        # Build results
-        results = []
-        for idx in top_indices:
-            score = float(similarities[idx])
-            if score >= threshold:
-                item_id = self._item_ids[idx]
-                item = self._items[item_id]
-                results.append((item, score))
-
-        return results
+        return self._compute_similarities(
+            query_embedding, query, top_k, threshold, use_weighted_similarity
+        )
 
     def search_sync(
         self,
@@ -483,32 +483,9 @@ class StaticEmbeddingCollection:
         # Get query embedding
         query_embedding = self.embedding_service.embed_text_sync(query)
 
-        # Calculate similarities
-        if use_weighted_similarity:
-            # Get corpus texts for weighted similarity
-            corpus_texts = [self._items[pid].text for pid in self._item_ids]
-            similarities = EmbeddingService.weighted_cosine_similarity(
-                query_embedding, query, self._embeddings, corpus_texts
-            )
-        else:
-            # Use standard cosine similarity (backward compatible)
-            similarities = EmbeddingService.cosine_similarity_matrix(
-                query_embedding, self._embeddings
-            )
-
-        # Get top-k indices
-        top_indices = np.argsort(similarities)[::-1][:top_k]
-
-        # Build results
-        results = []
-        for idx in top_indices:
-            score = float(similarities[idx])
-            if score >= threshold:
-                item_id = self._item_ids[idx]
-                item = self._items[item_id]
-                results.append((item, score))
-
-        return results
+        return self._compute_similarities(
+            query_embedding, query, top_k, threshold, use_weighted_similarity
+        )
 
     def get_item(self, item_id: str) -> Optional[CollectionItem]:
         """Get item by ID.

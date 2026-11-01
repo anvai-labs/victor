@@ -1332,6 +1332,7 @@ class AgentOrchestrator(ModeAwareMixin, OrchestratorCapabilityMixin):
             coordinator.set_session_provider(
                 getattr(self, "provider_name", None) or getattr(self.provider, "name", ""),
                 self.model,
+                base_url=getattr(self.provider, "base_url", "") or "",
             )
         except Exception as exc:
             logger.debug("RL coordinator repo context unavailable: %s", exc)
