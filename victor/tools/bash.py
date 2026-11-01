@@ -873,7 +873,6 @@ def _validate_scp_readonly(tokens: list[str]) -> tuple[bool, str]:
     """Validate scp: pull (remote:file → local) is readonly, push is not."""
     # scp [-flags] source destination
     # Remote paths contain ':' (e.g., host:/path or user@host:/path)
-    positional = [t for t in tokens[1:] if not t.startswith("-")]
     # Skip flag values for -P (port)
     filtered = []
     skip_next = False
