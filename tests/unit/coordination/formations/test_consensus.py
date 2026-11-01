@@ -46,6 +46,30 @@ def test_consensus_compares_agreement_not_execution_success(outputs, threshold, 
     assert ConsensusFormation(agreement_threshold=threshold)._check_consensus(results) is expected
 
 
+def test_consensus_constructor_rejects_invalid_output_preview():
+    """The preview bound is validated at construction (OOM follow-up)."""
+    with pytest.raises(ValueError, match="positive output preview"):
+        ConsensusFormation(output_preview_chars=0)
+    with pytest.raises(ValueError, match="positive output preview"):
+        ConsensusFormation(output_preview_chars="unbounded")  # type: ignore[arg-type]
+
+
+async def test_consensus_rejects_invalid_preview_override_in_context():
+    """A context-supplied preview override is re-validated in execute().
+
+    The coordinator's _execute_with boundary converts the formation's
+    ValueError into a failed result, so the rejection surfaces as
+    success=False with the validation message — not a raised exception.
+    """
+    agents = [member("a", ["x"]), member("b", ["y"])]
+    result = await coordinator(TeamFormation.CONSENSUS, agents).execute_task(
+        "task",
+        {"shared_state": {"consensus_output_preview_chars": 0}},
+    )
+    assert result["success"] is False
+    assert "positive output preview" in str(result.get("error", ""))
+
+
 def test_consensus_explicit_key_and_failed_member_denominator():
     results = [
         MemberResult(
