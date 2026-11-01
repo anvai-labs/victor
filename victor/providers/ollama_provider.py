@@ -336,7 +336,7 @@ class OllamaProvider(BaseProvider):
         Set OLLAMA_ENDPOINTS="http://<your-server>:11434,http://localhost:11434"
         to prioritize LAN servers.
         """
-        candidates, base_url = self._resolve_ollama_candidates(base_url)
+        candidates, base_url = cls._resolve_ollama_candidates(base_url)
         # Use module logger since this is a classmethod
         from victor.providers.logging import logger as provider_logger
 

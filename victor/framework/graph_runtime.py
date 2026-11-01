@@ -122,6 +122,7 @@ async def stream_graph_execution(**kwargs: Any):
     """
     queue: asyncio.Queue[Any] = asyncio.Queue()
     sentinel = object()
+    snapshot_state = kwargs["snapshot_state"]
 
     async def _on_node_complete(node_id: str, node_state: Any) -> None:
         await queue.put((node_id, snapshot_state(node_state)))

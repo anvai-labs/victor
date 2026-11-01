@@ -460,7 +460,7 @@ class LMStudioProvider(BaseProvider):
             - False if no models loaded
             - None if couldn't determine
         """
-        candidates, base_url = self._resolve_endpoint_candidates(base_url)
+        candidates, base_url = cls._resolve_endpoint_candidates(base_url)
         for url in candidates:
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(2)) as client:
