@@ -536,3 +536,94 @@ class TestReadonlyRemoteExec:
 
     def test_ssh_mutating_in_chain_rejected(self):
         assert self._valid("ssh host 'rm -rf /' && cat output.txt") is False
+
+
+class TestReadonlyRemoteExecHardening:
+    """Adversarial regressions for the remote-exec readonly analysis.
+
+    Each test pins a bypass shape found by hostile review: forwarding flags,
+    mis-parsed combined short flags, and the env exec wrapper.
+    """
+
+    @staticmethod
+    def _valid(cmd):
+        from victor.tools.bash import _validate_readonly_command
+
+        ok, _ = _validate_readonly_command(cmd)
+        return ok
+
+    # --- ssh port forwarding: never readonly regardless of payload ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh -L 8080:inhost:80 host cat /etc/hosts",
+            "ssh -R 9999:localhost:22 host cat /etc/hosts",
+            "ssh -D 1080 host cat /etc/hosts",
+            "ssh -W target:22 jump cat /etc/hosts",
+            "ssh -L8080:inhost:80 host cat /etc/hosts",  # attached value
+            "ssh -vL 8080:inhost:80 host cat /etc/hosts",  # clustered flag
+            "ssh -w 1:1 host cat /etc/hosts",  # tun device allocation
+        ],
+    )
+    def test_ssh_forwarding_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- combined short flags: value flag inside a cluster consumes the
+    # next token (ssh -vp 22 host ... == ssh -v -p 22 host ...) ---
+
+    def test_ssh_combined_flag_benign_payload_allowed(self):
+        assert self._valid("ssh -vp 22 host cat /etc/hosts") is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # Pre-fix: '-vp' treated as one boolean token made '22' the host,
+            # so the payload was validated starting one token late and the
+            # mutating tail rode in as arguments of an allowlisted word.
+            "ssh -vp 22 host rm -rf /tmp/x",
+            "ssh -vp 22 cat rm -rf /tmp/x",  # host named like an allowlisted cmd
+        ],
+    )
+    def test_ssh_combined_flag_mutating_payload_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    def test_ssh_controlmaster_is_boolean_flag(self):
+        """-M is boolean (ControlMaster); treating it as a value flag made the
+        host look like the flag's value and broke payload extraction."""
+        assert self._valid("ssh -M host cat /etc/hosts") is True
+        assert self._valid("ssh -M host rm -rf /tmp/x") is False
+
+    def test_ssh_attached_option_value_still_parses(self):
+        assert self._valid("ssh -oStrictHostKeyChecking=no host cat /etc/hosts") is True
+        assert self._valid("ssh -p22 host cat /etc/hosts") is True
+
+    # --- env is a generic exec wrapper: validate what it wraps ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "env rm -rf /tmp/x",
+            "env VAR=1 rm -f x",
+            "env -u X rm -f x",
+            "env touch /tmp/x",
+            "env git push",
+            "env ssh host rm -rf /tmp/x",  # wrapper around mutating remote exec
+            "ssh host env rm -rf /tmp/x",  # env inside a remote payload
+        ],
+    )
+    def test_env_wrapped_mutation_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "env",
+            "env VAR=1 cat /etc/hosts",
+            "env cat file.txt",
+            "env ssh host cat /etc/hosts",
+            "printenv",
+        ],
+    )
+    def test_env_wrapped_readonly_allowed(self, cmd):
+        assert self._valid(cmd) is True

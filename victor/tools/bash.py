@@ -806,9 +806,14 @@ def _validate_ssh_readonly(tokens: list[str]) -> tuple[bool, str]:
 
     Parses ssh's argument syntax to find the host, then treats everything
     after the host as the remote command.  Handles:
-      - Value flags: -p, -o, -l, -i, -F, -J, -W, -L, -R, -D, -E, -S, -M, -m, -c, -w
-      - Boolean flags: -t, -T, -N, -f, -q, -v, -4, -6, -A, -a, -C, -g, -K, -k, -X, -x, -Y, -y
-      - Combined short flags: -tt, -vv, -46K etc.
+      - Value flags: -p, -o, -l, -i, -F, -J, -E, -S, -m, -c
+      - Boolean flags: -t, -T, -N, -f, -q, -v, -4, -6, -A, -a, -C, -g, -K, -k,
+        -M, -X, -x, -Y, -y
+      - Combined short flags: -tt, -vv, -46K etc.; a cluster ending in a
+        value-flag initial (-vp 22 == -v -p 22) consumes the next token
+      - Attached values: -p22, -oStrictHostKeyChecking=no
+      - Port forwarding (-L/-R/-D/-W and attached/clustered forms) is always
+        rejected: tunnels change network state regardless of the payload.
     """
     # Flags that consume the next token as their value argument.
     _SSH_VALUE_FLAGS = frozenset(
@@ -819,33 +824,47 @@ def _validate_ssh_readonly(tokens: list[str]) -> tuple[bool, str]:
             "-i",
             "-F",
             "-J",
-            "-W",
-            "-L",
-            "-R",
-            "-D",
             "-E",
             "-S",
-            "-M",
             "-m",
             "-c",
-            "-w",
         }
     )
+    _SSH_VALUE_INITIALS = frozenset(flag[1] for flag in _SSH_VALUE_FLAGS)
+    # -L/-R/-D/-W (plus -w tun allocation) open tunnels/forwards — never readonly.
+    _SSH_TUNNEL_INITIALS = frozenset("LRDWw")
 
     i = 1
     while i < len(tokens):
         tok = tokens[i]
-        if not tok.startswith("-"):
+        if not tok.startswith("-") or tok == "-":
             # First non-flag token is the host; everything after is the command.
+            # ("-" alone is stdin, not a flag.)
             i += 1
             break
-        # Combined short flags like -tt or -vv: each char is a boolean flag
-        # unless the first char is a value flag (e.g. -p22 is unusual but
-        # -p 22 is standard).  For combined flags, treat the whole token as
-        # boolean and move on.
-        if len(tok) > 2 and tok[0] == "-" and tok[1] != "-":
-            # Combined flags (-tt, -vv, -46K): all boolean, skip as one token.
+        if tok == "--":
+            # End of options: the next token is the host.
             i += 1
+            if i < len(tokens):
+                i += 1
+            break
+        # Forwarding flags in any form: exact, attached (-L8080:h:80), or
+        # clustered (-vL). Checked before value/boolean classification.
+        if tok in {"-L", "-R", "-D", "-W", "-w"} or (
+            len(tok) > 2 and any(ch in _SSH_TUNNEL_INITIALS for ch in tok[1:])
+        ):
+            return False, "ssh (port forwarding)"
+        # Combined short flags like -tt or -vv. A token containing "=" is an
+        # attached option value (-oFoo=bar): one token. A cluster ending in a
+        # value-flag initial (-vp) consumes the next token as that flag's
+        # value; anything else (-tt, -p22) is a single token.
+        if len(tok) > 2 and tok[0] == "-" and tok[1] != "-":
+            if "=" in tok:
+                i += 1
+            elif tok[-1] in _SSH_VALUE_INITIALS:
+                i += 2
+            else:
+                i += 1
             continue
         if tok in _SSH_VALUE_FLAGS:
             i += 2  # skip flag + its value
@@ -981,6 +1000,31 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     redirect_valid, redirect_reason = _validate_readonly_redirections(cmd)
     if not redirect_valid:
         return False, redirect_reason
+
+    # env is a generic exec wrapper: `env rm -f x` runs rm. Validate the
+    # wrapped command recursively instead of trusting the env allowlist entry
+    # (which exists for bare `env` / `env VAR=x <readonly-cmd>` usage).
+    if base_cmd == "env":
+        j = 1
+        while j < len(_tokens):
+            t = _tokens[j]
+            if t == "-u":
+                j += 2  # -u NAME
+                continue
+            if t.startswith("-") and t != "-":
+                j += 1  # env's own flags (-i, -0, --ignore-environment, ...)
+                continue
+            if _ASSIGNMENT_RE.match(t):
+                j += 1  # VAR=value prefix assignment
+                continue
+            break
+        wrapped = _tokens[j:]
+        if not wrapped:
+            return True, ""  # bare env / assignments only: prints environment
+        wrapped_valid, wrapped_failing = _validate_readonly_command(" ".join(wrapped))
+        if not wrapped_valid:
+            return False, f"env: {wrapped_failing}"
+        return True, ""
 
     # sed is readonly unless it edits in place. Tokenize this check so a pattern
     # containing the text "-i" is not misclassified.
