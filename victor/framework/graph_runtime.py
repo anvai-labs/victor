@@ -23,11 +23,62 @@ import logging
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    List,
+    NotRequired,
+    Optional,
+    Tuple,
+    TypedDict,
+    Union,
+    Unpack,
+)
 
 NodeLifecycleObserver = Callable[[str, str, Any, Optional[str], float], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
+
+
+class _GraphExecutionKwargs(TypedDict):
+    """Keyword contract shared by the compiled-graph execution entry points.
+
+    ``run_graph_execution`` and ``stream_graph_execution`` forward this exact
+    parameter set to ``_run_graph_execution_loop``. The streaming entry point
+    accepts it via ``**kwargs: Unpack[_GraphExecutionKwargs]`` so its call
+    sites stay mypy-checked without duplicating the parameter list.
+
+    Fields are grouped by role (graph position, runtime collaborators,
+    execution callbacks, behavioral options) rather than mirroring the loop's
+    declaration order.
+    """
+
+    # Graph position / identity
+    state: Any
+    current_node: str
+    end_node_token: str
+    entry_point: str
+    node_count: int
+    thread_id: str
+    # Runtime collaborators
+    iteration_controller: Any
+    timeout_manager: Any
+    interrupt_handler: Any
+    node_executor: Any
+    checkpoint_manager: Any
+    event_emitter: Any
+    # Execution callbacks
+    hook: Optional[Any]
+    validate_state: Optional[Callable[[str, Any], Optional[str]]]
+    snapshot_state: Callable[[Any], Any]
+    get_next_node: Callable[[str, Any], Union[str, List[Any], Tuple[str, ...]]]
+    execute_parallel: Callable[[List[Any], Any, Any, Any], Awaitable[Any]]
+    # Behavioral options
+    record_state_history: NotRequired[bool]
+    sequential_fanout: NotRequired[bool]
+    node_observer: NotRequired[Optional[NodeLifecycleObserver]]
 
 
 @dataclass
@@ -115,10 +166,13 @@ async def run_graph_execution(
     )
 
 
-async def stream_graph_execution(**kwargs: Any):
+async def stream_graph_execution(
+    **kwargs: Unpack[_GraphExecutionKwargs],
+) -> AsyncIterator[Any]:
     """Stream compiled graph execution using the same runtime path as invoke().
 
-    Accepts the same keyword arguments as run_graph_execution().
+    Accepts the same keyword arguments as ``run_graph_execution`` (see
+    ``_GraphExecutionKwargs``); ``Unpack`` keeps call sites mypy-checked.
     """
     queue: asyncio.Queue[Any] = asyncio.Queue()
     sentinel = object()
