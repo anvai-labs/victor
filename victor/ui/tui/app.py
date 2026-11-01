@@ -565,7 +565,9 @@ class VictorTUIApp(App[None]):
                 if report:
                     total = report.get("total_tokens")
                     if total is None:
-                        total = (report.get("prompt_tokens") or 0) + (report.get("completion_tokens") or 0)
+                        total = (report.get("prompt_tokens") or 0) + (
+                            report.get("completion_tokens") or 0
+                        )
                     if total:
                         used = int(total)
             if used is not None:
