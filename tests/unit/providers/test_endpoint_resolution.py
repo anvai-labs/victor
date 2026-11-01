@@ -23,7 +23,6 @@ import pytest
 
 from victor.providers.endpoint_resolution import resolve_endpoint_candidates
 
-
 DEFAULT = "http://localhost:11434"
 
 
