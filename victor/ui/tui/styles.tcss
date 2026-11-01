@@ -43,6 +43,7 @@ Screen {
     border-top: solid $primary;
     background: $surface;
     color: $foreground;
+    overflow-y: auto;
     scrollbar-size: 1 1;
 }
 
