@@ -459,6 +459,29 @@ class VictorClient:
         provider = getattr(orchestrator, "provider", None)
         return getattr(provider, "base_url", None)
 
+    def context_window(self) -> Optional[int]:
+        """Context window size (in tokens) for the active model, when available.
+
+        Returns ``None`` when no agent is initialized, the provider does not expose
+        ``context_window()``, or the active model is unknown.
+        """
+        agent = self._agent
+        if agent is None:
+            return None
+        orchestrator = getattr(agent, "_orchestrator", None)
+        provider = getattr(orchestrator, "provider", None)
+        model = self.model
+        if provider is None or not model:
+            return None
+        context_window_fn = getattr(provider, "context_window", None)
+        if not callable(context_window_fn):
+            return None
+        try:
+            return int(context_window_fn(model))
+        except Exception:
+            logger.debug("context_window() lookup failed", exc_info=True)
+            return None
+
     async def start_embedding_preload(self) -> None:
         """Warm embedding-dependent runtime state when supported."""
         agent = await self._ensure_initialized()
