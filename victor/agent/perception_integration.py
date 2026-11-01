@@ -397,6 +397,27 @@ class PerceptionIntegration:
                 "clarification_prompt": None,
             }
 
+        # Devops/workflow meta-commands (commit, push, pr, ci, deploy, etc.) are
+        # self-contained operations that don't target a file or code component.
+        # They should not trigger the confirmation/clarification gate even when
+        # the action intent is AMBIGUOUS.
+        _DEVOPS_WORKFLOW_PATTERNS = re.compile(
+            r"^\s*(?:"
+            r"(?:git\s+)?(?:commit|push|pull|fetch|merge|rebase|stash|tag|branch|checkout|cherry.pick)|"
+            r"(?:create|open|submit|close|merge)\s+(?:a\s+)?(?:pr|pull.request|merge.request)|"
+            r"(?:run|drive|check|monitor)\s+(?:ci|tests?|pipeline|build|deploy)|"
+            r"(?:deploy|release|publish|ship)|"
+            r"(?:lint|format|check)(?:\s+and\s+(?:fix|format|test))?"
+            r")\b",
+            re.IGNORECASE,
+        )
+        if _DEVOPS_WORKFLOW_PATTERNS.search(message):
+            return {
+                "needs_clarification": False,
+                "clarification_reason": None,
+                "clarification_prompt": None,
+            }
+
         target_present = bool(
             self._extract_required_files(message)
             or self._extract_scope_hints(message)
