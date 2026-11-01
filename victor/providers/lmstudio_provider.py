@@ -43,6 +43,7 @@ from victor.providers.base import (
     StreamChunk,
     ToolDefinition,
 )
+from victor.providers.endpoint_resolution import BaseUrlLike, resolve_endpoint_candidates
 from victor.providers.logging import ProviderLogger
 from victor.providers.runtime_capabilities import (
     ProviderRuntimeCapabilities,
@@ -391,6 +392,13 @@ class LMStudioProvider(BaseProvider):
             except (ValueError, TypeError):
                 continue
         return None
+
+    @staticmethod
+    def _resolve_endpoint_candidates(
+        base_url: BaseUrlLike,
+    ) -> "Tuple[List[str], Union[str, List[str], None]]":
+        """Resolve LMStudio endpoint candidates (env var > base_url > default)."""
+        return resolve_endpoint_candidates(base_url, "LMSTUDIO_ENDPOINTS", "http://127.0.0.1:1234")
 
     def _select_base_url(self, base_url: Union[str, List[str], None], timeout: int) -> str:
         """Pick the first reachable LMStudio endpoint from a tiered list.
