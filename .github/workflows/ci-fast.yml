@@ -502,6 +502,11 @@ jobs:
   quick-tests:
     name: Quick Unit Tests (changed files)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # actions:read lets the changed-file diff resolve the last GREEN run's
+      # tip on this branch (see the Run unit tests step).
+      actions: read
     # Runs ONLY the unit tests relevant to the PR's changed files (mirror mapping), so the
     # develop gate stays proportional to the change. The full non-slow suite is ~7h
     # single-process / ~hours even sharded, so it can't be a per-PR gate — it runs sharded at
@@ -543,18 +548,51 @@ jobs:
       - name: Run unit tests for changed files
         # Map changed files -> mirror unit tests (scripts/ci/select_changed_tests.py). No mapped
         # tests (docs/CI-only changes, or source with no mirror test) => nothing to run = pass.
-        # base_ref is passed via env (not inline ${{…}} in run:) to avoid shell injection from
-        # untrusted context interpolation (Semgrep run-shell-injection).
+        # Context values are passed via env (not inline ${{…}} in run:) to avoid shell injection
+        # from untrusted context interpolation (Semgrep run-shell-injection).
         env:
           BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -n "$BASE_REF" ]; then
             git fetch origin "$BASE_REF" --quiet
             CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
             COMPARE_REF="origin/$BASE_REF"
           else
-            CHANGED=$(git diff --name-only HEAD~1 HEAD)
-            COMPARE_REF="HEAD~1"
+            # Push events must not let a later push bury unresolved failures:
+            # a red run's breakage stays in scope until fixed, even when the
+            # next push's own commits touch other files. Diff from the last
+            # GREEN run's tip on this branch, falling back to the push's
+            # before-SHA (gates every commit of a multi-commit push), then to
+            # the tip commit. (Observed regression: a dedup commit broke the
+            # ollama/lmstudio providers, its run went red, and a later
+            # single-commit push touching only bash.py diffed HEAD~1..HEAD,
+            # skipped their tests, and turned the gate green.)
+            COMPARE_REF=""
+            LAST_GREEN=""
+            if [ "$EVENT_NAME" = "push" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              LAST_GREEN=$(gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-fast.yml/runs?branch=${GITHUB_REF_NAME}&status=success&per_page=30" \
+                --jq "[.workflow_runs[] | select(.head_sha != \"${GITHUB_SHA}\")][0].head_sha" \
+                2>/dev/null || true)
+              if [ -n "$LAST_GREEN" ] && [ "$LAST_GREEN" != "null" ] && \
+                 git cat-file -e "${LAST_GREEN}^{commit}" 2>/dev/null; then
+                COMPARE_REF="$LAST_GREEN"
+                echo "Diffing from the last green run's tip: $LAST_GREEN"
+              fi
+            fi
+            if [ -z "$COMPARE_REF" ] && [ -n "$PUSH_BEFORE" ] && \
+               [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+              COMPARE_REF="$PUSH_BEFORE"
+              echo "No resolvable last-green tip; diffing the whole push from $PUSH_BEFORE"
+            fi
+            if [ -z "$COMPARE_REF" ]; then
+              COMPARE_REF="HEAD~1"
+              echo "No earlier reference resolvable; diffing the tip commit only"
+            fi
+            CHANGED=$(git diff --name-only "$COMPARE_REF...HEAD")
           fi
           echo "Changed files:"
           while IFS= read -r changed_file; do
