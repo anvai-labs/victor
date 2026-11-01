@@ -319,3 +319,26 @@ def test_migrate_fk_to_sessions_logs_orphaned_message_drops(tmp_path, caplog):
         "1 message(s)" in rec.message and "ui_session" in rec.message for rec in caplog.records
     ), [rec.message for rec in caplog.records]
     conn.close()
+
+
+def test_migrate_fk_to_sessions_preserves_metadata_json(tmp_path):
+    """metadata_json values survive the table recreation when the legacy
+    table has the column; a legacy table without it keeps the '{}' default."""
+    db = tmp_path / "legacy_json.db"
+    conn = sqlite3.connect(db)
+    _build_legacy_ui_session_db(conn)
+    # Simulate a database that ran apply_hybrid_compaction_schema.
+    conn.execute("ALTER TABLE messages ADD COLUMN metadata_json TEXT DEFAULT '{}'")
+    conn.execute("UPDATE messages SET metadata_json = ? WHERE id = 'm1'", ('{"k": 1}',))
+    conn.commit()
+
+    schema = _migrated_schema()
+    schema.migrate_fk_to_sessions(conn)
+    schema.ensure_critical_tables(conn)
+    conn.commit()
+
+    preserved = conn.execute("SELECT metadata_json FROM messages WHERE id = 'm1'").fetchone()[0]
+    default_kept = conn.execute("SELECT metadata_json FROM messages WHERE id = 'm4'").fetchone()[0]
+    assert preserved == '{"k": 1}'
+    assert default_kept == "{}"
+    conn.close()

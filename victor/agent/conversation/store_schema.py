@@ -845,13 +845,20 @@ class ConversationStoreSchema:
         # Rows whose session_id has no sessions row (legacy ui_session-only
         # sessions) are reported so the drop is visible, not silent.
         self._report_orphan_drops(conn, "messages_old", "message(s)")
-        conn.execute("""
+        # metadata_json is carried over only when the legacy table has it —
+        # apply_hybrid_compaction_schema adds that column lazily, so older
+        # databases legitimately lack it (the new column then keeps its '{}').
+        legacy_has_json = "metadata_json" in {
+            row[1] for row in conn.execute("PRAGMA table_info(messages_old)")
+        }
+        json_col = ", metadata_json" if legacy_has_json else ""
+        conn.execute(f"""
             INSERT OR IGNORE INTO messages
                 (id, session_id, role, content, timestamp, token_count, priority,
-                 tool_name, tool_call_id, metadata, agent_id,
+                 tool_name, tool_call_id, metadata{json_col}, agent_id,
                  parent_session_id, team_id, member_id, plan_id, plan_step_id)
             SELECT id, session_id, role, content, timestamp, token_count, priority,
-                 tool_name, tool_call_id, metadata, agent_id,
+                 tool_name, tool_call_id, metadata{json_col}, agent_id,
                    parent_session_id, team_id, member_id, plan_id, plan_step_id
             FROM messages_old
             WHERE session_id IN (SELECT session_id FROM sessions)
