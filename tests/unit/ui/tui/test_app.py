@@ -390,3 +390,23 @@ async def test_bootstrap_failure_shows_error_and_exits() -> None:
         await pilot.pause()
         assert app._bootstrap_error is not None  # type: ignore[attr-defined]
         assert "provider api key missing" in app._bootstrap_error  # type: ignore[attr-defined]
+
+
+async def test_sidebar_uses_current_context_and_never_cumulative_usage():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    client = FakeClient()
+    client.context_window = lambda: 10000
+    client.get_session_metrics = AsyncMock(return_value={"context_tokens": 1200})
+    app = _make_app(client)
+    cumulative = MagicMock(return_value=SimpleNamespace(total_tokens=150000))
+    app._agent = SimpleNamespace(_orchestrator=SimpleNamespace(get_token_usage=cumulative))
+    assert await app._compute_context_usage() == (1200, 10000, 12.0)
+    cumulative.assert_not_called()
+    # Compaction can shrink current context even as billed session tokens rise.
+    client.get_session_metrics.return_value = {"context_tokens": 0}
+    assert await app._compute_context_usage() == (0, 10000, 0.0)
+    # Aggregate turn cost is not a valid estimate of the current request.
+    client.get_session_metrics.return_value = {}
+    assert await app._compute_context_usage() == (None, 10000, None)

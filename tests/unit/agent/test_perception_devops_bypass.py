@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -87,6 +86,15 @@ class TestDevopsWorkflowBypass:
             "fix the bug",
             "update the handler",
             "refactor this",
+            "check the handler",
+            "check this",
+            "format it",
+            "merge these",
+            "format the handler",
+            "release the lock",
+            "publish the event",
+            "tag the element",
+            "merge the functions",
         ],
     )
     def test_non_devops_actions_still_require_clarification(

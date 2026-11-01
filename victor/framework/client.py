@@ -477,7 +477,8 @@ class VictorClient:
         if not callable(context_window_fn):
             return None
         try:
-            return int(context_window_fn(model))
+            window = int(context_window_fn(model))
+            return window if window > 0 else None
         except Exception:
             logger.debug("context_window() lookup failed", exc_info=True)
             return None
@@ -491,11 +492,23 @@ class VictorClient:
     async def get_session_metrics(self) -> Dict[str, Any]:
         """Return session-level runtime metrics when available."""
         agent = await self._ensure_initialized()
+        metrics: Dict[str, Any] = {}
         if hasattr(agent, "get_session_metrics"):
-            metrics = agent.get_session_metrics()
-            if isinstance(metrics, dict):
-                return metrics
-        return {}
+            runtime_metrics = agent.get_session_metrics()
+            if isinstance(runtime_metrics, dict):
+                metrics = dict(runtime_metrics)
+        # Current context is distinct from cumulative billing/turn usage. Keep
+        # runtime access here so UI clients consume the framework telemetry port.
+        orchestrator = getattr(agent, "_orchestrator", None)
+        context_getter = getattr(orchestrator, "get_context_metrics", None)
+        if callable(context_getter):
+            try:
+                tokens = context_getter().estimated_tokens
+                if isinstance(tokens, int) and tokens >= 0:
+                    metrics["context_tokens"] = tokens
+            except Exception:
+                logger.debug("context metrics lookup failed", exc_info=True)
+        return metrics
 
     def get_last_turn_cost(self) -> Dict[str, Any]:
         """Return the most recent per-turn cost/latency record (the C0 TaskExecutionReport).

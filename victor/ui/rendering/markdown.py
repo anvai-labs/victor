@@ -5,39 +5,33 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from typing import Iterable, List, Tuple
-from dataclasses import dataclass
-from enum import Enum
 
-from rich.console import Console, ConsoleOptions, Group, RenderableType
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.markdown import CodeBlock as RichCodeBlock
 from rich.markdown import Markdown
-from rich.markup import escape as escape_markup
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-# Rich's CodeBlock already uses word_wrap=True by default, but we ensure
-# padding is minimal for narrow TUI panes (conversation area ~90 chars wide).
-_original_code_block_render = RichCodeBlock.__rich_console__
+
+class _CompactCodeBlock(RichCodeBlock):
+    """Keep narrow-pane code formatting scoped to Victor renderables."""
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield Syntax(
+            str(self.text).rstrip(),
+            self.lexer_name,
+            theme=self.theme,
+            word_wrap=True,
+            padding=(0, 1),
+        )
 
 
-def _patched_code_block_render(self, console: Console, options: ConsoleOptions):
-    """Render code block with word_wrap and reduced padding for TUI."""
-    code = str(self.text).rstrip()
-    syntax = Syntax(
-        code,
-        self.lexer_name,
-        theme=self.theme,
-        word_wrap=True,
-        padding=(0, 1),  # Reduced from default (1,) for narrow panes
-    )
-    yield syntax
+class _VictorMarkdown(Markdown):
+    elements = {**Markdown.elements, "fence": _CompactCodeBlock, "code_block": _CompactCodeBlock}
 
-
-# Apply the patch for better TUI rendering
-RichCodeBlock.__rich_console__ = _patched_code_block_render
 
 _DIAGRAM_LANGS = {"mermaid"}
 _TOKEN_PATTERN = re.compile(
@@ -92,7 +86,7 @@ def _markdown_block(text: str) -> Markdown:
     ``_escape_rich_markup_from_text`` is retained as a utility for any
     markup-aware Rich path (e.g. ``console.print(Text(...))``) that may need it.
     """
-    return Markdown(text, style="markdown.text", justify="left")
+    return _VictorMarkdown(text, style="markdown.text", justify="left")
 
 
 def find_safe_split(content: str) -> int:

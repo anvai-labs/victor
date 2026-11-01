@@ -235,12 +235,12 @@ def test_migrate_fk_to_sessions_rebuilds_fts_index(tmp_path):
     schema.ensure_critical_tables(conn)
     conn.commit()
 
-    # FK now targets sessions and ui_session is gone.
+    # FK now targets sessions; original UI payloads remain available for recovery.
     fk_targets = {row[2] for row in conn.execute("PRAGMA foreign_key_list(messages)")}
     assert fk_targets == {"sessions"}
     assert (
         conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='ui_session'").fetchone()[0]
-        == 0
+        == 1
     )
 
     # FTS recreated in the current shape: no stale message_id column, and the
@@ -250,7 +250,7 @@ def test_migrate_fk_to_sessions_rebuilds_fts_index(tmp_path):
     assert "message_id" not in fts_sql
     indexed = conn.execute("SELECT COUNT(*) FROM messages_fts").fetchone()[0]
     surviving = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
-    assert indexed == surviving == 3  # m1, m2, m4 (m3 deleted, m_orphan dropped)
+    assert indexed == surviving == 4  # m1, m2, m4, and recovered m_orphan
 
     # Rowids align: every index entry maps to a live message and vice versa.
     fts_rowids = {r[0] for r in conn.execute("SELECT rowid FROM messages_fts")}
@@ -300,24 +300,16 @@ def test_migrate_fk_to_sessions_is_idempotent(tmp_path):
     conn.close()
 
 
-def test_migrate_fk_to_sessions_logs_orphaned_message_drops(tmp_path, caplog):
-    """Messages whose session only exists in legacy ui_session are dropped
-    WITH a loud warning naming the count — never silently."""
+def test_migrate_fk_to_sessions_logs_recovered_sessions(tmp_path, caplog):
+    """Legacy-only histories retain a session header and emit a recovery warning."""
     import logging
 
-    db = tmp_path / "legacy.db"
-    conn = sqlite3.connect(db)
+    conn = sqlite3.connect(tmp_path / "legacy.db")
     _build_legacy_ui_session_db(conn)
-
-    schema = _migrated_schema()
     with caplog.at_level(logging.WARNING, logger="victor.agent.conversation.store_schema"):
-        schema.migrate_fk_to_sessions(conn)
-    conn.commit()
-
-    assert conn.execute("SELECT COUNT(*) FROM messages WHERE id='m_orphan'").fetchone()[0] == 0
-    assert any(
-        "1 message(s)" in rec.message and "ui_session" in rec.message for rec in caplog.records
-    ), [rec.message for rec in caplog.records]
+        _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute("SELECT COUNT(*) FROM messages WHERE id='m_orphan'").fetchone()[0] == 1
+    assert any("recovered 1 legacy session" in rec.message for rec in caplog.records)
     conn.close()
 
 
@@ -341,4 +333,151 @@ def test_migrate_fk_to_sessions_preserves_metadata_json(tmp_path):
     default_kept = conn.execute("SELECT metadata_json FROM messages WHERE id = 'm4'").fetchone()[0]
     assert preserved == '{"k": 1}'
     assert default_kept == "{}"
+    conn.close()
+
+
+class _FailingMigrationConnection(sqlite3.Connection):
+    fail_fts = False
+
+    def execute(self, sql, parameters=()):
+        if self.fail_fts and "CREATE VIRTUAL TABLE" in sql:
+            raise sqlite3.OperationalError("injected FTS failure")
+        return super().execute(sql, parameters)
+
+
+def _add_legacy_compaction(conn):
+    from victor.agent.conversation.store_schema import _COMPACTION_EVENTS_DDL
+
+    conn.execute(_COMPACTION_EVENTS_DDL.replace("REFERENCES sessions", "REFERENCES ui_session"))
+    conn.execute(
+        "INSERT INTO compaction_events (id, session_id, strategy, created_at) "
+        "VALUES ('c1', 's1', 'tiered', 't')"
+    )
+    conn.commit()
+
+
+def test_fk_migration_failure_rolls_back_data_schema_and_restores_enforcement(tmp_path):
+    import pytest
+
+    conn = sqlite3.connect(tmp_path / "atomic.db", factory=_FailingMigrationConnection)
+    _build_legacy_ui_session_db(conn)
+    _add_legacy_compaction(conn)
+    conn.execute("PRAGMA foreign_keys = ON")
+    before = conn.execute("SELECT * FROM messages ORDER BY id").fetchall()
+    conn.fail_fts = True
+    with pytest.raises(sqlite3.OperationalError, match="injected FTS failure"):
+        _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert conn.execute("SELECT * FROM messages ORDER BY id").fetchall() == before
+    assert conn.execute("PRAGMA foreign_key_list(messages)").fetchone()[2] == "ui_session"
+    assert "messages_old" not in _core_tables(conn)
+    conn.fail_fts = False
+    _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute("PRAGMA foreign_key_check(messages)").fetchall() == []
+    assert conn.execute("PRAGMA foreign_key_list(compaction_events)").fetchone()[2] == "sessions"
+    conn.close()
+
+
+def test_fk_migration_repairs_compaction_when_messages_already_migrated():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    _add_legacy_compaction(conn)
+    schema = _migrated_schema()
+    # Simulate the previous implementation failing after messages committed.
+    conn.execute("ALTER TABLE compaction_events RENAME TO saved_compaction")
+    schema.migrate_fk_to_sessions(conn)
+    conn.execute("ALTER TABLE saved_compaction RENAME TO compaction_events")
+    conn.execute("DROP TABLE messages_fts")
+    conn.commit()
+    schema.migrate_fk_to_sessions(conn)
+    assert conn.execute("PRAGMA foreign_key_list(compaction_events)").fetchone()[2] == "sessions"
+    assert conn.execute("SELECT id FROM compaction_events").fetchall() == [("c1",)]
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'tok_one'"
+        ).fetchone()[0]
+        == 1
+    )
+    conn.close()
+
+
+def test_fk_migration_preserves_legacy_session_only_messages():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute("SELECT content FROM messages WHERE id='m_orphan'").fetchone() == (
+        "orphan tok_six",
+    )
+    assert conn.execute("SELECT session_id FROM sessions WHERE session_id='s_ghost'").fetchone()
+    conn.close()
+
+
+def test_fk_migration_fts_tracks_update_and_delete_with_foreign_keys_enabled():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    conn.execute("PRAGMA foreign_keys = ON")
+    schema = _migrated_schema()
+    schema.migrate_fk_to_sessions(conn)
+    assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    conn.execute("UPDATE messages SET content='replacementtoken' WHERE id='m1'")
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'tok_one'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'replacementtoken'"
+        ).fetchone()[0]
+        == 1
+    )
+    conn.execute("DELETE FROM sessions WHERE session_id='s1'")
+    assert conn.execute("SELECT COUNT(*) FROM messages WHERE session_id='s1'").fetchone()[0] == 0
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'replacementtoken'"
+        ).fetchone()[0]
+        == 0
+    )
+    conn.close()
+
+
+def test_fk_migration_merges_interrupted_tables_without_losing_new_metadata():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    conn.execute("ALTER TABLE messages RENAME TO messages_old")
+    from victor.agent.conversation.store_schema import _MESSAGES_TABLE_DDL
+
+    conn.execute(_MESSAGES_TABLE_DDL)
+    conn.execute(
+        "INSERT INTO messages (id, session_id, role, content, timestamp, token_count, priority, metadata_json) "
+        "VALUES ('m1', 's1', 'user', 'newer content', 't', 1, 1, ?)",
+        ('{"new": true}',),
+    )
+    conn.commit()
+    _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute("SELECT content, metadata_json FROM messages WHERE id='m1'").fetchone() == (
+        "newer content",
+        '{"new": true}',
+    )
+    assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 4
+    assert "messages_old" not in _core_tables(conn)
+    conn.close()
+
+
+def test_fk_migration_repairs_missing_fts_even_without_pending_foreign_keys():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    schema = _migrated_schema()
+    schema.migrate_fk_to_sessions(conn)
+    conn.execute("DROP TABLE messages_fts")
+    conn.commit()
+    schema.migrate_fk_to_sessions(conn)
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'tok_one'"
+        ).fetchone()[0]
+        == 1
+    )
     conn.close()
