@@ -33,6 +33,26 @@ from victor.agent.ml_metadata import (
 # The core-table DDL is shared verbatim by ensure_critical_tables and
 # apply_normalized_schema (jscpd exact-duplicate extraction: 76 identical
 # lines). Both paths must create the same tables idempotently.
+_COMPACTION_EVENTS_DDL = """
+            CREATE TABLE IF NOT EXISTS compaction_events (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                agent_id TEXT,
+                parent_session_id TEXT,
+                team_id TEXT,
+                member_id TEXT,
+                plan_id TEXT,
+                plan_step_id TEXT,
+                strategy TEXT NOT NULL,
+                messages_removed INTEGER DEFAULT 0,
+                tokens_freed INTEGER DEFAULT 0,
+                summary TEXT,
+                created_at TIMESTAMP NOT NULL,
+                metadata TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            )"""
+
 _CRITICAL_TABLES_DDL = """
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
@@ -91,26 +111,7 @@ _CRITICAL_TABLES_DDL = """
                 FOREIGN KEY (session_id) REFERENCES sessions(session_id)
                     ON DELETE CASCADE
             );
-
-            CREATE TABLE IF NOT EXISTS compaction_events (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                strategy TEXT NOT NULL,
-                messages_removed INTEGER DEFAULT 0,
-                tokens_freed INTEGER DEFAULT 0,
-                summary TEXT,
-                created_at TIMESTAMP NOT NULL,
-                metadata TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-"""
+""" + _COMPACTION_EVENTS_DDL + ";"
 
 
 logger = logging.getLogger(__name__)
@@ -856,26 +857,7 @@ class ConversationStoreSchema:
             conn.execute("ALTER TABLE compaction_events_old RENAME TO compaction_events")
 
         conn.execute("ALTER TABLE compaction_events RENAME TO compaction_events_old")
-        conn.executescript("""
-            CREATE TABLE compaction_events (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                agent_id TEXT,
-                parent_session_id TEXT,
-                team_id TEXT,
-                member_id TEXT,
-                plan_id TEXT,
-                plan_step_id TEXT,
-                strategy TEXT NOT NULL,
-                messages_removed INTEGER DEFAULT 0,
-                tokens_freed INTEGER DEFAULT 0,
-                summary TEXT,
-                created_at TIMESTAMP NOT NULL,
-                metadata TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-                    ON DELETE CASCADE
-            );
-        """)
+        conn.executescript(_COMPACTION_EVENTS_DDL.replace("IF NOT EXISTS ", "") + ";")
         conn.execute("""
             INSERT OR IGNORE INTO compaction_events
             SELECT * FROM compaction_events_old
