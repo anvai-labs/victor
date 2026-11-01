@@ -46,6 +46,30 @@ def test_consensus_compares_agreement_not_execution_success(outputs, threshold, 
     assert ConsensusFormation(agreement_threshold=threshold)._check_consensus(results) is expected
 
 
+def test_consensus_constructor_rejects_invalid_output_preview():
+    """The preview bound is validated at construction (OOM follow-up)."""
+    with pytest.raises(ValueError, match="positive output preview"):
+        ConsensusFormation(output_preview_chars=0)
+    with pytest.raises(ValueError, match="positive output preview"):
+        ConsensusFormation(output_preview_chars="unbounded")  # type: ignore[arg-type]
+
+
+async def test_consensus_rejects_invalid_preview_override_in_context():
+    """A context-supplied preview override is re-validated in execute().
+
+    The coordinator's _execute_with boundary converts the formation's
+    ValueError into a failed result, so the rejection surfaces as
+    success=False with the validation message — not a raised exception.
+    """
+    agents = [member("a", ["x"]), member("b", ["y"])]
+    result = await coordinator(TeamFormation.CONSENSUS, agents).execute_task(
+        "task",
+        {"shared_state": {"consensus_output_preview_chars": 0}},
+    )
+    assert result["success"] is False
+    assert "positive output preview" in str(result.get("error", ""))
+
+
 def test_consensus_explicit_key_and_failed_member_denominator():
     results = [
         MemberResult(
@@ -68,6 +92,43 @@ async def test_consensus_default_rounds_can_converge_after_disagreement():
     assert result["consensus_rounds"] == 2
     assert result["consensus_achieved"] is True
     assert ConsensusFormation().max_rounds == 15  # 5x'd 2026-10-31 (was 3)
+
+
+async def test_consensus_embeds_only_bounded_output_preview():
+    """Echoing members must not compound the round task.
+
+    A member that quotes the task it received makes the next round's task
+    grow ~4x per round when the full output is embedded (14 GB by round ~11
+    at max_rounds=15 — the 0.25.0 promotion OOM). Only a bounded preview of
+    each output may be embedded.
+    """
+    seen_tasks: list = []
+    agents = []
+    for i in range(2):
+
+        async def echo(task, context, i=i):
+            seen_tasks.append(task)
+            return f"echo-{i}: {task}"  # echoes the task; distinct per member
+
+        agents.append(
+            SimpleNamespace(
+                id=f"a{i}",
+                role="executor",
+                receive_message=AsyncMock(),
+                execute_task=AsyncMock(side_effect=echo),
+            )
+        )
+    result = await coordinator(TeamFormation.CONSENSUS, agents).execute_task(
+        "task",
+        {"shared_state": {"consensus_max_rounds": 6, "consensus_output_preview_chars": 64}},
+    )
+
+    assert result["success"] is False  # echoes never converge
+    assert len(seen_tasks) == 12  # 2 agents x 6 rounds: no early exit, no OOM
+    # Each embedded output is clamped to the preview size, so a round task is
+    # original + previews + JSON keys — bounded, not 4**round.
+    worst = max(len(task) for task in seen_tasks)
+    assert worst < 1_000, f"round task grew to {worst} chars"
 
 
 @pytest.mark.parametrize(
