@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-31
+
+Requires `victor-contracts>=0.17.0` (published first); first-party verticals 0.16.0 ship
+alongside (`verticals-v0.16.0`).
+
+### Changed
+
+- **Default agent stamina budgets multiplied ×5** (#1637): tool budgets (BudgetLimits
+  100/250/500/1000/2500, session cap 10,000), every `tool_budget` default (agent profiles,
+  the task-type registry, `task_tool_config.yaml`, ~160 team-spec entries, SDK task hints),
+  and every iteration/turn cap (loop 50, chat 250, exploration up to 5,000, complexity tiers
+  50–400 turns, conversation/consensus rounds, planner steps, `recursion_limit` 500,
+  `ChatService` 1,000, `WorkflowEngine` 125). Stuck-agent detectors (no-tool turns, nudge,
+  blocked, consecutive-tool-calls, continuation prompts) and infra limits (retries, timeouts,
+  truncation, concurrency) are deliberately unchanged.
+- victor-contracts `ModeConfig`/`ModeDefinition` defaults ×5 with the validation bound widened
+  500 → 2500 (SDK 0.17.0).
+
+### Fixed
+
+- The bayesian task-complexity path referenced nonexistent `TaskComplexity.MODERATE` and always
+  fell back to the SIMPLE budget tier (#1637).
+
 ### Changed
 
 - **Default agent stamina budgets multiplied ×5** ("agents run tirelessly"): tool budgets
