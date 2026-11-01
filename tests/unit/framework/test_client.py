@@ -455,3 +455,29 @@ def test_context_window_returns_none_on_exception():
         _orchestrator=SimpleNamespace(provider=mock_provider, model="unknown-model")
     )
     assert client.context_window() is None
+
+
+async def test_session_metrics_exposes_current_context_without_cumulative_tokens():
+    client = VictorClient(SessionConfig(), container=object())
+    runtime_metrics = {"requests": 5}
+    orchestrator = SimpleNamespace(
+        get_context_metrics=lambda: SimpleNamespace(estimated_tokens=1200),
+    )
+    client._agent = SimpleNamespace(
+        _orchestrator=orchestrator, get_session_metrics=lambda: runtime_metrics
+    )
+    client._initialized = True
+    metrics = await client.get_session_metrics()
+    assert metrics == {"requests": 5, "context_tokens": 1200}
+    assert runtime_metrics == {"requests": 5}
+
+
+@pytest.mark.parametrize("value", [0, -100, None, "invalid"])
+def test_context_window_rejects_invalid_limits(value):
+    client = VictorClient(SessionConfig(), container=object())
+    client._agent = SimpleNamespace(
+        _orchestrator=SimpleNamespace(
+            provider=SimpleNamespace(context_window=lambda model: value), model="test"
+        )
+    )
+    assert client.context_window() is None

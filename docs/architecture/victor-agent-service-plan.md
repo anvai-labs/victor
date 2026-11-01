@@ -67,6 +67,41 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **PROMOTION-025-REVIEW — LOCAL_PASS** (2026-11-01), owner: develop promotion
+  review session; branch `fix/develop-review`, initial baseline `3094bdc75`,
+  refreshed develop `484583b15`, fetched main `26268c13b`. Reconciled open
+  promotion PRs #1648 and #1639; existing consensus transcript fix #1642 remains
+  separate pending work. Reviewed the 33-commit, 132-file promotion delta and
+  fast-forwarded the review branch over the two concurrent scrolling CSS fixes.
+  RED evidence: seven migration/current-context regressions; remote-command
+  security suite initially 29 failures; clarification/rendering regression
+  probes also fail before repairs. Repairs make FK migration transactional,
+  recover legacy-only session histories, preserve UI payloads, merge interrupted
+  sources, and rebuild missing/stale FTS with triggers removed before ALTER.
+  Readonly SSH rejects executable options and arbitrary known-host file writes;
+  file transfers require write permission. Wrapper quoting is preserved. Current
+  context metrics pass through the existing client telemetry port; cumulative
+  billing no longer drives sidebar occupancy. Clarification bypass requires a
+  recognizable self-contained workflow command; Markdown styling is scoped to
+  Victor renderables. Independent adversarial review found two additional
+  migration/clarification defects, both fixed; final focused review: **98 pass**,
+  no open confirmed findings. Local validation: **881 affected + 203 promotion
+  sample + 45 perception tests pass**, **112 TUI/rendering tests pass** after the
+  CSS refresh; **37,499 tests collect**. Black/Ruff and configured MyPy pass on
+  touched files. The first broad run was interrupted at an embedding download;
+  a 30-second diagnostic timed out on Hugging Face backoff. The complete
+  perception suite then passed with network access in 18.66 seconds; interrupted
+  and failed logs remain preserved. Raw local evidence lives in ignored
+  `.victor/reviews/promotion-025/` inside the persistent review worktree.
+  The full **26 CI-selected suites pass (819 tests)** with model-cache/network
+  access; **22 layering-ratchet tests** and version synchronization also pass.
+  Next: persist the commit-bound independent review, open the fix PR to develop,
+  verify its required CI, and rerun promotion gates after integration. Executable
+  continuation: `cd .worktrees/develop-review && git status --short --branch`;
+  inspect the fix PR's checks before merging anything.
+  This local review does not establish main merge, release, live acceptance or
+  a measured performance improvement; #1642 and final promotion CI stay separate.
+
 - **SDK-PROMPT-01 — MERGED** (2026-10-29), owner: RepoReel integration
   session; branch `fix/vertical-prompt-propagation`, baseline
   `36c43ad94bc2d4503813e68c132fbc816774f041`. Fetched/reconciled #1595 and

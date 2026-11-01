@@ -707,7 +707,7 @@ def _validate_find_readonly(tokens: list[str]) -> tuple[bool, str]:
                 j += 1
             wrapped = tokens[i + 1 : j]
             if wrapped:
-                valid, failing = _validate_readonly_command(" ".join(wrapped))
+                valid, failing = _validate_readonly_command(shlex.join(wrapped))
                 if not valid:
                     return False, f"find {tok}: {failing}"
             # Continue past the terminator: multiple -exec clauses may follow.
@@ -805,7 +805,9 @@ def _strip_structural_prefix(component: str) -> Optional[str]:
     try:
         tokens = shlex.split(s)
     except ValueError:
-        tokens = s.split()
+        # Preserve malformed input for the command gate rather than attempting
+        # to strip prefixes from a different tokenization.
+        return s
     if not tokens:
         return None
     # A loop/case header (`for VAR in WORDS`, `case WORD in`) runs no command.
@@ -818,7 +820,16 @@ def _strip_structural_prefix(component: str) -> Optional[str]:
         idx += 1
     if idx >= len(tokens):
         return None
-    return " ".join(tokens[idx:])
+    if idx == 0:
+        return s
+    # Preserve the residual shell text: rebuilding from split tokens erases
+    # quotes in SSH options, redirects and literal arguments to exec wrappers.
+    lexer = shlex.shlex(s, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    for _ in range(idx):
+        lexer.get_token()
+    return s[lexer.instream.tell() :]
 
 
 def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
@@ -855,187 +866,97 @@ def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
 
 
 def _validate_remote_exec_readonly(cmd: str, base_cmd: str) -> tuple[bool, str]:
-    """Validate remote-exec commands (ssh, scp, rsync) for readonly mode.
-
-    ssh: extract the remote command and validate it recursively.
-    scp/rsync: check direction — pull (remote→local) is readonly, push is not.
-    """
+    """Validate SSH payloads; file transfers write state in either direction."""
+    redirect_valid, redirect_reason = _validate_readonly_redirections(cmd)
+    if not redirect_valid:
+        return False, redirect_reason
+    if base_cmd in {"scp", "rsync"}:
+        return False, f"{base_cmd} (file transfer writes state)"
     try:
         tokens = shlex.split(cmd.strip())
     except ValueError:
-        tokens = cmd.strip().split()
-
+        return False, f"{base_cmd} (malformed arguments)"
     if not tokens:
         return False, base_cmd
-
     if base_cmd == "ssh":
         return _validate_ssh_readonly(tokens)
-    elif base_cmd == "scp":
-        return _validate_scp_readonly(tokens)
-    elif base_cmd == "rsync":
-        return _validate_rsync_readonly(tokens)
-
     return False, base_cmd
 
 
 def _validate_ssh_readonly(tokens: list[str]) -> tuple[bool, str]:
-    """Validate ssh command: extract remote command and validate recursively.
+    """Allow connection options with known semantics, then validate the payload.
 
-    Parses ssh's argument syntax to find the host, then treats everything
-    after the host as the remote command.  Handles:
-      - Value flags: -p, -o, -l, -i, -F, -J, -E, -S, -m, -c
-      - Boolean flags: -t, -T, -N, -f, -q, -v, -4, -6, -A, -a, -C, -g, -K, -k,
-        -M, -X, -x, -Y, -y
-      - Combined short flags: -tt, -vv, -46K etc.; a cluster ending in a
-        value-flag initial (-vp 22 == -v -p 22) consumes the next token
-      - Attached values: -p22, -oStrictHostKeyChecking=no
-      - Port forwarding (-L/-R/-D/-W and attached/clustered forms) is always
-        rejected: tunnels change network state regardless of the payload.
+    SSH options can run local commands, load executable configuration, write
+    logs or allocate forwarding sockets independently of the remote payload.
+    Unknown options therefore require the normal non-readonly execution path.
     """
-    # Flags that consume the next token as their value argument.
-    _SSH_VALUE_FLAGS = frozenset(
+    boolean_flags = frozenset("46aCknqTtvx")
+    value_flags = frozenset("bBcilmop")
+    safe_options = frozenset(
         {
-            "-p",
-            "-o",
-            "-l",
-            "-i",
-            "-F",
-            "-J",
-            "-E",
-            "-S",
-            "-m",
-            "-c",
+            "addressfamily",
+            "batchmode",
+            "compression",
+            "connectionattempts",
+            "connecttimeout",
+            "globalknownhostsfile",
+            "hostname",
+            "identitiesonly",
+            "identityfile",
+            "loglevel",
+            "passwordauthentication",
+            "port",
+            "preferredauthentications",
+            "pubkeyauthentication",
+            "requesttty",
+            "serveralivecountmax",
+            "serveraliveinterval",
+            "stricthostkeychecking",
+            "user",
+            "userknownhostsfile",
         }
     )
-    _SSH_VALUE_INITIALS = frozenset(flag[1] for flag in _SSH_VALUE_FLAGS)
-    # -L/-R/-D/-W (plus -w tun allocation) open tunnels/forwards — never readonly.
-    _SSH_TUNNEL_INITIALS = frozenset("LRDWw")
-
     i = 1
     while i < len(tokens):
         tok = tokens[i]
-        if not tok.startswith("-") or tok == "-":
-            # First non-flag token is the host; everything after is the command.
-            # ("-" alone is stdin, not a flag.)
-            i += 1
-            break
         if tok == "--":
-            # End of options: the next token is the host.
             i += 1
-            if i < len(tokens):
-                i += 1
             break
-        # Forwarding flags in any form: exact, attached (-L8080:h:80), or
-        # clustered (-vL). Checked before value/boolean classification.
-        if tok in {"-L", "-R", "-D", "-W", "-w"} or (
-            len(tok) > 2 and any(ch in _SSH_TUNNEL_INITIALS for ch in tok[1:])
-        ):
-            return False, "ssh (port forwarding)"
-        # Combined short flags like -tt or -vv. A token containing "=" is an
-        # attached option value (-oFoo=bar): one token. A cluster ending in a
-        # value-flag initial (-vp) consumes the next token as that flag's
-        # value; anything else (-tt, -p22) is a single token.
-        if len(tok) > 2 and tok[0] == "-" and tok[1] != "-":
-            if "=" in tok:
+        if not tok.startswith("-") or tok == "-":
+            break
+        j = 1
+        while j < len(tok):
+            flag = tok[j]
+            if flag in boolean_flags:
+                j += 1
+                continue
+            if flag not in value_flags:
+                return False, f"ssh (unsupported option -{flag})"
+            value = tok[j + 1 :]
+            if not value:
                 i += 1
-            elif tok[-1] in _SSH_VALUE_INITIALS:
-                i += 2
-            else:
-                i += 1
-            continue
-        if tok in _SSH_VALUE_FLAGS:
-            i += 2  # skip flag + its value
-        else:
-            i += 1  # boolean flag
+                if i >= len(tokens):
+                    return False, f"ssh (missing value for -{flag})"
+                value = tokens[i]
+            if flag == "o":
+                parts = re.split(r"[=\s]+", value.strip(), maxsplit=1)
+                if len(parts) != 2 or parts[0].lower() not in safe_options or not parts[1]:
+                    return False, "ssh (unsupported configuration option)"
+                if parts[0].lower() == "userknownhostsfile" and parts[1] != "/dev/null":
+                    return False, "ssh (known-host output file)"
+            # The rest of this token is a value, not another option cluster.
+            break
+        i += 1
 
-    if i >= len(tokens):
-        # No host or no remote command
-        return False, "ssh (interactive session)" if i == len(tokens) else "ssh (no host)"
-
-    # If we stopped at exactly the host (nothing after it), it's interactive.
-    if i == len(tokens):
+    if i >= len(tokens) or i + 1 >= len(tokens):
         return False, "ssh (interactive session)"
-
-    # Reconstruct the remote command from remaining tokens and validate it
-    # recursively through the full readonly pipeline.
-    remote_cmd = " ".join(tokens[i:])
+    # SSH itself joins remote arguments with spaces and sends the result to a
+    # remote shell, so shell operators inside one argument are meaningful.
+    remote_cmd = " ".join(tokens[i + 1 :])
     valid, failing = _validate_readonly_command(remote_cmd)
     if not valid:
         return False, f"ssh remote: {failing}"
     return True, ""
-
-
-def _validate_scp_readonly(tokens: list[str]) -> tuple[bool, str]:
-    """Validate scp: pull (remote:file → local) is readonly, push is not."""
-    # scp [-flags] source destination
-    # Remote paths contain ':' (e.g., host:/path or user@host:/path)
-    # Skip flag values for -P (port)
-    filtered = []
-    skip_next = False
-    for t in tokens[1:]:
-        if skip_next:
-            skip_next = False
-            continue
-        if t in ("-P",):
-            skip_next = True
-            continue
-        if not t.startswith("-"):
-            filtered.append(t)
-
-    if len(filtered) < 2:
-        return False, "scp (insufficient arguments)"
-
-    source = filtered[-2]
-    dest = filtered[-1]
-
-    source_is_remote = ":" in source
-    dest_is_remote = ":" in dest
-
-    if source_is_remote and not dest_is_remote:
-        # Pull: remote → local = readonly
-        return True, ""
-    elif dest_is_remote and not source_is_remote:
-        # Push: local → remote = NOT readonly
-        return False, "scp (push to remote)"
-    else:
-        # Both remote or both local — ambiguous/unusual
-        return False, "scp (ambiguous direction)"
-
-
-def _validate_rsync_readonly(tokens: list[str]) -> tuple[bool, str]:
-    """Validate rsync: pull (remote:src → local) is readonly, push is not."""
-    # rsync [-flags] source destination
-    # Remote paths contain ':' (e.g., host:/path)
-    filtered = []
-    skip_next = False
-    for t in tokens[1:]:
-        if skip_next:
-            skip_next = False
-            continue
-        # rsync flags with values
-        if t in ("-e", "--rsh", "--port", "--user", "--group"):
-            skip_next = True
-            continue
-        if t.startswith("--") and "=" in t:
-            continue
-        if not t.startswith("-"):
-            filtered.append(t)
-
-    if len(filtered) < 2:
-        return False, "rsync (insufficient arguments)"
-
-    source = filtered[-2]
-    dest = filtered[-1]
-
-    source_is_remote = ":" in source
-    dest_is_remote = ":" in dest
-
-    if source_is_remote and not dest_is_remote:
-        return True, ""
-    elif dest_is_remote and not source_is_remote:
-        return False, "rsync (push to remote)"
-    else:
-        return False, "rsync (ambiguous direction)"
 
 
 def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
@@ -1085,20 +1006,34 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
         j = 1
         while j < len(_tokens):
             t = _tokens[j]
-            if t == "-u":
-                j += 2  # -u NAME
+            if t == "--":
+                j += 1
+                break
+            if t in {"-u", "--unset", "-C", "--chdir"}:
+                if j + 1 >= len(_tokens):
+                    return False, "env (missing option value)"
+                j += 2
                 continue
-            if t.startswith("-") and t != "-":
-                j += 1  # env's own flags (-i, -0, --ignore-environment, ...)
+            if t.startswith(("--unset=", "--chdir=")) or (
+                t.startswith(("-u", "-C")) and len(t) > 2
+            ):
+                j += 1
                 continue
+            if t in {"-i", "--ignore-environment", "-0", "--null", "-"}:
+                j += 1
+                continue
+            if t.startswith("-"):
+                # In particular -S/--split-string executes a second argument
+                # language; do not confuse it with an inert wrapper flag.
+                return False, "env (unsupported option)"
             if _ASSIGNMENT_RE.match(t):
-                j += 1  # VAR=value prefix assignment
+                j += 1
                 continue
             break
         wrapped = _tokens[j:]
         if not wrapped:
-            return True, ""  # bare env / assignments only: prints environment
-        wrapped_valid, wrapped_failing = _validate_readonly_command(" ".join(wrapped))
+            return True, ""
+        wrapped_valid, wrapped_failing = _validate_readonly_command(shlex.join(wrapped))
         if not wrapped_valid:
             return False, f"env: {wrapped_failing}"
         return True, ""

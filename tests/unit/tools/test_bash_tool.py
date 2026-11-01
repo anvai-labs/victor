@@ -141,6 +141,35 @@ async def test_shell_defaults_to_non_readonly_mode():
     assert "readonly mode" in opted_in["error"]
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "scp host:/remote ./local",
+        "rsync --remove-source-files host:/remote ./local",
+        "ssh -o ProxyCommand='touch /tmp/x' host cat /etc/hosts",
+    ],
+)
+async def test_shell_transport_writes_require_non_readonly_execution(cmd):
+    """The public gate rejects before spawning; explicit execution still works."""
+    from victor.security.shell_safety_policy import LegacyAllowlistPolicy
+
+    with (
+        patch("victor.tools.bash._get_shell_safety_policy", return_value=LegacyAllowlistPolicy()),
+        patch(
+            "victor.tools.subprocess_executor.run_managed_process", new_callable=AsyncMock
+        ) as run,
+    ):
+        blocked = await shell(cmd=cmd, readonly=True)
+        assert blocked["success"] is False
+        assert "readonly mode" in blocked["error"]
+        run.assert_not_awaited()
+
+        run.return_value = (b"", b"", 0, False, False)
+        allowed = await shell(cmd=cmd, readonly=False)
+        assert allowed["success"] is True
+        run.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_shell_readonly_allows_cd_search_with_stderr_suppression():
     """Readonly shell should allow common scoped search commands."""
@@ -421,7 +450,7 @@ class TestReadonlyRemoteExec:
     """Remote-exec commands (ssh, scp, rsync) — readonly analysis of payload.
 
     ssh: extract the remote command and validate it recursively.
-    scp/rsync: check direction — pull is readonly, push is not.
+    scp/rsync: either direction writes files and requires non-readonly mode.
     """
 
     @staticmethod
@@ -451,11 +480,11 @@ class TestReadonlyRemoteExec:
             "ssh vsingh@aiserver1 'cat /etc/hostname'",
             # multiple -o flags + user@host + quoted command
             "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@host 'ps aux | grep sandhi'",
-            "ssh -o opt1 -o opt2 user@host 'uptime'",
+            "ssh -o BatchMode=yes -o ConnectTimeout=5 user@host 'uptime'",
             # boolean flags mixed with value flags
-            "ssh -t -o opt host 'df -h'",
+            "ssh -t -o BatchMode=yes host 'df -h'",
             "ssh -tt host 'ls -la /tmp/'",
-            "ssh -v -o opt user@host 'cat /etc/hostname'",
+            "ssh -v -o BatchMode=yes user@host 'cat /etc/hostname'",
         ],
     )
     def test_ssh_readonly_remote_commands_allowed(self, cmd):
@@ -493,8 +522,8 @@ class TestReadonlyRemoteExec:
             "scp -r host:/remote/dir ./local/",
         ],
     )
-    def test_scp_pull_readonly(self, cmd):
-        assert self._valid(cmd) is True
+    def test_scp_pull_writes_local_files(self, cmd):
+        assert self._valid(cmd) is False
 
     @pytest.mark.parametrize(
         "cmd",
@@ -516,8 +545,8 @@ class TestReadonlyRemoteExec:
             "rsync vsingh@aiserver1:/tmp/data ./local/",
         ],
     )
-    def test_rsync_pull_readonly(self, cmd):
-        assert self._valid(cmd) is True
+    def test_rsync_pull_writes_local_files(self, cmd):
+        assert self._valid(cmd) is False
 
     @pytest.mark.parametrize(
         "cmd",
@@ -588,11 +617,69 @@ class TestReadonlyRemoteExecHardening:
     def test_ssh_combined_flag_mutating_payload_rejected(self, cmd):
         assert self._valid(cmd) is False
 
-    def test_ssh_controlmaster_is_boolean_flag(self):
-        """-M is boolean (ControlMaster); treating it as a value flag made the
-        host look like the flag's value and broke payload extraction."""
-        assert self._valid("ssh -M host cat /etc/hosts") is True
+    def test_ssh_controlmaster_creates_local_socket(self):
+        assert self._valid("ssh -M host cat /etc/hosts") is False
         assert self._valid("ssh -M host rm -rf /tmp/x") is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            'ssh -o ProxyCommand="touch /tmp/x" host cat /etc/hosts',
+            'ssh -o ProxyCommand="rm /tmp/x" host cat /etc/hosts',
+            'ssh -o PermitLocalCommand=yes -o LocalCommand="touch /tmp/x" host cat /etc/hosts',
+            'ssh -oLocalCommand="touch /tmp/x" host cat /etc/hosts',
+            "ssh -o LocalForward=8080:localhost:80 host cat /etc/hosts",
+            "ssh -o remoteforward=8080:localhost:80 host cat /etc/hosts",
+            "ssh -o Include=/tmp/untrusted.conf host cat /etc/hosts",
+            "ssh -o UserKnownHostsFile=/tmp/output host cat /etc/hosts",
+            "ssh -o 'UserKnownHostsFile /tmp/output' host cat /etc/hosts",
+            "ssh -o UserKnownHostsFile=/dev/null,/tmp/output host cat /etc/hosts",
+            "ssh -o RemoteCommand=touch host cat /etc/hosts",
+            "ssh -F /tmp/untrusted.conf host cat /etc/hosts",
+            "ssh -E /tmp/log host cat /etc/hosts",
+            "ssh -S /tmp/socket host cat /etc/hosts",
+            "ssh -I /tmp/untrusted.so host cat /etc/hosts",
+            "ssh -O exit host cat /etc/hosts",
+            "ssh -Z host cat /etc/hosts",
+            "ssh -p",
+            "X='unterminated ssh host cat",
+            "ssh -o BatchMode=yes",
+            "ssh -p22 host 'rm /tmp/x'",
+            "scp host:/remote ./local > /tmp/log",
+            "scp -S /tmp/untrusted host:/remote ./local",
+            "rsync --remove-source-files host:/remote ./local",
+            "rsync --delete host:/remote ./local",
+            'rsync -e "touch /tmp/x" host:/remote ./local',
+            'env -S "touch /tmp/x"',
+            "env --split-string='touch /tmp/x'",
+            "env --split-string='sh -c' 'touch /tmp/x'",
+            "find . -exec env --split-string='touch /tmp/x' \\;",
+            "env ssh -o ProxyCommand='touch /tmp/x' host cat /etc/hosts",
+            "if true; then ssh -o ProxyCommand='touch /tmp/x' host cat /etc/hosts; fi",
+            "find . -exec ssh host 'cat /etc/hosts; touch /tmp/x' \\;",
+        ],
+    )
+    def test_readonly_transport_and_wrapper_bypasses_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh -i /tmp/ReadWriteIdentity host cat /etc/hosts",
+            "ssh -o HostName=ReadWriteHost host cat /etc/hosts",
+            "ssh -o 'StrictHostKeyChecking no' host cat /etc/hosts",
+            "ssh -vvp22 host cat /etc/hosts",
+            "ssh -vi/tmp/ReadWriteIdentity host cat /etc/hosts",
+            "ssh -- host cat /etc/hosts",
+            "env -u NAME ssh -p22 host cat /etc/hosts",
+            "env --unset=NAME cat /etc/hosts",
+            "env echo 'text; touch /tmp/x'",
+            "find . -exec echo 'text; touch /tmp/x' \\;",
+            "if true; then ssh -o 'StrictHostKeyChecking no' host cat /etc/hosts; fi",
+        ],
+    )
+    def test_readonly_transport_argument_boundaries_preserved(self, cmd):
+        assert self._valid(cmd) is True
 
     def test_ssh_attached_option_value_still_parses(self):
         assert self._valid("ssh -oStrictHostKeyChecking=no host cat /etc/hosts") is True

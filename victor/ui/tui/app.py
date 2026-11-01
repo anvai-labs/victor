@@ -158,7 +158,7 @@ class VictorTUIApp(App[None]):
                 yield PromptInput(placeholder="Message…  (/help for commands)", id="prompt")
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         # Register + apply the TUI themes (styles.tcss references their variables).
         register_all(self)
         self.theme = self._initial_theme
@@ -185,7 +185,7 @@ class VictorTUIApp(App[None]):
             self._slash = SlashCommandHandler(self._capture_console, self._settings, self._agent)
         except Exception:  # noqa: BLE001
             self._slash = None
-        self._refresh_sidebar()
+        await self._refresh_sidebar()
         self._update_status()
         self.query_one("#diff-pane", DiffPane).display = False
         if self._session_ready:
@@ -212,7 +212,7 @@ class VictorTUIApp(App[None]):
         self.query_one("#conversation", ConversationLog).write(
             f"[green]✓ ready in {time.monotonic() - started:.1f}s[/]"
         )
-        self._refresh_sidebar()
+        await self._refresh_sidebar()
         self.sub_title = self._model_label()
         self._update_status()
         prompt = self.query_one("#prompt", Input)
@@ -310,7 +310,7 @@ class VictorTUIApp(App[None]):
             convo.finish_turn()
             self._phase.end_turn()
             self._apply_last_turn_cost()
-            self._refresh_sidebar()
+            await self._refresh_sidebar()
             self._phase.reset()
             self._update_status()
             self.post_message(self.TurnFinished(serial))
@@ -409,7 +409,7 @@ class VictorTUIApp(App[None]):
         if output:
             for line in output.splitlines():
                 convo.write(escape(line))
-        self._refresh_sidebar()
+        await self._refresh_sidebar()
         self.sub_title = self._model_label()
 
     # ── actions (bound keys) ──────────────────────────────────────
@@ -520,8 +520,8 @@ class VictorTUIApp(App[None]):
             queued=len(self._queue),
         )
 
-    def _refresh_sidebar(self) -> None:
-        context_used, context_total, context_pct = self._compute_context_usage()
+    async def _refresh_sidebar(self) -> None:
+        context_used, context_total, context_pct = await self._compute_context_usage()
         state = AgentState(
             session_id=_short(getattr(self._agent, "active_session_id", None)),
             mode=self._mode,
@@ -536,46 +536,21 @@ class VictorTUIApp(App[None]):
         )
         self.query_one("#agent-sidebar", AgentStatePanel).set_state(state)
 
-    def _compute_context_usage(self) -> tuple[Optional[int], Optional[int], Optional[float]]:
-        """Compute context window usage for the sidebar.
-
-        Returns a tuple of ``(used_tokens, total_window, percentage)``.
-        All three values are ``None`` when the data is unavailable.
-        """
+    async def _compute_context_usage(self) -> tuple[Optional[int], Optional[int], Optional[float]]:
+        """Read current context telemetry through the framework client."""
         try:
             context_window = self._client.context_window()
             if not context_window or context_window <= 0:
                 return None, None, None
-            used: Optional[int] = None
-            # Access orchestrator synchronously for token usage
-            orchestrator = getattr(self._agent, "_orchestrator", None)
-            if orchestrator and hasattr(orchestrator, "get_token_usage"):
-                token_usage = orchestrator.get_token_usage()
-                if token_usage:
-                    total = getattr(token_usage, "total_tokens", None)
-                    if total is None:
-                        input_t = getattr(token_usage, "input_tokens", 0) or 0
-                        output_t = getattr(token_usage, "output_tokens", 0) or 0
-                        total = input_t + output_t
-                    if total:
-                        used = int(total)
-            # Fall back to last turn cost (single-turn usage)
-            if used is None:
-                report = self._client.get_last_turn_cost()
-                if report:
-                    total = report.get("total_tokens")
-                    if total is None:
-                        total = (report.get("prompt_tokens") or 0) + (
-                            report.get("completion_tokens") or 0
-                        )
-                    if total:
-                        used = int(total)
-            if used is not None:
-                pct = min(100.0, (used / context_window) * 100.0)
-                return used, context_window, pct
-        except Exception:  # noqa: BLE001
-            pass
-        return None, None, None
+            if not self._session_ready:
+                return None, context_window, None
+            metrics = await self._client.get_session_metrics()
+            used = metrics.get("context_tokens")
+            if isinstance(used, int) and used >= 0:
+                return used, context_window, (used / context_window) * 100.0
+            return None, context_window, None
+        except Exception:  # noqa: BLE001 - optional telemetry must not stop a turn
+            return None, None, None
 
     def _model_label(self) -> str:
         return self._safe(lambda: self._client.model) or "victor"
