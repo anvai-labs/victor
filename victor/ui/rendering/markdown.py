@@ -163,7 +163,7 @@ def _markdown_block(text: str) -> RenderableType:
     ``[text]`` portion of markdown links and broke ``[text](url)`` rendering.
     ``_escape_rich_markup_from_text`` is retained as a utility for any
     markup-aware Rich path (e.g. ``console.print(Text(...))``) that may need it.
-    
+
     Returns a constrained markdown wrapper that ensures width constraints are
     properly propagated to nested elements (code blocks, tables, etc.).
     """
