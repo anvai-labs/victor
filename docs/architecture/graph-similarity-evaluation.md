@@ -71,6 +71,62 @@ as abstentions. Body scores reuse the existing local-only pinned model, complete
 source windows, pooling and checksummed vector cache. Only requested vector pairs
 are scored, in bounded batches; no all-pairs retrieval matrix is allocated.
 
+Body cache compatibility separates the input/model contract (`profile.identity`)
+from the vector producer (`profile.producer.identity`). The latter records the
+encoder/window/pooling, vector validation and cache serialization fingerprints,
+installed NumPy/model-library versions, Python and platform metadata. A fresh standard encoder can reuse that
+generation without importing the model stack or constructing model weights.
+Library or implementation changes invalidate reuse. Legacy rows keyed only by
+the input contract remain untouched and are recomputed under the producer key;
+they are never relabelled as current-generation observations.
+
+Encoder configuration is fixed at construction; supply custom models through
+`model_factory`, rather than replacing `model`, `options` or `model_factory` on an
+existing encoder. Generation metadata is checked again before cache publication
+and returning results; an implementation change during inference fails instead
+of publishing a mixture of generations. Model internals and weights must not be
+mutated after loading. A new declaration is required for modified custom models.
+
+Injected model factories, encoder subclasses and instance method overrides use
+instance-scoped identities unless their caller explicitly supplies a stable
+`producer_id`. The caller must
+change that declaration when its custom implementation, configuration or weights
+change. It is a provenance assertion, not authentication or model qualification.
+Wrapped or unavailable framework components force instance scope even with a
+custom declaration. Actual callable bytecode and nested constants accompany
+source fingerprints, so decorator metadata cannot hide changed preprocessing.
+Encoders without a declared producer cannot share another analysis's cached
+vectors; pair evaluation requires producer provenance. Runtime metadata is a
+compatibility boundary, not a promise of bitwise reproducibility on every CPU,
+binary build or locally modified model installation. Cached data remains derived,
+checksummed state, separate from indexed symbol-summary vectors.
+
+`scripts/benchmark_body_cache.py` compares fresh-process cold/warm observations
+on an immutable snapshot of 2–300 eligible functions. It records source and actual
+imported implementation hashes, vector-byte hashes, every requested pair's score
+digest, cache/load counts, wall/CPU time and lifetime peak RSS. Run the same script
+and Python environment against each source revision with separate caches. Keep
+`HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`; no model download is required or allowed
+by the encoder. This is an exact requested-pair cache experiment, not an all-pairs
+retrieval scalability or accuracy benchmark.
+
+The [2026-11-02 cache observations](evidence/body-cache-provenance-2026-11-02.json)
+compare exported baseline `d5bf69043` with the producer-aware candidate using the
+same 40 files from `7b4942c91`. All 234 functions, 233 unique vector inputs and
+27,261 requested pair scores matched exactly in cold and warm runs, without
+abstentions. Both cold runs inferred 274 windows; both warm runs had 233 cache
+hits, zero inferred windows and zero model loads. Baseline/candidate cold wall
+times were 15.377/16.155 seconds; warm times were 44/60 milliseconds. Warm process
+peak RSS was 85,295,104/87,080,960 bytes. These are single sequential local ARM64
+observations, with source collection outside the timer and lazy model imports
+inside it. The additional compatibility checks have a cost; this increment fixes
+cache correctness and makes no performance improvement claim. The artifact records
+source hashes, actual imported implementation hashes, installed dependency
+metadata, vector-byte/spans manifests and score digests. Reconstruct its snapshot
+by exporting exactly the `source_manifest` paths from the workload revision; use
+separate fresh derived caches and source roots outside the current working directory
+for baseline and candidate invocations.
+
 Families are never expanded into artificial pair matches. For example, A–B=0.8
 and B–C=0.8 can coexist with A–C=0.28. The body diagnostic path retains the latter
 score instead of assigning the family's strongest edge to every member.

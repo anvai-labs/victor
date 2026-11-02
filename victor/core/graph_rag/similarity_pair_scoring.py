@@ -18,6 +18,7 @@ from typing import Any, Callable, TYPE_CHECKING
 
 from victor.core.graph_rag.similarity_evaluation import CHANNELS, Corpus, Observation, digest
 from victor.core.graph_rag.structural_clones import FunctionUnit, StructuralReport, extract_units
+from victor.core.graph_rag.body_provenance import ProducerProfile
 
 if TYPE_CHECKING:
     from victor.core.graph_rag.body_clones import BodyOptions, LocalBodyEncoder
@@ -26,6 +27,7 @@ MAX_SOURCE_BYTES = 128 * 1024 * 1024
 ENGINE_FILES = (
     "ast_fingerprints.py",
     "body_clones.py",
+    "body_provenance.py",
     "clone_bindings.py",
     "language_parsers.py",
     "portable_clones.py",
@@ -48,10 +50,17 @@ class ScoreRun:
     details: dict[str, Any]
 
 
-def detector_profile(channel: str, options: BodyOptions | None = None) -> dict[str, Any]:
+def detector_profile(
+    channel: str, options: BodyOptions | None = None, *, producer: ProducerProfile | None = None
+) -> dict[str, Any]:
     """Include normalization, implementation and installed frontend/model versions."""
     from victor.core.graph_rag.language_parsers import LANGUAGE_MODULES
     from victor.core.graph_rag.portable_clones import PORTABLE_SCHEMA
+
+    if channel == "body" and producer is None:
+        from victor.core.graph_rag.body_clones import BodyOptions, LocalBodyEncoder
+
+        producer = LocalBodyEncoder(options or BodyOptions()).cache_producer
 
     versions: dict[str, str | None] = {}
     packages = {"tree-sitter", *(value[0].replace("_", "-") for value in LANGUAGE_MODULES.values())}
@@ -81,6 +90,7 @@ def detector_profile(channel: str, options: BodyOptions | None = None) -> dict[s
         "compiler_evidence": "not_evaluated",
         "score_basis": "cosine" if channel == "body" else "set_jaccard",
         "body": asdict(options) if options is not None else None,
+        "body_producer": producer.manifest if producer is not None else None,
         "implementation": {
             name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
             for name in ENGINE_FILES
@@ -155,7 +165,18 @@ def score_corpus(
         from victor.core.graph_rag.body_clones import BodyOptions
 
         body_options = BodyOptions()
-    descriptor = detector_profile(channel, body_options)
+    producer = None
+    if channel == "body":
+        from victor.core.graph_rag.body_clones import LocalBodyEncoder
+
+        assert body_options is not None
+        encoder = encoder or LocalBodyEncoder(body_options)
+        producer = getattr(encoder, "cache_producer", None)
+        if not isinstance(producer, ProducerProfile):
+            raise ValueError("Body pair evaluation requires explicit encoder producer provenance")
+        if producer.manifest["input_profile"] != body_options.identity:
+            raise ValueError("Body producer input profile does not match pair evaluation options")
+    descriptor = detector_profile(channel, body_options, producer=producer)
     found: dict[str, FunctionUnit] = {}
     errors: dict[str, str] = {}
     files: dict[tuple[str, str], list[Any]] = defaultdict(list)
@@ -263,6 +284,12 @@ def score_corpus(
                 cache_path=cache_path,
                 requested_pairs=[(index[p.left], index[p.right]) for p in available],
             )
+            assert producer is not None
+            if payload["profile"]["producer"] != {
+                "identity": producer.identity,
+                **producer.manifest,
+            }:
+                raise ValueError("Body analysis producer does not match evaluation provenance")
             for pair, item in zip(available, payload["pair_scores"], strict=True):
                 observations.append(Observation(pair.id, item["score"], item.get("error")))
             details.update(
@@ -299,7 +326,13 @@ def score_corpus(
                 if reason
                 else Observation(pair.id, len(a & b) / len(a | b))
             )
-    if detector_profile(channel, body_options) != descriptor:
+    current_producer = (
+        getattr(encoder, "cache_producer", producer) if encoder is not None else producer
+    )
+    if (
+        current_producer != producer
+        or detector_profile(channel, body_options, producer=current_producer) != descriptor
+    ):
         observations = [
             Observation(pair.id, None, "Detector implementation changed during evaluation")
             for pair in corpus.pairs

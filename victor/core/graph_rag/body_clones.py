@@ -9,14 +9,22 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 import hashlib
+import inspect
 import json
 import re
 from pathlib import Path
 import sqlite3
 import stat
+import uuid
 from typing import Any
 
 from victor.core.graph_rag.structural_clones import StructuralReport
+from victor.core.graph_rag.body_provenance import (
+    ProducerProfile,
+    callable_code_fingerprint,
+    library_versions,
+    producer_profile,
+)
 
 
 @dataclass(frozen=True)
@@ -74,12 +82,74 @@ class LocalBodyEncoder:
     Warm vector-cache reads do not call this loader.
     """
 
-    def __init__(self, options: BodyOptions, *, model_factory: Any = None) -> None:
-        self.options = options
-        self.model_factory = model_factory
-        self.model: Any = None
+    def __init__(
+        self, options: BodyOptions, *, model_factory: Any = None, producer_id: str | None = None
+    ) -> None:
+        self._options = options
+        self._model_factory = model_factory
+        self._model: Any = None
         self._load_failure: tuple[type[Exception], str] | None = None
         self._load_attempts = 0
+        self._producer_id = producer_id
+        self._producer_nonce = uuid.uuid4().hex
+
+    @property
+    def options(self) -> BodyOptions:
+        return self._options
+
+    @property
+    def model_factory(self) -> Any:
+        return self._model_factory
+
+    @property
+    def model(self) -> Any:
+        return self._model
+
+    @property
+    def cache_producer(self) -> ProducerProfile:
+        """Describe actual producer generation without constructing model weights."""
+        from victor_codegraph.embeddings import validate_vectors
+
+        nonce = (
+            self._producer_nonce
+            if (
+                self.model_factory is not None
+                or type(self) is not LocalBodyEncoder
+                or any(name in self.__dict__ for name in ("_load", "windows", "encode"))
+            )
+            and self._producer_id is None
+            else None
+        )
+        components = (
+            self._load,
+            self.windows,
+            self.encode,
+            _pool_body_windows,
+            analyze_bodies,
+            _BodyCache.get,
+            _BodyCache.put,
+            validate_vectors,
+            library_versions,
+            producer_profile,
+        )
+        if any(hasattr(method, "__wrapped__") for method in components):
+            # Wrappers may carry runtime state absent from their source text.
+            nonce = self._producer_nonce
+        try:
+            source = "\n".join(
+                inspect.getsource(method) + callable_code_fingerprint(method)
+                for method in components
+            )
+        except (AttributeError, OSError, TypeError, ValueError):
+            source = "producer-source-unavailable"
+            # A declaration covers the custom model, not unknown framework code.
+            nonce = self._producer_nonce
+        return producer_profile(
+            self.options.identity,
+            component_hash=hashlib.sha256(source.encode()).hexdigest(),
+            custom_id=self._producer_id,
+            instance_nonce=nonce,
+        )
 
     @property
     def load_attempts(self) -> int:
@@ -117,7 +187,7 @@ class LocalBodyEncoder:
                 if int(model.max_seq_length) < self.options.max_tokens:
                     raise ValueError("Body token budget exceeds this model's context")
                 model.max_seq_length = self.options.max_tokens
-                self.model = model
+                self._model = model
             except (AttributeError, TypeError) as exc:
                 message = f"Unsupported local body model metadata: {exc}"[:1500]
                 self._load_failure = (ValueError, message)
@@ -151,7 +221,8 @@ class LocalBodyEncoder:
         budget = self.options.max_tokens - tokenizer.num_special_tokens_to_add(pair=False)
         if budget <= self.options.overlap:
             raise ValueError("Model special tokens exhaust the body window budget")
-        result, spans = [], []
+        result: list[str] = []
+        spans: list[tuple[int, int]] = []
         start = 0
         while start < len(offsets):
             end = min(len(offsets), start + budget)
@@ -184,9 +255,22 @@ class LocalBodyEncoder:
         )
 
 
+def _pool_body_windows(windows: Any) -> Any:
+    """Reference pooling is also part of the producer compatibility contract."""
+    import numpy as np
+
+    normalized = windows / np.linalg.norm(windows, axis=1)[:, None]
+    mean = normalized.mean(axis=0)
+    norm = np.linalg.norm(mean)
+    if not np.isfinite(norm) or not norm:
+        raise ValueError("Body window pooling produced an invalid vector")
+    return mean / norm
+
+
 class _BodyCache:
-    def __init__(self, path: Path | None, profile: BodyOptions) -> None:
+    def __init__(self, path: Path | None, profile: BodyOptions, producer: ProducerProfile) -> None:
         self.profile = profile
+        self.identity = producer.identity
         self.db: sqlite3.Connection | None = None
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,7 +309,7 @@ class _BodyCache:
             return None
         row = self.db.execute(
             "SELECT vector,spans,checksum FROM body_vectors_v1 WHERE profile=? AND input_hash=?",
-            (self.profile.identity, digest),
+            (self.identity, digest),
         ).fetchone()
         if row is None:
             return None
@@ -269,7 +353,7 @@ class _BodyCache:
         with self.db:
             self.db.execute(
                 "INSERT OR REPLACE INTO body_vectors_v1 VALUES (?,?,?,?,?)",
-                (self.profile.identity, digest, values, raw_spans, checksum),
+                (self.identity, digest, values, raw_spans, checksum),
             )
 
     def close(self) -> None:
@@ -294,6 +378,7 @@ def analyze_bodies(
     Their indices refer to report.units, including unavailable source entries.
     """
     import numpy as np
+    from numpy.typing import NDArray
     from victor_codegraph.embeddings import validate_vectors
     from victor.core.graph_rag.semantic_clones import SymbolRecord, find_clone_families
 
@@ -312,8 +397,21 @@ def analyze_bodies(
     if encoder.options != options:
         raise ValueError("Body encoder profile does not match the requested evidence")
     load_attempts_before = getattr(encoder, "load_attempts", None)
-    cache = _BodyCache(cache_path, options)
-    records, vectors, metadata, errors = [], [], {}, []
+    producer = getattr(encoder, "cache_producer", None)
+    declared_producer = isinstance(producer, ProducerProfile)
+    if not isinstance(producer, ProducerProfile):
+        producer = producer_profile(
+            options.identity,
+            component_hash=hashlib.sha256(b"undeclared-custom-encoder").hexdigest(),
+            instance_nonce=uuid.uuid4().hex,
+        )
+    if producer.manifest["input_profile"] != options.identity:
+        raise ValueError("Body producer input profile does not match the requested evidence")
+    cache = _BodyCache(cache_path, options, producer)
+    records: list[SymbolRecord] = []
+    vectors: list[Any] = []
+    metadata: dict[str, dict[str, Any]] = {}
+    errors: list[dict[str, Any]] = []
     # Duplicate exact source inputs are inferred once, independently of paths.
     documents: dict[str, tuple[str, list[Any]]] = {}
     ready: dict[str, Any] = {}
@@ -347,7 +445,7 @@ def analyze_bodies(
             documents[digest] = (unit.source_code, spans)
             pending[digest] = (len(texts), len(texts) + len(windows))
             texts.extend(windows)
-        matrix = np.empty((len(texts), options.dimension), dtype=np.float32)
+        matrix: NDArray[np.float32] = np.empty((len(texts), options.dimension), dtype=np.float32)
         for start in range(0, len(texts), 32):
             batch = texts[start : start + 32]
             values = validate_vectors(
@@ -355,13 +453,11 @@ def analyze_bodies(
             )
             matrix[start : start + len(batch)] = values
         for digest, (start, end) in pending.items():
-            windows = matrix[start:end]
-            normalized = windows / np.linalg.norm(windows, axis=1)[:, None]
-            mean = normalized.mean(axis=0)
-            norm = np.linalg.norm(mean)
-            if not np.isfinite(norm) or not norm:
-                raise ValueError("Body window pooling produced an invalid vector")
-            ready[digest] = mean / norm
+            window_vectors = matrix[start:end]
+            ready[digest] = _pool_body_windows(window_vectors)
+        if declared_producer and getattr(encoder, "cache_producer", None) != producer:
+            raise ValueError("Body producer changed during analysis")
+        for digest in pending:
             cache.put(digest, ready[digest], documents[digest][1])
         for unit_index, unit in enumerate(report.units):
             digest = hashlib.sha256(unit.source_code.encode()).hexdigest()
@@ -404,6 +500,8 @@ def analyze_bodies(
         else:
             families = []
             pair_scores = _requested_cosines(requested_pairs, row_by_unit, vectors, report, options)
+        if declared_producer and getattr(encoder, "cache_producer", None) != producer:
+            raise ValueError("Body producer changed during analysis")
     finally:
         cache.close()
     # Portable projection is independent of body-vector extraction coverage.
@@ -432,6 +530,7 @@ def analyze_bodies(
         "profile": {
             **asdict(options),
             "identity": options.identity,
+            "producer": {"identity": producer.identity, **producer.manifest},
             "local_files_only": True,
             "quality_calibrated": False,
         },
@@ -521,6 +620,6 @@ def _requested_cosines(
         lefts = np.array([item[1] for item in batch], dtype=np.int64)
         rights = np.array([item[2] for item in batch], dtype=np.int64)
         values = np.clip(np.sum(normalized[lefts] * normalized[rights], axis=1), -1, 1)
-        for item, score in zip(batch, values):
-            result[item[0]]["score"] = float(score)
+        for selected_item, score in zip(batch, values):
+            result[selected_item[0]]["score"] = float(score)
     return result

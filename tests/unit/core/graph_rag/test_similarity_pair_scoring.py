@@ -157,6 +157,56 @@ def test_body_pair_runner_uses_production_windowing(tmp_path):
     assert all(item.score == pytest.approx(1) for item in result.observations)
     assert result.details["body_stats"]["retrieval"] == "requested_pair_cosine"
     assert result.details["body_profile"]["local_files_only"]
+    producer = dict(result.details["body_profile"]["producer"])
+    producer.pop("identity")
+    assert result.descriptor["body_producer"] == producer
+
+
+def test_body_evaluation_profiles_do_not_mix_declared_producers(tmp_path):
+    from victor.core.graph_rag.body_clones import LocalBodyEncoder
+    from .test_body_clones import Model, options
+
+    data, roots = corpus(tmp_path)
+    results = [
+        score_corpus(
+            data,
+            roots,
+            channel="body",
+            body_options=options(),
+            encoder=LocalBodyEncoder(
+                options(), model_factory=lambda *a, **k: Model(), producer_id=name
+            ),
+        )
+        for name in ("tests/producer-one", "tests/producer-two")
+    ]
+    assert results[0].profile != results[1].profile
+
+
+def test_analysis_producer_cannot_differ_from_evaluation_then_revert(tmp_path):
+    from victor.core.graph_rag.body_clones import LocalBodyEncoder
+    from victor.core.graph_rag.body_provenance import producer_profile
+    from .test_body_clones import Model, options
+
+    data, roots = corpus(tmp_path)
+    first = producer_profile(options().identity, component_hash="a" * 64)
+    middle = producer_profile(options().identity, component_hash="b" * 64)
+
+    class SwitchingEncoder(LocalBodyEncoder):
+        lookups = 0
+
+        @property
+        def cache_producer(self):
+            self.lookups += 1
+            return middle if 2 <= self.lookups <= 4 else first
+
+    result = score_corpus(
+        data,
+        roots,
+        channel="body",
+        body_options=options(),
+        encoder=SwitchingEncoder(options(), model_factory=lambda *a, **k: Model()),
+    )
+    assert all(item.score is None and "provenance" in item.error for item in result.observations)
 
 
 def test_controlled_corpus_exposes_numeric_domain_false_equivalence():
