@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PROMOTION-025-ADVERSARIAL-02 — ACTIVE** (2026-11-01), owner: promotion
+- **PROMOTION-025-ADVERSARIAL-02 — CI_REPAIR** (2026-11-01), owner: promotion
   adversarial repair session; branch `fix/promotion-defects`, initial baseline
   `9ff07d21c`, reconciled develop `22f9d5427`, initial main `26268c13b`.
   During review another session merged older promotion #1639 to main as
@@ -132,11 +132,44 @@ edit. A mock test is not live provider or C5 evidence.
   exact source hashes and commands remain in the evidence archive. The additive
   main protection setting now requires both `CI Success` and main-only
   `Promotion CI Success` from GitHub Actions (app 15368), with strict up-to-date
-  checks and all other protection/review settings preserved. Source publication
-  and final-head CI remain pending; an absent promotion result blocks main.
-  Next: publish one qualified fix PR to develop, verify its final-head CI,
-  then promote through the complete required battery. This repair has no merge,
-  tag, release or live acceptance yet.
+  checks and all other protection/review settings preserved. The follow-up scan
+  repair's publication and final-head qualification remain pending; an absent
+  promotion result blocks main.
+  PR [#1652](https://github.com/anvai-labs/victor/pull/1652) merged to develop
+  at `e7fe82ae5649002e0303e32322025e60f8c84cb8` on 2026-11-02 00:47:24 UTC.
+  Its exact candidate `2dd3916682cbe90d517a1066071467b743ee8878` had clean
+  commit-bound independent review, **40 successful checks and 14 expected skips**;
+  GitHub reported CLEAN before merge. The merged source tree matches exactly.
+  Evidence is copied and hash-verified in the main checkout before cleanup.
+  Main `8e142c2cb` is not an ancestor of develop, so the next protected promotion
+  will merge the complete current develop snapshot into a branch based on main
+  before publishing; no main commits or develop changes are dropped.
+  Promotion branch `promote/adversarial-repairs` starts at main `8e142c2cb`
+  and merges the complete develop `e7fe82ae5`. Before the ledger handoff update,
+  its entire source tree matches that verified develop snapshot exactly.
+  Main PR [#1653](https://github.com/anvai-labs/victor/pull/1653) at
+  `d70c0cde8` runs the full battery and requires normal approval. Semgrep reports
+  two broad `secrets: inherit` call sites and a benchmark-loader warning; no main
+  merge occurred. Follow-up owner remains this session, branch
+  `fix/promotion-scan-findings`, baseline develop `e7fe82ae5`, in the same
+  persistent `.worktrees/main-adversarial-promote` checkout. Next action:
+  replace inherited credentials with explicit optional secret contracts, use
+  the standard baseline module loader, and validate together before publication.
+  Follow-up LOCAL_PASS: two negative secret-contract fixtures reproduced the
+  broad inheritance, then passed with explicit optional interfaces. **186**
+  focused fixtures, **37,970** collected tests, Black/Ruff/MyPy, Actionlint and
+  hygiene/docs drift pass. Semgrep **1.182.1**, auto configuration, runs 324 rules
+  on the four repaired workflow/benchmark files with **zero findings**. The
+  ten PartialParsing warnings in existing embedded GitHub expressions remain
+  explicit coverage gaps, not a full-parsing claim; raw diagnostics are retained.
+  The synthetic benchmark retains exact parity and about 82% lower Python peak
+  allocations. Independent loader success/error cleanup and secret-interface
+  review is clean. First promotion results are **77 pass, nine skips, one
+  Semgrep failure**; they remain evidence for that old head, not a qualified
+  result for the upcoming repair or promotion commit.
+  The published promotion branch preserves its complete source and history.
+  Next: qualify that exact promotion commit through the complete reusable battery
+  and normal main approval. No repair main merge, tag, release or live acceptance.
 
 - **PROMOTION-025-REVIEW — MERGED** (2026-11-01), owner: develop promotion
   review session; branch `fix/develop-review`, initial baseline `3094bdc75`,

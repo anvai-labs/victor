@@ -1009,7 +1009,9 @@ jobs:
   promotion-tests:
     if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
     uses: ./.github/workflows/ci-test.yml
-    secrets: inherit
+    secrets:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     permissions:
       contents: read
 
@@ -1028,7 +1030,8 @@ jobs:
   promotion-security:
     if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
     uses: ./.github/workflows/security.yml
-    secrets: inherit
+    secrets:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
     permissions:
       contents: read
       security-events: write

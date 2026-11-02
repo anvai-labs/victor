@@ -28,6 +28,23 @@ def workflow(name):
     return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
 
 
+@pytest.mark.parametrize(
+    "job_id,filename,names",
+    [
+        ("promotion-tests", "ci-test.yml", {"HF_TOKEN", "CODECOV_TOKEN"}),
+        ("promotion-security", "security.yml", {"SEMGREP_APP_TOKEN"}),
+    ],
+)
+def test_reusable_promotion_only_receives_declared_optional_credentials(job_id, filename, names):
+    call = workflow("ci-fast.yml")["jobs"][job_id]
+    assert call["secrets"] == {name: "${{ secrets." + name + " }}" for name in names}
+    called = workflow(filename)
+    trigger = called.get("on", called.get(True))
+    declared = trigger["workflow_call"]["secrets"]
+    assert set(declared) == names
+    assert all(config["required"] is False for config in declared.values())
+
+
 def load_helper(name):
     spec = importlib.util.spec_from_file_location(name, ROOT / "scripts/ci" / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
