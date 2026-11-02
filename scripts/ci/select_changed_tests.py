@@ -80,6 +80,14 @@ RELATED_TESTS = {
     "scripts/benchmark_body_model_failure.py": (
         "tests/unit/scripts/test_benchmark_body_model_failure.py",
     ),
+    "scripts/benchmark_body_cache.py": ("tests/unit/scripts/test_benchmark_body_cache.py",),
+    "victor/core/graph_rag/body_provenance.py": (
+        "tests/unit/core/graph_rag/test_body_provenance.py",
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
     "victor/core/graph_rag/jni_contracts.py": (
         "tests/unit/core/graph_rag/test_jni_contracts.py",
         "tests/unit/core/graph_rag/test_polyglot_clones.py",
