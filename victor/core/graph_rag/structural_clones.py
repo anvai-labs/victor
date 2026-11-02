@@ -963,284 +963,293 @@ def scan(
     from victor.core.graph_rag.language_parsers import SOURCE_LANGUAGES, create_parser
     from victor.core.graph_rag.precise_providers import providers_for_files
     from victor.core.graph_rag.exclude_patterns import UNIVERSAL_EXCLUDE_PATTERNS, is_path_excluded
-    from victor.core.graph_rag.source_reader import read_project_source
+    from victor.core.graph_rag.source_reader import project_source_reader
 
     if languages is not None and not languages <= set(SOURCE_LANGUAGES.values()):
         raise ValueError(
             f"Unsupported structural languages: {sorted(languages - set(SOURCE_LANGUAGES.values()))}"
         )
-    selected = [
-        rel
-        for rel in _source_files(root, include_docs=include_docs)
-        if _in_scope(rel, scope, include_tests)
-        and (
-            languages is None
-            or Path(rel).suffix.lower() not in SOURCE_LANGUAGES
-            or SOURCE_LANGUAGES[Path(rel).suffix.lower()] in languages
-        )
-    ]
-    files = [
-        rel
-        for rel in selected
-        if not is_path_excluded(root / rel, root, UNIVERSAL_EXCLUDE_PATTERNS)
-    ]
-    paths = (
-        []
-        if collect_only
-        else (
-            [scip_path]
-            if scip_path
-            else [
-                root / ".victor" / "precise" / f"{name}.scip" for name in providers_for_files(files)
-            ]
-        )
-    )
-    documents: dict[str, Mapping[str, List[Tuple[int, int, int, str]]]] = {}
-    loaded_dumps = []
-    dump_times: dict[str, int] = {}
-    for dump in paths:
-        loaded = load_scip_occurrences(dump)
-        if loaded is not None:
-            documents.update(dict.fromkeys(loaded, loaded))
-            dump_times.update({rel: dump.stat().st_mtime_ns for rel in loaded})
-            loaded_dumps.append(dump.name)
-    stats: Counter[str] = Counter()
-    unavailable: list[str] = []
-    parsers: dict[str, Any] = {}
-    units: List[FunctionUnit] = []
-    source_hashes: Dict[str, str] = {}
-    source_manifest: Dict[str, str] = {}
-    binding_facts: List[Any] = []
-    source_read_errors: List[Dict[str, str]] = []
-    retained_bytes = 0
-    for file_index, rel in enumerate(files):
-        if progress is not None:
-            progress(rel, file_index, len(files))
-        try:
-            data, source_stat = read_project_source(root, rel, max_file_bytes)
-            if source_stat.st_size > max_file_bytes:
-                stats["oversized_files"] += 1
-                continue
-            if len(data) > max_file_bytes:
-                stats["oversized_files"] += 1
-                continue
-            source = data.decode("utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            stats["unreadable_files"] += 1
-            source_read_errors.append({"file": rel, "reason": str(exc)})
-            continue
-        if cross_language:
-            source_hashes[rel] = hashlib.sha256(
-                source.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
-            ).hexdigest()
-        occmap: Optional[OccurrenceMap] = None
-        if rel in documents:
-            occurrences = documents[rel][rel]
-            source_text = getattr(occurrences, "source_text", "")
-            if source_text or source_stat.st_mtime_ns <= dump_times[rel]:
-                occmap = fresh_occurrence_map(source.splitlines(), occurrences)
-            stats["scip_files" if occmap is not None else "stale_files"] += 1
-        else:
-            stats["ast_only_files"] += 1
-        from victor.core.graph_rag.source_regions import SourceRegion, source_regions
-
-        suffix = Path(rel).suffix.lower()
-        host_hash = hashlib.sha256(data).hexdigest()
-        source_manifest[rel] = host_hash
-        if suffix in SOURCE_LANGUAGES:
-            regions = [SourceRegion(source, SOURCE_LANGUAGES[suffix])]
-        else:
-            regions, region_stats = source_regions(source, suffix)
-            stats.update(region_stats)
-            stats["embedded_regions"] += len(regions)
-            source_hashes.pop(rel, None)
-        file_parse_error = False
-        file_binding_error = False
-        for region in regions:
-            language = region.language
-            if languages is not None and language not in languages:
-                stats["filtered_regions"] += 1
-                continue
-            stats[f"{language}_files"] += 1
-            stats["selected_regions"] += 1
-            compiler = occmap if region.kind == "source" else None
-            extracted = []
-            try:
-                if language == "python":
-                    extracted = extract_units(
-                        rel,
-                        region.source,
-                        compiler,
-                        min_nodes,
-                        with_subtrees=near_metric == "subtree" and not collect_only,
-                        strict_parse=True,
-                        with_portable=cross_language,
-                        retain_source=retain_source,
-                    )
-                else:
-                    from victor.core.graph_rag.treesitter_clones import extract_tree_units
-
-                    if language in unavailable:
-                        continue
-                    if language not in parsers:
-                        parser = create_parser(language)
-                        if parser is None:
-                            unavailable.append(language)
-                            continue
-                        parsers[language] = parser
-                    diagnostics: Dict[str, int] = {}
-                    extracted = extract_tree_units(
-                        rel,
-                        region.source,
-                        parsers[language],
-                        min_nodes,
-                        include_tests,
-                        language,
-                        compiler,
-                        with_subtrees=near_metric == "subtree" and not collect_only,
-                        with_portable=cross_language,
-                        binding_facts=(
-                            binding_facts if cross_language and region.kind == "source" else None
-                        ),
-                        diagnostics=diagnostics,
-                        retain_source=retain_source,
-                    )
-                    file_parse_error |= bool(diagnostics.get("parse_error_files"))
-            except SyntaxError:
-                file_parse_error = True
-                if language == "python":
-                    extracted = _recover_python_units(
-                        rel,
-                        region.source,
-                        min_nodes,
-                        with_subtrees=near_metric == "subtree",
-                        with_portable=cross_language,
-                        retain_source=retain_source,
-                    )
-            except RecursionError:
-                file_parse_error = True
-            except ValueError:
-                file_binding_error = True
-            retained_bytes += sum(len(unit.source_code.encode("utf-8")) for unit in extracted)
-            if (
-                max_units is not None and len(units) + len(extracted) > max_units
-            ) or retained_bytes > 128 * 1024 * 1024:
-                raise ValueError(
-                    "Source analysis exceeds its function/source retention budget; narrow --scope"
-                )
-            units.extend(
-                replace(
-                    unit,
-                    line=unit.line + region.line_offset,
-                    end_line=unit.end_line + region.line_offset,
-                    source_kind=region.kind,
-                    region_index=region.index,
-                    source_hash=host_hash,
-                )
-                for unit in extracted
+    with project_source_reader(root) as read_source:
+        selected = [
+            rel
+            for rel in _source_files(root, include_docs=include_docs)
+            if _in_scope(rel, scope, include_tests)
+            and (
+                languages is None
+                or Path(rel).suffix.lower() not in SOURCE_LANGUAGES
+                or SOURCE_LANGUAGES[Path(rel).suffix.lower()] in languages
             )
-        stats["parse_error_files"] += file_parse_error
-        stats["binding_error_files"] += file_binding_error
-        if file_parse_error or file_binding_error:
-            source_hashes.pop(rel, None)
+        ]
+        files = [
+            rel
+            for rel in selected
+            if not is_path_excluded(root / rel, root, UNIVERSAL_EXCLUDE_PATTERNS)
+        ]
+        paths = (
+            []
+            if collect_only
+            else (
+                [scip_path]
+                if scip_path
+                else [
+                    root / ".victor" / "precise" / f"{name}.scip"
+                    for name in providers_for_files(files)
+                ]
+            )
+        )
+        documents: dict[str, Mapping[str, List[Tuple[int, int, int, str]]]] = {}
+        loaded_dumps = []
+        dump_times: dict[str, int] = {}
+        for dump in paths:
+            loaded = load_scip_occurrences(dump)
+            if loaded is not None:
+                documents.update(dict.fromkeys(loaded, loaded))
+                dump_times.update({rel: dump.stat().st_mtime_ns for rel in loaded})
+                loaded_dumps.append(dump.name)
+        stats: Counter[str] = Counter()
+        unavailable: list[str] = []
+        parsers: dict[str, Any] = {}
+        units: List[FunctionUnit] = []
+        source_hashes: Dict[str, str] = {}
+        source_manifest: Dict[str, str] = {}
+        binding_facts: List[Any] = []
+        source_read_errors: List[Dict[str, str]] = []
+        retained_bytes = 0
+        for file_index, rel in enumerate(files):
+            if progress is not None:
+                progress(rel, file_index, len(files))
+            try:
+                data, source_stat = read_source(rel, max_file_bytes)
+                if source_stat.st_size > max_file_bytes:
+                    stats["oversized_files"] += 1
+                    continue
+                if len(data) > max_file_bytes:
+                    stats["oversized_files"] += 1
+                    continue
+                source = data.decode("utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                stats["unreadable_files"] += 1
+                source_read_errors.append({"file": rel, "reason": str(exc)})
+                continue
+            if cross_language:
+                source_hashes[rel] = hashlib.sha256(
+                    source.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+                ).hexdigest()
+            occmap: Optional[OccurrenceMap] = None
+            if rel in documents:
+                occurrences = documents[rel][rel]
+                source_text = getattr(occurrences, "source_text", "")
+                if source_text or source_stat.st_mtime_ns <= dump_times[rel]:
+                    occmap = fresh_occurrence_map(source.splitlines(), occurrences)
+                stats["scip_files" if occmap is not None else "stale_files"] += 1
+            else:
+                stats["ast_only_files"] += 1
+            from victor.core.graph_rag.source_regions import SourceRegion, source_regions
 
-    families = [] if collect_only else hash_families(units)
-    analysis_errors: List[str] = []
-    skipped = 0
-    try:
-        if collect_only:
-            pairs = []
-        elif near_metric == "subtree":
-            pairs = _subtree_pairs(units, near_threshold, include_same_file)
-        else:
-            pairs, skipped = near_pairs(units, near_threshold, include_same_file=include_same_file)
-        families += near_families(units, pairs)
-    except TooManyPairsError as exc:
-        stats["matching_budget_exceeded"] += 1
-        analysis_errors.append(str(exc))
-    ffi_links: List[Dict[str, Any]] = []
-    if cross_language and not collect_only:
-        from victor.core.graph_rag.polyglot_clones import cross_language_families, ffi_relationships
+            suffix = Path(rel).suffix.lower()
+            host_hash = hashlib.sha256(data).hexdigest()
+            source_manifest[rel] = host_hash
+            if suffix in SOURCE_LANGUAGES:
+                regions = [SourceRegion(source, SOURCE_LANGUAGES[suffix])]
+            else:
+                regions, region_stats = source_regions(source, suffix)
+                stats.update(region_stats)
+                stats["embedded_regions"] += len(regions)
+                source_hashes.pop(rel, None)
+            file_parse_error = False
+            file_binding_error = False
+            for region in regions:
+                language = region.language
+                if languages is not None and language not in languages:
+                    stats["filtered_regions"] += 1
+                    continue
+                stats[f"{language}_files"] += 1
+                stats["selected_regions"] += 1
+                compiler = occmap if region.kind == "source" else None
+                extracted = []
+                try:
+                    if language == "python":
+                        extracted = extract_units(
+                            rel,
+                            region.source,
+                            compiler,
+                            min_nodes,
+                            with_subtrees=near_metric == "subtree" and not collect_only,
+                            strict_parse=True,
+                            with_portable=cross_language,
+                            retain_source=retain_source,
+                        )
+                    else:
+                        from victor.core.graph_rag.treesitter_clones import extract_tree_units
 
+                        if language in unavailable:
+                            continue
+                        if language not in parsers:
+                            parser = create_parser(language)
+                            if parser is None:
+                                unavailable.append(language)
+                                continue
+                            parsers[language] = parser
+                        diagnostics: Dict[str, int] = {}
+                        extracted = extract_tree_units(
+                            rel,
+                            region.source,
+                            parsers[language],
+                            min_nodes,
+                            include_tests,
+                            language,
+                            compiler,
+                            with_subtrees=near_metric == "subtree" and not collect_only,
+                            with_portable=cross_language,
+                            binding_facts=(
+                                binding_facts
+                                if cross_language and region.kind == "source"
+                                else None
+                            ),
+                            diagnostics=diagnostics,
+                            retain_source=retain_source,
+                        )
+                        file_parse_error |= bool(diagnostics.get("parse_error_files"))
+                except SyntaxError:
+                    file_parse_error = True
+                    if language == "python":
+                        extracted = _recover_python_units(
+                            rel,
+                            region.source,
+                            min_nodes,
+                            with_subtrees=near_metric == "subtree",
+                            with_portable=cross_language,
+                            retain_source=retain_source,
+                        )
+                except RecursionError:
+                    file_parse_error = True
+                except ValueError:
+                    file_binding_error = True
+                retained_bytes += sum(len(unit.source_code.encode("utf-8")) for unit in extracted)
+                if (
+                    max_units is not None and len(units) + len(extracted) > max_units
+                ) or retained_bytes > 128 * 1024 * 1024:
+                    raise ValueError(
+                        "Source analysis exceeds its function/source retention budget; narrow --scope"
+                    )
+                units.extend(
+                    replace(
+                        unit,
+                        line=unit.line + region.line_offset,
+                        end_line=unit.end_line + region.line_offset,
+                        source_kind=region.kind,
+                        region_index=region.index,
+                        source_hash=host_hash,
+                    )
+                    for unit in extracted
+                )
+            stats["parse_error_files"] += file_parse_error
+            stats["binding_error_files"] += file_binding_error
+            if file_parse_error or file_binding_error:
+                source_hashes.pop(rel, None)
+
+        families = [] if collect_only else hash_families(units)
+        analysis_errors: List[str] = []
+        skipped = 0
         try:
-            families += cross_language_families(units, near_threshold)
+            if collect_only:
+                pairs = []
+            elif near_metric == "subtree":
+                pairs = _subtree_pairs(units, near_threshold, include_same_file)
+            else:
+                pairs, skipped = near_pairs(
+                    units, near_threshold, include_same_file=include_same_file
+                )
+            families += near_families(units, pairs)
         except TooManyPairsError as exc:
             stats["matching_budget_exceeded"] += 1
             analysis_errors.append(str(exc))
-        ffi_links, ffi_stats = ffi_relationships(root, units, source_hashes, binding_facts)
-        stats.update(ffi_stats)
-        stats["ffi_relationships"] = len(ffi_links)
-    if include_same_file and not collect_only:
-        families += _same_file_exact(units)
+        ffi_links: List[Dict[str, Any]] = []
+        if cross_language and not collect_only:
+            from victor.core.graph_rag.polyglot_clones import (
+                cross_language_families,
+                ffi_relationships,
+            )
 
-    kept, suppressed = [], []
-    for family in families:
-        family.suppressed = _suppression(family)
-        (suppressed if family.suppressed else kept).append(family)
+            try:
+                families += cross_language_families(units, near_threshold)
+            except TooManyPairsError as exc:
+                stats["matching_budget_exceeded"] += 1
+                analysis_errors.append(str(exc))
+            ffi_links, ffi_stats = ffi_relationships(root, units, source_hashes, binding_facts)
+            stats.update(ffi_stats)
+            stats["ffi_relationships"] = len(ffi_links)
+        if include_same_file and not collect_only:
+            families += _same_file_exact(units)
 
-    return StructuralReport(
-        families=rank(kept),
-        suppressed=rank(suppressed),
-        stats={
-            "functions": len(units),
-            "source_files": len(files),
-            "coverage_scope": "selected_supported_frontends_and_script_regions",
-            "include_docs": include_docs,
-            "selected_regions": stats["selected_regions"],
-            **{key: value for key, value in stats.items() if "region" in key},
-            "normalization_schema": "normalized-body-v4-field-roles",
-            "binding_support": {
-                lang: (
-                    "compiler-symbol-tables"
-                    if lang == "python"
-                    else (
-                        "lexical-subset"
-                        if lang in {"rust", "javascript", "typescript", "tsx"}
-                        else "declaration-subset"
+        kept, suppressed = [], []
+        for family in families:
+            family.suppressed = _suppression(family)
+            (suppressed if family.suppressed else kept).append(family)
+
+        return StructuralReport(
+            families=rank(kept),
+            suppressed=rank(suppressed),
+            stats={
+                "functions": len(units),
+                "source_files": len(files),
+                "coverage_scope": "selected_supported_frontends_and_script_regions",
+                "include_docs": include_docs,
+                "selected_regions": stats["selected_regions"],
+                **{key: value for key, value in stats.items() if "region" in key},
+                "normalization_schema": "normalized-body-v4-field-roles",
+                "binding_support": {
+                    lang: (
+                        "compiler-symbol-tables"
+                        if lang == "python"
+                        else (
+                            "lexical-subset"
+                            if lang in {"rust", "javascript", "typescript", "tsx"}
+                            else "declaration-subset"
+                        )
                     )
-                )
-                for lang in sorted(set(u.language for u in units))
+                    for lang in sorted(set(u.language for u in units))
+                },
+                "excluded_artifact_files": len(selected) - len(files),
+                "near_metric": near_metric,
+                "cross_language": cross_language,
+                **(_portable_stats(units) if cross_language else {}),
+                **{key: value for key, value in stats.items() if key.startswith("ffi_")},
+                "rust_files": stats["rust_files"],
+                "python_files": stats["python_files"],
+                "unavailable_languages": unavailable,
+                "parse_error_files": stats["parse_error_files"],
+                "binding_error_files": stats["binding_error_files"],
+                "recovered_units": sum(u.recovered_from_partial_file for u in units),
+                "unreadable_files": stats["unreadable_files"],
+                "source_read_errors": source_read_errors,
+                "oversized_files": stats["oversized_files"],
+                "languages": {
+                    lang: stats[f"{lang}_files"]
+                    for lang in sorted(set(SOURCE_LANGUAGES.values()))
+                    if stats[f"{lang}_files"]
+                },
+                "resolved_symbols": sum(u.resolved_symbols for u in units),
+                "scip_dumps": loaded_dumps,
+                "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+                "scip_files": stats["scip_files"],
+                "stale_files": stats["stale_files"],
+                "ast_only_files": stats["ast_only_files"],
+                "scip_dump": bool(loaded_dumps),
+                "skipped_buckets": skipped,
+                "matching_budget_exceeded": stats["matching_budget_exceeded"],
+                "analysis_errors": analysis_errors,
+                "seconds": round(time.monotonic() - started, 1),
+                **{
+                    f"{tier}_families": sum(f.tier == tier for f in kept)
+                    for tier in ("exact", "template", "near", "cross_language")
+                },
+                "suppressed_families": len(suppressed),
             },
-            "excluded_artifact_files": len(selected) - len(files),
-            "near_metric": near_metric,
-            "cross_language": cross_language,
-            **(_portable_stats(units) if cross_language else {}),
-            **{key: value for key, value in stats.items() if key.startswith("ffi_")},
-            "rust_files": stats["rust_files"],
-            "python_files": stats["python_files"],
-            "unavailable_languages": unavailable,
-            "parse_error_files": stats["parse_error_files"],
-            "binding_error_files": stats["binding_error_files"],
-            "recovered_units": sum(u.recovered_from_partial_file for u in units),
-            "unreadable_files": stats["unreadable_files"],
-            "source_read_errors": source_read_errors,
-            "oversized_files": stats["oversized_files"],
-            "languages": {
-                lang: stats[f"{lang}_files"]
-                for lang in sorted(set(SOURCE_LANGUAGES.values()))
-                if stats[f"{lang}_files"]
-            },
-            "resolved_symbols": sum(u.resolved_symbols for u in units),
-            "scip_dumps": loaded_dumps,
-            "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
-            "scip_files": stats["scip_files"],
-            "stale_files": stats["stale_files"],
-            "ast_only_files": stats["ast_only_files"],
-            "scip_dump": bool(loaded_dumps),
-            "skipped_buckets": skipped,
-            "matching_budget_exceeded": stats["matching_budget_exceeded"],
-            "analysis_errors": analysis_errors,
-            "seconds": round(time.monotonic() - started, 1),
-            **{
-                f"{tier}_families": sum(f.tier == tier for f in kept)
-                for tier in ("exact", "template", "near", "cross_language")
-            },
-            "suppressed_families": len(suppressed),
-        },
-        ffi_links=ffi_links,
-        units=units,
-        source_manifest=source_manifest,
-    )
+            ffi_links=ffi_links,
+            units=units,
+            source_manifest=source_manifest,
+        )
 
 
 def _portable_stats(units: Sequence[FunctionUnit]) -> Dict[str, Any]:

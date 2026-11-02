@@ -203,7 +203,8 @@ project jscpd configuration, validates returned paths/spans/kinds/counts, and em
 `literal_token_fragment` relations. `--rename-tokens` requests lexical identifier
 normalization and labels the result as a pattern. File, total input, pair, report
 and runtime budgets are explicit. RSS monitoring covers the owned process tree
-where the OS permits it; restricted platforms report direct-process monitoring.
+where the OS permits enumeration; denied process-tree monitoring fails explicitly
+rather than silently omitting the detector from its RSS budget.
 No compiler/build, source execution or project-index write occurs.
 
 Hybrid JSON preserves channels separately with their score bases and failures.
@@ -218,7 +219,8 @@ records measured coverage, cache behavior and unresolved work.
 
 ## Source acquisition and reviewed failure boundaries
 
-Source acquisition requires POSIX descriptor-relative directory traversal with
+Source acquisition pins the project root before inventory and retains its
+descriptor throughout acquisition. It requires POSIX descriptor-relative directory traversal with
 `O_NOFOLLOW`, `O_DIRECTORY` and nonblocking leaf opens. Every opened leaf must be
 a regular file. File/ancestor symlinks, FIFO/special files and path escapes are
 rejected before any source read; directory replacement cannot redirect an

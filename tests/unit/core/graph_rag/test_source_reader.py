@@ -83,3 +83,25 @@ def test_leaf_symlink_replacement_is_rejected(tmp_path, monkeypatch):
 def test_nonlocal_paths_are_rejected(tmp_path, name):
     with pytest.raises(OSError):
         read_project_source(tmp_path, name, 100)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="descriptor traversal race")
+def test_inventory_root_replacement_cannot_redirect_source_reads(tmp_path, monkeypatch):
+    from victor.core.graph_rag import structural_clones
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "a.py").write_text("def inside(x):\n return x+1\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "a.py").write_text("def secret(x):\n return x-1\n")
+
+    def replace_root(*args, **kwargs):
+        project.rename(tmp_path / "original")
+        project.symlink_to(outside, target_is_directory=True)
+        return ["a.py"]
+
+    monkeypatch.setattr(structural_clones, "_source_files", replace_root)
+    report = scan(project, min_nodes=5, retain_source=True, collect_only=True)
+    assert report.units and report.units[0].name == "inside"
+    assert "secret" not in report.units[0].source_code

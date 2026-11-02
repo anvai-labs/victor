@@ -1,7 +1,7 @@
 # Graph similarity: parity assessment and implementation direction
 
 **Assessment date:** 2026-11-01. **Implementation assessed:**
-`feature/codegraph-deduplication`, rebased onto `develop` at `b3f09333a`.
+`feature/codegraph-deduplication`, rebased onto `develop` at `61d25a056`.
 The publication candidate and independent review are recorded below; the PR owns
 subsequent CI and merge status. **Comparator:** installed jscpd **5.4.2**.
 The [earlier audit](code-similarity-audit-2026-11-01.md) records the ProximaDB
@@ -443,10 +443,13 @@ current bounded exact implementation as its oracle before evaluating ANN.
 The implementation was committed, then reconciled onto `origin/develop`
 `b3f09333aef5524a38a55fd9aee6f33973b82fa8`. The TUI conflict preserves the incoming
 compact code renderer and adds responsive tables through its isolated registry.
+A later fetch/rebase incorporates `61d25a056366f94eeff96f4a0cefe946ca1d9a88`;
+the additional upstream changes affect only the agent-service tracker.
 The earlier uncommitted/095e981bf sections are historical measurement checkpoints.
 
 Independent review of candidate `23f7c3a0b7b16e5f7ebf761134c891eca1dda135` was clean
-for graph-row repair/storage, and found eight source-channel/normalization issues.
+for graph-row repair/storage, and initially found eight source-channel/normalization issues. A rereview found
+two further acquisition/monitoring issues.
 The [review disposition](codegraph-deduplication-review-2026-11-01.md) records each
 finding and its regression. The revised Python normalization is
 `normalized-body-v4-field-roles`; [reviewed probes](evidence/code-similarity-reviewed-2026-11-01.json)

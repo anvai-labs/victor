@@ -205,3 +205,49 @@ def test_token_snapshot_rejects_external_source_symlink(tmp_path, monkeypatch):
     assert not report["coverage_complete"]
     assert not report["source_manifest"]
     assert report["errors"]
+
+
+def test_denied_process_enumeration_fails_closed(tmp_path, monkeypatch):
+    import sys
+    import psutil
+
+    def denied(*args, **kwargs):
+        raise psutil.AccessDenied()
+
+    monkeypatch.setattr(psutil.Process, "children", denied)
+    monkeypatch.setattr(token_clones, "MAX_BACKEND_RSS", 32 * 1024 * 1024)
+    with pytest.raises(ValueError, match="process-tree monitoring is unavailable"):
+        token_clones._run_detector(
+            [sys.executable, "-c", "import time; payload=bytearray(80*1024*1024);time.sleep(20)"],
+            tmp_path,
+            3,
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="descriptor traversal race")
+def test_token_inventory_root_replacement_retains_original_source(tmp_path, monkeypatch, binary):
+    import hashlib
+    from victor.core.graph_rag import structural_clones
+
+    project = tmp_path / "project"
+    project.mkdir()
+    source_pair(project)
+    original = (project / "a.py").read_bytes()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for name in ("a.py", "b.py"):
+        (outside / name).write_text("def secret(x):\n return x-1\n")
+
+    def replace_root(*args, **kwargs):
+        project.rename(tmp_path / "original")
+        project.symlink_to(outside, target_is_directory=True)
+        return ["a.py", "b.py"]
+
+    monkeypatch.setattr(structural_clones, "_source_files", replace_root)
+    report = scan_tokens(project, options=TokenOptions(binary=binary, min_tokens=8, min_lines=0))
+    assert report["coverage_complete"]
+    assert report["fragments"]
+    assert all(
+        item["sha256"] == hashlib.sha256(original).hexdigest()
+        for item in report["source_manifest"].values()
+    )

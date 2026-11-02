@@ -79,10 +79,10 @@
     "portable_clones.py": "17101d2b076e3cd3a3aa5db0b47931cb4c2d11b385ba485ba91479319aeb5e08",
     "semantic_clones.py": "783a6556f4d77fd9ef105822bd882ff8aaf7f89f2771ebacfac51c79280c3381",
     "similarity_analysis.py": "309e43653c2e41341a9e91530f2d9b5e8b3465838ef7b2691b5772a59778be21",
-    "source_reader.py": "93096a0772dd88017c9f6e136b05425a1949b0e1d5574803afc2717d068676b3",
+    "source_reader.py": "33233303668e240fc2a9dcb8265f25475e931cdbde496562ab2f15fb87e4f5fd",
     "source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
-    "structural_clones.py": "8c70f0dd883fe239b4370a9b63690eb1cbf2bb9e57e051a4f87471500b4b1dd6",
-    "token_clones.py": "9505bedba5bf6acf9673d8317ee8b2d958e7870b309990f74289df81c1326c79",
+    "structural_clones.py": "bfe968c16638ffce4c05f17c3bfadb5c3898ecc24b6a56ab70f3f51b8ab0adc5",
+    "token_clones.py": "3c09f8223b3a64878a4a3e8929e95fc7f11db50da366475992ea6b7541931b0d",
     "treesitter_clones.py": "1ba375c44c50c84d2b9ef45c61df516615a8aa6458370dd15b940261ca8cb332"
   },
   "implementation_changed_during_run": false,
@@ -167,7 +167,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-xc16wwjf/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-2r0s9hza/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -194,7 +194,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-xc16wwjf/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-2r0s9hza/tokens",
           "--silent"
         ]
       }
@@ -274,7 +274,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-0ybhja44/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-eofefv3l/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -301,7 +301,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-0ybhja44/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-eofefv3l/tokens",
           "--silent"
         ]
       }
@@ -381,7 +381,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-766rjtyh/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-qzhnw0ba/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -408,7 +408,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-766rjtyh/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-qzhnw0ba/tokens",
           "--silent"
         ]
       }
@@ -488,7 +488,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-3ibwbjiq/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-f9yvc3tu/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -515,7 +515,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-3ibwbjiq/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-f9yvc3tu/tokens",
           "--silent"
         ]
       }
@@ -595,7 +595,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-q9mxuggw/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-bdp6nigs/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -622,7 +622,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-q9mxuggw/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-bdp6nigs/tokens",
           "--silent"
         ]
       }
@@ -706,7 +706,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-bitj2u9g/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-fxz9b4_6/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -733,7 +733,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-bitj2u9g/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-fxz9b4_6/tokens",
           "--silent"
         ]
       }
@@ -817,7 +817,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-7tggb6wu/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-z9ndqpwi/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -844,7 +844,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-7tggb6wu/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-z9ndqpwi/tokens",
           "--silent"
         ]
       }
@@ -924,7 +924,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-roar7rtz/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-0x6zo7kg/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -951,7 +951,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-roar7rtz/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-0x6zo7kg/tokens",
           "--silent"
         ]
       }
@@ -1026,7 +1026,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-1zi6ead4/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-5zo4boq_/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1053,7 +1053,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-1zi6ead4/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-5zo4boq_/tokens",
           "--silent"
         ]
       },
@@ -1146,7 +1146,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-fr_vvnso/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-znczg3z_/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1173,7 +1173,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-fr_vvnso/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-znczg3z_/tokens",
           "--silent"
         ]
       }
@@ -1253,7 +1253,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-scs6asvr/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-w_lcnh8t/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1280,7 +1280,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-scs6asvr/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-w_lcnh8t/tokens",
           "--silent"
         ]
       }
@@ -1372,7 +1372,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-rq0108vs/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-k1er9lcn/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1399,7 +1399,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-rq0108vs/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-k1er9lcn/tokens",
           "--silent"
         ]
       }
@@ -1451,7 +1451,7 @@
           "skipped_buckets": 0,
           "matching_budget_exceeded": 0,
           "analysis_errors": [],
-          "seconds": 0.0,
+          "seconds": 0.1,
           "exact_families": 1,
           "template_families": 0,
           "near_families": 0,
@@ -1479,7 +1479,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-04v1cdn1/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-nnrrpi2e/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1506,7 +1506,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-04v1cdn1/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-nnrrpi2e/tokens",
           "--silent"
         ]
       }
@@ -1587,7 +1587,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-ae46oakw/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-ex5e4ewu/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1614,7 +1614,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-ae46oakw/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-ex5e4ewu/tokens",
           "--silent"
         ]
       }
@@ -1667,7 +1667,7 @@
           "skipped_buckets": 0,
           "matching_budget_exceeded": 0,
           "analysis_errors": [],
-          "seconds": 0.0,
+          "seconds": 0.1,
           "exact_families": 1,
           "template_families": 0,
           "near_families": 0,
@@ -1695,7 +1695,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-9b0jt1q9/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-cd_trnzt/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1722,7 +1722,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-9b0jt1q9/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-cd_trnzt/tokens",
           "--silent"
         ]
       }
@@ -1793,7 +1793,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-js_zp7vh/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-69ya7n_h/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1820,7 +1820,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-js_zp7vh/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-69ya7n_h/tokens",
           "--silent"
         ]
       }
@@ -1900,7 +1900,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-545gih3e/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-r6vtgser/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -1927,7 +1927,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-545gih3e/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-r6vtgser/tokens",
           "--silent"
         ]
       }
@@ -2019,7 +2019,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-qfyj3try/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-xzqfx1ob/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -2046,7 +2046,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-qfyj3try/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-xzqfx1ob/tokens",
           "--silent"
         ]
       }
@@ -2138,7 +2138,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-f3kgolgo/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-vezbd_r0/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -2165,7 +2165,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-f3kgolgo/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-vezbd_r0/tokens",
           "--silent"
         ]
       }
@@ -2251,7 +2251,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-6757byrs/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-wijmb19t/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -2278,7 +2278,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-6757byrs/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-wijmb19t/tokens",
           "--silent"
         ]
       }
@@ -2338,7 +2338,7 @@
           "skipped_buckets": 0,
           "matching_budget_exceeded": 0,
           "analysis_errors": [],
-          "seconds": 0.0,
+          "seconds": 0.1,
           "exact_families": 0,
           "template_families": 0,
           "near_families": 0,
@@ -2387,7 +2387,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-nxc25pzm/ast",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-pgomfppq/ast",
           "--silent",
           "--similarity",
           "0.3",
@@ -2414,7 +2414,7 @@
           "--reporters",
           "json,edn",
           "--output",
-          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-nxc25pzm/tokens",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-pgomfppq/tokens",
           "--silent"
         ]
       }
