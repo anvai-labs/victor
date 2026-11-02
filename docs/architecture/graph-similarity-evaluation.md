@@ -215,7 +215,7 @@ it is not authentication or proof of behavior. Real backend tests cover Python,
 Rust, TypeScript, C++, Java, Unicode spans and special filenames. The pinned native
 SARIF carrier emits **raw path strings**, including `%`, spaces, `#` and `?`;
 these are correlated literally, without URI decoding. They must be escaped by a
-future standards-compliant SARIF exporter. Moves and leading line shifts preserve
+standards-compliant Victor SARIF exporter. Moves and leading line shifts preserve
 the fingerprint; adding another copy increases its count. Baseline and changed-code
 applications will compare compatible fingerprint counts across complete scans,
 not semantic family counts or arbitrary per-edge `isNew` assignment.
@@ -297,8 +297,8 @@ victor graph similar --path /path/to/project --mode tokens \
 
 `--same-file` includes copies inside one file; the shared command otherwise
 defaults to cross-file evidence. Omit `--scope` for the entire selected project
-when it fits the stated resource bounds. Baseline/SARIF integration for other
-channels remains pending; no output certifies behavioral or ABI equivalence.
+when it fits the stated resource bounds. Copy-count gates remain token-only;
+broader SARIF reporting is covered below. No output certifies behavioral or ABI equivalence.
 
 The [retained qualification](evidence/copy-workflow-2026-11-02.json) uses 166 frozen
 ProximaDB query files, each SHA-256 checked against Git blobs at
@@ -316,9 +316,9 @@ budget and failed explicitly; it did not create a baseline and does not qualify
 whole-project capacity. Secure Windows acquisition remains unsupported. A
 supported scoped run is not whole-project or release acceptance.
 
-### Selected-project capacity continuation
+### Selected-project capacity
 
-The current capacity increment adds explicit `--token-memory-mib` (32–8192),
+The capacity increment merged in [#1666](https://github.com/anvai-labs/victor/pull/1666) adds explicit `--token-memory-mib` (32–8192),
 `--token-max-file-bytes` (1–134217728) and `--token-timeout` (0.1–300 seconds).
 Defaults remain 768 MiB, 1,000,000 bytes per file and 60 seconds. Main detection
 and physical-file controls share the remaining deadline and the same RSS bound.
@@ -362,6 +362,71 @@ python scripts/benchmark_graph_similarity_channels.py /path/to/project \
   --token-exclude examples/utilities/profiling/memory_profile.py \
   --token-exclude tools/demos/wal_search_achievement_demo.py \
   --output /path/to/observation.json
+```
+
+### Broader similarity SARIF
+
+The current reporting increment extends `--sarif` to structural, body, summary
+(`semantic`) and hybrid modes. Each family is one review finding; its primary
+and related locations identify members, not fabricated pairwise matches. Actual
+native token fragments remain pairs. Results retain the evidence channel, known
+tier, score basis, matching-edge counts and available cohesion. Structural and
+summary score serialization retains the producer's four-decimal rounding;
+minimum/maximum consistency checks allow that declared rounding tolerance.
+No automatic fixes, semantic count gates or new behavioral guarantees are added.
+
+Source artifacts retain acquired SHA-256 hashes and line-only regions. Token
+regions must fit the manifest's recorded line count; native columns are not
+promoted into qualified source coordinates. Different versions of one path have
+separate artifact references. Raw filenames are URI-encoded once. Export does
+not reread or resolve source paths. Source-selection or hash conflicts between
+channels make execution unsuccessful while preserving valid channel findings.
+
+Successful and partial findings require known evidence contracts. Body model
+options and producer manifests must bind to their recorded identities; member
+hashes must match the acquired manifest. Missing/malformed profiles, unknown
+score claims, impossible regions/counts, nonfinite scores, excessive nesting or
+report-budget exhaustion cannot produce passing execution. Failed channels may
+omit unavailable profiles when they contain no findings. Other valid channels
+remain visible. Suppressed candidates retain their reason; FFI links remain
+separate channel metadata and are not duplicate findings.
+
+Summary reports describe the index snapshot: current source coverage/freshness
+is unverified. The loader retains its validated embedding-profile identity for
+export. Absent profile identity is explicitly marked unavailable with a warning;
+malformed supplied identities fail. This identity is provenance, not model-quality
+or behavioral-equivalence certification.
+
+Reports expose per-channel total and reported family/fragment counts and a
+`report_truncated` flag for CLI limits. Output truncation is distinct from failed
+source acquisition. The exporter has separate 100,000-member and 64 MiB JSON
+budgets with bounded scalar chunks, 64-level nesting and two million JSON-node
+limits. Oversized scalars fail before whole-string escaping. A budget failure
+exits unsuccessfully. A shared final writer emits the exact bounded JSON directly
+for all SARIF modes, reserving the final newline; Rich does not reparse or
+pretty-print it. Progress goes to stderr.
+Token baselines retain their stricter source-copy workflow; `--baseline`,
+`--changed-file` and `--fail-on-new` remain token-only. `--json` and `--sarif` are
+mutually exclusive in every mode.
+
+The [retained observation](evidence/similarity-sarif-2026-11-02.json) uses the
+existing 40-file, 234-function real-source snapshot and offline pinned weights.
+Structural, body and hybrid outputs, plus an explicit failed-channel control,
+are validated against the official OASIS schema with URI format checks. The
+final export/writer replay rechecks those retained source-analysis payloads and
+source hashes without repeating model inference. Structural/body/hybrid export
+observed 1.12/14.13/7.24 ms, with separate final-writer observations of
+0.75/2.07/2.51 ms. These are diagnostics, not statistical latency comparisons. A
+three-vector summary control checks transitive family reporting; it is synthetic,
+not indexed-project quality or freshness evidence. The real LanceDB owner tests
+separately verify loader-to-SARIF profile identity propagation.
+
+```bash
+victor graph similar --path /path/to/project --mode structural --sarif
+victor graph similar --path /path/to/project --mode body --sarif
+victor graph similar --path /path/to/project --mode semantic --sarif
+victor graph similar --path /path/to/project --mode hybrid \
+  --jscpd-binary /path/to/jscpd --sarif
 ```
 
 Reproduce source-channel observations with the same frozen input hashes,
@@ -499,8 +564,9 @@ The report therefore provides a hard-negative regression opportunity, not a new
 claim that semantic equivalence has been solved. The next data priority is more
 independent projects, reviewed lineages and hard negatives, followed by typed
 context ablation and measured retrieval. Unsupported macros/await, Windows source
-handles, ABI verification, ANN/incremental indexing and broader-channel SARIF remain
-separate subsequent increments; token-copy baselines and SARIF are merged in #1665.
+handles, ABI verification and ANN/incremental indexing remain separate subsequent
+increments; token-copy baselines and SARIF are merged in #1665, with broader
+reporting validation owned by the active roadmap ledger.
 
 ## Evidence and independent review
 

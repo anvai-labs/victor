@@ -33,6 +33,7 @@ class SymbolRecord:
     kind: str
     line_number: int
     input_hash: Optional[str] = None
+    embedding_profile_id: Optional[str] = None
 
 
 @dataclass
@@ -171,6 +172,7 @@ def load_embedding_symbols(
                 row["embedding_kind"],
                 row["line_number"] or 0,
                 row.get("embedding_input_hash"),
+                profile.identity,
             )
         )
         indices.append(i)

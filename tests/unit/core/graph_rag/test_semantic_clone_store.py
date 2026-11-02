@@ -66,9 +66,26 @@ def test_root_and_inline_tests_are_excluded_and_vectors_align(tmp_path):
         "src/prefixXmatch/a.rs",
     }
     assert matrix.shape == (4, 2)
+    assert {r.embedding_profile_id for r in records} == {
+        EmbeddingProfile("test", "a" * 40, 2).identity
+    }
     assert matrix[:, 0].tolist() == [1.0] * 4
     assert len(load_embedding_symbols(tmp_path, include_tests=True)[0]) == 6
     assert len(load_embedding_symbols(tmp_path, scope="src/prefix_match/")[0]) == 1
+
+
+def test_real_store_profile_is_retained_in_summary_sarif(tmp_path):
+    from typer.testing import CliRunner
+    from victor.ui.commands.graph import graph_app
+
+    _store(tmp_path)
+    result = CliRunner().invoke(graph_app, ["similar", "--path", str(tmp_path), "--sarif"])
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.output)["runs"][0]
+    metadata = run["properties"]["channels"]["semantic"]
+    assert metadata["embedding_profile_ids"] == [EmbeddingProfile("test", "a" * 40, 2).identity]
+    assert metadata["profile_provenance"] == "declared_index_profile_identity"
+    assert run["properties"]["source_freshness"] == "unverified_index_snapshot"
 
 
 @pytest.mark.parametrize(

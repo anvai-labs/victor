@@ -419,6 +419,8 @@ def scan_tokens(
                                 else "literal_token_fragment"
                             ),
                             "evidence": "token_sequence",
+                            "kind": duplicate.get("kind", "exact"),
+                            "format": duplicate.get("format"),
                             "equivalence_verified": False,
                             "tokens": duplicate["tokens"],
                             "fragment_hash": hashlib.sha256(fragment.encode()).hexdigest(),

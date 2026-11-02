@@ -192,6 +192,53 @@ def test_cli_explicit_resource_and_exclusion_policy_reaches_native_scan(tmp_path
     assert run["properties"]["copy_profile"]["selection"]["exclude_patterns"] == ["alias.py"]
 
 
+def test_hybrid_sarif_preserves_actual_native_token_pairs(tmp_path, binary, monkeypatch):
+    from typer.testing import CliRunner
+    from victor.core.graph_rag import body_clones
+    from victor.ui.commands.graph import graph_app
+
+    source_pair(tmp_path)
+    actual_body = body_clones.analyze_bodies
+
+    class Encoder(body_clones.LocalBodyEncoder):
+        def windows(self, source):
+            return [source], [(0, len(source))]
+
+        def encode(self, texts):
+            return [[1.0] + [0.0] * (self.options.dimension - 1) for _ in texts]
+
+    def controlled_body(report, **kwargs):
+        return actual_body(report, **kwargs, encoder=Encoder(kwargs["options"]))
+
+    monkeypatch.setattr(body_clones, "analyze_bodies", controlled_body)
+    result = CliRunner().invoke(
+        graph_app,
+        [
+            "similar",
+            "--path",
+            str(tmp_path),
+            "--mode",
+            "hybrid",
+            "--min-nodes",
+            "5",
+            "--min-tokens",
+            "20",
+            "--token-min-lines",
+            "0",
+            "--jscpd-binary",
+            binary,
+            "--sarif",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.output)["runs"][0]
+    tokens = [row for row in run["results"] if row["properties"]["channel"] == "tokens"]
+    assert len(tokens) == 1
+    assert tokens[0]["ruleId"] == "victor/token-copy-exact"
+    assert tokens[0]["properties"]["format"] == "python"
+    assert tokens[0]["properties"]["member_count"] == 2
+
+
 def test_real_cli_baseline_moves_changed_gate_and_sarif(tmp_path, binary):
     from typer.testing import CliRunner
     from victor.ui.commands.graph import graph_app

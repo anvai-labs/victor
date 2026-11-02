@@ -139,9 +139,16 @@ RELATED_TESTS = {
         "tests/unit/core/graph_rag/test_token_clones.py",
         "tests/unit/ui/commands/test_graph_similar_cli.py",
     ),
+    "victor/core/graph_rag/similarity_sarif.py": (
+        "tests/unit/core/graph_rag/test_similarity_sarif.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_semantic_clone_store.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
     "victor/ui/commands/graph.py": (
         "tests/unit/core/graph_rag/test_copy_baseline.py",
         "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_semantic_clone_store.py",
     ),
     "victor/core/graph_rag/family_cohesion.py": (
         "tests/unit/core/graph_rag/test_family_cohesion.py",
@@ -151,6 +158,7 @@ RELATED_TESTS = {
     ),
     "victor/core/graph_rag/semantic_clones.py": (
         "tests/unit/core/graph_rag/test_semantic_clones.py",
+        "tests/unit/core/graph_rag/test_semantic_clone_store.py",
         "tests/unit/core/graph_rag/test_family_cohesion.py",
         "tests/unit/core/graph_rag/test_body_clones.py",
         "tests/unit/ui/commands/test_graph_similar_cli.py",
