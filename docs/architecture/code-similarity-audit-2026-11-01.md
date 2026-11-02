@@ -6,7 +6,7 @@ predate its `normalized-body-v2-parameter-roles` hardening; they are not refresh
 performance or quality certifications for that normalization schema.
 
 **Date:** 2026-11-01. **Scope:** verify the supplied ProximaDB comparison and extend
-Victor's structural scanner. Implementation is local on
+Victor's structural scanner. At this historical checkpoint implementation was local on
 `feature/codegraph-deduplication`, based on `095e981bf`; no index, source or vector
 data in ProximaDB was changed. Source inspected at ProximaDB
 `a4b762309f2079a9914b6ed34f37c9c6973e089f`.
@@ -165,7 +165,7 @@ cache design if repeated scans become a demonstrated user-level bottleneck.
 
 ## Initial validation and continuation
 
-All implementation remains uncommitted in
+At this initial checkpoint all implementation remained uncommitted in
 `.worktrees/codegraph-deduplication` on `feature/codegraph-deduplication`.
 No push, PR, merge, release or ProximaDB mutation is implied by these checks.
 
@@ -300,7 +300,7 @@ with 42 skips and the unchanged Mermaid browser integration test deselected; its
 cache-isolation issue and earlier successful isolated retry are recorded above.
 The final portable/FFI edge cases are covered by the subsequent focused gate.
 Add `tests/unit/core/graph_rag/test_polyglot_clones.py` to the focused command above
-when continuing. The implementation remains local/uncommitted on the same branch;
-independent review and publication gates remain pending.
+when reproducing that checkpoint. The implementation was local/uncommitted on the same branch;
+independent review and publication gates were pending.
 Final Black/Ruff/whitespace checks pass, MyPy passes all **16** changed
 production/benchmark files, and full collection passes with **37,507 tests**.

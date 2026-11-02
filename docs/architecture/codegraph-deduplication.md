@@ -122,11 +122,13 @@ inline code and links, plus a mounted 32-column Textual timeline. Existing custo
 tool tables remain owned by their presenters; replacing them throughout the UI
 has no demonstrated benefit for this Markdown truncation defect.
 
-## Local validation and continuation
+## Initial local validation checkpoint
 
-Implementation branch: `feature/codegraph-deduplication`, based on fetched
-`origin/develop` commit `095e981bf6c0ca7eef9a73d82e4822efa4b6d1a4`. Work is retained
-in `.worktrees/codegraph-deduplication`; it has not been committed or published.
+Initial implementation branch: `feature/codegraph-deduplication`, based on fetched
+`origin/develop` commit `095e981bf6c0ca7eef9a73d82e4822efa4b6d1a4`. At that checkpoint work was retained
+in `.worktrees/codegraph-deduplication`, before commit and publication. See the
+[current parity assessment](graph-similarity-parity-and-roadmap.md#publication-candidate-and-adversarial-review)
+for the rebased candidate and independent review; the PR owns subsequent merge status.
 
 The initial focused integration/CLI/table/timeline suite passes 35 tests and exceeds
 95% coverage for the deduplication module (95.39%). Black, Ruff and MyPy on touched

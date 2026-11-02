@@ -1,8 +1,9 @@
 # Graph similarity: parity assessment and implementation direction
 
-**Assessment date:** 2026-11-01. **Implementation assessed:** the local, uncommitted
-`feature/codegraph-deduplication` worktree based on `095e981bf`. These features and
-fixes are not merged or released. **Comparator:** installed jscpd **5.4.2**.
+**Assessment date:** 2026-11-01. **Implementation assessed:**
+`feature/codegraph-deduplication`, rebased onto `develop` at `b3f09333a`.
+The publication candidate and independent review are recorded below; the PR owns
+subsequent CI and merge status. **Comparator:** installed jscpd **5.4.2**.
 The [earlier audit](code-similarity-audit-2026-11-01.md) records the ProximaDB
 measurements and their scope; this document owns the current capability assessment
 and proposed next increments.
@@ -281,7 +282,7 @@ behavior on the same input manifest and comparable enabled features.
 
 ## Earlier continuation: lexical binding and frontend recovery
 
-Implemented locally on the same uncommitted branch:
+At the pre-review checkpoint, implemented locally on the same branch:
 
 - Syntax dispatch shares `victor-codegraph`'s extension map; a missing SCIP
   provider no longer disables a grammar. Optional dependency absence preserves
@@ -429,9 +430,9 @@ all **23** changed production/diagnostic files. Final engine hashes match both
 retained channel artifacts. No new native toolchain, model download, project reindex or graph-row
 mutation occurred.
 
-Changes remain **uncommitted and unpublished**, based on `095e981bf` in
+At this pre-review checkpoint, changes were **uncommitted and unpublished**, based on `095e981bf` in
 `.worktrees/codegraph-deduplication`. Independent review and publication/CI/release
-gates remain pending. Local source acceptance must not be reported as merged or
+gates were pending at that checkpoint. Local source acceptance must not be reported as merged or
 released. Next executable research increment: build the held-out review set and
 run fixed-model pair/port precision and hard-negative calibration; retain the
 current bounded exact implementation as its oracle before evaluating ANN.
