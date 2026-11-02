@@ -28,10 +28,26 @@ def main() -> None:
     parser.add_argument("--min-tokens", type=int, default=20)
     parser.add_argument("--token-fingerprints", action="store_true")
     parser.add_argument("--token-min-lines", type=int, default=0)
+    parser.add_argument("--token-memory-mib", type=int)
+    parser.add_argument("--token-max-file-bytes", type=int)
+    parser.add_argument("--token-timeout", type=float, default=60)
+    parser.add_argument("--token-exclude", action="append", default=[])
     parser.add_argument("--scope")
     parser.add_argument("--same-file", action="store_true")
     parser.add_argument("--exclude-docs", action="store_true")
     args = parser.parse_args()
+    if args.token_exclude and args.mode != "tokens":
+        parser.error("--token-exclude requires --mode tokens")
+    token_options = TokenOptions(
+        binary=args.jscpd,
+        min_tokens=args.min_tokens,
+        min_lines=args.token_min_lines,
+        fingerprints=args.token_fingerprints,
+        max_rss_bytes=(None if args.token_memory_mib is None else args.token_memory_mib * 1024**2),
+        max_file_bytes=args.token_max_file_bytes,
+        timeout_seconds=args.token_timeout,
+        exclude_patterns=tuple(args.token_exclude),
+    )
     implementation = {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest()
         for p in Path("victor/core/graph_rag").glob("*.py")
@@ -46,6 +62,7 @@ def main() -> None:
             "ast_fingerprints.py",
             "language_parsers.py",
             "source_inventory.py",
+            "exclude_patterns.py",
             "bounded_process.py",
             "token_fingerprints.py",
             "token_coverage.py",
@@ -67,12 +84,7 @@ def main() -> None:
         include_same_file=args.same_file,
         limit=200,
         body_options=BodyOptions(),
-        token_options=TokenOptions(
-            binary=args.jscpd,
-            min_tokens=args.min_tokens,
-            min_lines=args.token_min_lines,
-            **({"fingerprints": True} if args.token_fingerprints else {}),
-        ),
+        token_options=token_options,
         cache_path=args.cache,
     )
     child_after = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -101,6 +113,10 @@ def main() -> None:
             "min_tokens": args.min_tokens,
             "token_fingerprints": args.token_fingerprints,
             "token_min_lines": args.token_min_lines,
+            "token_memory_mib": args.token_memory_mib,
+            "token_max_file_bytes": args.token_max_file_bytes,
+            "token_timeout": args.token_timeout,
+            "token_exclude": list(token_options.exclude_patterns),
             "scope": args.scope,
             "include_same_file": args.same_file,
             "cache_enabled": args.cache is not None,

@@ -231,7 +231,7 @@ the actual protocol tests to run rather than silently skipping them.
 
 ## Copy-count baselines, changed-file gates and token SARIF
 
-The application continuation provides `--baseline`, `--write-baseline`,
+The application merged in [#1665](https://github.com/anvai-labs/victor/pull/1665) provides `--baseline`, `--write-baseline`,
 `--changed-file`, `--fail-on-new` and `--sarif` in **token mode**. These are
 source-copy count policies; semantic components and similarity scores are not CI
 gate units. Baseline creation/update is explicit and separate from comparison.
@@ -315,6 +315,54 @@ The earlier whole-project observation reached the default 768 MiB native RSS
 budget and failed explicitly; it did not create a baseline and does not qualify
 whole-project capacity. Secure Windows acquisition remains unsupported. A
 supported scoped run is not whole-project or release acceptance.
+
+### Selected-project capacity continuation
+
+The current capacity increment adds explicit `--token-memory-mib` (32–8192),
+`--token-max-file-bytes` (1–134217728) and `--token-timeout` (0.1–300 seconds).
+Defaults remain 768 MiB, 1,000,000 bytes per file and 60 seconds. Main detection
+and physical-file controls share the remaining deadline and the same RSS bound.
+RSS monitoring polls the owned process aggregate; the configured cap is neither
+a measured peak nor a hard memory reservation. Existing total source/report
+bounds remain. Oversized or selected symlink inputs still fail coverage.
+
+`--token-exclude` is repeatable in token mode. Patterns are root-relative POSIX
+globs: literal paths match exactly, `*`, `?` and character classes remain within
+one directory segment, and a whole `**` segment matches zero or more directories.
+Use `dir/**` for a subtree or `**/*.rs` at any depth. Absolute paths, empty, dot
+and parent segments are rejected. Exclusions are normalized and recorded in
+profile v2, so changing them requires an explicit reviewed baseline update.
+Runtime budgets do not change copy identity. Exact v1 baseline bytes remain
+readable and recognizable for explicit replacement; comparing them with v2
+fails as incompatible rather than silently resetting counts.
+
+The [retained observation](evidence/source-capacity-2026-11-02.json) accounts for
+all 3,418 selected ProximaDB files: 2,733 main-summary paths and 685 proven
+ineligible controls, with 65 native copy pairs. Every acquired hash was verified
+against its Git blob at `9226274eea996b0554aada3825856a30002a2f01`. The selection
+explicitly excludes four symlink paths, recorded with their targets, and includes
+a 2,145,860-byte generated Rust file. Source manifests and all native fingerprint
+records match the earlier isolated resource-override probe; there are no new
+token matching semantics. Baseline create/compare/update succeeds, and its SARIF
+passes the official OASIS schema including URI format checks.
+
+The single macOS arm64 scan observed 6.969 seconds; application/schema work took
+0.150 seconds. This is bounded capacity evidence for the stated policy and host,
+not a statistical speed comparison, release qualification, clone accuracy
+estimate or semantic-equivalence claim. Reproduce with pinned source bytes and
+an explicitly installed jscpd 5.4.2:
+
+```bash
+python scripts/benchmark_graph_similarity_channels.py /path/to/project \
+  --mode tokens --same-file --exclude-docs --min-tokens 300 --token-min-lines 3 \
+  --token-fingerprints --token-memory-mib 2048 --token-max-file-bytes 8388608 \
+  --token-timeout 120 --jscpd /path/to/jscpd \
+  --token-exclude clients/go/codegen/openapi_31_to_30.py \
+  --token-exclude clients/rust/codegen/openapi_31_to_30.py \
+  --token-exclude examples/utilities/profiling/memory_profile.py \
+  --token-exclude tools/demos/wal_search_achievement_demo.py \
+  --output /path/to/observation.json
+```
 
 Reproduce source-channel observations with the same frozen input hashes,
 interpreter and pinned backend, changing only the implementation checkout:
@@ -451,8 +499,8 @@ The report therefore provides a hard-negative regression opportunity, not a new
 claim that semantic equivalence has been solved. The next data priority is more
 independent projects, reviewed lineages and hard negatives, followed by typed
 context ablation and measured retrieval. Unsupported macros/await, Windows source
-handles, ABI verification, ANN/incremental indexing and SARIF/copy baselines remain
-separate subsequent increments.
+handles, ABI verification, ANN/incremental indexing and broader-channel SARIF remain
+separate subsequent increments; token-copy baselines and SARIF are merged in #1665.
 
 ## Evidence and independent review
 

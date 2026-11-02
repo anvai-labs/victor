@@ -35,6 +35,14 @@ def test_token_fingerprint_observation_records_actual_option_and_engine_hashes(
             "--exclude-docs",
             "--token-min-lines",
             "3",
+            "--token-memory-mib",
+            "2048",
+            "--token-max-file-bytes",
+            "8388608",
+            "--token-timeout",
+            "120",
+            "--token-exclude",
+            "aliases/**",
             "--output",
             str(output),
         ],
@@ -43,13 +51,22 @@ def test_token_fingerprint_observation_records_actual_option_and_engine_hashes(
     result = json.loads(output.read_text())
     assert received[0]["token_options"].fingerprints is True
     assert received[0]["token_options"].min_lines == 3
+    assert received[0]["token_options"].max_rss_bytes == 2 * 1024**3
+    assert received[0]["token_options"].max_file_bytes == 8 * 1024**2
+    assert received[0]["token_options"].timeout_seconds == 120
+    assert received[0]["token_options"].exclude_patterns == ("aliases/**",)
     assert received[0]["scope"] == "src/query/"
     assert received[0]["include_same_file"] is True
     assert received[0]["include_docs"] is False
     assert result["invocation"]["token_fingerprints"] is True
+    assert result["invocation"]["token_memory_mib"] == 2048
+    assert result["invocation"]["token_max_file_bytes"] == 8388608
+    assert result["invocation"]["token_timeout"] == 120
+    assert result["invocation"]["token_exclude"] == ["aliases/**"]
     assert {
         "bounded_process.py",
         "source_inventory.py",
+        "exclude_patterns.py",
         "token_fingerprints.py",
         "token_coverage.py",
         "copy_baseline.py",

@@ -1809,6 +1809,35 @@ def graph_similar(
         "--rename-tokens",
         help="Token mode: normalize identifiers; review as lexical patterns",
     ),
+    token_memory_mib: Optional[int] = typer.Option(
+        None,
+        "--token-memory-mib",
+        min=32,
+        max=8192,
+        help="Token backend RSS budget in MiB (default: 768); applies to every native pass",
+    ),
+    token_max_file_bytes: Optional[int] = typer.Option(
+        None,
+        "--token-max-file-bytes",
+        min=1,
+        max=134217728,
+        help="Token source file byte bound (default: 1000000); oversize inputs fail coverage",
+    ),
+    token_timeout: float = typer.Option(
+        60,
+        "--token-timeout",
+        min=0.1,
+        max=300,
+        help="Shared token-backend deadline in seconds, including coverage controls",
+    ),
+    token_exclude: Optional[list[str]] = typer.Option(
+        None,
+        "--token-exclude",
+        help=(
+            "Token mode: root-relative POSIX exclusion glob; repeat; * stays in one directory, "
+            "** spans directories (dir/** for a subtree); recorded in copy profiles"
+        ),
+    ),
     baseline: Optional[Path] = typer.Option(
         None, "--baseline", help="Token mode: compare a compatible copy-count baseline"
     ),
@@ -1860,6 +1889,17 @@ def graph_similar(
             as_sarif,
         )
     )
+    token_limits = (
+        token_memory_mib is not None or token_max_file_bytes is not None or token_timeout != 60
+    )
+    if (token_limits and mode not in {"tokens", "hybrid"}) or (
+        token_exclude is not None and mode != "tokens"
+    ):
+        console.print(
+            "Token limits require tokens/hybrid mode; token exclusions require --mode tokens",
+            markup=False,
+        )
+        raise typer.Exit(2)
     if copy_workflow:
         problem = None
         if mode != "tokens":
@@ -1908,6 +1948,12 @@ def graph_similar(
                     min_lines=token_min_lines,
                     normalize_identifiers=rename_tokens,
                     fingerprints=copy_workflow,
+                    max_rss_bytes=(
+                        token_memory_mib * 1024**2 if token_memory_mib is not None else None
+                    ),
+                    max_file_bytes=token_max_file_bytes,
+                    timeout_seconds=token_timeout,
+                    exclude_patterns=tuple(token_exclude or ()),
                 )
                 if copy_workflow:
                     from victor.core.graph_rag.copy_baseline import copy_profile

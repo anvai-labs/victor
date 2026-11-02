@@ -8,6 +8,7 @@ downloads a package, executes source, or writes into the analyzed project.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 import hashlib
 import json
 import os
@@ -24,9 +25,14 @@ MAX_TOKEN_PAIRS = 100_000
 MAX_SOURCE_BYTES = 128 * 1024 * 1024
 MAX_BACKEND_RSS = 768 * 1024 * 1024
 MAX_SOURCE_FILES = 10_000
+DEFAULT_FILE_BYTES = 1_000_000
+MAX_CONFIGURED_FILE_BYTES = 128 * 1024 * 1024
+MAX_CONFIGURED_RSS = 8 * 1024**3
 
 
-def _run_detector(arguments: list[str], work: Path, timeout: float) -> tuple[int, str]:
+def _run_detector(
+    arguments: list[str], work: Path, timeout: float, *, max_rss_bytes: int | None = None
+) -> tuple[int, str]:
     """Use shared owned-process limits without replaying a detector call."""
     from victor.core.graph_rag.bounded_process import OwnedProcess
 
@@ -35,7 +41,7 @@ def _run_detector(arguments: list[str], work: Path, timeout: float) -> tuple[int
             arguments,
             work,
             timeout,
-            max_rss=MAX_BACKEND_RSS,
+            max_rss=MAX_BACKEND_RSS if max_rss_bytes is None else max_rss_bytes,
             artifacts={
                 work / "report" / "jscpd-report.json": MAX_REPORT_BYTES,
                 work / "report" / "jscpd-report.sarif": MAX_REPORT_BYTES,
@@ -55,6 +61,9 @@ class TokenOptions:
     normalize_identifiers: bool = False
     timeout_seconds: float = 60
     fingerprints: bool = False
+    max_rss_bytes: int | None = None
+    max_file_bytes: int | None = None
+    exclude_patterns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not 1 <= self.min_tokens <= 1_000_000 or not 0 <= self.min_lines <= 100_000:
@@ -63,6 +72,67 @@ class TokenOptions:
             raise ValueError("Invalid token backend timeout")
         if type(self.fingerprints) is not bool:
             raise ValueError("Token fingerprint selection must be boolean")
+        if self.max_rss_bytes is not None and (
+            type(self.max_rss_bytes) is not int
+            or not 32 * 1024**2 <= self.max_rss_bytes <= MAX_CONFIGURED_RSS
+        ):
+            raise ValueError("Native RSS budget must be an integer between 32 MiB and 8 GiB")
+        if self.max_file_bytes is not None and (
+            type(self.max_file_bytes) is not int
+            or not 1 <= self.max_file_bytes <= MAX_CONFIGURED_FILE_BYTES
+        ):
+            raise ValueError("Source file budget must be an integer between 1 byte and 128 MiB")
+        if (
+            not isinstance(self.exclude_patterns, tuple)
+            or len(self.exclude_patterns) > 128
+            or any(
+                not isinstance(pattern, str)
+                or not pattern
+                or "\0" in pattern
+                or len(pattern.encode("utf-8")) > 1024
+                or any(part in {"", ".", ".."} for part in pattern.split("/"))
+                for pattern in self.exclude_patterns
+            )
+        ):
+            raise ValueError(
+                "Source exclusions require at most 128 bounded root-relative POSIX globs "
+                "without empty, dot or parent segments"
+            )
+        object.__setattr__(self, "exclude_patterns", tuple(sorted(set(self.exclude_patterns))))
+
+
+def _matches_source_exclusion(name: str, patterns: tuple[str, ...]) -> bool:
+    """Match root-relative POSIX globs; only a whole ** segment crosses directories.
+
+    Literal paths match exactly, * and ? stay within one segment, and ** consumes
+    zero or more segments. A subtree therefore requires dir/** explicitly.
+    The iterative matcher bounds stack use even for deeply nested source paths.
+    """
+    parts = name.split("/")
+    for pattern in patterns:
+        positions = {0}
+        for segment in pattern.split("/"):
+            if segment == "**":
+                positions = set(range(min(positions), len(parts) + 1))
+            else:
+                positions = {
+                    index + 1
+                    for index in positions
+                    if index < len(parts) and fnmatchcase(parts[index], segment)
+                }
+            if not positions:
+                break
+        if len(parts) in positions:
+            return True
+    return False
+
+
+def _invoke_detector(
+    arguments: list[str], work: Path, timeout: float, options: TokenOptions
+) -> tuple[int, str]:
+    if options.max_rss_bytes is None:
+        return _run_detector(arguments, work, timeout)
+    return _run_detector(arguments, work, timeout, max_rss_bytes=options.max_rss_bytes)
 
 
 def _account_for_omissions(
@@ -117,7 +187,7 @@ def _account_for_omissions(
     ]
     if options.normalize_identifiers:
         arguments.insert(-1, "--ignore-identifiers")
-    code, _ = _run_detector(arguments, control, remaining)
+    code, _ = _invoke_detector(arguments, control, remaining, options)
     report = output / "jscpd-complexity.json"
     if code != 0 or not report.is_file() or report.stat().st_size > MAX_REPORT_BYTES:
         raise ValueError("Token backend did not produce bounded physical-file accounting")
@@ -151,14 +221,22 @@ def scan_tokens(
     include_tests: bool = False,
     include_docs: bool = False,
     include_same_file: bool = False,
-    max_file_bytes: int = 1_000_000,
+    max_file_bytes: int = DEFAULT_FILE_BYTES,
 ) -> dict[str, Any]:
     """Run the pinned fragment detector on an explicit read-only source snapshot."""
     from victor.core.graph_rag.structural_clones import _source_files, _in_scope
     from victor.core.graph_rag.exclude_patterns import UNIVERSAL_EXCLUDE_PATTERNS, is_path_excluded
     from victor.core.graph_rag.source_reader import project_source_reader
 
-    if not root.is_dir() or max_file_bytes < 1:
+    if options.max_file_bytes is not None:
+        if max_file_bytes != DEFAULT_FILE_BYTES and max_file_bytes != options.max_file_bytes:
+            raise ValueError("Conflicting source file byte budgets")
+        max_file_bytes = options.max_file_bytes
+    if (
+        not root.is_dir()
+        or type(max_file_bytes) is not int
+        or not 1 <= max_file_bytes <= MAX_CONFIGURED_FILE_BYTES
+    ):
         raise ValueError("Token analysis requires a project directory and a positive file bound")
     binary = shutil.which(options.binary)
     if binary is None:
@@ -183,6 +261,7 @@ def scan_tokens(
         "include_tests": include_tests,
         "include_docs": include_docs,
         "include_same_file": include_same_file,
+        "exclude_patterns": list(options.exclude_patterns),
     }
     with project_source_reader(root) as read_source:
         selected = [
@@ -190,6 +269,7 @@ def scan_tokens(
             for rel in _source_files(root, include_docs, root_descriptor=read_source.descriptor)
             if _in_scope(rel, scope, include_tests)
             and not is_path_excluded(root / rel, root, UNIVERSAL_EXCLUDE_PATTERNS)
+            and not _matches_source_exclusion(rel, options.exclude_patterns)
         ]
         read_source.verify_root_path()
         manifest: dict[str, dict[str, Any]] = {}
@@ -227,7 +307,15 @@ def scan_tokens(
                 except (OSError, UnicodeError) as exc:
                     errors.append({"file": rel, "reason": type(exc).__name__})
             if not manifest:
-                return _payload([], manifest, errors, options, analyzed=0, selection=selection)
+                return _payload(
+                    [],
+                    manifest,
+                    errors,
+                    options,
+                    analyzed=0,
+                    selection=selection,
+                    file_byte_budget=max_file_bytes,
+                )
             config = work / "config.json"
             config.write_text("{}", encoding="utf-8")
             arguments = [
@@ -258,7 +346,9 @@ def scan_tokens(
             fingerprint_rows = None
             started = time.monotonic()
             try:
-                exit_code, memory_scope = _run_detector(arguments, work, options.timeout_seconds)
+                exit_code, memory_scope = _invoke_detector(
+                    arguments, work, options.timeout_seconds, options
+                )
             except (OSError, subprocess.SubprocessError) as exc:
                 raise ValueError("Token backend failed or exceeded its time budget") from exc
             report = output / "jscpd-report.json"
@@ -375,11 +465,14 @@ def scan_tokens(
             analyzed=accounted,
             eligible_units=analyzed,
             selection=selection,
+            file_byte_budget=max_file_bytes,
         )
         result["stats"]["backend_control_files"] = len(missing)
         result["backend"]["coverage_basis"] = "physical_file_summary_and_proven_ineligible_controls"
         result["backend"]["memory_monitor_scope"] = memory_scope
-        result["backend"]["memory_budget_bytes"] = MAX_BACKEND_RSS
+        result["backend"]["memory_budget_bytes"] = (
+            MAX_BACKEND_RSS if options.max_rss_bytes is None else options.max_rss_bytes
+        )
         if fingerprint_rows is not None:
             result["fingerprints"] = fingerprint_rows
             result["fingerprints_complete"] = result["coverage_complete"]
@@ -395,6 +488,7 @@ def _payload(
     analyzed: int,
     eligible_units: int = 0,
     selection: dict[str, Any],
+    file_byte_budget: int = DEFAULT_FILE_BYTES,
 ) -> dict[str, Any]:
     payload = {
         "evidence": "token_sequence",
@@ -408,6 +502,7 @@ def _payload(
             "min_lines": options.min_lines,
             "normalize_identifiers": options.normalize_identifiers,
             "project_config_used": False,
+            "source_file_byte_budget": file_byte_budget,
         },
         "stats": {
             "source_files": len(manifest),

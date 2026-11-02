@@ -37,6 +37,161 @@ def source_pair(root):
         (root / name).write_text(text)
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("max_rss_bytes", True),
+        ("max_rss_bytes", 0),
+        ("max_rss_bytes", 9 * 1024**3),
+        ("max_file_bytes", False),
+        ("max_file_bytes", 0),
+        ("max_file_bytes", 129 * 1024**2),
+        ("exclude_patterns", ("",)),
+        ("exclude_patterns", ("bad\0path",)),
+        ("exclude_patterns", ("/absolute.py",)),
+        ("exclude_patterns", ("src/../file.py",)),
+        ("exclude_patterns", ("src//file.py",)),
+        ("exclude_patterns", ("src/",)),
+        ("exclude_patterns", ("./file.py",)),
+    ],
+)
+def test_configured_resource_and_exclusion_budgets_are_strict(field, value):
+    with pytest.raises(ValueError):
+        TokenOptions(**{field: value})
+
+
+@pytest.mark.parametrize(
+    "name,pattern,expected",
+    [
+        ("alias.py", "alias.py", True),
+        ("alias.py_extra.py", "alias.py", False),
+        ("nested/alias.py", "alias.py", False),
+        ("src/generated.rs", "src/generated.rs", True),
+        ("src/generated.rs_extra.rs", "src/generated.rs", False),
+        ("src/generated/one.rs", "src/generated/**", True),
+        ("src/generated/deep/two.rs", "src/generated/**", True),
+        ("src/generated_extra/two.rs", "src/generated/**", False),
+        ("src/a.rs", "src/*.rs", True),
+        ("src/deep/a.rs", "src/*.rs", False),
+        ("a.rs", "**/*.rs", True),
+        ("src/deep/a.rs", "**/*.rs", True),
+        ("src/deep/a.py", "**/*.rs", False),
+        ("src/a.rs", "**/src/**/a.?s", True),
+        ("deeper/src/level/a.rs", "**/src/**/a.?s", True),
+        ("src/a.rs", "**/other/**/a.rs", False),
+        ("src/[a].rs", "src/[[]a].rs", True),
+    ],
+)
+def test_explicit_exclusions_have_root_and_segment_boundaries(name, pattern, expected):
+    assert token_clones._matches_source_exclusion(name, (pattern,)) is expected
+
+
+def test_explicit_exclusions_are_canonical_and_do_not_recurse_on_deep_paths():
+    options = TokenOptions(exclude_patterns=("src/**", "alias.py", "src/**"))
+    assert options.exclude_patterns == ("alias.py", "src/**")
+    assert token_clones._matches_source_exclusion("dir/" * 1500 + "file.py", ("**/*.py",))
+
+
+def test_explicit_source_exclusion_preserves_symlink_rejection_for_selected_inputs(
+    tmp_path, binary
+):
+    source_pair(tmp_path)
+    (tmp_path / "alias.py").symlink_to(tmp_path / "a.py")
+    (tmp_path / "alias.py_extra.py").write_bytes((tmp_path / "a.py").read_bytes())
+    ordinary = scan_tokens(
+        tmp_path, options=TokenOptions(binary=binary, min_tokens=20, min_lines=0)
+    )
+    assert not ordinary["coverage_complete"]
+    options = TokenOptions(
+        binary=binary, min_tokens=20, min_lines=0, fingerprints=True, exclude_patterns=("alias.py",)
+    )
+    selected = scan_tokens(tmp_path, options=options)
+    assert selected["coverage_complete"], selected
+    assert selected["source_selection"]["exclude_patterns"] == ["alias.py"]
+    assert selected["stats"]["source_files"] == 3
+    assert "alias.py_extra.py" in selected["source_manifest"]
+    assert not selected["errors"]
+
+
+def test_configured_file_limit_is_applied_to_acquisition_and_native_detection(tmp_path, binary):
+    # A regular large generated source remains an error under the default;
+    # increasing the explicit bound changes no token semantics.
+    source = "// generated padding\n" * 55_000 + "fn f(x:i32)->i32 { x+1 }\n"
+    (tmp_path / "generated.rs").write_text(source)
+    default = scan_tokens(tmp_path, options=TokenOptions(binary=binary, min_tokens=8, min_lines=0))
+    assert not default["coverage_complete"]
+    options = TokenOptions(
+        binary=binary,
+        min_tokens=8,
+        min_lines=0,
+        max_file_bytes=2 * 1024**2,
+        max_rss_bytes=192 * 1024**2,
+        fingerprints=True,
+    )
+    result = scan_tokens(tmp_path, options=options)
+    assert result["coverage_complete"], result
+    assert result["backend"]["memory_budget_bytes"] == 192 * 1024**2
+    assert result["backend"]["source_file_byte_budget"] == 2 * 1024**2
+
+
+def test_configured_native_budget_is_shared_by_main_and_control_calls(
+    tmp_path, binary, monkeypatch
+):
+    source_pair(tmp_path)
+    (tmp_path / "empty.rs").write_bytes(b"")
+    run = token_clones._run_detector
+    observed = []
+
+    def measured(arguments, work, timeout, **kwargs):
+        observed.append((timeout, kwargs.get("max_rss_bytes")))
+        return run(arguments, work, timeout, **kwargs)
+
+    monkeypatch.setattr(token_clones, "_run_detector", measured)
+    options = TokenOptions(binary=binary, min_tokens=20, min_lines=0, max_rss_bytes=192 * 1024**2)
+    result = scan_tokens(tmp_path, options=options)
+    assert result["coverage_complete"], result
+    assert len(observed) == 2
+    assert observed[0][1] == observed[1][1] == 192 * 1024**2
+    assert observed[1][0] < observed[0][0]
+
+
+def test_cli_explicit_resource_and_exclusion_policy_reaches_native_scan(tmp_path, binary):
+    from typer.testing import CliRunner
+    from victor.ui.commands.graph import graph_app
+
+    source_pair(tmp_path)
+    (tmp_path / "alias.py").symlink_to(tmp_path / "a.py")
+    result = CliRunner().invoke(
+        graph_app,
+        [
+            "similar",
+            "--path",
+            str(tmp_path),
+            "--mode",
+            "tokens",
+            "--jscpd-binary",
+            binary,
+            "--min-tokens",
+            "20",
+            "--token-min-lines",
+            "0",
+            "--token-memory-mib",
+            "192",
+            "--token-max-file-bytes",
+            "2097152",
+            "--token-timeout",
+            "30",
+            "--token-exclude",
+            "alias.py",
+            "--sarif",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.output)["runs"][0]
+    assert run["invocations"][0]["executionSuccessful"]
+    assert run["properties"]["copy_profile"]["selection"]["exclude_patterns"] == ["alias.py"]
+
+
 def test_real_cli_baseline_moves_changed_gate_and_sarif(tmp_path, binary):
     from typer.testing import CliRunner
     from victor.ui.commands.graph import graph_app
