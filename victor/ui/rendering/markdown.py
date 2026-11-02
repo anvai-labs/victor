@@ -6,9 +6,10 @@ import re
 from collections import defaultdict
 from typing import Iterable, List, Tuple
 
+from rich import box
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.markdown import CodeBlock as RichCodeBlock
-from rich.markdown import Markdown
+from rich.markdown import Markdown, TableElement
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -31,6 +32,59 @@ class _CompactCodeBlock(RichCodeBlock):
 
 class _VictorMarkdown(Markdown):
     elements = {**Markdown.elements, "fence": _CompactCodeBlock, "code_block": _CompactCodeBlock}
+
+
+class ResponsiveTableElement(TableElement):
+    """Fold cells or stack fields when columns cannot fit the available pane."""
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        headers = self.header.row.cells if self.header and self.header.row else []
+        rows = self.body.rows if self.body else []
+        count = max([len(headers), *(len(row.cells) for row in rows)], default=0)
+        if options.max_width < count * 10:
+            for row in rows:
+                for index, cell in enumerate(row.cells):
+                    heading = (
+                        headers[index].content.copy()
+                        if index < len(headers)
+                        else Text(str(index + 1))
+                    )
+                    heading.stylize("markdown.table.header")
+                    value = Text.assemble(heading, ": ", cell.content)
+                    value.no_wrap = False
+                    value.overflow = "fold"
+                    yield value
+                yield Text("")
+            if not rows:
+                for header in headers:
+                    yield header.content
+            return
+        table = Table(
+            box=box.SIMPLE, pad_edge=False, collapse_padding=True, style="markdown.table.border"
+        )
+        for index in range(count):
+            heading = headers[index].content.copy() if index < len(headers) else Text("")
+            heading.stylize("markdown.table.header")
+            table.add_column(
+                heading,
+                overflow="fold",
+                no_wrap=False,
+                min_width=1,
+                justify=heading.justify or "left",
+            )
+        for row in rows:
+            cells = [cell.content.copy() for cell in row.cells]
+            for cell in cells:
+                cell.no_wrap = False
+                cell.overflow = "fold"
+            table.add_row(*cells)
+        yield table
+
+
+class VictorMarkdown(_VictorMarkdown):
+    """Victor's element registry, isolated from other users of Rich Markdown."""
+
+    elements = {**_VictorMarkdown.elements, "table_open": ResponsiveTableElement}
 
 
 _DIAGRAM_LANGS = {"mermaid"}
@@ -86,7 +140,7 @@ def _markdown_block(text: str) -> Markdown:
     ``_escape_rich_markup_from_text`` is retained as a utility for any
     markup-aware Rich path (e.g. ``console.print(Text(...))``) that may need it.
     """
-    return _VictorMarkdown(text, style="markdown.text", justify="left")
+    return VictorMarkdown(text, style="markdown.text", justify="left")
 
 
 def find_safe_split(content: str) -> int:

@@ -30,7 +30,7 @@ def total(items, scale):
     return {"total": result, "count": len(items), "scale": scale}
 '''
 
-# Renamed every local and changed the constants: same logic.
+# Renamed every local and changed constants: same normalized syntax, different behavior.
 BODY_A_RENAMED = """
 def summed(rows, factor):
     running = 10
@@ -124,17 +124,29 @@ class TestNormalisation:
         src = "def f(k):\n    v = helper(k)\n    return v + v * 2 + k\n"
         occ = _occurrences(src, {"v": "local 3", "helper": PKG + "`m`/helper()."})
         tokens = sc.normalize_function(ast.parse(src).body[0], occ)
-        assert "G:`m`/helper()." in tokens
+        assert "G:" + PKG + "`m`/helper()." in tokens
         assert not any("v" == t or t == "G:v" for t in tokens)
 
-    def test_self_member_drops_the_class_prefix(self):
+    def test_self_member_preserves_the_compiler_target(self):
         src_a = "class A:\n    def f(self):\n        return self.load() + self.load() * 2\n"
         src_b = src_a.replace("class A", "class B")
         occ_a = _occurrences(src_a, {"load": PKG + "`m`/A#load()."})
         occ_b = _occurrences(src_b, {"load": PKG + "`m`/B#load()."})
         (a,) = _units(src_a, "a.py", occ_a, min_nodes=5)
         (b,) = _units(src_b, "b.py", occ_b, min_nodes=5)
-        assert a.exact_hash == b.exact_hash
+        assert a.exact_hash != b.exact_hash
+        assert a.shape_hash == b.shape_hash
+        assert a.resolved_symbols == b.resolved_symbols == 2
+
+    def test_package_identity_is_part_of_exact_tier(self):
+        src = "def f(x):\n    y = helper(x)\n    return y + x\n"
+        first = _occurrences(src, {"helper": PKG + "`m`/helper()."})
+        second = _occurrences(src, {"helper": "scip-python python other 1 `m`/helper()."})
+        (a,) = _units(src, "a.py", first, min_nodes=5)
+        (b,) = _units(src, "b.py", second, min_nodes=5)
+        assert a.exact_hash != b.exact_hash
+        assert a.shape_hash == b.shape_hash
+        assert a.resolved_symbols == b.resolved_symbols == 1
 
     def test_small_functions_are_skipped(self):
         assert _units("def f():\n    return 1\n", "a.py", min_nodes=10) == []
@@ -230,7 +242,7 @@ class TestScipJoin:
         wrong = {(2, 8): (3, PKG + "`m`/other().")}  # 'helper' is 6 long
         right = {(2, 8): (6, PKG + "`m`/helper().")}
         assert "G:helper" in sc.normalize_function(node, wrong)
-        assert "G:`m`/helper()." in sc.normalize_function(node, right)
+        assert "G:" + PKG + "`m`/helper()." in sc.normalize_function(node, right)
 
     def test_load_scip_occurrences_reads_single_line_ranges(self, tmp_path: Path):
         scip_pb2 = pytest.importorskip("victor.core.graph_rag._scip.scip_pb2")
@@ -276,3 +288,37 @@ class TestScan:
         root = self._repo(tmp_path)
         report = sc.scan(root, scope="tests/", include_tests=True, min_nodes=10)
         assert report.stats["functions"] == 1 and report.families == []
+
+
+def test_rust_functions_support_normalized_and_template_matches(tmp_path):
+    source = "fn sum(xs: &[i32]) -> i32 { let mut total = 0; for item in xs { total += item * 2; } finish(total) }"
+    (tmp_path / "a.rs").write_text(source)
+    (tmp_path / "b.rs").write_text(
+        source.replace("xs", "rows").replace("total", "result").replace("item", "entry")
+    )
+    (tmp_path / "c.rs").write_text(source.replace("finish", "round"))
+    report = sc.scan(tmp_path, min_nodes=10)
+    assert report.stats["rust_files"] == 3
+    assert any(f.tier == "exact" and f.files == ["a.rs", "b.rs"] for f in report.families)
+    assert any(f.tier == "template" and "c.rs" in f.files for f in report.families)
+
+
+def test_rust_inline_tests_and_stubs_are_not_actionable_duplicates(tmp_path):
+    for name in ("a", "b"):
+        (tmp_path / f"{name}.rs").write_text(
+            "#[cfg(test)] mod tests { #[test] fn test_stats() { let v = create(); assert_eq!(v.stats().count, 5); } }\n"
+            "fn unused() -> i32 { unimplemented!() }"
+        )
+    report = sc.scan(tmp_path, min_nodes=5)
+    assert report.stats["functions"] == 2
+    assert not report.families
+    assert report.suppressed[0].suppressed == "stub"
+    included = sc.scan(tmp_path, include_tests=True, min_nodes=5)
+    assert included.stats["functions"] == 4
+
+
+def test_rust_operators_and_distinct_calls_do_not_hash_as_exact(tmp_path):
+    (tmp_path / "a.rs").write_text("fn a(x: i32) -> i32 { let y = load(x); y + 1 }")
+    (tmp_path / "b.rs").write_text("fn b(x: i32) -> i32 { let y = load(x); y - 1 }")
+    report = sc.scan(tmp_path, min_nodes=5)
+    assert not any(f.tier in ("exact", "template") for f in report.families)
