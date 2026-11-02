@@ -1809,8 +1809,29 @@ def graph_similar(
         "--rename-tokens",
         help="Token mode: normalize identifiers; review as lexical patterns",
     ),
+    baseline: Optional[Path] = typer.Option(
+        None, "--baseline", help="Token mode: compare a compatible copy-count baseline"
+    ),
+    write_baseline: Optional[Path] = typer.Option(
+        None,
+        "--write-baseline",
+        help="Token mode: explicitly create/update a complete-scan baseline",
+    ),
+    changed_file: Optional[list[str]] = typer.Option(
+        None,
+        "--changed-file",
+        help="Token baseline: attribute count increases to these files; repeat as needed",
+    ),
+    fail_on_new: bool = typer.Option(
+        False,
+        "--fail-on-new",
+        help="Token baseline: exit 1 for new copy pairs touching the selected files",
+    ),
+    as_sarif: bool = typer.Option(
+        False, "--sarif", help="Token mode: emit SARIF 2.1.0 with actual pair evidence"
+    ),
 ):
-    """Find similarity candidates for review; neither mode proves equivalence.
+    """Find similarity candidates for review; no mode proves equivalence.
 
     ``--mode semantic`` (default) reads the embedding store produced by
     ``victor graph index --embeddings`` and reports families whose
@@ -1822,16 +1843,44 @@ def graph_similar(
     ``tokens`` uses a local pinned jscpd executable; ``hybrid`` returns independent
     channels. No score proves behavior. Source and graph data are read-only;
     ``--body-cache`` explicitly enables a separate derived vector cache.
+    Token baselines require a complete scan. ``--write-baseline`` explicitly
+    publishes a separate count artifact; comparison never updates it.
     """
     if mode not in ("semantic", "structural", "body", "tokens", "hybrid"):
         console.print(
             f"[red]Unknown --mode {mode!r}; use semantic, structural, body, tokens or hybrid[/red]"
         )
         raise typer.Exit(2)
+    copy_workflow = any(
+        (
+            baseline is not None,
+            write_baseline is not None,
+            changed_file is not None,
+            fail_on_new,
+            as_sarif,
+        )
+    )
+    if copy_workflow:
+        problem = None
+        if mode != "tokens":
+            problem = "Copy baselines, changed-file gates and SARIF currently require --mode tokens"
+        elif as_json and as_sarif:
+            problem = "Choose --json or --sarif"
+        elif (changed_file is not None or fail_on_new) and baseline is None:
+            problem = "--changed-file and --fail-on-new require --baseline"
+        elif write_baseline is not None and (
+            baseline is not None or changed_file is not None or fail_on_new
+        ):
+            problem = "Use --write-baseline separately from comparison or gating"
+        if problem is not None:
+            console.print(problem, markup=False)
+            raise typer.Exit(2)
     if mode in {"body", "tokens", "hybrid"}:
         from victor.core.graph_rag.similarity_analysis import analyze_source
         from victor.ui.rendering.clone_families import render_vector_cohesion
 
+        source_root = Path(os.path.abspath(path))
+        profile = None
         try:
             if mode in {"body", "tokens"} and cross_language:
                 raise ValueError(
@@ -1858,9 +1907,20 @@ def graph_similar(
                     min_tokens=min_tokens,
                     min_lines=token_min_lines,
                     normalize_identifiers=rename_tokens,
+                    fingerprints=copy_workflow,
                 )
+                if copy_workflow:
+                    from victor.core.graph_rag.copy_baseline import copy_profile
+
+                    profile = copy_profile(
+                        token_options,
+                        scope=scope,
+                        include_tests=include_tests,
+                        include_docs=include_docs,
+                        include_same_file=same_file,
+                    )
             payload = analyze_source(
-                Path(os.path.abspath(path)),
+                source_root,
                 mode=mode,
                 limit=limit,
                 scope=scope,
@@ -1884,9 +1944,67 @@ def graph_similar(
                 "equivalence_verified": False,
                 "error": str(exc)[:1500],
             }
+        workflow_failed = False
+        new_copies = False
+        if copy_workflow:
+            from victor.core.graph_rag.copy_artifacts import complete_copy_workflow, copy_sarif
+
+            evidence = None
+            comparison = None
+            try:
+                if not payload.get("coverage_complete"):
+                    detail = payload.get("error") or json.dumps(payload.get("errors", [])[:3])
+                    raise ValueError("Incomplete token scan: " + str(detail)[:1500])
+                if profile is None:
+                    raise ValueError("Missing copy-count profile")
+                evidence, comparison = run_sync(
+                    complete_copy_workflow(
+                        source_root,
+                        payload,
+                        profile,
+                        baseline_path=baseline,
+                        write_path=write_baseline,
+                        changed_files=set(changed_file) if changed_file is not None else None,
+                    )
+                )
+                payload["copy_profile"] = profile.to_dict()
+                if comparison is not None:
+                    payload["copy_comparison"] = comparison
+                    new_copies = comparison["changed_new_copy_pairs"] > 0
+                if write_baseline is not None:
+                    payload["baseline_written"] = str(write_baseline)
+                payload["copy_gate_passed"] = not (fail_on_new and new_copies)
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:
+                workflow_failed = True
+                payload["copy_workflow_error"] = str(exc)[:1500]
+                payload["copy_gate_passed"] = False
+            if as_sarif:
+                console.print_json(
+                    json.dumps(
+                        copy_sarif(
+                            source_root,
+                            evidence,
+                            comparison=comparison,
+                            error=payload.get("copy_workflow_error"),
+                        )
+                    )
+                )
+                if workflow_failed or (fail_on_new and new_copies):
+                    raise typer.Exit(1)
+                return
         if as_json:
             console.print_json(json.dumps(payload))
         else:
+            if payload.get("copy_workflow_error"):
+                console.print(payload["copy_workflow_error"], markup=False)
+            if payload.get("copy_comparison"):
+                change = payload["copy_comparison"]
+                console.print(
+                    f"New copy pairs: {change['new_copy_pairs']}; touching selected files: {change['changed_new_copy_pairs']}",
+                    markup=False,
+                )
+            if payload.get("baseline_written"):
+                console.print("Copy baseline written: " + payload["baseline_written"], markup=False)
             if payload.get("snapshot_conflicts"):
                 console.print(
                     "Sources changed between channels: " + ", ".join(payload["snapshot_conflicts"]),
@@ -1909,7 +2027,7 @@ def graph_similar(
                         markup=False,
                     )
                     render_vector_cohesion(console, relation.get("cohesion"), relation["members"])
-        if not payload["coverage_complete"]:
+        if not payload["coverage_complete"] or workflow_failed or (fail_on_new and new_copies):
             raise typer.Exit(1)
         return
     if mode == "semantic" and (

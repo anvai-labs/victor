@@ -414,6 +414,23 @@ def test_source_maps_to_its_descriptive_regression_suites(source, owners):
     assert select([source]) == sorted(owners)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "victor/core/graph_rag/copy_baseline.py",
+        "victor/core/graph_rag/copy_artifacts.py",
+        "victor/core/graph_rag/token_clones.py",
+        "victor/core/graph_rag/token_fingerprints.py",
+        "victor/ui/commands/graph.py",
+    ],
+)
+def test_copy_workflow_changes_require_actual_backend_and_gate_contracts(source):
+    assert {
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+    } <= set(select([source]))
+
+
 def test_stale_explicit_mapping_fails_closed(monkeypatch):
     monkeypatch.setitem(
         _mod.RELATED_TESTS,

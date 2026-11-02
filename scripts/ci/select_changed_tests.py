@@ -116,6 +116,32 @@ RELATED_TESTS = {
         "tests/unit/core/graph_rag/test_token_fingerprints.py",
         "tests/unit/core/graph_rag/test_token_clones.py",
         "tests/unit/core/graph_rag/test_similarity_channels.py",
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/token_clones.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/token_coverage.py": (
+        "tests/unit/core/graph_rag/test_token_coverage.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+    ),
+    "victor/core/graph_rag/copy_baseline.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/copy_artifacts.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/ui/commands/graph.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
     ),
     "victor/core/graph_rag/family_cohesion.py": (
         "tests/unit/core/graph_rag/test_family_cohesion.py",

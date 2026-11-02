@@ -46,6 +46,51 @@ def test_token_mode_missing_backend_keeps_json_failure(tmp_path):
     assert "Install jscpd" in payload["error"]
 
 
+def test_token_sarif_missing_backend_is_unsuccessful_execution(tmp_path):
+    import json
+
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "tokens",
+        "--sarif",
+        "--jscpd-binary",
+        "victor-missing-jscpd",
+    )
+    assert result.exit_code == 1
+    run = json.loads(result.output)["runs"][0]
+    assert not run["invocations"][0]["executionSuccessful"]
+    assert not run["results"]
+    assert (
+        "Install jscpd" in run["invocations"][0]["toolExecutionNotifications"][0]["message"]["text"]
+    )
+
+
+def test_copy_workflow_rejects_incompatible_cli_options_before_scanning(tmp_path):
+    with patch(
+        "victor.core.graph_rag.similarity_analysis.analyze_source",
+        side_effect=AssertionError("must not scan"),
+    ):
+        cases = [
+            ["--mode", "semantic", "--baseline", str(tmp_path / "copies.json")],
+            ["--mode", "tokens", "--fail-on-new"],
+            ["--mode", "tokens", "--changed-file", "a.py"],
+            ["--mode", "tokens", "--sarif", "--json"],
+            [
+                "--mode",
+                "tokens",
+                "--write-baseline",
+                str(tmp_path / "out.json"),
+                "--baseline",
+                str(tmp_path / "copies.json"),
+            ],
+        ]
+        for args in cases:
+            result = _invoke("--path", str(tmp_path), *args)
+            assert result.exit_code == 2, result.output
+
+
 def test_embedded_docs_flag_reaches_structural_scan(tmp_path):
     import json
 
