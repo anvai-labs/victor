@@ -61,6 +61,35 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/core/graph_rag/clone_bindings.py": (
+        "tests/unit/core/graph_rag/test_similarity_frontends.py",
+        "tests/unit/core/graph_rag/test_portable_operations.py",
+    ),
+    "victor/core/graph_rag/dedup.py": (
+        "tests/integration/codegraph/test_deduplication.py",
+        "tests/unit/ui/commands/test_graph_dedup_cli.py",
+    ),
+    "victor/core/graph_rag/ffi_bindings.py": ("tests/unit/core/graph_rag/test_polyglot_clones.py",),
+    "victor/core/graph_rag/language_parsers.py": (
+        "tests/unit/core/graph_rag/test_multilanguage_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_frontends.py",
+        "tests/unit/core/graph_rag/test_indexing_codegraph_fallback.py",
+    ),
+    "victor/core/graph_rag/portable_clones.py": (
+        "tests/unit/core/graph_rag/test_portable_operations.py",
+        "tests/unit/core/graph_rag/test_polyglot_clones.py",
+    ),
+    "victor/core/graph_rag/similarity_analysis.py": (
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+    ),
+    "victor/core/graph_rag/source_regions.py": (
+        "tests/unit/core/graph_rag/test_embedded_clones.py",
+    ),
+    "victor/core/graph_rag/treesitter_clones.py": (
+        "tests/unit/core/graph_rag/test_multilanguage_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_frontends.py",
+        "tests/unit/core/graph_rag/test_polyglot_clones.py",
+    ),
     "scripts/ci/gate_results.py": ("tests/unit/scripts/test_promotion_gates.py",),
     "scripts/ci/changed_test_base.py": ("tests/unit/scripts/test_promotion_gates.py",),
     "victor/agent/tool_pipeline.py": (

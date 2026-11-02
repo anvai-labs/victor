@@ -1,0 +1,2138 @@
+{
+  "schema": "victor-jscpd-capability-probes-v1",
+  "accuracy_benchmark": false,
+  "python": "3.12.6",
+  "jscpd": "jscpd 5.4.2",
+  "victor_module": "/Users/vijaysingh/code/codingagent/.worktrees/codegraph-deduplication/victor/core/graph_rag/structural_clones.py",
+  "threshold_note": "AST candidate search 0.3; inspect scores at 0.8/1.0. Different normalizations and units are not calibrated equivalents.",
+  "semantic_models_run": false,
+  "summary_collision": {
+    "input": "compute (x: int) -> int",
+    "body_a": "return x + 1",
+    "body_b": "return x - 1",
+    "outputs_at_3": [
+      4,
+      2
+    ],
+    "identical_summary_input": true,
+    "inference": "A deterministic encoder receives identical inputs and cannot distinguish the different bodies."
+  },
+  "implementation_hashes": {
+    "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+    "ffi_bindings.py": "f6adda42316ff931c8e753ea4f93f2d034aba8da4095c2deb0363bfea88853e6",
+    "language_parsers.py": "a51320319087dccdc1dc65fd00ba199deb5c89df1194421881ec708046ac3ecb",
+    "polyglot_clones.py": "ed2d4b23a4c66409b666fa91867d28590fd15b7113cb85c1b0bdb4e32b07ff6c",
+    "portable_clones.py": "cac80b7d0b4254491599805a4adc80907a2b265ac1e64e1a8fa6e4ab2d026882",
+    "semantic_clones.py": "b22740c10525b27d872c32bbd3eef33f846cfbd47fea89d64e35d3391fbe4897",
+    "structural_clones.py": "cd771b3d1c6a6c4e4f154dcd9dd77503e2c7f351fb2a6be6a5df675c5ebec83e",
+    "treesitter_clones.py": "0feb27ccc6ab9b405f725933c0b91de1e6d05b417098c82aa670b38ee27df19c"
+  },
+  "numeric_counterexample": {
+    "input": 9007199254740992,
+    "python": 18014398509481986,
+    "javascript": 18014398509481984
+  },
+  "probes": [
+    {
+      "name": "python_copy",
+      "question": "Verbatim source copy",
+      "corpus_hash": "efee50ad6925d935aea99887134fb1ab96291b75329c3012047de69a65a7a0e1",
+      "victor": {
+        "families": [
+          {
+            "tier": "exact",
+            "score": 1.0
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 1,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 7}\n  :right {:file \"b.py\", :start-line 1, :end-line 7}\n  :left-nodes 77\n  :right-nodes 77}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-kert15vz/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-kert15vz/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "python_alpha_rename",
+      "question": "Consistent local/parameter renaming",
+      "corpus_hash": "9bac84cb27a6fda2c8cac5de3980d85119378fd41cb516358b8d75af3cff6faf",
+      "victor": {
+        "families": [
+          {
+            "tier": "exact",
+            "score": 1.0
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 1,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 7}\n  :right {:file \"b.py\", :start-line 1, :end-line 7}\n  :left-nodes 77\n  :right-nodes 77}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-46s8yzpe/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-46s8yzpe/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "python_parameter_reversal",
+      "question": "Same parameter order, different subtraction behavior",
+      "corpus_hash": "d7654d8c478094913ccb4f596d2b33b33cc6125fe0f4184088abc630a32c3349",
+      "victor": {
+        "families": [
+          {
+            "tier": "near",
+            "score": 0.92
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          0.944444444444
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 0.944444444444\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 7}\n  :right {:file \"b.py\", :start-line 1, :end-line 7}\n  :left-nodes 77\n  :right-nodes 77}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-tfg9aior/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-tfg9aior/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "python_operator_change",
+      "question": "Preserve changed operators",
+      "corpus_hash": "cff105def566763b850cc982d6fcb2fa2bb39055e43fe69f0bba8caa574c8762",
+      "victor": {
+        "families": [
+          {
+            "tier": "near",
+            "score": 0.7143
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          0.794871794872
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 0.794871794872\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 7}\n  :right {:file \"b.py\", :start-line 1, :end-line 7}\n  :left-nodes 77\n  :right-nodes 77}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-iopf_ygo/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-iopf_ygo/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "python_literal_change",
+      "question": "Normalized syntax can match changed behavior",
+      "corpus_hash": "1f166ba1e8c6419a85d32161b2309c7c1dc3e47c79dbf835113186e408914708",
+      "victor": {
+        "families": [
+          {
+            "tier": "exact",
+            "score": 1.0
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 1,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 7}\n  :right {:file \"b.py\", :start-line 1, :end-line 7}\n  :left-nodes 77\n  :right-nodes 77}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-mscbqi47/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-mscbqi47/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "python_callee_change",
+      "question": "Resolved/global callee distinction versus template pattern",
+      "corpus_hash": "361af19231d7619ea7690ffdd6fa898fd8223a2ac490d9c4adaf2fd43be08645",
+      "victor": {
+        "families": [
+          {
+            "tier": "template",
+            "score": 1.0
+          },
+          {
+            "tier": "near",
+            "score": 0.5833
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 1,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          0.621621621622
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 0.621621621622\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 4}\n  :right {:file \"b.py\", :start-line 1, :end-line 4}\n  :left-nodes 47\n  :right-nodes 47}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-8pl8xikp/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-8pl8xikp/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "python_field_change",
+      "question": "Attribute identity versus normalized fields",
+      "corpus_hash": "a241e2019997dcaf78f38354a022e6098b52a692f3e5a496f2681957226e6741",
+      "victor": {
+        "families": [
+          {
+            "tier": "template",
+            "score": 1.0
+          },
+          {
+            "tier": "near",
+            "score": 0.619
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 1,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 4}\n  :right {:file \"b.py\", :start-line 1, :end-line 4}\n  :left-nodes 40\n  :right-nodes 40}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-56ep8bh4/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-56ep8bh4/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "partial_copied_block",
+      "question": "Token fragments inside structurally different whole functions",
+      "corpus_hash": "f381022aaf3a757ccf3c630e42b16245ad4e6e2d5ad6735c84ea1df9ca881fb2",
+      "victor": {
+        "families": [
+          {
+            "tier": "near",
+            "score": 0.3429
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          0.315789473684
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 0.315789473684\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 13}\n  :right {:file \"b.py\", :start-line 1, :end-line 18}\n  :left-nodes 208\n  :right-nodes 265}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-12ltqjuh/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-12ltqjuh/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "same_file_copy",
+      "question": "Default cross-file scope versus opt-in same-file matching",
+      "corpus_hash": "038306e07b4a357c3ae2f28e1cbcc570014fefe106ca18955878d840b6702501",
+      "victor": {
+        "families": [],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 1,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 1,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 1
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 1,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 1,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 7}\n  :right {:file \"a.py\", :start-line 9, :end-line 15}\n  :left-nodes 77\n  :right-nodes 77}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-_v257v1q/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 1,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-_v257v1q/tokens",
+          "--silent"
+        ]
+      },
+      "victor_same_file_families": 1
+    },
+    {
+      "name": "rust_closure_rename",
+      "question": "Closure binder scope and generic calls",
+      "corpus_hash": "4599624281078b1478f63dd92d90d09e648706405fee402bcb161ffd470b1966",
+      "victor": {
+        "families": [
+          {
+            "tier": "template",
+            "score": 1.0
+          },
+          {
+            "tier": "near",
+            "score": 0.52
+          }
+        ],
+        "coverage_complete": false,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": true,
+          "portable_schema": "portable-operations-v1",
+          "portable_units": 0,
+          "portable_unsupported_units": 2,
+          "portable_small_units": 0,
+          "portable_unsupported_reasons": {
+            "generic_function": 2
+          },
+          "portable_coverage_complete": false,
+          "ffi_jni_declarations": 0,
+          "ffi_jni_exports": 0,
+          "ffi_ambiguous_bindings": 0,
+          "ffi_unresolved_bindings": 0,
+          "ffi_index_available": 0,
+          "ffi_relationships": 0,
+          "rust_files": 2,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "rust": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 1,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"rust\"\n  :left {:file \"a.rs\", :start-line 1, :end-line 1}\n  :right {:file \"b.rs\", :start-line 1, :end-line 1}\n  :left-nodes 125\n  :right-nodes 125}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-jjjl6rjl/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-jjjl6rjl/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "rust_parameter_reversal",
+      "question": "Parameter-order preservation in Rust",
+      "corpus_hash": "8c8f74ba9a321e3a2fe33ab86a44bc908b309c166c3a9317d0794115a4bc6ee5",
+      "victor": {
+        "families": [
+          {
+            "tier": "near",
+            "score": 0.9259
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 2,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "rust": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          0.951219512195
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 0.951219512195\n  :language \"rust\"\n  :left {:file \"a.rs\", :start-line 1, :end-line 1}\n  :right {:file \"b.rs\", :start-line 1, :end-line 1}\n  :left-nodes 89\n  :right-nodes 89}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-8zh_rwrk/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-8zh_rwrk/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "rust_match_rename",
+      "question": "Match-arm binding and portable coverage",
+      "corpus_hash": "54f873c427ba614aa9d268b750c44780881019eee61a7709ed8594d09654012c",
+      "victor": {
+        "families": [
+          {
+            "tier": "template",
+            "score": 1.0
+          },
+          {
+            "tier": "near",
+            "score": 0.375
+          }
+        ],
+        "coverage_complete": false,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": true,
+          "portable_schema": "portable-operations-v1",
+          "portable_units": 0,
+          "portable_unsupported_units": 2,
+          "portable_small_units": 0,
+          "portable_unsupported_reasons": {
+            "match_expression": 2
+          },
+          "portable_coverage_complete": false,
+          "ffi_jni_declarations": 0,
+          "ffi_jni_exports": 0,
+          "ffi_ambiguous_bindings": 0,
+          "ffi_unresolved_bindings": 0,
+          "ffi_index_available": 0,
+          "ffi_relationships": 0,
+          "rust_files": 2,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "rust": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 1,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"rust\"\n  :left {:file \"a.rs\", :start-line 1, :end-line 1}\n  :right {:file \"b.rs\", :start-line 1, :end-line 1}\n  :left-nodes 62\n  :right-nodes 62}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-jttlqpnr/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-jttlqpnr/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "kotlin_copy",
+      "question": "Grammar breadth without a SCIP provider",
+      "corpus_hash": "31e5039758b4a090820183a9208f8a341e7a937b14ad4d8f0fcfce5f73485f0c",
+      "victor": {
+        "families": [],
+        "coverage_complete": false,
+        "stats": {
+          "functions": 0,
+          "source_files": 0,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {},
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 0,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"kotlin\"\n  :left {:file \"a.kt\", :start-line 1, :end-line 1}\n  :right {:file \"b.kt\", :start-line 1, :end-line 1}\n  :left-nodes 98\n  :right-nodes 98}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-_frijzsi/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-_frijzsi/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "vue_script_copy",
+      "question": "Embedded-language region extraction",
+      "corpus_hash": "babc309c5ff2ebbb118903199b21a3f737c9ec7a7ae2b020fa8d327d0daeecb7",
+      "victor": {
+        "families": [],
+        "coverage_complete": false,
+        "stats": {
+          "functions": 0,
+          "source_files": 0,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {},
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 0,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 6,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"typescript\"\n  :left {:file \"a.vue\", :start-line 2, :end-line 2}\n  :right {:file \"b.vue\", :start-line 2, :end-line 2}\n  :left-nodes 95\n  :right-nodes 95}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-pnzh9lsa/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 4,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-pnzh9lsa/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "markdown_rust_copy",
+      "question": "Code in documentation blocks",
+      "corpus_hash": "737972cbf767c4c838f26121e95c379bca42f15f1fe27fb3f7094bf55d2aade7",
+      "victor": {
+        "families": [],
+        "coverage_complete": false,
+        "stats": {
+          "functions": 0,
+          "source_files": 0,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {},
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 0,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 4,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"rust\"\n  :left {:file \"a.md\", :start-line 2, :end-line 2}\n  :right {:file \"b.md\", :start-line 2, :end-line 2}\n  :left-nodes 89\n  :right-nodes 89}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-jbsj1kai/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 4,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-jbsj1kai/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "malformed_rust",
+      "question": "An incomplete analysis must not claim a clean audit",
+      "corpus_hash": "a77643caedfb498b229c7010dca048692635299f33e3217768860389e4fa4c99",
+      "victor": {
+        "families": [],
+        "coverage_complete": false,
+        "stats": {
+          "functions": 0,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 2,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 2,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "rust": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": "{:candidates []\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-adh2rjdc/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 0,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "Warning: jscpd analyzed no files: check the paths and the --format, --ignore and --pattern filters",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-adh2rjdc/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "partial_parse_rust",
+      "question": "Recover valid functions while retaining a partial-file warning",
+      "corpus_hash": "e03f319e55cc5f45b1934eb08a132982aa00331a66368d0c480c1b6468ee8021",
+      "victor": {
+        "families": [],
+        "coverage_complete": false,
+        "stats": {
+          "functions": 0,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 2,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 2,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "rust": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"rust\"\n  :left {:file \"a.rs\", :start-line 1, :end-line 1}\n  :right {:file \"b.rs\", :start-line 1, :end-line 1}\n  :left-nodes 89\n  :right-nodes 89}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-nrgtuuhs/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-nrgtuuhs/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "typescript_rust_port",
+      "question": "Common portable operations across languages",
+      "corpus_hash": "b4fa300030331dd29e76077f4b4d700f765baf42900f03402355cb8f0d6731a3",
+      "victor": {
+        "families": [
+          {
+            "tier": "cross_language",
+            "score": 1.0
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": true,
+          "portable_schema": "portable-operations-v1",
+          "portable_units": 2,
+          "portable_unsupported_units": 0,
+          "portable_small_units": 0,
+          "portable_unsupported_reasons": {},
+          "portable_coverage_complete": true,
+          "ffi_jni_declarations": 0,
+          "ffi_jni_exports": 0,
+          "ffi_ambiguous_bindings": 0,
+          "ffi_unresolved_bindings": 0,
+          "ffi_index_available": 0,
+          "ffi_relationships": 0,
+          "rust_files": 1,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "rust": 1,
+            "typescript": 1
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 1,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": "{:candidates []\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-7nyrzcsq/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-7nyrzcsq/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "python_js_numeric_domain",
+      "question": "Identical portable operations can have different numeric domains",
+      "corpus_hash": "00ccd66afd6ef2e336f33cf74c5e3401b8e5af507c239527c4247562d8ccc3b1",
+      "victor": {
+        "families": [
+          {
+            "tier": "cross_language",
+            "score": 1.0
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": true,
+          "portable_schema": "portable-operations-v1",
+          "portable_units": 2,
+          "portable_unsupported_units": 0,
+          "portable_small_units": 0,
+          "portable_unsupported_reasons": {},
+          "portable_coverage_complete": true,
+          "ffi_jni_declarations": 0,
+          "ffi_jni_exports": 0,
+          "ffi_ambiguous_bindings": 0,
+          "ffi_unresolved_bindings": 0,
+          "ffi_index_available": 0,
+          "ffi_relationships": 0,
+          "rust_files": 0,
+          "python_files": 1,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "javascript": 1,
+            "python": 1
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 1,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": "{:candidates []\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-2fwhh_3b/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 0,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "Warning: jscpd analyzed no files: check the paths and the --format, --ignore and --pattern filters",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-2fwhh_3b/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "scip_different_targets",
+      "question": "Same spelling, different compiler receiver targets",
+      "corpus_hash": "11c7ef3ea38f4ce731e7a5ff5d55e1532373ee7811434df7e3f1e5eb80483b79",
+      "victor": {
+        "families": [
+          {
+            "tier": "template",
+            "score": 1.0
+          },
+          {
+            "tier": "near",
+            "score": 0.5833
+          }
+        ],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 2,
+          "scip_dumps": [
+            "scip-python.scip"
+          ],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 2,
+          "stale_files": 0,
+          "ast_only_files": 0,
+          "scip_dump": true,
+          "skipped_buckets": 0,
+          "seconds": 0.0,
+          "exact_families": 0,
+          "template_families": 1,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": []
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [
+          1.0
+        ],
+        "ast_candidates_edn": "{:candidates [\n {:score 1.0\n  :language \"python\"\n  :left {:file \"a.py\", :start-line 1, :end-line 4}\n  :right {:file \"b.py\", :start-line 1, :end-line 4}\n  :left-nodes 47\n  :right-nodes 47}\n]\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-lb_grh_7/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 1,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-lb_grh_7/tokens",
+          "--silent"
+        ]
+      }
+    },
+    {
+      "name": "jni_abi_mismatch",
+      "question": "Name binding does not verify ABI compatibility",
+      "corpus_hash": "44cc5974a2c053c9aa4a6d82ba1898deb384d6e2b755974bac93cab497b8c91c",
+      "victor": {
+        "families": [],
+        "coverage_complete": true,
+        "stats": {
+          "functions": 1,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends",
+          "normalization_schema": "normalized-body-v2-parameter-roles",
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": true,
+          "portable_schema": "portable-operations-v1",
+          "portable_units": 1,
+          "portable_unsupported_units": 0,
+          "portable_small_units": 0,
+          "portable_unsupported_reasons": {},
+          "portable_coverage_complete": true,
+          "ffi_jni_declarations": 1,
+          "ffi_jni_exports": 1,
+          "ffi_ambiguous_bindings": 0,
+          "ffi_unresolved_bindings": 0,
+          "ffi_index_available": 0,
+          "ffi_relationships": 1,
+          "rust_files": 0,
+          "python_files": 0,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "unreadable_files": 0,
+          "oversized_files": 0,
+          "languages": {
+            "cpp": 1,
+            "java": 1
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "seconds": 0.1,
+          "exact_families": 0,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        },
+        "ffi_links": [
+          {
+            "relationship": "declares_native_binding",
+            "bridge": "JNI",
+            "evidence": "jni_declaration_export",
+            "confidence": "static_binding_candidate",
+            "equivalence_verified": false,
+            "runtime_verified": false,
+            "abi_verified": false,
+            "source": {
+              "file": "Native.java",
+              "symbol": "compute",
+              "line": 1,
+              "language": "java",
+              "has_body": false
+            },
+            "target": {
+              "file": "native.cpp",
+              "symbol": "Java_pkg_Native_compute",
+              "line": 1,
+              "language": "cpp"
+            }
+          }
+        ]
+      },
+      "jscpd_ast": {
+        "exit_code": 0,
+        "analyzed_files": 2,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": "{:candidates []\n :clones []}\n",
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "1",
+          "--min-lines",
+          "0",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-lktcc2mp/ast",
+          "--silent",
+          "--similarity",
+          "0.3",
+          "--min-nodes",
+          "5",
+          "--kind",
+          "ast"
+        ]
+      },
+      "jscpd_tokens": {
+        "exit_code": 0,
+        "analyzed_files": 1,
+        "reported_pairs": 0,
+        "ast_candidate_scores": [],
+        "ast_candidates_edn": null,
+        "stderr": "",
+        "arguments": [
+          "--mode",
+          "weak",
+          "--min-tokens",
+          "20",
+          "--min-lines",
+          "1",
+          "--reporters",
+          "json,edn",
+          "--output",
+          "/var/folders/77/dqx1llq115b21t34nzbfq25m0000gn/T/victor-parity-lktcc2mp/tokens",
+          "--silent"
+        ]
+      }
+    }
+  ]
+}

@@ -183,8 +183,20 @@ async def test_reads_and_writes_interleave_through_worker(tmp_path: Path) -> Non
     reset_project_database(db_path)
 
 
+@pytest.fixture
+def unrelated_graph_worker():
+    """Keep another owner's worker alive to reject global thread assertions."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="sqlite-graph-unrelated") as worker:
+        worker.submit(lambda: None).result()
+        yield
+
+
 @pytest.mark.asyncio
-async def test_close_shuts_down_worker_without_hanging(tmp_path: Path) -> None:
+async def test_close_shuts_down_worker_without_hanging(
+    tmp_path: Path, unrelated_graph_worker
+) -> None:
     """close() must shut down the dedicated executor and close the dedicated
     connection. The store creates both lazily, so constructing-and-closing
     without any DB op never spawns a thread or opens one."""
@@ -199,15 +211,18 @@ async def test_close_shuts_down_worker_without_hanging(tmp_path: Path) -> None:
 
     await store.upsert_nodes([_node(1)])
     assert store._db_executor is not None
-    worker_threads = [t for t in threading.enumerate() if t.name.startswith("sqlite-graph")]
+    # Other tests/stores may own workers in this process. Verify this store's
+    # executor rather than counting every identically named worker globally.
+    worker_threads = list(store._db_executor._threads)
     assert len(worker_threads) == 1
+    assert all(t in threading.enumerate() for t in worker_threads)
 
     await store.close()
     assert store._conn is None, "close() must release the dedicated connection"
     await asyncio.sleep(0.05)
-    assert not [
-        t for t in threading.enumerate() if t.name.startswith("sqlite-graph")
-    ], "close() must stop the dedicated worker thread"
+    assert not any(
+        t.is_alive() for t in worker_threads
+    ), "close() must stop the store's dedicated worker thread"
 
     # Ops after close() still work: the connection lazily reopens (matching
     # the pre-change behavior where close() never invalidated anything).

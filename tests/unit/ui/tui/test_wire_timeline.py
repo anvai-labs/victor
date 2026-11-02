@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import io
 import json
+import pytest
 from types import SimpleNamespace
 from typing import Any
 
@@ -32,9 +33,35 @@ from rich.console import Console
 from victor.framework.wire_events import to_wire_event
 from victor.ui.chat_app.event_mapping import RenderKind, map_wire_event
 from victor.ui.tui.wire_timeline import (
+    WireTimeline,
     WireTimelineState,
     parse_wire_line,
 )
+
+
+@pytest.mark.asyncio
+async def test_narrow_timeline_renders_table_without_horizontal_cropping():
+    from textual.app import App, ComposeResult
+    from victor.ui.rendering.markdown import render_markdown_with_hooks
+
+    class TimelineApp(App):
+        def compose(self) -> ComposeResult:
+            yield WireTimeline()
+
+    app = TimelineApp()
+    async with app.run_test(size=(32, 20)) as pilot:
+        log = app.query_one(WireTimeline)
+        log.write(
+            render_markdown_with_hooks(
+                "| Name | File | Count | Issue |\n| --- | --- | --- | --- |\n"
+                "| Base | `a_very_long_file_path_UNIQUETAIL.py` | 42 | all preserved |"
+            )
+        )
+        await pilot.pause()
+        assert log.virtual_size.width <= log.scrollable_content_region.width
+        output = "".join(strip.text for strip in log.lines)
+        assert "UNIQUETAIL.py" in "".join(output.split())
+        assert "…" not in output
 
 
 def _to_text(item: Any) -> str:

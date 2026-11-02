@@ -9,11 +9,14 @@ current API semantics were reviewed only where cited. There are no Git submodule
 | Need | Start here |
 | --- | --- |
 | Current behavior and entry points | [Architecture](../architecture.md), [generated API](../api-reference/auto-api.md), package READMEs below |
+| SQLite graph duplicate repair and terminal table rendering | [Phase 1 implementation and handoff review](../architecture/codegraph-deduplication.md); engine in `victor/core/graph_rag/dedup.py`, integration owner `tests/integration/codegraph/` |
+| Source similarity channels, embedded AST/SCIP routing, body-vector cache, pinned token backend, polyglot operations and JNI bindings | [Current parity assessment and design](../architecture/graph-similarity-parity-and-roadmap.md), [verified audit](../architecture/code-similarity-audit-2026-11-01.md), [structural scanner](../architecture/structural-clone-detection.md); validation in `tests/unit/core/graph_rag/test_*clones.py`, `test_ast_fingerprints.py`, `test_similarity_channels.py`, `test_embedded_clones.py` and `test_semantic_clone_store.py` |
 | Completed or superseded work; do not redo | [Compact history](completed-work.md), with immutable original records and failed evidence |
 | Next API/UI/recovery/formation task | [Canonical VAS tracker](../architecture/victor-agent-service-plan.md) and [formation coverage/gaps](../architecture/multiagent-formation-coverage-handoff.md) |
 | Broader codebase priorities | [Roadmap](../roadmap.md), [Stage C](../architecture/stage-c-reassessment.md), [review backlog](../architecture/CODEBASE_REVIEW_BACKLOG.md) |
 | Decision status | [ADRs](../architecture/adr/README.md), [FEP index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md); Draft is not delivered |
 | Historical independent review | [U1–U10 review](../reviews/2026-09-03-codesign/README.md); dated findings, not current certification |
+| Deduplication and similarity review evidence | [Independent review findings and regression evidence](../architecture/codegraph-deduplication-review-2026-11-01.md); final commit review and CI results belong to the PR |
 
 ## Module and submodule inventory
 

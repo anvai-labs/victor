@@ -22,6 +22,7 @@ from datetime import datetime
 import json
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -42,6 +43,95 @@ graph_app = typer.Typer(name="graph", help="Graph-based code intelligence operat
 watch_app = typer.Typer(help="Keep the persisted graph incrementally updated.")
 console = Console()
 graph_app.add_typer(watch_app, name="watch")
+
+
+@graph_app.command("dedup")
+def dedup_command(
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project root"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show candidates without writing"),
+    apply_changes: bool = typer.Option(
+        False, "--apply", help="Back up, merge and refresh embeddings"
+    ),
+) -> None:
+    """Repair duplicate SQLite definitions (defaults to a read-only preview)."""
+    if dry_run and apply_changes:
+        raise typer.BadParameter("Choose --dry-run or --apply")
+    try:
+        run_sync(_dedup_async(path.resolve(), apply_changes))
+    except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+        console.print(f"Deduplication failed: {exc}", markup=False)
+        raise typer.Exit(1) from exc
+
+
+async def _dedup_async(root: Path, apply_changes: bool) -> None:
+    import uuid
+    from contextlib import closing
+
+    from victor.core.graph_rag.dedup import (
+        SymbolDeduplicator,
+        pending_embeddings,
+        update_embeddings,
+        settled_thread,
+    )
+    from victor.core.graph_rag.indexing import run_indexing_with_lock
+    from victor.storage.graph.registry import resolve_graph_backend
+
+    if resolve_graph_backend(root) != "sqlite":
+        raise ValueError("Deduplication currently supports the SQLite graph backend only")
+    db_path = root / ".victor" / "project.db"
+    if not db_path.is_file():
+        raise ValueError(f"Project database does not exist: {db_path}")
+
+    def discover() -> tuple[Any, int]:
+        with closing(sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)) as db:
+            db.execute("BEGIN")
+            return SymbolDeduplicator(db).find_duplicates(), len(pending_embeddings(db))
+
+    async def operation() -> None:
+        groups, pending = await asyncio.to_thread(discover)
+        console.print(
+            f"Duplicate groups: {len(groups)}; removable nodes: {sum(len(g.node_ids)-1 for g in groups)}; pending embeddings: {pending}"
+        )
+        for group in groups:
+            console.print(
+                f"  {group.file}:{group.line} {group.name}: {', '.join(group.node_ids)}",
+                markup=False,
+            )
+        if not apply_changes or not (groups or pending):
+            return
+        backup = db_path.with_name(
+            f"project.db.dedup-{datetime.now():%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:8]}.bak"
+        )
+
+        def apply() -> int:
+            # SQLite's backup API includes WAL state; copying only project.db
+            # can silently produce an incomplete recovery artifact.
+            fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            with closing(sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)) as source:
+                with closing(sqlite3.connect(backup)) as target:
+                    source.backup(target)
+            console.print(f"Backup: {backup}", markup=False)
+            with closing(sqlite3.connect(db_path.as_uri() + "?mode=rw", uri=True)) as db:
+                db.execute("PRAGMA foreign_keys=ON")
+                return len(SymbolDeduplicator(db).apply(groups))
+
+        merged = await settled_thread(apply)
+        console.print(f"Committed {merged} merge(s). Refreshing pending embeddings…")
+        try:
+            refreshed = await update_embeddings(root)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Graph merges committed; embedding repair remains pending. "
+                f"Retry 'victor index graph dedup --path {root} --apply'. "
+                f"Backup: {backup}. {exc}"
+            ) from exc
+        console.print(f"Refreshed {refreshed} canonical embedding(s).")
+
+    if apply_changes:
+        await run_indexing_with_lock(root, operation)
+    else:
+        await operation()
 
 
 @dataclass
@@ -1656,8 +1746,9 @@ def graph_similar(
         "--mode",
         help=(
             "semantic: embedding similarity of names/signatures/docstrings. "
-            "structural: function bodies normalised with SCIP symbols "
-            "(exact / template / near tiers)"
+            "structural: function bodies normalised with SCIP symbols when available "
+            "(exact / template / near tiers). body: pinned local function-body vectors. "
+            "tokens: pinned local jscpd fragments. hybrid: independent source channels"
         ),
     ),
     min_nodes: int = typer.Option(
@@ -1668,21 +1759,163 @@ def graph_similar(
         "--near-threshold",
         min=0.3,
         max=1.0,
-        help="Structural mode: shingle Jaccard for the near tier",
+        help="Structural mode: Jaccard threshold for the selected near metric",
+    ),
+    ast_metric: str = typer.Option(
+        "shingle",
+        "--ast-metric",
+        help="Structural near metric: shingle or subtree (exact Jaccard join)",
+    ),
+    language: Optional[list[str]] = typer.Option(
+        None, "--language", help="Structural language filter; repeat for multiple languages"
+    ),
+    cross_language: bool = typer.Option(
+        False,
+        "--cross-language",
+        help="Experimental: compare portable operation shapes across automatically detected languages and show FFI binding evidence",
+    ),
+    include_docs: bool = typer.Option(
+        False, "--include-docs", help="Include typed Markdown code fences in source analysis"
+    ),
+    body_model: str = typer.Option(
+        "BAAI/bge-small-en-v1.5",
+        "--body-model",
+        help="Pinned local Hub model for body analysis; no downloads",
+    ),
+    body_revision: str = typer.Option(
+        "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+        "--body-revision",
+        help="Immutable 40-hex model revision",
+    ),
+    body_dimension: int = typer.Option(384, "--body-dimension", min=1, max=65536),
+    body_max_tokens: int = typer.Option(512, "--body-max-tokens", min=8, max=32768),
+    body_cache: Optional[Path] = typer.Option(
+        None,
+        "--body-cache",
+        help="Optional derived body-vector SQLite cache; separate from summary vectors",
+    ),
+    body_scope: str = typer.Option(
+        "all", "--body-scope", help="Body candidate language scope: all, same or cross"
+    ),
+    jscpd_binary: str = typer.Option(
+        "jscpd", "--jscpd-binary", help="Locally installed jscpd 5.4.2; never invokes npx"
+    ),
+    min_tokens: int = typer.Option(
+        300, "--min-tokens", min=1, help="Token mode: minimum fragment tokens"
+    ),
+    token_min_lines: int = typer.Option(3, "--token-min-lines", min=0),
+    rename_tokens: bool = typer.Option(
+        False,
+        "--rename-tokens",
+        help="Token mode: normalize identifiers; review as lexical patterns",
     ),
 ):
-    """Find near-duplicate symbol families (evolved copies).
+    """Find similarity candidates for review; neither mode proves equivalence.
 
     ``--mode semantic`` (default) reads the embedding store produced by
     ``victor graph index --embeddings`` and reports families whose
-    docstrings/signatures are semantically near-identical ACROSS files.
+    names/docstrings/signatures are similar ACROSS files. Bodies are not embedded.
     ``--mode structural`` compares function bodies instead: locals renamed,
-    constants typed, callees resolved through the SCIP index, so it finds
+    constants typed, callees refined through SCIP when available, so it finds
     copies whose variable names, constants or a few statements drifted.
-    Both complement the duplication ratchet; read-only.
+    ``body`` embeds complete function-source windows using local pinned weights;
+    ``tokens`` uses a local pinned jscpd executable; ``hybrid`` returns independent
+    channels. No score proves behavior. Source and graph data are read-only;
+    ``--body-cache`` explicitly enables a separate derived vector cache.
     """
-    if mode not in ("semantic", "structural"):
-        console.print(f"[red]Unknown --mode {mode!r}; use semantic or structural[/red]")
+    if mode not in ("semantic", "structural", "body", "tokens", "hybrid"):
+        console.print(
+            f"[red]Unknown --mode {mode!r}; use semantic, structural, body, tokens or hybrid[/red]"
+        )
+        raise typer.Exit(2)
+    if mode in {"body", "tokens", "hybrid"}:
+        from victor.core.graph_rag.similarity_analysis import analyze_source
+
+        try:
+            if mode in {"body", "tokens"} and cross_language:
+                raise ValueError(
+                    "--cross-language selects portable syntax in structural/hybrid mode; use --body-scope cross for body vectors"
+                )
+            body_options = None
+            token_options = None
+            if mode != "tokens":
+                from victor.core.graph_rag.body_clones import BodyOptions
+
+                body_options = BodyOptions(
+                    model_id=body_model,
+                    revision=body_revision,
+                    dimension=body_dimension,
+                    max_tokens=body_max_tokens,
+                    overlap=min(64, body_max_tokens // 8),
+                    comparison_scope=body_scope,
+                )
+            if mode != "body":
+                from victor.core.graph_rag.token_clones import TokenOptions
+
+                token_options = TokenOptions(
+                    binary=jscpd_binary,
+                    min_tokens=min_tokens,
+                    min_lines=token_min_lines,
+                    normalize_identifiers=rename_tokens,
+                )
+            payload = analyze_source(
+                Path(os.path.abspath(path)),
+                mode=mode,
+                limit=limit,
+                scope=scope,
+                include_tests=include_tests,
+                include_docs=include_docs,
+                min_nodes=min_nodes,
+                near_threshold=near_threshold,
+                near_metric=ast_metric,
+                threshold=threshold,
+                top_k=top_k,
+                include_same_file=same_file,
+                cross_language=cross_language,
+                languages=set(language) if language else None,
+                body_options=body_options,
+                token_options=token_options,
+                cache_path=body_cache,
+            )
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            payload = {
+                "coverage_complete": False,
+                "equivalence_verified": False,
+                "error": str(exc)[:1500],
+            }
+        if as_json:
+            console.print_json(json.dumps(payload))
+        else:
+            if payload.get("snapshot_conflicts"):
+                console.print(
+                    "Sources changed between channels: " + ", ".join(payload["snapshot_conflicts"]),
+                    markup=False,
+                )
+            for name, channel in payload.get("channels", {mode: payload}).items():
+                console.print(
+                    f"{name}: coverage_complete={channel['coverage_complete']}", markup=False
+                )
+                if channel.get("error"):
+                    console.print(channel["error"], markup=False)
+                for error in channel.get("errors", [])[:5]:
+                    console.print(json.dumps(error), markup=False)
+                for error in channel.get("stats", {}).get("analysis_errors", []):
+                    console.print(error, markup=False)
+                for relation in channel.get("families", []) + channel.get("fragments", []):
+                    console.print(
+                        f"  {relation.get('relation', relation.get('tier', 'candidate'))}: "
+                        + ", ".join(f"{m['file']}:{m['line']}" for m in relation["members"]),
+                        markup=False,
+                    )
+        if not payload["coverage_complete"]:
+            raise typer.Exit(1)
+        return
+    if mode == "semantic" and (
+        language or ast_metric != "shingle" or cross_language or include_docs
+    ):
+        console.print(
+            "--language, --ast-metric and --cross-language require --mode structural", markup=False
+        )
         raise typer.Exit(2)
     if mode == "structural":
         _graph_similar_structural(
@@ -1694,10 +1927,13 @@ def graph_similar(
             same_file=same_file,
             limit=limit,
             as_json=as_json,
+            ast_metric=ast_metric,
+            languages=set(language) if language else None,
+            cross_language=cross_language,
+            include_docs=include_docs,
         )
         return
     from victor.core.graph_rag.semantic_clones import (
-        TooManyPairsError,
         find_clone_families,
         load_embedding_symbols,
     )
@@ -1721,6 +1957,9 @@ def graph_similar(
             )
         console.print(f"[yellow]{detail}[/yellow]")
         raise typer.Exit(1)
+    except ValueError as exc:
+        console.print(f"Embedding analysis unavailable: {exc}", markup=False)
+        raise typer.Exit(1) from exc
 
     try:
         with console.status("[dim]scanning…[/dim]") as status:
@@ -1734,10 +1973,10 @@ def graph_similar(
                     status=f"[dim]scanning… {done}/{total} symbols[/dim]"
                 ),
             )
-    except TooManyPairsError as exc:
+    except ValueError as exc:
         console.print(
             f"[yellow]{exc}[/yellow]\n"
-            "Try [cyan]--threshold 0.85[/cyan] or higher, or cap with [cyan]--neighbors 3[/cyan]."
+            "Raise [cyan]--threshold[/cyan], or cap with [cyan]--neighbors 3[/cyan]."
         )
         raise typer.Exit(1)
 
@@ -1749,9 +1988,21 @@ def graph_similar(
                 {
                     "symbols_indexed": len(records),
                     "threshold": threshold,
+                    "evidence": "symbol-summary-v1",
+                    "equivalence_verified": False,
+                    "grouping": "connected_components",
+                    "similarity_basis": "maximum_matching_edge",
+                    "total_families": len(families),
                     "families": [
                         {
                             "similarity": round(f.similarity, 4),
+                            "min_edge_similarity": f.min_edge_similarity,
+                            "matching_pairs": f.matching_pairs,
+                            "summary_input_variants": (
+                                len({m.input_hash for m in f.members})
+                                if all(m.input_hash for m in f.members)
+                                else None
+                            ),
                             "files": f.files,
                             "members": [
                                 {
@@ -1774,12 +2025,18 @@ def graph_similar(
         f"[bold]{len(records)}[/bold] symbols · threshold "
         f"[bold]{threshold}[/bold] · [bold]{len(families)}[/bold] cross-file families\n"
     )
+    console.print(
+        "Summary similarity only; families are transitive components and may contain pairs below the threshold. Review function bodies before refactoring.",
+        markup=False,
+    )
     if not families:
-        console.print("[green]No semantic near-duplicates above threshold.[/green]")
+        console.print("[green]No summary-similarity candidates above threshold.[/green]")
         return
 
     for fam in families[:limit]:
-        console.print(f"[bold]── family[/bold] (similarity {fam.similarity:.3f})")
+        console.print(
+            f"[bold]── family[/bold] (best matching edge {fam.similarity:.3f}; {fam.matching_pairs} edges)"
+        )
         for m in fam.members[:6]:
             rel = m.file_path
             console.print(f"   [cyan]{rel}[/cyan]:{m.line_number} [white]{m.symbol_name}[/white]")
@@ -1797,6 +2054,10 @@ def _graph_similar_structural(
     same_file: bool,
     limit: int,
     as_json: bool,
+    ast_metric: str = "shingle",
+    languages: Optional[set[str]] = None,
+    cross_language: bool = False,
+    include_docs: bool = False,
 ) -> None:
     from collections import Counter
 
@@ -1804,7 +2065,7 @@ def _graph_similar_structural(
     from victor.core.graph_rag.structural_clones import report_to_dict, scan
 
     try:
-        with console.status("[dim]normalising function bodies…[/dim]"):
+        with console.status("[dim]normalising function bodies…[/dim]") as status:
             report = scan(
                 root,
                 scope=scope,
@@ -1812,16 +2073,55 @@ def _graph_similar_structural(
                 min_nodes=min_nodes,
                 near_threshold=near_threshold,
                 include_same_file=same_file,
+                near_metric=ast_metric,
+                languages=languages,
+                cross_language=cross_language,
+                include_docs=include_docs,
+                progress=lambda rel, done, total: status.update(
+                    f"[dim]normalising {done}/{total}: {escape(rel)}[/dim]"
+                ),
             )
-    except TooManyPairsError as exc:
+    except (TooManyPairsError, ValueError) as exc:
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(1)
 
     if as_json:
         console.print_json(json.dumps(report_to_dict(report, limit)))
+        if not report.coverage_complete:
+            raise typer.Exit(1)
         return
 
     st = report.stats
+    incomplete = not report.coverage_complete
+    console.print(
+        f"Languages: {st['languages']}; near metric: {st['near_metric']}; SCIP-resolved names: {st['resolved_symbols']}",
+        markup=False,
+    )
+    if incomplete:
+        console.print(
+            f"Incomplete coverage: supported source files={st.get('source_files', 'unknown')}, selected regions={st.get('selected_regions', 'unknown')}, unavailable grammars={st['unavailable_languages']}, parse errors={st['parse_error_files']}, binding errors={st.get('binding_error_files', 0)}, unreadable files={st['unreadable_files']}, oversized files={st['oversized_files']}",
+            markup=False,
+        )
+        for error in st.get("analysis_errors", []):
+            console.print(error, markup=False)
+        for error in st.get("source_read_errors", [])[:5]:
+            console.print(json.dumps(error), markup=False)
+    if cross_language:
+        console.print(
+            f"Portable operations: {st['portable_units']} eligible bodies; {st['portable_unsupported_units']} unsupported; "
+            f"{st['portable_small_units']} below size bound. Cross-language candidates: {st['cross_language_families']}; "
+            f"FFI relationships: {len(report.ffi_links)} (separate from duplicates).",
+            markup=False,
+        )
+        console.print(
+            f"JNI unresolved/ambiguous: {st.get('ffi_unresolved_bindings', 0)}/{st.get('ffi_ambiguous_bindings', 0)}; "
+            "FFI links carry static/index evidence; runtime binding is unverified.",
+            markup=False,
+        )
+    console.print(
+        "Normalized syntax candidates; review constants, effects and contracts before refactoring.",
+        markup=False,
+    )
     console.print(
         f"[bold]{st['functions']}[/bold] functions · "
         f"exact [bold]{st['exact_families']}[/bold] · template "
@@ -1839,11 +2139,24 @@ def _graph_similar_structural(
             "resolved by name only[/dim]"
         )
     console.print()
+    for link in report.ffi_links[:limit]:
+        source, target = link["source"], link["target"]
+        console.print(
+            f"FFI {source['file']}:{source['line']} {source['symbol']} -> "
+            f"{target['file']}:{target['line']} {target['symbol']} ({link['evidence']})",
+            markup=False,
+        )
     if not report.families:
-        console.print("[green]No structural near-duplicates found.[/green]")
+        console.print(
+            "No candidates in analyzed files; coverage incomplete."
+            if incomplete
+            else "[green]No structural near-duplicates found.[/green]"
+        )
+        if incomplete:
+            raise typer.Exit(1)
         return
     for fam in report.families[:limit]:
-        label = "1.00" if fam.tier != "near" else f"{fam.score:.2f}"
+        label = f"{fam.score:.2f}" if fam.tier in {"near", "cross_language"} else "1.00"
         size = max(m.size for m in fam.members)
         console.print(f"[bold]── {fam.tier}[/bold] ({label}, {size} tokens)")
         for m in fam.members[:6]:
@@ -1855,3 +2168,5 @@ def _graph_similar_structural(
             f"{r} {n}" for r, n in Counter(f.suppressed for f in report.suppressed).items()
         )
         console.print(f"\n[dim]suppressed families: {reasons}[/dim]")
+    if incomplete:
+        raise typer.Exit(1)

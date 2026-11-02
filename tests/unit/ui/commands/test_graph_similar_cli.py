@@ -28,6 +28,44 @@ def _invoke(*args):
     return runner.invoke(graph_app, ["similar", *args])
 
 
+def test_token_mode_missing_backend_keeps_json_failure(tmp_path):
+    import json
+
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "tokens",
+        "--jscpd-binary",
+        "victor-missing-jscpd",
+        "--json",
+    )
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert not payload["coverage_complete"]
+    assert "Install jscpd" in payload["error"]
+
+
+def test_embedded_docs_flag_reaches_structural_scan(tmp_path):
+    import json
+
+    source = "```rust\nfn compute(x:i32)->i32 { let value=x+1; value*3+4 }\n```\n"
+    for name in ("a.md", "b.md"):
+        (tmp_path / name).write_text(source)
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "structural",
+        "--include-docs",
+        "--min-nodes",
+        "5",
+        "--json",
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["families"]
+
+
 def test_missing_store_hint(tmp_path: Path):
     result = _invoke("--path", str(tmp_path))
     assert result.exit_code == 1
@@ -88,6 +126,8 @@ def test_json_output_shape(tmp_path: Path):
     assert result.exit_code == 0
     assert '"symbols_indexed": 2' in result.output
     assert '"similarity"' in result.output
+    assert '"equivalence_verified": false' in result.output
+    assert '"similarity_basis": "maximum_matching_edge"' in result.output
 
 
 def test_no_families_message(tmp_path: Path):
@@ -106,7 +146,7 @@ def test_no_families_message(tmp_path: Path):
     ):
         result = _invoke("--path", str(tmp_path), "--threshold", "0.99")
     assert result.exit_code == 0
-    assert "No semantic near-duplicates" in result.output
+    assert "No summary-similarity candidates" in result.output
 
 
 def test_too_many_pairs_is_a_clean_error(tmp_path: Path):
@@ -124,7 +164,7 @@ def test_too_many_pairs_is_a_clean_error(tmp_path: Path):
     ):
         result = _invoke("--path", str(tmp_path), "--threshold", "0.5")
     assert result.exit_code == 1
-    assert "--threshold 0.85" in " ".join(result.output.split())
+    assert "Raise --threshold" in " ".join(result.output.split())
 
 
 # --- --mode structural ------------------------------------------------------
@@ -181,6 +221,81 @@ def test_structural_json_shape(tmp_path: Path):
     assert {"file", "symbol", "line", "size"} <= set(family["members"][0])
 
 
+def test_subtree_metric_is_available_through_cli(tmp_path):
+    result = _invoke(
+        "--path",
+        str(_structural_repo(tmp_path)),
+        "--mode",
+        "structural",
+        "--min-nodes",
+        "10",
+        "--ast-metric",
+        "subtree",
+        "--json",
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    assert json.loads(result.output)["stats"]["near_metric"] == "subtree"
+
+
+def test_invalid_subtree_metric_is_clean_error(tmp_path):
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--ast-metric", "typo")
+    assert result.exit_code == 1
+    assert "Unknown AST metric" in result.output
+
+
+def test_cross_language_cli_detects_typescript_and_rust_automatically(tmp_path):
+    import json
+
+    (tmp_path / "reference.ts").write_text(
+        "function f(x:number,y:number) { let sum=x+y; return sum*2; }"
+    )
+    (tmp_path / "native.rs").write_text("fn f(a:i32,b:i32)->i32 { let value=a+b; value*2 }")
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "structural",
+        "--cross-language",
+        "--min-nodes",
+        "5",
+        "--json",
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["stats"]["cross_language_families"] == 1
+    assert data["families"][0]["evidence"] == "portable_operation_shape"
+    assert data["equivalence_verified"] is False
+
+
+def test_jni_relationship_prints_even_without_duplicate_bodies(tmp_path):
+    (tmp_path / "Native.java").write_text("package pkg; class Native { native int sum(int x); }")
+    (tmp_path / "native.cpp").write_text(
+        "JNIEXPORT jint JNICALL Java_pkg_Native_sum(JNIEnv *e, jobject o, jint x) { return x+1; }"
+    )
+    result = _invoke(
+        "--path", str(tmp_path), "--mode", "structural", "--cross-language", "--min-nodes", "5"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Java_pkg_Native_sum" in result.output
+    assert "jni_declaration_export" in result.output
+
+
+def test_language_filter_and_incomplete_coverage_are_machine_readable(tmp_path):
+    import json
+
+    (tmp_path / "broken.rs").write_text("fn broken( { invalid")
+    result = _invoke(
+        "--path", str(tmp_path), "--mode", "structural", "--language", "rust", "--json"
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.output)["coverage_complete"] is False
+    result = _invoke("--path", str(tmp_path), "--language", "rust")
+    assert result.exit_code == 2
+    assert "require --mode structural" in result.output
+
+
 def test_structural_no_families_message(tmp_path: Path):
     import subprocess
 
@@ -190,6 +305,17 @@ def test_structural_no_families_message(tmp_path: Path):
     result = _invoke("--path", str(tmp_path), "--mode", "structural", "--min-nodes", "10")
     assert result.exit_code == 0
     assert "No structural near-duplicates" in result.output
+
+
+def test_unsupported_scope_cannot_exit_as_a_clean_scan(tmp_path):
+    import json
+
+    (tmp_path / "only.sql").write_text("SELECT 1")
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--json")
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["stats"]["source_files"] == 0
+    assert payload["coverage_complete"] is False
 
 
 def test_structural_budget_is_a_clean_error(tmp_path: Path):
