@@ -722,3 +722,18 @@ def test_drop_import_only_tests_partitions_tests_only():
     assert dropped == ["tests/unit/test_x.py"]
     assert rest == ["victor/a.py", "docs/x.md"]
     assert drop_import_only_tests(changed, read_base=None) == (changed, [])
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/fixtures/graph_similarity/controls.json",
+        "tests/fixtures/graph_similarity/controls-test/control_test_2_4_right.rs",
+        "tests/fixtures/graph_similarity/controls-test/control_test_0_0_left.py",
+    ],
+)
+def test_similarity_corpus_sources_and_labels_have_runtime_test_owners(path):
+    assert {
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    } <= set(select([path]))

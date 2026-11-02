@@ -84,7 +84,7 @@ def test_real_numeric_semantics_remain_unverified(tmp_path):
     (tmp_path / "b.js").write_text("function f(x) { return (x+1)*2; }")
     report = scan(tmp_path, cross_language=True, min_nodes=5, near_threshold=1)
     assert any(f.tier == "cross_language" for f in report.families)
-    assert report.stats["portable_schema"] == "portable-operations-v2"
+    assert report.stats["portable_schema"] == "portable-operations-v3-typed-floats"
 
 
 @pytest.mark.parametrize(
@@ -154,3 +154,39 @@ def test_compound_assignment_preserves_the_operator(tmp_path, suffix, source):
     report = scan(tmp_path, cross_language=True, min_nodes=5, near_threshold=1)
     assert report.stats["portable_unsupported_units"] == 0, report.stats
     assert not any(f.tier == "cross_language" for f in report.families)
+
+
+@pytest.mark.parametrize("literal", ["0.0f32", "1f32", "1.25e-2f64", "1_024.5_f32"])
+def test_rust_typed_float_literals_are_covered(tmp_path, literal):
+    source = f"fn f(x:f32)->f32 {{ let value={literal}; let scaled=x+value; scaled*2.0 }}"
+    report = report_pair(tmp_path, source, source)
+    assert not report.stats["portable_unsupported_units"], report.stats
+    assert report.stats["portable_units"] == 2
+
+
+def test_float_widths_and_hex_digits_are_not_erased_as_suffixes(tmp_path):
+    (tmp_path / "a.rs").write_text("fn a(x:f64)->f64 { let y=0.1f32; x+y as f64+2.0 }")
+    (tmp_path / "b.rs").write_text("fn b(x:f64)->f64 { let y=0.1f64; x+y as f64+2.0 }")
+    (tmp_path / "c.rs").write_text("fn c(x:i64)->i64 { let y=0xff32; let z=x+y; z*2 }")
+    (tmp_path / "d.rs").write_text("fn d(x:i64)->i64 { let y=65330; let z=x+y; z*2 }")
+    report = scan(tmp_path, cross_language=True, min_nodes=1)
+    assert not report.stats["portable_unsupported_units"]
+    by_name = {unit.name: unit for unit in report.units}
+    assert by_name["a"].portable_hashes != by_name["b"].portable_hashes
+    assert by_name["c"].portable_hashes == by_name["d"].portable_hashes
+
+
+def test_f32_rounding_is_explicit_and_overflow_is_not_a_finite_literal(tmp_path):
+    (tmp_path / "a.rs").write_text("fn a(x:f32)->f32 { let y=16777217f32; let z=x+y; z*2.0 }")
+    (tmp_path / "b.rs").write_text("fn b(x:f32)->f32 { let y=16777216f32; let z=x+y; z*2.0 }")
+    (tmp_path / "c.rs").write_text("fn c(x:f32)->f32 { let y=1e100f32; let z=x+y; z*2.0 }")
+    report = scan(tmp_path, cross_language=True, min_nodes=1)
+    by_name = {unit.name: unit for unit in report.units}
+    assert by_name["a"].portable_hashes == by_name["b"].portable_hashes
+    assert by_name["c"].portable_error == "nonfinite-literal"
+
+
+def test_large_exponent_zero_remains_a_portable_literal(tmp_path):
+    source = "fn f(x:f32)->f32 { let value=0e100f32; let scaled=x+value; scaled*2.0 }"
+    report = report_pair(tmp_path, source, source)
+    assert not report.stats["portable_unsupported_units"], report.stats

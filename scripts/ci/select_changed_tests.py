@@ -61,6 +61,31 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/benchmark_graph_similarity_evaluation.py": (
+        "tests/unit/scripts/test_benchmark_graph_similarity_evaluation.py",
+    ),
+    "victor/core/graph_rag/numeric_literals.py": (
+        "tests/unit/core/graph_rag/test_numeric_literals.py",
+        "tests/unit/core/graph_rag/test_portable_operations.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+    ),
+    "scripts/evaluate_graph_similarity.py": (
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/body_clones.py": (
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+    ),
+    "victor/core/graph_rag/similarity_evaluation.py": (
+        "tests/unit/core/graph_rag/test_similarity_evaluation.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/similarity_pair_scoring.py": (
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
     "victor/core/graph_rag/clone_bindings.py": (
         "tests/unit/core/graph_rag/test_similarity_frontends.py",
         "tests/unit/core/graph_rag/test_portable_operations.py",
@@ -1187,6 +1212,16 @@ def select(changed: list[str]) -> list[str]:
     unmapped_sources: list[str] = []
     for raw in changed:
         p = raw.strip()
+        if p.startswith("tests/fixtures/graph_similarity/"):
+            targets.update(
+                target
+                for target in (
+                    "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+                    "tests/unit/scripts/test_evaluate_graph_similarity.py",
+                )
+                if (ROOT / target).exists()
+            )
+            continue
         if not p.endswith(".py"):
             continue
         existing_related = tuple(

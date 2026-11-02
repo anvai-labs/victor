@@ -285,6 +285,7 @@ def main() -> None:
             "clone_bindings.py",
             "source_regions.py",
             "source_reader.py",
+            "numeric_literals.py",
             "body_clones.py",
             "token_clones.py",
             "similarity_analysis.py",

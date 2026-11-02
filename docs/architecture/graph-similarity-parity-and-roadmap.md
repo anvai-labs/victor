@@ -463,3 +463,21 @@ that commit, CI results and merge state; this dated checkpoint is not release
 acceptance. Source scanning now explicitly requires secure descriptor-relative
 opens; unsupported platforms fail incomplete instead of following a weak path
 fallback. Full Windows source support requires a separately validated adapter.
+
+
+## Foundation-first continuation
+
+The [evaluation protocol and execution order](graph-similarity-evaluation.md)
+defines the next foundation: reviewed pair manifests, split/leakage validation,
+exact pair observations and calibration policies before broader detector or
+application claims. Controlled fixtures and a small repository pilot are separate
+inputs. The first measured coverage repair preserves explicitly typed Rust float
+literals under `portable-operations-v3-typed-floats`; previous v2 measurements
+remain historical. Threshold, source and implementation changes invalidate
+calibration provenance. PR evidence owns publication and acceptance state.
+
+Build subsequent increments from this evidence: expand independent reviewed data,
+then cover rejected constructs without dropping effects, ablate typed/compiler
+context, measure incremental/ANN retrieval against exact pairs, and only then
+apply family explanations and baseline/SARIF/changed-code policies. No current
+pilot certifies production semantic equivalence or safe backend consolidation.

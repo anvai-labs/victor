@@ -1,0 +1,231 @@
+{
+  "schema": "victor-similarity-corpus-v1",
+  "projects": [
+    {
+      "id": "victor",
+      "repository": "anvai-labs/victor",
+      "revision": "8502c87aa048eea3187febb8796e55ce89985c20",
+      "split": "calibration",
+      "origin": "repository"
+    },
+    {
+      "id": "proximadb",
+      "repository": "local:proximadb",
+      "revision": "d68515e5749dba3842c998088a64022c9c6de409",
+      "split": "test",
+      "origin": "repository"
+    }
+  ],
+  "units": [
+    {
+      "id": "v-dot-a",
+      "project": "victor",
+      "file": "rust/crates/python-bindings/src/similarity.rs",
+      "language": "rust",
+      "symbol": "simd_dot",
+      "line": 67,
+      "end_line": 90,
+      "source_hash": "c3ebd66fd5ba0e84a7763048542d1408cd262e923204f77fba59972c9cabed7e"
+    },
+    {
+      "id": "v-dot-b",
+      "project": "victor",
+      "file": "rust/crates/python-bindings/src/embeddings.rs",
+      "language": "rust",
+      "symbol": "simd_dot",
+      "line": 622,
+      "end_line": 644,
+      "source_hash": "5521221461ddfd3599e8fc5648c2163a1b815642e9c29414b7728fa14c8cf950"
+    },
+    {
+      "id": "v-norm-a",
+      "project": "victor",
+      "file": "rust/crates/python-bindings/src/similarity.rs",
+      "language": "rust",
+      "symbol": "normalize_vec",
+      "line": 57,
+      "end_line": 63,
+      "source_hash": "c3ebd66fd5ba0e84a7763048542d1408cd262e923204f77fba59972c9cabed7e"
+    },
+    {
+      "id": "v-norm-b",
+      "project": "victor",
+      "file": "rust/crates/python-bindings/src/similarity.rs",
+      "language": "rust",
+      "symbol": "normalize_vector",
+      "line": 361,
+      "end_line": 364,
+      "source_hash": "c3ebd66fd5ba0e84a7763048542d1408cd262e923204f77fba59972c9cabed7e"
+    },
+    {
+      "id": "v-norm",
+      "project": "victor",
+      "file": "rust/crates/python-bindings/src/similarity.rs",
+      "language": "rust",
+      "symbol": "simd_norm",
+      "line": 34,
+      "end_line": 52,
+      "source_hash": "c3ebd66fd5ba0e84a7763048542d1408cd262e923204f77fba59972c9cabed7e"
+    },
+    {
+      "id": "v-cosine",
+      "project": "victor",
+      "file": "rust/crates/python-bindings/src/similarity.rs",
+      "language": "rust",
+      "symbol": "cosine_similarity",
+      "line": 104,
+      "end_line": 122,
+      "source_hash": "c3ebd66fd5ba0e84a7763048542d1408cd262e923204f77fba59972c9cabed7e"
+    },
+    {
+      "id": "p-cosine-a",
+      "project": "proximadb",
+      "file": "src/services/discovery/passes/dedup.rs",
+      "language": "rust",
+      "symbol": "cosine_similarity",
+      "line": 95,
+      "end_line": 111,
+      "source_hash": "34a48703ccf45c6b87ea7822f3a34af6144178db0d51df9483959f4cb184fae1"
+    },
+    {
+      "id": "p-cosine-b",
+      "project": "proximadb",
+      "file": "src/storage/entity_store/orion_backend.rs",
+      "language": "rust",
+      "symbol": "cosine_similarity",
+      "line": 717,
+      "end_line": 731,
+      "source_hash": "a8cfba1e022b9803a39a77831d98f03a80cc82cc970b95c425470fb5bb1fdda3"
+    },
+    {
+      "id": "p-cosine-c",
+      "project": "proximadb",
+      "file": "crates/horizontal/proximadb-runtime-common/src/vector_ops.rs",
+      "language": "rust",
+      "symbol": "cosine_similarity",
+      "line": 306,
+      "end_line": 316,
+      "source_hash": "5ac846f94dc40b6aa330f5197f818d5f32fea7814a3f228efc921c9b9e47141f"
+    },
+    {
+      "id": "p-dot",
+      "project": "proximadb",
+      "file": "crates/horizontal/proximadb-runtime-common/src/vector_ops.rs",
+      "language": "rust",
+      "symbol": "dot_product",
+      "line": 296,
+      "end_line": 301,
+      "source_hash": "5ac846f94dc40b6aa330f5197f818d5f32fea7814a3f228efc921c9b9e47141f"
+    },
+    {
+      "id": "p-tag-memory",
+      "project": "proximadb",
+      "file": "crates/control/proximadb-catalog/src/run_store.rs",
+      "language": "rust",
+      "symbol": "set_trace_tag",
+      "line": 1393,
+      "end_line": 1402,
+      "source_hash": "255963fcb71ca14afbb3a56a762f6c09d887707b334a23cb5473ca2be7f368ab"
+    },
+    {
+      "id": "p-tag-persistent",
+      "project": "proximadb",
+      "file": "src/services/mlflow_run_store.rs",
+      "language": "rust",
+      "symbol": "set_trace_tag",
+      "line": 853,
+      "end_line": 863,
+      "source_hash": "08f0a4bbfb006647090493a216292d40f171da57e85a6fc9452652344f7dc893"
+    }
+  ],
+  "pairs": [
+    {
+      "id": "v-dot-copy",
+      "left": "v-dot-a",
+      "right": "v-dot-b",
+      "relation": "structure",
+      "positive": true,
+      "family": "victor-similarity-lineage",
+      "rationale": "Both SIMD dot helpers use the same chunk/remainder reduction; only comments differ",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    },
+    {
+      "id": "v-normalize-pattern",
+      "left": "v-norm-a",
+      "right": "v-norm-b",
+      "relation": "structure",
+      "positive": true,
+      "family": "victor-similarity-lineage",
+      "rationale": "Both helpers compute simd_norm then divide vector entries; one has an extra zero-norm guard",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    },
+    {
+      "id": "v-dot-vs-norm",
+      "left": "v-dot-a",
+      "right": "v-norm",
+      "relation": "structure",
+      "positive": false,
+      "family": "victor-similarity-lineage",
+      "rationale": "Binary-vector dot product and unary-vector Euclidean norm differ in operands, reduction and result operation",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    },
+    {
+      "id": "v-normalize-vs-cosine",
+      "left": "v-norm-a",
+      "right": "v-cosine",
+      "relation": "structure",
+      "positive": false,
+      "family": "victor-similarity-lineage",
+      "rationale": "Vector normalization returns a vector; cosine combines two vectors and returns a scalar",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    },
+    {
+      "id": "p-cosine-loop-vs-iterator",
+      "left": "p-cosine-a",
+      "right": "p-cosine-b",
+      "relation": "structure",
+      "positive": true,
+      "family": "proximadb-similarity-lineage",
+      "rationale": "Both compute dot divided by the product of L2 norms with zero guards, using loop vs iterators",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    },
+    {
+      "id": "p-cosine-helper-pattern",
+      "left": "p-cosine-a",
+      "right": "p-cosine-c",
+      "relation": "structure",
+      "positive": true,
+      "family": "proximadb-similarity-lineage",
+      "rationale": "Same core cosine reduction pattern, with delegated dot/norm helpers and different error/epsilon handling",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    },
+    {
+      "id": "p-dot-vs-cosine",
+      "left": "p-dot",
+      "right": "p-cosine-c",
+      "relation": "structure",
+      "positive": false,
+      "family": "proximadb-similarity-lineage",
+      "rationale": "Dot product lacks norm division and is a different mathematical operation",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    },
+    {
+      "id": "p-memory-vs-persistence",
+      "left": "p-tag-memory",
+      "right": "p-tag-persistent",
+      "relation": "structure",
+      "positive": false,
+      "family": "proximadb-similarity-lineage",
+      "rationale": "The memory fixture mutates through a closure; the service locks, fetches, changes and persists. Matching names are not identical operation sequences",
+      "domain": "Source operation pattern only; not exact floating-point, ABI, error, lifetime or runtime equivalence",
+      "reviewed_by": "source-inspection-v1"
+    }
+  ]
+}

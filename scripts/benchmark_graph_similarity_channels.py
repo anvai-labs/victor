@@ -35,6 +35,7 @@ def main() -> None:
         in {
             "source_regions.py",
             "source_reader.py",
+            "numeric_literals.py",
             "clone_bindings.py",
             "similarity_analysis.py",
             "ast_fingerprints.py",

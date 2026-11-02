@@ -217,3 +217,85 @@ def test_failure_after_a_valid_batch_does_not_publish_partial_inputs(tmp_path):
     assert len(calls) == 2
     with sqlite3.connect(cache) as db:
         assert db.execute("SELECT count(*) FROM body_vectors_v1").fetchone()[0] == 0
+
+
+def test_requested_pairs_keep_actual_cosine_without_family_clique(tmp_path):
+    import numpy as np
+    from dataclasses import replace
+
+    report = extractor(tmp_path)
+    report.units = [
+        replace(report.units[0], file_path=f"{i}.py", source_code=f"body-{i}") for i in range(3)
+    ]
+    model = Model()
+    vectors = {"body-0": [1.0, 0.0, 0.0], "body-1": [0.8, 0.6, 0.0], "body-2": [0.28, 0.96, 0.0]}
+    model.encode = lambda texts, **kwargs: [vectors[text] for text in texts]
+    encoder = LocalBodyEncoder(options(), model_factory=lambda *a, **k: model)
+    result = analyze_bodies(
+        report, options=options(), encoder=encoder, requested_pairs=[(0, 1), (1, 2), (0, 2)]
+    )
+    scores = [item["score"] for item in result["pair_scores"]]
+    assert np.allclose(scores, [0.8, 0.8, 0.28])
+    assert not result["families"]
+    assert result["stats"]["retrieval"] == "requested_pair_cosine"
+
+
+def test_requested_pairs_report_missing_body_and_reuse_cache(tmp_path):
+    from dataclasses import replace
+
+    report = extractor(tmp_path)
+    report.units[1] = replace(report.units[1], source_code="")
+    encoder = LocalBodyEncoder(options(), model_factory=lambda *a, **k: Model())
+    result = analyze_bodies(
+        report,
+        options=options(),
+        encoder=encoder,
+        requested_pairs=[(0, 1)],
+        cache_path=tmp_path / "body.sqlite",
+    )
+    assert result["pair_scores"] == [
+        {"left": 0, "right": 1, "score": None, "error": "body_unavailable"}
+    ]
+    assert not result["coverage_complete"]
+    again = analyze_bodies(
+        report, options=options(), requested_pairs=[(0, 0)], cache_path=tmp_path / "body.sqlite"
+    )
+    assert again["pair_scores"][0]["score"] == pytest.approx(1)
+    assert again["stats"]["inferred_windows"] == 0
+
+
+@pytest.mark.parametrize("pairs", [[(-1, 0)], [(0, 2)], [(True, 0)], [(0,)]])
+def test_requested_pair_bounds_are_checked_before_inference(tmp_path, pairs):
+    with pytest.raises(ValueError, match="requested"):
+        analyze_bodies(extractor(tmp_path), options=options(), requested_pairs=pairs)
+
+
+@pytest.mark.parametrize("alias", ["direct", "hardlink", "symlink"])
+def test_body_cache_cannot_claim_a_foreign_database(tmp_path, alias):
+    import os
+
+    report = extractor(tmp_path)
+    database = tmp_path / "project.db"
+    with sqlite3.connect(database) as db:
+        db.execute("CREATE TABLE graph_node(node_id TEXT)")
+    before = database.read_bytes()
+    cache = database
+    if alias != "direct":
+        cache = tmp_path / "cache.sqlite"
+        if alias == "hardlink":
+            os.link(database, cache)
+        else:
+            cache.symlink_to(database)
+    with pytest.raises(ValueError, match="cache"):
+        analyze_bodies(report, options=options(), cache_path=cache)
+    assert database.read_bytes() == before
+
+
+def test_sqlite_like_wildcards_cannot_hide_foreign_tables(tmp_path):
+    database = tmp_path / "cache.sqlite"
+    with sqlite3.connect(database) as db:
+        db.execute("CREATE TABLE sqliteHiddenGraph(value)")
+    before = database.read_bytes()
+    with pytest.raises(ValueError, match="unrelated SQLite"):
+        analyze_bodies(extractor(tmp_path), options=options(), cache_path=database)
+    assert database.read_bytes() == before

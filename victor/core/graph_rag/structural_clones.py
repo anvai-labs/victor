@@ -1253,11 +1253,11 @@ def scan(
 
 
 def _portable_stats(units: Sequence[FunctionUnit]) -> Dict[str, Any]:
-    from victor.core.graph_rag.portable_clones import MIN_PORTABLE_NODES
+    from victor.core.graph_rag.portable_clones import MIN_PORTABLE_NODES, PORTABLE_SCHEMA
 
     unsupported = sum(u.portable_error is not None for u in units)
     return {
-        "portable_schema": "portable-operations-v2",
+        "portable_schema": PORTABLE_SCHEMA,
         "portable_units": sum(u.portable_size >= MIN_PORTABLE_NODES for u in units),
         "portable_unsupported_units": unsupported,
         "portable_small_units": sum(

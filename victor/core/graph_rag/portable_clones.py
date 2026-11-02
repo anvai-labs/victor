@@ -18,6 +18,7 @@ from typing import Any
 from victor.core.graph_rag.ast_fingerprints import NormalizedNode as Node, subtree_fingerprints
 
 MIN_PORTABLE_NODES = 8
+PORTABLE_SCHEMA = "portable-operations-v3-typed-floats"
 
 
 class UnsupportedOperation(ValueError):
@@ -40,7 +41,7 @@ def _finish(body: Node, arity: int) -> PortableBody:
         current = pending.pop()
         size += 1
         pending.extend(current.children)
-    return PortableBody(subtree_fingerprints(root, "portable-operations-v2"), size)
+    return PortableBody(subtree_fingerprints(root, PORTABLE_SCHEMA), size)
 
 
 class _Names:
@@ -656,9 +657,24 @@ def tree_body(fn: Any, source: bytes, language: str) -> PortableBody:
             "decimal_floating_point_literal",
         }:
             value = text(node).replace("_", "")
+            # A hexadecimal integer ending in f32 is not a float suffix. Keep
+            # explicit Rust float widths distinct, including binary32 rounding.
+            typed_float = (
+                re.fullmatch(r"(.+)(f32|f64)", value)
+                if language == "rust" and not value.lower().startswith(("0x", "0b", "0o"))
+                else None
+            )
+            if typed_float is not None:
+                from victor.core.graph_rag.numeric_literals import typed_float_value
+
+                try:
+                    number = typed_float_value(typed_float[1], int(typed_float[2][1:]))
+                except ValueError as exc:
+                    raise UnsupportedOperation(str(exc)) from exc
+                return Node(f"number:{typed_float[2]}:{number!r}")
             value = re.sub(r"(?:[iu](?:8|16|32|64|128|size)|[uUlL]+)$", "", value)
             try:
-                number: int | float = (
+                number = (
                     int(value, 0) if value.lower().startswith(("0x", "0b", "0o")) else int(value)
                 )
             except ValueError:

@@ -6,12 +6,14 @@ and bounded by an explicit function limit; scores are review evidence, not proof
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 import hashlib
 import json
 import re
 from pathlib import Path
 import sqlite3
+import stat
 from typing import Any
 
 from victor.core.graph_rag.structural_clones import StructuralReport
@@ -155,12 +157,30 @@ class _BodyCache:
         self.db: sqlite3.Connection | None = None
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
+            original = path.lstat() if path.exists() or path.is_symlink() else None
+            if original is not None and (
+                not stat.S_ISREG(original.st_mode) or original.st_nlink != 1
+            ):
+                raise ValueError("Body cache must be an exclusive regular file, without links")
             self.db = sqlite3.connect(path, timeout=5)
             try:
+                opened = path.lstat()
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or opened.st_nlink != 1
+                    or original is not None
+                    and (original.st_dev, original.st_ino) != (opened.st_dev, opened.st_ino)
+                ):
+                    raise ValueError("Body cache file identity changed while opening")
+                objects = self.db.execute(
+                    "SELECT type,name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'"
+                ).fetchall()
+                if any(kind != "table" or name != "body_vectors_v1" for kind, name in objects):
+                    raise ValueError("Body cache cannot repurpose an unrelated SQLite database")
                 self.db.execute(
                     "CREATE TABLE IF NOT EXISTS body_vectors_v1 (profile TEXT, input_hash TEXT, vector BLOB NOT NULL, spans TEXT NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(profile,input_hash))"
                 )
-            except sqlite3.Error:
+            except (sqlite3.Error, OSError, ValueError):
                 self.db.close()
                 self.db = None
                 raise
@@ -233,14 +253,28 @@ def analyze_bodies(
     include_same_file: bool = False,
     cache_path: Path | None = None,
     encoder: LocalBodyEncoder | None = None,
+    requested_pairs: Sequence[tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
-    """Batch complete captured function sources, cache by input/profile, retrieve."""
+    """Encode complete sources; retrieve families or score explicit diagnostic pairs.
+
+    Requested pairs bypass retrieval/grouping and preserve low/negative cosines.
+    Their indices refer to report.units, including unavailable source entries.
+    """
     import numpy as np
     from victor_codegraph.embeddings import validate_vectors
     from victor.core.graph_rag.semantic_clones import SymbolRecord, find_clone_families
 
     if len(report.units) > options.max_functions:
         raise ValueError(f"Body analysis exceeds {options.max_functions} functions; narrow --scope")
+    if requested_pairs is not None and (
+        len(requested_pairs) > 50_000
+        or any(
+            len(pair) != 2
+            or any(type(i) is not int or not 0 <= i < len(report.units) for i in pair)
+            for pair in requested_pairs
+        )
+    ):
+        raise ValueError("Invalid requested body pair indices or pair budget")
     encoder = encoder or LocalBodyEncoder(options)
     if encoder.options != options:
         raise ValueError("Body encoder profile does not match the requested evidence")
@@ -252,6 +286,7 @@ def analyze_bodies(
     pending: dict[str, tuple[int, int]] = {}
     texts: list[str] = []
     cache_hits = 0
+    row_by_unit: dict[int, int] = {}
     try:
         for unit in report.units:
             digest = hashlib.sha256(unit.source_code.encode()).hexdigest()
@@ -294,7 +329,7 @@ def analyze_bodies(
                 raise ValueError("Body window pooling produced an invalid vector")
             ready[digest] = mean / norm
             cache.put(digest, ready[digest], documents[digest][1])
-        for unit in report.units:
+        for unit_index, unit in enumerate(report.units):
             digest = hashlib.sha256(unit.source_code.encode()).hexdigest()
             if digest not in ready:
                 continue
@@ -303,6 +338,7 @@ def analyze_bodies(
                     [unit.file_path, unit.line, unit.region_index, unit.source_start, digest]
                 ).encode()
             ).hexdigest()
+            row_by_unit[unit_index] = len(records)
             records.append(
                 SymbolRecord(identity, unit.file_path, unit.name, "function", unit.line, digest)
             )
@@ -320,15 +356,20 @@ def analyze_bodies(
                 "window_token_spans": documents[digest][1],
                 "truncated": False,
             }
-        families = find_clone_families(
-            records,
-            np.asarray(vectors).reshape(len(vectors), options.dimension),
-            threshold=threshold,
-            top_k=top_k,
-            include_same_file=include_same_file,
-            language_ids=[metadata[r.id]["language"] for r in records],
-            language_scope=options.comparison_scope,
-        )
+        if requested_pairs is None:
+            families = find_clone_families(
+                records,
+                np.asarray(vectors).reshape(len(vectors), options.dimension),
+                threshold=threshold,
+                top_k=top_k,
+                include_same_file=include_same_file,
+                language_ids=[metadata[r.id]["language"] for r in records],
+                language_scope=options.comparison_scope,
+            )
+            pair_scores = None
+        else:
+            families = []
+            pair_scores = _requested_cosines(requested_pairs, row_by_unit, vectors, report, options)
     finally:
         cache.close()
     # Portable projection is independent of body-vector extraction coverage.
@@ -365,8 +406,10 @@ def analyze_bodies(
             "unique_inputs": len(documents),
             "inferred_windows": len(texts),
             "cache_hits": cache_hits,
-            "retrieval": "tiled_exact_cosine",
-            "neighbors": top_k,
+            "retrieval": (
+                "tiled_exact_cosine" if requested_pairs is None else "requested_pair_cosine"
+            ),
+            "neighbors": top_k if requested_pairs is None else None,
         },
         "errors": errors,
         "source_manifest": report.source_manifest,
@@ -389,7 +432,8 @@ def analyze_bodies(
             )
         },
         "inputs": list(metadata.values()),
-        "near_grouping": "connected_components",
+        "near_grouping": "connected_components" if requested_pairs is None else None,
+        **({"pair_scores": pair_scores} if pair_scores is not None else {}),
         "families": [
             {
                 "relation": "body_similarity_candidate",
@@ -403,3 +447,40 @@ def analyze_bodies(
             for family in families
         ],
     }
+
+
+def _requested_cosines(
+    pairs: Sequence[tuple[int, int]],
+    rows: dict[int, int],
+    vectors: list[Any],
+    report: StructuralReport,
+    options: BodyOptions,
+) -> list[dict[str, Any]]:
+    """Batch selected dot products with bounded workspace, never an N-by-N matrix."""
+    import numpy as np
+
+    matrix = np.asarray(vectors, dtype=np.float32).reshape(len(vectors), options.dimension)
+    norms = np.linalg.norm(matrix, axis=1)
+    if not np.isfinite(matrix).all() or not np.isfinite(norms).all() or (norms == 0).any():
+        raise ValueError("Body vectors must have finite nonzero norms")
+    normalized = matrix / norms[:, None]
+    result: list[dict[str, Any]] = []
+    selected: list[tuple[int, int, int]] = []
+    for left, right in pairs:
+        item: dict[str, Any] = {"left": left, "right": right, "score": None}
+        same = report.units[left].language == report.units[right].language
+        if left not in rows or right not in rows:
+            item["error"] = "body_unavailable"
+        elif options.comparison_scope != "all" and same != (options.comparison_scope == "same"):
+            item["error"] = "language_scope_filtered"
+        else:
+            selected.append((len(result), rows[left], rows[right]))
+        result.append(item)
+    for start in range(0, len(selected), 1024):
+        batch = selected[start : start + 1024]
+        lefts = np.array([item[1] for item in batch], dtype=np.int64)
+        rights = np.array([item[2] for item in batch], dtype=np.int64)
+        values = np.clip(np.sum(normalized[lefts] * normalized[rights], axis=1), -1, 1)
+        for item, score in zip(batch, values):
+            result[item[0]]["score"] = float(score)
+    return result
