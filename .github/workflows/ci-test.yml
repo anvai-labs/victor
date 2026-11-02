@@ -1,26 +1,20 @@
 # Test Workflow with Sharding
 # Tests run sequentially within each shard for reliable isolation
-# Splits tests across 12 shards for parallel matrix execution
+# Runs six shards for each supported Python version (12 jobs total)
 
 name: CI - Tests
 
 on:
-  pull_request:
-    branches: [main]
-    # No path filter: every shard below is a required main-branch check. GitHub
-    # leaves required checks permanently expected when a workflow is skipped,
-    # and workflow_dispatch runs do not satisfy a PR's expected contexts.
-    # Develop -> main is the release gate, so run the full suite for every
-    # promotion even when its delta is limited to docs, workflows, or Rust.
-    # Do not repeat the same multi-hour suite on the resulting protected merge:
-    # a merge commit produced from the gated PR has the already-tested tree.
+  # ci-fast calls the full suite for every main promotion, without path skips.
+  # Direct calls make the existing CI Success context a transitive test gate.
   workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-test-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -4,13 +4,15 @@ on:
   push:
     branches: [develop, main]
   pull_request:
+    branches-ignore: [main]
   workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-contracts-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

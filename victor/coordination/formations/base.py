@@ -42,6 +42,36 @@ from victor.teams.types import AgentMessage, MemberResult
 logger = logging.getLogger(__name__)
 
 
+async def _gather_owned_operations(
+    operations: List[Awaitable[Any]],
+    *,
+    on_cancel: Optional[Callable[[asyncio.CancelledError], None]] = None,
+) -> List[Any]:
+    """Settle every owned operation; repeated cancellation cannot abandon cleanup.
+
+    Exceptions are returned for the caller's outcome policy. External cancellation
+    cancels operations once, joins their cleanup, then propagates the original
+    cancellation even when an operation suppresses it while finishing a write.
+    """
+    workers = [asyncio.ensure_future(operation) for operation in operations]
+    wave = asyncio.gather(*workers, return_exceptions=True)
+    try:
+        return await asyncio.shield(wave)
+    except asyncio.CancelledError as cancellation:
+        if on_cancel is not None:
+            on_cancel(cancellation)
+        for worker in workers:
+            if not worker.done():
+                worker.cancel()
+        while not wave.done():
+            try:
+                await asyncio.shield(wave)
+            except asyncio.CancelledError:
+                continue
+        wave.result()
+        raise cancellation
+
+
 class MemberCheckpointError(RuntimeError):
     """Opt-in recovery evidence is unavailable; restarting may repeat effects."""
 
@@ -365,10 +395,11 @@ class BaseFormationStrategy(ABC):
         indices: Optional[List[int]] = None,
         resume_override: Optional[Dict[str, Any]] = None,
         member_retries: int = 0,
+        checkpoint_members: bool = True,
     ) -> List[MemberResult]:
         """Run members concurrently with ADR-023 durable checkpoint/resume + streaming lanes.
 
-        Reused by the concurrent formations (PARALLEL and the HIERARCHICAL specialist wave).
+        Reused by concurrent formations and each CONSENSUS round.
         Members execute concurrently via ``asyncio.gather`` (each in its own ``exec_context``);
         only the brief completion handler — record the result + checkpoint the cumulative
         completed set — is serialized under an ``asyncio.Lock``, so parallelism is preserved. On
@@ -387,6 +418,10 @@ class BaseFormationStrategy(ABC):
           filters the coordinator payload down to specialist ids — the supervisor's phase results
           must not seed the wave). ``None`` → read ``context.resume_completed``; pass ``{}`` to
           force a fresh wave regardless of the context payload.
+        - ``checkpoint_members``: false when an iterative formation owns its round
+          checkpoint. Admission, lane events, cancellation and failure normalization
+          still use this runner, without recording individual members as durable
+          completed rounds. The caller also passes ``resume_override={}``.
 
         ADR-023 concurrent durable pause: when ``batch_pause_hook`` is set (durable team run whose
         formation ``supports_durable_pause()``), members that come back awaiting approval are
@@ -395,8 +430,10 @@ class BaseFormationStrategy(ABC):
         so a resumed run re-runs exactly the awaiting members while completed ones are skipped.
         """
         member_event_hook = getattr(context, "member_event_hook", None)
-        checkpoint_hook = getattr(context, "checkpoint_hook", None)
-        batch_pause_hook = getattr(context, "batch_pause_hook", None)
+        checkpoint_hook = getattr(context, "checkpoint_hook", None) if checkpoint_members else None
+        batch_pause_hook = (
+            getattr(context, "batch_pause_hook", None) if checkpoint_members else None
+        )
         member_tasks = tasks if tasks is not None else [task] * len(agents)
         member_indices = indices if indices is not None else list(range(len(agents)))
 
@@ -532,29 +569,14 @@ class BaseFormationStrategy(ABC):
             _admitted_run(a, c, i, t)
             for a, c, i, t in zip(agents, exec_contexts, member_indices, member_tasks)
         ]
-        if checkpoint_hook is not None or batch_pause_hook is not None:
-            workers = [asyncio.create_task(run) for run in runs]
-            wave = asyncio.gather(*workers, return_exceptions=True)
-            try:
-                gathered = await asyncio.shield(wave)
-            except asyncio.CancelledError as cancellation:
-                # Close admission before signalling workers: one may catch cancellation
-                # and return a retryable failure or a late checkpoint acknowledgement.
-                checkpoint_error = cancellation
-                for worker in workers:
-                    if not worker.done():
-                        worker.cancel()
-                # Repeated parent cancellation must not interrupt member cleanup or
-                # let coordinator workspace cleanup race a still-owned worker.
-                while not wave.done():
-                    try:
-                        await asyncio.shield(wave)
-                    except asyncio.CancelledError:
-                        continue
-                wave.result()
-                raise cancellation
-        else:
-            gathered = await asyncio.gather(*runs, return_exceptions=True)
+
+        def close_admission(cancellation: asyncio.CancelledError) -> None:
+            nonlocal checkpoint_error
+            # A cancelled member may return a retryable failure after cleanup.
+            # Close admission before signalling it so it cannot start more work.
+            checkpoint_error = cancellation
+
+        gathered = await _gather_owned_operations(runs, on_cancel=close_admission)
 
         if checkpoint_error is not None:
             raise checkpoint_error

@@ -193,22 +193,24 @@ async def test_shell_heredoc_command():
 
 @pytest.mark.asyncio
 async def test_shell_broad_search_commands_are_not_redirected():
-    """Broad rg/grep searches execute in shell; the redirect guard is gone.
-
-    Commit 92935ec9 removed the search-redirect guard that blocked rg/grep
-    and pointed at the deprecated grouped search tool. The command must now
-    reach subprocess execution instead of returning a guard error.
-    """
-    with patch(
-        "victor.tools.shell_command_cache.execute_with_cache",
-        return_value=(0, "match\n", ""),
-    ) as mock_exec:
+    """Broad searches use the canonical managed process owner on a cache miss."""
+    cache = MagicMock()
+    cache.get.return_value = None
+    with (
+        patch("victor.tools.shell_command_cache.get_shell_cache", return_value=cache),
+        patch(
+            "victor.tools.subprocess_executor.run_managed_process",
+            new_callable=AsyncMock,
+            return_value=(b"match\n", b"", 0, False, False),
+        ) as run,
+    ):
         result = await shell(cmd="rg FilePathField .", readonly=False)
-
-    mock_exec.assert_called_once()
-    assert mock_exec.call_args.args[0].startswith("rg ")
+    run.assert_awaited_once()
+    assert run.call_args.kwargs["command"].startswith("rg ")
     assert result["success"] is True
+    assert result["cached"] is False
     assert "match" in result["stdout"]
+    cache.set.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -241,7 +243,7 @@ class TestReadonlyControlFlow:
         "cmd",
         [
             # The exact failing pattern from the transcript.
-            'for d in docs/*/; do cnt=$(find "$d" -name "*.md" | wc -l); echo "$d : $cnt"; done',
+            'for d in docs/*/; do cnt=$(find "./$d" -name "*.md" | wc -l); echo "$d : $cnt"; done',
             "for i in 1 2 3; do echo $i; done",
             "if [ -f README.md ]; then cat README.md; fi",
             'while read line; do echo "$line"; done',
@@ -779,3 +781,361 @@ class TestReadonlyFindActions:
     )
     def test_readonly_find_forms_still_allowed(self, cmd):
         assert self._valid(cmd) is True
+
+
+class TestReadonlySemanticBoundaries:
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "echo data>out.txt",
+            "cat<in.txt>out.txt",
+            "cat <>out.txt",
+            "echo data 2>>out.txt",
+            "cat <(touch out.txt)",
+            "echo first\ntouch out.txt",
+            "echo first & touch out.txt",
+            "cat <(cat in.txt; touch out.txt)",
+            "cat >(touch out.txt)",
+            "source commands.sh",
+            ". commands.sh",
+            "env source commands.sh",
+            "awk 'BEGIN {system(\"touch out.txt\")}'",
+            "sed -n 'w out.txt' in.txt",
+            "sed 's/a/b/e' in.txt",
+            "sed 's/a/b/w out.txt' in.txt",
+            "sed -f commands.sed in.txt",
+            "sort -o out.txt in.txt",
+            "sort --output=out.txt in.txt",
+            "rg --pre=commands.sh pattern in.txt",
+            "rg --hostname-bin commands.sh pattern in.txt",
+            "git branch deleted -D",
+            "git branch newly-created",
+            "git tag new-tag",
+            "git remote add new https://example.invalid/r",
+            "git stash",
+            "git stash clear",
+            "git worktree prune",
+            "git config user.name changed",
+            "git reflog expire --all",
+            "git show --output=out.txt",
+            "git diff --ext-diff",
+            "git grep -Ocommands.sh pattern",
+            "git -c core.pager=commands.sh log",
+            "ssh host 'cat in.txt>out.txt'",
+            "ssh host 'cat <(touch out.txt)'",
+            "ssh host 'source commands.sh'",
+        ],
+    )
+    def test_write_or_opaque_execution_is_not_classified_readonly(self, cmd):
+        from victor.tools.bash import _validate_readonly_command
+
+        assert _validate_readonly_command(cmd)[0] is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "echo 'a>b'",
+            "echo a\\>b",
+            "cat <in.txt",
+            "echo data>/dev/null",
+            "cat <(cat in.txt)",
+            "sort -n in.txt",
+            "rg -n pattern in.txt",
+            "sed -n '1,80p' in.txt",
+            "sed -n -e '1p' in.txt",
+            "sed 's/a/b/g' in.txt",
+            "git -C repo status",
+            "git branch --list 'feature/*'",
+            "git branch -a",
+            "git tag --list 'v*'",
+            "git remote -v",
+            "git remote get-url origin",
+            "git stash list",
+            "git worktree list --porcelain",
+            "git config --get user.name",
+            "git config --list",
+            "git reflog show",
+            "git diff --no-ext-diff",
+        ],
+    )
+    def test_supported_readonly_forms_keep_their_argument_semantics(self, cmd):
+        from victor.tools.bash import _validate_readonly_command
+
+        assert _validate_readonly_command(cmd)[0] is True
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo data>out.txt",
+        "cat <(touch out.txt)",
+        "source commands.sh",
+        "A=1>out.txt",
+        r"echo `echo \`touch out.txt\``",
+        "$(printf touch) out.txt",
+        "python3 arbitrary.py",
+        "node arbitrary.js",
+        "gh pr merge 1",
+        "docker buildx build .",
+        "find . $(printf -- -delete)",
+        'sort "$OP" file',
+        'ssh host "cat $PAYLOAD"',
+        "RUSTC=./helper cargo metadata --locked",
+        "GIT_SSH_COMMAND=./helper git ls-remote git@host:repo",
+        "printf '%n' PATH; cat plain.txt",
+        "printf -vPATH '%s' 0; cat plain.txt",
+        "read -aPATH",
+        "printf -v 'arr[$(echo fixture)]' x",
+        'printf "$FORMAT" value',
+        'ACTION=-delete; find . -name -- "$ACTION"',
+        'FLAGS=--output=out; git diff --src-prefix -- "$FLAGS"',
+        'FLAGS=--pre=helper; rg "$FLAGS" pattern file',
+        "pip list --log output.log",
+        "gh pr view 1 --web=true",
+        "ffmpeg -i in.mp4 -vf metadata=mode=print:file=output -f image2pipe -",
+        "ffprobe -report input.mp4",
+        "tesseract input.png stdout -c debug_file=output",
+    ],
+)
+async def test_readonly_semantic_rejections_do_not_spawn_but_explicit_writes_can(cmd):
+    with (
+        patch("victor.tools.shell_command_cache.get_shell_cache") as cached,
+        patch(
+            "victor.tools.subprocess_executor.run_managed_process",
+            new_callable=AsyncMock,
+            return_value=(b"ok", b"", 0, False, False),
+        ) as execute,
+    ):
+        blocked = await shell(cmd=cmd, readonly=True)
+        assert blocked["success"] is False
+        cached.assert_not_called()
+        execute.assert_not_awaited()
+        permitted = await shell(cmd=cmd, readonly=False)
+        assert permitted["success"] is True
+        cached.assert_not_called()
+        execute.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "A=1>out.txt",
+        "A=1>>out.txt",
+        "A=1>out.txt echo safe",
+        r"echo `echo \`touch out.txt\``",
+        "$(printf touch) out.txt",
+        "env $(printf touch) out.txt",
+        'python3 -c \'open("out.txt", "w").write("x")\'',
+        'node -e \'require("fs").writeFileSync("out.txt", "x")\'',
+        "pytest -q",
+        "pytest --help",
+        "tox",
+        "npm test",
+        "make test",
+        "cargo test",
+        "go test ./...",
+        "gh pr merge 1",
+        "gh repo delete repo",
+        "gh api --method DELETE repos/a/b",
+        "docker buildx build .",
+        "docker manifest push image",
+        "helm repo add a https://example.invalid",
+        "kubectl config use-context context",
+        "ruff check --fix file.py",
+        "eslint --fix file.js",
+        "git grep --open=commands.sh pattern",
+        "sort --out=out.txt in.txt",
+        "sort --compress-program=commands.sh in.txt",
+    ],
+)
+def test_remaining_opaque_execution_and_assignment_writes_are_not_reads(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 --version",
+        "node --help",
+        "npm view pkg",
+        "cargo tree --locked",
+        "go version",
+        "gh pr view 1",
+        "gh repo view",
+        "gh api repos/a/b --method GET",
+        "docker buildx inspect",
+        "docker manifest inspect image",
+        "helm repo list",
+        "kubectl config view",
+        "ruff check file.py",
+        "eslint --version",
+        "git diff --no-ext-diff",
+        "cat <(cat in.txt)",
+        r"echo `echo \`printf safe\``",
+    ],
+)
+def test_nonexecuting_inspection_forms_still_work(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "PATH=/untrusted ls",
+        "env LD_PRELOAD=/tmp/lib.so cat file",
+        "RIPGREP_CONFIG_PATH=commands.conf rg pattern",
+        "tar -xf archive.tar",
+        "tar --delete -f archive.tar",
+        "tar -tf archive.tar --checkpoint-action=exec=commands.sh",
+        "unzip archive.zip",
+        "kubectl cluster-info dump --output-directory=out",
+        "gh pr view --web 1",
+    ],
+)
+def test_executable_environment_and_archive_mutations_require_permission(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "tar -tf archive.tar",
+        "tar --list --file archive.tar",
+        "unzip -l archive.zip",
+        "LANG=C cat file",
+    ],
+)
+def test_archive_listing_and_inert_environment_remain_readonly(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is True
+
+
+def test_deep_transparent_wrapper_nesting_fails_closed():
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command("env " * 100 + "cat file")[0] is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "find . $(printf -- -delete)",
+        'find "$ARG"',
+        'sort "$OP" file',
+        'sed -n 1p "$OP" file',
+        'env sort "$OP" file',
+        'ssh "$HOST" cat file',
+        'ssh host "cat $PAYLOAD"',
+        "sort $FILES",
+    ],
+)
+def test_dynamic_argv_cannot_choose_a_write_or_execution_option(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'find "./$DIR" -type f',
+        'find . -name "$PATTERN"',
+        'sort -- "$FILE"',
+        'rg -- "$PATTERN" "$FILE"',
+        'cat "$FILE"',
+        "find . -name '$LITERAL'",
+    ],
+)
+def test_provably_positional_dynamic_values_remain_available(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is True
+
+
+def test_unquoted_brace_expansion_can_also_choose_a_write_option():
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command("sort {-oout.txt,file} input")[0] is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "if PATH=/untrusted ls; then echo x; fi",
+        "for PATH in /untrusted; do ls; done",
+        "printf -v PATH /untrusted; ls",
+        "read PATH; ls",
+    ],
+)
+def test_control_flow_and_builtins_cannot_replace_executable_resolution(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is False
+
+
+def test_readonly_printf_can_still_render_quoted_data():
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command('printf "%s\\n" "$LINE"')[0] is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo '\\'; touch out.txt",
+        "echo # '\ntouch out.txt\n# '",
+        "docker compose config -oout.txt",
+        "docker compose config --out=out.txt",
+    ],
+)
+def test_single_quoted_backslash_comments_and_attached_cli_outputs_fail_closed(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is False
+
+
+@pytest.mark.parametrize("command", ["echo '\\'; touch out.txt", "docker compose config -oout.txt"])
+async def test_quoted_and_cli_output_bypasses_never_spawn_or_hit_read_cache(command):
+    with (
+        patch("victor.tools.shell_command_cache.get_shell_cache") as cached,
+        patch(
+            "victor.tools.subprocess_executor.run_managed_process", new_callable=AsyncMock
+        ) as run,
+    ):
+        result = await shell(cmd=command, readonly=True)
+        assert result["success"] is False
+        cached.assert_not_called()
+        run.assert_not_awaited()
+
+
+def test_comment_parenthesis_cannot_end_a_substitution_before_its_effects():
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command('echo "$(printf safe # )\ntouch out.txt\n)"')[0] is False
+    assert _validate_readonly_command('echo "$(printf safe # )\nprintf more\n)"')[0] is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'rg "$FLAGS" pattern file',
+        "FLAGS=--pre=helper; rg $FLAGS pattern file",
+        "ffmpeg -i input.mp4 -vf 'metadata=mode=print:file=out.txt' -f image2pipe -",
+        "ffmpeg -f lavfi -i 'color,metadata=mode=print:file=out.txt' -f image2pipe -",
+        "ffprobe -report -show_format input.mp4",
+        "tesseract input.png stdout -c debug_file=out.txt",
+        "tesseract input.png stdout custom-config",
+        "pdftocairo -png input.pdf -",
+    ],
+)
+def test_media_and_binary_helper_programs_require_execution(command):
+    from victor.tools.bash import _validate_readonly_command
+
+    assert _validate_readonly_command(command)[0] is False

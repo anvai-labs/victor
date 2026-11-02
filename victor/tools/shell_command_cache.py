@@ -27,8 +27,11 @@ The cache is:
 """
 
 import hashlib
+from collections import OrderedDict
 from victor.core.json_utils import json_dumps
 import logging
+import os
+from pathlib import Path
 import subprocess
 import threading
 from datetime import datetime, timedelta
@@ -40,13 +43,18 @@ logger = logging.getLogger(__name__)
 class ShellCommandCache:
     """Thread-safe cache for shell command results with TTL."""
 
-    def __init__(self, default_ttl_minutes: int = 5):
+    def __init__(self, default_ttl_minutes: int = 5, *, max_entries: int = 128):
         """Initialize shell command cache.
 
         Args:
             default_ttl_minutes: Default time-to-live for cache entries
+            max_entries: Maximum retained results; least recently used entries are evicted.
         """
-        self._cache: Dict[str, Tuple[Any, datetime]] = {}
+        if type(max_entries) is not int or max_entries < 1:
+            raise ValueError("max_entries must be a positive integer")
+        self._max_entries = max_entries
+        self._max_result_bytes = 64 * 1024
+        self._cache: OrderedDict[str, Tuple[Any, datetime]] = OrderedDict()
         self._lock = threading.RLock()
         self._default_ttl = timedelta(minutes=default_ttl_minutes)
 
@@ -116,7 +124,9 @@ class ShellCommandCache:
 
         key_data = {
             "command": command,
-            "cwd": cwd or "",
+            # A relative directory denotes a different execution scope after
+            # changing projects; never alias both projects under the key '.'.
+            "cwd": str(Path(cwd or os.getcwd()).expanduser().resolve()),
             "env": relevant_env,
         }
 
@@ -141,6 +151,7 @@ class ShellCommandCache:
                 ttl = self._get_ttl_for_command(command)
 
                 if datetime.now() - timestamp < ttl:
+                    self._cache.move_to_end(key)
                     logger.debug(f"Cache HIT: {command[:60]}...")
                     return result
                 else:
@@ -161,7 +172,16 @@ class ShellCommandCache:
         key = self._generate_key(command, cwd)
 
         with self._lock:
+            if (
+                len(result[1].encode("utf-8")) + len(result[2].encode("utf-8"))
+                > self._max_result_bytes
+            ):
+                self._cache.pop(key, None)
+                return
             self._cache[key] = (result, datetime.now())
+            self._cache.move_to_end(key)
+            while len(self._cache) > self._max_entries:
+                self._cache.popitem(last=False)
             logger.debug(f"Cached: {command[:60]}...")
 
     def clear(self) -> None:
@@ -201,6 +221,8 @@ class ShellCommandCache:
         with self._lock:
             return {
                 "entries": len(self._cache),
+                "max_entries": self._max_entries,
+                "max_result_bytes": self._max_result_bytes,
                 "default_ttl_minutes": int(self._default_ttl.total_seconds() / 60),
                 "command_ttls": {
                     cmd: int(ttl.total_seconds() / 60) for cmd, ttl in self._command_ttls.items()

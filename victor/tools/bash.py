@@ -16,6 +16,7 @@ from __future__ import annotations
 
 """Bash command execution tool with readonly mode support."""
 
+import contextvars
 import logging
 import os
 import platform
@@ -29,6 +30,27 @@ from typing import Any, Dict, List, Optional, Set
 logger = logging.getLogger(__name__)
 
 from victor.config.timeouts import ProcessTimeouts
+from victor.security.shell_commands import (
+    FIND_VALUE_TESTS,
+    GIT_READONLY_SUBCOMMANDS as GIT_READONLY_SUBCOMMANDS,
+    _validate_git_readonly as _validate_git_readonly,
+    _validate_sed_readonly as _validate_sed_readonly,
+    PURE_OUTPUT_COMMANDS,
+    cacheable_inspection,
+    dynamic_arguments_safe,
+    execution_environment_assignment,
+    inspection_command,
+)
+from victor.security.shell_syntax import (
+    MAX_SHELL_NESTING,
+    ShellSyntaxError,
+    scan_file_writes,
+    scan_substitutions,
+    split_shell_commands,
+    strip_shell_prefix,
+    shell_words,
+    shell_assignments,
+)
 from victor.tools.base import AccessMode, DangerLevel, ExecutionCategory, Priority
 from victor.tools.decorators import tool
 
@@ -56,8 +78,6 @@ READONLY_COMMANDS_UNIX: Set[str] = {
     "ll",
     "la",
     "cd",  # Directory navigation (read-only, doesn't modify files)
-    "source",  # Shell environment (venv activation)
-    ".",  # Shell environment (venv activation)
     "tree",
     "find",
     "locate",
@@ -207,8 +227,6 @@ READONLY_COMMANDS_WINDOWS: Set[str] = {
     "tree",
     "where",
     "type",
-    "source",
-    ".",
     # File content viewing
     "more",
     "find",
@@ -227,36 +245,6 @@ READONLY_COMMANDS_WINDOWS: Set[str] = {
 }
 
 # Git subcommands that are readonly
-GIT_READONLY_SUBCOMMANDS: Set[str] = {
-    "status",
-    "log",
-    "show",
-    "diff",
-    "branch",
-    "tag",
-    "remote",
-    "ls-files",
-    "ls-tree",
-    "rev-parse",
-    "rev-list",
-    "describe",
-    "shortlog",
-    "blame",
-    "grep",
-    "config",  # readonly by default (no --global, --unset)
-    "reflog",
-    "stash",  # list only
-    "worktree",  # list only
-    "cat-file",
-    "ls-remote",
-    "check-ignore",
-    "check-attr",
-    "name-rev",
-    "verify-commit",
-    "verify-tag",
-    "for-each-ref",
-}
-
 # pip subcommands that are readonly
 PIP_READONLY_SUBCOMMANDS: Set[str] = {
     "list",
@@ -377,246 +365,18 @@ def _extract_subcommand(cmd: str, base_cmd: str) -> Optional[str]:
 
 
 def _split_compound_command(cmd: str) -> List[str]:
-    """Split a compound command into individual command segments.
-
-    Handles ``&&``, ``||``, ``;`` and pipeline ``|`` operators while respecting
-    quoted strings. Every returned segment is validated independently for
-    readonly mode, so a safe command cannot hide a mutating command later in a
-    chain or pipeline.
-    """
-    components = []
-    current = []
-    i = 0
-    in_quote = None  # None, '"', or "'"
-    in_escape = False
-
-    # Use variables to avoid quote escaping issues
-    single_quote = "'"
-    double_quote = '"'
-    quote_chars = {single_quote, double_quote}
-
-    while i < len(cmd):
-        char = cmd[i]
-
-        if in_escape:
-            current.append(char)
-            in_escape = False
-            i += 1
-            continue
-
-        if char == "\\":
-            current.append(char)
-            in_escape = True
-            i += 1
-            continue
-
-        if char in quote_chars and (not in_quote or in_quote == char):
-            if in_quote == char:
-                in_quote = None
-            else:
-                in_quote = char
-            current.append(char)
-            i += 1
-            continue
-
-        # Check for compound operators (only when not in quotes)
-        if not in_quote:
-            # Check for && (must be & followed by &, not part of other text)
-            if char == "&" and i + 1 < len(cmd) and cmd[i + 1] == "&":
-                component = "".join(current).strip()
-                if component:
-                    components.append(component)
-                current = []
-                i += 2
-                continue
-            # Check for ||
-            if char == "|" and i + 1 < len(cmd) and cmd[i + 1] == "|":
-                component = "".join(current).strip()
-                if component:
-                    components.append(component)
-                current = []
-                i += 2
-                continue
-            # Check for single pipeline |. A pipeline is readonly only if every
-            # segment is readonly; `cat f | tee out` must fail on the tee segment.
-            if char == "|":
-                component = "".join(current).strip()
-                if component:
-                    components.append(component)
-                current = []
-                i += 1
-                continue
-            # Check for ; (not part of ;; or other constructs)
-            if char == ";":
-                # Skip if it's ;; (used in some shells like case statements)
-                if i + 1 < len(cmd) and cmd[i + 1] == ";":
-                    current.append(char)
-                    i += 1
-                else:
-                    component = "".join(current).strip()
-                    if component:
-                        components.append(component)
-                    current = []
-                i += 1
-                continue
-
-        current.append(char)
-        i += 1
-
-    # Add the last component
-    component = "".join(current).strip()
-    if component:
-        components.append(component)
-
-    return components if components else [cmd.strip()]
-
-
-def _redirection_target(cmd: str, start: int) -> tuple[str, int]:
-    """Return the target token after a redirection operator.
-
-    ``start`` points just after the operator. The target is read until shell
-    whitespace or another unquoted shell operator. Quotes are stripped by
-    ``shlex`` later; here we only need enough lexical awareness to distinguish
-    ``>/dev/null`` from ``> output.txt``.
-    """
-    n = len(cmd)
-    i = start
-    while i < n and cmd[i].isspace():
-        i += 1
-    out: List[str] = []
-    in_quote = None
-    escape = False
-    while i < n:
-        ch = cmd[i]
-        if escape:
-            out.append(ch)
-            escape = False
-            i += 1
-            continue
-        if ch == "\\":
-            escape = True
-            i += 1
-            continue
-        if ch in {"'", '"'} and (in_quote is None or in_quote == ch):
-            in_quote = None if in_quote == ch else ch
-            i += 1
-            continue
-        if in_quote is None and (ch.isspace() or ch in {";", "|", "&", "<", ">"}):
-            break
-        out.append(ch)
-        i += 1
-    return "".join(out), i
+    """Compatibility port for the shared compound-command lexer."""
+    return split_shell_commands(cmd)
 
 
 def _validate_readonly_redirections(cmd: str) -> tuple[bool, str]:
-    """Reject output redirection that can write files in readonly mode.
-
-    Allowed:
-      * stderr/stdout suppression to ``/dev/null``: ``>/dev/null``, ``2>/dev/null``
-      * descriptor duplication/closure: ``2>&1``, ``1>&2``, ``2>&-``
-      * input-only redirection: ``less < file``
-
-    Rejected:
-      * file writes/appends: ``> out``, ``>> out``, ``2> err``, ``&> out``
-    """
-    i, n = 0, len(cmd)
-    in_single = False
-    in_double = False
-    escape = False
-    while i < n:
-        ch = cmd[i]
-        if escape:
-            escape = False
-            i += 1
-            continue
-        if ch == "\\" and not in_single:
-            escape = True
-            i += 1
-            continue
-        if ch == "'" and not in_double:
-            in_single = not in_single
-            i += 1
-            continue
-        if ch == '"' and not in_single:
-            in_double = not in_double
-            i += 1
-            continue
-        if in_single or in_double:
-            i += 1
-            continue
-
-        # Input redirection is readonly; skip `< file` and here-strings/docs.
-        if ch == "<":
-            i += 2 if i + 1 < n and cmd[i + 1] == "<" else 1
-            continue
-
-        # stdout/stderr redirection. Include optional leading fd and &>.
-        op_start = i
-        if ch.isdigit():
-            j = i
-            while j < n and cmd[j].isdigit():
-                j += 1
-            if j >= n or cmd[j] != ">":
-                i += 1
-                continue
-            op_start = j
-        elif ch == "&" and i + 1 < n and cmd[i + 1] == ">":
-            op_start = i + 1
-        elif ch != ">":
-            i += 1
-            continue
-
-        # Do not confuse comparison operators in test/[ with redirection; this
-        # scanner is conservative, but `-gt`/`>` comparisons are usually quoted
-        # or spaced inside test. Redirection requires an operator token here.
-        if op_start > 0 and cmd[op_start - 1] not in " \t\n\r&0123456789":
-            i += 1
-            continue
-
-        j = op_start + 1
-        if j < n and cmd[j] == ">":
-            j += 1
-        if j < n and cmd[j] == "&":
-            target, next_i = _redirection_target(cmd, j + 1)
-            if target in {"1", "2", "-"}:
-                i = next_i
-                continue
-            return False, "redirection (>&)"
-
-        target, next_i = _redirection_target(cmd, j)
-        if target == "/dev/null":
-            i = next_i
-            continue
-        return False, "redirection (>)"
-
+    """Allow only non-file redirections and literal /dev/null suppression."""
+    for write in scan_file_writes(cmd):
+        if write.dynamic or write.target != "/dev/null":
+            return False, f"redirection ({write.operator})"
     return True, ""
 
 
-# Shell control-flow keywords are structural — they run no command themselves.
-_SHELL_CONTROL_FLOW_KEYWORDS = frozenset(
-    {
-        "for",
-        "while",
-        "until",
-        "if",
-        "then",
-        "elif",
-        "else",
-        "fi",
-        "do",
-        "done",
-        "case",
-        "esac",
-        "select",
-        "time",
-        "function",
-        "!",
-        "{",
-        "}",
-    }
-)
-# Keywords that introduce a word-list/header (not a command) after them.
-_SHELL_LOOP_HEADER_KEYWORDS = frozenset({"for", "select", "case"})
 # Read-only shell builtins that aren't external binaries in the allowlist.
 _SHELL_SAFE_BUILTINS = frozenset(
     {
@@ -652,40 +412,7 @@ _FIND_EXEC_ACTIONS: frozenset = frozenset({"-exec", "-execdir", "-ok", "-okdir"}
 # find tests/options that consume exactly one argument — skipping the value
 # keeps a flag-shaped argument (e.g. `find . -name -delete`, matching files
 # NAMED "-delete") from being misread as an action flag.
-_FIND_VALUE_TESTS: frozenset = frozenset(
-    {
-        "-name",
-        "-iname",
-        "-lname",
-        "-ilname",
-        "-path",
-        "-ipath",
-        "-wholename",
-        "-iwholename",
-        "-regex",
-        "-iregex",
-        "-type",
-        "-xtype",
-        "-user",
-        "-group",
-        "-uid",
-        "-gid",
-        "-perm",
-        "-newer",
-        "-anewer",
-        "-cnewer",
-        "-size",
-        "-inum",
-        "-links",
-        "-mtime",
-        "-atime",
-        "-ctime",
-        "-maxdepth",
-        "-mindepth",
-        "-fstype",
-        "-context",
-    }
-)
+_FIND_VALUE_TESTS = FIND_VALUE_TESTS
 
 
 def _validate_find_readonly(tokens: list[str]) -> tuple[bool, str]:
@@ -720,119 +447,42 @@ def _validate_find_readonly(tokens: list[str]) -> tuple[bool, str]:
     return True, ""
 
 
-def _scan_substitutions(text: str) -> "tuple[List[str], str]":
-    """Quote-aware scan for command substitutions.
-
-    Returns ``(subs, stripped)`` where ``subs`` are the inner command strings of
-    genuine ``$(...)`` / backtick substitutions — which execute during expansion
-    and must be validated against the read-only allowlist — and ``stripped`` is
-    ``text`` with those substitutions replaced by the benign ``true`` builtin so
-    the surrounding command can be parsed without their spaces/operators leaking
-    into structural parsing.
-
-    Shell quoting is respected, which is the whole point: inside **single quotes**
-    everything is literal, so backticks/``$()`` in a grep pattern such as
-    ``'^```mermaid'`` or ``'```\\|```'`` are NOT substitutions and are left intact.
-    Inside double quotes and unquoted text, ``$(...)`` and backticks are active,
-    matching shell semantics. (The previous regex-based extractor ignored quoting
-    and mis-read literal backticks as substitutions, rejecting valid commands.)
-    """
-    subs: List[str] = []
-    out: List[str] = []
-    i, n = 0, len(text)
-    in_single = False
-    in_double = False
-    while i < n:
-        ch = text[i]
-        # Backslash escapes the next char (not inside single quotes).
-        if ch == "\\" and i + 1 < n and not in_single:
-            out.append(ch)
-            out.append(text[i + 1])
-            i += 2
-            continue
-        if ch == "'" and not in_double:
-            in_single = not in_single
-            out.append(ch)
-            i += 1
-            continue
-        if ch == '"' and not in_single:
-            in_double = not in_double
-            out.append(ch)
-            i += 1
-            continue
-        if not in_single:
-            # $(...) — depth-balanced so nested parens don't end it early.
-            if ch == "$" and i + 1 < n and text[i + 1] == "(":
-                depth, j = 1, i + 2
-                start = j
-                while j < n and depth:
-                    if text[j] == "(":
-                        depth += 1
-                    elif text[j] == ")":
-                        depth -= 1
-                    j += 1
-                if depth == 0:
-                    subs.append(text[start : j - 1])
-                    out.append("true")
-                    i = j
-                    continue
-                out.append(text[i:])  # unbalanced — keep the rest literal
-                break
-            # `...` backtick substitution
-            if ch == "`":
-                j = text.find("`", i + 1)
-                if j != -1:
-                    subs.append(text[i + 1 : j])
-                    out.append("true")
-                    i = j + 1
-                    continue
-                # unbalanced backtick — treat literally
-        out.append(ch)
-        i += 1
-    return subs, "".join(out)
+def _scan_substitutions(text: str) -> tuple[list[str], str]:
+    """Compatibility port for the shared shell substitution lexer."""
+    return scan_substitutions(text)
 
 
 def _strip_structural_prefix(component: str) -> Optional[str]:
-    """Strip leading control-flow keywords and variable assignments.
-
-    Returns the residual simple command, or ``None`` if the component is purely
-    structural (a loop/case header, a bare keyword like ``do``/``done``/``then``/
-    ``fi``, or only ``VAR=value`` assignments) and runs no command itself.
-    """
-    s = component.strip()
-    if not s:
-        return None
+    """Keep executable environment changes visible to the permission gate."""
     try:
-        tokens = shlex.split(s)
+        words = shell_assignments(component)
     except ValueError:
-        # Preserve malformed input for the command gate rather than attempting
-        # to strip prefixes from a different tokenization.
-        return s
-    if not tokens:
-        return None
-    # A loop/case header (`for VAR in WORDS`, `case WORD in`) runs no command.
-    if tokens[0].lower() in _SHELL_LOOP_HEADER_KEYWORDS:
-        return None
-    idx = 0
-    while idx < len(tokens) and tokens[idx].lower() in _SHELL_CONTROL_FLOW_KEYWORDS:
-        idx += 1
-    while idx < len(tokens) and _ASSIGNMENT_RE.match(tokens[idx]):
-        idx += 1
-    if idx >= len(tokens):
-        return None
-    if idx == 0:
-        return s
-    # Preserve the residual shell text: rebuilding from split tokens erases
-    # quotes in SSH options, redirects and literal arguments to exec wrappers.
-    lexer = shlex.shlex(s, posix=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    for _ in range(idx):
-        lexer.get_token()
-    return s[lexer.instream.tell() :]
+        return component
+    for word in words:
+        if execution_environment_assignment(word):
+            return "__victor_opaque_environment__"
+    return strip_shell_prefix(component)
 
 
-def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
+_READONLY_VALIDATION_DEPTH: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "readonly_shell_validation_depth", default=0
+)
+
+
+def _validate_readonly_command(cmd: str, *, _depth: int = 0) -> tuple[bool, str]:
+    depth = _READONLY_VALIDATION_DEPTH.get()
+    if depth > MAX_SHELL_NESTING:
+        return False, "shell nesting limit exceeded"
+    token = _READONLY_VALIDATION_DEPTH.set(depth + 1)
+    try:
+        return _validate_readonly_command_impl(cmd, _depth=_depth)
+    except ShellSyntaxError as exc:
+        return False, str(exc)
+    finally:
+        _READONLY_VALIDATION_DEPTH.reset(token)
+
+
+def _validate_readonly_command_impl(cmd: str, *, _depth: int = 0) -> tuple[bool, str]:
     """Validate if a command is readonly and return (is_valid, failing_cmd).
 
     Shell control-flow (``for``/``while``/``if`` ... ``do``/``then``/``done``) is
@@ -844,12 +494,17 @@ def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
     # 1. Quote-aware substitution scan: extract genuine $(...) / backtick subs
     #    (validated below) and strip them so their inner spaces/operators don't
     #    confuse structural parsing. Literal backticks inside quotes are kept.
-    subs, sanitized = _scan_substitutions(cmd)
+    if _depth > MAX_SHELL_NESTING:
+        return False, "shell nesting limit exceeded"
+    try:
+        subs, sanitized = scan_substitutions(cmd, depth=_depth)
+    except ShellSyntaxError as exc:
+        return False, str(exc)
     for sub in subs:
         sub = sub.strip()
         if not sub:
             continue
-        valid, failing = _validate_readonly_command(sub)
+        valid, failing = _validate_readonly_command(sub, _depth=_depth + 1)
         if not valid:
             return False, failing
 
@@ -879,6 +534,8 @@ def _validate_remote_exec_readonly(cmd: str, base_cmd: str) -> tuple[bool, str]:
     if not tokens:
         return False, base_cmd
     if base_cmd == "ssh":
+        if not dynamic_arguments_safe(base_cmd, shell_words(cmd)):
+            return False, "ssh (opaque dynamic arguments)"
         return _validate_ssh_readonly(tokens)
     return False, base_cmd
 
@@ -964,6 +621,9 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     # Strip leading control-flow keywords, loop headers, and assignments. What
     # remains is the actual command to validate (or nothing, for a structural
     # fragment like `do` / `done` / `for x in ...`).
+    redirect_valid, redirect_reason = _validate_readonly_redirections(cmd)
+    if not redirect_valid:
+        return False, redirect_reason
     residual = _strip_structural_prefix(cmd)
     if residual is None:
         return True, ""
@@ -999,6 +659,9 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     if not redirect_valid:
         return False, redirect_reason
 
+    if not dynamic_arguments_safe(base_cmd, shell_words(cmd)):
+        return False, f"{base_cmd} (opaque dynamic arguments)"
+
     # env is a generic exec wrapper: `env rm -f x` runs rm. Validate the
     # wrapped command recursively instead of trusting the env allowlist entry
     # (which exists for bare `env` / `env VAR=x <readonly-cmd>` usage).
@@ -1027,6 +690,8 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
                 # language; do not confuse it with an inert wrapper flag.
                 return False, "env (unsupported option)"
             if _ASSIGNMENT_RE.match(t):
+                if execution_environment_assignment(t):
+                    return False, "env (executable environment change)"
                 j += 1
                 continue
             break
@@ -1038,10 +703,9 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
             return False, f"env: {wrapped_failing}"
         return True, ""
 
-    # sed is readonly unless it edits in place. Tokenize this check so a pattern
-    # containing the text "-i" is not misclassified.
-    if base_cmd == "sed" and any(t == "-i" or t.startswith("-i") for t in _tokens[1:]):
-        return False, "sed -i"
+    inspection = inspection_command(_tokens) if base_cmd != "find" else None
+    if inspection is not None:
+        return (True, "") if inspection else (False, f"{base_cmd} (execution or write operation)")
 
     # find's action flags can execute (-exec family) or delete/write
     # (-delete, -fprint*) even though plain find is readonly.
@@ -1050,316 +714,14 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
         if not find_valid:
             return False, find_reason
 
-    # Binary evidence inspection for research tasks. These tools can also
-    # write files, so readonly mode permits only stdout-oriented forms.
-    if base_cmd == "pdftotext":
-        if _tokens[-1:] == ["-"]:
-            return True, ""
-        return False, "pdftotext (file output)"
-
-    if base_cmd == "pdftocairo":
-        if _tokens[-1:] == ["-"]:
-            return True, ""
-        return False, "pdftocairo (file output)"
-
-    if base_cmd == "tesseract":
-        if len(_tokens) >= 3 and _tokens[2].lower() == "stdout":
-            return True, ""
-        return False, "tesseract (file output)"
-
-    if base_cmd == "ffprobe":
-        if any(token in {"-o", "-output"} for token in _tokens[1:]):
-            return False, "ffprobe (file output)"
-        return True, ""
-
-    if base_cmd == "ffmpeg":
-        value_options = {
-            "-loglevel",
-            "-ss",
-            "-i",
-            "-frames:v",
-            "-vf",
-            "-f",
-            "-vcodec",
-            "-pix_fmt",
-        }
-        flag_options = {"-hide_banner"}
-        if _tokens[-1:] != ["-"] or _tokens.count("-i") != 1:
-            return False, "ffmpeg (file output)"
-        if "image2pipe" not in _tokens:
-            return False, "ffmpeg (non-image stream)"
-        index = 1
-        while index < len(_tokens) - 1:
-            token = _tokens[index]
-            if token in value_options:
-                index += 2
-                continue
-            if token in flag_options:
-                index += 1
-                continue
-            return False, f"ffmpeg ({token})"
-        return True, ""
-
     if len(_tokens) <= 2 and any(t in _bare_info for t in _tokens[1:]):
         return True, ""
 
-    # Special handling for commands with subcommands
-    if base_cmd == "git":
-        subcommand = _extract_subcommand(cmd, "git")
-        if not subcommand or subcommand not in GIT_READONLY_SUBCOMMANDS:
-            return False, f"git {subcommand or ''}"
-        return True, ""
-
-    if base_cmd in {"pip", "pip3"}:
-        subcommand = _extract_subcommand(cmd, base_cmd)
-        if not subcommand or subcommand not in PIP_READONLY_SUBCOMMANDS:
-            return False, f"{base_cmd} {subcommand or ''}"
-        return True, ""
-
-    if base_cmd == "npm":
-        subcommand = _extract_subcommand(cmd, "npm")
-        # Allow test, list, view, show, etc.
-        if subcommand in NPM_READONLY_SUBCOMMANDS or subcommand == "test":
-            return True, ""
-        return False, f"npm {subcommand or ''}"
-
-    if base_cmd == "cargo":
-        subcommand = _extract_subcommand(cmd, "cargo")
-        # Allow test, list, metadata, check, verify, etc.
-        if subcommand in {"test", "check", "metadata", "list", "verify", "tree"}:
-            return True, ""
-        return False, f"cargo {subcommand or ''}"
-
-    if base_cmd == "go":
-        subcommand = _extract_subcommand(cmd, "go")
-        # Allow test, list, version, etc.
-        if subcommand in {"test", "list", "version", "help", "doc"}:
-            return True, ""
-        return False, f"go {subcommand or ''}"
-
-    if base_cmd == "make":
-        # Allow make test, make check, make help
-        if any(target in cmd for target in ["test", "check", "help", "--version"]):
-            return True, ""
-        # 'make' alone often defaults to a build/test target, but we'll be slightly restrictive
-        return False, "make (non-test target)"
-
-    if base_cmd == "gh":
-        subcommand = _extract_subcommand(cmd, "gh")
-        if not subcommand or subcommand not in GH_READONLY_SUBCOMMANDS:
-            return False, f"gh {subcommand or ''}"
-        return True, ""
-
-    if base_cmd == "az":
-        subcommand = _extract_subcommand(cmd, "az")
-        if not subcommand or subcommand not in AZ_READONLY_SUBCOMMANDS:
-            return False, f"az {subcommand or ''}"
-        return True, ""
-
-    if base_cmd == "kubectl":
-        subcommand = _extract_subcommand(cmd, "kubectl")
-        if not subcommand or subcommand not in KUBECTL_READONLY_SUBCOMMANDS:
-            return False, f"kubectl {subcommand or ''}"
-        return True, ""
-
-    # tar handling: only allow listing operations
-    if base_cmd == "tar":
-        # Allow -t, -tzf, -tf for listing (write operations: -c, -x blocked)
-        if "-t" in cmd and "-c" not in cmd and "-x" not in cmd:
-            return True, ""
-        return False, "tar (non-list operation)"
-
-    # unzip handling: only allow listing
-    if base_cmd == "unzip":
-        # Allow -l, -Z for listing
-        if "-l" in cmd or "-Z" in cmd:
-            return True, ""
-        return False, "unzip (non-list operation)"
-
-    # ip handling: only allow read-only subcommands
-    if base_cmd == "ip":
-        # Allow addr show, route show, link show, etc.
-        readonly_ip_verbs = {"show", "list", "get"}
-        for verb in readonly_ip_verbs:
-            if f"ip {verb}" in cmd or f"ip.{verb}" in cmd:
-                return True, ""
-        return False, "ip (write operation)"
-
-    # docker handling: only allow read-only subcommands
-    if base_cmd == "docker":
-        # Allow images, ps, inspect, network ls, volume ls, etc.
-        readonly_docker = {
-            "images",
-            "ps",
-            "inspect",
-            "network",
-            "volume",
-            "search",
-            "info",
-            "version",
-            "system",
-            "stats",
-            "history",
-            "context",
-            "buildx",
-            "compose",
-            "manifest",
-            "image",
-            "container",
-        }
-        for sub in readonly_docker:
-            if f"docker {sub}" in cmd:
-                # For network and volume, only allow ls/inspect
-                if sub in {"network", "volume"}:
-                    if "ls" in cmd or "inspect" in cmd:
-                        return True, ""
-                elif sub == "system":
-                    # Allow df, info, events but not prune
-                    if "prune" in cmd:
-                        return False, "docker system prune"
-                    return True, ""
-                elif sub == "image":
-                    # Allow ls, inspect, history, prune is write
-                    if "ls" in cmd or "inspect" in cmd or "history" in cmd:
-                        return True, ""
-                    return False, "docker image (write op)"
-                elif sub == "container":
-                    if "ls" in cmd or "inspect" in cmd or "stats" in cmd:
-                        return True, ""
-                    return False, "docker container (write op)"
-                elif sub == "compose":
-                    # Allow ps, logs, config, top, images
-                    _compose_ro = {"ps", "logs", "config", "top", "images", "port"}
-                    _compose_sub = _extract_subcommand(
-                        cmd.replace("docker compose", "compose"), "compose"
-                    )
-                    if _compose_sub in _compose_ro:
-                        return True, ""
-                    return False, f"docker compose {_compose_sub or ''}"
-                else:
-                    return True, ""
-        return False, "docker (write operation)"
-
-    # podman handling: same as docker
-    if base_cmd == "podman":
-        readonly_podman = {
-            "images",
-            "ps",
-            "inspect",
-            "network",
-            "volume",
-            "search",
-            "info",
-            "version",
-            "system",
-        }
-        for sub in readonly_podman:
-            if f"podman {sub}" in cmd:
-                if sub in {"network", "volume"}:
-                    if "ls" in cmd or "inspect" in cmd:
-                        return True, ""
-                else:
-                    return True, ""
-        if "podman" in cmd and ("--version" in cmd or "version" in cmd):
-            return True, ""
-        return False, "podman (write operation)"
-
-    # helm handling: only allow read-only subcommands
-    if base_cmd == "helm":
-        readonly_helm = {
-            "list",
-            "ls",
-            "status",
-            "history",
-            "get",
-            "search",
-            "info",
-            "version",
-            "repo",
-        }
-        for sub in readonly_helm:
-            if f"helm {sub}" in cmd or f"helm {sub}" in cmd.replace("helm ", ""):
-                return True, ""
-        if "helm" in cmd and ("--version" in cmd or "version" in cmd):
-            return True, ""
-        return False, "helm (write operation)"
-
-    # yarn handling: similar to npm
-    if base_cmd == "yarn":
-        readonly_yarn = {
-            "list",
-            "ls",
-            "info",
-            "why",
-            "version",
-            "help",
-            "cache",
-            "check",
-        }
-        for sub in readonly_yarn:
-            if f"yarn {sub}" in cmd:
-                return True, ""
-        return False, "yarn (write operation)"
-
-    # pnpm handling: similar to npm
-    if base_cmd == "pnpm":
-        readonly_pnpm = {
-            "list",
-            "ls",
-            "view",
-            "show",
-            "info",
-            "why",
-            "version",
-            "help",
-            "outdated",
-        }
-        for sub in readonly_pnpm:
-            if f"pnpm {sub}" in cmd:
-                return True, ""
-        return False, "pnpm (write operation)"
-
-    # npm handling: similar to pip — only allow readonly subcommands
-    if base_cmd == "npm":
-        subcommand = _extract_subcommand(cmd, "npm")
-        if subcommand and subcommand in NPM_READONLY_SUBCOMMANDS:
-            return True, ""
-        return False, f"npm {subcommand or ''}"
-
-    # Code quality tools: allow --check, --version, help
-    if base_cmd in {"flake8", "pylint", "mypy", "ruff", "eslint"}:
-        if (
-            "--check" in cmd
-            or "--version" in cmd
-            or "version" in cmd
-            or "-h" in cmd
-            or "--help" in cmd
-        ):
-            return True, ""
-        return False, f"{base_cmd} (non-check operation)"
-
-    # black: allow --check, --diff, --version
-    if base_cmd == "black":
-        if "--check" in cmd or "--diff" in cmd or "--version" in cmd or "version" in cmd:
-            return True, ""
-        return False, "black (write operation)"
-
-    # Python handling: allow -m pytest, -c, --version, -V, -h, --help
-    if base_cmd in {"python", "python3"}:
-        # Check for dangerous flags like -i (interactive) or -u
-        if "-m pytest" in cmd:
-            return True, ""
-        if "-c" in cmd or "--version" in cmd or "-V" in cmd or "-h" in cmd or "--help" in cmd:
-            return True, ""
-        # If it's just 'python script.py', it depends on the script, but we allow it
-        # as python is in the readonly set. We could be stricter here.
-        return True, ""
-
-    # Check for pipe to shell
-    if any(p in cmd for p in ["| sh", "| bash", "|sh", "|bash"]):
-        return False, "pipe to shell"
-
-    return True, ""
+    return (
+        (True, "")
+        if base_cmd in PURE_OUTPUT_COMMANDS
+        else (False, f"{base_cmd} (unsupported inspection)")
+    )
 
 
 def _is_readonly_command(cmd: str) -> bool:
@@ -2008,117 +1370,88 @@ async def shell(
             return stdout_text, stderr_text, None
 
     try:
-        # Check cache for read-only commands (CI/CD queries, git log, etc.)
-        from victor.tools.shell_command_cache import get_shell_cache, execute_with_cache
-
-        # Use cache for read-only commands
-        if not dangerous and _is_readonly_command(cmd):
-            try:
-                returncode, stdout_str, stderr_str = execute_with_cache(
-                    cmd,
-                    cwd=cwd,
-                    shell=True,
-                    timeout=timeout,
-                )
-
-                # Condense recognized command output (cache stores raw output,
-                # so condensation stays consistent across cache hits/misses).
-                stdout_str, stderr_str, condensation_info = _condense_streams(
-                    stdout_str, stderr_str, returncode
-                )
-
-                # Apply truncation to cached results too
-                final_stdout_limit = stdout_limit if stdout_limit is not None else 10000
-                final_stderr_limit = stderr_limit if stderr_limit is not None else 2000
-
-                from victor.tools.subprocess_executor import _truncate_output_by_lines
-
-                stdout_str, stdout_truncated, stdout_lines = _truncate_output_by_lines(
-                    stdout_str, final_stdout_limit, max_bytes=None, stream_name="stdout"
-                )
-
-                stderr_str, stderr_truncated, stderr_lines = _truncate_output_by_lines(
-                    stderr_str, final_stderr_limit, max_bytes=None, stream_name="stderr"
-                )
-
-                result_dict = {
-                    "success": returncode == 0,
-                    "stdout": stdout_str,
-                    "stderr": stderr_str,
-                    "return_code": returncode,
-                    "command": cmd,
-                    "working_dir": cwd,
-                    "cached": True,
-                    "truncated": stdout_truncated or stderr_truncated,
-                    "stdout_lines": stdout_lines,
-                    "stderr_lines": stderr_lines,
-                }
-                if condensation_info:
-                    result_dict["condensed"] = condensation_info
-                if original_command:
-                    result_dict["original_command"] = original_command
-                return result_dict
-            except Exception as cache_error:
-                # If caching fails, fall through to normal execution
-                logger.warning(f"Cache lookup failed, executing directly: {cache_error}")
-
-        # Create subprocess and run it to completion or timeout via the shared
-        # runner (co-design review item 15): spawn/kill/timeout are
-        # centralized in run_managed_process, which spawns in its own POSIX
-        # process group and kills the WHOLE group on timeout — a child the
-        # shell command backgrounded (e.g. ``sleep 100 &``) is no longer
-        # orphaned past the timeout the way a plain process.kill() left it.
-        # (apply OS sandbox if active; default off = no change).
+        # Cache lookup never executes. Every miss has the same async process
+        # owner, OS sandbox, progress callbacks, timeout and cancellation path.
+        from victor.tools.shell_command_cache import get_shell_cache
         from victor.tools.subprocess_executor import _resolve_default_sandbox, run_managed_process
 
         _sandbox = _resolve_default_sandbox()
-        _wrapped = (
-            _sandbox.wrap_argv(["/bin/sh", "-c", cmd], Path(cwd) if cwd else None)
-            if _sandbox.type_name != "none"
-            else None
+        cache_eligible = (
+            _sandbox.type_name == "none"
+            and not dangerous
+            and _is_readonly_command(cmd)
+            and cacheable_inspection(cmd)
+            and (not _use_shell_policy or readonly)
         )
-
-        # When a live progress sink is active, stream stdout/stderr chunks to
-        # it as they arrive so the UI shows output as it is produced.
-        from victor.core.tool_progress import emit_tool_progress, has_progress_sink
-
-        _streaming_progress = has_progress_sink()
-
-        def _emit_chunk(is_stderr: bool, chunk: bytes) -> None:
-            text = chunk.decode("utf-8", "replace")
-            emit_tool_progress(
-                name=_PROGRESS_TOOL_NAME,
-                stdout="" if is_stderr else text,
-                stderr=text if is_stderr else "",
+        cache = None
+        cached_result = None
+        if cache_eligible:
+            try:
+                cache = get_shell_cache()
+                cached_result = cache.get(cmd, cwd=cwd)
+            except Exception as cache_error:
+                logger.warning("Cache lookup failed: %s", cache_error)
+        cache_hit = cached_result is not None
+        if cached_result is not None:
+            returncode, stdout_str, stderr_str = cached_result
+            process = SimpleNamespace(returncode=returncode)
+            raw_stdout_str, raw_stderr_str = stdout_str, stderr_str
+            _capped = False
+        else:
+            # Create subprocess and run it to completion or timeout via the shared
+            # runner (co-design review item 15): spawn/kill/timeout are
+            # centralized in run_managed_process, which spawns in its own POSIX
+            # process group and kills the WHOLE group on timeout — a child the
+            # shell command backgrounded (e.g. ``sleep 100 &``) is no longer
+            # orphaned past the timeout the way a plain process.kill() left it.
+            # (apply OS sandbox if active; default off = no change).
+            _wrapped = (
+                _sandbox.wrap_argv(["/bin/sh", "-c", cmd], Path(cwd) if cwd else None)
+                if _sandbox.type_name != "none"
+                else None
             )
 
-        stdout, stderr, _return_code, _timed_out, _capped = await run_managed_process(
-            command=cmd if _wrapped is None else None,
-            argv=_wrapped,
-            cwd=cwd,
-            timeout=timeout,
-            on_chunk=_emit_chunk if _streaming_progress else None,
-        )
-        # Lightweight stand-in preserving the process.returncode reads below
-        # (condensation, cache write, error summary) without a real Process
-        # object — run_managed_process already reaped the real one.
-        process = SimpleNamespace(returncode=_return_code)
+            # When a live progress sink is active, stream stdout/stderr chunks to
+            # it as they arrive so the UI shows output as it is produced.
+            from victor.core.tool_progress import emit_tool_progress, has_progress_sink
 
-        if _timed_out:
-            return {
-                "success": False,
-                "error": f"Command timed out after {timeout} seconds",
-                "stdout": stdout.decode("utf-8", "replace") if stdout else "",
-                "stderr": stderr.decode("utf-8", "replace") if stderr else "",
-                "return_code": -1,
-            }
+            _streaming_progress = has_progress_sink()
 
-        if _streaming_progress:
-            emit_tool_progress(name=_PROGRESS_TOOL_NAME, is_final=True)
+            def _emit_chunk(is_stderr: bool, chunk: bytes) -> None:
+                text = chunk.decode("utf-8", "replace")
+                emit_tool_progress(
+                    name=_PROGRESS_TOOL_NAME,
+                    stdout="" if is_stderr else text,
+                    stderr=text if is_stderr else "",
+                )
 
-        stdout_str = stdout.decode("utf-8", "replace") if stdout else ""
-        stderr_str = stderr.decode("utf-8", "replace") if stderr else ""
-        raw_stdout_str, raw_stderr_str = stdout_str, stderr_str
+            stdout, stderr, _return_code, _timed_out, _capped = await run_managed_process(
+                command=cmd if _wrapped is None else None,
+                argv=_wrapped,
+                cwd=cwd,
+                timeout=timeout,
+                on_chunk=_emit_chunk if _streaming_progress else None,
+            )
+            # Lightweight stand-in preserving the process.returncode reads below
+            # (condensation, cache write, error summary) without a real Process
+            # object — run_managed_process already reaped the real one.
+            process = SimpleNamespace(returncode=_return_code)
+
+            if _timed_out:
+                return {
+                    "success": False,
+                    "error": f"Command timed out after {timeout} seconds",
+                    "stdout": stdout.decode("utf-8", "replace") if stdout else "",
+                    "stderr": stderr.decode("utf-8", "replace") if stderr else "",
+                    "return_code": -1,
+                }
+
+            if _streaming_progress:
+                emit_tool_progress(name=_PROGRESS_TOOL_NAME, is_final=True)
+
+            stdout_str = stdout.decode("utf-8", "replace") if stdout else ""
+            stderr_str = stderr.decode("utf-8", "replace") if stderr else ""
+            raw_stdout_str, raw_stderr_str = stdout_str, stderr_str
 
         # Condense recognized command output before generic truncation so the
         # diagnostic tail (failure summaries, error counts) survives.
@@ -2171,6 +1504,7 @@ async def shell(
             "return_code": process.returncode,
             "command": cmd,
             "working_dir": cwd,
+            "cached": cache_hit,
             "truncated": was_truncated,
             "stdout_lines": stdout_lines,
             "stderr_lines": stderr_lines,
@@ -2182,9 +1516,10 @@ async def shell(
 
         # Cache successful read-only command results (raw streams — the cached
         # path re-applies condensation so hits and misses stay consistent)
-        if process.returncode == 0 and not dangerous and _is_readonly_command(cmd):
+        if process.returncode == 0 and cache_eligible and not cache_hit and not _capped:
             try:
-                cache = get_shell_cache()
+                if cache is None:
+                    cache = get_shell_cache()
                 cache.set(cmd, (process.returncode, raw_stdout_str, raw_stderr_str), cwd)
             except Exception as cache_error:
                 logger.warning(f"Failed to cache command result: {cache_error}")

@@ -722,7 +722,7 @@ class ConsensusProtocol(BaseConversationProtocol):
     def __init__(
         self,
         threshold: float = 0.7,
-        max_voting_rounds: int = 15,
+        max_voting_rounds: int = 3,
     ):
         """Initialize consensus protocol.
 

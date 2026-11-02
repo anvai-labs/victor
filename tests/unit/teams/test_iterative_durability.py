@@ -298,3 +298,148 @@ async def test_checkpoint_failure_stops_before_next_iteration(formation, monkeyp
             )
         assert gen.calls == crit.calls == 1
     save.assert_awaited_once()
+
+
+@pytest.mark.parametrize("durable", [False, True])
+async def test_consensus_repeated_cancellation_joins_cleanup_without_starting_queued(durable):
+    import asyncio
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    release = asyncio.Event()
+    finished = []
+    calls = []
+    checkpoints = []
+
+    class Agent:
+        def __init__(self, member_id):
+            self.id = member_id
+
+        async def execute(self, task, context):
+            calls.append(self.id)
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                await release.wait()
+                finished.append(self.id)
+            return MemberResult(member_id=self.id, success=False, output="stopped")
+
+    context = TeamContext("t", "consensus", shared_state={"member_concurrency_limit": 1})
+    if durable:
+
+        async def checkpoint(*args):
+            checkpoints.append(args)
+
+        context.checkpoint_hook = checkpoint
+    running = asyncio.create_task(
+        _consensus(3).execute([Agent("a"), Agent("queued")], context, _task())
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        running.cancel("first stop")
+        await asyncio.wait_for(cancelled.wait(), 2)
+        running.cancel("repeated stop")
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not running.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="first stop"):
+            await asyncio.wait_for(running, 2)
+        assert calls == finished == ["a"]
+        assert checkpoints == []
+    finally:
+        release.set()
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+
+
+@pytest.mark.parametrize("converged", [False, True])
+async def test_consensus_rolling_history_preserves_durable_outcomes(converged):
+    from unittest.mock import AsyncMock
+
+    async def run(durable):
+        class Agent:
+            def __init__(self, member_id):
+                self.id = member_id
+                self.calls = 0
+
+            async def execute(self, task, context):
+                self.calls += 1
+                output = "agreed" if converged and self.calls == 2 else f"{self.id}: {task.content}"
+                return MemberResult(
+                    member_id=self.id, success=True, output=output, tool_calls_used=1
+                )
+
+        context = TeamContext("t", "consensus", shared_state={"consensus_output_preview_chars": 64})
+        context.checkpoint_hook = AsyncMock() if durable else None
+        return [
+            r.to_dict()
+            for r in await _consensus(3).execute([Agent("a"), Agent("b")], context, _task())
+        ]
+
+    assert await run(False) == await run(True)
+
+
+@pytest.mark.parametrize("durable", [False, True])
+async def test_consensus_without_capture_keeps_rounds_distinct_when_members_reuse_metadata(durable):
+    from unittest.mock import AsyncMock
+
+    agents = [
+        _ConsensusAgent("a", shared_metadata=True),
+        _ConsensusAgent("d", succeed=False, shared_metadata=True),
+    ]
+    context = TeamContext("t", "consensus")
+    context.checkpoint_hook = AsyncMock() if durable else None
+    results = await _consensus(3).execute(agents, context, _task())
+    assert len(results) == 2
+    assert {item.member_id for item in results} == {"a", "d"}
+    assert all(item.metadata["round"] == 2 for item in results)
+    if durable:
+        attempts = context.shared_state["__consensus__"]["all_results"]
+        assert [item["metadata"]["round"] for item in attempts] == [0, 0, 1, 1, 2, 2]
+
+
+@pytest.mark.parametrize("repeat_cancel", [False, True])
+async def test_consensus_cancellation_joins_round_checkpoint_cleanup(repeat_cancel):
+    import asyncio
+
+    writing = asyncio.Event()
+    cancelled = asyncio.Event()
+    release = asyncio.Event()
+    finished = []
+    agents = list(_agents())
+    context = TeamContext("t", "consensus")
+
+    async def checkpoint(*args):
+        if release.is_set():
+            return
+        writing.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            await release.wait()
+            finished.append("checkpoint")
+
+    context.checkpoint_hook = checkpoint
+    running = asyncio.create_task(_consensus(3).execute(agents, context, _task()))
+    try:
+        await asyncio.wait_for(writing.wait(), 2)
+        running.cancel("first stop")
+        await asyncio.wait_for(cancelled.wait(), 2)
+        if repeat_cancel:
+            running.cancel("repeated stop")
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        assert not running.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="first stop"):
+            await asyncio.wait_for(running, 2)
+        assert finished == ["checkpoint"]
+        assert agents[0].rounds_seen == agents[1].rounds_seen == [0]
+    finally:
+        release.set()
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)

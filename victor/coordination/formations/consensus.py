@@ -18,14 +18,17 @@ All agents must agree on result.
 Multiple rounds if needed until consensus or timeout.
 """
 
-import asyncio
 import logging
 import json
 from collections import Counter
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
-from victor.coordination.formations.base import BaseFormationStrategy, TeamContext
+from victor.coordination.formations.base import (
+    BaseFormationStrategy,
+    TeamContext,
+    _gather_owned_operations,
+)
 from victor.coordination.formations.member_attempts import aggregate_attempts
 from victor.teams.types import AgentMessage, MemberResult, MessageType
 
@@ -53,14 +56,14 @@ class ConsensusFormation(BaseFormationStrategy):
 
     def __init__(
         self,
-        max_rounds: int = 15,
+        max_rounds: int = 3,
         agreement_threshold: float = 0.7,
         output_preview_chars: int = DEFAULT_OUTPUT_PREVIEW_CHARS,
-    ):
+    ) -> None:
         """Initialize consensus formation.
 
         Args:
-            max_rounds: Maximum number of consensus rounds (default: 15)
+            max_rounds: Maximum number of consensus rounds (default: 3)
             agreement_threshold: Fraction of agents that must agree (0.0-1.0)
             output_preview_chars: Per-member output preview embedded in the
                 next round's task; bounds the transcript when members echo
@@ -69,13 +72,24 @@ class ConsensusFormation(BaseFormationStrategy):
         Raises:
             ValueError: If rounds/threshold/preview are out of range
         """
-        if not isinstance(max_rounds, int) or max_rounds < 1 or not 0 < agreement_threshold <= 1:
-            raise ValueError("Consensus requires positive rounds and threshold in (0, 1]")
-        if not isinstance(output_preview_chars, int) or output_preview_chars < 1:
-            raise ValueError("Consensus requires a positive output preview size")
+        self._validate_configuration(max_rounds, agreement_threshold, output_preview_chars)
         self.max_rounds = max_rounds
         self.agreement_threshold = agreement_threshold
         self.output_preview_chars = output_preview_chars
+
+    @staticmethod
+    def _validate_configuration(max_rounds: int, threshold: float, preview_chars: int) -> None:
+        """Apply the same typed bounds to constructor and context overrides."""
+        if (
+            type(max_rounds) is not int
+            or max_rounds < 1
+            or isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+            or not 0 < threshold <= 1
+        ):
+            raise ValueError("Consensus requires positive rounds and threshold in (0, 1]")
+        if type(preview_chars) is not int or preview_chars < 1:
+            raise ValueError("Consensus requires a positive output preview size")
 
     async def execute(
         self,
@@ -103,10 +117,7 @@ class ConsensusFormation(BaseFormationStrategy):
         )
         threshold = context.get("consensus_agreement_threshold", self.agreement_threshold)
         preview_chars = context.get("consensus_output_preview_chars", self.output_preview_chars)
-        if not isinstance(max_rounds, int) or max_rounds < 1 or not 0 < threshold <= 1:
-            raise ValueError("Consensus requires positive rounds and threshold in (0, 1]")
-        if not isinstance(preview_chars, int) or preview_chars < 1:
-            raise ValueError("Consensus requires a positive output preview size")
+        self._validate_configuration(max_rounds, threshold, preview_chars)
         tie_breaker_id = context.get("consensus_tie_breaker_id") or context.get(
             "explicit_supervisor_id"
         )
@@ -119,6 +130,7 @@ class ConsensusFormation(BaseFormationStrategy):
         )
 
         capture = bool(context.get("capture_member_usage", False))
+        retain_history = capture or checkpoint_hook is not None or bool(resume)
         if saved and bool(saved.get("capture_member_usage", False)) != capture:
             raise ValueError("Cannot change consensus member capture during resume")
 
@@ -185,39 +197,41 @@ class ConsensusFormation(BaseFormationStrategy):
             marker = (final or all_results or [MemberResult(member_id="consensus", success=True)])[
                 -1
             ]
-            await checkpoint_hook(round_done - 1, marker, list(all_results), context.shared_state)
+            # The round owns its storage operation just as a wave owns its
+            # members: stop must wait for storage cleanup and must not admit a
+            # later round after a store suppresses cancellation to finish a write.
+            (checkpoint_result,) = await _gather_owned_operations(
+                [checkpoint_hook(round_done - 1, marker, list(all_results), context.shared_state)]
+            )
+            if isinstance(checkpoint_result, BaseException):
+                raise checkpoint_result
 
         for round_num in range(round_start, max_rounds):
             logger.info(f"ConsensusFormation: round {round_num + 1}/{max_rounds}")
 
-            # Execute all agents in parallel for this round
-            round_tasks = [
-                self._execute_agent(agent, current_task, context, round_num) for agent in agents
-            ]
-
-            round_results = await asyncio.gather(*round_tasks, return_exceptions=True)
-
-            # Process results
-            processed_results = []
-            for i, result in enumerate(round_results):
-                if isinstance(result, Exception):
-                    processed_results.append(
-                        MemberResult(
-                            member_id=agents[i].id,
-                            success=False,
-                            output="",
-                            error=str(result),
-                            metadata={"round": round_num},
-                        )
-                    )
-                else:
-                    processed_results.append(result)
-
-            if capture:
+            # Use the same admission, lane, failure and cancellation owner as
+            # other concurrent formations. Durability remains round-granular:
+            # a member in a completed round must not seed/skip the next round.
+            processed_results = await self._execute_members_concurrently(
+                agents,
+                current_task,
+                context,
+                [context] * len(agents),
+                indices=[round_num] * len(agents),
+                resume_override={},
+                checkpoint_members=False,
+            )
+            if retain_history:
                 processed_results = [deepcopy(result) for result in processed_results]
             for result in processed_results:
                 result.metadata["round"] = round_num
-            all_results.extend(processed_results)
+            if retain_history:
+                all_results.extend(processed_results)
+            else:
+                # Without capture/recovery, only the latest vote is observable.
+                # Holding every full output makes memory grow with round count
+                # even when the feedback previews themselves remain bounded.
+                all_results = processed_results
 
             # Check for consensus
             consensus = self._check_consensus(processed_results, threshold)
@@ -289,25 +303,6 @@ class ConsensusFormation(BaseFormationStrategy):
         final = finish(final_round_results)
         await _checkpoint(max_rounds, None, True, final)
         return final
-
-    async def _execute_agent(
-        self,
-        agent: Any,
-        task: AgentMessage,
-        context: TeamContext,
-        round_num: int,
-    ) -> MemberResult:
-        """Execute a single agent, emitting per-member lane events (ADR-023).
-
-        Members gather concurrently per round; reusing the shared helper gives per-member
-        lanes (the index is the round, so multi-round runs read clearly). The sink ContextVar
-        propagates into the gather tasks.
-        """
-        logger.debug(f"ConsensusFormation: round {round_num + 1}, agent {agent.id}")
-        member_event_hook = getattr(context, "member_event_hook", None)
-        return await self._execute_member_with_events(
-            agent, task, context, round_num, member_event_hook=member_event_hook
-        )
 
     def _check_consensus(
         self, results: List[MemberResult], threshold: Optional[float] = None

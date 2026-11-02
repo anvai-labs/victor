@@ -417,3 +417,111 @@ def test_decision_is_frozen():
     d = ShellSafetyDecision(SafetyVerdict.ALLOW)
     with pytest.raises(Exception):
         d.verdict = SafetyVerdict.DENY  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    "command", ["echo data>/etc/passwd", "cat <>/etc/passwd", 'echo data>"/etc/with space"']
+)
+def test_adjacent_redirects_cannot_escape_damage_scoping(command):
+    decision = _strict().evaluate(_ctx(command))
+    assert decision.verdict is SafetyVerdict.DENY
+    assert decision.category == "protected_asset"
+
+
+def test_allow_patterns_cannot_override_the_catastrophic_floor():
+    policy = _strict(extra_allow_patterns=[r".*"])
+    assert policy.evaluate(_ctx("rm -rf /")).verdict is SafetyVerdict.DENY
+    assert policy.evaluate(_ctx("make test")).verdict is SafetyVerdict.ALLOW
+
+
+def test_dynamic_redirect_target_requires_strict_approval():
+    decision = _strict().evaluate(_ctx('echo data>"$OUT"'))
+    assert decision.verdict is SafetyVerdict.ASK
+    assert decision.effective_readonly is False
+
+
+def test_quoted_redirect_text_is_not_a_write_target():
+    decision = _strict().evaluate(_ctx("echo 'text > /etc/passwd'"))
+    assert decision.verdict is SafetyVerdict.ALLOW
+    assert decision.effective_readonly is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'echo "$(echo x>/etc/hosts)"',
+        "cat <(touch /etc/hosts)",
+        r"echo `echo \`touch /etc/hosts\``",
+    ],
+)
+def test_nested_executable_substitutions_retain_their_write_effects(command):
+    decision = _strict().evaluate(_ctx(command))
+    assert decision.verdict is SafetyVerdict.DENY
+    assert decision.category == "protected_asset"
+
+
+def test_opaque_execution_never_hits_the_read_cache_in_permissive_profiles():
+    decision = _benchmark().evaluate(_ctx("python3 arbitrary_script.py"))
+    assert decision.verdict is SafetyVerdict.ALLOW
+    assert decision.effective_readonly is False
+
+
+def test_network_install_permission_does_not_authorize_protected_destination():
+    decision = _strict(allow_network=True).evaluate(
+        _ctx("pip install pkg --target=/etc/site-packages")
+    )
+    assert decision.verdict is SafetyVerdict.DENY
+    assert decision.category == "protected_asset"
+
+
+def test_substitution_nesting_bound_requires_approval_in_strict_profile():
+    command = "echo " + "$(echo " * 40 + "x" + ")" * 40
+    assert _strict().evaluate(_ctx(command)).verdict is SafetyVerdict.ASK
+
+
+@pytest.mark.parametrize(
+    "command", ["echo '\\'; touch /etc/hosts", "echo # '\ntouch /etc/hosts\n# '"]
+)
+def test_comment_or_literal_backslash_cannot_hide_a_protected_mutation(command):
+    assert _strict().evaluate(_ctx(command)).verdict is SafetyVerdict.DENY
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sort -o /etc/fixture file",
+        "git diff --output=/etc/fixture",
+        "sed -n 'w /etc/fixture' file",
+        "find . -fprint /etc/fixture",
+        "rg --pre=./helper pattern file",
+        "RUSTC=./helper cargo metadata --locked",
+        "GIT_SSH_COMMAND=./helper git ls-remote git@host:repo",
+    ],
+)
+def test_effectful_argv_ownership_is_shared_by_damage_profiles(command):
+    strict = _strict().evaluate(_ctx(command))
+    assert strict.verdict in {SafetyVerdict.ASK, SafetyVerdict.DENY}
+    benchmark = _benchmark().evaluate(_ctx(command))
+    assert benchmark.effective_readonly is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sort -n file",
+        "git diff --no-ext-diff",
+        "sed -n '1p' file",
+        "find . -name -delete",
+        "rg -n pattern file",
+    ],
+)
+def test_shared_argv_inspection_remains_available_under_damage_policy(command):
+    decision = _strict().evaluate(_ctx(command))
+    assert decision.verdict is SafetyVerdict.ALLOW
+    assert decision.effective_readonly is True
+
+
+def test_bounded_inplace_sed_targets_are_contained():
+    assert _strict().evaluate(_ctx("sed -i 's/a/b/' src/file.py")).verdict is SafetyVerdict.ALLOW
+    assert _strict().evaluate(_ctx("sed -i 's/a/b/' /etc/fixture")).verdict is SafetyVerdict.DENY
+    assert _strict().evaluate(_ctx("sed -i 's/a/b/e' src/file.py")).verdict is SafetyVerdict.ASK
