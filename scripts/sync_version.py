@@ -23,6 +23,8 @@ Usage:
   python scripts/sync_version.py --codegraph  # Sync CodeGraph runtime + exact Victor pin
 """
 
+import argparse
+from collections.abc import Sequence
 import re
 import sys
 import tomllib
@@ -177,12 +179,18 @@ def sync_codegraph(root: Path = ROOT) -> None:
     print(f"Synced independent CodeGraph package/runtime/pin to {version}")
 
 
-def main() -> None:
-    if "--ai" in sys.argv:
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--ai", action="store_true")
+    group.add_argument("--sdk", action="store_true")
+    group.add_argument("--codegraph", action="store_true")
+    args = parser.parse_args(argv)
+    if args.ai:
         sync_ai()
-    elif "--sdk" in sys.argv:
+    elif args.sdk:
         sync_sdk()
-    elif "--codegraph" in sys.argv:
+    elif args.codegraph:
         sync_codegraph()
     else:
         sync_ai()

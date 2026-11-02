@@ -162,11 +162,12 @@ class TestCompleteCcgPhase2:
 
         builder = CodeContextGraphBuilder(language=language)
         tree = _parse_with(path, language)
-        source = path.read_text()
+        source = path.read_bytes().decode("utf-8")
+        builder._extract_statement_nodes_native = lambda *args: None
         nodes = builder._extract_statement_nodes(
-            tree.root_node, path, source.split("\n"), source_code=None
+            tree.root_node, path, source.split("\n"), source_code=source
         )
-        cfg = builder._build_cfg_edges(nodes, tree.root_node, path)
+        cfg = builder._build_cfg_edges(nodes, tree.root_node, path, source_code=source)
         cdg = asyncio.run(builder._build_cdg(nodes, cfg))
         ddg = asyncio.run(builder._build_ddg(tree.root_node, nodes, path, source))
         return nodes, cfg, cdg, ddg
@@ -176,24 +177,23 @@ class TestCompleteCcgPhase2:
         """CFG in order; CDG as multiset (Python emits in hash-randomized
         set order — consumers upsert by key, order-insensitive by
         contract); DDG in order with variables."""
-        from collections import Counter
-
         path = REPO_ROOT / fixture
         if not path.exists():
             pytest.skip(f"fixture not present: {fixture}")
         result = self._native_result(path, "python")
-        p_nodes, p_cfg, p_cdg, p_ddg = self._python_result(path, "python")
+        p_nodes, p_cfg, _, p_ddg = self._python_result(path, "python")
 
         assert [r.node_id for r in result.statements] == [n.node_id for n in p_nodes]
         assert [(e.src, e.dst, e.edge_type) for e in result.cfg_edges] == [
             (e.src, e.dst, str(e.type.value)) for e in p_cfg
         ]
-        assert Counter((e.src, e.dst, e.edge_type) for e in result.cdg_edges) == Counter(
-            (e.src, e.dst, str(e.type.value)) for e in p_cdg
-        )
+        # Legacy wheels return reachability as cdg_edges. The facade discards
+        # these records and derives qualified postdominance from cfg_edges.
+        # Consumed CDG parity is checked by the integrated test below.
         assert [(e.src, e.dst, e.variable) for e in result.ddg_edges] == [
             (e.src, e.dst, e.metadata.get("variable")) for e in p_ddg
         ]
+        assert not result.cdg_edges
 
     def test_integrated_native_path_equals_builtin_including_metadata(self):
         """Through _build_native_ccg: GraphNode/GraphEdge construction with
@@ -236,8 +236,74 @@ class TestCompleteCcgPhase2:
             ekey(e) for e in cdg
         )
 
+    @pytest.mark.parametrize("prefix", ["\n" * 50, "\r\n" * 50, "\n" * 300])
+    def test_leading_prefix_preserves_structural_cfg_parity(self, tmp_path, prefix):
+        source = prefix + "def f(x):\n    if x:\n        a()\n    else:\n        b()\n    c()\n"
+        path = tmp_path / "prefix.py"
+        path.write_bytes(source.encode())
+        result = self._native_result(path, "python")
+        _, cfg, _, _ = self._python_result(path, "python")
+        assert any(e.edge_type == "CFG_FALSE" for e in result.cfg_edges)
+        assert [(e.src, e.dst, e.edge_type) for e in result.cfg_edges] == [
+            (e.src, e.dst, str(e.type.value)) for e in cfg
+        ]
+
     def test_unsupported_language_ccg_falls_back(self):
         from victor.processing.native.ccg_extract import build_ccg, native_ccg_available
 
         assert native_ccg_available("go") is False
         assert build_ccg("go", "/x/main.go", b"package main") is None
+
+
+def test_legacy_native_statement_schema_declines_without_replaying_calls(monkeypatch):
+    from types import SimpleNamespace
+    import victor.processing.native.ccg_extract as module
+
+    def forbidden(*args):
+        raise AssertionError("Legacy wheel must decline before extraction")
+
+    monkeypatch.setattr(module, "_NATIVE_AVAILABLE", True)
+    monkeypatch.setattr(
+        module,
+        "_native",
+        SimpleNamespace(
+            CCG_STATEMENT_SCHEMA=1, extract_statements_batch=forbidden, build_ccg_batch=forbidden
+        ),
+    )
+    assert not module.native_statements_available("python")
+    assert not module.native_ccg_available("python")
+    assert module.extract_statements("python", "a.py", b"x=1") is None
+    assert module.extract_statements_batch([("python", "a.py", b"x=1")]) is None
+    assert module.build_ccg("python", "a.py", b"x=1") is None
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def f():\n    return outer(inner(), sibling())\n",
+        "\n" * 300 + "def f():\n    return outer(inner(), sibling())\n",
+        "\r\n" * 50 + "def f():\r\n    return outer(inner(), sibling())\r\n",
+        "def f():\n    return '" + "🔥" * 110 + "'\n",
+    ],
+)
+def test_native_physical_identity_and_unicode_preview_match_python(source):
+    if not native_statements_available("python"):
+        pytest.skip("compatible native extension unavailable")
+    from victor.processing.native.ccg_extract import extract_statements
+    from victor.core.graph_rag.language_parsers import create_parser
+
+    path = Path("calls.py")
+    tree = create_parser("python").parse(source.encode())
+    builder = CodeContextGraphBuilder()
+    builder._extract_statement_nodes_native = lambda *args: None
+    nodes = builder._extract_statement_nodes(
+        tree.root_node, path, source.split("\n"), source_code=source
+    )
+    native = extract_statements("python", str(path), source.encode())
+    assert [
+        (r.node_id, r.start_line, r.end_line, r.scope_id, r.content_preview) for r in native
+    ] == [
+        (n.node_id, n.line, n.end_line, n.scope_id or "", n.metadata["content_preview"])
+        for n in nodes
+    ]
+    assert len({r.node_id for r in native}) == len(native)

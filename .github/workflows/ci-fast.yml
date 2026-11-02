@@ -1001,6 +1001,7 @@ jobs:
       - name: Run native parity suites
         run: |
           python -m pytest tests/unit/native -m native_parity -q --tb=short --timeout=300
+          python -m pytest tests/unit/processing/native/test_ccg_extract.py tests/unit/core/indexing/test_ccg_builder_control_dependence.py tests/unit/core/graph_rag/test_control_dependence.py -q --tb=short --timeout=300 --no-cov
 
   # Main promotion uses the exact same PR execution and merge SHA for every
   # release surface. Reusable workflow results are direct merge prerequisites;

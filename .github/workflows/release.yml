@@ -169,80 +169,11 @@ jobs:
   # Build native extensions (Rust via maturin)
   # ==========================================================================
   build-native:
-    name: Build Native (${{ matrix.os }})
+    name: Build and Qualify Native Wheels
     needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux x64 — maturin runs in the manylinux container, which has python3.10–3.14;
-          # name 3.12–3.13 explicitly to match the project's tested native-wheel range.
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            maturin_args: "--release --out dist -i python3.12 python3.13"
-          # Linux ARM64 (Graviton, Ampere, Raspberry Pi 5)
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            maturin_args: "--release --out dist -i python3.12 python3.13"
-          # macOS ARM64 (M1/M2/M3/M4) — runs natively; build for the active setup-python
-          # (3.12), which avoids the runner's Homebrew python@3.14.
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            maturin_args: "--release --out dist"
-          # macOS x86_64 (Intel) — cross-compile from ARM64 runner.
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            maturin_args: "--release --out dist --target x86_64-apple-darwin -i python3.12"
-            rust_target: x86_64-apple-darwin
-          # Windows x64 — runs natively; build for the active setup-python (3.12).
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            maturin_args: "--release --out dist"
-          # NOTE: Windows ARM64 requires a native ARM64 runner (GitHub Actions
-          # doesn't offer one yet). The cross-compile from x64 fails because
-          # maturin can't find a CPython interpreter for aarch64-pc-windows-msvc.
-          # Add this back when GitHub offers windows-arm64 runners.
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          targets: ${{ matrix.target }}${{ matrix.rust_target != '' && format(', {0}', matrix.rust_target) || '' }}
-
-      - name: Update rustup to stable
-        run: |
-          rustup update stable
-          rustup default stable
-          rustc --version
-          cargo --version
-
-      - name: Install maturin
-        run: pip install maturin
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
-        with:
-          working-directory: rust
-          target: ${{ matrix.target }}
-          # Per-OS args (see matrix): Linux pins 3.12–3.13 in the manylinux container;
-          # macOS/Windows build for the active setup-python to match that tested range.
-          args: ${{ matrix.maturin_args }}
-          manylinux: auto
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          if-no-files-found: error
-          name: native-wheels-${{ matrix.target }}
-          path: rust/dist/*.whl
+    uses: ./.github/workflows/native-ccg-qualification.yml
+    permissions:
+      contents: read
 
   # ==========================================================================
   # Build standalone binaries

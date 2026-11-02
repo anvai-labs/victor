@@ -39,16 +39,17 @@ def native_statements_available(language: str) -> bool:
     return (
         _NATIVE_AVAILABLE
         and language in NATIVE_STATEMENT_LANGUAGES
+        and getattr(_native, "CCG_STATEMENT_SCHEMA", 0) == 2
         and hasattr(_native, "extract_statements_batch")
     )
 
 
 def native_ccg_available(language: str) -> bool:
-    """Whether the COMPLETE native CCG (statements + CFG + CDG + DDG) can
-    serve this language right now (engine phase 2)."""
+    """Whether compatible native statement/CFG/DDG inputs can serve this language."""
     return (
         _NATIVE_AVAILABLE
         and language in NATIVE_STATEMENT_LANGUAGES
+        and getattr(_native, "CCG_STATEMENT_SCHEMA", 0) == 2
         and hasattr(_native, "build_ccg_batch")
     )
 
@@ -78,7 +79,7 @@ def extract_statements_batch(  # pragma: no cover - extension-only path
     files: List[Tuple[str, str, bytes]],
 ) -> Optional[List[List[Any]]]:
     """Batch variant — one FFI crossing for many files (rayon inside)."""
-    if not _NATIVE_AVAILABLE or not hasattr(_native, "extract_statements_batch"):
+    if not native_statements_available("python"):
         return None
     if not files or not all(lang in NATIVE_STATEMENT_LANGUAGES for lang, _, _ in files):
         return None
@@ -89,12 +90,14 @@ def extract_statements_batch(  # pragma: no cover - extension-only path
 
 
 def build_ccg(language: str, file_path: str, source: bytes) -> Optional[Any]:
-    """The COMPLETE native CCG for one file, or None (caller falls back).
+    """Native statement/CFG/DDG inputs for one file, or None (caller falls back).
 
     Returns an object with ``statements``, ``cfg_edges``, ``cdg_edges`` and
     ``ddg_edges`` — each edge record carrying ``src``, ``dst``,
     ``edge_type``, ``variable`` (DDG) and ``structural`` (CFG metadata
-    shape). Record-for-record identical to the Python builders.
+    shape). Schema-v2 cdg_edges is empty: the Python facade derives bounded
+    exit-path postdominance. Legacy schema wheels decline rather than mixing
+    line-only identities with physical byte-span IDs.
     """
     if not native_ccg_available(language):
         return None
