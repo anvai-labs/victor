@@ -87,6 +87,30 @@ class VictorMarkdown(_VictorMarkdown):
     elements = {**_VictorMarkdown.elements, "table_open": ResponsiveTableElement}
 
 
+class _ConstrainedMarkdown:
+    """Wrapper that enforces explicit width constraints on Markdown renderables.
+
+    Ensures that width constraints are properly propagated to all nested elements
+    (code blocks, tables, etc.) even when the parent container's width is not
+    reliably communicated by the rendering framework.
+    """
+
+    def __init__(self, content: str, max_width: int | None = None) -> None:
+        self._content = content
+        self._max_width = max_width
+        self._markdown = VictorMarkdown(content, style="markdown.text", justify="left")
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        # If we have an explicit max_width, constrain the render options
+        if self._max_width is not None:
+            constrained_options = options.update_width(self._max_width)
+        else:
+            constrained_options = options
+
+        # Render the markdown with constrained options
+        yield from console.render(self._markdown, constrained_options)
+
+
 _DIAGRAM_LANGS = {"mermaid"}
 _TOKEN_PATTERN = re.compile(
     r"```(?P<lang>[a-zA-Z0-9_-]+)\s*\n(?P<code>[\s\S]*?)```"
@@ -130,7 +154,7 @@ def _escape_rich_markup_from_text(text: str) -> str:
     return _RICH_MARKUP_PATTERN.sub(_escape_match, text)
 
 
-def _markdown_block(text: str) -> Markdown:
+def _markdown_block(text: str) -> RenderableType:
     """Consistently style markdown output with a lighter base.
 
     ``rich.markdown.Markdown`` does not interpret Rich inline markup (it parses
@@ -139,8 +163,11 @@ def _markdown_block(text: str) -> Markdown:
     ``[text]`` portion of markdown links and broke ``[text](url)`` rendering.
     ``_escape_rich_markup_from_text`` is retained as a utility for any
     markup-aware Rich path (e.g. ``console.print(Text(...))``) that may need it.
+
+    Returns a constrained markdown wrapper that ensures width constraints are
+    properly propagated to nested elements (code blocks, tables, etc.).
     """
-    return VictorMarkdown(text, style="markdown.text", justify="left")
+    return _ConstrainedMarkdown(text)
 
 
 def find_safe_split(content: str) -> int:

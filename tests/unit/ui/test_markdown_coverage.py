@@ -111,34 +111,34 @@ class TestMarkdownBlock:
     """Tests for _markdown_block function."""
 
     def test_markdown_block_returns_markdown_object(self):
-        """_markdown_block returns a Rich Markdown object."""
-        from rich.markdown import Markdown
+        """_markdown_block returns a _ConstrainedMarkdown object."""
+        from victor.ui.rendering.markdown import _ConstrainedMarkdown
 
         result = _markdown_block("Hello **world**")
-        assert isinstance(result, Markdown)
+        assert isinstance(result, _ConstrainedMarkdown)
 
     def test_markdown_block_escapes_content(self):
         """_markdown_block escapes Rich markup before creating Markdown."""
         # Content with Rich-style tags should be escaped
         result = _markdown_block("[bold]text[/]")
         # Should not crash, and should be a valid Markdown object
-        from rich.markdown import Markdown
+        from victor.ui.rendering.markdown import _ConstrainedMarkdown
 
-        assert isinstance(result, Markdown)
+        assert isinstance(result, _ConstrainedMarkdown)
 
     def test_markdown_block_with_empty_string(self):
         """Empty string returns valid Markdown object."""
-        from rich.markdown import Markdown
+        from victor.ui.rendering.markdown import _ConstrainedMarkdown
 
         result = _markdown_block("")
-        assert isinstance(result, Markdown)
+        assert isinstance(result, _ConstrainedMarkdown)
 
     def test_markdown_block_preserves_markdown(self):
         """Actual markdown syntax is preserved."""
-        from rich.markdown import Markdown
+        from victor.ui.rendering.markdown import _ConstrainedMarkdown
 
         result = _markdown_block("**bold** and *italic*")
-        assert isinstance(result, Markdown)
+        assert isinstance(result, _ConstrainedMarkdown)
 
 
 class TestRenderImagePlaceholder:
@@ -501,9 +501,9 @@ class TestCollapsibleSections:
         content = "Line 1\nLine 2\nLine 3"
         result = render_collapsible_section("Test", content, lines_visible=10)
         # Should return markdown block, not Panel with collapse hint
-        from rich.markdown import Markdown
+        from victor.ui.rendering.markdown import _ConstrainedMarkdown
 
-        assert isinstance(result, Markdown)
+        assert isinstance(result, _ConstrainedMarkdown)
 
     def test_long_content_collapsed(self):
         """Long content should be collapsed with hint."""
