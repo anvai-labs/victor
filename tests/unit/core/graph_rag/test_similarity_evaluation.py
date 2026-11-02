@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 import hashlib
+import json
+from pathlib import Path
 
 import pytest
 
@@ -9,8 +11,69 @@ from victor.core.graph_rag.similarity_evaluation import (
     Corpus,
     Observation,
     calibrate,
+    digest,
     evaluate,
 )
+
+
+def test_independent_project_corpus_is_balanced_and_project_held_out():
+    """Protect the reviewed expansion without requiring third-party source or weights."""
+    fixture = Path(__file__).resolve().parents[3] / "fixtures" / "graph_similarity"
+    corpus = Corpus.from_dict(json.loads((fixture / "independent-projects.json").read_text()))
+    assert corpus.identity == "16b9783738effe4f1efcaac859f26d1248512ca5d8017e0ab4efa7b0b8bf2bf3"
+    assert len(corpus.pairs) == 24
+    assert {project.repository for project in corpus.projects.values()} == {
+        "psf/requests",
+        "pallets/flask",
+    }
+    assert {project.origin for project in corpus.projects.values()} == {"repository"}
+    for split in ("calibration", "test"):
+        pairs = [
+            pair
+            for pair in corpus.pairs
+            if corpus.projects[corpus.units[pair.left].project].split == split
+        ]
+        assert len(pairs) == 12
+        assert sum(pair.positive for pair in pairs) == 6
+        assert len({pair.family for pair in pairs}) >= 3
+        assert {pair.relation for pair in pairs} == {"structure"}
+        assert all("not behavior" in pair.domain for pair in pairs)
+
+
+@pytest.mark.parametrize("run", ["syntax", "portable", "body-cold", "body-warm"])
+def test_independent_project_evidence_replays_frozen_policy_and_metrics(run):
+    """Retained scores must support their calibration and abstention claims."""
+    root = Path(__file__).resolve().parents[4]
+    fixture = root / "tests/fixtures/graph_similarity/independent-projects.json"
+    evidence = json.loads(
+        (root / "docs/architecture/evidence/graph-independent-projects-2026-11-02.json").read_text()
+    )
+    assert evidence["manifest_file_sha256"] == hashlib.sha256(fixture.read_bytes()).hexdigest()
+    corpus = Corpus.from_dict(json.loads(fixture.read_text()))
+    retained = evidence["observations"][run]
+    assert digest(retained["detector_profile"]) == retained["profile_identity"]
+    assert retained["corpus"] == evidence["corpus_identity"] == corpus.identity
+    assert Corpus.from_dict(retained["corpus_manifest"]).identity == corpus.identity
+    observations = tuple(Observation(**item) for item in retained["observations"])
+    policy = calibrate(
+        corpus,
+        observations,
+        channel=retained["policy"]["channel"],
+        profile=retained["profile_identity"],
+        minimum_precision=0.95,
+        minimum_support=2,
+    )
+    assert dict(policy.thresholds) == retained["policy"]["thresholds"]
+    assert dict(policy.rejected) == retained["policy"]["rejected"]
+    replayed = evaluate(corpus, observations, policy, profile=policy.profile, k=10)
+    for key, value in replayed.items():
+        assert value == retained[key], key
+    assert not retained["production_quality_qualified"]
+    if run == "body-warm":
+        cold = evidence["observations"]["body-cold"]
+        assert retained["observations"] == cold["observations"]
+        assert retained["profile_identity"] == cold["profile_identity"]
+        assert retained["run_details"]["body_stats"]["model_load_attempts"] == 0
 
 
 def manifest():
