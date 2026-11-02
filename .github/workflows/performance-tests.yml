@@ -3,12 +3,12 @@ name: Performance Regression Tests
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     # Run performance tests daily at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch:  # Allow manual triggering
+
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

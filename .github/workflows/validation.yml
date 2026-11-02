@@ -4,11 +4,8 @@
 name: Validation
 
 on:
-  pull_request:
-    # Extensive validation runs on the develop -> main promotion PR; develop PRs
-    # stay lightweight (ci-fast only) so the runner queue keeps merging fast.
-    branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -18,7 +15,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: validation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -59,15 +56,19 @@ jobs:
         env:
           BASE_BRANCH: ${{ github.base_ref || github.event.repository.default_branch }}
         run: |
-          FEP_FILES=$(git diff --name-only --diff-filter=AM "origin/${BASE_BRANCH}...HEAD" | grep '^feps/fep-.*\.md$' || true)
+          CHANGED_FILES=$(git diff --name-only --diff-filter=AM "origin/${BASE_BRANCH}...HEAD")
+          FEP_FILES=$(printf '%s\n' "$CHANGED_FILES" | grep '^feps/fep-.*\.md$') || {
+            grep_status=$?
+            if [ "$grep_status" -ne 1 ]; then exit "$grep_status"; fi
+          }
 
           if [ -z "$FEP_FILES" ]; then
             echo "No FEP files modified"
-            echo "fep_files=" >> $GITHUB_OUTPUT
+            echo "fep_files=" >> "$GITHUB_OUTPUT"
           else
             echo "$FEP_FILES"
             FEP_LIST=$(echo "$FEP_FILES" | tr '\n' ' ' | sed 's/ $//')
-            echo "fep_files=$FEP_LIST" >> $GITHUB_OUTPUT
+            echo "fep_files=$FEP_LIST" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate FEPs
@@ -127,13 +128,13 @@ jobs:
         env:
           BASE_BRANCH: ${{ github.base_ref || github.event.repository.default_branch }}
         run: |
-          CHANGED_FILES=$(git diff --name-only --diff-filter=AM "origin/${BASE_BRANCH}...HEAD" || true)
+          CHANGED_FILES=$(git diff --name-only --diff-filter=AM "origin/${BASE_BRANCH}...HEAD")
           VERTICAL_DIRS=$(printf '%s\n' "$CHANGED_FILES" | python scripts/ci/find_modified_vertical_dirs.py)
 
           if [ -z "$VERTICAL_DIRS" ]; then
-            echo "vertical_dirs=" >> $GITHUB_OUTPUT
+            echo "vertical_dirs=" >> "$GITHUB_OUTPUT"
           else
-            echo "vertical_dirs=$VERTICAL_DIRS" >> $GITHUB_OUTPUT
+            echo "vertical_dirs=$VERTICAL_DIRS" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate vertical metadata
@@ -211,7 +212,7 @@ jobs:
               }
             }
 
-            if (!['success', 'skipped'].includes(fepResult) ||
-                !['success', 'skipped'].includes(verticalResult)) {
+            if (fepResult !== 'success' ||
+                verticalResult !== 'success') {
               core.setFailed('FEP or vertical validation did not pass');
             }

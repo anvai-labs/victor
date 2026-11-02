@@ -927,19 +927,67 @@ class ConversationStoreSchema:
 
     @staticmethod
     def _recover_session_headers(conn: sqlite3.Connection, source: str) -> None:
-        """Retain conversations whose legacy session header was never mirrored."""
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+        """Recover legacy ownership and the original resume configuration."""
+        defaults = {row[1]: row[4] for row in conn.execute("PRAGMA table_info(sessions)")}
+        columns = set(defaults)
+        ui_columns = {row[1] for row in conn.execute("PRAGMA table_info(ui_session)")}
+        ui_key = next((name for name in ("session_id", "id") if name in ui_columns), None)
         timestamp = "timestamp" if source.startswith("messages") else "created_at"
-        recover_columns = ["session_id"] + [
-            col for col in ("created_at", "last_active", "last_activity") if col in columns
-        ]
-        values = ["session_id"] + [
-            f"COALESCE(MIN({timestamp}), CURRENT_TIMESTAMP)" for _ in recover_columns[1:]
-        ]
+        recovered_columns = ["session_id"]
+        values = ["missing.session_id"]
+        for column in ("created_at", "last_active", "last_activity"):
+            if column not in columns:
+                continue
+            aliases = (
+                ("created_at",)
+                if column == "created_at"
+                else (column, "last_activity", "last_active", "updated_at")
+            )
+            ui_values = [
+                f"ui.{name}" for name in dict.fromkeys(aliases) if ui_key and name in ui_columns
+            ]
+            fallback = "missing.first_time" if column == "created_at" else "missing.last_time"
+            recovered_columns.append(column)
+            values.append(
+                "COALESCE(" + ", ".join([*ui_values, fallback, "CURRENT_TIMESTAMP"]) + ")"
+            )
+        if ui_key:
+            for column in (
+                "provider",
+                "model",
+                "profile",
+                "max_tokens",
+                "reserved_tokens",
+                "project_path",
+                "metadata",
+            ):
+                if column in columns and column in ui_columns:
+                    recovered_columns.append(column)
+                    # A missing mirror or nullable legacy field must not
+                    # replace the canonical column default with explicit NULL.
+                    default = defaults[column] if defaults[column] is not None else "NULL"
+                    values.append(f"COALESCE(ui.{column}, {default})")
+            # Modern sessions use the normalized provider FK, while the legacy
+            # UI header carries its name. Resolve it in the existing registry.
+            has_providers = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='providers'"
+            ).fetchone()
+            if "provider_id" in columns and "provider" in ui_columns and has_providers:
+                conn.execute(
+                    "INSERT OR IGNORE INTO providers(name)"
+                    " SELECT DISTINCT lower(provider) FROM ui_session"
+                    " WHERE provider IS NOT NULL AND provider != ''"
+                )
+                recovered_columns.append("provider_id")
+                values.append("(SELECT id FROM providers WHERE name=lower(ui.provider))")
+        join = f" LEFT JOIN ui_session ui ON ui.{ui_key}=missing.session_id" if ui_key else ""
         conn.execute(
-            f"INSERT INTO sessions ({', '.join(recover_columns)})"
-            f" SELECT {', '.join(values)} FROM {source}"
-            " WHERE session_id NOT IN (SELECT session_id FROM sessions) GROUP BY session_id"
+            f"INSERT INTO sessions ({', '.join(recovered_columns)})"
+            f" SELECT {', '.join(values)} FROM ("
+            f" SELECT session_id, MIN({timestamp}) AS first_time, MAX({timestamp}) AS last_time"
+            f" FROM {source} source WHERE NOT EXISTS"
+            " (SELECT 1 FROM sessions WHERE sessions.session_id=source.session_id)"
+            " GROUP BY session_id) missing" + join
         )
         recovered = conn.execute("SELECT changes()").fetchone()[0]
         if recovered:

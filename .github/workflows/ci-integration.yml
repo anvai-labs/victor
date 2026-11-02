@@ -1,29 +1,27 @@
-# Integration Tests - Only runs when integration code changes
-# Path-triggered to save CI resources
+# Full integration surface, called by the required main promotion gate.
+# Push and manual entry points remain available independently.
 
 name: CI - Integration Tests
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-integration-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-24.04
-    # 30m: core-integration runs single-process (see below); parallel workers
-    # multiplied the torch runtime past the runner pool's memory ceiling and
-    # got the job evicted mid-run (exit 143 runner shutdown, 5 occurrences).
+    # 30m ceiling (matching the verticals job): headroom for the slowest suite
+    # rather than a tight fit — an exceeded timeout costs a full re-run.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -40,13 +38,14 @@ jobs:
           # integration tests can no longer exist without running anywhere.
           # verticals/ is owned by the verticals-integration job below.
           - name: core-integration
-            # Single-process, like the sibling suites: this job installs torch,
-            # so N xdist workers means N full runtimes — on the runner pool that
-            # exceeded the memory ceiling and the runner was evicted ~3 minutes
-            # in (exit 143 "runner has received a shutdown signal") with -n auto
-            # AND with -n 4, while every single-process sibling suite ran green.
+            # Parallel again. The v0.25.0 promotion evictions (~3 min in, exit
+            # 143, with -n auto AND -n 4) were NOT worker memory: they were the
+            # consensus formation compounding echoing-member transcripts to
+            # ~14 GB before #1642 landed its bounded output preview. With the
+            # preview bound proven (the suite passed single-process at 15
+            # rounds), restore -n auto to cut this suite's wall time.
             path: >-
-              tests/integration
+              tests/integration -n auto
               --ignore=tests/integration/providers
               --ignore=tests/integration/workflows
               --ignore=tests/integration/tools

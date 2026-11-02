@@ -128,7 +128,9 @@ Victor AI and `victor-contracts` use independent release trains. `VERSION` is th
 AI version source; update it on `develop`, run `python scripts/sync_version.py
 --ai`, and verify synchronization. The contracts package keeps its own version.
 
-1. Open a `develop` → `main` promotion PR with an explicit `--base main`.
+1. Open a `develop` → `main` promotion PR with an explicit `--base main`. If
+   retargeting an existing feature PR, close and reopen it: the retarget guard
+   unique required promotion context is absent until the full main execution starts.
 2. Wait for the promotion battery, including its sharded unit/integration,
    packaging, CLI smoke, and security checks. Feature-PR validation alone does
    not certify a release.
@@ -168,9 +170,17 @@ documents do not by themselves establish implementation completion.
 
 ## CI gate map
 
-The CI gate map groups actual jobs by responsibility. `CI Success` includes native parity;
-failed or cancelled prerequisites fail the aggregate, while path-filtered skips are accepted.
-The promotion battery is separate and runs on pull requests targeting `main`.
+The CI gate map groups jobs by responsibility. `CI Success` includes native parity;
+missing, failed, cancelled and unknown prerequisites fail the aggregate. Only
+declared event-specific skips are accepted; every main promotion surface must pass.
+The promotion battery is called by `ci-fast` for pull requests targeting `main`,
+so `CI Success` also waits for every heavy surface. Main must additionally
+require the unique `Promotion CI Success` context from GitHub Actions, preserving
+its existing required checks, strict up-to-date policy and review rules. This
+configuration step is separate from the source change. Only main PRs can report
+that unique promotion context; feature PRs with the same head SHA cannot supply
+it. Push/manual runs use `Non-PR CI Success` and non-main promotion jobs use
+`Promotion Not Applicable`, even when skipped.
 
 ```mermaid
 ---
@@ -181,21 +191,28 @@ flowchart TB
   PR["Pull request / configured push"]
   subgraph FAST["ci-fast.yml"]
     N["Parallel prerequisite jobs<br/>format · lint · types · imports · docs<br/>boundaries · facade/hotspot · version/FEP<br/>quick tests · collection · security<br/>Rust packages · native-parity · PR metadata"]
-    S["CI Success<br/>failed / cancelled prerequisite → failure<br/>passed / path-filtered skipped → success"]
+    S["CI Success<br/>missing / failed / cancelled / unknown → failure<br/>only declared event skips are accepted"]
+    P["Promotion CI Success<br/>unique main-PR-only verdict<br/>must also be required on main"]
+    S -->|"main only; exact success required"| P
     N -->|"aggregate every required need"| S
   end
-  subgraph PROMO["Separate promotion battery · PR targeting main"]
-    M["ci-test.yml matrix<br/>Python 3.12 / 3.13<br/>12 shards each · 24 jobs"]
+  subgraph PROMO["Reusable promotion battery · PR targeting main"]
+    M["ci-test.yml matrix<br/>Python 3.12 / 3.13<br/>6 shards each · 12 jobs"]
     C["CLI Smoke Test"]
-    T["Test Summary"]
-    I["ci-integration.yml<br/>path-filtered integration suites"]
+    T["Test Summary + Coverage Gate"]
+    I["ci-integration.yml<br/>all integration surfaces"]
+    B["Build · security · validation · performance<br/>contracts · codegraph · verticals · packages"]
     M -->|"all shard results"| T
     C -->|"smoke result"| T
   end
   PR -->|"run fast gate"| N
   PR -->|"main target"| M
   PR -->|"main target"| C
-  PR -->|"main target and matching paths"| I
+  PR -->|"main target"| I
+  PR -->|"main target"| B
+  T -->|"direct reusable prerequisite"| S
+  I -->|"direct reusable prerequisite"| S
+  B -->|"direct reusable prerequisite"| S
 ```
 
 

@@ -53,6 +53,22 @@ from enum import Enum
 from typing import List, Optional, Protocol, Sequence, Tuple
 
 from victor.security.command_safety import is_dangerous_command
+from victor.security.shell_commands import (
+    dynamic_arguments_safe,
+    execution_environment_assignment,
+    inspection_command,
+    inplace_sed_targets,
+)
+from victor.security.shell_syntax import (
+    MAX_SHELL_NESTING,
+    ShellSyntaxError,
+    scan_file_writes,
+    scan_substitutions,
+    split_shell_commands,
+    strip_shell_prefix,
+    shell_words,
+    shell_assignments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,8 +224,6 @@ _NETWORK_INSTALL_RE = re.compile(
 )
 _URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
-# Redirect target: ``> file``, ``>> file``, ``2> file`` (skips ``>&`` dups).
-_REDIRECT_RE = re.compile(r"(?:^|[\s;|(])(?:\d{1,2})?(>>|>)\s*([^\s|&;<>]+)")
 # Backgrounding: trailing ``&``, ``nohup``, ``disown`` (not ``&&``).
 _BG_RE = re.compile(r"(?:^|[^\s&])&\s*$|\bnohup\b|\bdisown\b")
 
@@ -273,58 +287,109 @@ def _classify(
     return "in-workspace"  # no workspace_root → assume cwd is the boundary
 
 
-def _extract_write_targets(cmd: str, cwd: str) -> Tuple[List[str], bool]:
-    """Best-effort extraction of write-target paths.
+def _extract_write_targets(cmd: str, cwd: str, *, _depth: int = 0) -> Tuple[List[str], bool]:
+    """Propagate write and opaque-execution effects across shell boundaries.
 
-    Returns ``(targets, has_unrecognized_mutation)`` where ``targets`` are
-    resolved absolute paths the command writes to, and ``has_unrecognized_mutation``
-    flags a mutating base command whose destination could not be confidently
-    classified (used for conservative profile fallbacks).
+    Each executable substitution is analyzed as source in its own quoting
+    context. Unsupported syntax/expansion remains unknown, never a pure read.
     """
-    targets: List[str] = []
-    # 1. Redirect targets.
-    for match in _REDIRECT_RE.finditer(cmd):
-        resolved = _resolve(match.group(2), cwd)
-        if resolved:
-            targets.append(resolved)
-    # 2. Mutating-command path arguments.
+    if _depth > MAX_SHELL_NESTING:
+        return [], True
     try:
-        tokens = shlex.split(cmd, posix=True)
-    except ValueError:
-        tokens = cmd.split()
+        children, sanitized = scan_substitutions(cmd, depth=_depth)
+        writes = scan_file_writes(cmd, depth=_depth)
+    except ShellSyntaxError:
+        return [], True
+    targets: list[str] = []
     unrecognized = False
-    skip_prefixes = {"sudo", "env", "nohup", "command", "time", "timeout"}
-    i = 0
-    while i < len(tokens):
-        base = os.path.basename(tokens[i]).lower()
-        if base in skip_prefixes:
-            i += 1
+    for write in writes:
+        if write.dynamic or not write.target:
+            unrecognized = True
+        elif write.target != "/dev/null":
+            resolved = _resolve(write.target, cwd)
+            if resolved:
+                targets.append(resolved)
+    for child in children:
+        child_targets, child_unknown = _extract_write_targets(child, cwd, _depth=_depth + 1)
+        targets.extend(child_targets)
+        unrecognized |= child_unknown
+    for component in split_shell_commands(sanitized):
+        try:
+            for word in shell_assignments(component):
+                unrecognized |= execution_environment_assignment(word)
+        except ValueError:
+            unrecognized = True
+        residual = strip_shell_prefix(component)
+        if residual is None:
             continue
-        if base in _MUTATING_BASES:
-            collected = False
-            for tok in tokens[i + 1 :]:
-                if tok.startswith("-"):  # flag — skip
-                    continue
-                if tok.startswith("$"):  # unresolvable substitution
-                    unrecognized = True
-                    continue
-                # Only classify path-like args (absolute, ~, or containing '/').
-                if tok.startswith(("/", "~")) or "/" in tok or tok in {".", ".."}:
-                    resolved = _resolve(tok, cwd)
-                    if resolved:
-                        targets.append(resolved)
-                        collected = True
-                else:
-                    # bareword relative destination (e.g. ``mv a b``) → in-workspace
-                    # by assumption; no protected-zone risk, so skip.
-                    collected = True
-            if not collected and base in {"rm", "rmdir", "mv", "cp", "chmod", "chown"}:
+        try:
+            tokens = shlex.split(residual, posix=True)
+        except ValueError:
+            unrecognized = True
+            continue
+        if not tokens:
+            continue
+        # Transparent wrappers carry the wrapped command's effects. Unknown
+        # wrapper flags are intentionally not guessed as harmless executable names.
+        while tokens and tokens[0] in {"sudo", "env", "nohup", "command", "time", "timeout"}:
+            wrapper = tokens.pop(0)
+            if wrapper == "timeout" and tokens and not tokens[0].startswith("-"):
+                tokens.pop(0)
+            while tokens and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[0]):
+                unrecognized |= execution_environment_assignment(tokens.pop(0))
+            if tokens and tokens[0].startswith("-"):
                 unrecognized = True
-        i += 1
-    # De-dup preserving order.
-    seen: set = set()
-    uniq = [t for t in targets if not (t in seen or seen.add(t))]
-    return uniq, unrecognized
+                tokens = []
+        if not tokens:
+            continue
+        base = os.path.basename(tokens[0]).lower()
+        if not dynamic_arguments_safe(base, shell_words(residual)):
+            unrecognized = True
+        inspection = inspection_command([base, *tokens[1:]])
+        if inspection is False:
+            sed_targets = inplace_sed_targets(tokens) if base == "sed" else None
+            if sed_targets is not None:
+                for target in sed_targets:
+                    if "$" in target or "`" in target:
+                        unrecognized = True
+                    else:
+                        resolved = _resolve(target, cwd)
+                        if resolved:
+                            targets.append(resolved)
+                        else:
+                            unrecognized = True
+            elif base in {"pip", "pip3"} and tokens[1:2] == ["install"]:
+                # Existing explicit network permission covers package installation
+                # in the configured environment. Still classify explicit alternate
+                # destinations so it cannot authorize a protected-path target.
+                for index, argument in enumerate(tokens[2:], start=2):
+                    key, separator, destination = argument.partition("=")
+                    if key in {"--target", "-t", "--prefix", "--root"}:
+                        if not separator:
+                            destination = tokens[index + 1] if index + 1 < len(tokens) else ""
+                        resolved = _resolve(destination, cwd)
+                        if resolved:
+                            targets.append(resolved)
+                        else:
+                            unrecognized = True
+            else:
+                unrecognized = True
+        if base not in _MUTATING_BASES:
+            continue
+        collected = False
+        for argument in tokens[1:]:
+            if argument.startswith("-"):
+                continue
+            if "$" in argument or "`" in argument:
+                unrecognized = True
+                continue
+            resolved = _resolve(argument, cwd)
+            if resolved:
+                targets.append(resolved)
+                collected = True
+        if not collected:
+            unrecognized = True
+    return list(dict.fromkeys(targets)), unrecognized
 
 
 def _has_network_op(cmd: str) -> bool:
@@ -431,6 +496,15 @@ class DamageScopedShellSafetyPolicy:
                     risk=0.9,
                 )
 
+        # L0 — catastrophic floor (every profile).
+        if is_dangerous_command(cmd):
+            return self._deny_decision(
+                "catastrophic command blocked",
+                "catastrophic",
+                invariant="irreversible-damage",
+                risk=1.0,
+            )
+
         # Caller allow patterns short-circuit to ALLOW (trusted override).
         for pat in self._extra_allow:
             if pat.search(cmd):
@@ -440,15 +514,6 @@ class DamageScopedShellSafetyPolicy:
                     category="allow_pattern",
                     risk_score=0.1,
                 )
-
-        # L0 — catastrophic floor (every profile).
-        if is_dangerous_command(cmd):
-            return self._deny_decision(
-                "catastrophic command blocked",
-                "catastrophic",
-                invariant="irreversible-damage",
-                risk=1.0,
-            )
 
         # L1 — workspace containment (write targets).
         write_targets, unrecognized_mutation = _extract_write_targets(cmd, cwd)
@@ -496,8 +561,12 @@ class DamageScopedShellSafetyPolicy:
                 risk_score=0.4,
             )
 
-        effective_readonly = (not write_targets) and (not has_network)
-        category = "workspace_write" if write_targets else ("network" if has_network else "read")
+        effective_readonly = not write_targets and not has_network and not unrecognized_mutation
+        category = (
+            "workspace_write"
+            if write_targets
+            else "network" if has_network else "exec" if unrecognized_mutation else "read"
+        )
         return ShellSafetyDecision(
             SafetyVerdict.ALLOW,
             effective_readonly=effective_readonly,

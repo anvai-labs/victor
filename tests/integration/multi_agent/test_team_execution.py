@@ -809,10 +809,9 @@ class TestConsensusFormation:
 
         assert result["success"] is False
         assert result.get("consensus_achieved", True) is False
-        # Every round re-asks every member before giving up (default
-        # max_rounds=15, 5x'd 2026-10-31 #1637).
+        # Conservative default; larger runs remain an explicit context override.
         for agent in three_agent_team:
-            assert len(agent.executed_tasks) == 15
+            assert len(agent.executed_tasks) == 3
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -844,7 +843,9 @@ class TestConsensusFormation:
         coordinator.add_member(agent1).add_member(agent2).add_member(agent3)
         coordinator.set_formation(TeamFormation.CONSENSUS)
 
-        result = await coordinator.execute_task("Consensus task", {})
+        result = await coordinator.execute_task(
+            "Consensus task", {"shared_state": {"consensus_max_rounds": 15}}
+        )
 
         assert result["success"] is False
         assert result.get("consensus_achieved", True) is False
