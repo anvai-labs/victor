@@ -2,8 +2,9 @@
 
 Initial review base: `b3f09333aef5524a38a55fd9aee6f33973b82fa8` (`origin/develop`).
 Initial candidate: `23f7c3a0b7b16e5f7ebf761134c891eca1dda135`.
-Final publication base: `61d25a056366f94eeff96f4a0cefe946ca1d9a88`; the upstream
-delta changes only the agent-service tracker.
+Rebase checkpoint: `61d25a056366f94eeff96f4a0cefe946ca1d9a88`; the upstream
+delta changes only the agent-service tracker. Later documentation-only rebases
+and the final publication base are recorded in the PR.
 The [parity assessment](graph-similarity-parity-and-roadmap.md) owns the capability
 assessment; exact final-commit review attestations live in Git metadata and PR
 validation evidence, not a self-referential source commit hash.
