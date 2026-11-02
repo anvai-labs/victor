@@ -1,0 +1,46 @@
+name: Graph Windows Source Qualification
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graph-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    name: Windows source and job ownership (Python ${{ matrix.python }})
+    runs-on: windows-2025
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install runtime and focused test dependencies
+        run: python -m pip install -e ./victor-contracts -e . "pytest>=8,<9.2" pytest-asyncio pytest-cov psutil
+      - name: Require actual Windows APIs
+        run: python -c "import os, platform, sys; assert os.name == 'nt'; print(platform.platform(), platform.machine(), sys.version)"
+      - name: Exercise actual NTFS handles, Git and Job Objects
+        run: python -m pytest tests/unit/core/graph_rag/test_windows_source.py tests/unit/core/graph_rag/test_source_reader.py --cov-config=scripts/ci/windows-source-coverage.ini --cov --cov-report=xml:windows-coverage.xml --junitxml=windows-source.xml -q
+      - name: Measure production-size acquisition
+        run: python scripts/benchmark_windows_source.py --files 4096 --bytes-per-file 8192 --output windows-source-benchmark.json
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-source-python-${{ matrix.python }}
+          path: |
+            windows-coverage.xml
+            windows-source.xml
+            windows-source-benchmark.json
+          if-no-files-found: error

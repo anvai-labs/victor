@@ -8,6 +8,8 @@ import json
 from collections.abc import Mapping
 
 CORE_JOBS = (
+    "windows-source-changes",
+    "windows-source",
     "format",
     "lint",
     "repo-hygiene",
@@ -70,6 +72,11 @@ def validate_results(needs: Mapping[str, object], *, event: str, base: str, ref:
         raise ValueError(
             f"CI dependency mismatch: missing={sorted(missing)}, unexpected={sorted(extra)}"
         )
+    selector = needs["windows-source-changes"]
+    outputs = selector.get("outputs") if isinstance(selector, Mapping) else None
+    windows_required = outputs.get("required") if isinstance(outputs, Mapping) else None
+    if not isinstance(windows_required, str) or windows_required not in {"true", "false"}:
+        raise ValueError("Windows source qualification flag is missing or unknown")
     promotion = event == "pull_request" and base == "main"
     allowed_skips = set(MAIN_DELEGATED_JOBS) | {"quick-tests"} if promotion else set()
     if event != "pull_request":
@@ -82,6 +89,8 @@ def validate_results(needs: Mapping[str, object], *, event: str, base: str, ref:
         result = record.get("result") if isinstance(record, Mapping) else None
         if job in PROMOTION_JOBS:
             allowed = {"success"} if promotion else {"skipped"}
+        elif job == "windows-source":
+            allowed = {"success"} if windows_required == "true" else {"skipped"}
         else:
             allowed = {"success", "skipped"} if job in allowed_skips else {"success"}
         if not isinstance(result, str) or result not in allowed:

@@ -105,7 +105,48 @@ def needs_for(gate, *, promotion):
         for job in gate.MAIN_DELEGATED_JOBS:
             needs[job]["result"] = "skipped"
         needs["quick-tests"]["result"] = "skipped"
+    if "windows-source-changes" in needs:
+        needs["windows-source-changes"]["outputs"] = {"required": "true"}
     return needs
+
+
+def test_windows_qualification_is_required_by_the_aggregate():
+    jobs = workflow("ci-fast.yml")["jobs"]
+    assert {"windows-source-changes", "windows-source"} <= set(jobs["ci-success"]["needs"])
+    called = jobs["windows-source"]
+    assert called["uses"] == "./.github/workflows/ci-graph-windows.yml"
+    assert called["needs"] == ["windows-source-changes"]
+    assert called["if"] == "${{ needs.windows-source-changes.outputs.required == 'true' }}"
+    trigger = workflow("ci-graph-windows.yml")
+    trigger = trigger.get("on", trigger.get(True))
+    assert set(trigger) == {"workflow_call", "workflow_dispatch"}
+
+
+@pytest.mark.parametrize("flag", [None, "", "unknown", "TRUE", False])
+def test_windows_missing_or_unknown_source_flag_fails_closed(gate, flag):
+    needs = needs_for(gate, promotion=False)
+    needs["windows-source-changes"] = {"result": "success", "outputs": {"required": flag}}
+    needs["windows-source"] = {"result": "skipped"}
+    with pytest.raises(ValueError, match="Windows source qualification flag"):
+        gate.validate_results(needs, event="pull_request", base="develop")
+
+
+@pytest.mark.parametrize("result", ["skipped", "failure", "cancelled", None, "unknown"])
+def test_windows_required_matrix_cannot_be_skipped_or_fail(gate, result):
+    needs = needs_for(gate, promotion=False)
+    needs["windows-source"] = {"result": result}
+    with pytest.raises(ValueError, match="windows-source"):
+        gate.validate_results(needs, event="pull_request", base="develop")
+
+
+def test_windows_skip_requires_an_explicit_successful_negative_selector(gate):
+    needs = needs_for(gate, promotion=False)
+    needs["windows-source-changes"]["outputs"] = {"required": "false"}
+    needs["windows-source"] = {"result": "skipped"}
+    gate.validate_results(needs, event="pull_request", base="develop")
+    needs["windows-source-changes"]["result"] = "failure"
+    with pytest.raises(ValueError, match="windows-source-changes"):
+        gate.validate_results(needs, event="pull_request", base="develop")
 
 
 def test_main_requires_full_battery_while_develop_stays_light(gate):

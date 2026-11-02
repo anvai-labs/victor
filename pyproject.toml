@@ -970,6 +970,11 @@ omit = [
     # generated code in the diff would sink the changed-line coverage gate
     # in environments where the binding tests skip.
     "victor/core/graph_rag/_scip/*",
+    # Actual Windows handle/job APIs are line-measured by ci-graph-windows.yml
+    # using scripts/ci/windows-source-coverage.ini; Ubuntu changed-line coverage cannot qualify them.
+    "victor/core/graph_rag/windows_source.py",
+    "victor/core/graph_rag/windows_process.py",
+    "victor/core/graph_rag/windows_inventory.py",
     # CLI modules require interactive terminal testing
     "victor/ui/cli.py",
     "victor/ui/commands.py",
