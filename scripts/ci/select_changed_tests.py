@@ -84,12 +84,38 @@ RELATED_TESTS = {
     "scripts/benchmark_vector_families.py": (
         "tests/unit/scripts/test_benchmark_vector_families.py",
     ),
+    "scripts/benchmark_graph_similarity_channels.py": (
+        "tests/unit/scripts/test_benchmark_graph_similarity_channels.py",
+    ),
     "victor/core/graph_rag/body_provenance.py": (
         "tests/unit/core/graph_rag/test_body_provenance.py",
         "tests/unit/core/graph_rag/test_body_clones.py",
         "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
         "tests/unit/core/graph_rag/test_similarity_channels.py",
         "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/bounded_process.py": (
+        "tests/unit/core/graph_rag/test_bounded_process.py",
+        "tests/unit/core/graph_rag/test_source_inventory.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+    ),
+    "victor/core/graph_rag/source_inventory.py": (
+        "tests/unit/core/graph_rag/test_source_inventory.py",
+        "tests/unit/core/graph_rag/test_source_reader.py",
+        "tests/unit/core/graph_rag/test_structural_clones.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+    ),
+    "victor/core/graph_rag/source_reader.py": (
+        "tests/unit/core/graph_rag/test_source_reader.py",
+        "tests/unit/core/graph_rag/test_source_inventory.py",
+        "tests/unit/core/graph_rag/test_structural_clones.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+    ),
+    "victor/core/graph_rag/token_fingerprints.py": (
+        "tests/unit/core/graph_rag/test_token_fingerprints.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
     ),
     "victor/core/graph_rag/family_cohesion.py": (
         "tests/unit/core/graph_rag/test_family_cohesion.py",

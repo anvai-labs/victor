@@ -26,6 +26,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--min-nodes", type=int, default=5)
     parser.add_argument("--min-tokens", type=int, default=20)
+    parser.add_argument("--token-fingerprints", action="store_true")
     args = parser.parse_args()
     implementation = {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -40,6 +41,11 @@ def main() -> None:
             "similarity_analysis.py",
             "ast_fingerprints.py",
             "language_parsers.py",
+            "source_inventory.py",
+            "bounded_process.py",
+            "token_fingerprints.py",
+            "body_provenance.py",
+            "family_cohesion.py",
         }
     }
     cpu, wall = time.process_time(), time.perf_counter()
@@ -52,7 +58,12 @@ def main() -> None:
         include_docs=True,
         limit=200,
         body_options=BodyOptions(),
-        token_options=TokenOptions(binary=args.jscpd, min_tokens=args.min_tokens, min_lines=0),
+        token_options=TokenOptions(
+            binary=args.jscpd,
+            min_tokens=args.min_tokens,
+            min_lines=0,
+            **({"fingerprints": True} if args.token_fingerprints else {}),
+        ),
         cache_path=args.cache,
     )
     child_after = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -79,6 +90,7 @@ def main() -> None:
             "mode": args.mode,
             "min_nodes": args.min_nodes,
             "min_tokens": args.min_tokens,
+            "token_fingerprints": args.token_fingerprints,
             "cache_enabled": args.cache is not None,
             "include_docs": True,
             "near_metric": "subtree",
