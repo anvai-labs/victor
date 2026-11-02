@@ -61,6 +61,22 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/core/indexing/ccg_builder.py": (
+        "tests/unit/core/indexing/test_ccg_structural_cfg.py",
+        "tests/unit/processing/native/test_ccg_extract.py",
+    ),
+    ".github/workflows/native-ccg-qualification.yml": (
+        "tests/unit/scripts/test_native_ccg_qualification.py",
+    ),
+    "scripts/ci/check_native_ccg_wheel.py": (
+        "tests/unit/scripts/test_native_ccg_wheel_check.py",
+        "tests/unit/scripts/test_native_ccg_qualification.py",
+    ),
+    "scripts/benchmark_ccg_dependence.py": ("tests/unit/scripts/test_benchmark_ccg_dependence.py",),
+    "victor/core/graph_rag/control_dependence.py": (
+        "tests/unit/core/graph_rag/test_control_dependence.py",
+        "tests/unit/core/indexing/test_ccg_builder_control_dependence.py",
+    ),
     "scripts/benchmark_body_model_failure.py": (
         "tests/unit/scripts/test_benchmark_body_model_failure.py",
     ),

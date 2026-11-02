@@ -38,6 +38,38 @@ def _load(name: str):
     return module
 
 
+@pytest.mark.parametrize("arguments", [["--check"], ["--unknown"], ["--ai", "--sdk"]])
+def test_invalid_sync_arguments_reject_before_any_write(monkeypatch, arguments):
+    module = _load("sync_version")
+
+    def forbidden():
+        raise AssertionError("Invalid arguments must not reach a version writer")
+
+    for name in ("sync_ai", "sync_sdk", "sync_codegraph"):
+        monkeypatch.setattr(module, name, forbidden)
+    with pytest.raises(SystemExit) as error:
+        module.main(arguments)
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "arguments,expected",
+    [
+        (["--ai"], ["sync_ai"]),
+        (["--sdk"], ["sync_sdk"]),
+        (["--codegraph"], ["sync_codegraph"]),
+        ([], ["sync_ai", "sync_sdk", "sync_codegraph"]),
+    ],
+)
+def test_valid_sync_selection_preserves_documented_modes(monkeypatch, arguments, expected):
+    module = _load("sync_version")
+    called = []
+    for name in ("sync_ai", "sync_sdk", "sync_codegraph"):
+        monkeypatch.setattr(module, name, lambda name=name: called.append(name))
+    module.main(arguments)
+    assert called == expected
+
+
 @pytest.fixture
 def repo_tree(tmp_path: Path) -> Path:
     """A minimal fake repo root with every native version spot at 0.8.2."""
