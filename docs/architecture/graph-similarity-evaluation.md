@@ -568,6 +568,55 @@ handles, ABI verification and ANN/incremental indexing remain separate subsequen
 increments; token-copy baselines and SARIF are merged in #1665, with broader
 reporting validation owned by the active roadmap ledger.
 
+The [independent-project expansion](../../tests/fixtures/graph_similarity/independent-projects.json)
+adds 24 Python/Python structural pairs from pinned
+[Requests](https://github.com/psf/requests/tree/b25c87d7cb8d6a18a37fa12442b5f883f9e41741)
+and [Flask](https://github.com/pallets/flask/tree/2c1b30d0503cfb064f1cb252e6614a06915a362a)
+commits, six positives and six hard negatives per project. Requests alone supplies
+calibration and Flask remains held out. Labels, splits and the 0.95 precision /
+two-pair minimum support protocol were frozen before scoring. Every pair states
+its restricted local operation domain; identifier, member or literal substitutions
+can preserve that pattern while HTTP verbs, callback timing, output types or
+transitive helper behavior differ. These are structural declarations, not behavior
+or source-copy labels. The immutable raw URLs and hashes are retained without
+vendoring third-party source, and [fixture instructions](../../tests/fixtures/graph_similarity/README.md)
+describe source reconstruction and offline measurement.
+The `LookupDict` positive abstracts declaration signatures and the explicit
+default operand's literal-versus-caller origin, as its rationale records; it
+does not assert normalized-AST identity or equivalent interfaces.
+
+The [retained independent-project observations](evidence/graph-independent-projects-2026-11-02.json)
+show why full score coverage is insufficient. Syntax covers all 24 pairs and
+selects threshold 1.0 from Requests, then finds four of six Flask positives with
+zero false positives. Held-out precision is 1.0 but its nominal Wilson lower bound
+is only 0.510; recall is 0.667. Portable scoring covers 13/24 pairs and preserves
+11 abstentions for variadic parameters, generators and deletion. It cannot select
+a feasible calibration policy. The pinned BGE body channel scores all pairs but
+also has no threshold meeting calibration precision/support. Held-out labelled
+precision@10 is 0.600 / 0.571 / 0.500 for syntax / portable / body respectively;
+portable ranks only its seven scored held-out pairs. Abstentions and unavailable
+policies remain undecided, never true negatives.
+For example, BGE scores Requests' list materializer versus its generator 0.928,
+and first-match versus duplicate-checking lookup 0.925, despite their explicitly
+different local operation patterns. Flask's JSON stream write/read pair scores
+0.850. High cosine similarity therefore remains useful review evidence only.
+
+The 40 unique BGE inputs and all 24 pair scores match exactly between cold and
+warm cache runs; cold inference uses 40 windows and one model load, while warm
+reuse has 40 hits, no inferred windows and no model loads. Recorded end-to-end
+wall time is 8.918s cold and 0.193s warm on one ARM64 host, with lifetime peak RSS
+849,936,384 and 59,490,304 bytes. These are single local cache observations on
+81,474 source bytes, not broad performance qualification. Small sibling wrappers
+and shared helper families correlate many pairs; grouped uncertainty, more
+independent projects, cross-language evidence and realistic retrieval universes
+remain necessary. The default model is still unqualified, and no score certifies
+semantic equivalence or safe automatic refactoring.
+There is only one repository per split and both belong to Python HTTP ecosystems.
+Each split's six positives come from three positive family clusters, and four
+units per split occur in multiple pairs. Disjoint repository/family declarations
+and file hashes establish separation for these selected inputs, without proving
+broad source-lineage independence or statistical generalization.
+
 ## Evidence and independent review
 
 The [retained foundation observations](evidence/graph-similarity-foundation-2026-11-02.json)
