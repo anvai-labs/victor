@@ -43,6 +43,24 @@ Implementation: `victor/core/graph_rag/structural_clones.py`,
    - Full document text, when supplied by SCIP, must match. Otherwise source mtimes and range plausibility are conservative heuristics, not content-hash certification of a dump.
    - UTF-8/16/32 range columns are translated to byte columns. Invalid ranges are omitted; sufficiently many mismatches mark the document stale. Ambiguous unspecified encodings on non-ASCII lines fall back.
    - **No dump:** name-only resolution, announced in the output.
+   - The optional `graph` extra supplies the supported protobuf runtime. A bounded
+     document reader inventories canonical relative SCIP paths and decodes only
+     requested range/symbol/text/encoding fields. It avoids materializing the
+     complete occurrence/definition arena. Limits are 512 MiB per artifact,
+     16 MiB and 100,000 occurrences per selected document, 100,000 document paths,
+     16 KiB per path, 16 MiB total path names and one million work steps per
+     inventory or selected-document projection. Oversized or malformed inputs
+     fall back to syntax, with unavailable dumps/rejected documents counted.
+     Unused nested symbol/diagnostic messages are skipped, not validated.
+   - Project artifacts borrow the scan's pinned source root; no link traversal or
+     special-file reads are allowed. Explicit external artifacts pin their own
+     parent. Captured file identity/times must remain stable during reads.
+     Text-matched and heuristic-only files have separate counters. Structural
+     source coverage can be complete while compiler inputs fall back; neither
+     counter certifies that compiler resolution matches a source content hash.
+   - [Scoped reader evidence](evidence/scip-scoped-reader-2026-11-02.json) compares
+     the same source/index hashes against `821b8a6b6` in three fresh processes per
+     scope and implementation. See the observer below for timer/RSS boundaries.
 6. **Coverage:** source frontends cover Python, Rust, JavaScript, TypeScript/TSX, Go, Java, C/C++, Ruby, Kotlin, Scala, C#, PHP, Swift, Lua and Bash. Installed grammar wheels are loaded offline through the same factory as indexing. Common Rust inline test modules/attributes are excluded unless `--include-tests` is given. The scan reuses indexing's universal build/vendor exclusions and a 1 MB file bound. Error-free tree-sitter functions can survive errors elsewhere in their file; their members carry `recovered_from_partial_file`, and the file still counts as partial. Malformed functions never become units. SCIP/FFI evidence from partially parsed files is disabled. Python can recover clean function fragments through its optional tree-sitter grammar; fragments requiring missing `nonlocal` context remain excluded. Missing grammars, compiler binding errors, unreadable/oversized files and parse errors produce `coverage_complete: false` and a nonzero CLI status while retaining available results.
 
 Near families are transitive components. Their score is the strongest connecting
@@ -243,3 +261,40 @@ suppress structural/token channels in hybrid mode. Compound assignments retain
 their operator, and JNI declarations require an actual `native` modifier token.
 The v4 Python field-role schema changes subtree scores; older v3 measurements are
 historical checkpoints and are not transferable threshold calibrations.
+
+### Scoped SCIP reader observation
+
+The retained [November 2 observation](evidence/scip-scoped-reader-2026-11-02.json)
+uses a 280,037,274-byte Rust index. All twelve runs preserve selected source
+hashes, normalized unit digests and complete family digests. Selected source
+hashes also match the recorded immutable Git revision. Three-run medians:
+
+| Selected scope | Full protobuf reference | Bounded reader | Peak RSS, reference → reader |
+| --- | --- | --- | --- |
+| `src/query/unified/optimizer.rs`, 16 functions | 0.596 s | 0.202 s | 1,129 MB → 59 MB |
+| `src/query/unified/`, 13 files / 72 functions | 0.669 s | 0.331 s | 1,136 MB → 67 MB |
+
+These are local macOS observations with filesystem caches left intact. Each run
+uses a fresh interpreter. Imports, input hashing and post-run integrity checks
+are outside the wall/CPU timer; RSS is the process lifetime peak, including these
+checks. Run the same observer with each checkout on `PYTHONPATH`:
+
+```bash
+PYTHONPATH=/path/to/checkout:/path/to/checkout/victor-codegraph \
+  python /path/to/observer/scripts/benchmark_scip_scope.py /path/to/project \
+  --index /path/to/project/.victor/precise/rust-analyzer.scip \
+  --scope src/query/unified/
+```
+
+The original index and 13 selected source blobs are preserved locally under
+`.victor/sandbox/graph-scip-scope-20261102`, with hashes and original source mtimes
+observed after measurement. This ignored compact backup supports input recovery;
+timing reproduction requires the full recorded Git inventory. Restored mtimes
+remain heuristic metadata, not compiler content-hash freshness certification.
+
+This removes a measured scoped-read allocation bottleneck in Python. It does not
+qualify an ANN index, model accuracy, a full-project speedup, Windows performance,
+or source freshness of compiler-produced symbols. The full protobuf harvester
+still materializes its bounded input; only the similarity occurrence view is
+lazy. Callee-context acceptance remains a separate ablation in the canonical
+[execution ledger](graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger).

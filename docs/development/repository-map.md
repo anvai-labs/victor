@@ -8,6 +8,7 @@ current API semantics were reviewed only where cited. There are no Git submodule
 
 | Need | Start here |
 | --- | --- |
+| Bounded SCIP occurrence inputs and scoped scan measurements | [Structural scanner contracts](../architecture/structural-clone-detection.md); `scip_documents.py`, `structural_clones.py`, `scripts/benchmark_scip_scope.py`; owners `test_scip_documents.py`, `test_structural_clones.py`, `test_precise_index.py`, `test_benchmark_scip_scope.py`. Compiler-context execution status stays in the similarity ledger. |
 | Similarity SARIF, source-copy baselines and changed-file gates | [Evidence and CLI contracts](../architecture/graph-similarity-evaluation.md); `similarity_sarif.py`, `copy_baseline.py`, `copy_artifacts.py`; owners `tests/unit/core/graph_rag/test_similarity_sarif.py`, `test_copy_baseline.py`, `test_token_clones.py` and `tests/unit/ui/commands/test_graph_similar_cli.py`. Current execution status belongs to the [similarity roadmap ledger](../architecture/graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger). |
 | Current behavior and entry points | [Architecture](../architecture.md), [generated API](../api-reference/auto-api.md), package READMEs below |
 | SQLite graph duplicate repair and terminal table rendering | [Phase 1 implementation and handoff review](../architecture/codegraph-deduplication.md); engine in `victor/core/graph_rag/dedup.py`, integration owner `tests/integration/codegraph/` |
