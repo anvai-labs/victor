@@ -237,20 +237,20 @@ records measured coverage, cache behavior and unresolved work.
 
 ## Source acquisition and reviewed failure boundaries
 
-Source acquisition pins the project root before inventory and retains its
-descriptor throughout acquisition. It requires POSIX descriptor-relative directory traversal with
-`O_NOFOLLOW`, `O_DIRECTORY` and nonblocking leaf opens. Every opened leaf must be
-a regular file. File/ancestor symlinks, FIFO/special files and path escapes are
-rejected before any source read; directory replacement cannot redirect an
-already opened directory descriptor. Source metadata and errors remain explicit.
-On platforms without these primitives, source channels return incomplete status
-before reading. There is no path-based insecure fallback; Windows source scanning
-needs a separately tested handle-relative adapter. Indexed summary analysis and
-graph-row repair do not use this source reader.
+Source acquisition pins the project root before inventory. POSIX traversal uses
+directory descriptors with `O_NOFOLLOW`, `O_DIRECTORY` and nonblocking leaf opens.
+The [qualified Windows adapter](windows-source-acquisition.md) uses NTFS handles
+relative to pinned ancestors, rejects reparse points and namespace aliases, and
+supports ordinary Git repositories. Every acquired source leaf must be regular;
+link/special-file rejection and root identity checks prevent directory replacement
+from redirecting reads. Source metadata and errors remain explicit. Unsupported
+platforms and Windows repository selectors fail before acquisition. Indexed
+summary analysis and graph-row repair use separate storage paths.
 
 The token backend uses an isolated trusted stdlib launcher as its live session
 leader, receives the tool's exit status separately, and cleans the owned process
-group before reaping that leader. Normal early tool exit, timeout, cancellation
+group before reaping that leader. Windows assigns its isolated leader to a private
+kill-on-close Job Object before allowing the tool to start. Normal early tool exit, timeout, cancellation
 and fast output remain covered by regression tests. This is process ownership,
 not a sandbox for arbitrary trusted-configured executables or new sessions.
 Relative executable paths are resolved before changing working directories.

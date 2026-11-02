@@ -41,6 +41,20 @@ tracker's durable archive paths. Archive availability is machine-local; merged
 Git/PR/run identities are the cross-machine record. No credentials or private
 request payloads belong in these records.
 
+## Source-similarity checkpoint history
+
+Current execution state belongs only to the
+[canonical source-similarity ledger](../architecture/graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger).
+These completed checkpoints preserve evidence and its limits; they are not
+instructions to restart earlier branches or rerun completed work.
+
+| Dated record | Retained evidence / limitation |
+| --- | --- |
+| [Earlier local validation](https://github.com/anvai-labs/victor/blob/ca797a4e8fb6f0ea14bc23ad33830a6dc5513584/docs/architecture/graph-similarity-parity-and-roadmap.md#continuation-validation-and-handoff) | 229 final focused passes; earlier wider 1,170 passes / 40 skips and one deselected unchanged Mermaid browser test. An initial browser/cache failure is retained. Formatting covered 31 files, typing 18 owners, collection 37,552 tests; this was not full-suite execution. The then-uncommitted branch, local-only state and producer-bound 21 probes remain in immutable history. |
+| [Initial publication review](https://github.com/anvai-labs/victor/blob/ca797a4e8fb6f0ea14bc23ad33830a6dc5513584/docs/architecture/graph-similarity-parity-and-roadmap.md#publication-candidate-and-adversarial-review) | The TUI merge retained the incoming compact renderer and added an isolated responsive table registry. Storage review was clean; eight initial source-channel findings plus two later acquisition/monitoring findings were corrected before publication. [Individual regressions](../architecture/codegraph-deduplication-review-2026-11-01.md) and original candidate/base identities remain available. Source normalization became `normalized-body-v4-field-roles`; historical hashes are not current-code certification. |
+| [Later source-channel local checkpoint](https://github.com/anvai-labs/victor/blob/ca797a4e8fb6f0ea14bc23ad33830a6dc5513584/docs/architecture/graph-similarity-parity-and-roadmap.md#current-source-channel-implementation-and-handoff) | 302 focused passes; 1,245 wider passes / 40 skips / one unchanged browser deselection; 37,625 collected. Formatting covered 41 files and typing 23 owners. A standalone Python 3.14 probe failed because `cachetools` was absent; it did not qualify that interpreter, another OS or wheel installation. This was an uncommitted `095e981bf` checkpoint. Its obsolete publication/research instructions are retired; unsupported model/macro/effect/ABI/scaling domains remain explicitly bounded in the maintained assessment and current continuation belongs to its ledger. |
+| Bounded reader and Windows source qualification | [Reader observation](../architecture/evidence/scip-scoped-reader-2026-11-02.json), [actual Windows source tests/capacity](../architecture/evidence/windows-source-qualification-2026-11-02.json) and [Windows snapshots](../architecture/evidence/scip-windows-snapshots-2026-11-02.json) keep exact source/run/hash boundaries. POSIX scoped latency, Windows synthetic acquisition capacity and detector accuracy are different claims; no release, universal equivalence or automatic extraction is certified. |
+
 ## Retired interim records
 
 Removed from the active tree on October 8, 2026 after cross-referencing the current
