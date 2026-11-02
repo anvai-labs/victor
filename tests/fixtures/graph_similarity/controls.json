@@ -1,0 +1,1139 @@
+{
+  "schema": "victor-similarity-corpus-v1",
+  "projects": [
+    {
+      "id": "controls-calibration",
+      "repository": "controlled:calibration",
+      "revision": "controls-v1",
+      "split": "calibration",
+      "origin": "controlled_fixture"
+    },
+    {
+      "id": "controls-test",
+      "repository": "controlled:test",
+      "revision": "controls-v1",
+      "split": "test",
+      "origin": "controlled_fixture"
+    }
+  ],
+  "units": [
+    {
+      "id": "calibration_0_0_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_0_left.py",
+      "language": "python",
+      "symbol": "control_calibration_0_0_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "e6f2ec0f5f33cfdcb99c2bebfb8c0a6697b78dc3703afdf282c0c4df57a41f31"
+    },
+    {
+      "id": "calibration_0_0_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_0_right.py",
+      "language": "python",
+      "symbol": "control_calibration_0_0_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "c623a45cd5b5ed9f725019ea56eb4cbd92b8ced6dc52e1a02cc7a190c3fc4893"
+    },
+    {
+      "id": "calibration_0_1_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_1_left.py",
+      "language": "python",
+      "symbol": "control_calibration_0_1_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "e34a782e45d31478e2a029c87c289308d37cccae2b6899638ecff06d751723b2"
+    },
+    {
+      "id": "calibration_0_1_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_1_right.py",
+      "language": "python",
+      "symbol": "control_calibration_0_1_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "b8991606d9db6c8adc52ba111d56f26412fbe2a60e7ea30b0327bba1770a4265"
+    },
+    {
+      "id": "calibration_0_2_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_2_left.py",
+      "language": "python",
+      "symbol": "control_calibration_0_2_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "86a3547c47f5e545c4c8e77a7bdff3617b6bed710ea75f0e18a766a448e020b9"
+    },
+    {
+      "id": "calibration_0_2_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_2_right.py",
+      "language": "python",
+      "symbol": "control_calibration_0_2_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "8492b0bac7e9681f4e0b10505c1eca1a82b0198b76dcbc40094be3d9318a2e25"
+    },
+    {
+      "id": "calibration_0_3_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_3_left.py",
+      "language": "python",
+      "symbol": "control_calibration_0_3_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "fa154fa5e4be70fb3d5f3dd2f4df1b3241639b200338ab0faaf5828a4d9e1e9b"
+    },
+    {
+      "id": "calibration_0_3_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_0_3_right.py",
+      "language": "python",
+      "symbol": "control_calibration_0_3_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "8a79be50c059a74124c129e52093496bd31f88d56602a016fa68fb054b316d27"
+    },
+    {
+      "id": "calibration_1_0_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_0_left.py",
+      "language": "python",
+      "symbol": "control_calibration_1_0_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "64471e430eb591908a62ae71af7379f8fc0893d5680d35e92bcef9e0a10187db"
+    },
+    {
+      "id": "calibration_1_0_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_0_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_1_0_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "49491fae007ef7eb7467404dfe7e6ebde252207125a26e2988f9dc96898fde4d"
+    },
+    {
+      "id": "calibration_1_1_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_1_left.py",
+      "language": "python",
+      "symbol": "control_calibration_1_1_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "a6ab89fcbaf4ca51ad271aae528a38a37d41a6417fe6268c8f01fb8b55c2e1d2"
+    },
+    {
+      "id": "calibration_1_1_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_1_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_1_1_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "0ca6a6a2205654cca08e78c33a9864d2d10d0898f88e450a6b19d4156adbff19"
+    },
+    {
+      "id": "calibration_1_2_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_2_left.py",
+      "language": "python",
+      "symbol": "control_calibration_1_2_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "cf84e5c1e2d3868a73faced572bccfa0852f4cf0d3b6920606df1754fc985321"
+    },
+    {
+      "id": "calibration_1_2_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_2_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_1_2_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "12f22e12de4e69a6f8ffeede1acc1903e14747960c6ba1b603ffac3d2b5f5f1d"
+    },
+    {
+      "id": "calibration_1_3_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_3_left.py",
+      "language": "python",
+      "symbol": "control_calibration_1_3_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "2bb77ff0b1420214c13eaf265b4060434b283e0bc44dbd0ba840e441aaa39a52"
+    },
+    {
+      "id": "calibration_1_3_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_3_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_1_3_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "8bce82b92db38f2fcefd6709cf3ec38da5bb9cbefa3a155ed985a12be851e67c"
+    },
+    {
+      "id": "calibration_2_0_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_0_left.ts",
+      "language": "typescript",
+      "symbol": "control_calibration_2_0_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "39e1c1dae9ceea04a0ba8aac0773ebef23ff709775c4f3db63c59428824a3513"
+    },
+    {
+      "id": "calibration_2_0_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_0_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_2_0_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "c119116449e90256285ed3da8a69dc54dbab419cb76d5430b10837cb0a46c2c7"
+    },
+    {
+      "id": "calibration_2_1_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_1_left.ts",
+      "language": "typescript",
+      "symbol": "control_calibration_2_1_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "5bc6ffd7d871ed1d7455218efc9805a1fafeb0e50ba349d1aaa9a101014245da"
+    },
+    {
+      "id": "calibration_2_1_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_1_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_2_1_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "93b5d1b8f8bb6ed21a122a298db28234abde418af80cd5000e7f0abe2120a2f4"
+    },
+    {
+      "id": "calibration_2_2_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_2_left.ts",
+      "language": "typescript",
+      "symbol": "control_calibration_2_2_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "71de15763be559ad1fcb9939ceca6ab561d597e8aaa54da56e2550c34cf56f57"
+    },
+    {
+      "id": "calibration_2_2_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_2_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_2_2_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "f6b5b4263b237d04ddb45d8b7401bb7ffa036e342530c14ea8ef0fc5278cd5b2"
+    },
+    {
+      "id": "calibration_2_3_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_3_left.ts",
+      "language": "typescript",
+      "symbol": "control_calibration_2_3_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "6f7d09d0aa183d21b2fc9eae7d037658e06d55cf1485e79829af79e97d3d4c91"
+    },
+    {
+      "id": "calibration_2_3_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_3_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_2_3_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "b4672e368426ab8e5d60502ef4d145676ff0cfd7d90a4705fb1e1332b0b0e912"
+    },
+    {
+      "id": "calibration_3_0_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_0_left.java",
+      "language": "java",
+      "symbol": "control_calibration_3_0_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "0423e9fa26a7b485ca23458b0abc5485560218005eb063a77ed65a0ba3dd16c1"
+    },
+    {
+      "id": "calibration_3_0_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_0_right.cpp",
+      "language": "cpp",
+      "symbol": "control_calibration_3_0_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "19e686615a6e28f6c9f8213346fe4f7bb473af3683614631a78a33eadac9f82b"
+    },
+    {
+      "id": "calibration_3_1_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_1_left.java",
+      "language": "java",
+      "symbol": "control_calibration_3_1_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "8e2931294d71399d3e582abec484466397b2d03d189d4b665f1324b354bd36d3"
+    },
+    {
+      "id": "calibration_3_1_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_1_right.cpp",
+      "language": "cpp",
+      "symbol": "control_calibration_3_1_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "49dbf5a3ced73422368e093ea618fe8a43b40b3d3fc8c20581f3b7f2d130a0b2"
+    },
+    {
+      "id": "calibration_3_2_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_2_left.java",
+      "language": "java",
+      "symbol": "control_calibration_3_2_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "445e4fa0156deb976b0c8f694c592e0a87eeb269f7eafd11698b95eb990ef684"
+    },
+    {
+      "id": "calibration_3_2_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_2_right.cpp",
+      "language": "cpp",
+      "symbol": "control_calibration_3_2_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "a46cf343a90744cf01b14f3a7b9c1ad383a5aeb79c99b0403d0251e4e10fc82a"
+    },
+    {
+      "id": "calibration_3_3_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_3_left.java",
+      "language": "java",
+      "symbol": "control_calibration_3_3_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "a09938e50c22a9186262b10a6aee1464b44c626f574644039ce751a0e552f675"
+    },
+    {
+      "id": "calibration_3_3_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_3_3_right.cpp",
+      "language": "cpp",
+      "symbol": "control_calibration_3_3_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "8f66d56abbf146e8d0b2bd83962e240eaba8cc13edad7e99593b5ca7c46f1013"
+    },
+    {
+      "id": "test_0_0_left",
+      "project": "controls-test",
+      "file": "control_test_0_0_left.py",
+      "language": "python",
+      "symbol": "control_test_0_0_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "a22676a9b8f7d74b9cfc6d5b8eb1c9829cd546f07c204ee44a5ccda3bec00061"
+    },
+    {
+      "id": "test_0_0_right",
+      "project": "controls-test",
+      "file": "control_test_0_0_right.py",
+      "language": "python",
+      "symbol": "control_test_0_0_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "cb25cfae0214c36ad621c7aec2bdf6ff339e5aba21a725ac740321a0d1395730"
+    },
+    {
+      "id": "test_0_1_left",
+      "project": "controls-test",
+      "file": "control_test_0_1_left.py",
+      "language": "python",
+      "symbol": "control_test_0_1_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "71af008dabe0f4414a21c7dd1928da9f30f0d1d78f8f1fd0a458135ce79953b3"
+    },
+    {
+      "id": "test_0_1_right",
+      "project": "controls-test",
+      "file": "control_test_0_1_right.py",
+      "language": "python",
+      "symbol": "control_test_0_1_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "274448b62f0c86725bef33f788c68e6116a0fe4be70d27693cf0a8c055e71687"
+    },
+    {
+      "id": "test_0_2_left",
+      "project": "controls-test",
+      "file": "control_test_0_2_left.py",
+      "language": "python",
+      "symbol": "control_test_0_2_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "dfeb3f0ba7ef0cb83d45366ccc3f8512123e58cfa42d5aca2e0970a4025bd2f8"
+    },
+    {
+      "id": "test_0_2_right",
+      "project": "controls-test",
+      "file": "control_test_0_2_right.py",
+      "language": "python",
+      "symbol": "control_test_0_2_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "600f9ba92498667f9471c8ab683f37f1108d636d9c35ba5c91403af13268f539"
+    },
+    {
+      "id": "test_0_3_left",
+      "project": "controls-test",
+      "file": "control_test_0_3_left.py",
+      "language": "python",
+      "symbol": "control_test_0_3_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "aec1c5cede289ca88c2b4146868249366a74cbd5ff4367af943fe7bc80f62da3"
+    },
+    {
+      "id": "test_0_3_right",
+      "project": "controls-test",
+      "file": "control_test_0_3_right.py",
+      "language": "python",
+      "symbol": "control_test_0_3_right",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "b466ad1c77344b93f74990af6084544691da21b6eb9cfc1213f4fe23dae79cc6"
+    },
+    {
+      "id": "test_1_0_left",
+      "project": "controls-test",
+      "file": "control_test_1_0_left.py",
+      "language": "python",
+      "symbol": "control_test_1_0_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "e6078c49ec94b81dbc80e67b386a6f18f5f55bd54ba5e0b5259b9a5fe2384808"
+    },
+    {
+      "id": "test_1_0_right",
+      "project": "controls-test",
+      "file": "control_test_1_0_right.rs",
+      "language": "rust",
+      "symbol": "control_test_1_0_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "02ecf461210a0a64e2dfc21358d9de5ea1750fb4b2c31d777bbf4d950d75193a"
+    },
+    {
+      "id": "test_1_1_left",
+      "project": "controls-test",
+      "file": "control_test_1_1_left.py",
+      "language": "python",
+      "symbol": "control_test_1_1_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "dd7b1eda4ccaffaf01961b86c96d6f9f49147114bd7b9006bba1aed2b041a7e7"
+    },
+    {
+      "id": "test_1_1_right",
+      "project": "controls-test",
+      "file": "control_test_1_1_right.rs",
+      "language": "rust",
+      "symbol": "control_test_1_1_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "05c250d500f755278186efd5f69afac4bed0587251065518bd7053155f877462"
+    },
+    {
+      "id": "test_1_2_left",
+      "project": "controls-test",
+      "file": "control_test_1_2_left.py",
+      "language": "python",
+      "symbol": "control_test_1_2_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "cee8ba861a102280acc64939d5287d93c0e17860f5147ed2429a5e0d503d6f46"
+    },
+    {
+      "id": "test_1_2_right",
+      "project": "controls-test",
+      "file": "control_test_1_2_right.rs",
+      "language": "rust",
+      "symbol": "control_test_1_2_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "93b2759c8a9ae0c85238e562ae0326228f4585a63a18034ee96ab8d040d5fe27"
+    },
+    {
+      "id": "test_1_3_left",
+      "project": "controls-test",
+      "file": "control_test_1_3_left.py",
+      "language": "python",
+      "symbol": "control_test_1_3_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "46a07d78cbd237b457e545489174cf34b6c04e7767e08669e3ab7e49c94909eb"
+    },
+    {
+      "id": "test_1_3_right",
+      "project": "controls-test",
+      "file": "control_test_1_3_right.rs",
+      "language": "rust",
+      "symbol": "control_test_1_3_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "9598551883a3d1173b3b76c285036b72c1eb48b38e77e3cbdaab533d9ca7e52c"
+    },
+    {
+      "id": "test_2_0_left",
+      "project": "controls-test",
+      "file": "control_test_2_0_left.ts",
+      "language": "typescript",
+      "symbol": "control_test_2_0_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "248f85a62c8fbd3814dd3c07b51f26735742e8cd2e50198942346ea85e4c34fb"
+    },
+    {
+      "id": "test_2_0_right",
+      "project": "controls-test",
+      "file": "control_test_2_0_right.rs",
+      "language": "rust",
+      "symbol": "control_test_2_0_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "519ceb2cd4244126a5c20974223020af3a142f60c52ebb335c07902ddbd04f8a"
+    },
+    {
+      "id": "test_2_1_left",
+      "project": "controls-test",
+      "file": "control_test_2_1_left.ts",
+      "language": "typescript",
+      "symbol": "control_test_2_1_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "fa8be9fe8618456e9612a0b52873b8dfdebe98f31ac2d8e0d124d25d92a07bca"
+    },
+    {
+      "id": "test_2_1_right",
+      "project": "controls-test",
+      "file": "control_test_2_1_right.rs",
+      "language": "rust",
+      "symbol": "control_test_2_1_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "7430c710859adb4b094f654a54db5f3b660b72d0470e54ae86d59ffcf16b23df"
+    },
+    {
+      "id": "test_2_2_left",
+      "project": "controls-test",
+      "file": "control_test_2_2_left.ts",
+      "language": "typescript",
+      "symbol": "control_test_2_2_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "a14d521015484ce2428b72caa715c1ff868758f1fa35a7fe3491b0a4397dcde4"
+    },
+    {
+      "id": "test_2_2_right",
+      "project": "controls-test",
+      "file": "control_test_2_2_right.rs",
+      "language": "rust",
+      "symbol": "control_test_2_2_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "d30102b6a625d40aaa13c676bc308680a1423e5836e218380403788c7eb99d75"
+    },
+    {
+      "id": "test_2_3_left",
+      "project": "controls-test",
+      "file": "control_test_2_3_left.ts",
+      "language": "typescript",
+      "symbol": "control_test_2_3_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "6ebde9c1e833acde22734549c35379e26c465d1a35426af30f959e51d3c3b1b0"
+    },
+    {
+      "id": "test_2_3_right",
+      "project": "controls-test",
+      "file": "control_test_2_3_right.rs",
+      "language": "rust",
+      "symbol": "control_test_2_3_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "15ec6c899fc5c44082cf8a723aa834413e2792adb66dc81168ddd6cbbb3efb63"
+    },
+    {
+      "id": "test_3_0_left",
+      "project": "controls-test",
+      "file": "control_test_3_0_left.java",
+      "language": "java",
+      "symbol": "control_test_3_0_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "d68cb279ad15f295edbd08113b6eb4a70ed4f94d79f8df6d14d20ba60b3d20e1"
+    },
+    {
+      "id": "test_3_0_right",
+      "project": "controls-test",
+      "file": "control_test_3_0_right.cpp",
+      "language": "cpp",
+      "symbol": "control_test_3_0_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "2f5585bfddfffba4bd7ae2f4b6f72eeafa354d20921f9c97ddde5157caa868ef"
+    },
+    {
+      "id": "test_3_1_left",
+      "project": "controls-test",
+      "file": "control_test_3_1_left.java",
+      "language": "java",
+      "symbol": "control_test_3_1_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "5a8aef2155fb753768f479fdef447094c2776c2e4c9f0270918c543336adaa21"
+    },
+    {
+      "id": "test_3_1_right",
+      "project": "controls-test",
+      "file": "control_test_3_1_right.cpp",
+      "language": "cpp",
+      "symbol": "control_test_3_1_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "67b9a7f835bd3c6dc9599631f4e38c2273cefb3d06e154b6e4fdac15faba6ebd"
+    },
+    {
+      "id": "test_3_2_left",
+      "project": "controls-test",
+      "file": "control_test_3_2_left.java",
+      "language": "java",
+      "symbol": "control_test_3_2_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "b1c2945dfa2f2f57c8d0eab8e681e1cd00c1fd273180aeb1d9bc2b6b1f744599"
+    },
+    {
+      "id": "test_3_2_right",
+      "project": "controls-test",
+      "file": "control_test_3_2_right.cpp",
+      "language": "cpp",
+      "symbol": "control_test_3_2_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "12e488ea5487084a73b3c5158c21eea95974fa15b56a6039309bf360645f51d7"
+    },
+    {
+      "id": "test_3_3_left",
+      "project": "controls-test",
+      "file": "control_test_3_3_left.java",
+      "language": "java",
+      "symbol": "control_test_3_3_left",
+      "line": 2,
+      "end_line": 6,
+      "source_hash": "3ab006c01e568a628b7038fbd90c6d447b26fd90f09f97c6d176b6d04f3eddfa"
+    },
+    {
+      "id": "test_3_3_right",
+      "project": "controls-test",
+      "file": "control_test_3_3_right.cpp",
+      "language": "cpp",
+      "symbol": "control_test_3_3_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "91690e2e3d3a070abc701fcb38c0ff81397d3d8bc20657dd269463b400c244b8"
+    },
+    {
+      "id": "calibration_1_4_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_4_left.py",
+      "language": "python",
+      "symbol": "control_calibration_1_4_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "08420ee3c740538084c9dabd408c12eb69d9b158e866cd4446e0a2206d0d3bc1"
+    },
+    {
+      "id": "calibration_1_4_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_1_4_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_1_4_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "b061ddae54f1a3d49f28abdff7aa365297822a468ba5cc642c0066b3039016d6"
+    },
+    {
+      "id": "calibration_2_4_left",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_4_left.ts",
+      "language": "typescript",
+      "symbol": "control_calibration_2_4_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "873f61c7c90fa4923745cb3bd32f96b01072f0161330abaf0122e39826a6b5bc"
+    },
+    {
+      "id": "calibration_2_4_right",
+      "project": "controls-calibration",
+      "file": "control_calibration_2_4_right.rs",
+      "language": "rust",
+      "symbol": "control_calibration_2_4_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "d37f733ff11165bff47a18c0bc42d397e091e0eff63b565ef219b3122ea632d7"
+    },
+    {
+      "id": "test_1_4_left",
+      "project": "controls-test",
+      "file": "control_test_1_4_left.py",
+      "language": "python",
+      "symbol": "control_test_1_4_left",
+      "line": 1,
+      "end_line": 4,
+      "source_hash": "14e462e12b5c5be8187ab6a226cd7ad1bcf0949ea7deecb9d0826d3476cc4f5c"
+    },
+    {
+      "id": "test_1_4_right",
+      "project": "controls-test",
+      "file": "control_test_1_4_right.rs",
+      "language": "rust",
+      "symbol": "control_test_1_4_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "9113c9d5d5bf3d130a00885a7bc6b3764ce3c42f4b28af16f903753cdc62b4e3"
+    },
+    {
+      "id": "test_2_4_left",
+      "project": "controls-test",
+      "file": "control_test_2_4_left.ts",
+      "language": "typescript",
+      "symbol": "control_test_2_4_left",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "62578670d865fa90a1ef6ce2f20fc03a11945d4f13d3d10177fe2da36d2bce46"
+    },
+    {
+      "id": "test_2_4_right",
+      "project": "controls-test",
+      "file": "control_test_2_4_right.rs",
+      "language": "rust",
+      "symbol": "control_test_2_4_right",
+      "line": 1,
+      "end_line": 5,
+      "source_hash": "85605f7d73c42e48a850dce74bf276122292cce04a40837d2d5e52cb08d8d74c"
+    }
+  ],
+  "pairs": [
+    {
+      "id": "calibration-0-0",
+      "left": "calibration_0_0_left",
+      "right": "calibration_0_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-0-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-0-1",
+      "left": "calibration_0_1_left",
+      "right": "calibration_0_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-0-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-0-2",
+      "left": "calibration_0_2_left",
+      "right": "calibration_0_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-0-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-0-3",
+      "left": "calibration_0_3_left",
+      "right": "calibration_0_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-0-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-1-0",
+      "left": "calibration_1_0_left",
+      "right": "calibration_1_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-1-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-1-1",
+      "left": "calibration_1_1_left",
+      "right": "calibration_1_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-1-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-1-2",
+      "left": "calibration_1_2_left",
+      "right": "calibration_1_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-1-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-1-3",
+      "left": "calibration_1_3_left",
+      "right": "calibration_1_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-1-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-2-0",
+      "left": "calibration_2_0_left",
+      "right": "calibration_2_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-2-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-2-1",
+      "left": "calibration_2_1_left",
+      "right": "calibration_2_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-2-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-2-2",
+      "left": "calibration_2_2_left",
+      "right": "calibration_2_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-2-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-2-3",
+      "left": "calibration_2_3_left",
+      "right": "calibration_2_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-2-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-3-0",
+      "left": "calibration_3_0_left",
+      "right": "calibration_3_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-3-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-3-1",
+      "left": "calibration_3_1_left",
+      "right": "calibration_3_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "calibration-3-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-3-2",
+      "left": "calibration_3_2_left",
+      "right": "calibration_3_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-3-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-3-3",
+      "left": "calibration_3_3_left",
+      "right": "calibration_3_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-3-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-0-0",
+      "left": "test_0_0_left",
+      "right": "test_0_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-0-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-0-1",
+      "left": "test_0_1_left",
+      "right": "test_0_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-0-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-0-2",
+      "left": "test_0_2_left",
+      "right": "test_0_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-0-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-0-3",
+      "left": "test_0_3_left",
+      "right": "test_0_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-0-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-1-0",
+      "left": "test_1_0_left",
+      "right": "test_1_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-1-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-1-1",
+      "left": "test_1_1_left",
+      "right": "test_1_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-1-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-1-2",
+      "left": "test_1_2_left",
+      "right": "test_1_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-1-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-1-3",
+      "left": "test_1_3_left",
+      "right": "test_1_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-1-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-2-0",
+      "left": "test_2_0_left",
+      "right": "test_2_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-2-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-2-1",
+      "left": "test_2_1_left",
+      "right": "test_2_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-2-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-2-2",
+      "left": "test_2_2_left",
+      "right": "test_2_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-2-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-2-3",
+      "left": "test_2_3_left",
+      "right": "test_2_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-2-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-3-0",
+      "left": "test_3_0_left",
+      "right": "test_3_0_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-3-0",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-3-1",
+      "left": "test_3_1_left",
+      "right": "test_3_1_right",
+      "relation": "behavior",
+      "positive": true,
+      "family": "test-3-1",
+      "rationale": "Consistent renaming/translation of pure integer arithmetic",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-3-2",
+      "left": "test_3_2_left",
+      "right": "test_3_2_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-3-2",
+      "rationale": "At x=3,y=1, changed subtraction to addition changes the result",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-3-3",
+      "left": "test_3_3_left",
+      "right": "test_3_3_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-3-3",
+      "rationale": "At x=0,y=0, changed literal changes the result despite normalized syntax equality",
+      "domain": "Integer x,y in [-1000,1000]; ordinary arithmetic with no overflow",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-1-4",
+      "left": "calibration_1_4_left",
+      "right": "calibration_1_4_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-1-4",
+      "rationale": "At x=2**62,y=0, Rust i64 doubling overflows with checks enabled; Python computes an exact integer",
+      "domain": "All i64 inputs; Rust built with -C overflow-checks=yes; Python arbitrary-precision integers",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "calibration-2-4",
+      "left": "calibration_2_4_left",
+      "right": "calibration_2_4_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "calibration-2-4",
+      "rationale": "At x=2**53,y=0, the exact i64 result 18014398509481989 cannot be represented by JavaScript Number",
+      "domain": "Integer inputs exactly representable in both languages; Rust i64 vs TypeScript Number",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-1-4",
+      "left": "test_1_4_left",
+      "right": "test_1_4_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-1-4",
+      "rationale": "At x=2**62,y=0, Rust i64 doubling overflows with checks enabled; Python computes an exact integer",
+      "domain": "All i64 inputs; Rust built with -C overflow-checks=yes; Python arbitrary-precision integers",
+      "reviewed_by": "controlled-fixture-author"
+    },
+    {
+      "id": "test-2-4",
+      "left": "test_2_4_left",
+      "right": "test_2_4_right",
+      "relation": "behavior",
+      "positive": false,
+      "family": "test-2-4",
+      "rationale": "At x=2**53,y=0, the exact i64 result 18014398509481989 cannot be represented by JavaScript Number",
+      "domain": "Integer inputs exactly representable in both languages; Rust i64 vs TypeScript Number",
+      "reviewed_by": "controlled-fixture-author"
+    }
+  ]
+}

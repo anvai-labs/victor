@@ -1,0 +1,5 @@
+int control_calibration_3_1_right(int x, int y) {
+    int total = x - y;
+    int adjusted = total * 2;
+    return adjusted + 4;
+}
