@@ -96,6 +96,15 @@ RELATED_TESTS = {
         "tests/unit/scripts/test_benchmark_body_model_failure.py",
     ),
     "scripts/benchmark_body_cache.py": ("tests/unit/scripts/test_benchmark_body_cache.py",),
+    "scripts/qualify_body_incremental.py": (
+        "tests/unit/scripts/test_benchmark_body_cache.py",
+        "tests/unit/scripts/test_body_qualification_io.py",
+    ),
+    "scripts/body_qualification_io.py": (
+        "tests/unit/scripts/test_body_qualification_io.py",
+        "tests/unit/scripts/test_benchmark_body_cache.py",
+    ),
+    "scripts/body_qualification_metrics.py": ("tests/unit/scripts/test_benchmark_body_cache.py",),
     "scripts/benchmark_vector_families.py": (
         "tests/unit/scripts/test_benchmark_vector_families.py",
     ),
