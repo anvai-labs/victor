@@ -27,6 +27,22 @@ _mod = _load()
 select = _mod.select
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "scripts/benchmark_callee_context.py",
+        "tests/fixtures/graph_context/manifest.json",
+        "tests/fixtures/graph_context/compiler.scip",
+        "tests/fixtures/graph_context/control_methods.py",
+    ],
+)
+def test_callee_context_controls_keep_their_ablation_owner(path):
+    assert {
+        "tests/unit/scripts/test_benchmark_callee_context.py",
+        "tests/unit/core/graph_rag/test_scip_documents.py",
+    } <= set(select([path]))
+
+
 def test_source_file_maps_to_mirror_tests():
     # victor/agent/fast_pruning.py -> its mirror tests (base + suffixed variants that exist).
     out = select(["victor/agent/fast_pruning.py"])

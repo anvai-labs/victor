@@ -1358,6 +1358,19 @@ def select(changed: list[str]) -> list[str]:
     unmapped_sources: list[str] = []
     for raw in changed:
         p = raw.strip()
+        if p.startswith("tests/fixtures/graph_context/") or p in {
+            "scripts/benchmark_callee_context.py",
+            "tests/unit/scripts/test_benchmark_callee_context.py",
+        }:
+            # The SCIP owner selects the declared protobuf runtime/mandatory
+            # reader flag in ci-fast. Missing owners must fail, never skip.
+            targets.update(
+                {
+                    "tests/unit/scripts/test_benchmark_callee_context.py",
+                    "tests/unit/core/graph_rag/test_scip_documents.py",
+                }
+            )
+            continue
         if p.startswith("tests/fixtures/graph_similarity/"):
             targets.update(
                 target
