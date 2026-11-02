@@ -9,6 +9,13 @@ on:
   # Direct calls make the existing CI Success context a transitive test gate.
   workflow_dispatch:
   workflow_call:
+    secrets:
+      HF_TOKEN:
+        description: Optional token for model downloads in tests
+        required: false
+      CODECOV_TOKEN:
+        description: Optional token for coverage publication
+        required: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

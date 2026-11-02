@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
 import tracemalloc
 from types import SimpleNamespace
@@ -86,17 +88,38 @@ async def benchmark(baseline: str) -> dict[str, Any]:
         capture_output=True,
         text=True,
     ).stdout
-    namespace: dict[str, Any] = {"__name__": "victor.coordination.formations.consensus_baseline"}
-    exec(compile(source, "<exact-consensus-baseline>", "exec"), namespace)
+    module_name = "victor.coordination.formations.consensus_baseline"
     rows = []
-    for count in (2, 8, 16):
-        before, old = await measure(namespace["ConsensusFormation"], count)
-        after, new = await measure(ConsensusFormation, count)
-        if before != after:
-            raise RuntimeError("Consensus result parity failed")
-        rows.append(
-            {"members": count, "rounds": 15, "parity": True, "baseline": old, "candidate": new}
-        )
+    with tempfile.TemporaryDirectory(prefix="victor-consensus-baseline-") as directory:
+        path = Path(directory) / "consensus_baseline.py"
+        path.write_text(source, encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Cannot load the immutable consensus baseline")
+        module = importlib.util.module_from_spec(spec)
+        previous = sys.modules.get(module_name)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+            for count in (2, 8, 16):
+                before, old = await measure(module.ConsensusFormation, count)
+                after, new = await measure(ConsensusFormation, count)
+                if before != after:
+                    raise RuntimeError("Consensus result parity failed")
+                rows.append(
+                    {
+                        "members": count,
+                        "rounds": 15,
+                        "parity": True,
+                        "baseline": old,
+                        "candidate": new,
+                    }
+                )
+        finally:
+            if previous is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = previous
     return {
         "candidate_module": candidate_module.__file__,
         "baseline": baseline,

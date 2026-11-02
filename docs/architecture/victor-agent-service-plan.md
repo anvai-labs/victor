@@ -67,88 +67,74 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PROMOTION-025-ADVERSARIAL-02 — MERGED_DEVELOP** (2026-11-01), owner: promotion
-  adversarial repair session; branch `fix/promotion-defects`, initial baseline
-  `9ff07d21c`, reconciled develop `22f9d5427`, initial main `26268c13b`.
-  During review another session merged older promotion #1639 to main as
-  `ad7e4bb36` at 23:41:24 UTC; this does not include #1649/#1642 or this repair.
-  Another session subsequently merged #1648 to main as `8e142c2cb` at
-  2026-11-02 00:01:46 UTC and synced main into develop as `43d117796`.
-  The latter has the identical source tree to `22f9d5427`; this unpublished
-  repair branch was aligned to that baseline without changing its files.
-  During preflight #1651 advanced develop to `0964ffbc2`; its core-integration
-  runner change was preserved exactly before alignment and CI contract rechecks.
-  #1642 was reviewed
-  read-only while independently active, then merged by its owner; its source tree
-  matches the reviewed `f168d4e31` exactly. This unpublished branch was aligned
-  without changing working files or index. #1649 remains merged. RED evidence:
-  **40 shell/security cases**, **five consensus ownership/retention cases** plus
-  repeated-checkpoint-cancellation and invalid-configuration controls, a legacy
-  resume-configuration loss, and CI gate / baseline / leaf-discovery fixtures.
-  Confirmed main required only fast `CI Success`; source-commit contexts are
-  shared across PR and push runs. The repair gives the complete reusable main
-  battery one owner and a distinct main-only `Promotion CI Success`, preserving
-  fast develop checks. A matching additive protection requirement is necessary;
-  no source-only or fast-green enforcement claim is made. Consensus now uses the
-  canonical concurrent runner for admission, cancellation, cleanup and outcomes,
-  retaining immutable round snapshots only for capture/checkpoint/resume.
-  User requested reducing the 15-round budget: formation and voting defaults
-  are restored to **3**, matching the existing public team preset. Explicit 15
-  remains supported, including the stress/memory fixtures; no unmeasured model
-  quality claim supports raising the default. **802** affected coordination,
-  team, integration and conversation-node tests pass after that change.
-  Further independent security review reproduces quoted-backslash, dynamic argv
-  and builtin receiver escapes. The repairs conservatively recognize inspection
-  arguments and reject opaque execution. Read-cache misses now have one managed
-  async process owner; four RED ownership/cache cases and cross-project/sandbox
-  isolation controls are retained before their repairs. Global caches must not
-  substitute host data for a sandbox read or alias distinct relative directories.
-  Independent migration review caught nullable header defaults and timestamp
-  precedence; both repaired with normalized-provider and atomic-rollback controls.
-  Earlier local evidence: **802 coordination/teams/multi-agent tests**, **110
-  conversation tests**; the bounded 16-member / 15-round fixture reduces peak
-  Python allocations about 82% with identical final results. This is a synthetic
-  whole-formation memory result, not a process-RSS, provider-latency or production
-  model-quality claim. The guarded reproducible benchmark is
-  `scripts/benchmark_consensus_memory.py`; raw evidence is kept under
-  `.victor/reviews/promotion-025-adversarial-02/` in this persistent worktree.
-  Final shell ownership suite: **607 tests pass**, with Black, Ruff and MyPy
-  passing. Automatic read caching retains only bounded literal metadata results;
-  file/repository/remote snapshots always execute through the managed runner.
-  Cache retention is bounded to 128 entries and 64 KiB per retained result.
-  Final LOCAL_PASS: **1,268 CI-selected tests**, **912 affected runtime tests**,
-  **220 guard tests**, **37,968 tests collected** in the repository virtual
-  environment; changed-line coverage **90%**. Black, Ruff, configured MyPy,
-  changed-workflow Actionlint structure/expressions and version checks pass.
-  The shared parent virtual environment's collection failed on an unrelated
-  installed `scripts` package; the clean repository environment resolves all
-  six imports. Duplication falls 6,521 to 6,501 lines and the ratchet is tightened.
-  The complete scripts owner has 779 passes plus two sandbox-blocked `ps`
-  probes; all four process-cleanup variants pass with the required process
-  visibility. After upstream alignment, 158 CI/duplication contracts and the
-  changed integration workflow's Actionlint check pass. Repository hygiene and
-  documentation drift checks pass.
-  Independent CI/migration/default and final shell/cache reviews are clean;
-  exact source hashes and commands remain in the evidence archive. The additive
-  main protection setting now requires both `CI Success` and main-only
-  `Promotion CI Success` from GitHub Actions (app 15368), with strict up-to-date
-  checks and all other protection/review settings preserved. Main promotion
-  publication and its full-battery final-head CI remain pending; an absent
-  promotion result blocks main.
-  PR [#1652](https://github.com/anvai-labs/victor/pull/1652) merged to develop
-  at `e7fe82ae5649002e0303e32322025e60f8c84cb8` on 2026-11-02 00:47:24 UTC.
-  Its exact candidate `2dd3916682cbe90d517a1066071467b743ee8878` had clean
-  commit-bound independent review, **40 successful checks and 14 expected skips**;
-  GitHub reported CLEAN before merge. The merged source tree matches exactly.
-  Evidence is copied and hash-verified in the main checkout before cleanup.
-  Main `8e142c2cb` is not an ancestor of develop, so the next protected promotion
-  will merge the complete current develop snapshot into a branch based on main
-  before publishing; no main commits or develop changes are dropped.
-  Promotion branch `promote/adversarial-repairs` starts at main `8e142c2cb`
-  and merges the complete develop `e7fe82ae5`. Before the ledger handoff update,
-  its entire source tree matches that verified develop snapshot exactly.
-  Next: qualify that exact promotion commit through the complete reusable battery
-  and normal main approval. No repair main merge, tag, release or live acceptance.
+- **PROMOTION-025-ADVERSARIAL-02 — MAIN_CI_PENDING** (2026-11-02), owner:
+  promotion adversarial repair session. Active branch `promote/adversarial-repairs`
+  in `.worktrees/main-adversarial-promote`; main baseline `8e142c2cb`, complete
+  develop snapshot `b3f09333aef5524a38a55fd9aee6f33973b82fa8`. The merge preserves
+  both complete histories; every non-ledger file matches that develop snapshot.
+  Earlier baselines were `9ff07d21c`, `22f9d5427`, `43d117796` (identical source
+  tree to `22f9d5427`) and `0964ffbc2` (preserved upstream #1651 runner change).
+  Other sessions merged #1639 and #1648; no earlier successful status is borrowed
+  as evidence for this repair or its updated promotion head.
+
+  [#1652](https://github.com/anvai-labs/victor/pull/1652) merged to develop as
+  `e7fe82ae5649002e0303e32322025e60f8c84cb8` at 2026-11-02 00:47:24 UTC after
+  exact candidate `2dd391668` passed independent commit-bound review and **40 CI
+  checks**, with **14 expected skips**. It repairs shared shell syntax/effect
+  ownership across permission profiles; cache cancellation, freshness, sandbox
+  isolation and cross-project keys; consensus admission/cancellation/checkpoint
+  ownership and retained round snapshots; and atomic legacy session recovery of
+  provider/model/profile/budgets/timestamps/project state. The cache retains only
+  bounded literal metadata (128 entries, 64 KiB/result); snapshots execute fresh.
+  User requested reducing rounds: formation, team preset and voting defaults are
+  **3**; explicit **15** remains supported and stress-tested.
+
+  RED evidence includes 40 initial shell escapes, dynamic argv/builtin/environment
+  and cross-profile variants, consensus retention and repeated-cancellation faults,
+  nullable migration defaults/timestamps, and CI missing/unknown/discovery faults.
+  Final local qualification: **1,268 selected tests**, **912 affected runtime
+  tests**, **220 guards**, **90% changed-line coverage**, **607 shell/cache tests**
+  in independent review, and **280 additional shell-consumer passes**. Collection
+  reached **37,968 tests** in the clean repository environment. The shared parent
+  environment has an unrelated installed `scripts` package collision. Synthetic
+  16-member/15-round exact-result parity shows about **82% lower peak Python
+  allocations**; this is not provider latency, model quality or process RSS.
+  Duplication was tightened from 6,521 to 6,501 lines with pinned jscpd 5.4.2.
+
+  [#1653](https://github.com/anvai-labs/victor/pull/1653) targets main. Its first
+  head `d70c0cde8` completed **77 passing checks, nine skips and one Semgrep
+  failure**: two broad secret-inheritance calls and a benchmark-loader warning.
+  That failed verdict remains attributed to its original head. Follow-up
+  [#1654](https://github.com/anvai-labs/victor/pull/1654) merged to develop as
+  `b3f09333aef5524a38a55fd9aee6f33973b82fa8` at 2026-11-02 02:09:48 UTC;
+  exact reviewed candidate `d90eb3ea8` had **40 passing checks and 14 expected
+  skips**. Caller secret maps now match explicit optional child interfaces;
+  the standard baseline module loader restores module state and temporary files
+  on success/failure. Two secret-contract regressions reproduced the old calls.
+  Follow-up local gates: **186 focused tests**, **37,970 tests collected**,
+  Black/Ruff/configured MyPy/Actionlint/hygiene/docs drift pass, benchmark parity
+  and memory reduction preserved. Semgrep **1.182.1**, auto configuration, ran
+  **324 rules on four repaired files with zero findings**; ten PartialParsing
+  warnings in existing embedded GitHub expressions remain explicit coverage gaps.
+  Independent secret-interface and loader cleanup review is clean.
+
+  Main protection was changed additively and verified: `CI Success` plus unique
+  main-only `Promotion CI Success`, both bound to GitHub Actions app 15368;
+  strict/up-to-date checks and all existing protection/review settings remain.
+  The complete reusable test/build/security battery owns the promotion result;
+  missing/unknown/failed/cancelled prerequisites fail. No fast push or feature
+  result establishes promotion readiness. One normal GitHub approving review
+  remains required.
+
+  Evidence, exact hashes, failed/green logs and PR verdicts are preserved in the
+  main checkout `.victor/reviews/promotion-025-adversarial-02/` and
+  `.victor/reviews/promotion-defects-ci/`; merged repair worktrees/branches were
+  removed after copying and hash-verifying evidence. This session retains only
+  the active promotion worktree. Next: record review for the updated commit, push
+  one qualified #1653 update, then require its final-head complete battery and
+  normal review. Executable continuation: `gh pr checks 1653 --repo anvai-labs/victor`;
+  inspect that exact head/review state. No repair main merge,
+  tag, release, provider-runtime or live C5 acceptance is claimed.
 
 - **PROMOTION-025-REVIEW — MERGED** (2026-11-01), owner: develop promotion
   review session; branch `fix/develop-review`, initial baseline `3094bdc75`,
