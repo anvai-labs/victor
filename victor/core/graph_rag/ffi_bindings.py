@@ -151,7 +151,7 @@ def collect_binding_facts(
             parameters = node.child_by_field_name("parameters")
             if (
                 modifiers is not None
-                and re.search(r"\bnative\b", text(modifiers))
+                and any(child.type == "native" for child in modifiers.children)
                 and name is not None
                 and parameters is not None
                 and node.child_by_field_name("body") is None

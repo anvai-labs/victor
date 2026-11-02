@@ -34,6 +34,7 @@ def main() -> None:
         or p.name
         in {
             "source_regions.py",
+            "source_reader.py",
             "clone_bindings.py",
             "similarity_analysis.py",
             "ast_fingerprints.py",

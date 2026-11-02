@@ -293,6 +293,21 @@ def normalize_function(
     bindings: Optional[Dict[ast.AST, int]] = None,
 ) -> List[str]:
     """Token stream for ``fn``'s body (see the module docstring)."""
+
+    def field_layout(node: ast.AST) -> str:
+        fields = []
+        for name, value in ast.iter_fields(node):
+            if isinstance(value, ast.AST):
+                fields.append(name + "=1")
+            elif isinstance(value, list):
+                holes = (
+                    ":" + "".join("_" if item is None else "n" for item in value)
+                    if any(item is None for item in value)
+                    else ""
+                )
+                fields.append(f"{name}={len(value)}{holes}")
+        return "|" + ";".join(fields) if fields else ""
+
     module = ast.Module(body=_body(fn), type_ignores=[])
     if bindings is None:
         from victor.core.graph_rag.clone_bindings import python_bindings
@@ -390,6 +405,8 @@ def normalize_function(
             tokens.append("C:" + type(node.value).__name__)
         elif isinstance(node, ast.arg):
             tokens.append(placeholder("binding:" + str(bindings[node])))
+        elif isinstance(node, ast.keyword):
+            tokens.append("G:keyword:" + (node.arg or "**"))
         elif (
             isinstance(
                 node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)
@@ -398,19 +415,43 @@ def normalize_function(
         ):
             # Anchor named nested declarations before their call sites. A
             # first-use label alone erases which helper is called.
-            tokens.append(type(node).__name__ + ":" + placeholder("binding:" + str(bindings[node])))
+            tokens.append(
+                type(node).__name__
+                + field_layout(node)
+                + ":"
+                + placeholder("binding:" + str(bindings[node]))
+            )
         elif isinstance(node, ast.alias):
             tokens.append("G:import:" + node.name)
         elif isinstance(node, ast.ImportFrom):
             tokens.append("G:import-from:" + "." * node.level + (node.module or ""))
         else:
-            tokens.append(type(node).__name__)
+            tokens.append(type(node).__name__ + field_layout(node))
     if subtrees is not None:
         from victor.core.graph_rag.ast_fingerprints import NormalizedNode, subtree_fingerprints
 
         normalized = {}
         for node, label in reversed(list(zip(walk[1:], tokens[1:]))):
-            children = tuple(normalized[c] for c in ast.iter_child_nodes(node))
+            children = tuple(
+                (
+                    NormalizedNode("field:" + name, (normalized[value],))
+                    if isinstance(value, ast.AST)
+                    else NormalizedNode(
+                        "field:" + name,
+                        tuple(
+                            (
+                                normalized[item]
+                                if isinstance(item, ast.AST)
+                                else NormalizedNode("omitted")
+                            )
+                            for item in value
+                            if isinstance(item, ast.AST) or item is None
+                        ),
+                    )
+                )
+                for name, value in ast.iter_fields(node)
+                if isinstance(value, ast.AST) or isinstance(value, list)
+            )
             if (
                 isinstance(
                     node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler)
@@ -922,6 +963,7 @@ def scan(
     from victor.core.graph_rag.language_parsers import SOURCE_LANGUAGES, create_parser
     from victor.core.graph_rag.precise_providers import providers_for_files
     from victor.core.graph_rag.exclude_patterns import UNIVERSAL_EXCLUDE_PATTERNS, is_path_excluded
+    from victor.core.graph_rag.source_reader import read_project_source
 
     if languages is not None and not languages <= set(SOURCE_LANGUAGES.values()):
         raise ValueError(
@@ -969,24 +1011,23 @@ def scan(
     source_hashes: Dict[str, str] = {}
     source_manifest: Dict[str, str] = {}
     binding_facts: List[Any] = []
+    source_read_errors: List[Dict[str, str]] = []
     retained_bytes = 0
     for file_index, rel in enumerate(files):
         if progress is not None:
             progress(rel, file_index, len(files))
         try:
-            source_stat = (root / rel).stat()
+            data, source_stat = read_project_source(root, rel, max_file_bytes)
             if source_stat.st_size > max_file_bytes:
                 stats["oversized_files"] += 1
                 continue
-            with (root / rel).open("rb") as stream:
-                data = stream.read(max_file_bytes + 1)
             if len(data) > max_file_bytes:
                 stats["oversized_files"] += 1
                 continue
             source = data.decode("utf-8")
-            source_stat = (root / rel).stat()
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as exc:
             stats["unreadable_files"] += 1
+            source_read_errors.append({"file": rel, "reason": str(exc)})
             continue
         if cross_language:
             source_hashes[rel] = hashlib.sha256(
@@ -1147,7 +1188,7 @@ def scan(
             "include_docs": include_docs,
             "selected_regions": stats["selected_regions"],
             **{key: value for key, value in stats.items() if "region" in key},
-            "normalization_schema": "normalized-body-v3-lexical-bindings",
+            "normalization_schema": "normalized-body-v4-field-roles",
             "binding_support": {
                 lang: (
                     "compiler-symbol-tables"
@@ -1172,6 +1213,7 @@ def scan(
             "binding_error_files": stats["binding_error_files"],
             "recovered_units": sum(u.recovered_from_partial_file for u in units),
             "unreadable_files": stats["unreadable_files"],
+            "source_read_errors": source_read_errors,
             "oversized_files": stats["oversized_files"],
             "languages": {
                 lang: stats[f"{lang}_files"]

@@ -138,3 +138,19 @@ def test_value_of_rust_if_expression_is_not_erased(tmp_path):
     report = report_pair(tmp_path, left, right)
     assert report.stats["portable_unsupported_units"] == 0, report.stats
     assert report.units[0].portable_hashes != report.units[1].portable_hashes
+
+
+@pytest.mark.parametrize(
+    "suffix,source",
+    [
+        ("c", "int f(int x,int y){x+=y;return x+1;}"),
+        ("cpp", "int f(int x,int y){x+=y;return x+1;}"),
+        ("java", "class A { int f(int x,int y){x+=y;return x+1;} }"),
+    ],
+)
+def test_compound_assignment_preserves_the_operator(tmp_path, suffix, source):
+    (tmp_path / "reference.py").write_text("def f(x,y):\n x=y\n return x+1\n")
+    (tmp_path / f"native.{suffix}").write_text(source)
+    report = scan(tmp_path, cross_language=True, min_nodes=5, near_threshold=1)
+    assert report.stats["portable_unsupported_units"] == 0, report.stats
+    assert not any(f.tier == "cross_language" for f in report.families)

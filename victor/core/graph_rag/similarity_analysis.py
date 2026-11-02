@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -44,37 +45,52 @@ def analyze_source(
     channels: dict[str, Any] = {}
     report = None
     if mode != "tokens":
-        report = scan(
-            root,
-            scope=scope,
-            include_tests=include_tests,
-            min_nodes=min_nodes,
-            near_threshold=near_threshold,
-            include_same_file=include_same_file,
-            near_metric=near_metric,
-            languages=languages,
-            cross_language=cross_language,
-            include_docs=include_docs,
-            retain_source=True,
-            collect_only=mode == "body",
-            max_units=body_options.max_functions if body_options is not None else 5000,
-        )
-        if mode == "hybrid":
+        try:
+            report = scan(
+                root,
+                scope=scope,
+                include_tests=include_tests,
+                min_nodes=min_nodes,
+                near_threshold=near_threshold,
+                include_same_file=include_same_file,
+                near_metric=near_metric,
+                languages=languages,
+                cross_language=cross_language,
+                include_docs=include_docs,
+                retain_source=True,
+                collect_only=mode == "body",
+                max_units=(
+                    (body_options.max_functions if body_options is not None else 5000)
+                    if mode == "body"
+                    else None
+                ),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            failure = {
+                "coverage_complete": False,
+                "equivalence_verified": False,
+                "error": str(exc)[:1500],
+            }
+            if mode == "hybrid":
+                channels["structural"] = {"evidence": "normalized_syntax", **failure}
+            channels["body"] = {"evidence": "function_body_embeddings", **failure}
+        if mode == "hybrid" and report is not None:
             channels["structural"] = report_to_dict(report, limit)
         try:
             from victor.core.graph_rag.body_clones import BodyOptions, analyze_bodies
 
-            channels["body"] = analyze_bodies(
-                report,
-                options=body_options or BodyOptions(),
-                threshold=threshold,
-                top_k=top_k,
-                include_same_file=include_same_file,
-                cache_path=cache_path,
-            )
-            channels["body"]["total_families"] = len(channels["body"]["families"])
-            channels["body"]["families"] = channels["body"]["families"][:limit]
-        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            if report is not None:
+                channels["body"] = analyze_bodies(
+                    report,
+                    options=body_options or BodyOptions(),
+                    threshold=threshold,
+                    top_k=top_k,
+                    include_same_file=include_same_file,
+                    cache_path=cache_path,
+                )
+                channels["body"]["total_families"] = len(channels["body"]["families"])
+                channels["body"]["families"] = channels["body"]["families"][:limit]
+        except (ImportError, OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             channels["body"] = {
                 "evidence": "function_body_embeddings",
                 "coverage_complete": False,

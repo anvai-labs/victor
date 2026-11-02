@@ -2104,6 +2104,8 @@ def _graph_similar_structural(
         )
         for error in st.get("analysis_errors", []):
             console.print(error, markup=False)
+        for error in st.get("source_read_errors", [])[:5]:
+            console.print(json.dumps(error), markup=False)
     if cross_language:
         console.print(
             f"Portable operations: {st['portable_units']} eligible bodies; {st['portable_unsupported_units']} unsupported; "

@@ -120,3 +120,88 @@ def test_timeout_terminates_owned_backend(tmp_path):
         token_clones._run_detector(
             [sys.executable, "-c", "import time; time.sleep(30)"], tmp_path, 0.1
         )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX group ownership")
+def test_normal_parent_exit_cleans_up_its_child(tmp_path):
+    import sys
+    import time
+    import psutil
+
+    script = "import subprocess,sys; from pathlib import Path; p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)']); Path('child.pid').write_text(str(p.pid))"
+    code, _ = token_clones._run_detector([sys.executable, "-c", script], tmp_path, 3)
+    assert code == 0
+    pid = int((tmp_path / "child.pid").read_text())
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        try:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                return
+        except psutil.NoSuchProcess:
+            return
+        time.sleep(0.02)
+    pytest.fail("owned descendant survived detector return")
+
+
+def test_fast_output_still_obeys_artifact_limit(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setattr(token_clones, "MAX_REPORT_BYTES", 10)
+    script = "from pathlib import Path;Path('backend.log').write_bytes(b'x'*11)"
+    with pytest.raises(ValueError, match="artifact budget"):
+        token_clones._run_detector([sys.executable, "-c", script], tmp_path, 3)
+
+
+def test_cancellation_after_spawn_reaps_owned_group(tmp_path, monkeypatch):
+    import sys
+
+    created = []
+    spawn = subprocess.Popen
+
+    def observe(*args, **kwargs):
+        result = spawn(*args, **kwargs)
+        created.append(result)
+        return result
+
+    def interrupt(delay):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess, "Popen", observe)
+    monkeypatch.setattr(token_clones.time, "sleep", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        token_clones._run_detector(
+            [sys.executable, "-c", "import time;time.sleep(20)"], tmp_path, 3
+        )
+    assert len(created) == 1 and created[0].returncode is not None
+
+
+def test_relative_backend_is_resolved_before_changing_cwd(tmp_path, monkeypatch, binary):
+    source_pair(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    link = tmp_path / "jscpd"
+    link.symlink_to(binary)
+    report = scan_tokens(
+        tmp_path, options=TokenOptions(binary="./jscpd", min_tokens=8, min_lines=0)
+    )
+    assert report["coverage_complete"]
+
+
+def test_token_snapshot_rejects_external_source_symlink(tmp_path, monkeypatch):
+    import sys
+
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "private.py"
+    outside.write_text("def secret(x):\n return x+1\n")
+    (project / "linked.py").symlink_to(outside)
+    monkeypatch.setattr(shutil, "which", lambda value: sys.executable)
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "jscpd 5.4.2", "")
+    )
+    monkeypatch.setattr(
+        "victor.core.graph_rag.structural_clones._source_files", lambda *a, **k: ["linked.py"]
+    )
+    report = scan_tokens(project)
+    assert not report["coverage_complete"]
+    assert not report["source_manifest"]
+    assert report["errors"]

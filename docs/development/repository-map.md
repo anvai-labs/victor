@@ -16,6 +16,7 @@ current API semantics were reviewed only where cited. There are no Git submodule
 | Broader codebase priorities | [Roadmap](../roadmap.md), [Stage C](../architecture/stage-c-reassessment.md), [review backlog](../architecture/CODEBASE_REVIEW_BACKLOG.md) |
 | Decision status | [ADRs](../architecture/adr/README.md), [FEP index](https://github.com/anvai-labs/victor/blob/develop/feps/README.md); Draft is not delivered |
 | Historical independent review | [U1–U10 review](../reviews/2026-09-03-codesign/README.md); dated findings, not current certification |
+| Deduplication and similarity review evidence | [Independent review findings and regression evidence](../architecture/codegraph-deduplication-review-2026-11-01.md); final commit review and CI results belong to the PR |
 
 ## Module and submodule inventory
 

@@ -49,7 +49,7 @@ model-specific and cannot be transferred to Victor's BGE summary vectors.
 The retained experiment artifacts are [the pre-hardening probes](evidence/code-similarity-parity-before-2026-11-01.json)
 and [the parameter/snapshot checkpoint](evidence/code-similarity-parity-2026-11-01.json).
 The [earlier frontend/binding checkpoint](evidence/code-similarity-frontends-2026-11-01.json)
-reruns the same 21 inputs after the binding increment. The [current channel checkpoint](evidence/code-similarity-channels-2026-11-01.json)
+reruns the same 21 inputs after the binding increment. The [pre-review channel checkpoint](evidence/code-similarity-channels-2026-11-01.json)
 adds region extraction and v2 lowering on those inputs; Markdown now explicitly
 sets `include_docs`. [Current channel observations](evidence/code-similarity-channel-observations-2026-11-01.json)
 retain real local model execution, cache reuse and native source manifests.
@@ -435,3 +435,26 @@ gates remain pending. Local source acceptance must not be reported as merged or
 released. Next executable research increment: build the held-out review set and
 run fixed-model pair/port precision and hard-negative calibration; retain the
 current bounded exact implementation as its oracle before evaluating ANN.
+
+
+## Publication candidate and adversarial review
+
+The implementation was committed, then reconciled onto `origin/develop`
+`b3f09333aef5524a38a55fd9aee6f33973b82fa8`. The TUI conflict preserves the incoming
+compact code renderer and adds responsive tables through its isolated registry.
+The earlier uncommitted/095e981bf sections are historical measurement checkpoints.
+
+Independent review of candidate `23f7c3a0b7b16e5f7ebf761134c891eca1dda135` was clean
+for graph-row repair/storage, and found eight source-channel/normalization issues.
+The [review disposition](codegraph-deduplication-review-2026-11-01.md) records each
+finding and its regression. The revised Python normalization is
+`normalized-body-v4-field-roles`; [reviewed probes](evidence/code-similarity-reviewed-2026-11-01.json)
+record current engine hashes and recalculated scores. Previous artifacts retain
+their original version/hash attribution and must not be called final-code checks.
+
+Publication remains gated on a clean independent rereview of the exact final
+commit, its local commit-bound attestation, and green required CI. The PR records
+that commit, CI results and merge state; this dated checkpoint is not release
+acceptance. Source scanning now explicitly requires secure descriptor-relative
+opens; unsupported platforms fail incomplete instead of following a weak path
+fallback. Full Windows source support requires a separately validated adapter.

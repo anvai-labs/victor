@@ -127,3 +127,74 @@ def test_syntax_pair_budget_does_not_block_other_channels(tmp_path, monkeypatch)
     assert result["channels"]["body"]["coverage_complete"]
     assert result["channels"]["body"]["functions"] == 2
     assert result["channels"]["tokens"]["coverage_complete"]
+
+
+def test_corrupt_body_database_is_local_to_body_channel(tmp_path, monkeypatch):
+    from victor.core.graph_rag import token_clones
+
+    corpus(tmp_path)
+    cache = tmp_path / "bad.sqlite"
+    cache.write_bytes(b"not a database")
+    monkeypatch.setattr(token_clones, "scan_tokens", lambda root, **k: token_report(root))
+    result = analyze_source(tmp_path, mode="hybrid", min_nodes=5, cache_path=cache)
+    assert not result["coverage_complete"]
+    assert "database" in result["channels"]["body"]["error"]
+    assert result["channels"]["structural"]["coverage_complete"]
+    assert result["channels"]["tokens"]["coverage_complete"]
+
+
+def test_locked_body_database_is_local_to_body_channel(tmp_path, monkeypatch):
+    import sqlite3
+    from victor.core.graph_rag import token_clones
+
+    corpus(tmp_path)
+    cache = tmp_path / "locked.sqlite"
+    connect = sqlite3.connect
+    lock = connect(cache)
+    lock.execute("CREATE TABLE owner(value INTEGER)")
+    lock.commit()
+    lock.execute("BEGIN EXCLUSIVE")
+
+    def quick_connect(*args, **kwargs):
+        kwargs["timeout"] = 0.01
+        return connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", quick_connect)
+    monkeypatch.setattr(token_clones, "scan_tokens", lambda root, **k: token_report(root))
+    try:
+        result = analyze_source(tmp_path, mode="hybrid", min_nodes=5, cache_path=cache)
+    finally:
+        lock.rollback()
+        lock.close()
+    assert "locked" in result["channels"]["body"]["error"]
+    assert result["channels"]["tokens"]["coverage_complete"]
+
+
+def test_body_budget_does_not_suppress_syntax_and_token_channels(tmp_path, monkeypatch):
+    from victor.core.graph_rag import token_clones
+
+    corpus(tmp_path)
+    monkeypatch.setattr(token_clones, "scan_tokens", lambda root, **k: token_report(root))
+    result = analyze_source(
+        tmp_path, mode="hybrid", min_nodes=5, body_options=BodyOptions(max_functions=1)
+    )
+    assert not result["coverage_complete"]
+    assert "exceeds 1" in result["channels"]["body"]["error"]
+    assert result["channels"]["structural"]["coverage_complete"]
+    assert result["channels"]["tokens"]["coverage_complete"]
+
+
+def test_shared_collection_failure_still_allows_tokens(tmp_path, monkeypatch):
+    from victor.core.graph_rag import token_clones, structural_clones
+
+    corpus(tmp_path)
+    monkeypatch.setattr(token_clones, "scan_tokens", lambda root, **k: token_report(root))
+
+    def failed(*a, **k):
+        raise ValueError("source retention budget")
+
+    monkeypatch.setattr(structural_clones, "scan", failed)
+    result = analyze_source(tmp_path, mode="hybrid", min_nodes=5)
+    assert not result["channels"]["body"]["coverage_complete"]
+    assert not result["channels"]["structural"]["coverage_complete"]
+    assert result["channels"]["tokens"]["coverage_complete"]

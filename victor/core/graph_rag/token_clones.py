@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import signal
+import sys
 import tempfile
 import time
 from typing import Any
@@ -26,62 +27,111 @@ MAX_SOURCE_BYTES = 128 * 1024 * 1024
 MAX_BACKEND_RSS = 768 * 1024 * 1024
 
 
+# The trusted stdlib launcher remains the session leader until the controller
+# cleans its process group. A tool exiting early cannot orphan descendants or
+# leave a zombie-only Darwin group which rejects killpg with EPERM.
+_SUPERVISOR = """import subprocess, sys, time
+from pathlib import Path
+result = subprocess.run(sys.argv[2:], check=False)
+status = Path(sys.argv[1])
+temporary = status.with_suffix('.tmp')
+temporary.write_text(str(result.returncode), encoding='ascii')
+temporary.replace(status)
+while True:
+    time.sleep(3600)
+"""
+
+
 def _run_detector(arguments: list[str], work: Path, timeout: float) -> tuple[int, str]:
     """Bound an owned process tree's runtime, RSS and emitted artifacts."""
     import psutil
 
     report = work / "report" / "jscpd-report.json"
     log_path = work / "backend.log"
+    status_path = work / "backend.status"
     with log_path.open("wb") as log:
+        started = time.monotonic()
+        memory_scope = "owned-process-group"
+        owns_leader = True
+        tool_exit_code = None
+        observed: list[Any] = []
         process = subprocess.Popen(
-            arguments,
+            [sys.executable, "-I", "-S", "-c", _SUPERVISOR, str(status_path), *arguments],
             cwd=work,
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
             start_new_session=os.name == "posix",
         )
-        started = time.monotonic()
-        memory_scope = "owned-tree"
         try:
-            parent = psutil.Process(process.pid)
-            while process.poll() is None:
-                if time.monotonic() - started > timeout:
-                    raise ValueError("Token backend exceeded its time budget")
+            try:
+                parent = psutil.Process(process.pid)
+            except psutil.NoSuchProcess as exc:
+                owns_leader = False
+                raise ValueError("Token backend ownership was lost") from exc
+            except (psutil.AccessDenied, PermissionError) as exc:
+                raise ValueError("Token backend status is unavailable") from exc
+            while True:
+                if os.name == "posix":
+                    # Do not reap the session leader until group cleanup. Its
+                    # unreaped PID reserves the group ID even after exit.
+                    try:
+                        finished = parent.status() == psutil.STATUS_ZOMBIE
+                    except psutil.NoSuchProcess as exc:
+                        owns_leader = False
+                        raise ValueError("Token backend ownership was lost") from exc
+                    except (psutil.AccessDenied, PermissionError) as exc:
+                        raise ValueError("Token backend status is unavailable") from exc
+                else:
+                    finished = process.poll() is not None
                 if any(
                     path.exists() and path.stat().st_size > MAX_REPORT_BYTES
                     for path in (report, log_path)
                 ):
                     raise ValueError("Token backend exceeded its artifact budget")
+                if status_path.is_file():
+                    if status_path.stat().st_size > 32:
+                        raise ValueError("Invalid token backend exit status")
+                    tool_exit_code = int(status_path.read_text(encoding="ascii"))
+                    break
+                if finished:
+                    raise ValueError("Token backend supervisor exited without a status")
+                if time.monotonic() - started > timeout:
+                    raise ValueError("Token backend exceeded its time budget")
                 try:
                     try:
-                        owned = [parent, *parent.children(recursive=True)]
+                        observed = parent.children(recursive=True)
+                        owned = [parent, *observed]
                     except (psutil.AccessDenied, PermissionError):
-                        # Sandboxed macOS may prohibit global PID enumeration.
-                        # Direct-child RSS, time and artifact limits still apply.
                         owned = [parent]
                         memory_scope = "direct-process"
                     if sum(child.memory_info().rss for child in owned) > MAX_BACKEND_RSS:
                         raise ValueError("Token backend exceeded its memory budget")
                 except psutil.NoSuchProcess:
                     pass
+                except (psutil.AccessDenied, PermissionError) as exc:
+                    raise ValueError("Token backend memory status is unavailable") from exc
                 time.sleep(0.05)
-            return process.wait(), memory_scope
         finally:
-            if process.poll() is None:
-                if os.name == "posix":
+            try:
+                if os.name == "posix" and owns_leader:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
-                else:
-                    try:
-                        for child in parent.children(recursive=True):
+                elif os.name != "posix":
+                    for child in observed:
+                        try:
                             child.kill()
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, PermissionError):
-                        pass
-                    process.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied, PermissionError):
+                            pass
+                    if process.poll() is None:
+                        process.kill()
+            finally:
                 process.wait()
+        if tool_exit_code is None:
+            raise ValueError("Missing token backend exit status")
+        return tool_exit_code, memory_scope
 
 
 @dataclass(frozen=True)
@@ -112,6 +162,7 @@ def scan_tokens(
     """Run the pinned fragment detector on an explicit read-only source snapshot."""
     from victor.core.graph_rag.structural_clones import _source_files, _in_scope
     from victor.core.graph_rag.exclude_patterns import UNIVERSAL_EXCLUDE_PATTERNS, is_path_excluded
+    from victor.core.graph_rag.source_reader import read_project_source
 
     if not root.is_dir() or max_file_bytes < 1:
         raise ValueError("Token analysis requires a project directory and a positive file bound")
@@ -120,6 +171,7 @@ def scan_tokens(
         raise ValueError(
             f"Install jscpd {PINNED_JSCPD_VERSION} locally and pass --jscpd-binary; executable unavailable: {options.binary}"
         )
+    binary = str(Path(binary).resolve())
     try:
         version = (
             subprocess.run(
@@ -146,11 +198,9 @@ def scan_tokens(
         sources, output = work / "source", work / "report"
         sources.mkdir()
         for rel in selected:
-            origin = root / rel
             try:
-                with origin.open("rb") as stream:
-                    data = stream.read(max_file_bytes + 1)
-                if len(data) > max_file_bytes:
+                data, source_stat = read_project_source(root, rel, max_file_bytes)
+                if source_stat.st_size > max_file_bytes or len(data) > max_file_bytes:
                     errors.append({"file": rel, "reason": "oversized"})
                     continue
                 data.decode("utf-8")

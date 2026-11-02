@@ -694,6 +694,19 @@ def tree_body(fn: Any, source: bytes, language: str) -> PortableBody:
         if kind in declarations:
             target = field(node, "pattern", "name", "left", "declarator")
             right = lower(field(node, "value", "right"))
+            operator_node = node.child_by_field_name("operator")
+            operator = text(operator_node) if operator_node is not None else "="
+            if operator != "=":
+                if not operator.endswith("=") or operator in {"==", "!=", "<=", ">="}:
+                    raise UnsupportedOperation("assignment-operator:" + operator)
+                operation = operator[:-1]
+                if target.type == "identifier":
+                    variable = read(target)
+                    return Node(
+                        "assign", (variable, Node("operator:" + operation, (variable, right)))
+                    )
+                # Do not duplicate side-effectful target evaluation.
+                return Node("augment:" + operation, (lower(target), right))
             if target.type == "expression_list" and len(children(target)) == 1:
                 target = children(target)[0]
             return Node("assign", (lower_target(target), right))

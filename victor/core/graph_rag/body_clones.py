@@ -156,9 +156,14 @@ class _BodyCache:
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
             self.db = sqlite3.connect(path, timeout=5)
-            self.db.execute(
-                "CREATE TABLE IF NOT EXISTS body_vectors_v1 (profile TEXT, input_hash TEXT, vector BLOB NOT NULL, spans TEXT NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(profile,input_hash))"
-            )
+            try:
+                self.db.execute(
+                    "CREATE TABLE IF NOT EXISTS body_vectors_v1 (profile TEXT, input_hash TEXT, vector BLOB NOT NULL, spans TEXT NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(profile,input_hash))"
+                )
+            except sqlite3.Error:
+                self.db.close()
+                self.db = None
+                raise
 
     def get(self, digest: str) -> tuple[Any, list[Any]] | None:
         import numpy as np
@@ -172,6 +177,12 @@ class _BodyCache:
         if row is None:
             return None
         vector, raw_spans, checksum = row
+        if (
+            not isinstance(vector, bytes)
+            or not isinstance(raw_spans, str)
+            or not isinstance(checksum, str)
+        ):
+            raise ValueError("Invalid cached body record types")
         if hashlib.sha256(vector + raw_spans.encode()).hexdigest() != checksum:
             raise ValueError("Corrupt body embedding cache entry")
         values = np.frombuffer(vector, dtype="<f4").copy()
@@ -374,6 +385,7 @@ def analyze_bodies(
                 "malformed_regions",
                 "region_limit_files",
                 "unavailable_region_extractors",
+                "source_read_errors",
             )
         },
         "inputs": list(metadata.values()),

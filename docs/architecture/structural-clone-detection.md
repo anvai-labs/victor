@@ -17,11 +17,12 @@ Implementation: `victor/core/graph_rag/structural_clones.py`,
 1. **Normalise each function body** (Python `ast`, or installed tree-sitter wheels):
    - Parameter bindings receive placeholders in declaration order. Distinct lexical
      declarations retain separate identities through shadowing and captures
-     (`normalized-body-v3-lexical-bindings`). Python uses compiler symbol tables,
+     (`normalized-body-v4-field-roles`). Python uses compiler symbol tables,
      including inlined comprehensions; Rust handles closure parameters, match-arm
      patterns and initializer-before-binding order; JavaScript handles function
      captures, catch parameters and `var` hoisting. Named Python nested declarations
-     are anchored before their call sites, and import targets survive normalization.
+     are anchored before their call sites; import/keyword targets and labelled
+     AST fields preserve branch/handler roles instead of flattening their children.
      Other frontends currently use a declaration subset, not complete language
      semantics. JSON `binding_support` names that distinction. Rust macros, unusual
      constant patterns and advanced destructuring still need compiler evidence.
@@ -213,3 +214,30 @@ leaves the other channels visible and returns a nonzero incomplete status.
 Source/representation coverage does not certify recall, behavior, ABI safety or
 safe refactoring. The current [assessment and retained evidence](graph-similarity-parity-and-roadmap.md)
 records measured coverage, cache behavior and unresolved work.
+
+
+## Source acquisition and reviewed failure boundaries
+
+Source acquisition requires POSIX descriptor-relative directory traversal with
+`O_NOFOLLOW`, `O_DIRECTORY` and nonblocking leaf opens. Every opened leaf must be
+a regular file. File/ancestor symlinks, FIFO/special files and path escapes are
+rejected before any source read; directory replacement cannot redirect an
+already opened directory descriptor. Source metadata and errors remain explicit.
+On platforms without these primitives, source channels return incomplete status
+before reading. There is no path-based insecure fallback; Windows source scanning
+needs a separately tested handle-relative adapter. Indexed summary analysis and
+graph-row repair do not use this source reader.
+
+The token backend uses an isolated trusted stdlib launcher as its live session
+leader, receives the tool's exit status separately, and cleans the owned process
+group before reaping that leader. Normal early tool exit, timeout, cancellation
+and fast output remain covered by regression tests. This is process ownership,
+not a sandbox for arbitrary trusted-configured executables or new sessions.
+Relative executable paths are resolved before changing working directories.
+
+Malformed/locked body cache databases fail only the body channel; shared source
+collection failures still permit token analysis. Body-only function limits do not
+suppress structural/token channels in hybrid mode. Compound assignments retain
+their operator, and JNI declarations require an actual `native` modifier token.
+The v4 Python field-role schema changes subtree scores; older v3 measurements are
+historical checkpoints and are not transferable threshold calibrations.

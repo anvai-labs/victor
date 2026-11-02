@@ -241,6 +241,21 @@ def test_python_exception_binder_rename_is_anchored(tmp_path):
     assert any(f.tier == "exact" for f in report.families), report.stats
 
 
+def test_python_branch_field_roles_are_not_erased(tmp_path):
+    left = "def f(x):\n if x:\n  a()\n  b()\n"
+    right = "def f(x):\n if x:\n  a()\n else:\n  b()\n"
+    report = _pair(tmp_path, "py", left, right)
+    assert not any(f.score == 1 for f in report.families)
+    assert report.units[0].subtree_hashes != report.units[1].subtree_hashes
+
+
+def test_python_keyword_target_name_is_preserved(tmp_path):
+    report = _pair(
+        tmp_path, "py", "def f(x):\n return call(left=x)\n", "def f(x):\n return call(right=x)\n"
+    )
+    assert not any(f.tier == "exact" for f in report.families)
+
+
 @pytest.mark.parametrize(
     "extension,left,right",
     [

@@ -40,6 +40,18 @@ SOURCES = [
 ]
 
 
+def test_annotation_string_is_not_a_native_modifier(tmp_path):
+    (tmp_path / "Native.java").write_text(
+        'abstract class Native { @Note("native") abstract int run(int x); }'
+    )
+    (tmp_path / "native.c").write_text(
+        "JNIEXPORT jint JNICALL Java_Native_run(JNIEnv* env,jobject obj,jint value){return value+1;}"
+    )
+    report = scan(tmp_path, cross_language=True, min_nodes=5)
+    assert report.stats["ffi_jni_declarations"] == 0
+    assert not report.ffi_links
+
+
 @pytest.mark.parametrize("extension,source", SOURCES)
 def test_portable_bodies_match_without_any_language_option(tmp_path, extension, source):
     (tmp_path / "reference.py").write_text(PYTHON)
