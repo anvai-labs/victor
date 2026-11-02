@@ -1,0 +1,3798 @@
+{
+  "schema": "victor-copy-workflow-qualification-v1",
+  "baseline_revision": "f7d4b606eb877c47f201ec4fae1bd399f51e75b8",
+  "candidate": "Working sources identified by retained implementation hashes",
+  "source": {
+    "project": "ProximaDB",
+    "revision": "9226274eea996b0554aada3825856a30002a2f01",
+    "scope": "src/query/",
+    "git_blobs_verified": true,
+    "file_count": 166,
+    "snapshot_method": "Selected source bytes SHA256-checked against Git blobs, copied to an owned frozen corpus; both revisions use identical input hashes."
+  },
+  "baseline": {
+    "schema": "victor-source-channel-observation-v1",
+    "accuracy_benchmark": false,
+    "invocation": {
+      "mode": "tokens",
+      "min_nodes": 5,
+      "min_tokens": 300,
+      "token_fingerprints": true,
+      "token_min_lines": 3,
+      "scope": "src/query/",
+      "include_same_file": true,
+      "cache_enabled": false,
+      "include_docs": false,
+      "near_metric": "subtree",
+      "threshold": 0.9
+    },
+    "python": "3.12.16",
+    "dependency_versions": {
+      "torch": "2.14.0",
+      "sentence-transformers": "6.0.1",
+      "transformers": "5.17.0",
+      "tokenizers": "0.23.2",
+      "numpy": "2.2.6",
+      "psutil": "7.2.2",
+      "tree-sitter": "0.26.0",
+      "markdown-it-py": "4.2.0",
+      "victor-codegraph": "0.8.1"
+    },
+    "wall_seconds": 0.5639222080353647,
+    "cpu_seconds": 0.275126,
+    "child_cpu_seconds": 0.455617,
+    "process_max_rss_bytes": 57114624,
+    "implementation_hashes": {
+      "source_inventory.py": "a7f65756c71c5bbc96ff09dd6fdfae712494739dfe1a0409fddc0fb90eb7d580",
+      "token_fingerprints.py": "80471b8f6769a3ec2f5d541e621804ab293b5a9ca7f137d199a67d26c1e106d2",
+      "polyglot_clones.py": "ed2d4b23a4c66409b666fa91867d28590fd15b7113cb85c1b0bdb4e32b07ff6c",
+      "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+      "numeric_literals.py": "c0c0fe440b19b9996374f9185e3a1d3277f097187e689d49a1ef35c6b6c73a92",
+      "bounded_process.py": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+      "token_clones.py": "704abecdf7e9b2159fb6563c6c2cadec43c673d07cc96e6e521ad1c87c0fb696",
+      "semantic_clones.py": "dad4290c1649e2069319c14cdaa4814a45990048320fe70efbf394fc01a95449",
+      "portable_clones.py": "76781109bdbcab1524a0f96bd631a0d14ec01a22b2e3ded5f9a76aeb7b2d8b3e",
+      "source_reader.py": "3b0ab477d5c665dd2eae59e4091fd8147194f58152a3b20d72b71fa4b7a273f0",
+      "source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
+      "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+      "similarity_analysis.py": "309e43653c2e41341a9e91530f2d9b5e8b3465838ef7b2691b5772a59778be21",
+      "body_provenance.py": "3154494cf3ebab331bf38eeabf5ef853d757d5b273810b4676a0235aa12f8c92",
+      "treesitter_clones.py": "1ba375c44c50c84d2b9ef45c61df516615a8aa6458370dd15b940261ca8cb332",
+      "structural_clones.py": "9713a4df9363bd5ac2035abde4eb463e392453fcc91e77b7fa09842834721db6",
+      "family_cohesion.py": "078396a9b3a400e1facf403bb1fb0314c392e315980a8ec8832a95bea6a0c657",
+      "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+      "body_clones.py": "07be720da135d504728cf43eeaf0c3716028a350a7fbe98f3300f60e588f1635"
+    },
+    "implementation_changed_during_run": false,
+    "result": {
+      "evidence": "token_sequence",
+      "equivalence_verified": false,
+      "coverage_complete": false,
+      "backend": {
+        "name": "jscpd",
+        "version": "5.4.2",
+        "mode": "weak",
+        "min_tokens": 300,
+        "min_lines": 3,
+        "normalize_identifiers": false,
+        "project_config_used": false,
+        "memory_monitor_scope": "owned-process-group",
+        "memory_budget_bytes": 805306368
+      },
+      "stats": {
+        "source_files": 166,
+        "backend_analyzed_files": 127,
+        "fragment_pairs": 3
+      },
+      "errors": [],
+      "source_manifest": {
+        "src/query/aql/executor.rs": {
+          "sha256": "983696d8587884cf5d13eec5407c4b87ec5895527cd526e45aa0686d77dac54e",
+          "lines": 518
+        },
+        "src/query/aql/executor_test.rs": {
+          "sha256": "635b710cd92c846f7082dc1281f92fc8e4f1c55e9893a1f3c7ce891d0c432b1d",
+          "lines": 391
+        },
+        "src/query/aql/mod.rs": {
+          "sha256": "c1f79e99f1afdf3d80e6d0c95407158d4ad0fee3e97d2f2f5640a569b7e8cbbe",
+          "lines": 382
+        },
+        "src/query/aql/sources/document.rs": {
+          "sha256": "2eb2b1e166151db99f2e1fdf78d72a8bcccdcc8cf4a13318be4b078c252dd251",
+          "lines": 97
+        },
+        "src/query/aql/sources/graph.rs": {
+          "sha256": "dfabd80196f5c6b9fcce00d248e9d550e2a19b3e95fa27518fe762a6c6d8ce58",
+          "lines": 148
+        },
+        "src/query/aql/sources/memory.rs": {
+          "sha256": "f9b30dd0b684a3cda7c5485ba3f620167a25ef318f03991a47c52ec96931b1d9",
+          "lines": 683
+        },
+        "src/query/aql/sources/mod.rs": {
+          "sha256": "ac5fca8d5afd9417d36fe564482d5e302d7a247c6b1b4c4ba7e40b921e54c030",
+          "lines": 107
+        },
+        "src/query/aql/sources/observability.rs": {
+          "sha256": "55420f1af7f0c4fda6d00f93d7415d41435caa9818223eb2e1124ad2b9022fe5",
+          "lines": 118
+        },
+        "src/query/aql/sources/vector.rs": {
+          "sha256": "54c4e56975e8e2df171861869514d82593d5c09900cc66efef4eaf9969ea3159",
+          "lines": 159
+        },
+        "src/query/arrow_graph_bridge.rs": {
+          "sha256": "2de212abaca95b2a06695d322f70eb53aa08aa3070d31d8f1154267f01cdb3cd",
+          "lines": 62
+        },
+        "src/query/ast/mod.rs": {
+          "sha256": "a0ba3aad03f0072ee481193467075bc920329405ec8947a39b6f6d9aefb637fe",
+          "lines": 8
+        },
+        "src/query/ast/nodes.rs": {
+          "sha256": "04b694c3db5020e7d3bd201f1bc39157b719f18b4ef12dca80c868f3bfb618a9",
+          "lines": 519
+        },
+        "src/query/authority_context.rs": {
+          "sha256": "21df45c870de9d4b81fe006f978744f0cc3d979a497dd09351eb00904ba16c09",
+          "lines": 271
+        },
+        "src/query/cache/adaptive_cache.rs": {
+          "sha256": "826a1005638ef4d5e4c087d01031d3803f0204dc95ff828d553978fb2d76fc50",
+          "lines": 359
+        },
+        "src/query/cache/invalidation_bus.rs": {
+          "sha256": "2eb9218a6f07e21df14b722b53f2240d1345ba4e8ff3384c39df09c93ccc3777",
+          "lines": 311
+        },
+        "src/query/cache/invalidation_coordinator.rs": {
+          "sha256": "d6f2e62a21c315b87b984cfa1dd9186e0eb5591c90f2dd81eb9d3a74d88e65ba",
+          "lines": 474
+        },
+        "src/query/cache/mod.rs": {
+          "sha256": "f7f8778a3f3c676296dae38c5268f5421fb0e750ab4532c86cec3b64e78d1f4f",
+          "lines": 145
+        },
+        "src/query/cache/plan_cache.rs": {
+          "sha256": "008391bd9964b10b716a2c3bfe719ddac14500aa0184134e1d7dd835c55a90ce",
+          "lines": 496
+        },
+        "src/query/capability/mod.rs": {
+          "sha256": "f9b5cf3366baa2ee431678bc32db84aea4c86e24ea314f7c685361e408490dd2",
+          "lines": 16
+        },
+        "src/query/columnar/mod.rs": {
+          "sha256": "410af81ff217fc9064c787c10c5feebb20fb0d3d03360961bbeb44642b8901d1",
+          "lines": 73
+        },
+        "src/query/columnar/provider.rs": {
+          "sha256": "b228693d1fe6fcbe8bb543c4b052c3125f65f44a0bbe0c6330ec92c0171a17ff",
+          "lines": 260
+        },
+        "src/query/columnar/providers/arrow_memory.rs": {
+          "sha256": "c5c369f8aa8b7161d00891958dcf36bcfb0f5c6fa8082238a04fc1d547b9d0bb",
+          "lines": 607
+        },
+        "src/query/columnar/providers/mod.rs": {
+          "sha256": "1d18a40e74a0891133d22044afafae39b716b9a64578a56607d16302611c76c6",
+          "lines": 28
+        },
+        "src/query/columnar/providers/parquet_pruned.rs": {
+          "sha256": "dc0abcdb9f449841073ccf5e66c7286edd5ef6e44e79c9ef6775990753bb4070",
+          "lines": 629
+        },
+        "src/query/compute_scheduler.rs": {
+          "sha256": "32331ce38775007dbb6e9a54343968e1c0172c77a696b0834f547fa508266f08",
+          "lines": 1982
+        },
+        "src/query/ddl_dml/mod.rs": {
+          "sha256": "27e7c5f59c1ba26e0efb8224afc89ce74e3a5db8a67528b0b1fd011738deacd7",
+          "lines": 1158
+        },
+        "src/query/distributed/aggregator.rs": {
+          "sha256": "74d43e23fd1a4137d757db8728fd41d724c21ca83fbea7aa6ad99730c0532066",
+          "lines": 2
+        },
+        "src/query/distributed/coordinator.rs": {
+          "sha256": "88df7f3d9dc9134a90b2e8cb8ae32805381f67947c29fd27a65c9668dc68a657",
+          "lines": 830
+        },
+        "src/query/distributed/mod.rs": {
+          "sha256": "9ef61acedfb1dca234f9657c7606f58c9ff069279c17875600f26be6bf290373",
+          "lines": 64
+        },
+        "src/query/distributed/planner.rs": {
+          "sha256": "b49b595d28943cd872130684a54225566a1ebf0ec22a74129ea2ead91e56054f",
+          "lines": 427
+        },
+        "src/query/distributed/remote.rs": {
+          "sha256": "39499cd303372e8541950ddfb28d7b39a544309675b3cd4466b3ffb675673ba8",
+          "lines": 2
+        },
+        "src/query/distributed/shuffle.rs": {
+          "sha256": "739dc74d10febe8daaacf56bbc67e2fa2c29e15a6f88eb22d288729d21caa9f3",
+          "lines": 2
+        },
+        "src/query/execution/datafusion_bridge.rs": {
+          "sha256": "d95b833cc783ad3d7ab6e5a4e48a9de411e209cf38e45311a67c5d8d122e9449",
+          "lines": 556
+        },
+        "src/query/execution/datafusion_engine.rs": {
+          "sha256": "cb9c50ab432a8313ecd8a037ae55954db77223cddb3479d2a3fb1d1db93be1dc",
+          "lines": 1373
+        },
+        "src/query/execution/duckdb_engine.rs": {
+          "sha256": "622e95c68fec3d6b6307dc25097e0a1f5e04b3047e65388a9f9b8af515c06ba2",
+          "lines": 378
+        },
+        "src/query/execution/engine.rs": {
+          "sha256": "5ea2ce66139f164cd2fd50b9ee6fbf30e5f174b7e1115d2b333e0f94943d4eb6",
+          "lines": 829
+        },
+        "src/query/execution/executor.rs": {
+          "sha256": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+          "lines": 2587
+        },
+        "src/query/execution/layer_a/conform.rs": {
+          "sha256": "c46dc46199ec9c755e62760046874a3682944f36c0a8a779bc4cd16db4b3ccc7",
+          "lines": 428
+        },
+        "src/query/execution/layer_a/merge.rs": {
+          "sha256": "f72cbe49fdfaeab19bbf43c057c600428340de41b9779cfddaa27490425e6904",
+          "lines": 291
+        },
+        "src/query/execution/layer_a/mod.rs": {
+          "sha256": "39b43fabac7a455b2082e4caa715d1444b718821939029487d321a8ca47c1e0f",
+          "lines": 60
+        },
+        "src/query/execution/layer_a/olap_merge.rs": {
+          "sha256": "17390189c4f594b0d26df34952d1db154ed3a4ae49bb1e0b65783e111b278a6f",
+          "lines": 383
+        },
+        "src/query/execution/layer_a/partition.rs": {
+          "sha256": "7da6c3b5eee59eb0cc7b2311c6f9301e015f297336aa78aaaa932c30231bb93d",
+          "lines": 354
+        },
+        "src/query/execution/layer_a/provider.rs": {
+          "sha256": "b3510dd3a8d242ecb42a7cbfd69bfb5b6c2f5dad41753c974ed522918f88a8cf",
+          "lines": 851
+        },
+        "src/query/execution/layer_a/prune.rs": {
+          "sha256": "4d1da786d9e075c5dc4ab8d0366d24220ed85acf951d75f64c7f14b139b22b74",
+          "lines": 397
+        },
+        "src/query/execution/layer_a/tests.rs": {
+          "sha256": "cc3a53191b0b22e330a5fd598fefcdcbc48d77c42f70b27194c4b7c15a2022b1",
+          "lines": 1284
+        },
+        "src/query/execution/low_latency_executor.rs": {
+          "sha256": "f56b667e141467c9da3f6b6b858d7e8db8b6dd495c179d59b38fc72cf49dab80",
+          "lines": 348
+        },
+        "src/query/execution/mod.rs": {
+          "sha256": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea",
+          "lines": 414
+        },
+        "src/query/execution/morsel_scheduler.rs": {
+          "sha256": "85eaff54aeb5a647dcb6c11ddc714d55da86515bd2ded799b71d56c6826f4443",
+          "lines": 215
+        },
+        "src/query/execution/native_engine.rs": {
+          "sha256": "1d75364d76d8634694ec63f1ba703b90f6ac4ef3c7b5330032c1b6a360a9fd81",
+          "lines": 671
+        },
+        "src/query/execution/native_join_ops.rs": {
+          "sha256": "151088c6ff71d10fccce6fb9d5d03b3f8461e2f4de78cd9794540f567f1f861f",
+          "lines": 533
+        },
+        "src/query/execution/native_ops.rs": {
+          "sha256": "9badd229a2ea5c17c28a146e312bbbb69abc1a0dc0cd9ce9fbc66167fb3cac3b",
+          "lines": 2781
+        },
+        "src/query/execution/native_parquet_scan.rs": {
+          "sha256": "196f97ccb52fd2d00be68db8cc0fe993aa2e30d19021d1a801b036feb2a1a30a",
+          "lines": 587
+        },
+        "src/query/execution/native_scan.rs": {
+          "sha256": "394dfeeb9ee75d91af5741ccfdccff678bede3f4dad8e21a3e6dbc4c07a152c1",
+          "lines": 355
+        },
+        "src/query/execution/native_shadow.rs": {
+          "sha256": "802c623ff09bc2ec9055ab8a0c27c88f4a40140ac01c497f942acfd3b0c34746",
+          "lines": 347
+        },
+        "src/query/execution/native_table_provider.rs": {
+          "sha256": "7af9d94f2da93bd0e943a069ed6295bc376f0d2c051957163a7806b6d992ccee",
+          "lines": 192
+        },
+        "src/query/execution/olap_delta_merge.rs": {
+          "sha256": "318272e8d1c55a38d59da3676c4f1c8378075e6d23b9366d159d369c6d64f204",
+          "lines": 254
+        },
+        "src/query/execution/plan_cache.rs": {
+          "sha256": "5a4fce9cb27ebce5344de291a701adcf5a530a1048f1248138d9c9b2ffc32361",
+          "lines": 477
+        },
+        "src/query/execution/planner.rs": {
+          "sha256": "1f9286574e99bf7ac0875c6771db7d780ac3c192f6536e5d8f965ebc49513528",
+          "lines": 366
+        },
+        "src/query/execution/set_operations.rs": {
+          "sha256": "12eb0d5ee9544ad00ecf55003b22ed803bd56e70efd67ac8e21dcf236058a97e",
+          "lines": 167
+        },
+        "src/query/execution/window_executor.rs": {
+          "sha256": "2a8015ce8b2550a0635f55df42972c4c8c47d9615887f128458fed488df6be8d",
+          "lines": 1620
+        },
+        "src/query/explain.rs": {
+          "sha256": "84ad5d852568dd4c16f142fbb46ee9f186e000dafd00018de4c58e6d9b553011",
+          "lines": 2661
+        },
+        "src/query/explain_schema.rs": {
+          "sha256": "6ae2d26b13977467d07f349cbe22b9c78fe93e6f596d44fa826cddb36c69cb03",
+          "lines": 574
+        },
+        "src/query/facade/adapter.rs": {
+          "sha256": "207b9fc33f886a47720c21aab76390cf4e72217481ae4f8ce492bbd436b3d599",
+          "lines": 1380
+        },
+        "src/query/facade/mod.rs": {
+          "sha256": "79da6cc8a0a5b1e99c333b185c807047fa0298593810ca65dc8241792ca92ae4",
+          "lines": 889
+        },
+        "src/query/facade/strategies/columnar.rs": {
+          "sha256": "da751c9d97dc9f6394b4ed9700d1f8297acf89c0bd093f7e5b6bce6c47f634c0",
+          "lines": 1589
+        },
+        "src/query/facade/strategies/distributed.rs": {
+          "sha256": "918d46dee3169727a76b2c3d161fc1d98f8f6897de55e528920ec3d5e6321c27",
+          "lines": 950
+        },
+        "src/query/facade/strategies/document.rs": {
+          "sha256": "c670ceb71573f0e9e889bb00c4239b3fcd80f603400b64c4b75cd8e6b5ecc45a",
+          "lines": 401
+        },
+        "src/query/facade/strategies/external_table.rs": {
+          "sha256": "1cc25718153701556af403d27d97ad6eb6e617e5290b1637e1a4d738bf0a714f",
+          "lines": 287
+        },
+        "src/query/facade/strategies/graph.rs": {
+          "sha256": "f928d67a6163fa19709972c3b2f7f197905637e4b5c0efc26d87dab1c35c7ffd",
+          "lines": 525
+        },
+        "src/query/facade/strategies/mod.rs": {
+          "sha256": "f9335449dd6449c1d0324e482c282b21faf9234e2deba5a08b2d27f638ce4e72",
+          "lines": 31
+        },
+        "src/query/facade/strategies/observability.rs": {
+          "sha256": "05d72530a7f5769a37207b1c4d3c3bb11b91ec8c87ac33ca4c05647015a13fb9",
+          "lines": 1349
+        },
+        "src/query/facade/strategies/sql.rs": {
+          "sha256": "338ebdd2ebf3603a9a392b0f21517ba08882f38913b30f08ed800f748a07931b",
+          "lines": 398
+        },
+        "src/query/facade/strategies/vector.rs": {
+          "sha256": "c6b9d50e74832b1c138dfd44459d45eb1bcb1622d372afbfde15c637e60e222c",
+          "lines": 392
+        },
+        "src/query/federated/execution/mod.rs": {
+          "sha256": "3dec0c6c56118e40acdccfd7d0bb59b9df92d25881e4f02ab8642ebca92a2fae",
+          "lines": 4616
+        },
+        "src/query/federated/execution/source_executors.rs": {
+          "sha256": "a20a5eed03bbd5b0d79d386e9967b6f2422de98a9f1633202314f26ed1e48af2",
+          "lines": 406
+        },
+        "src/query/federated/execution/tests.rs": {
+          "sha256": "7dc21cbcb0601ea3ef3eaf379b963e799a8301fcac99bf64a01ab5543095e7f5",
+          "lines": 923
+        },
+        "src/query/federated/mod.rs": {
+          "sha256": "33893576f746239b563da1aeda260707863ab1f671b658458573bc7043681212",
+          "lines": 414
+        },
+        "src/query/federated/optimizer/cached_plan_builder.rs": {
+          "sha256": "9ae5bc99df80420534ce164b7e0fb11a0fa0f66badb0c5ed512f8aa2c542f567",
+          "lines": 364
+        },
+        "src/query/federated/optimizer/filter_strategy.rs": {
+          "sha256": "33022cb6465a7e7be0b67367dd5bb105a1f8d4c3d3b4a6e4c48e2b72ad4f2cc1",
+          "lines": 278
+        },
+        "src/query/federated/optimizer/mod.rs": {
+          "sha256": "cd757dfc29208c6f8402d92dbb4d4e4f1c5651d5b34058b574220a484bb159b7",
+          "lines": 5308
+        },
+        "src/query/federated/optimizer/plan_builder.rs": {
+          "sha256": "d8d1eeb77ddafb072425f503042b74836026ca81562fa9eaceb38417f719ba19",
+          "lines": 283
+        },
+        "src/query/federated/optimizer/plan_inference_gate.rs": {
+          "sha256": "42016041b6d8f7a64bf3cfeef81b7ba6ec0ad83c3dcbf10e39f5fbb9dbaaba32",
+          "lines": 550
+        },
+        "src/query/federated/optimizer/plan_quality.rs": {
+          "sha256": "fdf144b38d08443a24ef57b9d6ab9d446fb0247325be819a34d8ddcb7532ddd8",
+          "lines": 378
+        },
+        "src/query/federated/optimizer/plan_v2_inference.rs": {
+          "sha256": "1419d5453ee68ddc46390b4e41d819f3222bb5ee37ca6bd6a1281a8e6b4bc40e",
+          "lines": 461
+        },
+        "src/query/federated/optimizer/plan_v2_training.rs": {
+          "sha256": "5ed8bfa44f0ef887e1a714b0f74b54e21caa15d9f4f17d62ef3a6ab29b414326",
+          "lines": 456
+        },
+        "src/query/federated/optimizer/predicate_normalizer.rs": {
+          "sha256": "0a5f77083ff3ac5bd7dda89d04691e58a80429d9f6e81e8aad2bce9625d6da42",
+          "lines": 278
+        },
+        "src/query/federated/optimizer/selectivity.rs": {
+          "sha256": "cef9b3c21648273a9b8a1fc9f07b71984cb8f4f0459470fea7b951bc499833c4",
+          "lines": 560
+        },
+        "src/query/federated/optimizer/sql_parsing.rs": {
+          "sha256": "d616542db382f49e6c9972c3bd116fdacf36df820edc83b8a0751d60906f6d90",
+          "lines": 678
+        },
+        "src/query/federated/optimizer/tests.rs": {
+          "sha256": "90bdcc6d794c1be2d542ede2f0f2d2df5a66167a0912feddb6c24a0fab7cbb24",
+          "lines": 1637
+        },
+        "src/query/federated/optimizer/trace_replay.rs": {
+          "sha256": "4cf1120ee589c76425084eb473f0e1fb22483693be5fb42469083924216165fe",
+          "lines": 553
+        },
+        "src/query/federated/optimizer/vector_query_parsing.rs": {
+          "sha256": "1aca8ad5c1812d1fc112aef9a0a266d01aa7943f06a8a24a161f143b7a2e5a43",
+          "lines": 207
+        },
+        "src/query/federated/tests.rs": {
+          "sha256": "40c0ed0f700c54d692a51e4fabbf5f2ca01edb19207f4f9e0a856a08380eadfe",
+          "lines": 2457
+        },
+        "src/query/graph_lowering.rs": {
+          "sha256": "ae6859fd6fd6932fac548c7cf9ddd9baea6d540db66ac2bed130f6348b89a675",
+          "lines": 2
+        },
+        "src/query/graph_runtime.rs": {
+          "sha256": "116bd3b35c847ed8e3a0cd335d8422c0431306262669769106fe8241f7093a26",
+          "lines": 211
+        },
+        "src/query/graph_subset.rs": {
+          "sha256": "537c1b5c7147940016f2a118a49ec3ef0045bc09d765ec77ebcf843e790bc6ff",
+          "lines": 14
+        },
+        "src/query/materialized_view/definition.rs": {
+          "sha256": "6a6e41c913acaa7d21ec5ab388ffc3943e68c2ac0642b61c4b32f6b673c38b56",
+          "lines": 1152
+        },
+        "src/query/materialized_view/mod.rs": {
+          "sha256": "e54603118a05dbd29f97444ea52cad986891ddb19ed4f8997b39e5c4b625286a",
+          "lines": 125
+        },
+        "src/query/materialized_view/refresh.rs": {
+          "sha256": "c779c20a6c2418eb318dc7f04f123d83e20a31e254a154b63bbdbbd925ceeacc",
+          "lines": 716
+        },
+        "src/query/mod.rs": {
+          "sha256": "ac9aed91971f84407b0879708ad4186e9704364175f698a13c131b7de1bc0c65",
+          "lines": 246
+        },
+        "src/query/multimodal/mod.rs": {
+          "sha256": "f9d7c6ef14222577dc4773fca26e63eae2be27ab253cc0ff88bf134414a39359",
+          "lines": 13
+        },
+        "src/query/multimodal/plan.rs": {
+          "sha256": "78a4e20b00b8922d2d9042ddf545ae545f221abd8e97a7c043142db11fbb8f09",
+          "lines": 5
+        },
+        "src/query/multimodal_executor/mod.rs": {
+          "sha256": "ebeb56540f6235224875f1b0ab25f1ee2aeba5156ab7645bb8abe418da3c6a88",
+          "lines": 34
+        },
+        "src/query/multimodal_router/mod.rs": {
+          "sha256": "ce1da8dbf709c9cf1547e2f7f156d4490b1c8f5e40170e2e36e4b7e88c86bb94",
+          "lines": 10
+        },
+        "src/query/multimodel_executor.rs": {
+          "sha256": "f6728d528ff1126021c0ad68f866e0763e01e8aff0038daeea3d21f83a1a320f",
+          "lines": 623
+        },
+        "src/query/multimodel_router.rs": {
+          "sha256": "6689b6a567b2807cf4389a822fcdd309a2e0110414aba016ac1b3c65385f567f",
+          "lines": 489
+        },
+        "src/query/nl/mod.rs": {
+          "sha256": "def2c51100391fea82121cd394197807af7d39a4c9f0b59eebfba352999ab2e3",
+          "lines": 171
+        },
+        "src/query/parsers/cypher.rs": {
+          "sha256": "39eb74032153c59c1e0090e24b25eb6746aa8e1e872918b7f7f6683c3b34d005",
+          "lines": 1
+        },
+        "src/query/parsers/mod.rs": {
+          "sha256": "9a95761920413a4e10c14a3b9687f05e20202cbd3cac1fe45d71e7d1568d66f1",
+          "lines": 93
+        },
+        "src/query/parsers/mongodb.rs": {
+          "sha256": "d2fd34e6c10feb3c9a30abfa2af377829ec9098a84a6435fdd40e41a44b29a8d",
+          "lines": 61
+        },
+        "src/query/prepared/mod.rs": {
+          "sha256": "cce3c2d6e5219e0766056b944b3a3b9955e411db3419e9b040a51ec1a6d5de25",
+          "lines": 83
+        },
+        "src/query/prepared/statement.rs": {
+          "sha256": "955c1aab63d50816fe493a419627ce99ddcc6f96feb16ffba7588da7ee3ea905",
+          "lines": 971
+        },
+        "src/query/query_optimizer.rs": {
+          "sha256": "c97c7c45a1d615d5bea6b6e0e64b27b555e6d63d8c41098bc8b914c41c72a669",
+          "lines": 3460
+        },
+        "src/query/query_router.rs": {
+          "sha256": "ea165ea15c2c2521993123279d376f8fdcf2eb2927de65496f2f75176d80bf17",
+          "lines": 731
+        },
+        "src/query/read_route.rs": {
+          "sha256": "ad865cb8c7fdf5cbc2bd476aeda9af56a5d98113689b3b777f708b11fee40e70",
+          "lines": 504
+        },
+        "src/query/repair/decision.rs": {
+          "sha256": "e25bc9a7692f63c16bf87835fa7e838c7de4a8431c80cb66f593dadc34131fa4",
+          "lines": 295
+        },
+        "src/query/repair/mod.rs": {
+          "sha256": "75c3eb0097c2f0144f85ca002e302a4bc64b9d70f698c1fcc91336faebfd57d2",
+          "lines": 21
+        },
+        "src/query/repair/sure_aggregator.rs": {
+          "sha256": "7aa2c670cbc85083beb74b577f15afc0caed13656bc58a290f692d414388795a",
+          "lines": 330
+        },
+        "src/query/request_scope.rs": {
+          "sha256": "795b837194bddcd2f6950cc59e935581627ffee275bb4867c93af8440de8b63a",
+          "lines": 143
+        },
+        "src/query/rl_planner/action.rs": {
+          "sha256": "cbf8439a58e37a445ca2acf86718bf601b437cfd3f990a5ea7d12b950b6f8200",
+          "lines": 1012
+        },
+        "src/query/rl_planner/bandit.rs": {
+          "sha256": "d0c8128ae59a4cdf66686ba3d2be676d51bc7415f8a7942706416b0ec4787be0",
+          "lines": 911
+        },
+        "src/query/rl_planner/experience.rs": {
+          "sha256": "9b6eab717dd5dd83ff8045c141483a9947a7b6764ecd820a26593135ca7a61a4",
+          "lines": 404
+        },
+        "src/query/rl_planner/integration.rs": {
+          "sha256": "d32cadd31e041705ec37ad8f77e4b593a169e5896d4345416087fea59c30a939",
+          "lines": 734
+        },
+        "src/query/rl_planner/logging.rs": {
+          "sha256": "68a407a91a9af0ca1b20572a34b4de1decf49df4d06a337be89e4149354003dc",
+          "lines": 1119
+        },
+        "src/query/rl_planner/mod.rs": {
+          "sha256": "a6cafe81cc5fec44f66f9955dcac58244a7b67f3246fddd5ce18670e066a6583",
+          "lines": 380
+        },
+        "src/query/rl_planner/paths/helix_paths.rs": {
+          "sha256": "ce365913c1af69d92c7ec6e548aaf5109ebd105fb31f4329cd673d4d8b2fdea1",
+          "lines": 212
+        },
+        "src/query/rl_planner/paths/mod.rs": {
+          "sha256": "928046d536b732e08342abdf9cf54bf3e748cba8bad6ca55bd763736056e112c",
+          "lines": 303
+        },
+        "src/query/rl_planner/paths/nova_paths.rs": {
+          "sha256": "08f3b06f1cc084080e3c041fcadbc198b5f8c03c68a72752ebe409c60dd0c083",
+          "lines": 102
+        },
+        "src/query/rl_planner/paths/raptor_paths.rs": {
+          "sha256": "ccdfe6c9aa5ed648a62ca5e690cc2ef01351978513bee0ffa5514b568bc347c4",
+          "lines": 113
+        },
+        "src/query/rl_planner/paths/sst_paths.rs": {
+          "sha256": "2cd733f30b9fdd397161df611c0e073736e24f076f5abd1c856ec8e5e2baf7ba",
+          "lines": 187
+        },
+        "src/query/rl_planner/paths/swift_paths.rs": {
+          "sha256": "ec092807b8d6ead50706c347743b7a69b0f317eea77375cd05fb4bad3d388061",
+          "lines": 138
+        },
+        "src/query/rl_planner/paths/viper_paths.rs": {
+          "sha256": "d0a9f0c75088b1737679c60e317e8450cca87e68ec02114857ea431ca24c4086",
+          "lines": 150
+        },
+        "src/query/rl_planner/rank_choice.rs": {
+          "sha256": "26c401b63170e4e8f374723a4d5c879ac0bb73421f5d6282fec4c9b582e5c283",
+          "lines": 252
+        },
+        "src/query/rl_planner/state.rs": {
+          "sha256": "6fe610f6c8bb097a62793cc1f71ac06a3fb2fd329556178dd5f8b4a16f70f79a",
+          "lines": 585
+        },
+        "src/query/route_cost_model.rs": {
+          "sha256": "15d5c781e7458d1167683d3812f27e9c3d743f0b9e1ea74a91e9bfcd7f2060ca",
+          "lines": 2889
+        },
+        "src/query/semantic_analysis/analyzer.rs": {
+          "sha256": "8f1e3b968ed4898683354596dbbda2bfa4df308aa82f86cfcc9e5373d861d30e",
+          "lines": 715
+        },
+        "src/query/semantic_analysis/mod.rs": {
+          "sha256": "533d1ffff5ae8c2522d05c35dbb67171341d47b67ded121365cc5370514c002d",
+          "lines": 10
+        },
+        "src/query/semantic_analysis/scope.rs": {
+          "sha256": "27e858941cf7d0ebc2fa3f88ac7c2d4c55471f552aca570df4a6c36822ad1202",
+          "lines": 120
+        },
+        "src/query/semantic_analysis/tests.rs": {
+          "sha256": "3ffbe3b3d97d3832981f7d17686194ae76df4805fdb7d7f8e5971ecbf4199d5a",
+          "lines": 597
+        },
+        "src/query/sql_frontend/lowering.rs": {
+          "sha256": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592",
+          "lines": 1366
+        },
+        "src/query/sql_frontend/mod.rs": {
+          "sha256": "347d447054029e66cf510727eb3f397f0d21b258342e266e73626050b7e28bde",
+          "lines": 12
+        },
+        "src/query/sql_frontend/parser.rs": {
+          "sha256": "246672dd91122fef4200db10a80b4ca02991c6e450f7c84420804f1aec29502b",
+          "lines": 4637
+        },
+        "src/query/sql_frontend/tests.rs": {
+          "sha256": "392ecd3d98ce6f1d6028e84e3ed6410d86863dee37f9c5fa35bcb22b43b01e33",
+          "lines": 1120
+        },
+        "src/query/table_write_executor.rs": {
+          "sha256": "7cc44c50a3151135a0e0a321b433e882a0b59b2b0a183a95499131d56d7cd903",
+          "lines": 2855
+        },
+        "src/query/table_write_plan.rs": {
+          "sha256": "8994f266429ca2424ecb8f49083b5a321b9e2e65a621f3334a01b413d6c23c5f",
+          "lines": 2637
+        },
+        "src/query/unified/ast.rs": {
+          "sha256": "58dfa0595e28af45e1ff50f2dfbfa0697d2162a398fa66f79a7efc6160714388",
+          "lines": 17
+        },
+        "src/query/unified/decomposition.rs": {
+          "sha256": "93558e68cf98b7e73a556e3e00a2635e7726b046c6e1561d5558187faa29c6e2",
+          "lines": 5
+        },
+        "src/query/unified/evolutionary.rs": {
+          "sha256": "779963c5fe03d9675ee02189254937f4ee8d682fa885218eb33b47d91dd62207",
+          "lines": 170
+        },
+        "src/query/unified/executor.rs": {
+          "sha256": "8af06577bec8c8b929d3d5aa8b479ad3cf3f8f5338293737948eeff1c46ceb35",
+          "lines": 2302
+        },
+        "src/query/unified/fusion.rs": {
+          "sha256": "d466dd9a3491050012a1321173599d20e7d0ac818f91569ff578ea5ba6a0f447",
+          "lines": 3
+        },
+        "src/query/unified/learned_fusion.rs": {
+          "sha256": "4c38cf553532d5f19ed99d0b222a0958242952fdb25c02c9209d9ba29fb365b7",
+          "lines": 3
+        },
+        "src/query/unified/lower.rs": {
+          "sha256": "0463ac457c25b0e28dc3908029a0822a36a6c4fb7a565b30e7687f95b072d6aa",
+          "lines": 3
+        },
+        "src/query/unified/mod.rs": {
+          "sha256": "fd611ba12cf47b70641f8341a15116ffbf57655e4e48f3b6326564ff896c7713",
+          "lines": 621
+        },
+        "src/query/unified/optimizer.rs": {
+          "sha256": "d1234d2635c9c31e5b7785e1d32596faec08e83ad30a0fc0f2cbfb78901b5c05",
+          "lines": 208
+        },
+        "src/query/unified/plan_execution_cache.rs": {
+          "sha256": "9abacf3a1931ac296cf961d0907d79fa55be17fd6f2e3635a590c1f4ab45d0ca",
+          "lines": 3
+        },
+        "src/query/unified/rbac_integration_tests.rs": {
+          "sha256": "b28ec3295c24c521a78d1b49d0ef72a5554012d18a184e880b345d4dcad912ba",
+          "lines": 708
+        },
+        "src/query/unified/reranking.rs": {
+          "sha256": "4054905c5d58563a6063788b14496c8eb52f0b0f1c020a15626d63774d9756de",
+          "lines": 3
+        },
+        "src/query/unified/uql.rs": {
+          "sha256": "da36bb4a015a7ff317cb51962588f349a2a9eddf362a49cc77facda39af56595",
+          "lines": 5
+        },
+        "src/query/unified_query_port_impl.rs": {
+          "sha256": "c53712f713f1a156bb8a0e9bdd62e96298df9ebea1a1a1f30a1a56942d73053b",
+          "lines": 1445
+        },
+        "src/query/utils/cache.rs": {
+          "sha256": "e643d757178a825c34378b36faff3aff93013f71f86cfb1bb063f20a44c966ce",
+          "lines": 1
+        },
+        "src/query/utils/limits.rs": {
+          "sha256": "8c2699d5c7477ed9109eb4aca854639dd5535ea0b4faac2638ce6e242d0d7844",
+          "lines": 1
+        },
+        "src/query/utils/metrics.rs": {
+          "sha256": "bfaa4bbb8c2765828ce7cb18fd4232449cca40080801a09feceecc6660e2b2b5",
+          "lines": 163
+        },
+        "src/query/utils/mod.rs": {
+          "sha256": "8c176ea27127346df440e97c9bf37a742650dec3c827deaa478d058aa0dc7df6",
+          "lines": 6
+        },
+        "src/query/utils/normalize.rs": {
+          "sha256": "1371d6135e0d601ecc69586f0dde594306a04796e7ba25cafa3e9831ac5af3cc",
+          "lines": 1
+        },
+        "src/query/utils/params.rs": {
+          "sha256": "55752b2b51089e6f9b0b872cb381d20e55197565e1a46b882edd603355e3888a",
+          "lines": 1
+        },
+        "src/query/validator.rs": {
+          "sha256": "728f9760bdf10ea4b8d7d640a542718cc4fa4f55c444af004d48c371538a5834",
+          "lines": 573
+        },
+        "src/query/vector_search/mod.rs": {
+          "sha256": "6ecfed00b4d041f21f22066a9db28cc627959f9f6f9699bdf127b5f6d7f510d7",
+          "lines": 336
+        }
+      },
+      "fragments": [
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 340,
+          "fragment_hash": "02d4b998d6f8ab4c2aacf477af59ca9a8340405a604993ef1a0786f5c403a77b",
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2216,
+              "end_line": 2266,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2285,
+              "end_line": 2335,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            }
+          ]
+        },
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 307,
+          "fragment_hash": "94168fa9b6080f43f8cd7619a4b7184e9b6b5148279917add058e30b836fda32",
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2221,
+              "end_line": 2277,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/mod.rs",
+              "line": 320,
+              "end_line": 376,
+              "source_hash": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea"
+            }
+          ]
+        },
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 507,
+          "fragment_hash": "3afed8e9619a228707ad11ac65f28f037c791b48ab6c1c10dab153be87d125a3",
+          "members": [
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 268,
+              "end_line": 361,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            },
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 658,
+              "end_line": 751,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            }
+          ]
+        }
+      ],
+      "fingerprint_schema": "jscpdCloneHash/v1",
+      "fingerprints": [
+        {
+          "fingerprint": "5aa95d4faef8a179",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 340,
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2216,
+              "end_line": 2266,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2285,
+              "end_line": 2335,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            }
+          ]
+        },
+        {
+          "fingerprint": "87b13d70bb680293",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 307,
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2221,
+              "end_line": 2277,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/mod.rs",
+              "line": 320,
+              "end_line": 376,
+              "source_hash": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea"
+            }
+          ]
+        },
+        {
+          "fingerprint": "1aacb41ba28e7de0",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 507,
+          "members": [
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 268,
+              "end_line": 361,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            },
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 658,
+              "end_line": 751,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            }
+          ]
+        }
+      ],
+      "fingerprints_complete": false,
+      "total_fragments": 3
+    }
+  },
+  "candidate_scan": {
+    "schema": "victor-source-channel-observation-v1",
+    "accuracy_benchmark": false,
+    "invocation": {
+      "mode": "tokens",
+      "min_nodes": 5,
+      "min_tokens": 300,
+      "token_fingerprints": true,
+      "token_min_lines": 3,
+      "scope": "src/query/",
+      "include_same_file": true,
+      "cache_enabled": false,
+      "include_docs": false,
+      "near_metric": "subtree",
+      "threshold": 0.9
+    },
+    "python": "3.12.16",
+    "dependency_versions": {
+      "torch": "2.14.0",
+      "sentence-transformers": "6.0.1",
+      "transformers": "5.17.0",
+      "tokenizers": "0.23.2",
+      "numpy": "2.2.6",
+      "psutil": "7.2.2",
+      "tree-sitter": "0.26.0",
+      "markdown-it-py": "4.2.0",
+      "victor-codegraph": "0.8.1"
+    },
+    "wall_seconds": 0.6136554579716176,
+    "cpu_seconds": 0.31302,
+    "child_cpu_seconds": 0.530435,
+    "process_max_rss_bytes": 49610752,
+    "implementation_hashes": {
+      "source_inventory.py": "a7f65756c71c5bbc96ff09dd6fdfae712494739dfe1a0409fddc0fb90eb7d580",
+      "token_fingerprints.py": "1a88403d699c33917970c53acc0c95fac2d0a39eaf173b06bbcd3e041c35fcc3",
+      "token_coverage.py": "e927b1ef0eafc1979f6629a8733259b8f389ce83dddb05b2e90711bfc9d2ecfb",
+      "polyglot_clones.py": "ed2d4b23a4c66409b666fa91867d28590fd15b7113cb85c1b0bdb4e32b07ff6c",
+      "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+      "numeric_literals.py": "c0c0fe440b19b9996374f9185e3a1d3277f097187e689d49a1ef35c6b6c73a92",
+      "bounded_process.py": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+      "token_clones.py": "1ff607b528edfbafe0404181b42c0540edb497da01150bb61812073624efe5df",
+      "semantic_clones.py": "dad4290c1649e2069319c14cdaa4814a45990048320fe70efbf394fc01a95449",
+      "portable_clones.py": "76781109bdbcab1524a0f96bd631a0d14ec01a22b2e3ded5f9a76aeb7b2d8b3e",
+      "source_reader.py": "3b0ab477d5c665dd2eae59e4091fd8147194f58152a3b20d72b71fa4b7a273f0",
+      "source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
+      "copy_artifacts.py": "28553b8f74c97df0c4402f6f1cbc54de9df5a3d089035bd3c72d910b7f903048",
+      "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+      "similarity_analysis.py": "309e43653c2e41341a9e91530f2d9b5e8b3465838ef7b2691b5772a59778be21",
+      "body_provenance.py": "3154494cf3ebab331bf38eeabf5ef853d757d5b273810b4676a0235aa12f8c92",
+      "treesitter_clones.py": "1ba375c44c50c84d2b9ef45c61df516615a8aa6458370dd15b940261ca8cb332",
+      "structural_clones.py": "9713a4df9363bd5ac2035abde4eb463e392453fcc91e77b7fa09842834721db6",
+      "family_cohesion.py": "078396a9b3a400e1facf403bb1fb0314c392e315980a8ec8832a95bea6a0c657",
+      "copy_baseline.py": "912b31e16592be85aa5500eced30c01fa3882b28ab1a52b2f5f038158a6f3893",
+      "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+      "body_clones.py": "07be720da135d504728cf43eeaf0c3716028a350a7fbe98f3300f60e588f1635"
+    },
+    "implementation_changed_during_run": false,
+    "result": {
+      "evidence": "token_sequence",
+      "equivalence_verified": false,
+      "coverage_complete": true,
+      "backend": {
+        "name": "jscpd",
+        "version": "5.4.2",
+        "mode": "weak",
+        "min_tokens": 300,
+        "min_lines": 3,
+        "normalize_identifiers": false,
+        "project_config_used": false,
+        "coverage_basis": "physical_file_summary_and_proven_ineligible_controls",
+        "memory_monitor_scope": "owned-process-group",
+        "memory_budget_bytes": 805306368
+      },
+      "stats": {
+        "source_files": 166,
+        "backend_analyzed_files": 166,
+        "backend_reported_source_units": 127,
+        "fragment_pairs": 3,
+        "backend_control_files": 39
+      },
+      "errors": [],
+      "source_manifest": {
+        "src/query/aql/executor.rs": {
+          "sha256": "983696d8587884cf5d13eec5407c4b87ec5895527cd526e45aa0686d77dac54e",
+          "lines": 518,
+          "bytes": 19913,
+          "native_lines": 518
+        },
+        "src/query/aql/executor_test.rs": {
+          "sha256": "635b710cd92c846f7082dc1281f92fc8e4f1c55e9893a1f3c7ce891d0c432b1d",
+          "lines": 391,
+          "bytes": 13460,
+          "native_lines": 391
+        },
+        "src/query/aql/mod.rs": {
+          "sha256": "c1f79e99f1afdf3d80e6d0c95407158d4ad0fee3e97d2f2f5640a569b7e8cbbe",
+          "lines": 382,
+          "bytes": 11061,
+          "native_lines": 382
+        },
+        "src/query/aql/sources/document.rs": {
+          "sha256": "2eb2b1e166151db99f2e1fdf78d72a8bcccdcc8cf4a13318be4b078c252dd251",
+          "lines": 97,
+          "bytes": 3143,
+          "native_lines": 97
+        },
+        "src/query/aql/sources/graph.rs": {
+          "sha256": "dfabd80196f5c6b9fcce00d248e9d550e2a19b3e95fa27518fe762a6c6d8ce58",
+          "lines": 148,
+          "bytes": 5211,
+          "native_lines": 148
+        },
+        "src/query/aql/sources/memory.rs": {
+          "sha256": "f9b30dd0b684a3cda7c5485ba3f620167a25ef318f03991a47c52ec96931b1d9",
+          "lines": 683,
+          "bytes": 27552,
+          "native_lines": 683
+        },
+        "src/query/aql/sources/mod.rs": {
+          "sha256": "ac5fca8d5afd9417d36fe564482d5e302d7a247c6b1b4c4ba7e40b921e54c030",
+          "lines": 107,
+          "bytes": 4179,
+          "native_lines": 107
+        },
+        "src/query/aql/sources/observability.rs": {
+          "sha256": "55420f1af7f0c4fda6d00f93d7415d41435caa9818223eb2e1124ad2b9022fe5",
+          "lines": 118,
+          "bytes": 4012,
+          "native_lines": 118
+        },
+        "src/query/aql/sources/vector.rs": {
+          "sha256": "54c4e56975e8e2df171861869514d82593d5c09900cc66efef4eaf9969ea3159",
+          "lines": 159,
+          "bytes": 5914,
+          "native_lines": 159
+        },
+        "src/query/arrow_graph_bridge.rs": {
+          "sha256": "2de212abaca95b2a06695d322f70eb53aa08aa3070d31d8f1154267f01cdb3cd",
+          "lines": 62,
+          "bytes": 1780,
+          "native_lines": 62
+        },
+        "src/query/ast/mod.rs": {
+          "sha256": "a0ba3aad03f0072ee481193467075bc920329405ec8947a39b6f6d9aefb637fe",
+          "lines": 8,
+          "bytes": 241,
+          "native_lines": 8
+        },
+        "src/query/ast/nodes.rs": {
+          "sha256": "04b694c3db5020e7d3bd201f1bc39157b719f18b4ef12dca80c868f3bfb618a9",
+          "lines": 519,
+          "bytes": 14463,
+          "native_lines": 519
+        },
+        "src/query/authority_context.rs": {
+          "sha256": "21df45c870de9d4b81fe006f978744f0cc3d979a497dd09351eb00904ba16c09",
+          "lines": 271,
+          "bytes": 10061,
+          "native_lines": 271
+        },
+        "src/query/cache/adaptive_cache.rs": {
+          "sha256": "826a1005638ef4d5e4c087d01031d3803f0204dc95ff828d553978fb2d76fc50",
+          "lines": 359,
+          "bytes": 11567,
+          "native_lines": 359
+        },
+        "src/query/cache/invalidation_bus.rs": {
+          "sha256": "2eb9218a6f07e21df14b722b53f2240d1345ba4e8ff3384c39df09c93ccc3777",
+          "lines": 311,
+          "bytes": 11944,
+          "native_lines": 311
+        },
+        "src/query/cache/invalidation_coordinator.rs": {
+          "sha256": "d6f2e62a21c315b87b984cfa1dd9186e0eb5591c90f2dd81eb9d3a74d88e65ba",
+          "lines": 474,
+          "bytes": 18977,
+          "native_lines": 474
+        },
+        "src/query/cache/mod.rs": {
+          "sha256": "f7f8778a3f3c676296dae38c5268f5421fb0e750ab4532c86cec3b64e78d1f4f",
+          "lines": 145,
+          "bytes": 6638,
+          "native_lines": 145
+        },
+        "src/query/cache/plan_cache.rs": {
+          "sha256": "008391bd9964b10b716a2c3bfe719ddac14500aa0184134e1d7dd835c55a90ce",
+          "lines": 496,
+          "bytes": 17649,
+          "native_lines": 496
+        },
+        "src/query/capability/mod.rs": {
+          "sha256": "f9b5cf3366baa2ee431678bc32db84aea4c86e24ea314f7c685361e408490dd2",
+          "lines": 16,
+          "bytes": 590,
+          "native_lines": 16
+        },
+        "src/query/columnar/mod.rs": {
+          "sha256": "410af81ff217fc9064c787c10c5feebb20fb0d3d03360961bbeb44642b8901d1",
+          "lines": 73,
+          "bytes": 2467,
+          "native_lines": 73
+        },
+        "src/query/columnar/provider.rs": {
+          "sha256": "b228693d1fe6fcbe8bb543c4b052c3125f65f44a0bbe0c6330ec92c0171a17ff",
+          "lines": 260,
+          "bytes": 8782,
+          "native_lines": 260
+        },
+        "src/query/columnar/providers/arrow_memory.rs": {
+          "sha256": "c5c369f8aa8b7161d00891958dcf36bcfb0f5c6fa8082238a04fc1d547b9d0bb",
+          "lines": 607,
+          "bytes": 21861,
+          "native_lines": 607
+        },
+        "src/query/columnar/providers/mod.rs": {
+          "sha256": "1d18a40e74a0891133d22044afafae39b716b9a64578a56607d16302611c76c6",
+          "lines": 28,
+          "bytes": 1036,
+          "native_lines": 28
+        },
+        "src/query/columnar/providers/parquet_pruned.rs": {
+          "sha256": "dc0abcdb9f449841073ccf5e66c7286edd5ef6e44e79c9ef6775990753bb4070",
+          "lines": 629,
+          "bytes": 20744,
+          "native_lines": 629
+        },
+        "src/query/compute_scheduler.rs": {
+          "sha256": "32331ce38775007dbb6e9a54343968e1c0172c77a696b0834f547fa508266f08",
+          "lines": 1982,
+          "bytes": 88518,
+          "native_lines": 1982
+        },
+        "src/query/ddl_dml/mod.rs": {
+          "sha256": "27e7c5f59c1ba26e0efb8224afc89ce74e3a5db8a67528b0b1fd011738deacd7",
+          "lines": 1158,
+          "bytes": 39745,
+          "native_lines": 1158
+        },
+        "src/query/distributed/aggregator.rs": {
+          "sha256": "74d43e23fd1a4137d757db8728fd41d724c21ca83fbea7aa6ad99730c0532066",
+          "lines": 2,
+          "bytes": 127,
+          "native_lines": 2
+        },
+        "src/query/distributed/coordinator.rs": {
+          "sha256": "88df7f3d9dc9134a90b2e8cb8ae32805381f67947c29fd27a65c9668dc68a657",
+          "lines": 830,
+          "bytes": 29089,
+          "native_lines": 830
+        },
+        "src/query/distributed/mod.rs": {
+          "sha256": "9ef61acedfb1dca234f9657c7606f58c9ff069279c17875600f26be6bf290373",
+          "lines": 64,
+          "bytes": 4029,
+          "native_lines": 64
+        },
+        "src/query/distributed/planner.rs": {
+          "sha256": "b49b595d28943cd872130684a54225566a1ebf0ec22a74129ea2ead91e56054f",
+          "lines": 427,
+          "bytes": 14587,
+          "native_lines": 427
+        },
+        "src/query/distributed/remote.rs": {
+          "sha256": "39499cd303372e8541950ddfb28d7b39a544309675b3cd4466b3ffb675673ba8",
+          "lines": 2,
+          "bytes": 123,
+          "native_lines": 2
+        },
+        "src/query/distributed/shuffle.rs": {
+          "sha256": "739dc74d10febe8daaacf56bbc67e2fa2c29e15a6f88eb22d288729d21caa9f3",
+          "lines": 2,
+          "bytes": 124,
+          "native_lines": 2
+        },
+        "src/query/execution/datafusion_bridge.rs": {
+          "sha256": "d95b833cc783ad3d7ab6e5a4e48a9de411e209cf38e45311a67c5d8d122e9449",
+          "lines": 556,
+          "bytes": 20594,
+          "native_lines": 556
+        },
+        "src/query/execution/datafusion_engine.rs": {
+          "sha256": "cb9c50ab432a8313ecd8a037ae55954db77223cddb3479d2a3fb1d1db93be1dc",
+          "lines": 1373,
+          "bytes": 59032,
+          "native_lines": 1373
+        },
+        "src/query/execution/duckdb_engine.rs": {
+          "sha256": "622e95c68fec3d6b6307dc25097e0a1f5e04b3047e65388a9f9b8af515c06ba2",
+          "lines": 378,
+          "bytes": 18099,
+          "native_lines": 378
+        },
+        "src/query/execution/engine.rs": {
+          "sha256": "5ea2ce66139f164cd2fd50b9ee6fbf30e5f174b7e1115d2b333e0f94943d4eb6",
+          "lines": 829,
+          "bytes": 33521,
+          "native_lines": 829
+        },
+        "src/query/execution/executor.rs": {
+          "sha256": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+          "lines": 2587,
+          "bytes": 102207,
+          "native_lines": 2587
+        },
+        "src/query/execution/layer_a/conform.rs": {
+          "sha256": "c46dc46199ec9c755e62760046874a3682944f36c0a8a779bc4cd16db4b3ccc7",
+          "lines": 428,
+          "bytes": 16751,
+          "native_lines": 428
+        },
+        "src/query/execution/layer_a/merge.rs": {
+          "sha256": "f72cbe49fdfaeab19bbf43c057c600428340de41b9779cfddaa27490425e6904",
+          "lines": 291,
+          "bytes": 10921,
+          "native_lines": 291
+        },
+        "src/query/execution/layer_a/mod.rs": {
+          "sha256": "39b43fabac7a455b2082e4caa715d1444b718821939029487d321a8ca47c1e0f",
+          "lines": 60,
+          "bytes": 2685,
+          "native_lines": 60
+        },
+        "src/query/execution/layer_a/olap_merge.rs": {
+          "sha256": "17390189c4f594b0d26df34952d1db154ed3a4ae49bb1e0b65783e111b278a6f",
+          "lines": 383,
+          "bytes": 12512,
+          "native_lines": 383
+        },
+        "src/query/execution/layer_a/partition.rs": {
+          "sha256": "7da6c3b5eee59eb0cc7b2311c6f9301e015f297336aa78aaaa932c30231bb93d",
+          "lines": 354,
+          "bytes": 12596,
+          "native_lines": 354
+        },
+        "src/query/execution/layer_a/provider.rs": {
+          "sha256": "b3510dd3a8d242ecb42a7cbfd69bfb5b6c2f5dad41753c974ed522918f88a8cf",
+          "lines": 851,
+          "bytes": 31647,
+          "native_lines": 851
+        },
+        "src/query/execution/layer_a/prune.rs": {
+          "sha256": "4d1da786d9e075c5dc4ab8d0366d24220ed85acf951d75f64c7f14b139b22b74",
+          "lines": 397,
+          "bytes": 15265,
+          "native_lines": 397
+        },
+        "src/query/execution/layer_a/tests.rs": {
+          "sha256": "cc3a53191b0b22e330a5fd598fefcdcbc48d77c42f70b27194c4b7c15a2022b1",
+          "lines": 1284,
+          "bytes": 47149,
+          "native_lines": 1284
+        },
+        "src/query/execution/low_latency_executor.rs": {
+          "sha256": "f56b667e141467c9da3f6b6b858d7e8db8b6dd495c179d59b38fc72cf49dab80",
+          "lines": 348,
+          "bytes": 11351,
+          "native_lines": 348
+        },
+        "src/query/execution/mod.rs": {
+          "sha256": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea",
+          "lines": 414,
+          "bytes": 14921,
+          "native_lines": 414
+        },
+        "src/query/execution/morsel_scheduler.rs": {
+          "sha256": "85eaff54aeb5a647dcb6c11ddc714d55da86515bd2ded799b71d56c6826f4443",
+          "lines": 215,
+          "bytes": 8291,
+          "native_lines": 215
+        },
+        "src/query/execution/native_engine.rs": {
+          "sha256": "1d75364d76d8634694ec63f1ba703b90f6ac4ef3c7b5330032c1b6a360a9fd81",
+          "lines": 671,
+          "bytes": 28838,
+          "native_lines": 671
+        },
+        "src/query/execution/native_join_ops.rs": {
+          "sha256": "151088c6ff71d10fccce6fb9d5d03b3f8461e2f4de78cd9794540f567f1f861f",
+          "lines": 533,
+          "bytes": 21908,
+          "native_lines": 533
+        },
+        "src/query/execution/native_ops.rs": {
+          "sha256": "9badd229a2ea5c17c28a146e312bbbb69abc1a0dc0cd9ce9fbc66167fb3cac3b",
+          "lines": 2781,
+          "bytes": 109366,
+          "native_lines": 2781
+        },
+        "src/query/execution/native_parquet_scan.rs": {
+          "sha256": "196f97ccb52fd2d00be68db8cc0fe993aa2e30d19021d1a801b036feb2a1a30a",
+          "lines": 587,
+          "bytes": 25772,
+          "native_lines": 587
+        },
+        "src/query/execution/native_scan.rs": {
+          "sha256": "394dfeeb9ee75d91af5741ccfdccff678bede3f4dad8e21a3e6dbc4c07a152c1",
+          "lines": 355,
+          "bytes": 14810,
+          "native_lines": 355
+        },
+        "src/query/execution/native_shadow.rs": {
+          "sha256": "802c623ff09bc2ec9055ab8a0c27c88f4a40140ac01c497f942acfd3b0c34746",
+          "lines": 347,
+          "bytes": 12438,
+          "native_lines": 347
+        },
+        "src/query/execution/native_table_provider.rs": {
+          "sha256": "7af9d94f2da93bd0e943a069ed6295bc376f0d2c051957163a7806b6d992ccee",
+          "lines": 192,
+          "bytes": 8692,
+          "native_lines": 192
+        },
+        "src/query/execution/olap_delta_merge.rs": {
+          "sha256": "318272e8d1c55a38d59da3676c4f1c8378075e6d23b9366d159d369c6d64f204",
+          "lines": 254,
+          "bytes": 11665,
+          "native_lines": 254
+        },
+        "src/query/execution/plan_cache.rs": {
+          "sha256": "5a4fce9cb27ebce5344de291a701adcf5a530a1048f1248138d9c9b2ffc32361",
+          "lines": 477,
+          "bytes": 14691,
+          "native_lines": 477
+        },
+        "src/query/execution/planner.rs": {
+          "sha256": "1f9286574e99bf7ac0875c6771db7d780ac3c192f6536e5d8f965ebc49513528",
+          "lines": 366,
+          "bytes": 12650,
+          "native_lines": 366
+        },
+        "src/query/execution/set_operations.rs": {
+          "sha256": "12eb0d5ee9544ad00ecf55003b22ed803bd56e70efd67ac8e21dcf236058a97e",
+          "lines": 167,
+          "bytes": 5369,
+          "native_lines": 167
+        },
+        "src/query/execution/window_executor.rs": {
+          "sha256": "2a8015ce8b2550a0635f55df42972c4c8c47d9615887f128458fed488df6be8d",
+          "lines": 1620,
+          "bytes": 57397,
+          "native_lines": 1620
+        },
+        "src/query/explain.rs": {
+          "sha256": "84ad5d852568dd4c16f142fbb46ee9f186e000dafd00018de4c58e6d9b553011",
+          "lines": 2661,
+          "bytes": 99753,
+          "native_lines": 2661
+        },
+        "src/query/explain_schema.rs": {
+          "sha256": "6ae2d26b13977467d07f349cbe22b9c78fe93e6f596d44fa826cddb36c69cb03",
+          "lines": 574,
+          "bytes": 21307,
+          "native_lines": 574
+        },
+        "src/query/facade/adapter.rs": {
+          "sha256": "207b9fc33f886a47720c21aab76390cf4e72217481ae4f8ce492bbd436b3d599",
+          "lines": 1380,
+          "bytes": 52036,
+          "native_lines": 1380
+        },
+        "src/query/facade/mod.rs": {
+          "sha256": "79da6cc8a0a5b1e99c333b185c807047fa0298593810ca65dc8241792ca92ae4",
+          "lines": 889,
+          "bytes": 29487,
+          "native_lines": 889
+        },
+        "src/query/facade/strategies/columnar.rs": {
+          "sha256": "da751c9d97dc9f6394b4ed9700d1f8297acf89c0bd093f7e5b6bce6c47f634c0",
+          "lines": 1589,
+          "bytes": 55149,
+          "native_lines": 1589
+        },
+        "src/query/facade/strategies/distributed.rs": {
+          "sha256": "918d46dee3169727a76b2c3d161fc1d98f8f6897de55e528920ec3d5e6321c27",
+          "lines": 950,
+          "bytes": 35227,
+          "native_lines": 950
+        },
+        "src/query/facade/strategies/document.rs": {
+          "sha256": "c670ceb71573f0e9e889bb00c4239b3fcd80f603400b64c4b75cd8e6b5ecc45a",
+          "lines": 401,
+          "bytes": 13689,
+          "native_lines": 401
+        },
+        "src/query/facade/strategies/external_table.rs": {
+          "sha256": "1cc25718153701556af403d27d97ad6eb6e617e5290b1637e1a4d738bf0a714f",
+          "lines": 287,
+          "bytes": 8635,
+          "native_lines": 287
+        },
+        "src/query/facade/strategies/graph.rs": {
+          "sha256": "f928d67a6163fa19709972c3b2f7f197905637e4b5c0efc26d87dab1c35c7ffd",
+          "lines": 525,
+          "bytes": 18078,
+          "native_lines": 525
+        },
+        "src/query/facade/strategies/mod.rs": {
+          "sha256": "f9335449dd6449c1d0324e482c282b21faf9234e2deba5a08b2d27f638ce4e72",
+          "lines": 31,
+          "bytes": 1310,
+          "native_lines": 31
+        },
+        "src/query/facade/strategies/observability.rs": {
+          "sha256": "05d72530a7f5769a37207b1c4d3c3bb11b91ec8c87ac33ca4c05647015a13fb9",
+          "lines": 1349,
+          "bytes": 47158,
+          "native_lines": 1349
+        },
+        "src/query/facade/strategies/sql.rs": {
+          "sha256": "338ebdd2ebf3603a9a392b0f21517ba08882f38913b30f08ed800f748a07931b",
+          "lines": 398,
+          "bytes": 12523,
+          "native_lines": 398
+        },
+        "src/query/facade/strategies/vector.rs": {
+          "sha256": "c6b9d50e74832b1c138dfd44459d45eb1bcb1622d372afbfde15c637e60e222c",
+          "lines": 392,
+          "bytes": 13166,
+          "native_lines": 392
+        },
+        "src/query/federated/execution/mod.rs": {
+          "sha256": "3dec0c6c56118e40acdccfd7d0bb59b9df92d25881e4f02ab8642ebca92a2fae",
+          "lines": 4616,
+          "bytes": 178633,
+          "native_lines": 4616
+        },
+        "src/query/federated/execution/source_executors.rs": {
+          "sha256": "a20a5eed03bbd5b0d79d386e9967b6f2422de98a9f1633202314f26ed1e48af2",
+          "lines": 406,
+          "bytes": 12409,
+          "native_lines": 406
+        },
+        "src/query/federated/execution/tests.rs": {
+          "sha256": "7dc21cbcb0601ea3ef3eaf379b963e799a8301fcac99bf64a01ab5543095e7f5",
+          "lines": 923,
+          "bytes": 36983,
+          "native_lines": 923
+        },
+        "src/query/federated/mod.rs": {
+          "sha256": "33893576f746239b563da1aeda260707863ab1f671b658458573bc7043681212",
+          "lines": 414,
+          "bytes": 15712,
+          "native_lines": 414
+        },
+        "src/query/federated/optimizer/cached_plan_builder.rs": {
+          "sha256": "9ae5bc99df80420534ce164b7e0fb11a0fa0f66badb0c5ed512f8aa2c542f567",
+          "lines": 364,
+          "bytes": 13744,
+          "native_lines": 364
+        },
+        "src/query/federated/optimizer/filter_strategy.rs": {
+          "sha256": "33022cb6465a7e7be0b67367dd5bb105a1f8d4c3d3b4a6e4c48e2b72ad4f2cc1",
+          "lines": 278,
+          "bytes": 10106,
+          "native_lines": 278
+        },
+        "src/query/federated/optimizer/mod.rs": {
+          "sha256": "cd757dfc29208c6f8402d92dbb4d4e4f1c5651d5b34058b574220a484bb159b7",
+          "lines": 5308,
+          "bytes": 201312,
+          "native_lines": 5308
+        },
+        "src/query/federated/optimizer/plan_builder.rs": {
+          "sha256": "d8d1eeb77ddafb072425f503042b74836026ca81562fa9eaceb38417f719ba19",
+          "lines": 283,
+          "bytes": 10699,
+          "native_lines": 283
+        },
+        "src/query/federated/optimizer/plan_inference_gate.rs": {
+          "sha256": "42016041b6d8f7a64bf3cfeef81b7ba6ec0ad83c3dcbf10e39f5fbb9dbaaba32",
+          "lines": 550,
+          "bytes": 17499,
+          "native_lines": 550
+        },
+        "src/query/federated/optimizer/plan_quality.rs": {
+          "sha256": "fdf144b38d08443a24ef57b9d6ab9d446fb0247325be819a34d8ddcb7532ddd8",
+          "lines": 378,
+          "bytes": 13041,
+          "native_lines": 378
+        },
+        "src/query/federated/optimizer/plan_v2_inference.rs": {
+          "sha256": "1419d5453ee68ddc46390b4e41d819f3222bb5ee37ca6bd6a1281a8e6b4bc40e",
+          "lines": 461,
+          "bytes": 17340,
+          "native_lines": 461
+        },
+        "src/query/federated/optimizer/plan_v2_training.rs": {
+          "sha256": "5ed8bfa44f0ef887e1a714b0f74b54e21caa15d9f4f17d62ef3a6ab29b414326",
+          "lines": 456,
+          "bytes": 17463,
+          "native_lines": 456
+        },
+        "src/query/federated/optimizer/predicate_normalizer.rs": {
+          "sha256": "0a5f77083ff3ac5bd7dda89d04691e58a80429d9f6e81e8aad2bce9625d6da42",
+          "lines": 278,
+          "bytes": 9943,
+          "native_lines": 278
+        },
+        "src/query/federated/optimizer/selectivity.rs": {
+          "sha256": "cef9b3c21648273a9b8a1fc9f07b71984cb8f4f0459470fea7b951bc499833c4",
+          "lines": 560,
+          "bytes": 21404,
+          "native_lines": 560
+        },
+        "src/query/federated/optimizer/sql_parsing.rs": {
+          "sha256": "d616542db382f49e6c9972c3bd116fdacf36df820edc83b8a0751d60906f6d90",
+          "lines": 678,
+          "bytes": 24048,
+          "native_lines": 678
+        },
+        "src/query/federated/optimizer/tests.rs": {
+          "sha256": "90bdcc6d794c1be2d542ede2f0f2d2df5a66167a0912feddb6c24a0fab7cbb24",
+          "lines": 1637,
+          "bytes": 60980,
+          "native_lines": 1637
+        },
+        "src/query/federated/optimizer/trace_replay.rs": {
+          "sha256": "4cf1120ee589c76425084eb473f0e1fb22483693be5fb42469083924216165fe",
+          "lines": 553,
+          "bytes": 18645,
+          "native_lines": 553
+        },
+        "src/query/federated/optimizer/vector_query_parsing.rs": {
+          "sha256": "1aca8ad5c1812d1fc112aef9a0a266d01aa7943f06a8a24a161f143b7a2e5a43",
+          "lines": 207,
+          "bytes": 7511,
+          "native_lines": 207
+        },
+        "src/query/federated/tests.rs": {
+          "sha256": "40c0ed0f700c54d692a51e4fabbf5f2ca01edb19207f4f9e0a856a08380eadfe",
+          "lines": 2457,
+          "bytes": 85803,
+          "native_lines": 2457
+        },
+        "src/query/graph_lowering.rs": {
+          "sha256": "ae6859fd6fd6932fac548c7cf9ddd9baea6d540db66ac2bed130f6348b89a675",
+          "lines": 2,
+          "bytes": 118,
+          "native_lines": 2
+        },
+        "src/query/graph_runtime.rs": {
+          "sha256": "116bd3b35c847ed8e3a0cd335d8422c0431306262669769106fe8241f7093a26",
+          "lines": 211,
+          "bytes": 6966,
+          "native_lines": 211
+        },
+        "src/query/graph_subset.rs": {
+          "sha256": "537c1b5c7147940016f2a118a49ec3ef0045bc09d765ec77ebcf843e790bc6ff",
+          "lines": 14,
+          "bytes": 685,
+          "native_lines": 14
+        },
+        "src/query/materialized_view/definition.rs": {
+          "sha256": "6a6e41c913acaa7d21ec5ab388ffc3943e68c2ac0642b61c4b32f6b673c38b56",
+          "lines": 1152,
+          "bytes": 38504,
+          "native_lines": 1152
+        },
+        "src/query/materialized_view/mod.rs": {
+          "sha256": "e54603118a05dbd29f97444ea52cad986891ddb19ed4f8997b39e5c4b625286a",
+          "lines": 125,
+          "bytes": 5706,
+          "native_lines": 125
+        },
+        "src/query/materialized_view/refresh.rs": {
+          "sha256": "c779c20a6c2418eb318dc7f04f123d83e20a31e254a154b63bbdbbd925ceeacc",
+          "lines": 716,
+          "bytes": 22389,
+          "native_lines": 716
+        },
+        "src/query/mod.rs": {
+          "sha256": "ac9aed91971f84407b0879708ad4186e9704364175f698a13c131b7de1bc0c65",
+          "lines": 246,
+          "bytes": 10840,
+          "native_lines": 246
+        },
+        "src/query/multimodal/mod.rs": {
+          "sha256": "f9d7c6ef14222577dc4773fca26e63eae2be27ab253cc0ff88bf134414a39359",
+          "lines": 13,
+          "bytes": 537,
+          "native_lines": 13
+        },
+        "src/query/multimodal/plan.rs": {
+          "sha256": "78a4e20b00b8922d2d9042ddf545ae545f221abd8e97a7c043142db11fbb8f09",
+          "lines": 5,
+          "bytes": 210,
+          "native_lines": 5
+        },
+        "src/query/multimodal_executor/mod.rs": {
+          "sha256": "ebeb56540f6235224875f1b0ab25f1ee2aeba5156ab7645bb8abe418da3c6a88",
+          "lines": 34,
+          "bytes": 864,
+          "native_lines": 34
+        },
+        "src/query/multimodal_router/mod.rs": {
+          "sha256": "ce1da8dbf709c9cf1547e2f7f156d4490b1c8f5e40170e2e36e4b7e88c86bb94",
+          "lines": 10,
+          "bytes": 452,
+          "native_lines": 10
+        },
+        "src/query/multimodel_executor.rs": {
+          "sha256": "f6728d528ff1126021c0ad68f866e0763e01e8aff0038daeea3d21f83a1a320f",
+          "lines": 623,
+          "bytes": 19487,
+          "native_lines": 623
+        },
+        "src/query/multimodel_router.rs": {
+          "sha256": "6689b6a567b2807cf4389a822fcdd309a2e0110414aba016ac1b3c65385f567f",
+          "lines": 489,
+          "bytes": 15588,
+          "native_lines": 489
+        },
+        "src/query/nl/mod.rs": {
+          "sha256": "def2c51100391fea82121cd394197807af7d39a4c9f0b59eebfba352999ab2e3",
+          "lines": 171,
+          "bytes": 5020,
+          "native_lines": 171
+        },
+        "src/query/parsers/cypher.rs": {
+          "sha256": "39eb74032153c59c1e0090e24b25eb6746aa8e1e872918b7f7f6683c3b34d005",
+          "lines": 1,
+          "bytes": 43,
+          "native_lines": 1
+        },
+        "src/query/parsers/mod.rs": {
+          "sha256": "9a95761920413a4e10c14a3b9687f05e20202cbd3cac1fe45d71e7d1568d66f1",
+          "lines": 93,
+          "bytes": 2607,
+          "native_lines": 93
+        },
+        "src/query/parsers/mongodb.rs": {
+          "sha256": "d2fd34e6c10feb3c9a30abfa2af377829ec9098a84a6435fdd40e41a44b29a8d",
+          "lines": 61,
+          "bytes": 2229,
+          "native_lines": 61
+        },
+        "src/query/prepared/mod.rs": {
+          "sha256": "cce3c2d6e5219e0766056b944b3a3b9955e411db3419e9b040a51ec1a6d5de25",
+          "lines": 83,
+          "bytes": 3679,
+          "native_lines": 83
+        },
+        "src/query/prepared/statement.rs": {
+          "sha256": "955c1aab63d50816fe493a419627ce99ddcc6f96feb16ffba7588da7ee3ea905",
+          "lines": 971,
+          "bytes": 31460,
+          "native_lines": 971
+        },
+        "src/query/query_optimizer.rs": {
+          "sha256": "c97c7c45a1d615d5bea6b6e0e64b27b555e6d63d8c41098bc8b914c41c72a669",
+          "lines": 3460,
+          "bytes": 126431,
+          "native_lines": 3460
+        },
+        "src/query/query_router.rs": {
+          "sha256": "ea165ea15c2c2521993123279d376f8fdcf2eb2927de65496f2f75176d80bf17",
+          "lines": 731,
+          "bytes": 26496,
+          "native_lines": 731
+        },
+        "src/query/read_route.rs": {
+          "sha256": "ad865cb8c7fdf5cbc2bd476aeda9af56a5d98113689b3b777f708b11fee40e70",
+          "lines": 504,
+          "bytes": 20232,
+          "native_lines": 504
+        },
+        "src/query/repair/decision.rs": {
+          "sha256": "e25bc9a7692f63c16bf87835fa7e838c7de4a8431c80cb66f593dadc34131fa4",
+          "lines": 295,
+          "bytes": 10431,
+          "native_lines": 295
+        },
+        "src/query/repair/mod.rs": {
+          "sha256": "75c3eb0097c2f0144f85ca002e302a4bc64b9d70f698c1fcc91336faebfd57d2",
+          "lines": 21,
+          "bytes": 1035,
+          "native_lines": 21
+        },
+        "src/query/repair/sure_aggregator.rs": {
+          "sha256": "7aa2c670cbc85083beb74b577f15afc0caed13656bc58a290f692d414388795a",
+          "lines": 330,
+          "bytes": 12003,
+          "native_lines": 330
+        },
+        "src/query/request_scope.rs": {
+          "sha256": "795b837194bddcd2f6950cc59e935581627ffee275bb4867c93af8440de8b63a",
+          "lines": 143,
+          "bytes": 5461,
+          "native_lines": 143
+        },
+        "src/query/rl_planner/action.rs": {
+          "sha256": "cbf8439a58e37a445ca2acf86718bf601b437cfd3f990a5ea7d12b950b6f8200",
+          "lines": 1012,
+          "bytes": 34711,
+          "native_lines": 1012
+        },
+        "src/query/rl_planner/bandit.rs": {
+          "sha256": "d0c8128ae59a4cdf66686ba3d2be676d51bc7415f8a7942706416b0ec4787be0",
+          "lines": 911,
+          "bytes": 33061,
+          "native_lines": 911
+        },
+        "src/query/rl_planner/experience.rs": {
+          "sha256": "9b6eab717dd5dd83ff8045c141483a9947a7b6764ecd820a26593135ca7a61a4",
+          "lines": 404,
+          "bytes": 11414,
+          "native_lines": 404
+        },
+        "src/query/rl_planner/integration.rs": {
+          "sha256": "d32cadd31e041705ec37ad8f77e4b593a169e5896d4345416087fea59c30a939",
+          "lines": 734,
+          "bytes": 27869,
+          "native_lines": 734
+        },
+        "src/query/rl_planner/logging.rs": {
+          "sha256": "68a407a91a9af0ca1b20572a34b4de1decf49df4d06a337be89e4149354003dc",
+          "lines": 1119,
+          "bytes": 35244,
+          "native_lines": 1119
+        },
+        "src/query/rl_planner/mod.rs": {
+          "sha256": "a6cafe81cc5fec44f66f9955dcac58244a7b67f3246fddd5ce18670e066a6583",
+          "lines": 380,
+          "bytes": 15290,
+          "native_lines": 380
+        },
+        "src/query/rl_planner/paths/helix_paths.rs": {
+          "sha256": "ce365913c1af69d92c7ec6e548aaf5109ebd105fb31f4329cd673d4d8b2fdea1",
+          "lines": 212,
+          "bytes": 7779,
+          "native_lines": 212
+        },
+        "src/query/rl_planner/paths/mod.rs": {
+          "sha256": "928046d536b732e08342abdf9cf54bf3e748cba8bad6ca55bd763736056e112c",
+          "lines": 303,
+          "bytes": 8928,
+          "native_lines": 303
+        },
+        "src/query/rl_planner/paths/nova_paths.rs": {
+          "sha256": "08f3b06f1cc084080e3c041fcadbc198b5f8c03c68a72752ebe409c60dd0c083",
+          "lines": 102,
+          "bytes": 3682,
+          "native_lines": 102
+        },
+        "src/query/rl_planner/paths/raptor_paths.rs": {
+          "sha256": "ccdfe6c9aa5ed648a62ca5e690cc2ef01351978513bee0ffa5514b568bc347c4",
+          "lines": 113,
+          "bytes": 4178,
+          "native_lines": 113
+        },
+        "src/query/rl_planner/paths/sst_paths.rs": {
+          "sha256": "2cd733f30b9fdd397161df611c0e073736e24f076f5abd1c856ec8e5e2baf7ba",
+          "lines": 187,
+          "bytes": 6547,
+          "native_lines": 187
+        },
+        "src/query/rl_planner/paths/swift_paths.rs": {
+          "sha256": "ec092807b8d6ead50706c347743b7a69b0f317eea77375cd05fb4bad3d388061",
+          "lines": 138,
+          "bytes": 4512,
+          "native_lines": 138
+        },
+        "src/query/rl_planner/paths/viper_paths.rs": {
+          "sha256": "d0a9f0c75088b1737679c60e317e8450cca87e68ec02114857ea431ca24c4086",
+          "lines": 150,
+          "bytes": 5341,
+          "native_lines": 150
+        },
+        "src/query/rl_planner/rank_choice.rs": {
+          "sha256": "26c401b63170e4e8f374723a4d5c879ac0bb73421f5d6282fec4c9b582e5c283",
+          "lines": 252,
+          "bytes": 8328,
+          "native_lines": 252
+        },
+        "src/query/rl_planner/state.rs": {
+          "sha256": "6fe610f6c8bb097a62793cc1f71ac06a3fb2fd329556178dd5f8b4a16f70f79a",
+          "lines": 585,
+          "bytes": 19710,
+          "native_lines": 585
+        },
+        "src/query/route_cost_model.rs": {
+          "sha256": "15d5c781e7458d1167683d3812f27e9c3d743f0b9e1ea74a91e9bfcd7f2060ca",
+          "lines": 2889,
+          "bytes": 122209,
+          "native_lines": 2889
+        },
+        "src/query/semantic_analysis/analyzer.rs": {
+          "sha256": "8f1e3b968ed4898683354596dbbda2bfa4df308aa82f86cfcc9e5373d861d30e",
+          "lines": 715,
+          "bytes": 33451,
+          "native_lines": 715
+        },
+        "src/query/semantic_analysis/mod.rs": {
+          "sha256": "533d1ffff5ae8c2522d05c35dbb67171341d47b67ded121365cc5370514c002d",
+          "lines": 10,
+          "bytes": 286,
+          "native_lines": 10
+        },
+        "src/query/semantic_analysis/scope.rs": {
+          "sha256": "27e858941cf7d0ebc2fa3f88ac7c2d4c55471f552aca570df4a6c36822ad1202",
+          "lines": 120,
+          "bytes": 3440,
+          "native_lines": 120
+        },
+        "src/query/semantic_analysis/tests.rs": {
+          "sha256": "3ffbe3b3d97d3832981f7d17686194ae76df4805fdb7d7f8e5971ecbf4199d5a",
+          "lines": 597,
+          "bytes": 23144,
+          "native_lines": 597
+        },
+        "src/query/sql_frontend/lowering.rs": {
+          "sha256": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592",
+          "lines": 1366,
+          "bytes": 54709,
+          "native_lines": 1366
+        },
+        "src/query/sql_frontend/mod.rs": {
+          "sha256": "347d447054029e66cf510727eb3f397f0d21b258342e266e73626050b7e28bde",
+          "lines": 12,
+          "bytes": 277,
+          "native_lines": 12
+        },
+        "src/query/sql_frontend/parser.rs": {
+          "sha256": "246672dd91122fef4200db10a80b4ca02991c6e450f7c84420804f1aec29502b",
+          "lines": 4637,
+          "bytes": 181842,
+          "native_lines": 4637
+        },
+        "src/query/sql_frontend/tests.rs": {
+          "sha256": "392ecd3d98ce6f1d6028e84e3ed6410d86863dee37f9c5fa35bcb22b43b01e33",
+          "lines": 1120,
+          "bytes": 38096,
+          "native_lines": 1120
+        },
+        "src/query/table_write_executor.rs": {
+          "sha256": "7cc44c50a3151135a0e0a321b433e882a0b59b2b0a183a95499131d56d7cd903",
+          "lines": 2855,
+          "bytes": 111951,
+          "native_lines": 2855
+        },
+        "src/query/table_write_plan.rs": {
+          "sha256": "8994f266429ca2424ecb8f49083b5a321b9e2e65a621f3334a01b413d6c23c5f",
+          "lines": 2637,
+          "bytes": 96938,
+          "native_lines": 2637
+        },
+        "src/query/unified/ast.rs": {
+          "sha256": "58dfa0595e28af45e1ff50f2dfbfa0697d2162a398fa66f79a7efc6160714388",
+          "lines": 17,
+          "bytes": 880,
+          "native_lines": 17
+        },
+        "src/query/unified/decomposition.rs": {
+          "sha256": "93558e68cf98b7e73a556e3e00a2635e7726b046c6e1561d5558187faa29c6e2",
+          "lines": 5,
+          "bytes": 149,
+          "native_lines": 5
+        },
+        "src/query/unified/evolutionary.rs": {
+          "sha256": "779963c5fe03d9675ee02189254937f4ee8d682fa885218eb33b47d91dd62207",
+          "lines": 170,
+          "bytes": 5676,
+          "native_lines": 170
+        },
+        "src/query/unified/executor.rs": {
+          "sha256": "8af06577bec8c8b929d3d5aa8b479ad3cf3f8f5338293737948eeff1c46ceb35",
+          "lines": 2302,
+          "bytes": 82009,
+          "native_lines": 2302
+        },
+        "src/query/unified/fusion.rs": {
+          "sha256": "d466dd9a3491050012a1321173599d20e7d0ac818f91569ff578ea5ba6a0f447",
+          "lines": 3,
+          "bytes": 113,
+          "native_lines": 3
+        },
+        "src/query/unified/learned_fusion.rs": {
+          "sha256": "4c38cf553532d5f19ed99d0b222a0958242952fdb25c02c9209d9ba29fb365b7",
+          "lines": 3,
+          "bytes": 121,
+          "native_lines": 3
+        },
+        "src/query/unified/lower.rs": {
+          "sha256": "0463ac457c25b0e28dc3908029a0822a36a6c4fb7a565b30e7687f95b072d6aa",
+          "lines": 3,
+          "bytes": 121,
+          "native_lines": 3
+        },
+        "src/query/unified/mod.rs": {
+          "sha256": "fd611ba12cf47b70641f8341a15116ffbf57655e4e48f3b6326564ff896c7713",
+          "lines": 621,
+          "bytes": 25554,
+          "native_lines": 621
+        },
+        "src/query/unified/optimizer.rs": {
+          "sha256": "d1234d2635c9c31e5b7785e1d32596faec08e83ad30a0fc0f2cbfb78901b5c05",
+          "lines": 208,
+          "bytes": 6698,
+          "native_lines": 208
+        },
+        "src/query/unified/plan_execution_cache.rs": {
+          "sha256": "9abacf3a1931ac296cf961d0907d79fa55be17fd6f2e3635a590c1f4ab45d0ca",
+          "lines": 3,
+          "bytes": 125,
+          "native_lines": 3
+        },
+        "src/query/unified/rbac_integration_tests.rs": {
+          "sha256": "b28ec3295c24c521a78d1b49d0ef72a5554012d18a184e880b345d4dcad912ba",
+          "lines": 708,
+          "bytes": 26494,
+          "native_lines": 708
+        },
+        "src/query/unified/reranking.rs": {
+          "sha256": "4054905c5d58563a6063788b14496c8eb52f0b0f1c020a15626d63774d9756de",
+          "lines": 3,
+          "bytes": 119,
+          "native_lines": 3
+        },
+        "src/query/unified/uql.rs": {
+          "sha256": "da36bb4a015a7ff317cb51962588f349a2a9eddf362a49cc77facda39af56595",
+          "lines": 5,
+          "bytes": 147,
+          "native_lines": 5
+        },
+        "src/query/unified_query_port_impl.rs": {
+          "sha256": "c53712f713f1a156bb8a0e9bdd62e96298df9ebea1a1a1f30a1a56942d73053b",
+          "lines": 1445,
+          "bytes": 56532,
+          "native_lines": 1445
+        },
+        "src/query/utils/cache.rs": {
+          "sha256": "e643d757178a825c34378b36faff3aff93013f71f86cfb1bb063f20a44c966ce",
+          "lines": 1,
+          "bytes": 50,
+          "native_lines": 1
+        },
+        "src/query/utils/limits.rs": {
+          "sha256": "8c2699d5c7477ed9109eb4aca854639dd5535ea0b4faac2638ce6e242d0d7844",
+          "lines": 1,
+          "bytes": 45,
+          "native_lines": 1
+        },
+        "src/query/utils/metrics.rs": {
+          "sha256": "bfaa4bbb8c2765828ce7cb18fd4232449cca40080801a09feceecc6660e2b2b5",
+          "lines": 163,
+          "bytes": 5022,
+          "native_lines": 163
+        },
+        "src/query/utils/mod.rs": {
+          "sha256": "8c176ea27127346df440e97c9bf37a742650dec3c827deaa478d058aa0dc7df6",
+          "lines": 6,
+          "bytes": 156,
+          "native_lines": 6
+        },
+        "src/query/utils/normalize.rs": {
+          "sha256": "1371d6135e0d601ecc69586f0dde594306a04796e7ba25cafa3e9831ac5af3cc",
+          "lines": 1,
+          "bytes": 51,
+          "native_lines": 1
+        },
+        "src/query/utils/params.rs": {
+          "sha256": "55752b2b51089e6f9b0b872cb381d20e55197565e1a46b882edd603355e3888a",
+          "lines": 1,
+          "bytes": 54,
+          "native_lines": 1
+        },
+        "src/query/validator.rs": {
+          "sha256": "728f9760bdf10ea4b8d7d640a542718cc4fa4f55c444af004d48c371538a5834",
+          "lines": 573,
+          "bytes": 18456,
+          "native_lines": 573
+        },
+        "src/query/vector_search/mod.rs": {
+          "sha256": "6ecfed00b4d041f21f22066a9db28cc627959f9f6f9699bdf127b5f6d7f510d7",
+          "lines": 336,
+          "bytes": 10870,
+          "native_lines": 336
+        }
+      },
+      "source_selection": {
+        "scope": "src/query/",
+        "include_tests": false,
+        "include_docs": false,
+        "include_same_file": true
+      },
+      "fragments": [
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 340,
+          "fragment_hash": "02d4b998d6f8ab4c2aacf477af59ca9a8340405a604993ef1a0786f5c403a77b",
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2216,
+              "end_line": 2266,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2285,
+              "end_line": 2335,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            }
+          ]
+        },
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 307,
+          "fragment_hash": "94168fa9b6080f43f8cd7619a4b7184e9b6b5148279917add058e30b836fda32",
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2221,
+              "end_line": 2277,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/mod.rs",
+              "line": 320,
+              "end_line": 376,
+              "source_hash": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea"
+            }
+          ]
+        },
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 507,
+          "fragment_hash": "3afed8e9619a228707ad11ac65f28f037c791b48ab6c1c10dab153be87d125a3",
+          "members": [
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 268,
+              "end_line": 361,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            },
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 658,
+              "end_line": 751,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            }
+          ]
+        }
+      ],
+      "fingerprint_schema": "jscpdCloneHash/v1",
+      "fingerprints": [
+        {
+          "fingerprint": "5aa95d4faef8a179",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 340,
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2216,
+              "end_line": 2266,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+              "backend_start_column": 33,
+              "backend_end_column": 10
+            },
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2285,
+              "end_line": 2335,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+              "backend_start_column": 49,
+              "backend_end_column": 10
+            }
+          ],
+          "evidence_id": "9d0953e79c5a24aa8a1a1f60262f9ee49ac5555db5d8a60dbf259f40ccba1686"
+        },
+        {
+          "fingerprint": "87b13d70bb680293",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 307,
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2221,
+              "end_line": 2277,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+              "backend_start_column": 78,
+              "backend_end_column": 37
+            },
+            {
+              "file": "src/query/execution/mod.rs",
+              "line": 320,
+              "end_line": 376,
+              "source_hash": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea",
+              "backend_start_column": 26,
+              "backend_end_column": 37
+            }
+          ],
+          "evidence_id": "c5ebdeea5d34713e98ba44a59bf7bcc7b91a1a6c6a55c55e2dae74430f7c5b78"
+        },
+        {
+          "fingerprint": "1aacb41ba28e7de0",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 507,
+          "members": [
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 268,
+              "end_line": 361,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592",
+              "backend_start_column": 37,
+              "backend_end_column": 13
+            },
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 658,
+              "end_line": 751,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592",
+              "backend_start_column": 47,
+              "backend_end_column": 17
+            }
+          ],
+          "evidence_id": "86b767cd3c6e1fb0ea696274abecacb17f8f31e3584887f02efad090a1b00f08"
+        }
+      ],
+      "fingerprints_complete": true,
+      "total_fragments": 3
+    }
+  },
+  "candidate_application": {
+    "schema": "victor-copy-workflow-observation-v1",
+    "case": "frozen_query_scope",
+    "candidate": "Working application sources identified by implementation hashes",
+    "source_snapshot_revision": "9226274eea996b0554aada3825856a30002a2f01",
+    "source_revision_limit": "All 166 frozen source hashes verified against recorded ProximaDB Git blobs; no live worktree mutation.",
+    "profile": {
+      "schema": "victor-copy-profile-v1",
+      "fingerprint_schema": "jscpdCloneHash/v1",
+      "source_policy_digest": "14c81bfa2c0f5105740f624fec8a88b6cb47672afebf5808e88cf1c5e841f6c9",
+      "backend": {
+        "name": "jscpd",
+        "version": "5.4.2",
+        "mode": "weak",
+        "min_tokens": 300,
+        "min_lines": 3,
+        "normalize_identifiers": false
+      },
+      "selection": {
+        "scope": "src/query/",
+        "include_tests": false,
+        "include_docs": false,
+        "include_same_file": true
+      },
+      "producers": {
+        "token_clones.py": "1ff607b528edfbafe0404181b42c0540edb497da01150bb61812073624efe5df",
+        "token_fingerprints.py": "1a88403d699c33917970c53acc0c95fac2d0a39eaf173b06bbcd3e041c35fcc3",
+        "token_coverage.py": "e927b1ef0eafc1979f6629a8733259b8f389ce83dddb05b2e90711bfc9d2ecfb",
+        "source_inventory.py": "a7f65756c71c5bbc96ff09dd6fdfae712494739dfe1a0409fddc0fb90eb7d580",
+        "bounded_process.py": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+        "source_reader.py": "3b0ab477d5c665dd2eae59e4091fd8147194f58152a3b20d72b71fa4b7a273f0",
+        "structural_clones.py": "9713a4df9363bd5ac2035abde4eb463e392453fcc91e77b7fa09842834721db6",
+        "source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
+        "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+        "exclude_patterns.py": "779c69d9173f3b5dcc4977494d7e8bd47b33c41db5ef6369c199ec33a060853d",
+        "copy_baseline.py": "912b31e16592be85aa5500eced30c01fa3882b28ab1a52b2f5f038158a6f3893"
+      }
+    },
+    "implementation_hashes": {
+      "victor/core/graph_rag/token_clones.py": "1ff607b528edfbafe0404181b42c0540edb497da01150bb61812073624efe5df",
+      "victor/core/graph_rag/token_fingerprints.py": "1a88403d699c33917970c53acc0c95fac2d0a39eaf173b06bbcd3e041c35fcc3",
+      "victor/core/graph_rag/token_coverage.py": "e927b1ef0eafc1979f6629a8733259b8f389ce83dddb05b2e90711bfc9d2ecfb",
+      "victor/core/graph_rag/source_inventory.py": "a7f65756c71c5bbc96ff09dd6fdfae712494739dfe1a0409fddc0fb90eb7d580",
+      "victor/core/graph_rag/bounded_process.py": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+      "victor/core/graph_rag/source_reader.py": "3b0ab477d5c665dd2eae59e4091fd8147194f58152a3b20d72b71fa4b7a273f0",
+      "victor/core/graph_rag/structural_clones.py": "9713a4df9363bd5ac2035abde4eb463e392453fcc91e77b7fa09842834721db6",
+      "victor/core/graph_rag/source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
+      "victor/core/graph_rag/language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+      "victor/core/graph_rag/exclude_patterns.py": "779c69d9173f3b5dcc4977494d7e8bd47b33c41db5ef6369c199ec33a060853d",
+      "victor/core/graph_rag/copy_baseline.py": "912b31e16592be85aa5500eced30c01fa3882b28ab1a52b2f5f038158a6f3893",
+      "victor/core/graph_rag/copy_artifacts.py": "28553b8f74c97df0c4402f6f1cbc54de9df5a3d089035bd3c72d910b7f903048",
+      "victor/ui/commands/graph.py": "768fc7e270af2747176965beafbb5dcabc071e4d8141ed4c77382bdab0f8feee"
+    },
+    "implementation_changed_during_run": false,
+    "host": {
+      "system": "Darwin",
+      "machine": "arm64",
+      "python": "3.12.16"
+    },
+    "scan_wall_seconds": 0.6906717920210212,
+    "scan_cpu_seconds": 0.32488500000000003,
+    "parent_process_max_rss_bytes": 50741248,
+    "rss_scope": "Parent process lifetime peak; native child has a separate 768MiB cap, not a measured peak here",
+    "result": {
+      "evidence": "token_sequence",
+      "equivalence_verified": false,
+      "coverage_complete": true,
+      "backend": {
+        "name": "jscpd",
+        "version": "5.4.2",
+        "mode": "weak",
+        "min_tokens": 300,
+        "min_lines": 3,
+        "normalize_identifiers": false,
+        "project_config_used": false,
+        "coverage_basis": "physical_file_summary_and_proven_ineligible_controls",
+        "memory_monitor_scope": "owned-process-group",
+        "memory_budget_bytes": 805306368
+      },
+      "stats": {
+        "source_files": 166,
+        "backend_analyzed_files": 166,
+        "backend_reported_source_units": 127,
+        "fragment_pairs": 3,
+        "backend_control_files": 39
+      },
+      "errors": [],
+      "source_manifest": {
+        "src/query/aql/executor.rs": {
+          "sha256": "983696d8587884cf5d13eec5407c4b87ec5895527cd526e45aa0686d77dac54e",
+          "lines": 518,
+          "bytes": 19913,
+          "native_lines": 518
+        },
+        "src/query/aql/executor_test.rs": {
+          "sha256": "635b710cd92c846f7082dc1281f92fc8e4f1c55e9893a1f3c7ce891d0c432b1d",
+          "lines": 391,
+          "bytes": 13460,
+          "native_lines": 391
+        },
+        "src/query/aql/mod.rs": {
+          "sha256": "c1f79e99f1afdf3d80e6d0c95407158d4ad0fee3e97d2f2f5640a569b7e8cbbe",
+          "lines": 382,
+          "bytes": 11061,
+          "native_lines": 382
+        },
+        "src/query/aql/sources/document.rs": {
+          "sha256": "2eb2b1e166151db99f2e1fdf78d72a8bcccdcc8cf4a13318be4b078c252dd251",
+          "lines": 97,
+          "bytes": 3143,
+          "native_lines": 97
+        },
+        "src/query/aql/sources/graph.rs": {
+          "sha256": "dfabd80196f5c6b9fcce00d248e9d550e2a19b3e95fa27518fe762a6c6d8ce58",
+          "lines": 148,
+          "bytes": 5211,
+          "native_lines": 148
+        },
+        "src/query/aql/sources/memory.rs": {
+          "sha256": "f9b30dd0b684a3cda7c5485ba3f620167a25ef318f03991a47c52ec96931b1d9",
+          "lines": 683,
+          "bytes": 27552,
+          "native_lines": 683
+        },
+        "src/query/aql/sources/mod.rs": {
+          "sha256": "ac5fca8d5afd9417d36fe564482d5e302d7a247c6b1b4c4ba7e40b921e54c030",
+          "lines": 107,
+          "bytes": 4179,
+          "native_lines": 107
+        },
+        "src/query/aql/sources/observability.rs": {
+          "sha256": "55420f1af7f0c4fda6d00f93d7415d41435caa9818223eb2e1124ad2b9022fe5",
+          "lines": 118,
+          "bytes": 4012,
+          "native_lines": 118
+        },
+        "src/query/aql/sources/vector.rs": {
+          "sha256": "54c4e56975e8e2df171861869514d82593d5c09900cc66efef4eaf9969ea3159",
+          "lines": 159,
+          "bytes": 5914,
+          "native_lines": 159
+        },
+        "src/query/arrow_graph_bridge.rs": {
+          "sha256": "2de212abaca95b2a06695d322f70eb53aa08aa3070d31d8f1154267f01cdb3cd",
+          "lines": 62,
+          "bytes": 1780,
+          "native_lines": 62
+        },
+        "src/query/ast/mod.rs": {
+          "sha256": "a0ba3aad03f0072ee481193467075bc920329405ec8947a39b6f6d9aefb637fe",
+          "lines": 8,
+          "bytes": 241,
+          "native_lines": 8
+        },
+        "src/query/ast/nodes.rs": {
+          "sha256": "04b694c3db5020e7d3bd201f1bc39157b719f18b4ef12dca80c868f3bfb618a9",
+          "lines": 519,
+          "bytes": 14463,
+          "native_lines": 519
+        },
+        "src/query/authority_context.rs": {
+          "sha256": "21df45c870de9d4b81fe006f978744f0cc3d979a497dd09351eb00904ba16c09",
+          "lines": 271,
+          "bytes": 10061,
+          "native_lines": 271
+        },
+        "src/query/cache/adaptive_cache.rs": {
+          "sha256": "826a1005638ef4d5e4c087d01031d3803f0204dc95ff828d553978fb2d76fc50",
+          "lines": 359,
+          "bytes": 11567,
+          "native_lines": 359
+        },
+        "src/query/cache/invalidation_bus.rs": {
+          "sha256": "2eb9218a6f07e21df14b722b53f2240d1345ba4e8ff3384c39df09c93ccc3777",
+          "lines": 311,
+          "bytes": 11944,
+          "native_lines": 311
+        },
+        "src/query/cache/invalidation_coordinator.rs": {
+          "sha256": "d6f2e62a21c315b87b984cfa1dd9186e0eb5591c90f2dd81eb9d3a74d88e65ba",
+          "lines": 474,
+          "bytes": 18977,
+          "native_lines": 474
+        },
+        "src/query/cache/mod.rs": {
+          "sha256": "f7f8778a3f3c676296dae38c5268f5421fb0e750ab4532c86cec3b64e78d1f4f",
+          "lines": 145,
+          "bytes": 6638,
+          "native_lines": 145
+        },
+        "src/query/cache/plan_cache.rs": {
+          "sha256": "008391bd9964b10b716a2c3bfe719ddac14500aa0184134e1d7dd835c55a90ce",
+          "lines": 496,
+          "bytes": 17649,
+          "native_lines": 496
+        },
+        "src/query/capability/mod.rs": {
+          "sha256": "f9b5cf3366baa2ee431678bc32db84aea4c86e24ea314f7c685361e408490dd2",
+          "lines": 16,
+          "bytes": 590,
+          "native_lines": 16
+        },
+        "src/query/columnar/mod.rs": {
+          "sha256": "410af81ff217fc9064c787c10c5feebb20fb0d3d03360961bbeb44642b8901d1",
+          "lines": 73,
+          "bytes": 2467,
+          "native_lines": 73
+        },
+        "src/query/columnar/provider.rs": {
+          "sha256": "b228693d1fe6fcbe8bb543c4b052c3125f65f44a0bbe0c6330ec92c0171a17ff",
+          "lines": 260,
+          "bytes": 8782,
+          "native_lines": 260
+        },
+        "src/query/columnar/providers/arrow_memory.rs": {
+          "sha256": "c5c369f8aa8b7161d00891958dcf36bcfb0f5c6fa8082238a04fc1d547b9d0bb",
+          "lines": 607,
+          "bytes": 21861,
+          "native_lines": 607
+        },
+        "src/query/columnar/providers/mod.rs": {
+          "sha256": "1d18a40e74a0891133d22044afafae39b716b9a64578a56607d16302611c76c6",
+          "lines": 28,
+          "bytes": 1036,
+          "native_lines": 28
+        },
+        "src/query/columnar/providers/parquet_pruned.rs": {
+          "sha256": "dc0abcdb9f449841073ccf5e66c7286edd5ef6e44e79c9ef6775990753bb4070",
+          "lines": 629,
+          "bytes": 20744,
+          "native_lines": 629
+        },
+        "src/query/compute_scheduler.rs": {
+          "sha256": "32331ce38775007dbb6e9a54343968e1c0172c77a696b0834f547fa508266f08",
+          "lines": 1982,
+          "bytes": 88518,
+          "native_lines": 1982
+        },
+        "src/query/ddl_dml/mod.rs": {
+          "sha256": "27e7c5f59c1ba26e0efb8224afc89ce74e3a5db8a67528b0b1fd011738deacd7",
+          "lines": 1158,
+          "bytes": 39745,
+          "native_lines": 1158
+        },
+        "src/query/distributed/aggregator.rs": {
+          "sha256": "74d43e23fd1a4137d757db8728fd41d724c21ca83fbea7aa6ad99730c0532066",
+          "lines": 2,
+          "bytes": 127,
+          "native_lines": 2
+        },
+        "src/query/distributed/coordinator.rs": {
+          "sha256": "88df7f3d9dc9134a90b2e8cb8ae32805381f67947c29fd27a65c9668dc68a657",
+          "lines": 830,
+          "bytes": 29089,
+          "native_lines": 830
+        },
+        "src/query/distributed/mod.rs": {
+          "sha256": "9ef61acedfb1dca234f9657c7606f58c9ff069279c17875600f26be6bf290373",
+          "lines": 64,
+          "bytes": 4029,
+          "native_lines": 64
+        },
+        "src/query/distributed/planner.rs": {
+          "sha256": "b49b595d28943cd872130684a54225566a1ebf0ec22a74129ea2ead91e56054f",
+          "lines": 427,
+          "bytes": 14587,
+          "native_lines": 427
+        },
+        "src/query/distributed/remote.rs": {
+          "sha256": "39499cd303372e8541950ddfb28d7b39a544309675b3cd4466b3ffb675673ba8",
+          "lines": 2,
+          "bytes": 123,
+          "native_lines": 2
+        },
+        "src/query/distributed/shuffle.rs": {
+          "sha256": "739dc74d10febe8daaacf56bbc67e2fa2c29e15a6f88eb22d288729d21caa9f3",
+          "lines": 2,
+          "bytes": 124,
+          "native_lines": 2
+        },
+        "src/query/execution/datafusion_bridge.rs": {
+          "sha256": "d95b833cc783ad3d7ab6e5a4e48a9de411e209cf38e45311a67c5d8d122e9449",
+          "lines": 556,
+          "bytes": 20594,
+          "native_lines": 556
+        },
+        "src/query/execution/datafusion_engine.rs": {
+          "sha256": "cb9c50ab432a8313ecd8a037ae55954db77223cddb3479d2a3fb1d1db93be1dc",
+          "lines": 1373,
+          "bytes": 59032,
+          "native_lines": 1373
+        },
+        "src/query/execution/duckdb_engine.rs": {
+          "sha256": "622e95c68fec3d6b6307dc25097e0a1f5e04b3047e65388a9f9b8af515c06ba2",
+          "lines": 378,
+          "bytes": 18099,
+          "native_lines": 378
+        },
+        "src/query/execution/engine.rs": {
+          "sha256": "5ea2ce66139f164cd2fd50b9ee6fbf30e5f174b7e1115d2b333e0f94943d4eb6",
+          "lines": 829,
+          "bytes": 33521,
+          "native_lines": 829
+        },
+        "src/query/execution/executor.rs": {
+          "sha256": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+          "lines": 2587,
+          "bytes": 102207,
+          "native_lines": 2587
+        },
+        "src/query/execution/layer_a/conform.rs": {
+          "sha256": "c46dc46199ec9c755e62760046874a3682944f36c0a8a779bc4cd16db4b3ccc7",
+          "lines": 428,
+          "bytes": 16751,
+          "native_lines": 428
+        },
+        "src/query/execution/layer_a/merge.rs": {
+          "sha256": "f72cbe49fdfaeab19bbf43c057c600428340de41b9779cfddaa27490425e6904",
+          "lines": 291,
+          "bytes": 10921,
+          "native_lines": 291
+        },
+        "src/query/execution/layer_a/mod.rs": {
+          "sha256": "39b43fabac7a455b2082e4caa715d1444b718821939029487d321a8ca47c1e0f",
+          "lines": 60,
+          "bytes": 2685,
+          "native_lines": 60
+        },
+        "src/query/execution/layer_a/olap_merge.rs": {
+          "sha256": "17390189c4f594b0d26df34952d1db154ed3a4ae49bb1e0b65783e111b278a6f",
+          "lines": 383,
+          "bytes": 12512,
+          "native_lines": 383
+        },
+        "src/query/execution/layer_a/partition.rs": {
+          "sha256": "7da6c3b5eee59eb0cc7b2311c6f9301e015f297336aa78aaaa932c30231bb93d",
+          "lines": 354,
+          "bytes": 12596,
+          "native_lines": 354
+        },
+        "src/query/execution/layer_a/provider.rs": {
+          "sha256": "b3510dd3a8d242ecb42a7cbfd69bfb5b6c2f5dad41753c974ed522918f88a8cf",
+          "lines": 851,
+          "bytes": 31647,
+          "native_lines": 851
+        },
+        "src/query/execution/layer_a/prune.rs": {
+          "sha256": "4d1da786d9e075c5dc4ab8d0366d24220ed85acf951d75f64c7f14b139b22b74",
+          "lines": 397,
+          "bytes": 15265,
+          "native_lines": 397
+        },
+        "src/query/execution/layer_a/tests.rs": {
+          "sha256": "cc3a53191b0b22e330a5fd598fefcdcbc48d77c42f70b27194c4b7c15a2022b1",
+          "lines": 1284,
+          "bytes": 47149,
+          "native_lines": 1284
+        },
+        "src/query/execution/low_latency_executor.rs": {
+          "sha256": "f56b667e141467c9da3f6b6b858d7e8db8b6dd495c179d59b38fc72cf49dab80",
+          "lines": 348,
+          "bytes": 11351,
+          "native_lines": 348
+        },
+        "src/query/execution/mod.rs": {
+          "sha256": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea",
+          "lines": 414,
+          "bytes": 14921,
+          "native_lines": 414
+        },
+        "src/query/execution/morsel_scheduler.rs": {
+          "sha256": "85eaff54aeb5a647dcb6c11ddc714d55da86515bd2ded799b71d56c6826f4443",
+          "lines": 215,
+          "bytes": 8291,
+          "native_lines": 215
+        },
+        "src/query/execution/native_engine.rs": {
+          "sha256": "1d75364d76d8634694ec63f1ba703b90f6ac4ef3c7b5330032c1b6a360a9fd81",
+          "lines": 671,
+          "bytes": 28838,
+          "native_lines": 671
+        },
+        "src/query/execution/native_join_ops.rs": {
+          "sha256": "151088c6ff71d10fccce6fb9d5d03b3f8461e2f4de78cd9794540f567f1f861f",
+          "lines": 533,
+          "bytes": 21908,
+          "native_lines": 533
+        },
+        "src/query/execution/native_ops.rs": {
+          "sha256": "9badd229a2ea5c17c28a146e312bbbb69abc1a0dc0cd9ce9fbc66167fb3cac3b",
+          "lines": 2781,
+          "bytes": 109366,
+          "native_lines": 2781
+        },
+        "src/query/execution/native_parquet_scan.rs": {
+          "sha256": "196f97ccb52fd2d00be68db8cc0fe993aa2e30d19021d1a801b036feb2a1a30a",
+          "lines": 587,
+          "bytes": 25772,
+          "native_lines": 587
+        },
+        "src/query/execution/native_scan.rs": {
+          "sha256": "394dfeeb9ee75d91af5741ccfdccff678bede3f4dad8e21a3e6dbc4c07a152c1",
+          "lines": 355,
+          "bytes": 14810,
+          "native_lines": 355
+        },
+        "src/query/execution/native_shadow.rs": {
+          "sha256": "802c623ff09bc2ec9055ab8a0c27c88f4a40140ac01c497f942acfd3b0c34746",
+          "lines": 347,
+          "bytes": 12438,
+          "native_lines": 347
+        },
+        "src/query/execution/native_table_provider.rs": {
+          "sha256": "7af9d94f2da93bd0e943a069ed6295bc376f0d2c051957163a7806b6d992ccee",
+          "lines": 192,
+          "bytes": 8692,
+          "native_lines": 192
+        },
+        "src/query/execution/olap_delta_merge.rs": {
+          "sha256": "318272e8d1c55a38d59da3676c4f1c8378075e6d23b9366d159d369c6d64f204",
+          "lines": 254,
+          "bytes": 11665,
+          "native_lines": 254
+        },
+        "src/query/execution/plan_cache.rs": {
+          "sha256": "5a4fce9cb27ebce5344de291a701adcf5a530a1048f1248138d9c9b2ffc32361",
+          "lines": 477,
+          "bytes": 14691,
+          "native_lines": 477
+        },
+        "src/query/execution/planner.rs": {
+          "sha256": "1f9286574e99bf7ac0875c6771db7d780ac3c192f6536e5d8f965ebc49513528",
+          "lines": 366,
+          "bytes": 12650,
+          "native_lines": 366
+        },
+        "src/query/execution/set_operations.rs": {
+          "sha256": "12eb0d5ee9544ad00ecf55003b22ed803bd56e70efd67ac8e21dcf236058a97e",
+          "lines": 167,
+          "bytes": 5369,
+          "native_lines": 167
+        },
+        "src/query/execution/window_executor.rs": {
+          "sha256": "2a8015ce8b2550a0635f55df42972c4c8c47d9615887f128458fed488df6be8d",
+          "lines": 1620,
+          "bytes": 57397,
+          "native_lines": 1620
+        },
+        "src/query/explain.rs": {
+          "sha256": "84ad5d852568dd4c16f142fbb46ee9f186e000dafd00018de4c58e6d9b553011",
+          "lines": 2661,
+          "bytes": 99753,
+          "native_lines": 2661
+        },
+        "src/query/explain_schema.rs": {
+          "sha256": "6ae2d26b13977467d07f349cbe22b9c78fe93e6f596d44fa826cddb36c69cb03",
+          "lines": 574,
+          "bytes": 21307,
+          "native_lines": 574
+        },
+        "src/query/facade/adapter.rs": {
+          "sha256": "207b9fc33f886a47720c21aab76390cf4e72217481ae4f8ce492bbd436b3d599",
+          "lines": 1380,
+          "bytes": 52036,
+          "native_lines": 1380
+        },
+        "src/query/facade/mod.rs": {
+          "sha256": "79da6cc8a0a5b1e99c333b185c807047fa0298593810ca65dc8241792ca92ae4",
+          "lines": 889,
+          "bytes": 29487,
+          "native_lines": 889
+        },
+        "src/query/facade/strategies/columnar.rs": {
+          "sha256": "da751c9d97dc9f6394b4ed9700d1f8297acf89c0bd093f7e5b6bce6c47f634c0",
+          "lines": 1589,
+          "bytes": 55149,
+          "native_lines": 1589
+        },
+        "src/query/facade/strategies/distributed.rs": {
+          "sha256": "918d46dee3169727a76b2c3d161fc1d98f8f6897de55e528920ec3d5e6321c27",
+          "lines": 950,
+          "bytes": 35227,
+          "native_lines": 950
+        },
+        "src/query/facade/strategies/document.rs": {
+          "sha256": "c670ceb71573f0e9e889bb00c4239b3fcd80f603400b64c4b75cd8e6b5ecc45a",
+          "lines": 401,
+          "bytes": 13689,
+          "native_lines": 401
+        },
+        "src/query/facade/strategies/external_table.rs": {
+          "sha256": "1cc25718153701556af403d27d97ad6eb6e617e5290b1637e1a4d738bf0a714f",
+          "lines": 287,
+          "bytes": 8635,
+          "native_lines": 287
+        },
+        "src/query/facade/strategies/graph.rs": {
+          "sha256": "f928d67a6163fa19709972c3b2f7f197905637e4b5c0efc26d87dab1c35c7ffd",
+          "lines": 525,
+          "bytes": 18078,
+          "native_lines": 525
+        },
+        "src/query/facade/strategies/mod.rs": {
+          "sha256": "f9335449dd6449c1d0324e482c282b21faf9234e2deba5a08b2d27f638ce4e72",
+          "lines": 31,
+          "bytes": 1310,
+          "native_lines": 31
+        },
+        "src/query/facade/strategies/observability.rs": {
+          "sha256": "05d72530a7f5769a37207b1c4d3c3bb11b91ec8c87ac33ca4c05647015a13fb9",
+          "lines": 1349,
+          "bytes": 47158,
+          "native_lines": 1349
+        },
+        "src/query/facade/strategies/sql.rs": {
+          "sha256": "338ebdd2ebf3603a9a392b0f21517ba08882f38913b30f08ed800f748a07931b",
+          "lines": 398,
+          "bytes": 12523,
+          "native_lines": 398
+        },
+        "src/query/facade/strategies/vector.rs": {
+          "sha256": "c6b9d50e74832b1c138dfd44459d45eb1bcb1622d372afbfde15c637e60e222c",
+          "lines": 392,
+          "bytes": 13166,
+          "native_lines": 392
+        },
+        "src/query/federated/execution/mod.rs": {
+          "sha256": "3dec0c6c56118e40acdccfd7d0bb59b9df92d25881e4f02ab8642ebca92a2fae",
+          "lines": 4616,
+          "bytes": 178633,
+          "native_lines": 4616
+        },
+        "src/query/federated/execution/source_executors.rs": {
+          "sha256": "a20a5eed03bbd5b0d79d386e9967b6f2422de98a9f1633202314f26ed1e48af2",
+          "lines": 406,
+          "bytes": 12409,
+          "native_lines": 406
+        },
+        "src/query/federated/execution/tests.rs": {
+          "sha256": "7dc21cbcb0601ea3ef3eaf379b963e799a8301fcac99bf64a01ab5543095e7f5",
+          "lines": 923,
+          "bytes": 36983,
+          "native_lines": 923
+        },
+        "src/query/federated/mod.rs": {
+          "sha256": "33893576f746239b563da1aeda260707863ab1f671b658458573bc7043681212",
+          "lines": 414,
+          "bytes": 15712,
+          "native_lines": 414
+        },
+        "src/query/federated/optimizer/cached_plan_builder.rs": {
+          "sha256": "9ae5bc99df80420534ce164b7e0fb11a0fa0f66badb0c5ed512f8aa2c542f567",
+          "lines": 364,
+          "bytes": 13744,
+          "native_lines": 364
+        },
+        "src/query/federated/optimizer/filter_strategy.rs": {
+          "sha256": "33022cb6465a7e7be0b67367dd5bb105a1f8d4c3d3b4a6e4c48e2b72ad4f2cc1",
+          "lines": 278,
+          "bytes": 10106,
+          "native_lines": 278
+        },
+        "src/query/federated/optimizer/mod.rs": {
+          "sha256": "cd757dfc29208c6f8402d92dbb4d4e4f1c5651d5b34058b574220a484bb159b7",
+          "lines": 5308,
+          "bytes": 201312,
+          "native_lines": 5308
+        },
+        "src/query/federated/optimizer/plan_builder.rs": {
+          "sha256": "d8d1eeb77ddafb072425f503042b74836026ca81562fa9eaceb38417f719ba19",
+          "lines": 283,
+          "bytes": 10699,
+          "native_lines": 283
+        },
+        "src/query/federated/optimizer/plan_inference_gate.rs": {
+          "sha256": "42016041b6d8f7a64bf3cfeef81b7ba6ec0ad83c3dcbf10e39f5fbb9dbaaba32",
+          "lines": 550,
+          "bytes": 17499,
+          "native_lines": 550
+        },
+        "src/query/federated/optimizer/plan_quality.rs": {
+          "sha256": "fdf144b38d08443a24ef57b9d6ab9d446fb0247325be819a34d8ddcb7532ddd8",
+          "lines": 378,
+          "bytes": 13041,
+          "native_lines": 378
+        },
+        "src/query/federated/optimizer/plan_v2_inference.rs": {
+          "sha256": "1419d5453ee68ddc46390b4e41d819f3222bb5ee37ca6bd6a1281a8e6b4bc40e",
+          "lines": 461,
+          "bytes": 17340,
+          "native_lines": 461
+        },
+        "src/query/federated/optimizer/plan_v2_training.rs": {
+          "sha256": "5ed8bfa44f0ef887e1a714b0f74b54e21caa15d9f4f17d62ef3a6ab29b414326",
+          "lines": 456,
+          "bytes": 17463,
+          "native_lines": 456
+        },
+        "src/query/federated/optimizer/predicate_normalizer.rs": {
+          "sha256": "0a5f77083ff3ac5bd7dda89d04691e58a80429d9f6e81e8aad2bce9625d6da42",
+          "lines": 278,
+          "bytes": 9943,
+          "native_lines": 278
+        },
+        "src/query/federated/optimizer/selectivity.rs": {
+          "sha256": "cef9b3c21648273a9b8a1fc9f07b71984cb8f4f0459470fea7b951bc499833c4",
+          "lines": 560,
+          "bytes": 21404,
+          "native_lines": 560
+        },
+        "src/query/federated/optimizer/sql_parsing.rs": {
+          "sha256": "d616542db382f49e6c9972c3bd116fdacf36df820edc83b8a0751d60906f6d90",
+          "lines": 678,
+          "bytes": 24048,
+          "native_lines": 678
+        },
+        "src/query/federated/optimizer/tests.rs": {
+          "sha256": "90bdcc6d794c1be2d542ede2f0f2d2df5a66167a0912feddb6c24a0fab7cbb24",
+          "lines": 1637,
+          "bytes": 60980,
+          "native_lines": 1637
+        },
+        "src/query/federated/optimizer/trace_replay.rs": {
+          "sha256": "4cf1120ee589c76425084eb473f0e1fb22483693be5fb42469083924216165fe",
+          "lines": 553,
+          "bytes": 18645,
+          "native_lines": 553
+        },
+        "src/query/federated/optimizer/vector_query_parsing.rs": {
+          "sha256": "1aca8ad5c1812d1fc112aef9a0a266d01aa7943f06a8a24a161f143b7a2e5a43",
+          "lines": 207,
+          "bytes": 7511,
+          "native_lines": 207
+        },
+        "src/query/federated/tests.rs": {
+          "sha256": "40c0ed0f700c54d692a51e4fabbf5f2ca01edb19207f4f9e0a856a08380eadfe",
+          "lines": 2457,
+          "bytes": 85803,
+          "native_lines": 2457
+        },
+        "src/query/graph_lowering.rs": {
+          "sha256": "ae6859fd6fd6932fac548c7cf9ddd9baea6d540db66ac2bed130f6348b89a675",
+          "lines": 2,
+          "bytes": 118,
+          "native_lines": 2
+        },
+        "src/query/graph_runtime.rs": {
+          "sha256": "116bd3b35c847ed8e3a0cd335d8422c0431306262669769106fe8241f7093a26",
+          "lines": 211,
+          "bytes": 6966,
+          "native_lines": 211
+        },
+        "src/query/graph_subset.rs": {
+          "sha256": "537c1b5c7147940016f2a118a49ec3ef0045bc09d765ec77ebcf843e790bc6ff",
+          "lines": 14,
+          "bytes": 685,
+          "native_lines": 14
+        },
+        "src/query/materialized_view/definition.rs": {
+          "sha256": "6a6e41c913acaa7d21ec5ab388ffc3943e68c2ac0642b61c4b32f6b673c38b56",
+          "lines": 1152,
+          "bytes": 38504,
+          "native_lines": 1152
+        },
+        "src/query/materialized_view/mod.rs": {
+          "sha256": "e54603118a05dbd29f97444ea52cad986891ddb19ed4f8997b39e5c4b625286a",
+          "lines": 125,
+          "bytes": 5706,
+          "native_lines": 125
+        },
+        "src/query/materialized_view/refresh.rs": {
+          "sha256": "c779c20a6c2418eb318dc7f04f123d83e20a31e254a154b63bbdbbd925ceeacc",
+          "lines": 716,
+          "bytes": 22389,
+          "native_lines": 716
+        },
+        "src/query/mod.rs": {
+          "sha256": "ac9aed91971f84407b0879708ad4186e9704364175f698a13c131b7de1bc0c65",
+          "lines": 246,
+          "bytes": 10840,
+          "native_lines": 246
+        },
+        "src/query/multimodal/mod.rs": {
+          "sha256": "f9d7c6ef14222577dc4773fca26e63eae2be27ab253cc0ff88bf134414a39359",
+          "lines": 13,
+          "bytes": 537,
+          "native_lines": 13
+        },
+        "src/query/multimodal/plan.rs": {
+          "sha256": "78a4e20b00b8922d2d9042ddf545ae545f221abd8e97a7c043142db11fbb8f09",
+          "lines": 5,
+          "bytes": 210,
+          "native_lines": 5
+        },
+        "src/query/multimodal_executor/mod.rs": {
+          "sha256": "ebeb56540f6235224875f1b0ab25f1ee2aeba5156ab7645bb8abe418da3c6a88",
+          "lines": 34,
+          "bytes": 864,
+          "native_lines": 34
+        },
+        "src/query/multimodal_router/mod.rs": {
+          "sha256": "ce1da8dbf709c9cf1547e2f7f156d4490b1c8f5e40170e2e36e4b7e88c86bb94",
+          "lines": 10,
+          "bytes": 452,
+          "native_lines": 10
+        },
+        "src/query/multimodel_executor.rs": {
+          "sha256": "f6728d528ff1126021c0ad68f866e0763e01e8aff0038daeea3d21f83a1a320f",
+          "lines": 623,
+          "bytes": 19487,
+          "native_lines": 623
+        },
+        "src/query/multimodel_router.rs": {
+          "sha256": "6689b6a567b2807cf4389a822fcdd309a2e0110414aba016ac1b3c65385f567f",
+          "lines": 489,
+          "bytes": 15588,
+          "native_lines": 489
+        },
+        "src/query/nl/mod.rs": {
+          "sha256": "def2c51100391fea82121cd394197807af7d39a4c9f0b59eebfba352999ab2e3",
+          "lines": 171,
+          "bytes": 5020,
+          "native_lines": 171
+        },
+        "src/query/parsers/cypher.rs": {
+          "sha256": "39eb74032153c59c1e0090e24b25eb6746aa8e1e872918b7f7f6683c3b34d005",
+          "lines": 1,
+          "bytes": 43,
+          "native_lines": 1
+        },
+        "src/query/parsers/mod.rs": {
+          "sha256": "9a95761920413a4e10c14a3b9687f05e20202cbd3cac1fe45d71e7d1568d66f1",
+          "lines": 93,
+          "bytes": 2607,
+          "native_lines": 93
+        },
+        "src/query/parsers/mongodb.rs": {
+          "sha256": "d2fd34e6c10feb3c9a30abfa2af377829ec9098a84a6435fdd40e41a44b29a8d",
+          "lines": 61,
+          "bytes": 2229,
+          "native_lines": 61
+        },
+        "src/query/prepared/mod.rs": {
+          "sha256": "cce3c2d6e5219e0766056b944b3a3b9955e411db3419e9b040a51ec1a6d5de25",
+          "lines": 83,
+          "bytes": 3679,
+          "native_lines": 83
+        },
+        "src/query/prepared/statement.rs": {
+          "sha256": "955c1aab63d50816fe493a419627ce99ddcc6f96feb16ffba7588da7ee3ea905",
+          "lines": 971,
+          "bytes": 31460,
+          "native_lines": 971
+        },
+        "src/query/query_optimizer.rs": {
+          "sha256": "c97c7c45a1d615d5bea6b6e0e64b27b555e6d63d8c41098bc8b914c41c72a669",
+          "lines": 3460,
+          "bytes": 126431,
+          "native_lines": 3460
+        },
+        "src/query/query_router.rs": {
+          "sha256": "ea165ea15c2c2521993123279d376f8fdcf2eb2927de65496f2f75176d80bf17",
+          "lines": 731,
+          "bytes": 26496,
+          "native_lines": 731
+        },
+        "src/query/read_route.rs": {
+          "sha256": "ad865cb8c7fdf5cbc2bd476aeda9af56a5d98113689b3b777f708b11fee40e70",
+          "lines": 504,
+          "bytes": 20232,
+          "native_lines": 504
+        },
+        "src/query/repair/decision.rs": {
+          "sha256": "e25bc9a7692f63c16bf87835fa7e838c7de4a8431c80cb66f593dadc34131fa4",
+          "lines": 295,
+          "bytes": 10431,
+          "native_lines": 295
+        },
+        "src/query/repair/mod.rs": {
+          "sha256": "75c3eb0097c2f0144f85ca002e302a4bc64b9d70f698c1fcc91336faebfd57d2",
+          "lines": 21,
+          "bytes": 1035,
+          "native_lines": 21
+        },
+        "src/query/repair/sure_aggregator.rs": {
+          "sha256": "7aa2c670cbc85083beb74b577f15afc0caed13656bc58a290f692d414388795a",
+          "lines": 330,
+          "bytes": 12003,
+          "native_lines": 330
+        },
+        "src/query/request_scope.rs": {
+          "sha256": "795b837194bddcd2f6950cc59e935581627ffee275bb4867c93af8440de8b63a",
+          "lines": 143,
+          "bytes": 5461,
+          "native_lines": 143
+        },
+        "src/query/rl_planner/action.rs": {
+          "sha256": "cbf8439a58e37a445ca2acf86718bf601b437cfd3f990a5ea7d12b950b6f8200",
+          "lines": 1012,
+          "bytes": 34711,
+          "native_lines": 1012
+        },
+        "src/query/rl_planner/bandit.rs": {
+          "sha256": "d0c8128ae59a4cdf66686ba3d2be676d51bc7415f8a7942706416b0ec4787be0",
+          "lines": 911,
+          "bytes": 33061,
+          "native_lines": 911
+        },
+        "src/query/rl_planner/experience.rs": {
+          "sha256": "9b6eab717dd5dd83ff8045c141483a9947a7b6764ecd820a26593135ca7a61a4",
+          "lines": 404,
+          "bytes": 11414,
+          "native_lines": 404
+        },
+        "src/query/rl_planner/integration.rs": {
+          "sha256": "d32cadd31e041705ec37ad8f77e4b593a169e5896d4345416087fea59c30a939",
+          "lines": 734,
+          "bytes": 27869,
+          "native_lines": 734
+        },
+        "src/query/rl_planner/logging.rs": {
+          "sha256": "68a407a91a9af0ca1b20572a34b4de1decf49df4d06a337be89e4149354003dc",
+          "lines": 1119,
+          "bytes": 35244,
+          "native_lines": 1119
+        },
+        "src/query/rl_planner/mod.rs": {
+          "sha256": "a6cafe81cc5fec44f66f9955dcac58244a7b67f3246fddd5ce18670e066a6583",
+          "lines": 380,
+          "bytes": 15290,
+          "native_lines": 380
+        },
+        "src/query/rl_planner/paths/helix_paths.rs": {
+          "sha256": "ce365913c1af69d92c7ec6e548aaf5109ebd105fb31f4329cd673d4d8b2fdea1",
+          "lines": 212,
+          "bytes": 7779,
+          "native_lines": 212
+        },
+        "src/query/rl_planner/paths/mod.rs": {
+          "sha256": "928046d536b732e08342abdf9cf54bf3e748cba8bad6ca55bd763736056e112c",
+          "lines": 303,
+          "bytes": 8928,
+          "native_lines": 303
+        },
+        "src/query/rl_planner/paths/nova_paths.rs": {
+          "sha256": "08f3b06f1cc084080e3c041fcadbc198b5f8c03c68a72752ebe409c60dd0c083",
+          "lines": 102,
+          "bytes": 3682,
+          "native_lines": 102
+        },
+        "src/query/rl_planner/paths/raptor_paths.rs": {
+          "sha256": "ccdfe6c9aa5ed648a62ca5e690cc2ef01351978513bee0ffa5514b568bc347c4",
+          "lines": 113,
+          "bytes": 4178,
+          "native_lines": 113
+        },
+        "src/query/rl_planner/paths/sst_paths.rs": {
+          "sha256": "2cd733f30b9fdd397161df611c0e073736e24f076f5abd1c856ec8e5e2baf7ba",
+          "lines": 187,
+          "bytes": 6547,
+          "native_lines": 187
+        },
+        "src/query/rl_planner/paths/swift_paths.rs": {
+          "sha256": "ec092807b8d6ead50706c347743b7a69b0f317eea77375cd05fb4bad3d388061",
+          "lines": 138,
+          "bytes": 4512,
+          "native_lines": 138
+        },
+        "src/query/rl_planner/paths/viper_paths.rs": {
+          "sha256": "d0a9f0c75088b1737679c60e317e8450cca87e68ec02114857ea431ca24c4086",
+          "lines": 150,
+          "bytes": 5341,
+          "native_lines": 150
+        },
+        "src/query/rl_planner/rank_choice.rs": {
+          "sha256": "26c401b63170e4e8f374723a4d5c879ac0bb73421f5d6282fec4c9b582e5c283",
+          "lines": 252,
+          "bytes": 8328,
+          "native_lines": 252
+        },
+        "src/query/rl_planner/state.rs": {
+          "sha256": "6fe610f6c8bb097a62793cc1f71ac06a3fb2fd329556178dd5f8b4a16f70f79a",
+          "lines": 585,
+          "bytes": 19710,
+          "native_lines": 585
+        },
+        "src/query/route_cost_model.rs": {
+          "sha256": "15d5c781e7458d1167683d3812f27e9c3d743f0b9e1ea74a91e9bfcd7f2060ca",
+          "lines": 2889,
+          "bytes": 122209,
+          "native_lines": 2889
+        },
+        "src/query/semantic_analysis/analyzer.rs": {
+          "sha256": "8f1e3b968ed4898683354596dbbda2bfa4df308aa82f86cfcc9e5373d861d30e",
+          "lines": 715,
+          "bytes": 33451,
+          "native_lines": 715
+        },
+        "src/query/semantic_analysis/mod.rs": {
+          "sha256": "533d1ffff5ae8c2522d05c35dbb67171341d47b67ded121365cc5370514c002d",
+          "lines": 10,
+          "bytes": 286,
+          "native_lines": 10
+        },
+        "src/query/semantic_analysis/scope.rs": {
+          "sha256": "27e858941cf7d0ebc2fa3f88ac7c2d4c55471f552aca570df4a6c36822ad1202",
+          "lines": 120,
+          "bytes": 3440,
+          "native_lines": 120
+        },
+        "src/query/semantic_analysis/tests.rs": {
+          "sha256": "3ffbe3b3d97d3832981f7d17686194ae76df4805fdb7d7f8e5971ecbf4199d5a",
+          "lines": 597,
+          "bytes": 23144,
+          "native_lines": 597
+        },
+        "src/query/sql_frontend/lowering.rs": {
+          "sha256": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592",
+          "lines": 1366,
+          "bytes": 54709,
+          "native_lines": 1366
+        },
+        "src/query/sql_frontend/mod.rs": {
+          "sha256": "347d447054029e66cf510727eb3f397f0d21b258342e266e73626050b7e28bde",
+          "lines": 12,
+          "bytes": 277,
+          "native_lines": 12
+        },
+        "src/query/sql_frontend/parser.rs": {
+          "sha256": "246672dd91122fef4200db10a80b4ca02991c6e450f7c84420804f1aec29502b",
+          "lines": 4637,
+          "bytes": 181842,
+          "native_lines": 4637
+        },
+        "src/query/sql_frontend/tests.rs": {
+          "sha256": "392ecd3d98ce6f1d6028e84e3ed6410d86863dee37f9c5fa35bcb22b43b01e33",
+          "lines": 1120,
+          "bytes": 38096,
+          "native_lines": 1120
+        },
+        "src/query/table_write_executor.rs": {
+          "sha256": "7cc44c50a3151135a0e0a321b433e882a0b59b2b0a183a95499131d56d7cd903",
+          "lines": 2855,
+          "bytes": 111951,
+          "native_lines": 2855
+        },
+        "src/query/table_write_plan.rs": {
+          "sha256": "8994f266429ca2424ecb8f49083b5a321b9e2e65a621f3334a01b413d6c23c5f",
+          "lines": 2637,
+          "bytes": 96938,
+          "native_lines": 2637
+        },
+        "src/query/unified/ast.rs": {
+          "sha256": "58dfa0595e28af45e1ff50f2dfbfa0697d2162a398fa66f79a7efc6160714388",
+          "lines": 17,
+          "bytes": 880,
+          "native_lines": 17
+        },
+        "src/query/unified/decomposition.rs": {
+          "sha256": "93558e68cf98b7e73a556e3e00a2635e7726b046c6e1561d5558187faa29c6e2",
+          "lines": 5,
+          "bytes": 149,
+          "native_lines": 5
+        },
+        "src/query/unified/evolutionary.rs": {
+          "sha256": "779963c5fe03d9675ee02189254937f4ee8d682fa885218eb33b47d91dd62207",
+          "lines": 170,
+          "bytes": 5676,
+          "native_lines": 170
+        },
+        "src/query/unified/executor.rs": {
+          "sha256": "8af06577bec8c8b929d3d5aa8b479ad3cf3f8f5338293737948eeff1c46ceb35",
+          "lines": 2302,
+          "bytes": 82009,
+          "native_lines": 2302
+        },
+        "src/query/unified/fusion.rs": {
+          "sha256": "d466dd9a3491050012a1321173599d20e7d0ac818f91569ff578ea5ba6a0f447",
+          "lines": 3,
+          "bytes": 113,
+          "native_lines": 3
+        },
+        "src/query/unified/learned_fusion.rs": {
+          "sha256": "4c38cf553532d5f19ed99d0b222a0958242952fdb25c02c9209d9ba29fb365b7",
+          "lines": 3,
+          "bytes": 121,
+          "native_lines": 3
+        },
+        "src/query/unified/lower.rs": {
+          "sha256": "0463ac457c25b0e28dc3908029a0822a36a6c4fb7a565b30e7687f95b072d6aa",
+          "lines": 3,
+          "bytes": 121,
+          "native_lines": 3
+        },
+        "src/query/unified/mod.rs": {
+          "sha256": "fd611ba12cf47b70641f8341a15116ffbf57655e4e48f3b6326564ff896c7713",
+          "lines": 621,
+          "bytes": 25554,
+          "native_lines": 621
+        },
+        "src/query/unified/optimizer.rs": {
+          "sha256": "d1234d2635c9c31e5b7785e1d32596faec08e83ad30a0fc0f2cbfb78901b5c05",
+          "lines": 208,
+          "bytes": 6698,
+          "native_lines": 208
+        },
+        "src/query/unified/plan_execution_cache.rs": {
+          "sha256": "9abacf3a1931ac296cf961d0907d79fa55be17fd6f2e3635a590c1f4ab45d0ca",
+          "lines": 3,
+          "bytes": 125,
+          "native_lines": 3
+        },
+        "src/query/unified/rbac_integration_tests.rs": {
+          "sha256": "b28ec3295c24c521a78d1b49d0ef72a5554012d18a184e880b345d4dcad912ba",
+          "lines": 708,
+          "bytes": 26494,
+          "native_lines": 708
+        },
+        "src/query/unified/reranking.rs": {
+          "sha256": "4054905c5d58563a6063788b14496c8eb52f0b0f1c020a15626d63774d9756de",
+          "lines": 3,
+          "bytes": 119,
+          "native_lines": 3
+        },
+        "src/query/unified/uql.rs": {
+          "sha256": "da36bb4a015a7ff317cb51962588f349a2a9eddf362a49cc77facda39af56595",
+          "lines": 5,
+          "bytes": 147,
+          "native_lines": 5
+        },
+        "src/query/unified_query_port_impl.rs": {
+          "sha256": "c53712f713f1a156bb8a0e9bdd62e96298df9ebea1a1a1f30a1a56942d73053b",
+          "lines": 1445,
+          "bytes": 56532,
+          "native_lines": 1445
+        },
+        "src/query/utils/cache.rs": {
+          "sha256": "e643d757178a825c34378b36faff3aff93013f71f86cfb1bb063f20a44c966ce",
+          "lines": 1,
+          "bytes": 50,
+          "native_lines": 1
+        },
+        "src/query/utils/limits.rs": {
+          "sha256": "8c2699d5c7477ed9109eb4aca854639dd5535ea0b4faac2638ce6e242d0d7844",
+          "lines": 1,
+          "bytes": 45,
+          "native_lines": 1
+        },
+        "src/query/utils/metrics.rs": {
+          "sha256": "bfaa4bbb8c2765828ce7cb18fd4232449cca40080801a09feceecc6660e2b2b5",
+          "lines": 163,
+          "bytes": 5022,
+          "native_lines": 163
+        },
+        "src/query/utils/mod.rs": {
+          "sha256": "8c176ea27127346df440e97c9bf37a742650dec3c827deaa478d058aa0dc7df6",
+          "lines": 6,
+          "bytes": 156,
+          "native_lines": 6
+        },
+        "src/query/utils/normalize.rs": {
+          "sha256": "1371d6135e0d601ecc69586f0dde594306a04796e7ba25cafa3e9831ac5af3cc",
+          "lines": 1,
+          "bytes": 51,
+          "native_lines": 1
+        },
+        "src/query/utils/params.rs": {
+          "sha256": "55752b2b51089e6f9b0b872cb381d20e55197565e1a46b882edd603355e3888a",
+          "lines": 1,
+          "bytes": 54,
+          "native_lines": 1
+        },
+        "src/query/validator.rs": {
+          "sha256": "728f9760bdf10ea4b8d7d640a542718cc4fa4f55c444af004d48c371538a5834",
+          "lines": 573,
+          "bytes": 18456,
+          "native_lines": 573
+        },
+        "src/query/vector_search/mod.rs": {
+          "sha256": "6ecfed00b4d041f21f22066a9db28cc627959f9f6f9699bdf127b5f6d7f510d7",
+          "lines": 336,
+          "bytes": 10870,
+          "native_lines": 336
+        }
+      },
+      "source_selection": {
+        "scope": "src/query/",
+        "include_tests": false,
+        "include_docs": false,
+        "include_same_file": true
+      },
+      "fragments": [
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 340,
+          "fragment_hash": "02d4b998d6f8ab4c2aacf477af59ca9a8340405a604993ef1a0786f5c403a77b",
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2216,
+              "end_line": 2266,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2285,
+              "end_line": 2335,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            }
+          ]
+        },
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 307,
+          "fragment_hash": "94168fa9b6080f43f8cd7619a4b7184e9b6b5148279917add058e30b836fda32",
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2221,
+              "end_line": 2277,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+            },
+            {
+              "file": "src/query/execution/mod.rs",
+              "line": 320,
+              "end_line": 376,
+              "source_hash": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea"
+            }
+          ]
+        },
+        {
+          "relation": "literal_token_fragment",
+          "evidence": "token_sequence",
+          "equivalence_verified": false,
+          "tokens": 507,
+          "fragment_hash": "3afed8e9619a228707ad11ac65f28f037c791b48ab6c1c10dab153be87d125a3",
+          "members": [
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 268,
+              "end_line": 361,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            },
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 658,
+              "end_line": 751,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+            }
+          ]
+        }
+      ],
+      "fingerprint_schema": "jscpdCloneHash/v1",
+      "fingerprints": [
+        {
+          "fingerprint": "5aa95d4faef8a179",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 340,
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2216,
+              "end_line": 2266,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+              "backend_start_column": 33,
+              "backend_end_column": 10
+            },
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2285,
+              "end_line": 2335,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+              "backend_start_column": 49,
+              "backend_end_column": 10
+            }
+          ],
+          "evidence_id": "9d0953e79c5a24aa8a1a1f60262f9ee49ac5555db5d8a60dbf259f40ccba1686"
+        },
+        {
+          "fingerprint": "87b13d70bb680293",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 307,
+          "members": [
+            {
+              "file": "src/query/execution/executor.rs",
+              "line": 2221,
+              "end_line": 2277,
+              "source_hash": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66",
+              "backend_start_column": 78,
+              "backend_end_column": 37
+            },
+            {
+              "file": "src/query/execution/mod.rs",
+              "line": 320,
+              "end_line": 376,
+              "source_hash": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea",
+              "backend_start_column": 26,
+              "backend_end_column": 37
+            }
+          ],
+          "evidence_id": "c5ebdeea5d34713e98ba44a59bf7bcc7b91a1a6c6a55c55e2dae74430f7c5b78"
+        },
+        {
+          "fingerprint": "1aacb41ba28e7de0",
+          "fingerprint_schema": "jscpdCloneHash/v1",
+          "format": "rust",
+          "kind": "exact",
+          "tokens": 507,
+          "members": [
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 268,
+              "end_line": 361,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592",
+              "backend_start_column": 37,
+              "backend_end_column": 13
+            },
+            {
+              "file": "src/query/sql_frontend/lowering.rs",
+              "line": 658,
+              "end_line": 751,
+              "source_hash": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592",
+              "backend_start_column": 47,
+              "backend_end_column": 17
+            }
+          ],
+          "evidence_id": "86b767cd3c6e1fb0ea696274abecacb17f8f31e3584887f02efad090a1b00f08"
+        }
+      ],
+      "fingerprints_complete": true,
+      "total_fragments": 3
+    },
+    "application": {
+      "comparison": {
+        "schema": "victor-copy-comparison-v1",
+        "profile_compatible": true,
+        "new_copy_pairs": 0,
+        "changed_new_copy_pairs": 0,
+        "changed_files_filter": null,
+        "regressions": []
+      },
+      "baseline_sha256": "67db6cc1a1ffd3d0800738a9942aaa8fbfaf4b24bfeae9838f8f2dc47999b861",
+      "baseline_bytes": 2219,
+      "sarif": {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+          {
+            "tool": {
+              "driver": {
+                "name": "victor-graph-similar",
+                "rules": [
+                  {
+                    "id": "victor/token-copy-exact",
+                    "shortDescription": {
+                      "text": "Exact token-copy candidates"
+                    }
+                  },
+                  {
+                    "id": "victor/token-copy-renamed",
+                    "shortDescription": {
+                      "text": "Renamed token-copy candidates"
+                    }
+                  }
+                ]
+              }
+            },
+            "originalUriBaseIds": {
+              "%SRCROOT%": {
+                "uri": "file:///private/tmp/victor-copy-query-corpus-micrvuop/"
+              }
+            },
+            "invocations": [
+              {
+                "executionSuccessful": true,
+                "toolExecutionNotifications": []
+              }
+            ],
+            "artifacts": [
+              {
+                "location": {
+                  "uri": "src/query/execution/executor.rs",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "hashes": {
+                  "sha-256": "297fb0eeffef1ae3586f564dead7e9b4128e602940832cd97e240fe6429f9a66"
+                }
+              },
+              {
+                "location": {
+                  "uri": "src/query/execution/mod.rs",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "hashes": {
+                  "sha-256": "6366ca6871e46d1ce2c6b2d39518718e5ae086e47b501f9b7c9cb700e1fbdeea"
+                }
+              },
+              {
+                "location": {
+                  "uri": "src/query/sql_frontend/lowering.rs",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "hashes": {
+                  "sha-256": "5812727cf76678e446cf1bf566297e5204abfe02e1cf344b8befb92b7e049592"
+                }
+              }
+            ],
+            "results": [
+              {
+                "ruleId": "victor/token-copy-exact",
+                "level": "warning",
+                "message": {
+                  "text": "1 token-copy pairs share this backend fingerprint. Review required; behavioral equivalence is unverified."
+                },
+                "locations": [
+                  {
+                    "id": 1,
+                    "physicalLocation": {
+                      "artifactLocation": {
+                        "uri": "src/query/sql_frontend/lowering.rs",
+                        "uriBaseId": "%SRCROOT%",
+                        "index": 2
+                      },
+                      "region": {
+                        "startLine": 268,
+                        "endLine": 361
+                      }
+                    },
+                    "properties": {
+                      "backend_start_column": 37,
+                      "backend_end_column": 13,
+                      "backend_columns_qualified": false
+                    }
+                  }
+                ],
+                "relatedLocations": [
+                  {
+                    "id": 2,
+                    "physicalLocation": {
+                      "artifactLocation": {
+                        "uri": "src/query/sql_frontend/lowering.rs",
+                        "uriBaseId": "%SRCROOT%",
+                        "index": 2
+                      },
+                      "region": {
+                        "startLine": 658,
+                        "endLine": 751
+                      }
+                    },
+                    "properties": {
+                      "backend_start_column": 47,
+                      "backend_end_column": 17,
+                      "backend_columns_qualified": false
+                    }
+                  }
+                ],
+                "partialFingerprints": {
+                  "jscpdCloneHash/v1": "1aacb41ba28e7de0",
+                  "victorCopyGroup/v1": "f2d31f4ae7223c089a808d5d76b576e2e86a6715ac28d48b881ed465dcc8ab8c"
+                },
+                "properties": {
+                  "evidence": "token_sequence",
+                  "equivalence_verified": false,
+                  "format": "rust",
+                  "copy_pair_count": 1,
+                  "count_delta": null,
+                  "pairs": [
+                    {
+                      "evidence_id": "86b767cd3c6e1fb0ea696274abecacb17f8f31e3584887f02efad090a1b00f08",
+                      "tokens": 507,
+                      "locations": [
+                        1,
+                        2
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "ruleId": "victor/token-copy-exact",
+                "level": "warning",
+                "message": {
+                  "text": "1 token-copy pairs share this backend fingerprint. Review required; behavioral equivalence is unverified."
+                },
+                "locations": [
+                  {
+                    "id": 1,
+                    "physicalLocation": {
+                      "artifactLocation": {
+                        "uri": "src/query/execution/executor.rs",
+                        "uriBaseId": "%SRCROOT%",
+                        "index": 0
+                      },
+                      "region": {
+                        "startLine": 2216,
+                        "endLine": 2266
+                      }
+                    },
+                    "properties": {
+                      "backend_start_column": 33,
+                      "backend_end_column": 10,
+                      "backend_columns_qualified": false
+                    }
+                  }
+                ],
+                "relatedLocations": [
+                  {
+                    "id": 2,
+                    "physicalLocation": {
+                      "artifactLocation": {
+                        "uri": "src/query/execution/executor.rs",
+                        "uriBaseId": "%SRCROOT%",
+                        "index": 0
+                      },
+                      "region": {
+                        "startLine": 2285,
+                        "endLine": 2335
+                      }
+                    },
+                    "properties": {
+                      "backend_start_column": 49,
+                      "backend_end_column": 10,
+                      "backend_columns_qualified": false
+                    }
+                  }
+                ],
+                "partialFingerprints": {
+                  "jscpdCloneHash/v1": "5aa95d4faef8a179",
+                  "victorCopyGroup/v1": "c9779ccc42db63dba8926a532614a2f26cf075f9da871e004c452628908ca01e"
+                },
+                "properties": {
+                  "evidence": "token_sequence",
+                  "equivalence_verified": false,
+                  "format": "rust",
+                  "copy_pair_count": 1,
+                  "count_delta": null,
+                  "pairs": [
+                    {
+                      "evidence_id": "9d0953e79c5a24aa8a1a1f60262f9ee49ac5555db5d8a60dbf259f40ccba1686",
+                      "tokens": 340,
+                      "locations": [
+                        1,
+                        2
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "ruleId": "victor/token-copy-exact",
+                "level": "warning",
+                "message": {
+                  "text": "1 token-copy pairs share this backend fingerprint. Review required; behavioral equivalence is unverified."
+                },
+                "locations": [
+                  {
+                    "id": 1,
+                    "physicalLocation": {
+                      "artifactLocation": {
+                        "uri": "src/query/execution/executor.rs",
+                        "uriBaseId": "%SRCROOT%",
+                        "index": 0
+                      },
+                      "region": {
+                        "startLine": 2221,
+                        "endLine": 2277
+                      }
+                    },
+                    "properties": {
+                      "backend_start_column": 78,
+                      "backend_end_column": 37,
+                      "backend_columns_qualified": false
+                    }
+                  }
+                ],
+                "relatedLocations": [
+                  {
+                    "id": 2,
+                    "physicalLocation": {
+                      "artifactLocation": {
+                        "uri": "src/query/execution/mod.rs",
+                        "uriBaseId": "%SRCROOT%",
+                        "index": 1
+                      },
+                      "region": {
+                        "startLine": 320,
+                        "endLine": 376
+                      }
+                    },
+                    "properties": {
+                      "backend_start_column": 26,
+                      "backend_end_column": 37,
+                      "backend_columns_qualified": false
+                    }
+                  }
+                ],
+                "partialFingerprints": {
+                  "jscpdCloneHash/v1": "87b13d70bb680293",
+                  "victorCopyGroup/v1": "03fe0cd0eb7f4cf061371b6ae9d0a9ec0e73067dac22ddf19b31084d2f28ce3a"
+                },
+                "properties": {
+                  "evidence": "token_sequence",
+                  "equivalence_verified": false,
+                  "format": "rust",
+                  "copy_pair_count": 1,
+                  "count_delta": null,
+                  "pairs": [
+                    {
+                      "evidence_id": "c5ebdeea5d34713e98ba44a59bf7bcc7b91a1a6c6a55c55e2dae74430f7c5b78",
+                      "tokens": 307,
+                      "locations": [
+                        1,
+                        2
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "properties": {
+              "copy_profile": {
+                "schema": "victor-copy-profile-v1",
+                "fingerprint_schema": "jscpdCloneHash/v1",
+                "source_policy_digest": "14c81bfa2c0f5105740f624fec8a88b6cb47672afebf5808e88cf1c5e841f6c9",
+                "backend": {
+                  "name": "jscpd",
+                  "version": "5.4.2",
+                  "mode": "weak",
+                  "min_tokens": 300,
+                  "min_lines": 3,
+                  "normalize_identifiers": false
+                },
+                "selection": {
+                  "scope": "src/query/",
+                  "include_tests": false,
+                  "include_docs": false,
+                  "include_same_file": true
+                },
+                "producers": {
+                  "token_clones.py": "1ff607b528edfbafe0404181b42c0540edb497da01150bb61812073624efe5df",
+                  "token_fingerprints.py": "1a88403d699c33917970c53acc0c95fac2d0a39eaf173b06bbcd3e041c35fcc3",
+                  "token_coverage.py": "e927b1ef0eafc1979f6629a8733259b8f389ce83dddb05b2e90711bfc9d2ecfb",
+                  "source_inventory.py": "a7f65756c71c5bbc96ff09dd6fdfae712494739dfe1a0409fddc0fb90eb7d580",
+                  "bounded_process.py": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+                  "source_reader.py": "3b0ab477d5c665dd2eae59e4091fd8147194f58152a3b20d72b71fa4b7a273f0",
+                  "structural_clones.py": "9713a4df9363bd5ac2035abde4eb463e392453fcc91e77b7fa09842834721db6",
+                  "source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
+                  "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+                  "exclude_patterns.py": "779c69d9173f3b5dcc4977494d7e8bd47b33c41db5ef6369c199ec33a060853d",
+                  "copy_baseline.py": "912b31e16592be85aa5500eced30c01fa3882b28ab1a52b2f5f038158a6f3893"
+                }
+              },
+              "source_digest": "0290c0999a1a8e7158c5f22c65b15240cb784ec6cbd8181d967dbf7a18f559cb",
+              "source_count": 166
+            }
+          }
+        ]
+      },
+      "wall_seconds": 0.014076040824875236,
+      "cpu_seconds": 0.013585999999999987
+    },
+    "limits": [
+      "One diagnostic local observation; no speed comparison or precision/recall qualification",
+      "Sources and project index read-only; baseline writes only to owned temporary directory",
+      "Scope and same-file settings differ from historical Rust-only audit"
+    ]
+  },
+  "comparison": {
+    "all_166_source_hashes_identical": true,
+    "three_native_copy_records_identical": true,
+    "baseline_coverage_complete": false,
+    "candidate_coverage_complete": true,
+    "candidate_main_files": 127,
+    "candidate_proven_control_files": 39,
+    "copy_count_regressions": 0
+  },
+  "sarif_validation": {
+    "authority": "https://github.com/oasis-tcs/sarif-spec/blob/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+    "schema_sha256": "c3b4bb2d6093897483348925aaa73af03b3e3f4bd4ca38cef26dcb4212a2682e",
+    "draft": "04",
+    "uri_format_checker": true,
+    "valid": true
+  },
+  "earlier_whole_project_capacity_observation": {
+    "schema": "victor-copy-workflow-observation-v1",
+    "case": "whole_project",
+    "candidate": "Working application sources identified by implementation hashes",
+    "source_git_head_before": "9226274eea996b0554aada3825856a30002a2f01",
+    "source_git_head_after": "9226274eea996b0554aada3825856a30002a2f01",
+    "source_revision_limit": "HEAD is not a worktree snapshot; successful source manifests bind acquired bytes; failed scans do not retain an input manifest.",
+    "profile": {
+      "schema": "victor-copy-profile-v1",
+      "fingerprint_schema": "jscpdCloneHash/v1",
+      "source_policy_digest": "06f581d960a14a7198b486637839be082f49eaf0363391d76997f9214beba0b6",
+      "backend": {
+        "name": "jscpd",
+        "version": "5.4.2",
+        "mode": "weak",
+        "min_tokens": 300,
+        "min_lines": 3,
+        "normalize_identifiers": false
+      },
+      "selection": {
+        "scope": null,
+        "include_tests": false,
+        "include_docs": false,
+        "include_same_file": true
+      },
+      "producers": {
+        "token_clones.py": "398acbef1d26854aa02b188c80ad12aaf502c1c5ac4d999ff873e3f2b48656e6",
+        "token_fingerprints.py": "1a88403d699c33917970c53acc0c95fac2d0a39eaf173b06bbcd3e041c35fcc3",
+        "source_inventory.py": "a7f65756c71c5bbc96ff09dd6fdfae712494739dfe1a0409fddc0fb90eb7d580",
+        "bounded_process.py": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+        "source_reader.py": "3b0ab477d5c665dd2eae59e4091fd8147194f58152a3b20d72b71fa4b7a273f0",
+        "structural_clones.py": "9713a4df9363bd5ac2035abde4eb463e392453fcc91e77b7fa09842834721db6",
+        "source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
+        "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+        "exclude_patterns.py": "779c69d9173f3b5dcc4977494d7e8bd47b33c41db5ef6369c199ec33a060853d",
+        "copy_baseline.py": "04b69791cf834cf044887690a243f4dfa88752c5d1dc4eb7a5ed891388561189"
+      }
+    },
+    "implementation_hashes": {
+      "victor/core/graph_rag/token_clones.py": "398acbef1d26854aa02b188c80ad12aaf502c1c5ac4d999ff873e3f2b48656e6",
+      "victor/core/graph_rag/token_fingerprints.py": "1a88403d699c33917970c53acc0c95fac2d0a39eaf173b06bbcd3e041c35fcc3",
+      "victor/core/graph_rag/source_inventory.py": "a7f65756c71c5bbc96ff09dd6fdfae712494739dfe1a0409fddc0fb90eb7d580",
+      "victor/core/graph_rag/bounded_process.py": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+      "victor/core/graph_rag/source_reader.py": "3b0ab477d5c665dd2eae59e4091fd8147194f58152a3b20d72b71fa4b7a273f0",
+      "victor/core/graph_rag/structural_clones.py": "9713a4df9363bd5ac2035abde4eb463e392453fcc91e77b7fa09842834721db6",
+      "victor/core/graph_rag/source_regions.py": "28639c13e361996eb3ed4e3deceab36a2d25b130a07867d084f1595692200020",
+      "victor/core/graph_rag/language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+      "victor/core/graph_rag/exclude_patterns.py": "779c69d9173f3b5dcc4977494d7e8bd47b33c41db5ef6369c199ec33a060853d",
+      "victor/core/graph_rag/copy_baseline.py": "04b69791cf834cf044887690a243f4dfa88752c5d1dc4eb7a5ed891388561189",
+      "victor/core/graph_rag/copy_artifacts.py": "b9c3e844f2e49b5d16e8b300418d5c44e00af705d65a9bf5c3a296914bb21f4c",
+      "victor/ui/commands/graph.py": "768fc7e270af2747176965beafbb5dcabc071e4d8141ed4c77382bdab0f8feee"
+    },
+    "implementation_changed_during_run": false,
+    "host": {
+      "system": "Darwin",
+      "machine": "arm64",
+      "python": "3.12.16"
+    },
+    "scan_wall_seconds": 7.264086457900703,
+    "scan_cpu_seconds": 5.383591,
+    "parent_process_max_rss_bytes": 63684608,
+    "rss_scope": "Parent process lifetime peak; native child has a separate 768MiB cap, not a measured peak here",
+    "result": {
+      "evidence": "token_sequence",
+      "coverage_complete": false,
+      "equivalence_verified": false,
+      "error": "Token backend exceeded its memory budget"
+    },
+    "application": null,
+    "limits": [
+      "One diagnostic local observation; no speed comparison or precision/recall qualification",
+      "Sources and project index read-only; baseline writes only to owned temporary directory",
+      "Scope and same-file settings differ from historical Rust-only audit"
+    ]
+  },
+  "limits": [
+    "Single diagnostic observations, not statistical speed or precision/recall claims.",
+    "Token baseline/gates and SARIF are not semantic or ABI equivalence proofs.",
+    "Count compatibility binds fixed options, selected producers and static source policy; untracked inclusion follows current Git ignores. Cached/tracked files remain included.",
+    "Whole-project default768MiB native budget failure remains unqualified; the166-file scope is separately complete.",
+    "Secure Windows acquisition and broader source-channel SARIF remain pending.",
+    "Dependency versions are installed metadata; explicit PYTHONPATH selects source checkouts, identified by implementation/source-policy hashes."
+  ]
+}

@@ -27,6 +27,10 @@ def main() -> None:
     parser.add_argument("--min-nodes", type=int, default=5)
     parser.add_argument("--min-tokens", type=int, default=20)
     parser.add_argument("--token-fingerprints", action="store_true")
+    parser.add_argument("--token-min-lines", type=int, default=0)
+    parser.add_argument("--scope")
+    parser.add_argument("--same-file", action="store_true")
+    parser.add_argument("--exclude-docs", action="store_true")
     args = parser.parse_args()
     implementation = {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -44,6 +48,9 @@ def main() -> None:
             "source_inventory.py",
             "bounded_process.py",
             "token_fingerprints.py",
+            "token_coverage.py",
+            "copy_baseline.py",
+            "copy_artifacts.py",
             "body_provenance.py",
             "family_cohesion.py",
         }
@@ -55,13 +62,15 @@ def main() -> None:
         mode=args.mode,
         min_nodes=args.min_nodes,
         near_metric="subtree",
-        include_docs=True,
+        include_docs=not args.exclude_docs,
+        scope=args.scope,
+        include_same_file=args.same_file,
         limit=200,
         body_options=BodyOptions(),
         token_options=TokenOptions(
             binary=args.jscpd,
             min_tokens=args.min_tokens,
-            min_lines=0,
+            min_lines=args.token_min_lines,
             **({"fingerprints": True} if args.token_fingerprints else {}),
         ),
         cache_path=args.cache,
@@ -91,8 +100,11 @@ def main() -> None:
             "min_nodes": args.min_nodes,
             "min_tokens": args.min_tokens,
             "token_fingerprints": args.token_fingerprints,
+            "token_min_lines": args.token_min_lines,
+            "scope": args.scope,
+            "include_same_file": args.same_file,
             "cache_enabled": args.cache is not None,
-            "include_docs": True,
+            "include_docs": not args.exclude_docs,
             "near_metric": "subtree",
             "threshold": 0.9,
         },

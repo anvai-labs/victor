@@ -229,6 +229,107 @@ observations, not a speed improvement or accuracy claim. The changed-file Linux
 gate installs the pinned backend only when its test owner is selected and requires
 the actual protocol tests to run rather than silently skipping them.
 
+## Copy-count baselines, changed-file gates and token SARIF
+
+The application continuation provides `--baseline`, `--write-baseline`,
+`--changed-file`, `--fail-on-new` and `--sarif` in **token mode**. These are
+source-copy count policies; semantic components and similarity scores are not CI
+gate units. Baseline creation/update is explicit and separate from comparison.
+Incomplete acquisition, an unaccounted native input, incompatible profiles or
+malformed artifacts cannot create/update a baseline or produce a passing gate.
+
+Profiles bind the pinned native version/schema, token options, configured scope,
+test/docs/same-file flags, selected producer-source hashes and the loaded static
+source-selection policy. A producer/options/policy change requires a reviewed new
+baseline. Native opaque fingerprints are grouped by kind and format; counts are
+actual reported pairs, not all pairs invented from a connected family. File moves
+and leading line shifts preserve counts. A count increase is attributed to a
+changed file if **any current occurrence in that fingerprint group** touches that
+file. Assigning arbitrary physical edges as new could miss a newly inserted copy
+when the backend changes pair order. Changed-file filtering does not narrow the
+configured source scan or remove unchanged comparison partners.
+
+Git inventory includes tracked files and nonignored untracked files. Ignore edits
+cannot hide tracked/committed new copies, but untracked inclusion follows the
+current ignore policy. Compatibility does not freeze mutable `.gitignore`, Git
+configuration or filesystem state; review ignore-policy changes separately.
+The acquired source manifest identifies the bytes actually inspected.
+
+Physical-file accounting is distinct from `statistics.total.sources`: the native
+counter omits below-threshold files and can count embedded-language units in
+addition to their host file. An untruncated native file summary binds recognized
+paths to acquired byte counts. Missing paths receive a bounded complexity-only
+control at zero token/line thresholds; it performs no duplicate detection. Only
+proven ineligible omissions count as covered. Possible eligible omissions,
+unsupported extensions and uncertain embedded-host omissions remain incomplete.
+Main and control calls share one timeout and the same owned-process RSS/artifact
+bounds. Reports expose physical `backend_analyzed_files`,
+`backend_reported_source_units` and `backend_control_files` separately.
+
+Occurrence identities include source hashes, raw backend column spans, native
+fingerprint, kind, format and token count. Freeze validation recomputes these
+identities and rejects duplicate physical signatures independently of supplied
+IDs. Native columns remain unqualified correlation data. SARIF uses valid
+line-only regions, URI-encodes raw filenames once, preserves actual pair references
+and exposes backend columns only in properties. Count deltas remain grouped;
+results do not invent an edge-specific `baselineState`. Incomplete/workflow-error
+reports declare unsuccessful execution; a successful analysis that finds a gated
+count increase retains successful SARIF execution and exits 1.
+
+Baseline artifacts use bounded strict JSON. Publication rejects foreign files,
+source/database aliases, symlinks and hardlinks, and checks destination/directory
+identity before atomic replacement. Filesystem identity checks cover NFC/NFD aliases on
+normalization-insensitive filesystems. Publication settles once before cancellation
+propagates; comparison never silently updates the baseline.
+
+For a configured module gate (use the identical options on both commands):
+
+```bash
+victor graph similar --path /path/to/project --mode tokens \
+  --jscpd-binary /path/to/jscpd --scope src/query/ --same-file \
+  --min-tokens 300 --token-min-lines 3 \
+  --write-baseline /path/to/copies.json --json
+victor graph similar --path /path/to/project --mode tokens \
+  --jscpd-binary /path/to/jscpd --scope src/query/ --same-file \
+  --min-tokens 300 --token-min-lines 3 --baseline /path/to/copies.json \
+  --changed-file src/query/sql_frontend/lowering.rs --fail-on-new --sarif
+```
+
+`--same-file` includes copies inside one file; the shared command otherwise
+defaults to cross-file evidence. Omit `--scope` for the entire selected project
+when it fits the stated resource bounds. Baseline/SARIF integration for other
+channels remains pending; no output certifies behavioral or ABI equivalence.
+
+The [retained qualification](evidence/copy-workflow-2026-11-02.json) uses 166 frozen
+ProximaDB query files, each SHA-256 checked against Git blobs at
+`9226274eea996b0554aada3825856a30002a2f01`. The merged foundation `f7d4b606e` and
+candidate retain identical source hashes and three native copy records. Coverage
+changes from incorrectly incomplete to 166 accounted paths: 127 main-summary
+files plus 39 proven ineligible controls. Separate-process wall observations are
+0.564/0.614 s; explicit baseline create/compare/update and SARIF take 0.014 s in
+another process. These are local diagnostics, not statistical performance or
+precision/recall claims. Installed dependency metadata is recorded separately
+from source checkouts selected through `PYTHONPATH`.
+
+The earlier whole-project observation reached the default 768 MiB native RSS
+budget and failed explicitly; it did not create a baseline and does not qualify
+whole-project capacity. Secure Windows acquisition remains unsupported. A
+supported scoped run is not whole-project or release acceptance.
+
+Reproduce source-channel observations with the same frozen input hashes,
+interpreter and pinned backend, changing only the implementation checkout:
+
+```bash
+python scripts/benchmark_graph_similarity_channels.py /path/to/frozen/project \
+  --mode tokens --scope src/query/ --same-file --exclude-docs \
+  --min-tokens 300 --token-min-lines 3 --token-fingerprints \
+  --jscpd /path/to/jscpd --output /outside/source/query-observation.json
+```
+
+Success and failure SARIF outputs were checked against the
+[official OASIS schema](https://github.com/oasis-tcs/sarif-spec/blob/main/sarif-2.1/schema/sarif-schema-2.1.0.json),
+including URI formats; its digest is retained in the qualification artifact.
+
 Thresholds are selected only from calibration projects, separately per relation
 and unordered language pair. Both classes and the selected true positives must
 meet `minimum_support`. Selection maximizes true positives subject to the requested

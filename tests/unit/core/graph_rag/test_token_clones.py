@@ -37,6 +37,63 @@ def source_pair(root):
         (root / name).write_text(text)
 
 
+def test_real_cli_baseline_moves_changed_gate_and_sarif(tmp_path, binary):
+    from typer.testing import CliRunner
+    from victor.ui.commands.graph import graph_app
+
+    root = tmp_path / "project"
+    root.mkdir()
+    source_pair(root)
+    baseline = tmp_path / "copies.json"
+    args = [
+        "similar",
+        "--path",
+        str(root),
+        "--mode",
+        "tokens",
+        "--jscpd-binary",
+        binary,
+        "--min-tokens",
+        "20",
+        "--token-min-lines",
+        "0",
+        "--limit",
+        "1",
+    ]
+    runner = CliRunner()
+    created = runner.invoke(graph_app, [*args, "--write-baseline", str(baseline), "--json"])
+    assert created.exit_code == 0, created.output
+    before = baseline.read_bytes()
+    (root / "a.py").rename(root / "moved.py")
+    (root / "moved.py").write_text("\n\n" + (root / "moved.py").read_text())
+    moved = runner.invoke(
+        graph_app, [*args, "--baseline", str(baseline), "--fail-on-new", "--json"]
+    )
+    assert moved.exit_code == 0, moved.output
+    assert json.loads(moved.output)["copy_comparison"]["new_copy_pairs"] == 0
+    changed = "%new copy#?.py"
+    (root / changed).write_text((root / "b.py").read_text())
+    gate = [*args, "--baseline", str(baseline), "--changed-file", changed, "--fail-on-new"]
+    result = runner.invoke(graph_app, [*gate, "--json"])
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["coverage_complete"]
+    assert payload["copy_comparison"]["changed_new_copy_pairs"] == 1
+    assert len(payload["fragments"]) == 1  # Display limits cannot truncate gate evidence.
+    assert len(payload["fingerprints"]) == 2
+    sarif = runner.invoke(graph_app, [*gate, "--sarif"])
+    assert sarif.exit_code == 1, sarif.output
+    run = json.loads(sarif.output)["runs"][0]
+    assert run["invocations"][0]["executionSuccessful"]
+    assert any(item["location"]["uri"] == "%25new%20copy%23%3F.py" for item in run["artifacts"])
+    assert run["results"][0]["properties"]["count_delta"]["new_copy_pairs"] == 1
+    (root / "unreadable.py").symlink_to(root / "b.py")
+    rejected = runner.invoke(graph_app, [*args, "--write-baseline", str(baseline), "--json"])
+    assert rejected.exit_code == 1, rejected.output
+    assert not json.loads(rejected.output)["coverage_complete"]
+    assert baseline.read_bytes() == before
+
+
 def test_real_fragment_backend_ignores_project_config(tmp_path, binary):
     source_pair(tmp_path)
     config = tmp_path / ".jscpd.json"
@@ -173,13 +230,115 @@ def test_invalid_backend_evidence_is_rejected(tmp_path, monkeypatch, corrupt):
         if corrupt == "kind":
             duplicate["kind"] = "semantic"
         (work / "report" / "jscpd-report.json").write_text(
-            json.dumps({"statistics": {"total": {"sources": 2}}, "duplicates": [duplicate]})
+            json.dumps(
+                {
+                    "statistics": {"total": {"sources": 2}},
+                    "duplicates": [duplicate],
+                    "summary": {
+                        "by": "tokens",
+                        "totalFiles": 2,
+                        "files": [
+                            {
+                                "path": name,
+                                "format": "python",
+                                "bytes": (work / "source" / name).stat().st_size,
+                                "lines": 4,
+                                "tokens": 30,
+                            }
+                            for name in ("a.py", "b.py")
+                        ],
+                    },
+                }
+            )
         )
         return 0, "test"
 
     monkeypatch.setattr(token_clones, "_run_detector", emit)
     with pytest.raises(ValueError):
         scan_tokens(tmp_path, options=TokenOptions(min_tokens=8))
+
+
+def test_real_ineligible_and_empty_files_have_verified_coverage(tmp_path, binary):
+    from victor.core.graph_rag.copy_baseline import copy_profile, make_baseline, parse_copy_report
+
+    source_pair(tmp_path)
+    (tmp_path / "empty.rs").write_bytes(b"")
+    (tmp_path / "comments.rs").write_text("// comment only\n" * 8)
+    options = TokenOptions(binary=binary, min_tokens=300, min_lines=3, fingerprints=True)
+    result = scan_tokens(tmp_path, options=options)
+    assert result["coverage_complete"], result
+    assert result["stats"]["backend_analyzed_files"] == 4
+    assert result["stats"]["backend_reported_source_units"] == 0
+    assert result["stats"]["backend_control_files"] == 4
+    assert make_baseline(parse_copy_report(result, copy_profile(options))).counts == ()
+
+
+@pytest.mark.parametrize(
+    "suffix, source",
+    [
+        (".rs", "fn f(x:i32)->i32 { x+1 }\n"),
+        (".ts", "function f(x:number):number { return x+1; }\n"),
+        (".cpp", "int f(int x) { return x+1; }\n"),
+        (".java", "class A { int f(int x) { return x+1; } }\n"),
+    ],
+)
+def test_real_other_language_ineligible_inputs_are_accounted(tmp_path, binary, suffix, source):
+    (tmp_path / ("small" + suffix)).write_text(source)
+    result = scan_tokens(
+        tmp_path,
+        options=TokenOptions(binary=binary, min_tokens=300, min_lines=0, fingerprints=True),
+    )
+    assert result["coverage_complete"], result
+    assert result["stats"]["backend_analyzed_files"] == 1
+    assert result["stats"]["backend_control_files"] == 1
+    assert result["stats"]["backend_reported_source_units"] == 0
+
+
+def test_real_embedded_source_units_are_not_physical_file_counts(tmp_path, binary):
+    text = "\n".join(f"fn f{i}(x:i32)->i32 {{ x+1 }}" for i in range(4))
+    for name in ("a.md", "b.md"):
+        (tmp_path / name).write_text(
+            "Heading\n```rust\n" + text + "\n```\n```python\ndef f(x):\n return x+1\n```\n"
+        )
+    result = scan_tokens(
+        tmp_path,
+        options=TokenOptions(binary=binary, min_tokens=20, min_lines=0, fingerprints=True),
+        include_docs=True,
+    )
+    assert result["coverage_complete"], result
+    assert result["stats"]["backend_analyzed_files"] == 2
+    assert result["stats"]["backend_reported_source_units"] == 4
+    assert result["stats"]["backend_control_files"] == 0
+    assert result["fingerprints"]
+
+
+def test_control_does_not_excuse_an_unexplained_eligible_file_omission(
+    tmp_path, binary, monkeypatch
+):
+    source_pair(tmp_path)
+    run = token_clones._run_detector
+    calls = []
+
+    def omit(arguments, work, timeout):
+        calls.append(timeout)
+        result = run(arguments, work, timeout)
+        if "--complexity" not in arguments:
+            path = work / "report" / "jscpd-report.json"
+            raw = json.loads(path.read_text())
+            raw["summary"]["files"] = [
+                row for row in raw["summary"]["files"] if row["path"] != "b.py"
+            ]
+            raw["summary"]["totalFiles"] = 1
+            raw["duplicates"] = []
+            raw["statistics"]["total"]["sources"] = 1
+            path.write_text(json.dumps(raw))
+        return result
+
+    monkeypatch.setattr(token_clones, "_run_detector", omit)
+    result = scan_tokens(tmp_path, options=TokenOptions(binary=binary, min_tokens=8, min_lines=0))
+    assert not result["coverage_complete"]
+    assert {"file": "b.py", "reason": "backend_unexplained_omission"} in result["errors"]
+    assert len(calls) == 2 and calls[1] < calls[0]
 
 
 def test_timeout_terminates_owned_backend(tmp_path):

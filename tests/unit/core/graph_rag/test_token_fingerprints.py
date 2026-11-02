@@ -61,6 +61,11 @@ def test_fingerprints_retain_raw_paths_and_verified_source_references(tmp_path):
     assert result[0]["tokens"] == 30
     assert result[0]["members"][0]["file"] == "a%name.py"
     assert result[0]["members"][0]["source_hash"] == "a" * 64
+    assert result[0]["members"][0]["backend_start_column"] == 0
+    changed = copy.deepcopy(manifest)
+    changed["a%name.py"]["sha256"] = "b" * 64
+    refreshed = parse_fingerprints(sarif, duplicates, changed, tmp_path, expected_version="5.4.2")
+    assert result[0]["evidence_id"] != refreshed[0]["evidence_id"]
 
 
 @pytest.mark.parametrize(

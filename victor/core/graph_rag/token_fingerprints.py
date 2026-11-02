@@ -7,6 +7,8 @@ used only to correlate backend records; returned source references use lines.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path, PurePosixPath
 import re
 from typing import Any
@@ -16,6 +18,35 @@ MAX_FINGERPRINTS = 100_000
 MAX_POSITION = 128 * 1024 * 1024
 Location = tuple[str, int, int, int, int]
 Signature = tuple[tuple[Location, Location], int]
+
+
+def source_evidence_id(row: dict[str, Any]) -> str:
+    """Hash a canonical source-bound occurrence, including native column spans.
+
+    Backend columns identify/correlate occurrences; they are not qualified SARIF
+    character coordinates. The digest is an identity, not authentication.
+    """
+    locations = sorted(
+        (
+            item["file"],
+            item["line"],
+            item["end_line"],
+            item["backend_start_column"],
+            item["backend_end_column"],
+            item["source_hash"],
+        )
+        for item in row["members"]
+    )
+    preimage = [
+        "victor-token-evidence-v1",
+        FINGERPRINT_SCHEMA,
+        row["fingerprint"],
+        row["kind"],
+        row["format"],
+        row["tokens"],
+        locations,
+    ]
+    return hashlib.sha256(json.dumps(preimage, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _integer(value: Any, minimum: int = 0) -> int:
@@ -172,24 +203,26 @@ def parse_fingerprints(
             locations, tokens = key
             if not include_same_file and locations[0][0] == locations[1][0]:
                 continue
-            parsed.append(
-                {
-                    "fingerprint": fingerprint,
-                    "fingerprint_schema": FINGERPRINT_SCHEMA,
-                    "format": format_,
-                    "kind": kind,
-                    "tokens": tokens,
-                    "members": [
-                        {
-                            "file": file,
-                            "line": start,
-                            "end_line": end,
-                            "source_hash": manifest[file]["sha256"],
-                        }
-                        for file, start, end, _, _ in locations
-                    ],
-                }
-            )
+            occurrence = {
+                "fingerprint": fingerprint,
+                "fingerprint_schema": FINGERPRINT_SCHEMA,
+                "format": format_,
+                "kind": kind,
+                "tokens": tokens,
+                "members": [
+                    {
+                        "file": file,
+                        "line": start,
+                        "end_line": end,
+                        "source_hash": manifest[file]["sha256"],
+                        "backend_start_column": first,
+                        "backend_end_column": last,
+                    }
+                    for file, start, end, first, last in locations
+                ],
+            }
+            occurrence["evidence_id"] = source_evidence_id(occurrence)
+            parsed.append(occurrence)
         if expected:
             raise ValueError("JSON token evidence is missing its fingerprint carrier")
         return parsed
