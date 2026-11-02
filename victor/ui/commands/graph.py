@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
 import os
@@ -1830,6 +1830,7 @@ def graph_similar(
         raise typer.Exit(2)
     if mode in {"body", "tokens", "hybrid"}:
         from victor.core.graph_rag.similarity_analysis import analyze_source
+        from victor.ui.rendering.clone_families import render_vector_cohesion
 
         try:
             if mode in {"body", "tokens"} and cross_language:
@@ -1907,6 +1908,7 @@ def graph_similar(
                         + ", ".join(f"{m['file']}:{m['line']}" for m in relation["members"]),
                         markup=False,
                     )
+                    render_vector_cohesion(console, relation.get("cohesion"), relation["members"])
         if not payload["coverage_complete"]:
             raise typer.Exit(1)
         return
@@ -1998,6 +2000,7 @@ def graph_similar(
                             "similarity": round(f.similarity, 4),
                             "min_edge_similarity": f.min_edge_similarity,
                             "matching_pairs": f.matching_pairs,
+                            "cohesion": asdict(f.cohesion) if f.cohesion is not None else None,
                             "summary_input_variants": (
                                 len({m.input_hash for m in f.members})
                                 if all(m.input_hash for m in f.members)
@@ -2006,6 +2009,7 @@ def graph_similar(
                             "files": f.files,
                             "members": [
                                 {
+                                    "id": m.id,
                                     "file": m.file_path,
                                     "symbol": m.symbol_name,
                                     "kind": m.kind,
@@ -2037,6 +2041,22 @@ def graph_similar(
         console.print(
             f"[bold]── family[/bold] (best matching edge {fam.similarity:.3f}; {fam.matching_pairs} edges)"
         )
+        if fam.cohesion is not None:
+            from victor.ui.rendering.clone_families import render_vector_cohesion
+
+            render_vector_cohesion(
+                console,
+                asdict(fam.cohesion),
+                [
+                    {
+                        "id": m.id,
+                        "file": m.file_path,
+                        "line": m.line_number,
+                        "symbol": m.symbol_name,
+                    }
+                    for m in fam.members
+                ],
+            )
         for m in fam.members[:6]:
             rel = m.file_path
             console.print(f"   [cyan]{rel}[/cyan]:{m.line_number} [white]{m.symbol_name}[/white]")

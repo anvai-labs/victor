@@ -10,7 +10,10 @@ functional equivalence; identical summaries can describe different behavior. Rea
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from os import PathLike
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from victor.core.graph_rag.family_cohesion import VectorFamilyExplanation, explain_vector_family
 
 DEFAULT_THRESHOLD = 0.90
 
@@ -38,6 +41,7 @@ class CloneFamily:
     members: List[SymbolRecord] = field(default_factory=list)
     min_edge_similarity: Optional[float] = None
     matching_pairs: int = 0
+    cohesion: Optional[VectorFamilyExplanation] = None
 
     @property
     def files(self) -> List[str]:
@@ -80,7 +84,7 @@ def _scope_predicate(scope: Optional[str], include_tests: bool) -> str:
 
 
 def load_embedding_symbols(
-    project_root,
+    project_root: str | PathLike[str],
     scope: Optional[str] = None,
     include_tests: bool = False,
 ) -> Tuple[List[SymbolRecord], Any]:
@@ -189,7 +193,7 @@ class TooManyPairsError(ValueError):
     """The threshold matched more pairs than ``max_pairs`` allows."""
 
 
-def make_union_find(n: int):
+def make_union_find(n: int) -> tuple[Callable[[int], int], Callable[[int, int], None]]:
     """Tiny path-halving union-find over ``range(n)``.
 
     Shared with ``victor.native.python.graph_algo`` — one implementation,
@@ -234,8 +238,14 @@ def find_clone_families(
     """
     import math
     import numpy as np
+    from numpy.typing import NDArray
 
     n = len(records)
+    if (
+        any(not isinstance(record.id, str) or not record.id for record in records)
+        or len({record.id for record in records}) != n
+    ):
+        raise ValueError("Symbol records require unique nonempty string IDs")
     if (
         language_scope not in {"all", "same", "cross"}
         or (language_ids is not None and len(language_ids) != n)
@@ -308,8 +318,8 @@ def find_clone_families(
     for b0 in range(0, n, row_count):
         b1 = min(b0 + row_count, n)
         row_ids = np.arange(b0, b1)
-        best_scores = np.full((b1 - b0, k), -np.inf, dtype=np.float32)
-        best_ids = np.full((b1 - b0, k), -1, dtype=np.int64)
+        best_scores: NDArray[np.float32] = np.full((b1 - b0, k), -np.inf, dtype=np.float32)
+        best_ids: NDArray[np.int64] = np.full((b1 - b0, k), -1, dtype=np.int64)
         for c0 in range(0 if top_k is not None else b0, n, column_count):
             c1 = min(c0 + column_count, n)
             col_ids = np.arange(c0, c1)
@@ -361,6 +371,7 @@ def find_clone_families(
             members=sorted(
                 (records[i] for i in members), key=lambda r: (r.file_path, r.line_number, r.id)
             ),
+            cohesion=explain_vector_family([records[i].id for i in members], matrix, members),
         )
         for root, members in groups.items()
     ]

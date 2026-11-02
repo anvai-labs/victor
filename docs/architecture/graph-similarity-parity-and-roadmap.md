@@ -214,9 +214,11 @@ build dependency is not justified by this comparison.
 
 The current command does not consume CFG/CDG/DDG structure. Before adding graph
 kernels, validate those structures and their backend provenance. In particular,
-the built-in CCG helper called `_find_dominated_nodes` currently computes simple
-reachability; it is not a sufficient control-dependence/postdominator oracle.
-Native/plugin graph shapes also differ, as recorded in the native strategy.
+the earlier built-in CCG helper called `_find_dominated_nodes` computed simple
+reachability. The [merged graph foundation](graph-control-dependence.md) replaces
+that behavior with a bounded postdominance reference and qualified native facade;
+it does not qualify heuristic source CFGs or plugin graph semantics. Backend
+provenance and compiler-context ablation remain necessary before ranking fusion.
 
 Start with an ablation of resolved call targets and def/use features. Then test
 bounded graph fingerprints or typed operation/data-flow neighborhoods. Preserve
@@ -494,8 +496,8 @@ review/CI/merge evidence. Release and production qualification remain separate.
 | F1 | Reviewed pair protocol, source snapshots, calibration/test isolation and exact pair scores | Merged in [#1658](https://github.com/anvai-labs/victor/pull/1658), `1c4fd0950`; all PR CI and independent scope reviews clean. Portable v3 coverage is 169/234 on the matched manifest. |
 | F2 | F1; bounded failure and typed binding evidence before broader similarity claims | Merged in [#1659](https://github.com/anvai-labs/victor/pull/1659), `7b4942c91`, after exact-commit clean review and all PR CI. Matched 234-function invalid-profile probe: 234 constructions → one, same 234 errors; standard-JNI diagnostics retain unknown/ABI/runtime limits. [Evidence and reproduction](graph-similarity-evaluation.md). |
 | G1 | F1/F2; correct input graph semantics and context ablation | Graph foundation merged in [#1660](https://github.com/anvai-labs/victor/pull/1660), `d5bf69043`, after exact review and all CI including ten installed-wheel checks. [Evidence](graph-control-dependence.md). Source CFG remains heuristic; compiler/callee-context ablation remains before ranking fusion. |
-| R1 | F1/G1; measured retrieval/cache behavior against exact observations | Cache foundation locally implemented/reviewed: owner current continuation session, branch `feature/graph-similarity-cache-provenance`, baseline `d5bf69043`. Producer/runtime keys, validated input binding, custom isolation and generation checks preserve all 233 vector inputs and 27,261 requested scores; warm zero-load remains. [Measured limits and evidence](graph-similarity-evaluation.md). Next: exact-SHA review/CI/merge, then retrieval scaling and incremental behavior against exact observations. |
-| A1 | Explicit edge evidence and deterministic source identities | Pending: family representative/cohesion views, stable source-copy baseline and changed-code gates; never gate on family count alone. |
+| R1 | F1/G1; measured retrieval/cache behavior against exact observations | Cache foundation merged in [#1661](https://github.com/anvai-labs/victor/pull/1661), `28c13496e`, after exact review and all 40 CI checks. Producer/runtime keys, validated input binding, custom isolation and generation checks preserve all 233 vector inputs and 27,261 requested scores; warm zero-load remains. [Measured limits and evidence](graph-similarity-evaluation.md). Broader retrieval scaling and incremental behavior remain unqualified; do not add ANN/native work without a measured target miss. |
+| A1 | Explicit edge evidence and deterministic source identities | In progress: owner current continuation session, branch `feature/graph-family-cohesion`, baseline `28c13496e`. First deliver bounded vector-family representatives/cohesion with direct weak-pair witnesses and no all-pairs equivalence claim; then stable source-copy baseline and changed-code gates. Never gate on family count alone. |
 | A2 | A1 and complete/error-aware reports | Pending: SARIF and developer CLI/report integration, retaining evidence/qualification boundaries. |
 | P1 | Secure source acquisition parity | Pending: qualify a Windows handle-relative adapter; current source channels fail explicitly without secure primitives. Do not add a path-based race-prone fallback. |
 | Q1 | Independent projects/lineages and relation-specific acceptance | Ongoing: expand beyond the eight-pair repository pilot. Default BGE remains unqualified; no current score certifies semantic equivalence, safe extraction or backend deletion. |
