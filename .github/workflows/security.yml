@@ -36,6 +36,10 @@ on:
     - cron: '0 2 * * 1'
   workflow_dispatch:
   workflow_call:
+    secrets:
+      SEMGREP_APP_TOKEN:
+        description: Optional token for the configured Semgrep service
+        required: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
