@@ -280,6 +280,8 @@ def test_jni_relationship_prints_even_without_duplicate_bodies(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Java_pkg_Native_sum" in result.output
     assert "jni_declaration_export" in result.output
+    assert "matching_declaration" in result.output
+    assert "ABI unverified" in result.output
 
 
 def test_language_filter_and_incomplete_coverage_are_machine_readable(tmp_path):

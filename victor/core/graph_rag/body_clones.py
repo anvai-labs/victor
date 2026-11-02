@@ -68,37 +68,70 @@ class BodyOptions:
 
 
 class LocalBodyEncoder:
-    """One explicitly pinned upstream model; local cache only, no remote code."""
+    """One pinned local model per analysis; failed loads are not replayed.
+
+    Create a fresh encoder after repairing a profile or local model installation.
+    Warm vector-cache reads do not call this loader.
+    """
 
     def __init__(self, options: BodyOptions, *, model_factory: Any = None) -> None:
         self.options = options
         self.model_factory = model_factory
         self.model: Any = None
+        self._load_failure: tuple[type[Exception], str] | None = None
+        self._load_attempts = 0
+
+    @property
+    def load_attempts(self) -> int:
+        return self._load_attempts
+
+    @property
+    def load_failed(self) -> bool:
+        return self._load_failure is not None
 
     def _load(self) -> Any:
+        if self._load_failure is not None:
+            error_type, message = self._load_failure
+            raise error_type(message)
         if self.model is None:
-            factory = self.model_factory
-            if factory is None:
-                from sentence_transformers import SentenceTransformer
+            self._load_attempts += 1
+            try:
+                factory = self.model_factory
+                if factory is None:
+                    from sentence_transformers import SentenceTransformer
 
-                factory = SentenceTransformer
-            model = factory(
-                self.options.model_id,
-                revision=self.options.revision,
-                local_files_only=True,
-                trust_remote_code=False,
-                device="cpu",
-            )
-            dimension = (
-                getattr(model, "get_embedding_dimension", None)
-                or model.get_sentence_embedding_dimension
-            )
-            if dimension() != self.options.dimension:
-                raise ValueError("Body model dimension does not match its profile")
-            if int(model.max_seq_length) < self.options.max_tokens:
-                raise ValueError("Body token budget exceeds this model's context")
-            model.max_seq_length = self.options.max_tokens
-            self.model = model
+                    factory = SentenceTransformer
+                model = factory(
+                    self.options.model_id,
+                    revision=self.options.revision,
+                    local_files_only=True,
+                    trust_remote_code=False,
+                    device="cpu",
+                )
+                dimension = (
+                    getattr(model, "get_embedding_dimension", None)
+                    or model.get_sentence_embedding_dimension
+                )
+                if dimension() != self.options.dimension:
+                    raise ValueError("Body model dimension does not match its profile")
+                if int(model.max_seq_length) < self.options.max_tokens:
+                    raise ValueError("Body token budget exceeds this model's context")
+                model.max_seq_length = self.options.max_tokens
+                self.model = model
+            except (AttributeError, TypeError) as exc:
+                message = f"Unsupported local body model metadata: {exc}"[:1500]
+                self._load_failure = (ValueError, message)
+                raise ValueError(message) from exc
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:
+                # Keep only a bounded message and base exception class, never a
+                # traceback retaining partially constructed model weights.
+                error_type = next(
+                    kind
+                    for kind in (ImportError, OSError, RuntimeError, ValueError)
+                    if isinstance(exc, kind)
+                )
+                self._load_failure = (error_type, str(exc)[:1500])
+                raise
         return self.model
 
     def windows(self, source: str) -> tuple[list[str], list[tuple[int, int]]]:
@@ -278,6 +311,7 @@ def analyze_bodies(
     encoder = encoder or LocalBodyEncoder(options)
     if encoder.options != options:
         raise ValueError("Body encoder profile does not match the requested evidence")
+    load_attempts_before = getattr(encoder, "load_attempts", None)
     cache = _BodyCache(cache_path, options)
     records, vectors, metadata, errors = [], [], {}, []
     # Duplicate exact source inputs are inferred once, independently of paths.
@@ -403,6 +437,12 @@ def analyze_bodies(
         },
         "stats": {
             "functions": len(records),
+            "model_load_attempts": (
+                encoder.load_attempts - load_attempts_before
+                if type(load_attempts_before) is int
+                else None
+            ),
+            "model_load_failed": getattr(encoder, "load_failed", None),
             "unique_inputs": len(documents),
             "inferred_windows": len(texts),
             "cache_hits": cache_hits,

@@ -14,6 +14,12 @@ from dataclasses import dataclass
 import re
 from typing import Any, Sequence
 
+from victor.core.graph_rag.jni_contracts import (
+    JavaSignature,
+    NativeSignature,
+    compare_jni_declarations,
+)
+
 
 @dataclass(frozen=True)
 class BindingFact:
@@ -24,6 +30,8 @@ class BindingFact:
     kind: str
     binding_name: str
     argument_descriptor: str | None = None
+    java_signature: JavaSignature | None = None
+    native_signature: NativeSignature | None = None
 
 
 def jni_escape(value: str) -> str:
@@ -79,69 +87,127 @@ def collect_binding_facts(
         return next(iter(targets)) if len(targets) == 1 else None
 
     package = ""
-    imports: dict[str, str] = {}
     for child in root.named_children:
         if child.type == "package_declaration":
             package = text(child).removeprefix("package").rstrip(";").strip().replace(".", "/")
-        elif child.type == "import_declaration":
-            value = text(child).removeprefix("import").rstrip(";").strip()
-            if not value.startswith("static ") and not value.endswith(".*"):
-                imports[value.rsplit(".", 1)[-1]] = value.replace(".", "/")
 
-    def descriptor(parameters: Any) -> str | None:
-        result = []
+    def type_descriptor(type_node: Any, extra: Any = None) -> str | None:
+        if type_node is None:
+            return None
+        value = text(type_node).replace(" ", "")
+        dimensions = value.count("[]")
+        if extra is not None:
+            dimensions += text(extra).count("[]")
+        value = value.replace("[]", "")
+        primitive = {
+            "boolean": "Z",
+            "byte": "B",
+            "char": "C",
+            "short": "S",
+            "int": "I",
+            "long": "J",
+            "float": "F",
+            "double": "D",
+            "void": "V",
+        }.get(value)
+        if primitive is not None:
+            return "[" * dimensions + primitive
+        target = resolved_type(type_node)
+        # Imports and even qualified-looking names can be shadowed by member
+        # types or type parameters. Require fresh compiler identity for every
+        # reference descriptor rather than guessing Java name resolution.
+        if target is None:
+            return None
+        return "[" * dimensions + "L" + target + ";"
+
+    def java_signature(node: Any, parameters: Any, modifiers: Any) -> JavaSignature:
+        descriptors = tuple(
+            (
+                type_descriptor(p.child_by_field_name("type"), p.child_by_field_name("dimensions"))
+                if p.type == "formal_parameter"
+                else None
+            )
+            for p in parameters.named_children
+            if p.type not in {"receiver_parameter", "line_comment", "block_comment"}
+        )
+        return JavaSignature(
+            descriptors,
+            type_descriptor(
+                node.child_by_field_name("type"), node.child_by_field_name("dimensions")
+            ),
+            any(c.type == "static" for c in modifiers.children),
+            # Annotation effects (including nonstandard native conventions) are
+            # not resolved. Even harmless annotations conservatively abstain.
+            not any(
+                c.type in {"annotation", "marker_annotation"} for c in modifiers.named_children
+            ),
+        )
+
+    def native_signature(node: Any) -> NativeSignature:
+        def spelling(
+            type_node: Any, declarator: Any, *, function_result: bool = False
+        ) -> str | None:
+            if type_node is None or type_node.type not in {"type_identifier", "primitive_type"}:
+                return None
+            value = text(type_node)
+            while declarator is not None and declarator.type == "pointer_declarator":
+                if any(c.type == "type_qualifier" for c in declarator.named_children):
+                    return None
+                value += "*"
+                declarator = declarator.child_by_field_name("declarator")
+            allowed = {"identifier", "function_declarator"} if function_result else {"identifier"}
+            if declarator is not None and declarator.type not in allowed:
+                return None
+            return value
+
+        outer = node.child_by_field_name("declarator")
+        function = outer
+        while function is not None and function.type == "pointer_declarator":
+            function = function.child_by_field_name("declarator")
+        parameters = function.child_by_field_name("parameters") if function is not None else None
+        result = spelling(node.child_by_field_name("type"), outer, function_result=True)
+        if parameters is None or any(c.type == "..." for c in parameters.children):
+            return NativeSignature(None, result)
+        arguments = []
         for parameter in parameters.named_children:
-            if parameter.type != "formal_parameter":
-                return None
-            type_node = parameter.child_by_field_name("type")
-            if type_node is None:
-                return None
-            value = text(type_node).replace(" ", "")
-            dimensions = value.count("[]")
-            extra = parameter.child_by_field_name("dimensions")
-            if extra is not None:
-                dimensions += text(extra).count("[]")
-            value = value.replace("[]", "")
-            primitive = {
-                "boolean": "Z",
-                "byte": "B",
-                "char": "C",
-                "short": "S",
-                "int": "I",
-                "long": "J",
-                "float": "F",
-                "double": "D",
-            }.get(value)
-            if primitive is not None:
-                result.append("[" * dimensions + primitive)
+            if parameter.type in {"comment", "line_comment", "block_comment"}:
                 continue
-            target = resolved_type(type_node)
-            if target is None:
-                # These explicit platform names are unambiguous. Other binary
-                # reference descriptors require compiler evidence; dots alone
-                # cannot distinguish packages from nested classes.
-                qualified = imports.get(value, value.replace(".", "/"))
-                if qualified in {
-                    "java/lang/String",
-                    "java/lang/Object",
-                    "java/lang/Class",
-                    "java/lang/Throwable",
-                }:
-                    target = qualified
-            if target is None:
-                return None
-            result.append("[" * dimensions + "L" + target + ";")
-        return "".join(result)
+            if parameter.type != "parameter_declaration":
+                return NativeSignature(None, result)
+            if any(c.type == "type_qualifier" for c in parameter.named_children):
+                arguments.append(None)
+            else:
+                arguments.append(
+                    spelling(
+                        parameter.child_by_field_name("type"),
+                        parameter.child_by_field_name("declarator"),
+                    )
+                )
+        if arguments == ["void"]:
+            arguments = []
+        return NativeSignature(tuple(arguments), result)
 
     facts = []
 
-    def visit(node: Any, owners: tuple[str, ...] = ()) -> None:
+    def visit(node: Any, owners: tuple[str, ...] = (), owner_known: bool = True) -> None:
+        if node.type in {"object_creation_expression", "enum_constant"}:
+            owner_known = False
         if node.type in {
             "class_declaration",
             "interface_declaration",
             "enum_declaration",
             "record_declaration",
         }:
+            # Local/anonymous binary names contain compiler-assigned components.
+            # Lexical nesting alone cannot identify their JNI export owner.
+            if node.parent is not None and node.parent.type not in {
+                "program",
+                "class_body",
+                "interface_body",
+                "enum_body",
+                "enum_body_declarations",
+            }:
+                owner_known = False
             name = node.child_by_field_name("name")
             if name is not None:
                 owners += (text(name),)
@@ -158,15 +224,25 @@ def collect_binding_facts(
             ):
                 owner = ((package + "/") if package else "") + "$".join(owners)
                 symbol = text(name)
+                signature = java_signature(node, parameters, modifiers)
                 facts.append(
                     BindingFact(
                         path,
                         symbol,
                         bisect_right(starts, name.start_byte),
                         language,
-                        "jni_declaration",
-                        "Java_" + jni_escape(owner) + "_" + jni_escape(symbol),
-                        descriptor(parameters),
+                        "jni_declaration" if owner_known else "jni_unresolved_declaration",
+                        (
+                            "Java_" + jni_escape(owner) + "_" + jni_escape(symbol)
+                            if owner_known
+                            else ""
+                        ),
+                        (
+                            "".join(p or "" for p in signature.parameters)
+                            if None not in signature.parameters
+                            else None
+                        ),
+                        java_signature=signature,
                     )
                 )
         elif language in {"c", "cpp"} and node.type == "function_definition":
@@ -184,10 +260,11 @@ def collect_binding_facts(
                             language,
                             "jni_export",
                             name,
+                            native_signature=native_signature(node),
                         )
                     )
         for child in node.named_children:
-            visit(child, owners)
+            visit(child, owners, owner_known)
 
     visit(root)
     return facts
@@ -197,14 +274,24 @@ def jni_relationships(facts: Sequence[BindingFact]) -> tuple[list[dict[str, Any]
     """Link unique static exports; overloaded declarations require descriptors."""
     exports: dict[str, list[BindingFact]] = defaultdict(list)
     declarations: dict[str, list[BindingFact]] = defaultdict(list)
+    unresolved_owners = 0
     for fact in facts:
-        (exports if fact.kind == "jni_export" else declarations)[fact.binding_name].append(fact)
+        if fact.kind == "jni_unresolved_declaration":
+            unresolved_owners += 1
+        elif fact.kind == "jni_export":
+            exports[fact.binding_name].append(fact)
+        elif fact.kind == "jni_declaration":
+            declarations[fact.binding_name].append(fact)
     links = []
     stats = {
-        "ffi_jni_declarations": sum(map(len, declarations.values())),
+        "ffi_jni_declarations": sum(map(len, declarations.values())) + unresolved_owners,
         "ffi_jni_exports": sum(map(len, exports.values())),
         "ffi_ambiguous_bindings": 0,
-        "ffi_unresolved_bindings": 0,
+        "ffi_unresolved_bindings": unresolved_owners,
+        "ffi_jni_unresolved_owners": unresolved_owners,
+        "ffi_jni_matching_declarations": 0,
+        "ffi_jni_conflicting_declarations": 0,
+        "ffi_jni_unknown_declarations": 0,
     }
     for short, methods in declarations.items():
         if len(methods) > 1 and short in exports:
@@ -226,6 +313,13 @@ def jni_relationships(facts: Sequence[BindingFact]) -> tuple[list[dict[str, Any]
                 ] += 1
                 continue
             target = matches[0]
+            contract = compare_jni_declarations(method.java_signature, target.native_signature)
+            stat = {
+                "matching_declaration": "ffi_jni_matching_declarations",
+                "conflicting_declaration": "ffi_jni_conflicting_declarations",
+                "unknown": "ffi_jni_unknown_declarations",
+            }[contract["status"]]
+            stats[stat] += 1
             links.append(
                 {
                     "relationship": "declares_native_binding",
@@ -235,6 +329,7 @@ def jni_relationships(facts: Sequence[BindingFact]) -> tuple[list[dict[str, Any]
                     "equivalence_verified": False,
                     "runtime_verified": False,
                     "abi_verified": False,
+                    "declared_contract": contract,
                     "source": {
                         "file": method.file,
                         "symbol": method.symbol,
