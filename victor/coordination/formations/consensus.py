@@ -44,22 +44,38 @@ class ConsensusFormation(BaseFormationStrategy):
     Use case: Critical decisions, validation, quality assurance
     """
 
-    # v0.25.0 keeps max_rounds at 3: the 5x to 15 (#1637) compounds an
-    # echoing member's transcript ~4x per round (~14 GB by round 11),
-    # OOM-killing the CI runner during the promotion battery. The proper
-    # fix — a bounded per-member output preview — lands with #1642 next
-    # release, at which point this default returns to the budgeted value.
-    def __init__(self, max_rounds: int = 3, agreement_threshold: float = 0.7):
+    #: Characters of each member output embedded in the next round's task.
+    #: Members that echo received context make the round-over-round transcript
+    #: compound exponentially; the preview keeps the task bounded (mirrors
+    #: ConversationFormation's transcript cap). Consensus voting reads the
+    #: member's real output, never this embedded copy.
+    DEFAULT_OUTPUT_PREVIEW_CHARS = 4096
+
+    def __init__(
+        self,
+        max_rounds: int = 15,
+        agreement_threshold: float = 0.7,
+        output_preview_chars: int = DEFAULT_OUTPUT_PREVIEW_CHARS,
+    ):
         """Initialize consensus formation.
 
         Args:
-            max_rounds: Maximum number of consensus rounds (default: 3)
+            max_rounds: Maximum number of consensus rounds (default: 15)
             agreement_threshold: Fraction of agents that must agree (0.0-1.0)
+            output_preview_chars: Per-member output preview embedded in the
+                next round's task; bounds the transcript when members echo
+                prior context (default: 4096)
+
+        Raises:
+            ValueError: If rounds/threshold/preview are out of range
         """
         if not isinstance(max_rounds, int) or max_rounds < 1 or not 0 < agreement_threshold <= 1:
             raise ValueError("Consensus requires positive rounds and threshold in (0, 1]")
+        if not isinstance(output_preview_chars, int) or output_preview_chars < 1:
+            raise ValueError("Consensus requires a positive output preview size")
         self.max_rounds = max_rounds
         self.agreement_threshold = agreement_threshold
+        self.output_preview_chars = output_preview_chars
 
     async def execute(
         self,
@@ -86,8 +102,11 @@ class ConsensusFormation(BaseFormationStrategy):
             "consensus_max_rounds", context.metadata.get("max_consensus_rounds", self.max_rounds)
         )
         threshold = context.get("consensus_agreement_threshold", self.agreement_threshold)
+        preview_chars = context.get("consensus_output_preview_chars", self.output_preview_chars)
         if not isinstance(max_rounds, int) or max_rounds < 1 or not 0 < threshold <= 1:
             raise ValueError("Consensus requires positive rounds and threshold in (0, 1]")
+        if not isinstance(preview_chars, int) or preview_chars < 1:
+            raise ValueError("Consensus requires a positive output preview size")
         tie_breaker_id = context.get("consensus_tie_breaker_id") or context.get(
             "explicit_supervisor_id"
         )
@@ -213,7 +232,12 @@ class ConsensusFormation(BaseFormationStrategy):
                 await _checkpoint(round_num + 1, None, True, final)
                 return final
 
-            # Prepare task for next round with previous results
+            # Prepare task for next round with previous results. Only a bounded
+            # preview of each output is embedded: members that quote the task
+            # they received would otherwise compound the transcript ~4x per
+            # round (observed 14 GB by round ~11 with echoing members), and the
+            # full output is never needed here — consensus voting compares the
+            # members' real outputs, not this embedded copy.
             current_task = AgentMessage(
                 message_type=MessageType.TASK,
                 sender_id="system",
@@ -224,7 +248,7 @@ class ConsensusFormation(BaseFormationStrategy):
                         "previous_results": [
                             {
                                 "agent_id": r.member_id,
-                                "output": r.output,
+                                "output": (r.output or "")[:preview_chars],
                                 "success": r.success,
                             }
                             for r in processed_results

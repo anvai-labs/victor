@@ -231,6 +231,18 @@ class OpenAIProvider(BaseProvider):
             account_id = self._oauth_manager.get_chatgpt_account_id(oauth_tokens)
             if isinstance(account_id, str) and account_id:
                 self._wire_headers["ChatGPT-Account-ID"] = account_id
+        elif base_url and "dashscope" in str(base_url):
+            # Bailian Coding Plan requires a recognized User-Agent; without it
+            # the endpoint returns 401.  Sandhi normally adds this per-credential
+            # but direct connections must set it themselves.
+            import platform
+
+            from victor import __version__
+
+            default_headers = {
+                "User-Agent": f"victor/{__version__} ({platform.system()})",
+            }
+            self._wire_headers = dict(default_headers)
 
         self.client = AsyncOpenAI(
             api_key=self._api_key,

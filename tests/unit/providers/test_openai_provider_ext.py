@@ -178,3 +178,29 @@ async def test_models_from_sandhi_reads_real_catalog_when_available(openai_provi
     assert models is not None
     ids = [m["id"] for m in models]
     assert "gpt-5" in ids
+
+
+class TestBailianUserAgent:
+    """Direct Bailian Coding Plan connections need a recognized User-Agent."""
+
+    def test_dashscope_base_url_sets_user_agent(self):
+        """When base_url contains 'dashscope', a User-Agent header is set."""
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
+        )
+        wire_headers = getattr(provider, "_wire_headers", None)
+        assert wire_headers is not None
+        assert "User-Agent" in wire_headers
+        assert "victor/" in wire_headers["User-Agent"]
+
+    def test_non_dashscope_base_url_no_user_agent(self):
+        """Standard OpenAI base_url does not set User-Agent in api_key mode."""
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://api.openai.com/v1",
+        )
+        wire_headers = getattr(provider, "_wire_headers", None)
+        # Standard OpenAI should not have User-Agent set (only OAuth does)
+        if wire_headers:
+            assert "User-Agent" not in wire_headers

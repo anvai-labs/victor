@@ -19,7 +19,7 @@ from victor.core.json_utils import json_loads
 from json import JSONDecodeError
 import logging
 import re
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 
 import httpx
 
@@ -32,6 +32,7 @@ from victor.providers.base import (
     StreamChunk,
     ToolDefinition,
 )
+from victor.providers.endpoint_resolution import resolve_endpoint_candidates
 from victor.providers.logging import ProviderLogger
 from victor.providers.runtime_capabilities import (
     ProviderRuntimeCapabilities,
@@ -64,34 +65,14 @@ class OllamaProvider(BaseProvider):
             non_interactive: Force non-interactive mode (None = auto-detect)
             **kwargs: Additional configuration
         """
-        import os
 
         # Initialize structured logger
         self._provider_logger = ProviderLogger("ollama", __name__)
 
         # Resolve candidates (logic from _select_base_url but without network I/O)
-        candidates: List[str] = []
-
-        # Check environment variable first
-        env_endpoints = os.environ.get("OLLAMA_ENDPOINTS", "")
-        if env_endpoints:
-            candidates = [u.strip() for u in env_endpoints.split(",") if u.strip()]
-
-        if not candidates:
-            if base_url is None:
-                candidates = ["http://localhost:11434"]
-            elif isinstance(base_url, (list, tuple)):
-                candidates = [str(u).strip() for u in base_url if str(u).strip()]
-            elif isinstance(base_url, str):
-                if "," in base_url:
-                    candidates = [u.strip() for u in base_url.split(",") if u.strip()]
-                else:
-                    candidates = [base_url]
-            else:
-                candidates = [str(base_url)]
-
-        if not candidates:
-            candidates = ["http://localhost:11434"]
+        candidates, _resolved_base_url = resolve_endpoint_candidates(
+            base_url, "OLLAMA_ENDPOINTS", "http://localhost:11434"
+        )
 
         # Pick first candidate (blindly)
         chosen_base = candidates[0]
@@ -293,6 +274,13 @@ class OllamaProvider(BaseProvider):
 
         return False
 
+    @staticmethod
+    def _resolve_ollama_candidates(
+        base_url: Union[None, str, List[str]],
+    ) -> "Tuple[List[str], Union[str, List[str], None]]":
+        """Resolve Ollama endpoint candidates (env var > base_url > default)."""
+        return resolve_endpoint_candidates(base_url, "OLLAMA_ENDPOINTS", "http://localhost:11434")
+
     def _select_base_url(self, base_url: Union[str, List[str], None], timeout: int) -> str:
         """Pick the first reachable Ollama endpoint from a tiered list.
 
@@ -304,30 +292,7 @@ class OllamaProvider(BaseProvider):
         Set OLLAMA_ENDPOINTS="http://<your-server>:11434,http://localhost:11434"
         to prioritize LAN servers.
         """
-        import os
-
-        candidates: List[str] = []
-
-        # Check environment variable first
-        env_endpoints = os.environ.get("OLLAMA_ENDPOINTS", "")
-        if env_endpoints:
-            candidates = [u.strip() for u in env_endpoints.split(",") if u.strip()]
-
-        if base_url is None:
-            base_url = "http://localhost:11434"
-
-        # Only process base_url if no env var candidates
-        if not candidates:
-            if isinstance(base_url, (list, tuple)):
-                candidates = [str(u).strip() for u in base_url if str(u).strip()]
-            elif isinstance(base_url, str):
-                if "," in base_url:
-                    candidates = [u.strip() for u in base_url.split(",") if u.strip()]
-                else:
-                    candidates = [base_url]
-            else:
-                candidates = [str(base_url)]
-
+        candidates, base_url = self._resolve_ollama_candidates(base_url)
         for url in candidates:
             try:
                 with httpx.Client(base_url=url, timeout=httpx.Timeout(2)) as client:
@@ -359,30 +324,7 @@ class OllamaProvider(BaseProvider):
         Set OLLAMA_ENDPOINTS="http://<your-server>:11434,http://localhost:11434"
         to prioritize LAN servers.
         """
-        import os
-
-        candidates: List[str] = []
-
-        # Check environment variable first
-        env_endpoints = os.environ.get("OLLAMA_ENDPOINTS", "")
-        if env_endpoints:
-            candidates = [u.strip() for u in env_endpoints.split(",") if u.strip()]
-
-        if base_url is None:
-            base_url = "http://localhost:11434"
-
-        # Only process base_url if no env var candidates
-        if not candidates:
-            if isinstance(base_url, (list, tuple)):
-                candidates = [str(u).strip() for u in base_url if str(u).strip()]
-            elif isinstance(base_url, str):
-                if "," in base_url:
-                    candidates = [u.strip() for u in base_url.split(",") if u.strip()]
-                else:
-                    candidates = [base_url]
-            else:
-                candidates = [str(base_url)]
-
+        candidates, base_url = cls._resolve_ollama_candidates(base_url)
         # Use module logger since this is a classmethod
         from victor.providers.logging import logger as provider_logger
 

@@ -304,3 +304,32 @@ def test_explicit_gateway_scope_without_url_fails_closed(monkeypatch, gateway):
     with pytest.raises(ValueError, match="gateway URL"):
         resolve_provider_gateway(settings, "openai")
     assert settings["gateway"] == gateway
+
+
+def test_profile_base_url_suppresses_inherited_gateway():
+    """When profile_overrides contain base_url but not gateway, the inherited
+    gateway from the providers: section must be suppressed so the profile
+    gets a direct connection to its custom endpoint."""
+    from victor.config.provider_config_registry import ProviderConfigRegistry
+
+    registry = ProviderConfigRegistry()
+    # Simulate base_settings with an inherited gateway from providers: section
+    base_settings = {
+        "base_url": "https://api.openai.com/v1",
+        "gateway": {"url": "https://proxy.example.com", "virtual_key": "vk_inherited"},
+    }
+    # Profile overrides set a custom base_url but do NOT set gateway
+    profile_overrides = {
+        "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "api_key": "sk-test",
+    }
+    result = registry.get_settings(
+        provider="openai",
+        settings=MagicMock(),
+        profile_overrides=profile_overrides,
+        account_data=None,
+    )
+    # The inherited gateway must be suppressed
+    assert "gateway" not in result or result.get("gateway") is None
+    # The profile's base_url must be preserved
+    assert result["base_url"] == "https://coding-intl.dashscope.aliyuncs.com/v1"

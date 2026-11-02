@@ -397,6 +397,35 @@ class PerceptionIntegration:
                 "clarification_prompt": None,
             }
 
+        # Devops/workflow meta-commands (commit, push, pr, ci, deploy, etc.) are
+        # self-contained operations that don't target a file or code component.
+        # They should not trigger the confirmation/clarification gate even when
+        # the action intent is AMBIGUOUS.
+        _DEVOPS_WORKFLOW_PATTERNS = re.compile(
+            r"(?:"
+            r"git\s+(?:commit|push|pull|fetch|merge|rebase|stash|tag|branch|checkout|cherry-pick)\b[^\n]*"
+            r"|(?:commit|push|pull|fetch|merge|rebase|stash|tag|branch|checkout|cherry-pick)"
+            r"|commit(?:\s+(?:and|push|pr|drive|ci|green|all|staged|changes))+"
+            r"|(?:push|pull|fetch)\s+(?:(?:to|from)\s+|(?:origin|upstream)\s+)\S+"
+            r"|(?:create|open|submit|close|merge)\s+(?:a\s+)?(?:pr|pull[ -]request|merge[ -]request)\b[^\n]*"
+            r"|(?:run|drive|check|monitor)\s+(?:ci|tests?|pipeline|build|deploy)\b[^\n]*"
+            r"|deploy(?:\s+(?:to|on)\s+\S+)?"
+            r"|(?:release|tag)(?:\s+v?\d[\w.-]*)?"
+            r"|publish(?:\s+(?:package|artifacts?|release))?"
+            r"|ship(?:\s+it)?"
+            r"|(?:lint|format)(?:\s+and\s+(?:fix|format|lint|test))?"
+            r")",
+            re.IGNORECASE,
+        )
+        if _DEVOPS_WORKFLOW_PATTERNS.fullmatch(message.strip()) and (
+            not has_ambiguous_target_reference(message_lower) or message_lower.strip() == "ship it"
+        ):
+            return {
+                "needs_clarification": False,
+                "clarification_reason": None,
+                "clarification_prompt": None,
+            }
+
         target_present = bool(
             self._extract_required_files(message)
             or self._extract_scope_hints(message)

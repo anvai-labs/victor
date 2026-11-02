@@ -5,17 +5,33 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from typing import Iterable, List, Tuple
-from dataclasses import dataclass
-from enum import Enum
 
-from rich.console import Group, RenderableType
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
+from rich.markdown import CodeBlock as RichCodeBlock
 from rich.markdown import Markdown
-from rich.markup import escape as escape_markup
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
+
+
+class _CompactCodeBlock(RichCodeBlock):
+    """Keep narrow-pane code formatting scoped to Victor renderables."""
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield Syntax(
+            str(self.text).rstrip(),
+            self.lexer_name,
+            theme=self.theme,
+            word_wrap=True,
+            padding=(0, 1),
+        )
+
+
+class _VictorMarkdown(Markdown):
+    elements = {**Markdown.elements, "fence": _CompactCodeBlock, "code_block": _CompactCodeBlock}
+
 
 _DIAGRAM_LANGS = {"mermaid"}
 _TOKEN_PATTERN = re.compile(
@@ -70,7 +86,7 @@ def _markdown_block(text: str) -> Markdown:
     ``_escape_rich_markup_from_text`` is retained as a utility for any
     markup-aware Rich path (e.g. ``console.print(Text(...))``) that may need it.
     """
-    return Markdown(text, style="markdown.text", justify="left")
+    return _VictorMarkdown(text, style="markdown.text", justify="left")
 
 
 def find_safe_split(content: str) -> int:
@@ -421,10 +437,12 @@ def render_enhanced_table(
         header_style=f"bold {style}",
         border_style="dim",
         padding=(0, 1),
+        expand=False,  # Don't expand beyond content width
     )
 
     for header in headers:
-        table.add_column(header, no_wrap=len(header) < 20)
+        # Allow wrapping for all columns to prevent overflow
+        table.add_column(header, no_wrap=False, overflow="fold")
 
     for row in rows:
         table.add_row(*[str(cell) for cell in row])

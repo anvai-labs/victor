@@ -571,6 +571,12 @@ class ProviderConfigRegistry:
             # 3. Apply profile overrides (CLI flags like --coding-plan, --auth-mode)
             if profile_overrides:
                 base_settings.update(profile_overrides)
+                # If the profile sets an explicit base_url but does NOT set a gateway,
+                # the profile wants a direct connection — suppress the inherited
+                # provider-level gateway.  A profile that wants both a custom base_url
+                # AND a gateway must set gateway explicitly.
+                if "base_url" in profile_overrides and "gateway" not in profile_overrides:
+                    base_settings.pop("gateway", None)
 
             # 3.5 Normalize + env-resolve the per-provider Sandhi gateway block so it
             # flows as a plain dict into the provider kwargs regardless of strategy.

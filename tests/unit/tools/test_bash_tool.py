@@ -141,6 +141,35 @@ async def test_shell_defaults_to_non_readonly_mode():
     assert "readonly mode" in opted_in["error"]
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "scp host:/remote ./local",
+        "rsync --remove-source-files host:/remote ./local",
+        "ssh -o ProxyCommand='touch /tmp/x' host cat /etc/hosts",
+    ],
+)
+async def test_shell_transport_writes_require_non_readonly_execution(cmd):
+    """The public gate rejects before spawning; explicit execution still works."""
+    from victor.security.shell_safety_policy import LegacyAllowlistPolicy
+
+    with (
+        patch("victor.tools.bash._get_shell_safety_policy", return_value=LegacyAllowlistPolicy()),
+        patch(
+            "victor.tools.subprocess_executor.run_managed_process", new_callable=AsyncMock
+        ) as run,
+    ):
+        blocked = await shell(cmd=cmd, readonly=True)
+        assert blocked["success"] is False
+        assert "readonly mode" in blocked["error"]
+        run.assert_not_awaited()
+
+        run.return_value = (b"", b"", 0, False, False)
+        allowed = await shell(cmd=cmd, readonly=False)
+        assert allowed["success"] is True
+        run.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_shell_readonly_allows_cd_search_with_stderr_suppression():
     """Readonly shell should allow common scoped search commands."""
@@ -415,3 +444,338 @@ class TestShellGitCommitAttribution:
         twice = _maybe_attribute_shell_git_commit(once)
         assert once.count(self.TRAILER) == 1
         assert twice == once
+
+
+class TestReadonlyRemoteExec:
+    """Remote-exec commands (ssh, scp, rsync) — readonly analysis of payload.
+
+    ssh: extract the remote command and validate it recursively.
+    scp/rsync: either direction writes files and requires non-readonly mode.
+    """
+
+    @staticmethod
+    def _valid(cmd: str) -> bool:
+        from victor.tools.bash import _validate_readonly_command
+
+        return _validate_readonly_command(cmd)[0]
+
+    # --- SSH: readonly remote commands ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh vsingh@aiserver1 'ps aux | grep sandhi'",
+            "ssh host 'cat /etc/hostname'",
+            "ssh host 'ls -la /tmp/'",
+            "ssh host 'grep -rn error /var/log/syslog'",
+            "ssh host 'ps aux | grep inferflux | grep -v grep'",
+            "ssh -p 22 host 'uptime'",
+            "ssh -o StrictHostKeyChecking=no host 'df -h'",
+            "ssh host 'free -h && df -h /'",
+            "ssh host 'cat /etc/sandhi/streaming-v0.14.0.json'",
+            "ssh host 'tail -50 ~/.victor/logs/victor.log'",
+            "ssh host 'wc -l /var/log/syslog'",
+            # user@host forms
+            "ssh user@host 'ps aux'",
+            "ssh vsingh@aiserver1 'cat /etc/hostname'",
+            # multiple -o flags + user@host + quoted command
+            "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null user@host 'ps aux | grep sandhi'",
+            "ssh -o BatchMode=yes -o ConnectTimeout=5 user@host 'uptime'",
+            # boolean flags mixed with value flags
+            "ssh -t -o BatchMode=yes host 'df -h'",
+            "ssh -tt host 'ls -la /tmp/'",
+            "ssh -v -o BatchMode=yes user@host 'cat /etc/hostname'",
+        ],
+    )
+    def test_ssh_readonly_remote_commands_allowed(self, cmd):
+        assert self._valid(cmd) is True
+
+    # --- SSH: mutating remote commands ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh host 'rm -rf /tmp/foo'",
+            "ssh host 'echo hello > /tmp/file'",
+            "ssh host 'systemctl restart nginx'",
+            "ssh host 'apt-get install foo'",
+            "ssh host 'kill -9 1234'",
+        ],
+    )
+    def test_ssh_mutating_remote_commands_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- SSH: no command (interactive session) ---
+
+    def test_ssh_interactive_session_rejected(self):
+        assert self._valid("ssh host") is False
+        assert self._valid("ssh vsingh@aiserver1") is False
+
+    # --- SCP: direction-based ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "scp host:/remote/file.txt ./local/",
+            "scp vsingh@aiserver1:/tmp/diag.sh ./",
+            "scp -P 22 host:/remote/file.txt ./local/",
+            "scp -r host:/remote/dir ./local/",
+        ],
+    )
+    def test_scp_pull_writes_local_files(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "scp ./file.txt host:/remote/path",
+            "scp ./diag.sh vsingh@aiserver1:/tmp/",
+            "scp -r ./dir host:/remote/path",
+        ],
+    )
+    def test_scp_push_not_readonly(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- rsync: direction-based ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "rsync host:/src/ ./dst/",
+            "rsync vsingh@aiserver1:/tmp/data ./local/",
+        ],
+    )
+    def test_rsync_pull_writes_local_files(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "rsync ./src/ host:/dst/",
+            "rsync ./data vsingh@aiserver1:/tmp/",
+        ],
+    )
+    def test_rsync_push_not_readonly(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- Compound: ssh in chains ---
+
+    def test_ssh_readonly_in_chain_allowed(self):
+        assert self._valid("ssh host 'ps aux' && cat output.txt") is True
+
+    def test_ssh_mutating_in_chain_rejected(self):
+        assert self._valid("ssh host 'rm -rf /' && cat output.txt") is False
+
+
+class TestReadonlyRemoteExecHardening:
+    """Adversarial regressions for the remote-exec readonly analysis.
+
+    Each test pins a bypass shape found by hostile review: forwarding flags,
+    mis-parsed combined short flags, and the env exec wrapper.
+    """
+
+    @staticmethod
+    def _valid(cmd):
+        from victor.tools.bash import _validate_readonly_command
+
+        ok, _ = _validate_readonly_command(cmd)
+        return ok
+
+    # --- ssh port forwarding: never readonly regardless of payload ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh -L 8080:inhost:80 host cat /etc/hosts",
+            "ssh -R 9999:localhost:22 host cat /etc/hosts",
+            "ssh -D 1080 host cat /etc/hosts",
+            "ssh -W target:22 jump cat /etc/hosts",
+            "ssh -L8080:inhost:80 host cat /etc/hosts",  # attached value
+            "ssh -vL 8080:inhost:80 host cat /etc/hosts",  # clustered flag
+            "ssh -w 1:1 host cat /etc/hosts",  # tun device allocation
+        ],
+    )
+    def test_ssh_forwarding_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    # --- combined short flags: value flag inside a cluster consumes the
+    # next token (ssh -vp 22 host ... == ssh -v -p 22 host ...) ---
+
+    def test_ssh_combined_flag_benign_payload_allowed(self):
+        assert self._valid("ssh -vp 22 host cat /etc/hosts") is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # Pre-fix: '-vp' treated as one boolean token made '22' the host,
+            # so the payload was validated starting one token late and the
+            # mutating tail rode in as arguments of an allowlisted word.
+            "ssh -vp 22 host rm -rf /tmp/x",
+            "ssh -vp 22 cat rm -rf /tmp/x",  # host named like an allowlisted cmd
+        ],
+    )
+    def test_ssh_combined_flag_mutating_payload_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    def test_ssh_controlmaster_creates_local_socket(self):
+        assert self._valid("ssh -M host cat /etc/hosts") is False
+        assert self._valid("ssh -M host rm -rf /tmp/x") is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            'ssh -o ProxyCommand="touch /tmp/x" host cat /etc/hosts',
+            'ssh -o ProxyCommand="rm /tmp/x" host cat /etc/hosts',
+            'ssh -o PermitLocalCommand=yes -o LocalCommand="touch /tmp/x" host cat /etc/hosts',
+            'ssh -oLocalCommand="touch /tmp/x" host cat /etc/hosts',
+            "ssh -o LocalForward=8080:localhost:80 host cat /etc/hosts",
+            "ssh -o remoteforward=8080:localhost:80 host cat /etc/hosts",
+            "ssh -o Include=/tmp/untrusted.conf host cat /etc/hosts",
+            "ssh -o UserKnownHostsFile=/tmp/output host cat /etc/hosts",
+            "ssh -o 'UserKnownHostsFile /tmp/output' host cat /etc/hosts",
+            "ssh -o UserKnownHostsFile=/dev/null,/tmp/output host cat /etc/hosts",
+            "ssh -o RemoteCommand=touch host cat /etc/hosts",
+            "ssh -F /tmp/untrusted.conf host cat /etc/hosts",
+            "ssh -E /tmp/log host cat /etc/hosts",
+            "ssh -S /tmp/socket host cat /etc/hosts",
+            "ssh -I /tmp/untrusted.so host cat /etc/hosts",
+            "ssh -O exit host cat /etc/hosts",
+            "ssh -Z host cat /etc/hosts",
+            "ssh -p",
+            "X='unterminated ssh host cat",
+            "ssh -o BatchMode=yes",
+            "ssh -p22 host 'rm /tmp/x'",
+            "scp host:/remote ./local > /tmp/log",
+            "scp -S /tmp/untrusted host:/remote ./local",
+            "rsync --remove-source-files host:/remote ./local",
+            "rsync --delete host:/remote ./local",
+            'rsync -e "touch /tmp/x" host:/remote ./local',
+            'env -S "touch /tmp/x"',
+            "env --split-string='touch /tmp/x'",
+            "env --split-string='sh -c' 'touch /tmp/x'",
+            "find . -exec env --split-string='touch /tmp/x' \\;",
+            "env ssh -o ProxyCommand='touch /tmp/x' host cat /etc/hosts",
+            "if true; then ssh -o ProxyCommand='touch /tmp/x' host cat /etc/hosts; fi",
+            "find . -exec ssh host 'cat /etc/hosts; touch /tmp/x' \\;",
+        ],
+    )
+    def test_readonly_transport_and_wrapper_bypasses_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "ssh -i /tmp/ReadWriteIdentity host cat /etc/hosts",
+            "ssh -o HostName=ReadWriteHost host cat /etc/hosts",
+            "ssh -o 'StrictHostKeyChecking no' host cat /etc/hosts",
+            "ssh -vvp22 host cat /etc/hosts",
+            "ssh -vi/tmp/ReadWriteIdentity host cat /etc/hosts",
+            "ssh -- host cat /etc/hosts",
+            "env -u NAME ssh -p22 host cat /etc/hosts",
+            "env --unset=NAME cat /etc/hosts",
+            "env echo 'text; touch /tmp/x'",
+            "find . -exec echo 'text; touch /tmp/x' \\;",
+            "if true; then ssh -o 'StrictHostKeyChecking no' host cat /etc/hosts; fi",
+        ],
+    )
+    def test_readonly_transport_argument_boundaries_preserved(self, cmd):
+        assert self._valid(cmd) is True
+
+    def test_ssh_attached_option_value_still_parses(self):
+        assert self._valid("ssh -oStrictHostKeyChecking=no host cat /etc/hosts") is True
+        assert self._valid("ssh -p22 host cat /etc/hosts") is True
+
+    # --- env is a generic exec wrapper: validate what it wraps ---
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "env rm -rf /tmp/x",
+            "env VAR=1 rm -f x",
+            "env -u X rm -f x",
+            "env touch /tmp/x",
+            "env git push",
+            "env ssh host rm -rf /tmp/x",  # wrapper around mutating remote exec
+            "ssh host env rm -rf /tmp/x",  # env inside a remote payload
+        ],
+    )
+    def test_env_wrapped_mutation_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "env",
+            "env VAR=1 cat /etc/hosts",
+            "env cat file.txt",
+            "env ssh host cat /etc/hosts",
+            "printenv",
+        ],
+    )
+    def test_env_wrapped_readonly_allowed(self, cmd):
+        assert self._valid(cmd) is True
+
+
+class TestReadonlyFindActions:
+    """find's action flags: -exec family validated recursively, delete/write
+    actions rejected, plain readonly finds untouched.
+
+    Regression (pre-existing hole): `find . -exec rm {} ;`, `find -delete` and
+    the -fprint family all executed under readonly mode because the allowlist
+    only checked the base command.
+    """
+
+    @staticmethod
+    def _valid(cmd):
+        from victor.tools.bash import _validate_readonly_command
+
+        return _validate_readonly_command(cmd)[0]
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -name x -exec rm {} ;",
+            "find /tmp -delete",
+            "find . -name '*.log' -exec rm {} +",
+            "find . -execdir sh -c 'x' ;",
+            "find . -name x -ok rm {} ;",
+            "find . -exec cp {} /tmp/stolen ;",
+            # unterminated form: the compound splitter consumes `;` first
+            "find . -name x -exec rm {}",
+            # mutating clause after a benign one
+            "find . -name x -exec cat {} ; -delete",
+        ],
+    )
+    def test_find_exec_and_delete_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -fprint /tmp/out",
+            "find . -fprintf /tmp/out '%p'",
+            "find . -fprint0 /tmp/out",
+            "find . -fls /tmp/out",
+        ],
+    )
+    def test_find_file_writing_actions_rejected(self, cmd):
+        assert self._valid(cmd) is False
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -name '*.py'",
+            "find . -type f -name x -print",
+            "find . -maxdepth 2 -ls",
+            # readonly -exec: the wrapped command validates cleanly ({} stays
+            # an opaque argument)
+            "find . -name x -exec cat {} ;",
+            "find . -name x -exec grep foo {} +",
+            # a test VALUE that looks like an action flag is not one
+            "find . -name -delete",
+            "find . -newer ref.txt -print",
+            "find . \\( -name a -o -name b \\) -ls",
+        ],
+    )
+    def test_readonly_find_forms_still_allowed(self, cmd):
+        assert self._valid(cmd) is True

@@ -36,7 +36,32 @@ class ProviderCategory(str, Enum):
     UNKNOWN = "unknown"  # Unclassified providers
 
 
-class DefaultProviderClassificationStrategy(IProviderClassificationStrategy):
+class _ProviderClassificationMixin:
+    """Shared is_cloud/is_local/get_provider_type for classification strategies."""
+
+    _cloud_providers: Set[str]
+    _local_providers: Set[str]
+
+    def is_cloud_provider(self, provider_name: str) -> bool:
+        """Check if provider is cloud-based."""
+        return provider_name.lower() in self._cloud_providers
+
+    def is_local_provider(self, provider_name: str) -> bool:
+        """Check if provider is local."""
+        return provider_name.lower() in self._local_providers
+
+    def get_provider_type(self, provider_name: str) -> ProviderCategory:
+        """Get provider type category."""
+        if self.is_cloud_provider(provider_name):
+            return ProviderCategory.CLOUD
+        if self.is_local_provider(provider_name):
+            return ProviderCategory.LOCAL
+        return ProviderCategory.UNKNOWN
+
+
+class DefaultProviderClassificationStrategy(
+    _ProviderClassificationMixin, IProviderClassificationStrategy
+):
     """Default provider classification strategy.
 
     Uses hardcoded sets of cloud and local providers. This is the
@@ -56,45 +81,10 @@ class DefaultProviderClassificationStrategy(IProviderClassificationStrategy):
         }
         self._local_providers: Set[str] = set(LOCAL_CLASS_PROVIDERS)
 
-    def is_cloud_provider(self, provider_name: str) -> bool:
-        """Check if provider is cloud-based.
 
-        Args:
-            provider_name: Name of the provider
-
-        Returns:
-            True if cloud provider, False otherwise
-        """
-        return provider_name.lower() in self._cloud_providers
-
-    def is_local_provider(self, provider_name: str) -> bool:
-        """Check if provider is local.
-
-        Args:
-            provider_name: Name of the provider
-
-        Returns:
-            True if local provider, False otherwise
-        """
-        return provider_name.lower() in self._local_providers
-
-    def get_provider_type(self, provider_name: str) -> ProviderCategory:
-        """Get provider type category.
-
-        Args:
-            provider_name: Name of the provider
-
-        Returns:
-            Provider type enum value
-        """
-        if self.is_cloud_provider(provider_name):
-            return ProviderCategory.CLOUD
-        if self.is_local_provider(provider_name):
-            return ProviderCategory.LOCAL
-        return ProviderCategory.UNKNOWN
-
-
-class ConfigurableProviderClassificationStrategy(IProviderClassificationStrategy):
+class ConfigurableProviderClassificationStrategy(
+    _ProviderClassificationMixin, IProviderClassificationStrategy
+):
     """Configurable provider classification strategy.
 
     Allows adding new providers without modifying code (OCP compliance).

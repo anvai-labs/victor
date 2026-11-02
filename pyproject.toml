@@ -230,7 +230,7 @@ dev = [
 
     # Integration test dependencies
     "uvicorn>=0.27",  # Real HTTP consumer/provider tests require the server runner
-    "strawberry-graphql[fastapi]>=0.243",  # For GraphQL API integration tests
+    "strawberry-graphql[fastapi]>=0.297",  # For GraphQL API integration tests (0.297+ for graphql-core 3.3 compat)
     # All tree-sitter grammar wheels, inlined (repo hygiene forbids
     # victor-ai[lang-all] self-references in dev/ci — nested extras do not
     # resolve reliably in CI). Keep in sync with [lang-all]. Two consumers:
@@ -324,7 +324,7 @@ ci = [
     "twine>=4.0",
 
     # API and integration dependencies
-    "strawberry-graphql[fastapi]>=0.243",
+    "strawberry-graphql[fastapi]>=0.297",
 
     # Pre-commit hooks
     "pre-commit>=3.5",
@@ -367,7 +367,7 @@ build = [
 api = [
     "fastapi>=0.109",
     "uvicorn>=0.27",
-    "strawberry-graphql[fastapi]>=0.243",
+    "strawberry-graphql[fastapi]>=0.297",
 ]
 
 # Checkpoint persistence with SQLite backend

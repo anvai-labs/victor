@@ -384,6 +384,51 @@ class BedrockProvider(BaseProvider):
             except Exception as e:
                 raise self.classify_error(e) from e
 
+    def _build_converse_request(
+        self,
+        model,
+        converse_messages,
+        max_tokens,
+        temperature,
+        system_prompt,
+        tools,
+        log_label="converse",
+    ):
+        """Build Bedrock converse API request params (shared by sync/async paths)."""
+        request_params = {
+            "modelId": model,
+            "messages": converse_messages,
+            "inferenceConfig": {
+                "maxTokens": max_tokens,
+                "temperature": temperature,
+            },
+        }
+        if system_prompt:
+            request_params["system"] = system_prompt
+        if tools:
+            request_params["toolConfig"] = {
+                "tools": [
+                    {
+                        "toolSpec": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "inputSchema": {"json": tool.parameters},
+                        }
+                    }
+                    for tool in tools
+                ]
+            }
+            _tool_names = ", ".join(
+                t["toolSpec"]["name"] for t in request_params["toolConfig"]["tools"]
+            )
+            logger.info(
+                "[ToolSchemas→LLM] Bedrock %s payload: %d tools: %s",
+                log_label,
+                len(request_params["toolConfig"]["tools"]),
+                _tool_names,
+            )
+        return request_params
+
     async def _chat_converse(
         self, client, messages, model, temperature, max_tokens, tools, **kwargs
     ) -> CompletionResponse:
@@ -430,40 +475,9 @@ class BedrockProvider(BaseProvider):
                     }
                 )
 
-        request_params = {
-            "modelId": model,
-            "messages": converse_messages,
-            "inferenceConfig": {
-                "maxTokens": max_tokens,
-                "temperature": temperature,
-            },
-        }
-
-        if system_prompt:
-            request_params["system"] = system_prompt
-
-        if tools:
-            request_params["toolConfig"] = {
-                "tools": [
-                    {
-                        "toolSpec": {
-                            "name": tool.name,
-                            "description": tool.description,
-                            "inputSchema": {"json": tool.parameters},
-                        }
-                    }
-                    for tool in tools
-                ]
-            }
-            # INFO log of the serialized tool payload (first-principles debugging).
-            _tool_names = ", ".join(
-                t["toolSpec"]["name"] for t in request_params["toolConfig"]["tools"]
-            )
-            logger.info(
-                "[ToolSchemas→LLM] Bedrock converse payload: %d tools: %s",
-                len(request_params["toolConfig"]["tools"]),
-                _tool_names,
-            )
+        request_params = self._build_converse_request(
+            model, converse_messages, max_tokens, temperature, system_prompt, tools, "converse"
+        )
 
         # Run synchronous boto3 call in thread pool
         loop = asyncio.get_event_loop()
@@ -580,40 +594,15 @@ class BedrockProvider(BaseProvider):
                         content.append({"text": msg.content})
                     converse_messages.append({"role": "assistant", "content": content})
 
-            request_params = {
-                "modelId": model,
-                "messages": converse_messages,
-                "inferenceConfig": {
-                    "maxTokens": max_tokens,
-                    "temperature": temperature,
-                },
-            }
-
-            if system_prompt:
-                request_params["system"] = system_prompt
-
-            if tools:
-                request_params["toolConfig"] = {
-                    "tools": [
-                        {
-                            "toolSpec": {
-                                "name": tool.name,
-                                "description": tool.description,
-                                "inputSchema": {"json": tool.parameters},
-                            }
-                        }
-                        for tool in tools
-                    ]
-                }
-                # INFO log of the serialized tool payload (first-principles debugging).
-                _tool_names = ", ".join(
-                    t["toolSpec"]["name"] for t in request_params["toolConfig"]["tools"]
-                )
-                logger.info(
-                    "[ToolSchemas→LLM] Bedrock converse_stream payload: %d tools: %s",
-                    len(request_params["toolConfig"]["tools"]),
-                    _tool_names,
-                )
+            request_params = self._build_converse_request(
+                model,
+                converse_messages,
+                max_tokens,
+                temperature,
+                system_prompt,
+                tools,
+                "converse_stream",
+            )
 
             # Run synchronous streaming call
             loop = asyncio.get_event_loop()

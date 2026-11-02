@@ -65,6 +65,20 @@ def _topology_metric_aggregations(weighted_metadata_average):
     return {key: weighted_metadata_average(key) for key in _TOPOLOGY_METRIC_KEYS}
 
 
+_DEGRADATION_DISTRIBUTION_KEYS = (
+    "degradation_sources",
+    "degradation_kinds",
+    "degradation_failure_types",
+    "degradation_providers",
+    "degradation_reasons",
+)
+
+
+def _degradation_distribution_aggregations(weighted_distribution):
+    """Degradation distribution aggregations (dict form)."""
+    return {key: weighted_distribution(key) for key in _DEGRADATION_DISTRIBUTION_KEYS}
+
+
 AGGREGATED_RUNTIME_FEEDBACK_SOURCE = "validated_evaluation_truth_aggregate"
 SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE = "session_topology_runtime_feedback"
 AGGREGATED_SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE = "session_topology_runtime_feedback_aggregate"
@@ -2099,6 +2113,41 @@ def _topology_conflict_score(
     return round(_clamp(1.0 - weighted_consensus, 0.0, 1.0), 4)
 
 
+def _weighted_metadata_average(metadata_list, weights, field_name: str) -> Optional[float]:
+    """Weighted average of a metadata field across payloads."""
+    weighted_pairs = [
+        (float(metadata[field_name]), weight)
+        for metadata, weight in zip(metadata_list, weights)
+        if metadata.get(field_name) is not None
+    ]
+    if not weighted_pairs:
+        return None
+    numerator = sum(value * weight for value, weight in weighted_pairs)
+    denominator = sum(weight for _, weight in weighted_pairs)
+    return round(numerator / max(denominator, 1e-9), 4)
+
+
+def _weighted_distribution(metadata_list, weights, field_name: str) -> dict[str, float]:
+    """Weighted distribution of a metadata field across payloads."""
+    from collections.abc import Mapping
+
+    aggregated: dict[str, float] = {}
+    for metadata, weight in zip(metadata_list, weights):
+        distribution = metadata.get(field_name) or {}
+        if not isinstance(distribution, Mapping):
+            continue
+        for key, value in distribution.items():
+            label = str(key).strip()
+            if not label:
+                continue
+            try:
+                count = float(value)
+            except (TypeError, ValueError):
+                continue
+            aggregated[label] = round(aggregated.get(label, 0.0) + (count * weight), 4)
+    return aggregated
+
+
 def _aggregate_feedback_payloads(
     payloads: list[dict[str, Any]],
     *,
@@ -2138,34 +2187,11 @@ def _aggregate_feedback_payloads(
         denominator = sum(weight for _, weight in weighted_pairs)
         return round(numerator / max(denominator, 1e-9), 4)
 
-    def weighted_metadata_average(field_name: str) -> Optional[float]:
-        weighted_pairs = [
-            (float(metadata[field_name]), weight)
-            for metadata, weight in zip(metadata_list, weights)
-            if metadata.get(field_name) is not None
-        ]
-        if not weighted_pairs:
-            return None
-        numerator = sum(value * weight for value, weight in weighted_pairs)
-        denominator = sum(weight for _, weight in weighted_pairs)
-        return round(numerator / max(denominator, 1e-9), 4)
+    def weighted_metadata_average(field):
+        return _weighted_metadata_average(metadata_list, weights, field)
 
-    def weighted_distribution(field_name: str) -> dict[str, float]:
-        aggregated: dict[str, float] = {}
-        for metadata, weight in zip(metadata_list, weights):
-            distribution = metadata.get(field_name) or {}
-            if not isinstance(distribution, Mapping):
-                continue
-            for key, value in distribution.items():
-                label = str(key).strip()
-                if not label:
-                    continue
-                try:
-                    count = float(value)
-                except (TypeError, ValueError):
-                    continue
-                aggregated[label] = round(aggregated.get(label, 0.0) + (count * weight), 4)
-        return aggregated
+    def weighted_distribution(field):
+        return _weighted_distribution(metadata_list, weights, field)
 
     metadata_list = [dict(payload.get("metadata") or {}) for payload in validated_payloads]
     selection_policy_counts = weighted_distribution("topology_selection_policies")
@@ -2261,61 +2287,7 @@ def _aggregate_feedback_payloads(
                 4,
             ),
             **_topology_metric_aggregations(weighted_metadata_average),
-            "degradation_feedback_coverage": weighted_metadata_average(
-                "degradation_feedback_coverage"
-            ),
-            "degradation_event_count": weighted_metadata_average("degradation_event_count"),
-            "degraded_task_count": weighted_metadata_average("degraded_task_count"),
-            "recovered_task_count": weighted_metadata_average("recovered_task_count"),
-            "degradation_recovery_rate": weighted_metadata_average("degradation_recovery_rate"),
-            "avg_degradation_adaptation_cost": weighted_metadata_average(
-                "avg_degradation_adaptation_cost"
-            ),
-            "avg_degradation_time_to_recover_seconds": weighted_metadata_average(
-                "avg_degradation_time_to_recover_seconds"
-            ),
-            "avg_degradation_cost_variance": weighted_metadata_average(
-                "avg_degradation_cost_variance"
-            ),
-            "avg_degradation_recovery_time_variance": weighted_metadata_average(
-                "avg_degradation_recovery_time_variance"
-            ),
-            "avg_degradation_intervention_count": weighted_metadata_average(
-                "avg_degradation_intervention_count"
-            ),
-            "avg_degradation_confidence": weighted_metadata_average("avg_degradation_confidence"),
-            "avg_degradation_drift_score": weighted_metadata_average("avg_degradation_drift_score"),
-            "content_degradation_task_count": weighted_metadata_average(
-                "content_degradation_task_count"
-            ),
-            "confidence_degradation_task_count": weighted_metadata_average(
-                "confidence_degradation_task_count"
-            ),
-            "provider_degradation_task_count": weighted_metadata_average(
-                "provider_degradation_task_count"
-            ),
-            "persistent_degradation_task_count": weighted_metadata_average(
-                "persistent_degradation_task_count"
-            ),
-            "drift_task_count": weighted_metadata_average("drift_task_count"),
-            "degradation_drift_rate": weighted_metadata_average("degradation_drift_rate"),
-            "degradation_intervention_task_count": weighted_metadata_average(
-                "degradation_intervention_task_count"
-            ),
-            "degradation_intervention_rate": weighted_metadata_average(
-                "degradation_intervention_rate"
-            ),
-            "high_adaptation_cost_task_count": weighted_metadata_average(
-                "high_adaptation_cost_task_count"
-            ),
-            "degradation_high_cost_rate": weighted_metadata_average("degradation_high_cost_rate"),
-            "degradation_confidence_rate": weighted_metadata_average("degradation_confidence_rate"),
-            "degradation_stability_score": weighted_metadata_average("degradation_stability_score"),
-            "degradation_sources": weighted_distribution("degradation_sources"),
-            "degradation_kinds": weighted_distribution("degradation_kinds"),
-            "degradation_failure_types": weighted_distribution("degradation_failure_types"),
-            "degradation_providers": weighted_distribution("degradation_providers"),
-            "degradation_reasons": weighted_distribution("degradation_reasons"),
+            **_degradation_distribution_aggregations(weighted_distribution),
             "optimization_feasible_tasks": weighted_metadata_average("optimization_feasible_tasks"),
             "optimization_infeasible_tasks": weighted_metadata_average(
                 "optimization_infeasible_tasks"
@@ -2432,34 +2404,11 @@ def _aggregate_topology_feedback_metadata(
     ]
     metadata_list = [dict(payload.get("metadata") or {}) for payload in topology_payloads]
 
-    def weighted_metadata_average(field_name: str) -> Optional[float]:
-        weighted_pairs = [
-            (float(metadata[field_name]), weight)
-            for metadata, weight in zip(metadata_list, weights)
-            if metadata.get(field_name) is not None
-        ]
-        if not weighted_pairs:
-            return None
-        numerator = sum(value * weight for value, weight in weighted_pairs)
-        denominator = sum(weight for _, weight in weighted_pairs)
-        return round(numerator / max(denominator, 1e-9), 4)
+    def weighted_metadata_average(field):
+        return _weighted_metadata_average(metadata_list, weights, field)
 
-    def weighted_distribution(field_name: str) -> dict[str, float]:
-        aggregated: dict[str, float] = {}
-        for metadata, weight in zip(metadata_list, weights):
-            distribution = metadata.get(field_name) or {}
-            if not isinstance(distribution, Mapping):
-                continue
-            for key, value in distribution.items():
-                label = str(key).strip()
-                if not label:
-                    continue
-                try:
-                    count = float(value)
-                except (TypeError, ValueError):
-                    continue
-                aggregated[label] = round(aggregated.get(label, 0.0) + (count * weight), 4)
-        return aggregated
+    def weighted_distribution(field):
+        return _weighted_distribution(metadata_list, weights, field)
 
     action_distribution = weighted_distribution("topology_actions")
     final_action_distribution = weighted_distribution("topology_final_actions")
@@ -2546,50 +2495,7 @@ def _aggregate_topology_feedback_metadata(
         "source": AGGREGATED_SESSION_TOPOLOGY_RUNTIME_FEEDBACK_SOURCE,
         "topology_feedback_sources": list(dict.fromkeys(sources)),
         **_topology_metric_aggregations(weighted_metadata_average),
-        "avg_degradation_adaptation_cost": weighted_metadata_average(
-            "avg_degradation_adaptation_cost"
-        ),
-        "avg_degradation_time_to_recover_seconds": weighted_metadata_average(
-            "avg_degradation_time_to_recover_seconds"
-        ),
-        "avg_degradation_cost_variance": weighted_metadata_average("avg_degradation_cost_variance"),
-        "avg_degradation_recovery_time_variance": weighted_metadata_average(
-            "avg_degradation_recovery_time_variance"
-        ),
-        "avg_degradation_intervention_count": weighted_metadata_average(
-            "avg_degradation_intervention_count"
-        ),
-        "avg_degradation_confidence": weighted_metadata_average("avg_degradation_confidence"),
-        "avg_degradation_drift_score": weighted_metadata_average("avg_degradation_drift_score"),
-        "content_degradation_task_count": weighted_metadata_average(
-            "content_degradation_task_count"
-        ),
-        "confidence_degradation_task_count": weighted_metadata_average(
-            "confidence_degradation_task_count"
-        ),
-        "provider_degradation_task_count": weighted_metadata_average(
-            "provider_degradation_task_count"
-        ),
-        "persistent_degradation_task_count": weighted_metadata_average(
-            "persistent_degradation_task_count"
-        ),
-        "drift_task_count": weighted_metadata_average("drift_task_count"),
-        "degradation_drift_rate": weighted_metadata_average("degradation_drift_rate"),
-        "degradation_intervention_task_count": weighted_metadata_average(
-            "degradation_intervention_task_count"
-        ),
-        "degradation_intervention_rate": weighted_metadata_average("degradation_intervention_rate"),
-        "high_adaptation_cost_task_count": weighted_metadata_average(
-            "high_adaptation_cost_task_count"
-        ),
-        "degradation_high_cost_rate": weighted_metadata_average("degradation_high_cost_rate"),
-        "degradation_confidence_rate": weighted_metadata_average("degradation_confidence_rate"),
-        "degradation_stability_score": weighted_metadata_average("degradation_stability_score"),
-        "degradation_sources": weighted_distribution("degradation_sources"),
-        "degradation_kinds": weighted_distribution("degradation_kinds"),
-        "degradation_failure_types": weighted_distribution("degradation_failure_types"),
-        "degradation_providers": weighted_distribution("degradation_providers"),
-        "degradation_reasons": weighted_distribution("degradation_reasons"),
+        **_degradation_distribution_aggregations(weighted_distribution),
         "tasks_with_team_feedback": weighted_metadata_average("tasks_with_team_feedback"),
         "team_feedback_coverage": weighted_metadata_average("team_feedback_coverage"),
         "team_formations": weighted_distribution("team_formations"),

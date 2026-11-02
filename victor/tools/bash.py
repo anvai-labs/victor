@@ -637,6 +637,88 @@ _SHELL_SAFE_BUILTINS = frozenset(
 )
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
+# Remote-exec commands that need payload/direction analysis for readonly mode.
+# These are NOT in READONLY_COMMANDS_UNIX — they require special handling because
+# their readonly-ness depends on what they do remotely, not the command name alone.
+_REMOTE_EXEC_COMMANDS: Set[str] = {"ssh", "scp", "rsync"}
+
+# find actions that mutate: -delete removes files, the -fprint family writes
+# named files (bare -print/-ls/-print0 stay stdout-only and readonly).
+_FIND_WRITE_ACTIONS: frozenset = frozenset({"-delete", "-fprint", "-fprintf", "-fprint0", "-fls"})
+# find actions that execute a command per matched file. The wrapped command is
+# validated recursively; {} stays in as an opaque argument, so base-command
+# allowlisting carries the decision.
+_FIND_EXEC_ACTIONS: frozenset = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+# find tests/options that consume exactly one argument — skipping the value
+# keeps a flag-shaped argument (e.g. `find . -name -delete`, matching files
+# NAMED "-delete") from being misread as an action flag.
+_FIND_VALUE_TESTS: frozenset = frozenset(
+    {
+        "-name",
+        "-iname",
+        "-lname",
+        "-ilname",
+        "-path",
+        "-ipath",
+        "-wholename",
+        "-iwholename",
+        "-regex",
+        "-iregex",
+        "-type",
+        "-xtype",
+        "-user",
+        "-group",
+        "-uid",
+        "-gid",
+        "-perm",
+        "-newer",
+        "-anewer",
+        "-cnewer",
+        "-size",
+        "-inum",
+        "-links",
+        "-mtime",
+        "-atime",
+        "-ctime",
+        "-maxdepth",
+        "-mindepth",
+        "-fstype",
+        "-context",
+    }
+)
+
+
+def _validate_find_readonly(tokens: list[str]) -> tuple[bool, str]:
+    """Validate a find invocation's action flags for readonly mode.
+
+    ``-delete`` and the ``-fprint`` family are always rejected; ``-exec`` /
+    ``-execdir`` / ``-ok`` / ``-okdir`` run a command per match, so that
+    command (tokens up to the ``;`` / ``+`` terminator) is validated
+    recursively through the full readonly pipeline.
+    """
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _FIND_WRITE_ACTIONS:
+            return False, f"find {tok}"
+        if tok in _FIND_EXEC_ACTIONS:
+            j = i + 1
+            while j < len(tokens) and tokens[j] not in (";", "+"):
+                j += 1
+            wrapped = tokens[i + 1 : j]
+            if wrapped:
+                valid, failing = _validate_readonly_command(shlex.join(wrapped))
+                if not valid:
+                    return False, f"find {tok}: {failing}"
+            # Continue past the terminator: multiple -exec clauses may follow.
+            i = j + 1
+            continue
+        if tok in _FIND_VALUE_TESTS:
+            i += 2  # skip the test plus its argument
+            continue
+        i += 1
+    return True, ""
+
 
 def _scan_substitutions(text: str) -> "tuple[List[str], str]":
     """Quote-aware scan for command substitutions.
@@ -723,7 +805,9 @@ def _strip_structural_prefix(component: str) -> Optional[str]:
     try:
         tokens = shlex.split(s)
     except ValueError:
-        tokens = s.split()
+        # Preserve malformed input for the command gate rather than attempting
+        # to strip prefixes from a different tokenization.
+        return s
     if not tokens:
         return None
     # A loop/case header (`for VAR in WORDS`, `case WORD in`) runs no command.
@@ -736,7 +820,16 @@ def _strip_structural_prefix(component: str) -> Optional[str]:
         idx += 1
     if idx >= len(tokens):
         return None
-    return " ".join(tokens[idx:])
+    if idx == 0:
+        return s
+    # Preserve the residual shell text: rebuilding from split tokens erases
+    # quotes in SSH options, redirects and literal arguments to exec wrappers.
+    lexer = shlex.shlex(s, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    for _ in range(idx):
+        lexer.get_token()
+    return s[lexer.instream.tell() :]
 
 
 def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
@@ -772,6 +865,100 @@ def _validate_readonly_command(cmd: str) -> tuple[bool, str]:
     return _validate_single_readonly_command(sanitized.strip())
 
 
+def _validate_remote_exec_readonly(cmd: str, base_cmd: str) -> tuple[bool, str]:
+    """Validate SSH payloads; file transfers write state in either direction."""
+    redirect_valid, redirect_reason = _validate_readonly_redirections(cmd)
+    if not redirect_valid:
+        return False, redirect_reason
+    if base_cmd in {"scp", "rsync"}:
+        return False, f"{base_cmd} (file transfer writes state)"
+    try:
+        tokens = shlex.split(cmd.strip())
+    except ValueError:
+        return False, f"{base_cmd} (malformed arguments)"
+    if not tokens:
+        return False, base_cmd
+    if base_cmd == "ssh":
+        return _validate_ssh_readonly(tokens)
+    return False, base_cmd
+
+
+def _validate_ssh_readonly(tokens: list[str]) -> tuple[bool, str]:
+    """Allow connection options with known semantics, then validate the payload.
+
+    SSH options can run local commands, load executable configuration, write
+    logs or allocate forwarding sockets independently of the remote payload.
+    Unknown options therefore require the normal non-readonly execution path.
+    """
+    boolean_flags = frozenset("46aCknqTtvx")
+    value_flags = frozenset("bBcilmop")
+    safe_options = frozenset(
+        {
+            "addressfamily",
+            "batchmode",
+            "compression",
+            "connectionattempts",
+            "connecttimeout",
+            "globalknownhostsfile",
+            "hostname",
+            "identitiesonly",
+            "identityfile",
+            "loglevel",
+            "passwordauthentication",
+            "port",
+            "preferredauthentications",
+            "pubkeyauthentication",
+            "requesttty",
+            "serveralivecountmax",
+            "serveraliveinterval",
+            "stricthostkeychecking",
+            "user",
+            "userknownhostsfile",
+        }
+    )
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            i += 1
+            break
+        if not tok.startswith("-") or tok == "-":
+            break
+        j = 1
+        while j < len(tok):
+            flag = tok[j]
+            if flag in boolean_flags:
+                j += 1
+                continue
+            if flag not in value_flags:
+                return False, f"ssh (unsupported option -{flag})"
+            value = tok[j + 1 :]
+            if not value:
+                i += 1
+                if i >= len(tokens):
+                    return False, f"ssh (missing value for -{flag})"
+                value = tokens[i]
+            if flag == "o":
+                parts = re.split(r"[=\s]+", value.strip(), maxsplit=1)
+                if len(parts) != 2 or parts[0].lower() not in safe_options or not parts[1]:
+                    return False, "ssh (unsupported configuration option)"
+                if parts[0].lower() == "userknownhostsfile" and parts[1] != "/dev/null":
+                    return False, "ssh (known-host output file)"
+            # The rest of this token is a value, not another option cluster.
+            break
+        i += 1
+
+    if i >= len(tokens) or i + 1 >= len(tokens):
+        return False, "ssh (interactive session)"
+    # SSH itself joins remote arguments with spaces and sends the result to a
+    # remote shell, so shell operators inside one argument are meaningful.
+    remote_cmd = " ".join(tokens[i + 1 :])
+    valid, failing = _validate_readonly_command(remote_cmd)
+    if not valid:
+        return False, f"ssh remote: {failing}"
+    return True, ""
+
+
 def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     """Validate a single (already split, substitution-free) shell command."""
     # Strip leading control-flow keywords, loop headers, and assignments. What
@@ -792,6 +979,11 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     # binaries in the allowlist; accept them past the allowlist gate but still
     # apply the redirect / pipe-to-shell checks below (so `echo x > f` is caught).
     if base_cmd not in readonly_commands and base_cmd not in _SHELL_SAFE_BUILTINS:
+        # Remote-exec commands (ssh, scp, rsync) need payload/direction analysis
+        # rather than a blanket reject. The readonly-ness depends on what the
+        # remote command does (ssh) or the transfer direction (scp/rsync).
+        if base_cmd in _REMOTE_EXEC_COMMANDS:
+            return _validate_remote_exec_readonly(cmd, base_cmd)
         return False, base_cmd
 
     # Allow bare --version / --help / -V / -h for any command (they're always readonly)
@@ -807,10 +999,56 @@ def _validate_single_readonly_command(cmd: str) -> tuple[bool, str]:
     if not redirect_valid:
         return False, redirect_reason
 
+    # env is a generic exec wrapper: `env rm -f x` runs rm. Validate the
+    # wrapped command recursively instead of trusting the env allowlist entry
+    # (which exists for bare `env` / `env VAR=x <readonly-cmd>` usage).
+    if base_cmd == "env":
+        j = 1
+        while j < len(_tokens):
+            t = _tokens[j]
+            if t == "--":
+                j += 1
+                break
+            if t in {"-u", "--unset", "-C", "--chdir"}:
+                if j + 1 >= len(_tokens):
+                    return False, "env (missing option value)"
+                j += 2
+                continue
+            if t.startswith(("--unset=", "--chdir=")) or (
+                t.startswith(("-u", "-C")) and len(t) > 2
+            ):
+                j += 1
+                continue
+            if t in {"-i", "--ignore-environment", "-0", "--null", "-"}:
+                j += 1
+                continue
+            if t.startswith("-"):
+                # In particular -S/--split-string executes a second argument
+                # language; do not confuse it with an inert wrapper flag.
+                return False, "env (unsupported option)"
+            if _ASSIGNMENT_RE.match(t):
+                j += 1
+                continue
+            break
+        wrapped = _tokens[j:]
+        if not wrapped:
+            return True, ""
+        wrapped_valid, wrapped_failing = _validate_readonly_command(shlex.join(wrapped))
+        if not wrapped_valid:
+            return False, f"env: {wrapped_failing}"
+        return True, ""
+
     # sed is readonly unless it edits in place. Tokenize this check so a pattern
     # containing the text "-i" is not misclassified.
     if base_cmd == "sed" and any(t == "-i" or t.startswith("-i") for t in _tokens[1:]):
         return False, "sed -i"
+
+    # find's action flags can execute (-exec family) or delete/write
+    # (-delete, -fprint*) even though plain find is readonly.
+    if base_cmd == "find":
+        find_valid, find_reason = _validate_find_readonly(_tokens)
+        if not find_valid:
+            return False, find_reason
 
     # Binary evidence inspection for research tasks. These tools can also
     # write files, so readonly mode permits only stdout-oriented forms.

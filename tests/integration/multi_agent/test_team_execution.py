@@ -809,9 +809,51 @@ class TestConsensusFormation:
 
         assert result["success"] is False
         assert result.get("consensus_achieved", True) is False
-        # Every round re-asks every member before giving up (default max_rounds=3).
+        # Every round re-asks every member before giving up (default
+        # max_rounds=15, 5x'd 2026-10-31 #1637).
         for agent in three_agent_team:
-            assert len(agent.executed_tasks) == 3
+            assert len(agent.executed_tasks) == 15
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_consensus_task_size_stays_bounded_with_echoing_members(
+        self,
+        coordinator: UnifiedTeamCoordinator,
+    ):
+        """Members that quote the round task must not compound its size.
+
+        Regression for the promotion OOM: with unbounded embedding, echoing
+        members (every IntegrationTestAgent echoes its task) grew the round
+        task ~4x per round — 14 GB by round ~11 at the 5x'd max_rounds=15,
+        OOM-killing the CI runner. Only a bounded output preview may be
+        embedded in the next round's task. The guard agents fail the test at
+        MB scale (round ~8) instead of letting a regression OOM the runner.
+        """
+
+        class TaskSizeGuardAgent(IntegrationTestAgent):
+            async def execute_task(self, task: str, context: Dict[str, Any]) -> str:
+                assert (
+                    len(task) <= 1_000_000
+                ), f"consensus round task is unbounded: {len(task)} chars"
+                return await super().execute_task(task, context)
+
+        agent1 = TaskSizeGuardAgent("agent_1", output_prefix="agreed")
+        agent2 = IntegrationTestAgent("agent_2", fail_on_task=True)
+        agent3 = TaskSizeGuardAgent("agent_3", output_prefix="agreed")
+
+        coordinator.add_member(agent1).add_member(agent2).add_member(agent3)
+        coordinator.set_formation(TeamFormation.CONSENSUS)
+
+        result = await coordinator.execute_task("Consensus task", {})
+
+        assert result["success"] is False
+        assert result.get("consensus_achieved", True) is False
+        # The run completes all 15 rounds and every task stays bounded:
+        # original task + per-member previews + JSON overhead.
+        for agent in (agent1, agent2, agent3):
+            assert len(agent.executed_tasks) == 15
+        worst = max(len(task) for agent in (agent1, agent3) for task in agent.executed_tasks)
+        assert worst < 100_000, f"round task grew to {worst} chars"
 
 
 # =============================================================================
