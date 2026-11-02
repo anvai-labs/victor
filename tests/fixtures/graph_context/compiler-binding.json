@@ -1,0 +1,18 @@
+{
+  "schema": "victor-callee-index-binding-v1",
+  "index_sha256": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3",
+  "source_hashes": {
+    "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+    "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+    "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+    "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+    "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+  },
+  "producer": {
+    "name": "scip-python",
+    "version": "0.6.8",
+    "kind": "actual_static_indexer_output; Pyright-backed, not native compilation or runtime verification",
+    "tool_entry_sha256": "ce60dd39157c8f52d8f9de8f060743e1135b697c52253de65521a19b84e19d2a",
+    "config_sha256": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4"
+  }
+}
