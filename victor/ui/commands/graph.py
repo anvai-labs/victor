@@ -2118,6 +2118,13 @@ def _graph_similar_structural(
             "FFI links carry static/index evidence; runtime binding is unverified.",
             markup=False,
         )
+        console.print(
+            "JNI declared contracts matching/conflicting/unknown: "
+            f"{st.get('ffi_jni_matching_declarations', 0)}/"
+            f"{st.get('ffi_jni_conflicting_declarations', 0)}/"
+            f"{st.get('ffi_jni_unknown_declarations', 0)}; ABI unverified.",
+            markup=False,
+        )
     console.print(
         "Normalized syntax candidates; review constants, effects and contracts before refactoring.",
         markup=False,
@@ -2141,9 +2148,11 @@ def _graph_similar_structural(
     console.print()
     for link in report.ffi_links[:limit]:
         source, target = link["source"], link["target"]
+        contract = link.get("declared_contract")
+        diagnostic = f"; JNI declared contract: {contract['status']}" if contract else ""
         console.print(
             f"FFI {source['file']}:{source['line']} {source['symbol']} -> "
-            f"{target['file']}:{target['line']} {target['symbol']} ({link['evidence']})",
+            f"{target['file']}:{target['line']} {target['symbol']} ({link['evidence']}{diagnostic})",
             markup=False,
         )
     if not report.families:

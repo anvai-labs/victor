@@ -61,6 +61,13 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/benchmark_body_model_failure.py": (
+        "tests/unit/scripts/test_benchmark_body_model_failure.py",
+    ),
+    "victor/core/graph_rag/jni_contracts.py": (
+        "tests/unit/core/graph_rag/test_jni_contracts.py",
+        "tests/unit/core/graph_rag/test_polyglot_clones.py",
+    ),
     "scripts/benchmark_graph_similarity_evaluation.py": (
         "tests/unit/scripts/test_benchmark_graph_similarity_evaluation.py",
     ),

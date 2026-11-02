@@ -269,6 +269,89 @@ def test_jni_overloads_use_parameter_descriptors(tmp_path):
     }
 
 
+@pytest.mark.parametrize("extension", ["c", "cpp"])
+@pytest.mark.parametrize(
+    "java,native,result,status",
+    [
+        ("native int run(int x);", "JNIEnv *e, jobject o, jint x", "jint", "matching_declaration"),
+        (
+            "static native long run(long x);",
+            "JNIEnv *e, jclass o, jlong x",
+            "jlong",
+            "matching_declaration",
+        ),
+        (
+            "native int run(int x);",
+            "JNIEnv *e, jobject o, jlong x",
+            "jint",
+            "conflicting_declaration",
+        ),
+        (
+            "native int run(int x);",
+            "JNIEnv *e, jobject o, jint x",
+            "jlong",
+            "conflicting_declaration",
+        ),
+        ("native int run(int x);", "JNIEnv *e, jobject o", "jint", "conflicting_declaration"),
+        ("native int run(int x);", "JNIEnv *e, jobject o, int x", "jint", "unknown"),
+        ("native int run(int x);", "JNIEnv *e, jobject o, const jint x", "jint", "unknown"),
+        ("native int run(int x);", "JNIEnv *e, jobject o, jint *x", "jint", "unknown"),
+        ("native int run(int x);", "JNIEnv *e, jobject o, ...", "jint", "unknown"),
+        ('@Note("critical") native int run(int x);', "jint x", "jint", "unknown"),
+        (
+            "native void run(int a[], int[][] b);",
+            "JNIEnv *e, jobject o, jintArray a, jobjectArray b",
+            "void",
+            "matching_declaration",
+        ),
+        (
+            "native java.lang.String run();",
+            "JNIEnv *e, jobject o",
+            "jstring",
+            "unknown",
+        ),
+        (
+            "native java.lang.String run()[];",
+            "JNIEnv *e, jobject o",
+            "jobjectArray",
+            "unknown",
+        ),
+        (
+            "native int run(/*comment*/ Native this, int x);",
+            "JNIEnv *e, jobject o, jint x",
+            "jint",
+            "matching_declaration",
+        ),
+        (
+            "native int run(Unknown x, long y);",
+            "JNIEnv *e, jobject o, jobject x, jint y",
+            "jint",
+            "conflicting_declaration",
+        ),
+    ],
+)
+def test_jni_declared_contracts_preserve_links_and_qualification(
+    tmp_path, extension, java, native, result, status
+):
+    (tmp_path / "Native.java").write_text("class Native { " + java + " }")
+    (tmp_path / f"native.{extension}").write_text(
+        f"JNIEXPORT {result} JNICALL Java_Native_run({native}) {{ return 0; }}"
+    )
+    report = scan(tmp_path, min_nodes=5, cross_language=True)
+    assert report.stats["parse_error_files"] == 0
+    (link,) = report.ffi_links
+    assert link["declared_contract"]["status"] == status
+    assert link["abi_verified"] is False
+    assert link["runtime_verified"] is False
+    assert not report.families
+    suffix = {
+        "matching_declaration": "matching",
+        "conflicting_declaration": "conflicting",
+        "unknown": "unknown",
+    }[status]
+    assert report.stats[f"ffi_jni_{suffix}_declarations"] == 1
+
+
 def test_jni_duplicate_exports_are_not_arbitrarily_resolved(tmp_path):
     (tmp_path / "Native.java").write_text("package pkg; class Native { native int sum(int x); }")
     source = (
@@ -279,6 +362,90 @@ def test_jni_duplicate_exports_are_not_arbitrarily_resolved(tmp_path):
     report = scan(tmp_path, min_nodes=5, cross_language=True)
     assert report.ffi_links == []
     assert report.stats["ffi_ambiguous_bindings"] == 1
+
+
+@pytest.mark.parametrize("extension", ["c", "cpp"])
+def test_jni_callback_parameter_does_not_match_primitive_value(tmp_path, extension):
+    (tmp_path / "Native.java").write_text("class Native { native int run(int x); }")
+    (tmp_path / f"native.{extension}").write_text(
+        "JNIEXPORT jint JNICALL Java_Native_run(JNIEnv *e, jobject o, jint callback(jint)) { return 0; }"
+    )
+    report = scan(tmp_path, cross_language=True)
+    assert report.stats["parse_error_files"] == 0
+    assert report.ffi_links[0]["declared_contract"]["status"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "class Native { static class String {} native int run(String x); }",
+        "class Native<String> { native int run(String x); }",
+        "class Native { static class java { static class lang { static class String {} } } native int run(java.lang.String x); }",
+    ],
+)
+def test_jni_reference_names_are_not_resolved_by_import_spelling(tmp_path, declaration):
+    (tmp_path / "Native.java").write_text("import java.lang.String; " + declaration)
+    (tmp_path / "native.c").write_text(
+        "JNIEXPORT jint JNICALL Java_Native_run(JNIEnv *e, jobject o, jstring x) { return 0; }"
+    )
+    report = scan(tmp_path, cross_language=True)
+    assert report.stats["parse_error_files"] == 0
+    assert report.ffi_links[0]["declared_contract"]["status"] == "unknown"
+
+
+def test_jni_reference_contract_can_use_fresh_compiler_type_identity():
+    from victor.core.graph_rag.ffi_bindings import collect_binding_facts, jni_relationships
+    from victor.core.graph_rag.language_parsers import create_parser, parser_input
+
+    source = b"class Native { native int run(String x); }"
+    column = source.index(b"String")
+    occurrences = {(1, column): (6, "scip-java maven java.base 26 java/lang/String#")}
+    tree = create_parser("java").parse(source)
+    facts = collect_binding_facts("Native.java", source, tree.root_node, "java", occurrences)
+    native = (
+        b"JNIEXPORT jint JNICALL Java_Native_run(JNIEnv *e, jobject o, jstring x) { return 0; }"
+    )
+    native_tree = create_parser("c").parse(parser_input(native, "c"))
+    facts += collect_binding_facts("native.c", native, native_tree.root_node, "c")
+    links, stats = jni_relationships(facts)
+    assert links[0]["declared_contract"]["status"] == "matching_declaration"
+    assert stats["ffi_jni_matching_declarations"] == 1
+
+
+@pytest.mark.parametrize(
+    "java,owner",
+    [
+        (
+            "class Outer { void make(){ class Local { native int sum(int x); } } }",
+            "Outer_00024Local",
+        ),
+        ("class Outer { Object make(){return new Object(){native int sum(int x);};}}", "Outer"),
+        ("enum Outer { VALUE { native int sum(int x); }; }", "Outer"),
+    ],
+)
+def test_jni_local_and_anonymous_binary_owners_are_not_guessed(tmp_path, java, owner):
+    (tmp_path / "Outer.java").write_text("package pkg; " + java)
+    (tmp_path / "native.c").write_text(
+        f"JNIEXPORT jint JNICALL Java_pkg_{owner}_sum(JNIEnv *e, jobject o, jint x) {{ return x; }}"
+    )
+    report = scan(tmp_path, cross_language=True)
+    assert report.stats["parse_error_files"] == 0
+    assert not report.ffi_links
+    assert report.stats["ffi_jni_declarations"] == 1
+    assert report.stats["ffi_unresolved_bindings"] == 1
+    assert report.stats["ffi_jni_unresolved_owners"] == 1
+
+
+def test_jni_direct_member_nested_class_keeps_known_owner(tmp_path):
+    (tmp_path / "Outer.java").write_text(
+        "package pkg; class Outer { static class Inner { native int sum(int x); } }"
+    )
+    (tmp_path / "native.c").write_text(
+        "JNIEXPORT jint JNICALL Java_pkg_Outer_00024Inner_sum(JNIEnv *e, jobject o, jint x) { return x; }"
+    )
+    report = scan(tmp_path, cross_language=True)
+    assert report.ffi_links[0]["declared_contract"]["status"] == "matching_declaration"
+    assert report.stats["ffi_jni_unresolved_owners"] == 0
 
 
 def test_jni_overloaded_short_export_prevents_a_runtime_binding_guess(tmp_path):

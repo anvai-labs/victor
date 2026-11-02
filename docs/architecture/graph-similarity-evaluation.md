@@ -117,6 +117,45 @@ The output/cache cannot replace corpus, profile, source or project graph inputs,
 including SQLite WAL/SHM/rollback-journal sidecars and existing inode aliases.
 Existing cache files must be regular, singly linked and contain only the body
 cache schema; foreign databases cannot be repurposed as derived caches.
+
+Local model construction and profile validation are attempted once per encoder.
+A failed load is retained as a bounded error category/message; subsequent bodies
+still report their individual failures without constructing the model again.
+Create a fresh encoder after repairing the installation/profile. Cancellation
+propagates and is not retained as a model failure. Warm vector-cache reads still
+perform zero model loads. Body statistics expose load attempts and failure state.
+
+The [failure-path measurement](evidence/graph-similarity-contracts-2026-11-02.json)
+compares the same 234-function source manifest and intentionally incorrect pinned
+model dimension. Construction count falls from 234 to one, with identical 234
+errors and incomplete coverage. Single-process measurements are 20.426s versus
+0.462s wall time and 18.823s versus 0.174s CPU. Imports/source collection are
+outside the timer; RSS is process lifetime peak. These are failure-path results,
+not successful inference throughput or accuracy. Reproduce with locally cached
+weights and each candidate's source on `PYTHONPATH`:
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=.:victor-codegraph \
+  python scripts/benchmark_body_model_failure.py --path /path/to/matched-snapshot
+```
+
+JNI links additionally carry a versioned `declared_contract` diagnostic:
+`matching_declaration`, `conflicting_declaration` or `unknown`. Under standard
+JNI typedef spellings, known primitive argument/return differences and argument
+counts produce conflicts. Static receivers and primitive arrays are inspected;
+reference descriptors require fresh SCIP type identities, including imported or
+qualified-looking platform types because Java names can be shadowed. The maps follow the
+[JNI type specification](https://docs.oracle.com/en/java/javase/26/docs/specs/jni/types.html)
+and [native argument convention](https://docs.oracle.com/en/java/javase/26/docs/specs/jni/design.html#native-method-arguments).
+Unresolved types, C aliases/widths, differing reference spellings, variadics and
+annotated native conventions abstain conservatively. Name links are retained
+even when declarations conflict, and the CLI exposes their status separately
+from duplicate families. Local/anonymous Java binary owners are not guessed;
+their declarations increment `ffi_jni_unresolved_owners` and unresolved binding
+counts. Ordinary member nested classes retain lexical owner support.
+Preprocessing, library resolution, C++ linkage, platform
+calling conventions and runtime behavior remain unverified: both `abi_verified`
+and `runtime_verified` stay false. No compiled or live JNI acceptance is claimed.
 Reports are atomically published and contain hashes and scores, not source bodies.
 
 Exit 0 means the requested protocol gates passed. Exit 1 means missing scoring

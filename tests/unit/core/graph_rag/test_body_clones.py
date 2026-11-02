@@ -79,6 +79,8 @@ def test_cache_reuses_vectors_and_invalidates_changed_body(tmp_path):
     assert first["stats"]["inferred_windows"] == 2
     assert second["stats"]["inferred_windows"] == 0
     assert second["stats"]["cache_hits"] == 1
+    assert second["stats"]["model_load_attempts"] == 0
+    assert second["stats"]["model_load_failed"] is False
     (tmp_path / "b.py").write_text("def compute(x):\n value=x-1\n return value*3+4\n")
     third = analyze_bodies(
         scan(tmp_path, min_nodes=5, retain_source=True),
@@ -299,3 +301,83 @@ def test_sqlite_like_wildcards_cannot_hide_foreign_tables(tmp_path):
     with pytest.raises(ValueError, match="unrelated SQLite"):
         analyze_bodies(extractor(tmp_path), options=options(), cache_path=database)
     assert database.read_bytes() == before
+
+
+def test_invalid_model_profile_constructs_once_per_encoder(tmp_path):
+    model = Model()
+    loads = []
+    bad_options = BodyOptions(
+        model_id="test/model", revision="0" * 40, dimension=4, max_tokens=32, overlap=4
+    )
+    encoder = LocalBodyEncoder(bad_options, model_factory=lambda *a, **k: loads.append(1) or model)
+    result = analyze_bodies(extractor(tmp_path), options=bad_options, encoder=encoder)
+    assert not result["coverage_complete"]
+    assert len(result["errors"]) == 2
+    assert len(loads) == 1
+    assert result["stats"]["model_load_attempts"] == 1
+    assert result["stats"]["model_load_failed"] is True
+    assert all("dimension" in error["reason"] for error in result["errors"])
+
+
+@pytest.mark.parametrize("failure", ["dimension", "context", "missing_metadata"])
+def test_failed_load_is_latched_without_replaying_the_factory(failure):
+    model = Model()
+    loads = []
+    if failure == "dimension":
+        model.get_sentence_embedding_dimension = lambda: 4
+    elif failure == "context":
+        model.max_seq_length = 8
+    else:
+        model.get_sentence_embedding_dimension = None
+    encoder = LocalBodyEncoder(options(), model_factory=lambda *a, **k: loads.append(1) or model)
+    for source in ("first", "second", "third"):
+        with pytest.raises(ValueError):
+            encoder.windows(source)
+    assert len(loads) == 1
+
+
+def test_fresh_encoder_can_retry_after_model_metadata_is_repaired():
+    model = Model()
+    model.max_seq_length = 8
+
+    def factory(*args, **kwargs):
+        return model
+
+    failed = LocalBodyEncoder(options(), model_factory=factory)
+    with pytest.raises(ValueError, match="context"):
+        failed.windows("source")
+    model.max_seq_length = 512
+    with pytest.raises(ValueError, match="context"):
+        failed.windows("source")
+    fresh = LocalBodyEncoder(options(), model_factory=factory)
+    assert fresh.windows("source")[0] == ["source"]
+
+
+@pytest.mark.parametrize("error", [ImportError, OSError, RuntimeError, ValueError])
+def test_constructor_failures_are_bounded_per_encoder(error):
+    attempts = []
+
+    def factory(*args, **kwargs):
+        attempts.append(1)
+        raise error("unavailable local model")
+
+    encoder = LocalBodyEncoder(options(), model_factory=factory)
+    for _ in range(3):
+        with pytest.raises(error, match="unavailable local model"):
+            encoder.windows("source")
+    assert len(attempts) == 1
+
+
+def test_cancelled_model_load_is_not_latched():
+    attempts = []
+
+    def factory(*args, **kwargs):
+        attempts.append(1)
+        raise KeyboardInterrupt
+
+    encoder = LocalBodyEncoder(options(), model_factory=factory)
+    for _ in range(2):
+        with pytest.raises(KeyboardInterrupt):
+            encoder.windows("source")
+    assert len(attempts) == 2
+    assert not encoder.load_failed

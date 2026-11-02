@@ -481,3 +481,21 @@ then cover rejected constructs without dropping effects, ablate typed/compiler
 context, measure incremental/ANN retrieval against exact pairs, and only then
 apply family explanations and baseline/SARIF/changed-code policies. No current
 pilot certifies production semantic equivalence or safe backend consolidation.
+
+
+## Active goal execution ledger
+
+The user requested continued execution through foundations and applications.
+This section owns source-similarity continuation status; PRs own exact head,
+review/CI/merge evidence. Release and production qualification remain separate.
+
+| ID | Dependency and acceptance | State / executable next action |
+| --- | --- | --- |
+| F1 | Reviewed pair protocol, source snapshots, calibration/test isolation and exact pair scores | Merged in [#1658](https://github.com/anvai-labs/victor/pull/1658), `1c4fd0950`; all PR CI and independent scope reviews clean. Portable v3 coverage is 169/234 on the matched manifest. |
+| F2 | F1; bounded failure and typed binding evidence before broader similarity claims | Implemented locally; review/CI pending. Owner current continuation session, branch `feature/graph-similarity-contracts`, baseline `1c4fd0950`. Matched 234-function invalid-profile probe: 234 constructions → one, same 234 errors; standard-JNI declared-signature diagnostics retain unknown/ABI/runtime limits. [Evidence and reproduction](graph-similarity-evaluation.md). Next: exact-commit independent review, local gates, PR to develop and all-green CI before merge. |
+| G1 | F1/F2; correct input graph semantics and context ablation | Ready after contracts: replace/reject reachability-as-control-dependence assumptions; validate graph/callee features against explicit hard negatives before ranking fusion. |
+| R1 | F1/G1; measured retrieval/cache behavior against exact observations | Pending: profile representative cold/warm work, verify dependency/manifest invalidation and bounded retrieval parity before ANN or native changes. |
+| A1 | Explicit edge evidence and deterministic source identities | Pending: family representative/cohesion views, stable source-copy baseline and changed-code gates; never gate on family count alone. |
+| A2 | A1 and complete/error-aware reports | Pending: SARIF and developer CLI/report integration, retaining evidence/qualification boundaries. |
+| P1 | Secure source acquisition parity | Pending: qualify a Windows handle-relative adapter; current source channels fail explicitly without secure primitives. Do not add a path-based race-prone fallback. |
+| Q1 | Independent projects/lineages and relation-specific acceptance | Ongoing: expand beyond the eight-pair repository pilot. Default BGE remains unqualified; no current score certifies semantic equivalence, safe extraction or backend deletion. |
