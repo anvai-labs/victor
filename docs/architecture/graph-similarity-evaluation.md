@@ -176,6 +176,59 @@ collection and model inference are outside the engine timer; RSS is a lifetime
 peak. Single-host diagnostic controls do not qualify independent-project accuracy,
 full-project latency, the 200,000-symbol ceiling or cross-platform performance.
 
+### Source-copy contract foundation
+
+Source inventory and source reads share an owned directory descriptor. Git runs
+from that descriptor through an isolated supervisor; filesystem fallback traverses
+descriptor-relative directories. A replaced project pathname fails closed instead
+of silently selecting a smaller, different tree. Git inventory includes tracked and
+untracked supported sources, respects ignore rules, disables FSMonitor, pagers and
+optional index writes, and resolves the executable before changing directory.
+Inherited Git context overrides are removed. The effective worktree is bound to
+the discovered metadata ancestor, preserving nested-root prefixes and ancestor
+ignore rules. Trusted supervisor checks verify directory ancestry and metadata
+identity before and after Git, before publishing status. The nearest marker
+selection, bounded Git-file/`commondir` contents and their referenced directory
+identities are also checked. Nonstandard marker types and selectors larger than
+4 KiB fail closed. These are acquisition
+boundary checks, not an atomic immutable Git/filesystem snapshot. Git failures do not silently switch
+to a broader filesystem policy; only missing Git or an explicit non-repository
+result without repository metadata permits fallback.
+
+Inventory has a 10-second deadline, 16 MiB path/output limit and 256 MiB owned Git
+process limit. Filesystem traversal also bounds examined entries (200,000),
+directories (50,000), depth (128), and elapsed work even when no file has a source
+suffix. Owned process supervision supports synchronous and cancellable async
+consumers without replay, reserves the leader until cleanup, publishes child PID
+and exit status atomically, and rejects stale status paths. Source acquisition
+still requires qualified POSIX primitives; this does not add Windows support.
+
+`TokenOptions(fingerprints=True)` requests a bounded additional native carrier.
+The adapter correlates every result with the pinned JSON token report, including
+source-relative paths, exact backend spans, kind, format and token count. Duplicate
+physical signatures, conflicting identities, missing results and foreign roots
+are rejected. `fingerprints_complete` retains source-coverage failures. No display
+family is expanded into invented pair evidence.
+
+The `jscpdCloneHash/v1` identifier is the pinned backend's opaque 64-bit value;
+it is not authentication or proof of behavior. Real backend tests cover Python,
+Rust, TypeScript, C++, Java, Unicode spans and special filenames. The pinned native
+SARIF carrier emits **raw path strings**, including `%`, spaces, `#` and `?`;
+these are correlated literally, without URI decoding. They must be escaped by a
+future standards-compliant SARIF exporter. Moves and leading line shifts preserve
+the fingerprint; adding another copy increases its count. Baseline and changed-code
+applications will compare compatible fingerprint counts across complete scans,
+not semantic family counts or arbitrary per-edge `isNew` assignment.
+
+The [matched observations](evidence/copy-contracts-2026-11-02.json) retain identical
+40-file manifests and three fragment records before/after this foundation, plus
+three correlated fingerprint records when enabled. Single local wall observations:
+baseline 0.348 s, hardened inventory 0.359 s, fingerprints 0.341 s. Parent peak RSS
+was 48.8/49.9/49.3 MB; child memory is separately monitored. These are diagnostic
+observations, not a speed improvement or accuracy claim. The changed-file Linux
+gate installs the pinned backend only when its test owner is selected and requires
+the actual protocol tests to run rather than silently skipping them.
+
 Thresholds are selected only from calibration projects, separately per relation
 and unordered language pair. Both classes and the selected true positives must
 meet `minimum_support`. Selection maximizes true positives subject to the requested

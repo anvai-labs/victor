@@ -35,9 +35,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import math
-import os
 import re
-import subprocess
 import time
 from collections import Counter, defaultdict, deque
 from collections.abc import Mapping
@@ -892,26 +890,20 @@ def rank(families: Sequence[StructuralFamily]) -> List[StructuralFamily]:
 # -- whole-repo scan ---------------------------------------------------------
 
 
-def _source_files(root: Path, include_docs: bool = False) -> List[str]:
+def _source_files(
+    root: Path, include_docs: bool = False, *, root_descriptor: int | None = None
+) -> List[str]:
     from victor.core.graph_rag.language_parsers import SOURCE_LANGUAGES
     from victor.core.graph_rag.source_regions import EMBEDDED_SUFFIXES, DOC_SUFFIXES
+    from victor.core.graph_rag.source_reader import project_source_reader
+    from victor.core.graph_rag.source_inventory import source_files
 
     suffixes = set(SOURCE_LANGUAGES) | EMBEDDED_SUFFIXES | (DOC_SUFFIXES if include_docs else set())
-
-    try:
-        out = subprocess.run(
-            ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True, check=True
-        ).stdout
-        return [p for p in out.split("\0") if p and Path(p).suffix.lower() in suffixes]
-    except (OSError, subprocess.CalledProcessError):
-        skip = {".git", ".venv", "venv", "node_modules", "build", "dist", ".victor"}
-        files = []
-        for directory, subdirs, names in os.walk(root):
-            subdirs[:] = sorted(name for name in subdirs if name not in skip)
-            for name in sorted(names):
-                path = Path(directory) / name
-                if path.suffix.lower() in suffixes:
-                    files.append(path.relative_to(root).as_posix())
+    if root_descriptor is not None:
+        return source_files(root_descriptor, suffixes)
+    with project_source_reader(root) as reader:
+        files = source_files(reader.descriptor, suffixes)
+        reader.verify_root_path()
         return files
 
 
@@ -972,7 +964,9 @@ def scan(
     with project_source_reader(root) as read_source:
         selected = [
             rel
-            for rel in _source_files(root, include_docs=include_docs)
+            for rel in _source_files(
+                root, include_docs=include_docs, root_descriptor=read_source.descriptor
+            )
             if _in_scope(rel, scope, include_tests)
             and (
                 languages is None
@@ -980,6 +974,7 @@ def scan(
                 or SOURCE_LANGUAGES[Path(rel).suffix.lower()] in languages
             )
         ]
+        read_source.verify_root_path()
         files = [
             rel
             for rel in selected

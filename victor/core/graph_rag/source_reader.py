@@ -6,26 +6,44 @@ channel closed; a Windows handle-relative adapter needs separate qualification.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 import errno
 import os
 from pathlib import Path
 import stat
 
 
+@dataclass(frozen=True)
+class ProjectSourceReader:
+    root: Path
+    descriptor: int
+    identity: tuple[int, int]
+
+    def __call__(self, relative: str, limit: int) -> tuple[bytes, os.stat_result]:
+        return _read_source(self.descriptor, relative, limit)
+
+    def verify_root_path(self) -> None:
+        current = self.root.lstat()
+        if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != self.identity:
+            raise OSError(errno.ESTALE, "Project root changed during source inventory")
+
+
 @contextmanager
 def project_source_reader(
     root: Path,
-) -> Iterator[Callable[[str, int], tuple[bytes, os.stat_result]]]:
+) -> Iterator[ProjectSourceReader]:
     """Pin the selected root before inventory and retain it through acquisition."""
     if os.open not in os.supports_dir_fd or not all(
         hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK")
     ):
         raise OSError(errno.ENOTSUP, "Secure descriptor-relative source reads are unavailable")
+    root = Path(os.path.abspath(root))
     descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        yield lambda relative, limit: _read_source(descriptor, relative, limit)
+        original = os.fstat(descriptor)
+        yield ProjectSourceReader(root, descriptor, (original.st_dev, original.st_ino))
     finally:
         os.close(descriptor)
 

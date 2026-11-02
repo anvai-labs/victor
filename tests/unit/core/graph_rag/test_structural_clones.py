@@ -290,6 +290,41 @@ class TestScan:
         assert report.stats["functions"] == 1 and report.families == []
 
 
+def test_git_inventory_includes_untracked_sources_but_respects_ignores(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "tracked.py").write_text(BODY_A)
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True)
+    (tmp_path / "new_λ.py").write_text(BODY_A)
+    (tmp_path / "ignored.py").write_text(BODY_A)
+    (tmp_path / ".gitignore").write_text("ignored.py\n")
+    (tmp_path / "guide.md").write_text("```python\n" + BODY_A + "\n```\n")
+    before = (tmp_path / ".git/index").read_bytes()
+    assert sc._source_files(tmp_path) == ["new_λ.py", "tracked.py"]
+    assert sc._source_files(tmp_path, include_docs=True) == ["guide.md", "new_λ.py", "tracked.py"]
+    assert (tmp_path / ".git/index").read_bytes() == before
+    report = sc.scan(tmp_path, min_nodes=10)
+    assert report.coverage_complete
+    assert any(set(family.files) == {"new_λ.py", "tracked.py"} for family in report.families)
+
+
+def test_git_inventory_never_executes_a_project_fsmonitor_hook(tmp_path):
+    import sys
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "tracked.py").write_text(BODY_A)
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True)
+    marker = tmp_path / "hook-executed"
+    hook = tmp_path / "fsmonitor-hook"
+    hook.write_text(
+        f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n"
+        "print('token\\0', end='')\n"
+    )
+    hook.chmod(0o755)
+    subprocess.run(["git", "config", "core.fsmonitor", str(hook)], cwd=tmp_path, check=True)
+    assert sc._source_files(tmp_path) == ["tracked.py"]
+    assert not marker.exists()
+
+
 def test_rust_functions_support_normalized_and_template_matches(tmp_path):
     source = "fn sum(xs: &[i32]) -> i32 { let mut total = 0; for item in xs { total += item * 2; } finish(total) }"
     (tmp_path / "a.rs").write_text(source)

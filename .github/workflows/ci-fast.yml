@@ -531,6 +531,10 @@ jobs:
           cache: pip
 
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
@@ -599,6 +603,14 @@ jobs:
             exit 0
           fi
           echo "Running ${#TARGETS[@]} changed-file test target(s):"; printf '  %s\n' "${TARGETS[@]}"
+          # Qualify the actual pinned token protocol when its owner is selected;
+          # these tests must not silently skip on the Linux PR gate.
+          if printf '%s\n' "${TARGETS[@]}" | grep -Fxq 'tests/unit/core/graph_rag/test_token_clones.py'; then
+            JSCPD_VERSION=$(python -c 'import json; print(json.load(open("scripts/ci/duplication_baseline.json"))["jscpd"])')
+            npm install --prefix "$RUNNER_TEMP/jscpd-contract" --ignore-scripts --no-audit --no-fund "jscpd@$JSCPD_VERSION"
+            export JSCPD_BINARY="$RUNNER_TEMP/jscpd-contract/node_modules/.bin/jscpd"
+            export VICTOR_REQUIRE_JSCPD_TESTS=1
+          fi
           python -m pytest "${TARGETS[@]}" \
             -m "not slow" \
             --tb=short \

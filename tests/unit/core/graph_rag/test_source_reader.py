@@ -102,6 +102,5 @@ def test_inventory_root_replacement_cannot_redirect_source_reads(tmp_path, monke
         return ["a.py"]
 
     monkeypatch.setattr(structural_clones, "_source_files", replace_root)
-    report = scan(project, min_nodes=5, retain_source=True, collect_only=True)
-    assert report.units and report.units[0].name == "inside"
-    assert "secret" not in report.units[0].source_code
+    with pytest.raises(OSError, match="root changed"):
+        scan(project, min_nodes=5, retain_source=True, collect_only=True)

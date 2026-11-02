@@ -14,7 +14,10 @@ from victor.core.graph_rag.token_clones import TokenOptions, scan_tokens
 @pytest.fixture
 def binary():
     value = os.environ.get("JSCPD_BINARY") or shutil.which("jscpd")
+    required = os.environ.get("VICTOR_REQUIRE_JSCPD_TESTS") == "1"
     if not value:
+        if required:
+            pytest.fail("pinned jscpd qualification is required but its executable is unavailable")
         pytest.skip("optional pinned jscpd backend is not installed")
     if (
         subprocess.run([value, "--version"], capture_output=True, text=True, check=True)
@@ -22,6 +25,8 @@ def binary():
         .removeprefix("jscpd ")
         != token_clones.PINNED_JSCPD_VERSION
     ):
+        if required:
+            pytest.fail("pinned jscpd qualification requires the declared backend version")
         pytest.skip("the installed jscpd version is not the pinned evidence backend")
     return value
 
@@ -43,6 +48,70 @@ def test_real_fragment_backend_ignores_project_config(tmp_path, binary):
     assert report["fragments"]
     assert {m["file"] for m in report["fragments"][0]["members"]} == {"a.py", "b.py"}
     assert before == {p.name: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+
+
+def test_real_fingerprints_survive_moves_and_line_shifts_and_count_a_new_copy(tmp_path, binary):
+    from collections import Counter
+
+    source_pair(tmp_path)
+    options = TokenOptions(binary=binary, min_tokens=8, min_lines=0, fingerprints=True)
+
+    def fingerprints():
+        result = scan_tokens(tmp_path, options=options)
+        assert result["coverage_complete"], result
+        assert result["fingerprints_complete"]
+        return Counter(item["fingerprint"] for item in result["fingerprints"])
+
+    first = fingerprints()
+    source = (tmp_path / "a.py").read_text()
+    (tmp_path / "a.py").rename(tmp_path / "moved.py")
+    (tmp_path / "moved.py").write_text("\n\n" + source)
+    assert fingerprints() == first
+    (tmp_path / "third.py").write_text(source)
+    third = fingerprints()
+    assert set(third) == set(first)
+    assert sum(third.values()) > sum(first.values())
+
+
+def test_real_fingerprint_carrier_preserves_literal_special_filenames(tmp_path, binary):
+    names = ["a%name.py", "b space.py", "c#hash.py", "d?query.py", "e_λ.py", "f%20.py"]
+    source = "def f(x):\n value=x+1\n adjusted=value*3\n return adjusted+4\n"
+    for name in names:
+        (tmp_path / name).write_text(source)
+    result = scan_tokens(
+        tmp_path, options=TokenOptions(binary=binary, min_tokens=8, min_lines=0, fingerprints=True)
+    )
+    assert result["fingerprints_complete"], result
+    assert {m["file"] for item in result["fingerprints"] for m in item["members"]} == set(names)
+
+
+@pytest.mark.parametrize(
+    "suffix,source",
+    [
+        ("rs", "/*😊*/ fn compute(x:i32)->i32 { let value=x+1; value*3+4 }\n"),
+        (
+            "ts",
+            "/*😊*/ export function compute(x:number):number { const value=x+1; return value*3+4; }\n",
+        ),
+        ("cpp", "/*😊*/ int compute(int x) { int value=x+1; return value*3+4; }\n"),
+        (
+            "java",
+            "/*😊*/ class Example { static int compute(int x) { int value=x+1; return value*3+4; } }\n",
+        ),
+    ],
+)
+def test_real_fingerprint_spans_correlate_across_languages_and_unicode(
+    tmp_path, binary, suffix, source
+):
+    for name in (f"a.{suffix}", f"b.{suffix}"):
+        (tmp_path / name).write_text(source)
+    result = scan_tokens(
+        tmp_path, options=TokenOptions(binary=binary, min_tokens=8, min_lines=0, fingerprints=True)
+    )
+    assert result["coverage_complete"], result
+    assert result["fingerprints_complete"]
+    assert result["fingerprints"]
+    assert all(item["kind"] == "exact" for item in result["fingerprints"])
 
 
 def test_partial_block_channel_finds_a_fragment_without_whole_body_match(tmp_path, binary):
@@ -167,7 +236,9 @@ def test_cancellation_after_spawn_reaps_owned_group(tmp_path, monkeypatch):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(subprocess, "Popen", observe)
-    monkeypatch.setattr(token_clones.time, "sleep", interrupt)
+    from victor.core.graph_rag import bounded_process
+
+    monkeypatch.setattr(bounded_process.time, "sleep", interrupt)
     with pytest.raises(KeyboardInterrupt):
         token_clones._run_detector(
             [sys.executable, "-c", "import time;time.sleep(20)"], tmp_path, 3
@@ -226,13 +297,11 @@ def test_denied_process_enumeration_fails_closed(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(os.name != "posix", reason="descriptor traversal race")
 def test_token_inventory_root_replacement_retains_original_source(tmp_path, monkeypatch, binary):
-    import hashlib
     from victor.core.graph_rag import structural_clones
 
     project = tmp_path / "project"
     project.mkdir()
     source_pair(project)
-    original = (project / "a.py").read_bytes()
     outside = tmp_path / "outside"
     outside.mkdir()
     for name in ("a.py", "b.py"):
@@ -244,10 +313,5 @@ def test_token_inventory_root_replacement_retains_original_source(tmp_path, monk
         return ["a.py", "b.py"]
 
     monkeypatch.setattr(structural_clones, "_source_files", replace_root)
-    report = scan_tokens(project, options=TokenOptions(binary=binary, min_tokens=8, min_lines=0))
-    assert report["coverage_complete"]
-    assert report["fragments"]
-    assert all(
-        item["sha256"] == hashlib.sha256(original).hexdigest()
-        for item in report["source_manifest"].values()
-    )
+    with pytest.raises(OSError, match="root changed"):
+        scan_tokens(project, options=TokenOptions(binary=binary, min_tokens=8, min_lines=0))

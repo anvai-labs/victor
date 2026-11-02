@@ -10,14 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
-import signal
-import sys
 import tempfile
-import time
 from typing import Any
 
 PINNED_JSCPD_VERSION = "5.4.2"
@@ -27,112 +23,24 @@ MAX_SOURCE_BYTES = 128 * 1024 * 1024
 MAX_BACKEND_RSS = 768 * 1024 * 1024
 
 
-# The trusted stdlib launcher remains the session leader until the controller
-# cleans its process group. A tool exiting early cannot orphan descendants or
-# leave a zombie-only Darwin group which rejects killpg with EPERM.
-_SUPERVISOR = """import subprocess, sys, time
-from pathlib import Path
-result = subprocess.run(sys.argv[2:], check=False)
-status = Path(sys.argv[1])
-temporary = status.with_suffix('.tmp')
-temporary.write_text(str(result.returncode), encoding='ascii')
-temporary.replace(status)
-while True:
-    time.sleep(3600)
-"""
-
-
 def _run_detector(arguments: list[str], work: Path, timeout: float) -> tuple[int, str]:
-    """Bound an owned process tree's runtime, RSS and emitted artifacts."""
-    import psutil
+    """Use shared owned-process limits without replaying a detector call."""
+    from victor.core.graph_rag.bounded_process import OwnedProcess
 
-    report = work / "report" / "jscpd-report.json"
-    log_path = work / "backend.log"
-    status_path = work / "backend.status"
-    with log_path.open("wb") as log:
-        started = time.monotonic()
-        memory_scope = "owned-process-group"
-        owns_leader = True
-        tool_exit_code = None
-        observed: list[Any] = []
-        process = subprocess.Popen(
-            [sys.executable, "-I", "-S", "-c", _SUPERVISOR, str(status_path), *arguments],
-            cwd=work,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=log,
-            start_new_session=os.name == "posix",
-        )
-        try:
-            try:
-                parent = psutil.Process(process.pid)
-            except psutil.NoSuchProcess as exc:
-                owns_leader = False
-                raise ValueError("Token backend ownership was lost") from exc
-            except (psutil.AccessDenied, PermissionError) as exc:
-                raise ValueError("Token backend status is unavailable") from exc
-            while True:
-                if os.name == "posix":
-                    # Do not reap the session leader until group cleanup. Its
-                    # unreaped PID reserves the group ID even after exit.
-                    try:
-                        finished = parent.status() == psutil.STATUS_ZOMBIE
-                    except psutil.NoSuchProcess as exc:
-                        owns_leader = False
-                        raise ValueError("Token backend ownership was lost") from exc
-                    except (psutil.AccessDenied, PermissionError) as exc:
-                        raise ValueError("Token backend status is unavailable") from exc
-                else:
-                    finished = process.poll() is not None
-                if any(
-                    path.exists() and path.stat().st_size > MAX_REPORT_BYTES
-                    for path in (report, log_path)
-                ):
-                    raise ValueError("Token backend exceeded its artifact budget")
-                if status_path.is_file():
-                    if status_path.stat().st_size > 32:
-                        raise ValueError("Invalid token backend exit status")
-                    tool_exit_code = int(status_path.read_text(encoding="ascii"))
-                    break
-                if finished:
-                    raise ValueError("Token backend supervisor exited without a status")
-                if time.monotonic() - started > timeout:
-                    raise ValueError("Token backend exceeded its time budget")
-                try:
-                    try:
-                        observed = parent.children(recursive=True)
-                        owned = [parent, *observed]
-                    except (psutil.AccessDenied, PermissionError) as exc:
-                        raise ValueError(
-                            "Token backend process-tree monitoring is unavailable"
-                        ) from exc
-                    if sum(child.memory_info().rss for child in owned) > MAX_BACKEND_RSS:
-                        raise ValueError("Token backend exceeded its memory budget")
-                except psutil.NoSuchProcess:
-                    pass
-                except (psutil.AccessDenied, PermissionError) as exc:
-                    raise ValueError("Token backend memory status is unavailable") from exc
-                time.sleep(0.05)
-        finally:
-            try:
-                if os.name == "posix" and owns_leader:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                elif os.name != "posix":
-                    for child in observed:
-                        try:
-                            child.kill()
-                        except (psutil.NoSuchProcess, psutil.AccessDenied, PermissionError):
-                            pass
-                    if process.poll() is None:
-                        process.kill()
-            finally:
-                process.wait()
-        if tool_exit_code is None:
-            raise ValueError("Missing token backend exit status")
-        return tool_exit_code, memory_scope
+    try:
+        return OwnedProcess(
+            arguments,
+            work,
+            timeout,
+            max_rss=MAX_BACKEND_RSS,
+            artifacts={
+                work / "report" / "jscpd-report.json": MAX_REPORT_BYTES,
+                work / "report" / "jscpd-report.sarif": MAX_REPORT_BYTES,
+                work / "backend.log": MAX_REPORT_BYTES,
+            },
+        ).run_sync()
+    except ValueError as exc:
+        raise ValueError(str(exc).replace("External tool", "Token backend")) from exc
 
 
 @dataclass(frozen=True)
@@ -142,12 +50,15 @@ class TokenOptions:
     min_lines: int = 3
     normalize_identifiers: bool = False
     timeout_seconds: float = 60
+    fingerprints: bool = False
 
     def __post_init__(self) -> None:
         if not 1 <= self.min_tokens <= 1_000_000 or not 0 <= self.min_lines <= 100_000:
             raise ValueError("Invalid token fragment size")
         if not 0 < self.timeout_seconds <= 300:
             raise ValueError("Invalid token backend timeout")
+        if type(self.fingerprints) is not bool:
+            raise ValueError("Token fingerprint selection must be boolean")
 
 
 def scan_tokens(
@@ -188,10 +99,11 @@ def scan_tokens(
     with project_source_reader(root) as read_source:
         selected = [
             rel
-            for rel in _source_files(root, include_docs)
+            for rel in _source_files(root, include_docs, root_descriptor=read_source.descriptor)
             if _in_scope(rel, scope, include_tests)
             and not is_path_excluded(root / rel, root, UNIVERSAL_EXCLUDE_PATTERNS)
         ]
+        read_source.verify_root_path()
         manifest: dict[str, dict[str, Any]] = {}
         errors: list[dict[str, str]] = []
         total_bytes = 0
@@ -238,7 +150,7 @@ def scan_tokens(
                 "--min-lines",
                 str(options.min_lines),
                 "--reporters",
-                "json",
+                "json,sarif" if options.fingerprints else "json",
                 "--output",
                 str(output),
                 "--no-gitignore",
@@ -247,6 +159,7 @@ def scan_tokens(
             ]
             if options.normalize_identifiers:
                 arguments.insert(-1, "--ignore-identifiers")
+            fingerprint_rows = None
             try:
                 exit_code, memory_scope = _run_detector(arguments, work, options.timeout_seconds)
             except (OSError, subprocess.SubprocessError) as exc:
@@ -321,11 +234,31 @@ def scan_tokens(
                             "members": members,
                         }
                     )
+                if options.fingerprints:
+                    from victor.core.graph_rag.token_fingerprints import parse_fingerprints
+
+                    carrier = output / "jscpd-report.sarif"
+                    if not carrier.is_file() or carrier.stat().st_size > MAX_REPORT_BYTES:
+                        raise ValueError(
+                            "Token backend did not produce a bounded fingerprint carrier"
+                        )
+                    fingerprint_rows = parse_fingerprints(
+                        json.loads(carrier.read_text(encoding="utf-8")),
+                        duplicates,
+                        manifest,
+                        sources,
+                        expected_version=PINNED_JSCPD_VERSION,
+                        include_same_file=include_same_file,
+                        min_tokens=options.min_tokens,
+                    )
             except (KeyError, TypeError, UnicodeError, json.JSONDecodeError) as exc:
                 raise ValueError("Malformed token backend report") from exc
         result = _payload(pairs, manifest, errors, options, analyzed=analyzed)
         result["backend"]["memory_monitor_scope"] = memory_scope
         result["backend"]["memory_budget_bytes"] = MAX_BACKEND_RSS
+        if fingerprint_rows is not None:
+            result["fingerprints"] = fingerprint_rows
+            result["fingerprints_complete"] = result["coverage_complete"]
         return result
 
 
@@ -337,7 +270,7 @@ def _payload(
     *,
     analyzed: int,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "evidence": "token_sequence",
         "equivalence_verified": False,
         "coverage_complete": bool(manifest) and not errors and analyzed == len(manifest),
@@ -359,3 +292,14 @@ def _payload(
         "source_manifest": manifest,
         "fragments": pairs,
     }
+    if options.fingerprints:
+        from victor.core.graph_rag.token_fingerprints import FINGERPRINT_SCHEMA
+
+        payload.update(
+            {
+                "fingerprint_schema": FINGERPRINT_SCHEMA,
+                "fingerprints": [],
+                "fingerprints_complete": False,
+            }
+        )
+    return payload
