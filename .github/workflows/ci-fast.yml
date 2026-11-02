@@ -8,6 +8,7 @@ on:
     branches: [main, develop]
     paths:
       - '.github/workflows/ci-fast.yml'
+      - '.github/workflows/ci-graph-windows.yml'
       - '.github/workflows/publish-crates.yml'
       - 'victor/**'
       - 'victor-contracts/**'
@@ -49,6 +50,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-source-changes:
+    name: Select Windows source qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      required: ${{ steps.select.outputs.required }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Select from complete source diff
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 scripts/ci/windows_source_required.py --event "$EVENT_NAME" --base "$BASE_SHA"
+
+  windows-source:
+    needs: [windows-source-changes]
+    if: ${{ needs.windows-source-changes.outputs.required == 'true' }}
+    uses: ./.github/workflows/ci-graph-windows.yml
+    permissions:
+      contents: read
+
   # All these jobs run in parallel for maximum speed
   format:
     name: Format Check (Black)
@@ -1098,6 +1123,8 @@ jobs:
     name: ${{ github.event_name == 'pull_request' && 'CI Success' || 'Non-PR CI Success' }}
     runs-on: ubuntu-24.04
     needs:
+      - windows-source-changes
+      - windows-source
       - format
       - lint
       - repo-hygiene

@@ -17,6 +17,7 @@ def test_regular_source_is_bounded(tmp_path):
     assert data == b"" and info.st_size == 5
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX descriptor capability check")
 def test_missing_secure_traversal_fails_before_source_open(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "supports_dir_fd", set())
     with pytest.raises(OSError, match="Secure descriptor"):

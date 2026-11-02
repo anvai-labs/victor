@@ -96,21 +96,36 @@ RELATED_TESTS = {
     ),
     "victor/core/graph_rag/bounded_process.py": (
         "tests/unit/core/graph_rag/test_bounded_process.py",
+        "tests/unit/core/graph_rag/test_windows_source.py",
         "tests/unit/core/graph_rag/test_source_inventory.py",
         "tests/unit/core/graph_rag/test_token_clones.py",
     ),
     "victor/core/graph_rag/source_inventory.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
         "tests/unit/core/graph_rag/test_source_inventory.py",
         "tests/unit/core/graph_rag/test_source_reader.py",
         "tests/unit/core/graph_rag/test_structural_clones.py",
         "tests/unit/core/graph_rag/test_token_clones.py",
     ),
     "victor/core/graph_rag/source_reader.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
         "tests/unit/core/graph_rag/test_source_reader.py",
         "tests/unit/core/graph_rag/test_source_inventory.py",
         "tests/unit/core/graph_rag/test_structural_clones.py",
         "tests/unit/core/graph_rag/test_token_clones.py",
         "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+    ),
+    "victor/core/graph_rag/windows_source.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_source_reader.py",
+    ),
+    "victor/core/graph_rag/windows_process.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_bounded_process.py",
+    ),
+    "victor/core/graph_rag/windows_inventory.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_source_inventory.py",
     ),
     "victor/core/graph_rag/token_fingerprints.py": (
         "tests/unit/core/graph_rag/test_token_fingerprints.py",
@@ -226,6 +241,10 @@ RELATED_TESTS = {
         "tests/unit/core/graph_rag/test_polyglot_clones.py",
     ),
     "scripts/ci/gate_results.py": ("tests/unit/scripts/test_promotion_gates.py",),
+    "scripts/ci/windows_source_required.py": (
+        "tests/unit/scripts/test_windows_source_required.py",
+        "tests/unit/scripts/test_promotion_gates.py",
+    ),
     "scripts/ci/changed_test_base.py": ("tests/unit/scripts/test_promotion_gates.py",),
     "victor/agent/tool_pipeline.py": (
         "tests/unit/agent/services/test_chat_service_tool_result.py",

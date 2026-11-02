@@ -139,6 +139,10 @@ class OwnedProcess:
             updates.close()
 
     def _updates(self) -> Generator[float, None, tuple[int, str]]:
+        if os.name == "nt":  # pragma: no cover -- exercised by real Windows qualification.
+            from victor.core.graph_rag.windows_process import updates
+
+            return (yield from updates(self))
         arguments, work, timeout = self.arguments, self.work, self.timeout
         max_rss, artifacts, cwd = self.max_rss, self.artifacts, self.cwd
         pass_fds, recursive = self.pass_fds, self.recursive

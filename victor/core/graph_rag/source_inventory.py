@@ -29,6 +29,10 @@ def source_files(descriptor: int, suffixes: set[str]) -> list[str]:
     executable or Git's explicit not-a-repository result uses filesystem policy;
     timeouts, resource limits and malformed metadata fail this scan closed.
     """
+    if os.name == "nt":  # pragma: no cover -- exercised by real Windows qualification.
+        from victor.core.graph_rag.windows_inventory import source_files as windows_files
+
+        return windows_files(descriptor, suffixes)
     if os.name != "posix" or not hasattr(os, "fchdir"):
         raise OSError("Descriptor-bound source inventory is unavailable")
     binary = shutil.which("git")

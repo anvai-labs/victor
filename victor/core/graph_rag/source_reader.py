@@ -1,7 +1,7 @@
 """Bounded project-relative source reads without following links or special files.
 
-Descriptor-relative traversal is required. Platforms lacking it fail this source
-channel closed; a Windows handle-relative adapter needs separate qualification.
+Descriptor-relative POSIX or handle-relative Windows traversal is required.
+Platforms lacking qualified secure primitives fail this source channel closed.
 """
 
 from __future__ import annotations
@@ -22,9 +22,20 @@ class ProjectSourceReader:
     identity: tuple[int, int]
 
     def __call__(self, relative: str, limit: int) -> tuple[bytes, os.stat_result]:
+        if os.name == "nt":  # pragma: no cover -- exercised by real Windows qualification.
+            from victor.core.graph_rag.windows_source import read_source
+
+            return read_source(self.descriptor, relative, limit)
         return _read_source(self.descriptor, relative, limit)
 
     def verify_root_path(self) -> None:
+        if os.name == "nt":  # pragma: no cover -- exercised by real Windows qualification.
+            from victor.core.graph_rag.windows_source import root_handle
+
+            with root_handle(self.root) as (_, current):
+                if (current.st_dev, current.st_ino) != self.identity:
+                    raise OSError(errno.ESTALE, "Project root changed during source inventory")
+            return
         current = self.root.lstat()
         if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != self.identity:
             raise OSError(errno.ESTALE, "Project root changed during source inventory")
@@ -35,6 +46,13 @@ def project_source_reader(
     root: Path,
 ) -> Iterator[ProjectSourceReader]:
     """Pin the selected root before inventory and retain it through acquisition."""
+    if os.name == "nt":  # pragma: no cover -- exercised by real Windows qualification.
+        from victor.core.graph_rag.windows_source import root_handle
+
+        root = Path(os.path.abspath(root))
+        with root_handle(root) as (handle, original):
+            yield ProjectSourceReader(root, handle, (original.st_dev, original.st_ino))
+        return
     if os.open not in os.supports_dir_fd or not all(
         hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK")
     ):
