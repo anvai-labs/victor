@@ -63,6 +63,14 @@ def test_selector_changes_select_its_own_regressions():
     )
 
 
+@pytest.mark.parametrize("source", ["scip_documents", "precise_index", "structural_clones"])
+def test_scip_consumers_select_real_bounded_reader_protocol(source):
+    assert {
+        "tests/unit/core/graph_rag/test_scip_documents.py",
+        "tests/unit/core/graph_rag/test_scip_documents_windows.py",
+    } <= set(select([f"victor/core/graph_rag/{source}.py"]))
+
+
 @pytest.mark.parametrize(
     "source",
     [

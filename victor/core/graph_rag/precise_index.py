@@ -190,7 +190,14 @@ def _read_index(path: Path) -> Optional[Any]:
 
     index = scip_pb2.Index()
     try:
-        index.ParseFromString(path.read_bytes())
+        from victor.core.graph_rag.source_reader import read_project_source
+        from victor.core.graph_rag.scip_documents import MAX_INDEX_BYTES
+
+        absolute = path.absolute()
+        data, info = read_project_source(absolute.parent, absolute.name, MAX_INDEX_BYTES)
+        if info.st_size > MAX_INDEX_BYTES or len(data) > MAX_INDEX_BYTES:
+            raise ValueError("SCIP index exceeds its byte budget")
+        index.ParseFromString(data)
     except Exception as exc:
         logger.warning("precise-index parse failed: %s", exc)
         return None

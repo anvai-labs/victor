@@ -61,6 +61,21 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/benchmark_scip_scope.py": ("tests/unit/scripts/test_benchmark_scip_scope.py",),
+    **dict.fromkeys(
+        (
+            "victor/core/graph_rag/scip_documents.py",
+            "victor/core/graph_rag/structural_clones.py",
+            "victor/core/graph_rag/precise_index.py",
+        ),
+        (
+            "tests/unit/core/graph_rag/test_scip_documents.py",
+            "tests/unit/core/graph_rag/test_scip_documents_windows.py",
+            "tests/unit/core/graph_rag/test_structural_clones.py",
+            "tests/unit/core/graph_rag/test_polyglot_clones.py",
+            "tests/unit/core/graph_rag/test_precise_index.py",
+        ),
+    ),
     "victor/core/indexing/ccg_builder.py": (
         "tests/unit/core/indexing/test_ccg_structural_cfg.py",
         "tests/unit/processing/native/test_ccg_extract.py",
@@ -740,6 +755,8 @@ RELATED_TESTS = {
             "tests/unit/core/graph_rag/test_precise_index.py",
             "tests/unit/core/graph_rag/test_precise_providers.py",
             "tests/unit/core/graph_rag/test_precise_cache.py",
+            "tests/unit/core/graph_rag/test_scip_documents.py",
+            "tests/unit/core/graph_rag/test_scip_documents_windows.py",
         ),
     ),
     **dict.fromkeys(

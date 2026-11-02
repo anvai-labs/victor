@@ -39,9 +39,14 @@ import re
 import time
 from collections import Counter, defaultdict, deque
 from collections.abc import Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from victor.core.graph_rag.scip_documents import ScipDocumentReader
+    from victor.core.graph_rag.source_reader import ProjectSourceReader
 
 from victor.core.graph_rag.semantic_clones import (
     MAX_PAIRS,
@@ -165,21 +170,44 @@ class _ScipDocuments(Mapping[str, List[Tuple[int, int, int, str]]]):
 
     def __getitem__(self, path: str) -> List[Tuple[int, int, int, str]]:
         doc = self.index.documents[self.documents[path]]
-        rows = _DocumentOccurrences(doc.position_encoding, doc.text)
-        symbols: dict[str, str] = {}
-        for occurrence in doc.occurrences:
-            values = occurrence.range
-            symbol = occurrence.symbol
-            symbol = symbols.setdefault(symbol, symbol)
-            if len(values) == 3:
-                rows.append((values[0], values[1], values[2], symbol))
-            elif len(values) == 4 and values[0] == values[2]:
-                rows.append((values[0], values[1], values[3], symbol))
-        return rows
+        return _document_occurrences(doc)
+
+
+def _document_occurrences(doc: Any) -> List[Tuple[int, int, int, str]]:
+    rows = _DocumentOccurrences(doc.position_encoding, doc.text)
+    symbols: dict[str, str] = {}
+    for occurrence in doc.occurrences:
+        values = occurrence.range
+        symbol = occurrence.symbol
+        symbol = symbols.setdefault(symbol, symbol)
+        if len(values) == 3:
+            rows.append((values[0], values[1], values[2], symbol))
+        elif len(values) == 4 and values[0] == values[2]:
+            rows.append((values[0], values[1], values[3], symbol))
+    return rows
+
+
+class _LazyScipDocuments(Mapping[str, List[Tuple[int, int, int, str]]]):
+    def __init__(self, reader: ScipDocumentReader) -> None:
+        self.reader = reader
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.reader)
+
+    def __len__(self) -> int:
+        return len(self.reader)
+
+    def __getitem__(self, path: str) -> List[Tuple[int, int, int, str]]:
+        return _document_occurrences(self.reader[path])
+
+    def close(self) -> None:
+        self.reader.close()
 
 
 def load_scip_occurrences(
     index_path: Path,
+    *,
+    source_root: ProjectSourceReader | None = None,
 ) -> Optional[Mapping[str, List[Tuple[int, int, int, str]]]]:
     """Read a lazy document/range view, or None for an absent/unreadable dump.
 
@@ -188,10 +216,13 @@ def load_scip_occurrences(
     """
     if not index_path.is_file():
         return None
-    from victor.core.graph_rag.precise_index import _read_index
+    try:
+        from victor.core.graph_rag._scip import scip_pb2  # noqa: F401 - explicit optional runtime
+        from victor.core.graph_rag.scip_documents import ScipDocumentReader
 
-    index = _read_index(index_path)
-    return _ScipDocuments(index) if index is not None else None
+        return _LazyScipDocuments(ScipDocumentReader(index_path, source_root=source_root))
+    except (ImportError, OSError, ValueError):
+        return None
 
 
 def fresh_occurrence_map(
@@ -961,7 +992,7 @@ def scan(
         raise ValueError(
             f"Unsupported structural languages: {sorted(languages - set(SOURCE_LANGUAGES.values()))}"
         )
-    with project_source_reader(root) as read_source:
+    with project_source_reader(root) as read_source, ExitStack() as compiler_readers:
         selected = [
             rel
             for rel in _source_files(
@@ -995,13 +1026,28 @@ def scan(
         documents: dict[str, Mapping[str, List[Tuple[int, int, int, str]]]] = {}
         loaded_dumps = []
         dump_times: dict[str, int] = {}
-        for dump in paths:
-            loaded = load_scip_occurrences(dump)
-            if loaded is not None:
-                documents.update(dict.fromkeys(loaded, loaded))
-                dump_times.update({rel: dump.stat().st_mtime_ns for rel in loaded})
-                loaded_dumps.append(dump.name)
         stats: Counter[str] = Counter()
+        for dump in paths:
+            loaded = load_scip_occurrences(
+                dump,
+                source_root=(
+                    read_source if dump.absolute().is_relative_to(read_source.root) else None
+                ),
+            )
+            if loaded is not None:
+                if isinstance(loaded, _LazyScipDocuments):
+                    compiler_readers.callback(loaded.close)
+                    stats["scip_skipped_document_headers"] += loaded.reader.skipped_headers
+                documents.update(dict.fromkeys(loaded, loaded))
+                mtime_ns = (
+                    loaded.reader.stat.st_mtime_ns
+                    if isinstance(loaded, _LazyScipDocuments)
+                    else dump.stat().st_mtime_ns
+                )
+                dump_times.update(dict.fromkeys(loaded, mtime_ns))
+                loaded_dumps.append(dump.name)
+            elif dump.exists():
+                stats["scip_unavailable_dumps"] += 1
         unavailable: list[str] = []
         parsers: dict[str, Any] = {}
         units: List[FunctionUnit] = []
@@ -1032,10 +1078,17 @@ def scan(
                 ).hexdigest()
             occmap: Optional[OccurrenceMap] = None
             if rel in documents:
-                occurrences = documents[rel][rel]
-                source_text = getattr(occurrences, "source_text", "")
-                if source_text or source_stat.st_mtime_ns <= dump_times[rel]:
-                    occmap = fresh_occurrence_map(source.splitlines(), occurrences)
+                try:
+                    occurrences = documents[rel][rel]
+                    source_text = getattr(occurrences, "source_text", "")
+                    if source_text or source_stat.st_mtime_ns <= dump_times[rel]:
+                        occmap = fresh_occurrence_map(source.splitlines(), occurrences)
+                    if occmap is not None:
+                        stats[
+                            "scip_text_matched_files" if source_text else "scip_heuristic_files"
+                        ] += 1
+                except (ImportError, OSError, ValueError):
+                    stats["scip_rejected_documents"] += 1
                 stats["scip_files" if occmap is not None else "stale_files"] += 1
             else:
                 stats["ast_only_files"] += 1
@@ -1228,6 +1281,12 @@ def scan(
                 "scip_dumps": loaded_dumps,
                 "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
                 "scip_files": stats["scip_files"],
+                "scip_reader": "bounded-lazy-occurrence-projection-v1",
+                "scip_text_matched_files": stats["scip_text_matched_files"],
+                "scip_heuristic_files": stats["scip_heuristic_files"],
+                "scip_rejected_documents": stats["scip_rejected_documents"],
+                "scip_skipped_document_headers": stats["scip_skipped_document_headers"],
+                "scip_unavailable_dumps": stats["scip_unavailable_dumps"],
                 "stale_files": stats["stale_files"],
                 "ast_only_files": stats["ast_only_files"],
                 "scip_dump": bool(loaded_dumps),
