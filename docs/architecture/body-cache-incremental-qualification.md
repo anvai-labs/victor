@@ -101,3 +101,63 @@ source hashes, numerical tolerance and actual timing scope. Replicated-vector
 capacity probes are labeled synthetic and cannot establish independent-source
 accuracy, retrieval generalization or a production scaling threshold. No ANN,
 native extension or production retrieval algorithm change is introduced here.
+
+## November 2 actual-source observation
+
+The [aggregate evidence](evidence/body-incremental-qualification-2026-11-02.json)
+records fresh inference at local measurement commit `79bc99e5417`, based on
+merged develop `ca797a4e8fb`. The ten bound observer/engine files and raw reports,
+cache copies, source snapshots and historical observations are preserved in the
+local `.victor/sandbox/graph-incremental-qualification-20261102` archive. Its
+manifest covers 282 files and 74,174,678 bytes. The earlier observer remains
+explicitly historical; these results come from the frozen, independently reviewed
+observer with all reported acquisition and validation findings fixed.
+
+The environment was Python 3.12.16 on Darwin arm64 with offline BGE small weights.
+Producer `459e313a56d8` did not reuse any of the 233 historical `69592c94a263`
+producer rows. The baseline loaded one model and inferred 274 windows for 233
+distinct inputs. Its requested-score digest is
+`a80561ed29ba2d854b3ff6927cc5f1ad14d0029479701ac84ef91208c5067200`.
+
+| State | Functions | Cache hits | Inferred windows | Collection wall (s) | Requested wall (s) | Warm global wall (s) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline with foreign seed | 234 | 0 | 274 | 0.635 | 35.310 | 0.030 |
+| Warm repeat | 234 | 233 | 0 | 0.509 | 0.066 | 0.032 |
+| Comment edit | 234 | 232 | 1 | 0.782 | 7.692 | 0.033 |
+| Unstaged deletion, incomplete | 228 | 227 | 0 | 0.549 | 0.062 | 0.029 |
+| Staged deletion | 228 | 227 | 0 | 0.494 | 0.062 | 0.030 |
+| Restore | 234 | 233 | 0 | 0.526 | 0.064 | 0.033 |
+| Rename | 234 | 233 | 0 | 0.541 | 0.063 | 0.030 |
+| Rename restoration | 234 | 233 | 0 | 0.535 | 0.066 | 0.033 |
+
+Only the baseline and edit loaded a model in the incremental sequence. Every
+global call used a fresh encoder and reused all active vectors with zero windows
+and model loads. All six valid states passed separate fresh-cache cold references;
+the unstaged deletion received no certificate. Shared vector bytes, spans and
+requested scores stayed exact. The edit's maximum cold-reference score difference
+was `1.788139e-7`, and its maximum vector-component difference was `8.568168e-8`;
+all other cold-reference differences were zero. Restoration recovered the exact
+baseline score digest, and rename output contained no stale original locations.
+
+The full 234-function global oracle found 15 families and 20 matching edges.
+Its maximum requested-score difference from independent float64 dense cosines
+was `2.122872e-7`; the closest score was `0.00026345` from threshold 0.9.
+This supports numerical agreement for this workload. It does not establish a
+general accuracy threshold or raw edge-list identity. Process-lifetime peak RSS
+was 1,064,697,856 bytes for the baseline and 90,079,232 bytes for the warm repeat.
+
+Three sequential capacity observations per size replicated the final validated
+233-by-384 vector fixture at synthetic locations. At 1,000 records, median wall
+and CPU were 0.028837/0.028782 seconds with 69,992,448-byte peak RSS. At 5,000,
+they were 0.300171/0.304849 seconds with 146,128,896-byte peak RSS. These are
+capacity-only measurements with repeated vectors, rather than 5,000 independent
+functions. They motivate no ANN or native rewrite and demonstrate no algorithmic
+speedup: the production retrieval algorithm is unchanged.
+
+After G1 merged, the [separate consumer revalidation](evidence/body-incremental-revalidation-2026-11-02.json)
+checked current develop `1c6fe96e581` against the retained original reports and
+cache snapshots. All ten bound observer/engine hashes were unchanged. All 14
+reports passed their coverage/cohort checks, including 13 complete dense-oracle
+checks and the explicit incomplete-deletion negative. This replay performed no
+model inference or model-cache writes; it does not change the original run's
+`ca797a4e8fb` baseline or its timings.

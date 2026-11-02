@@ -1,0 +1,335 @@
+{
+  "schema": "victor-body-incremental-revalidation-v1",
+  "created_utc": "2026-11-02T23:38:48.421803+00:00",
+  "consumer_base": "1c6fe96e5810b74b94c59df792bc71e94ebb3d37",
+  "revalidation_kind": "current_consumer_validation_of_retained_original_inference_reports",
+  "model_inference_performed": false,
+  "model_cache_writes_performed": false,
+  "original_measurement_head": "79bc99e5417254a10e29b5def9cfe05bad4ded5b",
+  "original_measurement_base": "ca797a4e8fb6f0ea14bc23ad33830a6dc5513584",
+  "original_evidence_sha256": "a919594d14108d095d89516537789b5082dbadb8495994dc3d56c9f5fe7e9eaa",
+  "all_ten_bound_components_unchanged": true,
+  "component_sha256": {
+    "scripts/benchmark_body_cache.py": "f0928499757418bd42f3c813f8135e369d4cabaf916b63306ca4a6c0530308d7",
+    "scripts/body_qualification_io.py": "cc8df60c5828fced207bbdecee0f554cf5b547e60d057991bad10a708c4961d0",
+    "scripts/body_qualification_metrics.py": "0bf8ca2913885fca4eb3b5df4c79ece2406e19ae2d544285797ede943343e6c6",
+    "scripts/qualify_body_incremental.py": "db51d852255e07cea30682f28869dd2b958349039fb601f28882930a4a067364",
+    "victor/core/graph_rag/body_clones.py": "07be720da135d504728cf43eeaf0c3716028a350a7fbe98f3300f60e588f1635",
+    "victor/core/graph_rag/body_provenance.py": "3154494cf3ebab331bf38eeabf5ef853d757d5b273810b4676a0235aa12f8c92",
+    "victor/core/graph_rag/family_cohesion.py": "078396a9b3a400e1facf403bb1fb0314c392e315980a8ec8832a95bea6a0c657",
+    "victor/core/graph_rag/semantic_clones.py": "2b33c3e934b431c231e8db6fb13aa434d45f715323f6e09c7c74271dac0a73db",
+    "victor/core/graph_rag/structural_clones.py": "d4fcb509f9226045def45fcf518ccfd22379e7c86b1bc02ea461d8a62c9ede79",
+    "victor-codegraph/victor_codegraph/embeddings.py": "11561a9ea6684f2621b0515a09cbfacc8a3bf5b4b2b4199ac1083af31971afa0"
+  },
+  "retained_report_sha256": {
+    "baseline.json": "c4d244cf64b0b0547a26997b652d8d66239b1c0edcc43f34ffb657ab27120596",
+    "warm.json": "54e519e8be6c79dfba620224282e75fb2799ebc2700df43ddbe7c556f1c466a9",
+    "warm-cold.json": "f08b5ca084b71db8759eae04a7551752d2bc7d5a353c33fd26fadda872722826",
+    "edit.json": "bd3e16525dde04850cb2ca82c1af9b1ce868ae293ad6f71d63dd9a84fc5d8ced",
+    "edit-cold.json": "38d1064b1739b824dff6130c6f9f837fcdd48426b7b2af4dd422643e74c7382c",
+    "unstaged_delete.json": "f7e11032cef9c6439844a179b304201da350b768d9efa9188401180e6fcfb2a6",
+    "delete.json": "3b695b5ee49a530503492ef18c49d96714136f230282d84fed55837b5a2218af",
+    "delete-cold.json": "1b8f67781296660d202a3aeff3def179ca2a7def09be75e8c8eacfecef4ba768",
+    "restore.json": "b8ad52e633f75baa5f6947e0c8184a9e560fb5eeb7f2abcf84d26bb83f874d8d",
+    "restore-cold.json": "02dbe3ea86b07b4f017b594ad63ca2e425d921e457b4902fc8ec027f1f27ac39",
+    "rename.json": "cdd13bb4cb7303af0b1b2994b01e29be1cf3d5948299f565f3c376821e4c7e72",
+    "rename-cold.json": "524902a8c9c85e9374657f9bc30626f0667ddc5a77a7c88481dd30aa4dafed45",
+    "rename_restore.json": "3546d25a03a11d6387ea51890b80257aee49fe347eea2ec1faebbcb3e92809ed",
+    "rename_restore-cold.json": "4ab5909ee32e933e880641cadf3a9eeb38a78cd30c51cc8912a1777606cd9836"
+  },
+  "validated_complete_global_reports": 13,
+  "incomplete_negative_reports": 1,
+  "global_oracles": {
+    "baseline": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "warm": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "warm-cold": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "edit": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "edit-cold": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "delete": {
+      "functions": 228,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "delete-cold": {
+      "functions": 228,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "restore": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "restore-cold": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "rename": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "rename-cold": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "rename_restore": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    },
+    "rename_restore-cold": {
+      "functions": 234,
+      "families": 15,
+      "matching_edges": 20,
+      "oracle": "float64_dense_cosine_independent_threshold_components",
+      "threshold": 0.9,
+      "include_same_file": false,
+      "minimum_threshold_margin": 0.0002634509309430433,
+      "component_and_edge_count_sha256": "b88b92f04e0263e7768175fa97c889ecc625ebabeebd491fac8971ef60137c83",
+      "raw_matching_edge_identity_verified": false,
+      "maximum_requested_dense_score_delta": 2.1228711455378857e-07,
+      "absolute_tolerance": 1e-06
+    }
+  },
+  "stages": {
+    "warm": {
+      "coverage_complete": true,
+      "unchanged": {
+        "shared_inputs": 233,
+        "shared_input_pairs": 27029,
+        "selected_source_complete": true,
+        "vector_bytes_and_spans_identical": true,
+        "requested_scores_identical": true
+      },
+      "cold_reference": {
+        "maximum_score_delta": 0.0,
+        "maximum_vector_delta": 0.0,
+        "absolute_tolerance": 1e-06,
+        "global_families_and_edges_identical": true
+      }
+    },
+    "edit": {
+      "coverage_complete": true,
+      "unchanged": {
+        "shared_inputs": 232,
+        "shared_input_pairs": 26797,
+        "selected_source_complete": true,
+        "vector_bytes_and_spans_identical": true,
+        "requested_scores_identical": true
+      },
+      "cold_reference": {
+        "maximum_score_delta": 1.7881393432617188e-07,
+        "maximum_vector_delta": 8.568167686462402e-08,
+        "absolute_tolerance": 1e-06,
+        "global_families_and_edges_identical": true
+      }
+    },
+    "unstaged_delete": {
+      "coverage_complete": false,
+      "unchanged": {
+        "shared_inputs": 227,
+        "shared_input_pairs": 25652,
+        "selected_source_complete": false,
+        "vector_bytes_and_spans_identical": true,
+        "requested_scores_identical": true
+      },
+      "cold_reference": null
+    },
+    "delete": {
+      "coverage_complete": true,
+      "unchanged": {
+        "shared_inputs": 227,
+        "shared_input_pairs": 25652,
+        "selected_source_complete": false,
+        "vector_bytes_and_spans_identical": true,
+        "requested_scores_identical": true
+      },
+      "cold_reference": {
+        "maximum_score_delta": 0.0,
+        "maximum_vector_delta": 0.0,
+        "absolute_tolerance": 1e-06,
+        "global_families_and_edges_identical": true
+      }
+    },
+    "restore": {
+      "coverage_complete": true,
+      "unchanged": {
+        "shared_inputs": 227,
+        "shared_input_pairs": 25652,
+        "selected_source_complete": true,
+        "vector_bytes_and_spans_identical": true,
+        "requested_scores_identical": true
+      },
+      "cold_reference": {
+        "maximum_score_delta": 0.0,
+        "maximum_vector_delta": 0.0,
+        "absolute_tolerance": 1e-06,
+        "global_families_and_edges_identical": true
+      }
+    },
+    "rename": {
+      "coverage_complete": true,
+      "unchanged": {
+        "shared_inputs": 233,
+        "shared_input_pairs": 27029,
+        "selected_source_complete": true,
+        "vector_bytes_and_spans_identical": true,
+        "requested_scores_identical": true
+      },
+      "cold_reference": {
+        "maximum_score_delta": 0.0,
+        "maximum_vector_delta": 0.0,
+        "absolute_tolerance": 1e-06,
+        "global_families_and_edges_identical": true
+      }
+    },
+    "rename_restore": {
+      "coverage_complete": true,
+      "unchanged": {
+        "shared_inputs": 233,
+        "shared_input_pairs": 27029,
+        "selected_source_complete": true,
+        "vector_bytes_and_spans_identical": true,
+        "requested_scores_identical": true
+      },
+      "cold_reference": {
+        "maximum_score_delta": 0.0,
+        "maximum_vector_delta": 0.0,
+        "absolute_tolerance": 1e-06,
+        "global_families_and_edges_identical": true
+      }
+    }
+  },
+  "local_validation": {
+    "affected_tests_passed": 306,
+    "full_suite_tests_collected": 38902,
+    "checks_passed": [
+      "Black seven changed Python files",
+      "Ruff seven changed Python files",
+      "strict MyPy four observer scripts with explicit-package-bases",
+      "Bandit high severity/high confidence four observer scripts",
+      "repository hygiene",
+      "documentation drift",
+      "git diff --check"
+    ]
+  }
+}
