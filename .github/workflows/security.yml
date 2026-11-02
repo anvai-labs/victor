@@ -30,43 +30,18 @@ on:
       - '.github/security/**'
       - 'constraints.txt'
       - 'mkdocs-requirements.txt'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/security.yml'
-      - 'victor/**'
-      - 'victor-contracts/**'
-      - 'rust/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
-      - 'Dockerfile'
-      - 'docker/**'
-      - 'docker-compose*.yml'
-      - '**/pyproject.toml'
-      - '**/requirements*.txt'
-      - '**/package.json'
-      - '**/package-lock.json'
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - '**/Dockerfile*'
-      - '**/.github/**'
-      - '.github/actions/**'
-      - '.github/security/**'
-      - 'constraints.txt'
-      - 'mkdocs-requirements.txt'
   schedule:
     # Run weekly on Monday at 2 AM UTC (backstop for newly-disclosed advisories;
     # per-PR Trivy gates CRITICAL deps and develop->main runs the full scan)
     - cron: '0 2 * * 1'
   workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: security-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

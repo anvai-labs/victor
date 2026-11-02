@@ -1,20 +1,19 @@
-# Integration Tests - Only runs when integration code changes
-# Path-triggered to save CI resources
+# Full integration surface, called by the required main promotion gate.
+# Push and manual entry points remain available independently.
 
 name: CI - Integration Tests
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-integration-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

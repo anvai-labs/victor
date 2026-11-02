@@ -11,11 +11,13 @@ on:
   push:
     branches: [develop, main]
   pull_request:
-    branches: [develop, main]
+    branches: [develop]
   workflow_dispatch:
 
+  workflow_call:
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: verticals-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -481,3 +481,133 @@ def test_fk_migration_repairs_missing_fts_even_without_pending_foreign_keys():
         == 1
     )
     conn.close()
+
+
+def test_legacy_session_recovery_preserves_resume_configuration():
+    """Recovering message ownership must retain the user's model/profile budget."""
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    for table in ("sessions", "ui_session"):
+        columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, kind in (
+            ("model", "TEXT"),
+            ("provider", "TEXT"),
+            ("profile", "TEXT"),
+            ("max_tokens", "INTEGER"),
+            ("project_path", "TEXT"),
+        ):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    conn.execute(
+        "UPDATE ui_session SET model='original-model', provider='original-provider', profile='account-profile', max_tokens=32768, project_path='/original/project' WHERE session_id='s_ghost'"
+    )
+    # The production UI table uses id, not session_id; support both legacy shapes.
+    conn.execute("ALTER TABLE ui_session RENAME COLUMN session_id TO id")
+    conn.commit()
+    _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute(
+        "SELECT model, provider, profile, max_tokens, project_path FROM sessions WHERE session_id='s_ghost'"
+    ).fetchone() == (
+        "original-model",
+        "original-provider",
+        "account-profile",
+        32768,
+        "/original/project",
+    )
+    # An already authoritative session must not be replaced by a UI mirror.
+    assert conn.execute(
+        "SELECT model, provider FROM sessions WHERE session_id='s1'"
+    ).fetchone() == ("y", "x")
+    conn.close()
+
+
+def test_legacy_session_provider_name_maps_to_normalized_registry():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    conn.execute("CREATE TABLE providers(id INTEGER PRIMARY KEY, name TEXT UNIQUE)")
+    conn.execute("ALTER TABLE sessions ADD COLUMN provider_id INTEGER")
+    conn.execute("ALTER TABLE ui_session ADD COLUMN provider TEXT")
+    conn.execute("UPDATE ui_session SET provider='Ollama' WHERE session_id='s_ghost'")
+    conn.commit()
+    _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute(
+        "SELECT p.name FROM sessions s JOIN providers p ON p.id=s.provider_id WHERE s.session_id='s_ghost'"
+    ).fetchone() == ("ollama",)
+    assert conn.execute(
+        "SELECT provider FROM ui_session WHERE session_id='s_ghost'"
+    ).fetchone() == ("Ollama",)
+    conn.close()
+
+
+def test_failed_session_recovery_rolls_back_provider_registry_and_headers():
+    import pytest
+
+    conn = sqlite3.connect(":memory:", factory=_FailingMigrationConnection)
+    _build_legacy_ui_session_db(conn)
+    conn.execute("CREATE TABLE providers(id INTEGER PRIMARY KEY, name TEXT UNIQUE)")
+    conn.execute("ALTER TABLE sessions ADD COLUMN provider_id INTEGER")
+    conn.execute("ALTER TABLE ui_session ADD COLUMN provider TEXT")
+    conn.execute("UPDATE ui_session SET provider='Ollama' WHERE session_id='s_ghost'")
+    conn.commit()
+    conn.fail_fts = True
+    with pytest.raises(sqlite3.OperationalError, match="injected FTS failure"):
+        _migrated_schema().migrate_fk_to_sessions(conn)
+    assert conn.execute("SELECT COUNT(*) FROM providers").fetchone()[0] == 0
+    assert (
+        conn.execute("SELECT COUNT(*) FROM sessions WHERE session_id='s_ghost'").fetchone()[0] == 0
+    )
+    assert (
+        conn.execute("SELECT content FROM messages WHERE id='m_orphan'").fetchone()[0]
+        == "orphan tok_six"
+    )
+    conn.close()
+
+
+def test_session_recovery_without_legacy_header_table_keeps_history():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    conn.execute("DROP TABLE ui_session")
+    conn.commit()
+    _migrated_schema().migrate_fk_to_sessions(conn)
+    assert (
+        conn.execute("SELECT COUNT(*) FROM sessions WHERE session_id='s_ghost'").fetchone()[0] == 1
+    )
+    assert (
+        conn.execute("SELECT COUNT(*) FROM messages WHERE session_id='s_ghost'").fetchone()[0] == 1
+    )
+    conn.close()
+
+
+def test_legacy_missing_budget_values_preserve_canonical_defaults():
+    for missing_header in (False, True):
+        conn = sqlite3.connect(":memory:")
+        _build_legacy_ui_session_db(conn)
+        for name, default in (("max_tokens", 100000), ("reserved_tokens", 4096)):
+            conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} INTEGER DEFAULT {default}")
+            conn.execute(f"ALTER TABLE ui_session ADD COLUMN {name} INTEGER")
+        if missing_header:
+            conn.execute("DELETE FROM ui_session WHERE session_id='s_ghost'")
+        conn.commit()
+        _migrated_schema().migrate_fk_to_sessions(conn)
+        assert conn.execute(
+            "SELECT max_tokens, reserved_tokens FROM sessions WHERE session_id='s_ghost'"
+        ).fetchone() == (100000, 4096)
+        conn.close()
+
+
+def test_session_recovery_prefers_original_activity_timestamp():
+    conn = sqlite3.connect(":memory:")
+    _build_legacy_ui_session_db(conn)
+    conn.execute("ALTER TABLE sessions ADD COLUMN last_activity TIMESTAMP")
+    conn.execute("ALTER TABLE ui_session ADD COLUMN last_activity TIMESTAMP")
+    conn.execute("ALTER TABLE ui_session ADD COLUMN updated_at TIMESTAMP")
+    conn.execute(
+        "UPDATE ui_session SET last_activity='2026-11-01T20:00:00', updated_at='2026-11-01T19:00:00' WHERE session_id='s_ghost'"
+    )
+    conn.commit()
+    _migrated_schema().migrate_fk_to_sessions(conn)
+    assert (
+        conn.execute("SELECT last_activity FROM sessions WHERE session_id='s_ghost'").fetchone()[0]
+        == "2026-11-01T20:00:00"
+    )
+    conn.close()

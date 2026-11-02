@@ -22,19 +22,16 @@ on:
       - 'Dockerfile'
       - 'docker/**'
       - 'docker-compose*.yml'
-  # No path filter on pull_request: "Build Python Package" is a REQUIRED status check,
-  # so it must run on EVERY PR — a PR whose paths trigger no build run is permanently
-  # unmergeable (workflow_dispatch runs on the head SHA do not satisfy the PR's
-  # expected-context tracking; verified twice on PR #379). The job costs ~30s.
-  pull_request:
-    branches: [main]
+  # Main PRs call this workflow through ci-fast so builds are direct
+  # prerequisites of the required promotion aggregate, without duplicate runs.
   workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
