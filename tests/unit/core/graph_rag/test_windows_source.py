@@ -296,10 +296,13 @@ class TestWindowsHandles:
     def test_baseline_publication_fails_before_creating_a_destination(self, tmp_path):
         from victor.core.graph_rag.copy_artifacts import _parent_directory
 
+        before = set(tmp_path.iterdir())
+        destination = tmp_path / "new" / "baseline.json"
         with pytest.raises(ValueError, match="Secure baseline publication is unavailable"):
-            with _parent_directory(tmp_path / "new" / "baseline.json"):
+            with _parent_directory(destination):
                 pytest.fail("Unqualified Windows baseline publication was enabled")
-        assert list(tmp_path.iterdir()) == []
+        assert set(tmp_path.iterdir()) == before
+        assert not destination.parent.exists()
 
     def test_job_assignment_failure_never_starts_tool(self, tmp_path, monkeypatch):
         from victor.core.graph_rag.bounded_process import OwnedProcess
