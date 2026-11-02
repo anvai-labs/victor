@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Consensus defaults to three rounds across the formation, team preset and voting
+  protocol. Longer runs remain an explicit override; 15-round stress coverage is
+  retained alongside bounded transcripts and cancellation-safe member ownership.
+- Main promotion uses a distinct required promotion result over the complete
+  reusable test/build/security battery; fast push or feature checks cannot
+  provide its evidence. The matching branch-protection requirement is an
+  explicit configuration step.
+
+### Fixed
+
+- Consensus honors member concurrency limits, settles cancellation cleanup before
+  returning, preserves round checkpoints, and releases obsolete non-durable history.
+- Shell inspection uses shared quote-aware redirection/substitution analysis and
+  argument-level command rules; opaque execution and mutating flags require
+  execution permission rather than being cached as reads.
+- Legacy conversation recovery preserves model, provider, profile, token budgets,
+  timestamps and project ownership, retaining canonical defaults for missing values.
+
 ## [0.25.0] - 2026-10-31
 
 Requires `victor-contracts>=0.17.0` (published first); first-party verticals 0.16.0 ship

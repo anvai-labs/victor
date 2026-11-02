@@ -126,8 +126,12 @@ def test_changed_file_gate_defers_only_main_promotion_and_protected_merge_to_ful
     )
     full = workflow("ci-test.yml")
     # PyYAML's YAML 1.1 loader interprets the unquoted GitHub `on` key as True.
-    trigger = full[True]["pull_request"]
-    assert trigger == {"branches": ["main"]}
+    assert "workflow_call" in full[True]
+    assert "pull_request" not in full[True]
+    assert (
+        workflow("ci-fast.yml")["jobs"]["promotion-tests"]["uses"]
+        == "./.github/workflows/ci-test.yml"
+    )
     test = full["jobs"]["test"]
     assert "if" not in test
     assert not test.get("continue-on-error")
@@ -534,27 +538,15 @@ def test_publish_validation_checkout_has_read_permission():
 
 
 def test_quick_tests_gate_whole_push_not_just_tip():
-    """A multi-commit push must diff from the push's before-SHA, not HEAD~1.
-
-    Regression: on push events the changed-file gate diffed only HEAD~1..HEAD,
-    so a batched multi-commit push hid intermediate breakage — a dedup commit
-    broke ollama/lmstudio providers but the push's tip commit touched none of
-    it, their tests were never selected, and ci-fast stayed green.
-    """
+    """The workflow passes complete push context to the semantic baseline owner."""
     quick = workflow("ci-fast.yml")["jobs"]["quick-tests"]
     step = next(s for s in quick["steps"] if s.get("name") == "Run unit tests for changed files")
     assert step["env"]["PUSH_BEFORE"] == "${{ github.event.before }}"
-    # actions:read is required to resolve the last green run's tip.
     assert quick["permissions"]["actions"] == "read"
     run = step["run"]
-    # A push first diffs from the last GREEN run's tip, so unresolved reds
-    # stay in scope even when the new push's own commits touch other files.
-    assert "status=success" in run
+    assert "event=push&status=success" in run
     assert "gh api" in run
-    # The whole push is covered before falling back, guarded against the
-    # branch-creation zero-SHA, and every path funnels into one diff.
-    assert 'COMPARE_REF="$PUSH_BEFORE"' in run
-    assert '"$PUSH_BEFORE" != "0000000000000000000000000000000000000000"' in run
+    assert "changed_test_base.py" in run
+    assert '--before "$PUSH_BEFORE"' in run
     assert 'git diff --name-only "$COMPARE_REF...HEAD"' in run
-    # Precedence: last-green, then the push's before-SHA, then the tip commit.
-    assert run.index('COMPARE_REF="HEAD~1"') > run.index('COMPARE_REF="$PUSH_BEFORE"')
+    assert "2>/dev/null || true" not in run

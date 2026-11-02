@@ -14,6 +14,8 @@
 
 """Tests for shell command cache."""
 
+import pytest
+
 from unittest.mock import patch
 
 
@@ -209,3 +211,44 @@ class TestGlobalCacheFunctions:
 
         assert stats["entries"] >= 1
         assert "default_ttl_minutes" in stats
+
+
+@pytest.mark.parametrize("relative_cwd", [None, ".", "subdir"])
+def test_relative_cache_directory_is_scoped_to_its_actual_project(
+    tmp_path, monkeypatch, relative_cwd
+):
+    first, second = tmp_path / "first", tmp_path / "second"
+    for directory in (first, second):
+        (directory / "subdir").mkdir(parents=True)
+    cache = ShellCommandCache()
+    monkeypatch.chdir(first)
+    cache.set("cat project.txt", (0, "first-project", ""), relative_cwd)
+    monkeypatch.chdir(second)
+    assert cache.get("cat project.txt", relative_cwd) is None
+    monkeypatch.chdir(first)
+    assert cache.get("cat project.txt", relative_cwd) == (0, "first-project", "")
+
+
+def test_read_cache_retention_is_bounded_and_keeps_recently_used_results():
+    cache = ShellCommandCache(max_entries=2)
+    cache.set("echo first", (0, "first", ""))
+    cache.set("echo second", (0, "second", ""))
+    assert cache.get("echo first") == (0, "first", "")
+    cache.set("echo third", (0, "third", ""))
+    assert cache.get("echo second") is None
+    assert cache.get("echo first") == (0, "first", "")
+    assert cache.get("echo third") == (0, "third", "")
+    assert cache.get_stats()["entries"] == cache.get_stats()["max_entries"] == 2
+
+
+def test_oversized_result_cannot_retain_a_stale_previous_result():
+    cache = ShellCommandCache()
+    cache.set("echo output", (0, "small", ""))
+    cache.set("echo output", (0, "x" * (64 * 1024 + 1), ""))
+    assert cache.get("echo output") is None
+
+
+@pytest.mark.parametrize("capacity", [0, -1, True, "unbounded"])
+def test_cache_rejects_invalid_retention_limits(capacity):
+    with pytest.raises(ValueError, match="positive integer"):
+        ShellCommandCache(max_entries=capacity)

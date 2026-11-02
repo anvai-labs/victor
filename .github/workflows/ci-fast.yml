@@ -1,6 +1,5 @@
-# Fast CI Checks - Run quick validation first (fail-fast strategy)
-# This workflow runs in ~1-2 minutes and catches common issues early
-# All checks run in parallel for maximum speed
+# Proportional CI: focused develop checks and the complete main promotion gate.
+# Independent surfaces run in parallel; required CI Success joins their results.
 
 name: CI - Fast Checks
 
@@ -24,7 +23,7 @@ on:
       - 'MANIFEST.in'
       - 'VERSION'
   # NOTE: pull_request has NO paths filter. ci-fast produces the required
-  # `CI Success` merge gate (set on develop); a path-filtered trigger would skip
+  # `CI Success` merge gate (set on develop/main); a path-filtered trigger would skip
   # docs/config-only PRs, leaving the required check unreported and the PR
   # BLOCKED (unmergeable). The gates run on every PR so the aggregate reports.
   # NO `branches:` filter on purpose. Restricting this to [main, develop] meant a
@@ -484,6 +483,7 @@ jobs:
           echo "✓ fallback_max_tools = $val (valid)"
 
   security-quick:
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'main' }}
     name: Security Critical Scan (Blocking)
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -546,8 +546,8 @@ jobs:
           pip install -e ./verticals/victor-coding
 
       - name: Run unit tests for changed files
-        # Map changed files -> mirror unit tests (scripts/ci/select_changed_tests.py). No mapped
-        # tests (docs/CI-only changes, or source with no mirror test) => nothing to run = pass.
+        # Map changed files to unit tests. Docs/CI-only changes can select none;
+        # changed core source without coverage fails in select_changed_tests.py.
         # Context values are passed via env (not inline ${{…}} in run:) to avoid shell injection
         # from untrusted context interpolation (Semgrep run-shell-injection).
         env:
@@ -561,37 +561,18 @@ jobs:
             CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
             COMPARE_REF="origin/$BASE_REF"
           else
-            # Push events must not let a later push bury unresolved failures:
-            # a red run's breakage stays in scope until fixed, even when the
-            # next push's own commits touch other files. Diff from the last
-            # GREEN run's tip on this branch, falling back to the push's
-            # before-SHA (gates every commit of a multi-commit push), then to
-            # the tip commit. (Observed regression: a dedup commit broke the
-            # ollama/lmstudio providers, its run went red, and a later
-            # single-commit push touching only bash.py diffed HEAD~1..HEAD,
-            # skipped their tests, and turned the gate green.)
-            COMPARE_REF=""
-            LAST_GREEN=""
-            if [ "$EVENT_NAME" = "push" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-              LAST_GREEN=$(gh api \
-                "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-fast.yml/runs?branch=${GITHUB_REF_NAME}&status=success&per_page=30" \
-                --jq "[.workflow_runs[] | select(.head_sha != \"${GITHUB_SHA}\")][0].head_sha" \
-                2>/dev/null || true)
-              if [ -n "$LAST_GREEN" ] && [ "$LAST_GREEN" != "null" ] && \
-                 git cat-file -e "${LAST_GREEN}^{commit}" 2>/dev/null; then
-                COMPARE_REF="$LAST_GREEN"
-                echo "Diffing from the last green run's tip: $LAST_GREEN"
-              fi
-            fi
-            if [ -z "$COMPARE_REF" ] && [ -n "$PUSH_BEFORE" ] && \
-               [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
-              COMPARE_REF="$PUSH_BEFORE"
-              echo "No resolvable last-green tip; diffing the whole push from $PUSH_BEFORE"
-            fi
-            if [ -z "$COMPARE_REF" ]; then
-              COMPARE_REF="HEAD~1"
-              echo "No earlier reference resolvable; diffing the tip commit only"
-            fi
+            # Only completed green PUSH runs establish a quick-test baseline.
+            # Main promotion PRs skip quick-tests; their fast success cannot
+            # erase unresolved failures. API/read errors fail this gate closed.
+            runs_file="${RUNNER_TEMP}/changed-test-runs.json"
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-fast.yml/runs?branch=${GITHUB_REF_NAME}&event=push&status=success&per_page=100" \
+              > "$runs_file"
+            COMPARE_REF=$(python scripts/ci/changed_test_base.py \
+              --runs "$runs_file" --head "$GITHUB_SHA" \
+              --branch "$GITHUB_REF_NAME" --repository "$GITHUB_REPOSITORY" \
+              --before "$PUSH_BEFORE")
+            echo "Diffing from validated ancestor baseline: $COMPARE_REF"
             CHANGED=$(git diff --name-only "$COMPARE_REF...HEAD")
           fi
           echo "Changed files:"
@@ -715,6 +696,7 @@ jobs:
             tests/unit/runtime/test_feature_flag_manifest_guard.py \
             tests/unit/contracts/test_feature_flag_references.py \
             tests/unit/scripts/test_ci_dependency_policy.py \
+            tests/unit/scripts/test_promotion_gates.py \
             tests/unit/scripts/test_repo_hygiene_check.py \
             tests/unit/scripts/test_version_stamp_hook.py \
             tests/unit/framework/rl/test_trace_cache_l2.py \
@@ -865,6 +847,7 @@ jobs:
           exit $rc
 
   secret-scan:
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'main' }}
     # Gitleaks over full history. Mirrors security.yml (which is main-only) so a
     # leaked secret is caught on develop, not at promotion. Config: .gitleaks.toml.
     name: Secret Scan (Gitleaks)
@@ -880,6 +863,7 @@ jobs:
           args: git /github/workspace --redact --verbose --no-banner
 
   code-security:
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'main' }}
     # Bandit high+confidence gate over victor/. Mirrors security.yml (main-only)
     # so a code-injection finding is caught on develop. Config: .bandit.
     name: Code Security (Bandit)
@@ -903,6 +887,7 @@ jobs:
             --ini .bandit
 
   dependency-audit:
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'main' }}
     name: Dependency Audit (pip-audit)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1017,20 +1002,84 @@ jobs:
         run: |
           python -m pytest tests/unit/native -m native_parity -q --tb=short --timeout=300
 
-  # Aggregate merge gate — mirrors ProximaDB's `CI Success` pattern (see
-  # ../proximaDB/.github/workflows/ci.yml `ci-success`). A single required
-  # status check that is green iff every core gate passed (or was path-skipped).
-  # Set as the SOLE required check on develop with strict=false so auto-merge
-  # fires cleanly instead of sitting BLOCKED (strict=true + zero required
-  # contexts left PRs unmergeable even when all of CI was green).
-  #
-  # `if: always()` makes this run even when a `needs` job failed, so we fail
-  # explicitly (red X) rather than reporting "skipped" (which also blocks, but
-  # less clearly). `skipped` needs pass; only `failure`/`cancelled` fail.
-  # Lesson from ProximaDB: an aggregate must hard-fail on any failed/cancelled
-  # need — an earlier grep-based version let red CI merge (PRs #226/#264).
+  # Main promotion uses the exact same PR execution and merge SHA for every
+  # release surface. Reusable workflow results are direct merge prerequisites;
+  # no status polling or cross-run success borrowing. Main additionally requires
+  # the unique Promotion CI Success context in branch protection.
+  promotion-tests:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/ci-test.yml
+    secrets: inherit
+    permissions:
+      contents: read
+
+  promotion-integration:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/ci-integration.yml
+    permissions:
+      contents: read
+
+  promotion-build:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
+  promotion-security:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/security.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      security-events: write
+
+  promotion-validation:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/validation.yml
+    permissions:
+      contents: read
+      pull-requests: write
+
+  promotion-performance:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/performance-tests.yml
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+
+  promotion-contracts:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/ci-contracts.yml
+    permissions:
+      contents: read
+
+  promotion-codegraph:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/ci-codegraph.yml
+    permissions:
+      contents: read
+
+  promotion-verticals:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/verticals.yml
+    permissions:
+      contents: read
+
+  promotion-vertical-packages:
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    uses: ./.github/workflows/vertical-validation.yml
+    permissions:
+      contents: read
+      pull-requests: write
+
+  # The existing required context stays lightweight for develop and requires
+  # the complete reusable promotion battery for main. Only declared event/job
+  # skips are accepted; absent, cancelled and unknown results fail closed.
   ci-success:
-    name: CI Success
+    # A fast push/manual result on the same source SHA must never satisfy a
+    # promotion PR's required context before its full battery has completed.
+    name: ${{ github.event_name == 'pull_request' && 'CI Success' || 'Non-PR CI Success' }}
     runs-on: ubuntu-24.04
     needs:
       - format
@@ -1064,14 +1113,46 @@ jobs:
       # Duplication ratchet: joined the aggregate at creation (2026-10-21) —
       # a gate that lets copy-paste accrete silently would defeat its purpose.
       - duplication-ratchet
+      - promotion-tests
+      - promotion-integration
+      - promotion-build
+      - promotion-security
+      - promotion-validation
+      - promotion-performance
+      - promotion-contracts
+      - promotion-codegraph
+      - promotion-verticals
+      - promotion-vertical-packages
     if: always()
     steps:
-      - name: Require all required jobs green
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Require the complete event-specific CI contract
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.ref }}
+        run: >-
+          python3 scripts/ci/gate_results.py
+          --needs "$NEEDS_JSON" --event "$EVENT_NAME"
+          --base "$BASE_REF" --ref "$HEAD_REF"
+
+  promotion-success:
+    # Unique required main context: a feature PR on the same source SHA must
+    # never supply main's promotion evidence, even if its fast CI Success passes.
+    # Non-main executions must not publish this name through a skipped job.
+    name: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && 'Promotion CI Success' || 'Promotion Not Applicable' }}
+    if: ${{ always() && github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    needs: [ci-success]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Require the complete promotion verdict
+        env:
+          CI_SUCCESS_RESULT: ${{ needs.ci-success.result }}
         run: |
-          echo "::error::One or more required CI jobs failed or were cancelled — blocking merge. CI Success requires every required job green (or skipped by path filter)."
-          exit 1
-      - name: CI Success
-        run: |
-          echo "✅ All required CI jobs passed (or skipped by path filter)."
-          echo "## ✅ CI Success" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CI_SUCCESS_RESULT" != "success" ]; then
+            echo "::error::The complete main promotion gate did not pass."
+            exit 1
+          fi

@@ -10,26 +10,59 @@ To keep the runner queue free and feature work merging fast, CI is split by the 
 | Trigger | Workflows that run | Intent |
 |---------|-------------------|--------|
 | **PR → `develop`** (and pushes to `develop`) | `ci-fast` plus always-present contracts, codegraph, and vertical summaries. Core Python changes run mirror tests with **80% changed-line coverage**; unmapped source and zero-test selections fail closed. | **Proportional** — focused core tests plus complete modular-package gates |
-| **PR → `main`** (the `develop` → `main` promotion PR) | The full battery: all 36 Python-version/shard jobs, aggregate coverage, integration, builds, security, performance, validation, contracts, codegraph, verticals, Rust, and extension tests | **Extensive** — full verification before promoting to the protected branch |
+| **PR → `main`** (the `develop` → `main` promotion PR) | The full battery: all 12 Python-version/shard jobs, aggregate coverage, integration, builds, security, performance, validation, contracts, codegraph, verticals, Rust, and extension tests | **Extensive** — full verification before promoting to the protected branch |
 | **Push to `main`** (the protected merge) | Delivery and lightweight verification workflows such as `build`, `security`, docs deployment, and `ci-fast` | **Post-merge** — publish/deploy from the merge SHA without repeating the identical multi-hour test tree |
 
-> The core develop gate runs only unit tests **relevant to the PR's changed files**, not the whole suite: the full non-slow unit suite collects 29,834 tests and takes hours even sharded. A core source file without a mirrored test is rejected, and selected tests must cover at least 80% of changed lines. Complete suite coverage runs once at **develop → main**.
+> The core develop gate runs only unit tests **relevant to the PR's changed files**, not the whole suite: the full non-slow unit suite contains tens of thousands of tests and takes hours even sharded. A core source file without a mirrored test is rejected, and selected tests must cover at least 80% of changed lines. Complete suite coverage runs once at **develop → main**.
 >
 > On **PRs targeting main** and the resulting **protected push to main**, the changed-file unit job is skipped (`ci-fast.yml` → `quick-tests`): the diff spans the release delta and exceeds the quick gate's target/time cap. The full sharded suite verifies every promotion PR through `ci-test`; main's other lint, security and import gates still run. Feature/develop quick tests retain their 200-target cap and reject unmapped core sources.
 
-This is enforced by the `branches:` filter on each workflow's `push`/`pull_request`
-triggers: heavy workflows target `[main]`. `main` remains the strict, protected branch;
-administrators retain a recovery bypass but the operational rule is to merge only after every
-required aggregate is green. To run a heavy workflow against a `develop` PR on demand, use its
-**workflow_dispatch** entry.
+The existing **CI Success** context joins the complete event-specific gate. On
+main pull requests, `ci-fast` calls the full test, integration, build, security,
+validation, performance, contracts, codegraph, vertical and vertical-package
+workflows as reusable dependencies from the same PR execution. Every promotion
+surface must succeed; missing, cancelled, skipped and unknown outcomes fail.
+Develop and other feature PRs keep their focused gate and skip the heavy calls.
 
-`Test Summary` and `Coverage Gate` fail unless every `CI - Tests` shard succeeds. Their
-`pull_request` trigger intentionally has no path filter. A skipped required
-workflow remains expected forever, and a manual dispatch cannot satisfy the
-PR-specific required contexts. The suite has no `push` trigger: protected
-merge commits have the exact tree already tested on their promotion PR, so
-repeating all 36 shards post-merge only consumes runner hours. Maintainers can
-still use `workflow_dispatch` for an explicit on-demand rerun.
+Main must additionally require the unique **Promotion CI Success** context from
+GitHub Actions, preserving its existing `CI Success` requirement and strict
+up-to-date/review rules. Only a main-targeting PR can publish this unique name,
+after the entire gate passes. A feature PR on the same source SHA cannot provide
+that evidence. Non-main executions use the different `Promotion Not Applicable`
+name, even when skipped; push/manual runs also use `Non-PR CI Success` instead
+of the PR context. There is one authoritative promotion-context writer in
+`ci-fast`; no metadata or auxiliary workflow may report it. The source change
+alone does not update branch protection: add the unique main requirement as a
+separate verified configuration step before claiming enforcement.
+
+Standalone main-PR triggers are removed from the called workflows so each heavy
+surface runs once. Existing push, schedule and manual entry points remain; the
+modular-package workflows retain their develop/feature PR entry points. The full
+main battery has no path skips. Main's duplicate fast security scans delegate to
+the full security workflow, preserving one scan/report per surface. Reusable
+workflows have distinct literal concurrency namespaces because `github.workflow`
+inside a called workflow refers to its caller; shared names would cancel the
+caller itself. No API polling or cross-run/check-name aggregation is needed.
+
+Retargeting an existing feature PR to main emits an `edited` event rather than
+opening a new promotion execution. Its required unique promotion context is
+absent, so it remains blocked even if its fast feature checks were green. Close
+and reopen the PR to run the full main gate. Ordinary title/body edits launch no
+heavy work and publish no replacement promotion result.
+
+`Test Summary` and `Coverage Gate` fail unless every `CI - Tests` shard succeeds.
+The test workflow is called for every main PR without path filtering, including
+docs-only promotions. It has no push trigger: protected merge commits already
+have the tested tree. Maintainers can still use `workflow_dispatch` for an
+explicit standalone rerun. The aggregate validates event-specific skip rules:
+main security delegation and non-promotion heavy-job skips are explicit; other
+core skips fail instead of being treated as generic success.
+
+The changed-file push baseline accepts only completed successful push runs from
+the same branch/repository whose commit is an ancestor of the current head.
+Promotion PR and manual runs cannot advance that baseline. API/read failures
+fail the quick gate, and the existing whole-push/tip fallbacks remain available
+when the response contains no eligible previous green push.
 
 `ci-fast` deliberately has **no `branches:` filter on `pull_request`** — it runs
 on every PR whatever its base. Restricting it to `[main, develop]` left stacked
@@ -50,7 +83,7 @@ merge; GitHub's `CLEAN`/`MERGEABLE` alone is not treated as a test signal.
 
 | Surface | Gate |
 |---------|------|
-| Core Python | 29,834 tests collected per supported Python; all 12 Python 3.12 coverage shards must be present; complete line coverage cannot fall below 40% |
+| Core Python | Complete collected suite per supported Python; all 6 Python 3.12 coverage shards must be present; complete line coverage cannot fall below 40% |
 | Changed core Python | A mirror test is mandatory and changed-line coverage must be at least 80% |
 | Duplication (code formats) | jscpd exact-clone scan over `victor/`, `verticals/`, `vscode-victor/src/`, `rust/crates`, `victor-contracts`, `victor-codegraph` (`.jscpd.json`, python+ts/tsx/js/jsx+rust): duplicated-line count may not rise past `scripts/ci/duplication_baseline.json` — a one-directional ratchet; dedup PRs lower the baseline in the same change. Scope extended 2026-10-28 (rust crates + sibling packages) with the baseline raised 10,404→10,983 to freeze the previously-ungated surfaces before the phased dedup program |
 | victor-contracts | Tests across Python 3.12–3.13; line coverage cannot fall below 50%; wheel build/install smoke test |
