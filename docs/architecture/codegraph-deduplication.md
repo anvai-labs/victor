@@ -1,6 +1,6 @@
 # SQLite graph deduplication
 
-**Date:** 2026-11-01  
+**Date:** 2026-11-01
 **Scope:** Phase 1 of `.victor/sandbox/codegraph-deduplication-handoff.md`.
 
 ## Handoff review
