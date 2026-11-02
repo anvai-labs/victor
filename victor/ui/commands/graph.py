@@ -1857,7 +1857,7 @@ def graph_similar(
         help="Token baseline: exit 1 for new copy pairs touching the selected files",
     ),
     as_sarif: bool = typer.Option(
-        False, "--sarif", help="Token mode: emit SARIF 2.1.0 with actual pair evidence"
+        False, "--sarif", help="Emit SARIF 2.1.0 with channel evidence and coverage status"
     ),
 ):
     """Find similarity candidates for review; no mode proves equivalence.
@@ -1886,9 +1886,11 @@ def graph_similar(
             write_baseline is not None,
             changed_file is not None,
             fail_on_new,
-            as_sarif,
         )
-    )
+    ) or (as_sarif and mode == "tokens")
+    if as_json and as_sarif:
+        console.print("Choose --json or --sarif", markup=False)
+        raise typer.Exit(2)
     token_limits = (
         token_memory_mib is not None or token_max_file_bytes is not None or token_timeout != 60
     )
@@ -1903,9 +1905,7 @@ def graph_similar(
     if copy_workflow:
         problem = None
         if mode != "tokens":
-            problem = "Copy baselines, changed-file gates and SARIF currently require --mode tokens"
-        elif as_json and as_sarif:
-            problem = "Choose --json or --sarif"
+            problem = "Copy baselines and changed-file gates require --mode tokens"
         elif (changed_file is not None or fail_on_new) and baseline is None:
             problem = "--changed-file and --fail-on-new require --baseline"
         elif write_baseline is not None and (
@@ -2025,19 +2025,20 @@ def graph_similar(
                 payload["copy_workflow_error"] = str(exc)[:1500]
                 payload["copy_gate_passed"] = False
             if as_sarif:
-                console.print_json(
-                    json.dumps(
-                        copy_sarif(
-                            source_root,
-                            evidence,
-                            comparison=comparison,
-                            error=payload.get("copy_workflow_error"),
-                        )
+                _emit_sarif_report(
+                    copy_sarif(
+                        source_root,
+                        evidence,
+                        comparison=comparison,
+                        error=payload.get("copy_workflow_error"),
                     )
                 )
                 if workflow_failed or (fail_on_new and new_copies):
                     raise typer.Exit(1)
                 return
+        if as_sarif:
+            _emit_similarity_sarif(source_root, payload, mode=mode)
+            return
         if as_json:
             console.print_json(json.dumps(payload))
         else:
@@ -2093,6 +2094,7 @@ def graph_similar(
             same_file=same_file,
             limit=limit,
             as_json=as_json,
+            as_sarif=as_sarif,
             ast_metric=ast_metric,
             languages=set(language) if language else None,
             cross_language=cross_language,
@@ -2108,6 +2110,16 @@ def graph_similar(
     try:
         records, mat = load_embedding_symbols(root, scope=scope, include_tests=include_tests)
     except FileNotFoundError:
+        if as_sarif:
+            _emit_similarity_sarif(
+                root,
+                {
+                    "analysis_complete": False,
+                    "error": "Embedding store absent or empty under the selected scope; run victor graph index --embeddings",
+                },
+                mode=mode,
+            )
+            return
         if (root / ".victor" / "embeddings").is_dir():
             detail = (
                 f"No embedded symbols under scope [cyan]{scope}[/cyan] "
@@ -2123,12 +2135,19 @@ def graph_similar(
             )
         console.print(f"[yellow]{detail}[/yellow]")
         raise typer.Exit(1)
-    except ValueError as exc:
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        if as_sarif:
+            _emit_similarity_sarif(
+                root, {"analysis_complete": False, "error": str(exc)[:1500]}, mode=mode
+            )
+            return
         console.print(f"Embedding analysis unavailable: {exc}", markup=False)
         raise typer.Exit(1) from exc
 
     try:
-        with console.status("[dim]scanning…[/dim]") as status:
+        with (Console(stderr=True) if as_sarif else console).status(
+            "[dim]scanning…[/dim]"
+        ) as status:
             families = find_clone_families(
                 records,
                 mat,
@@ -2139,54 +2158,64 @@ def graph_similar(
                     status=f"[dim]scanning… {done}/{total} symbols[/dim]"
                 ),
             )
-    except ValueError as exc:
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        if as_sarif:
+            _emit_similarity_sarif(
+                root, {"analysis_complete": False, "error": str(exc)[:1500]}, mode=mode
+            )
+            return
         console.print(
             f"[yellow]{exc}[/yellow]\n"
             "Raise [cyan]--threshold[/cyan], or cap with [cyan]--neighbors 3[/cyan]."
         )
         raise typer.Exit(1)
 
-    if as_json:
+    if as_json or as_sarif:
         import json as _json
 
-        console.print_json(
-            _json.dumps(
+        payload = {
+            "analysis_complete": True,
+            "symbols_indexed": len(records),
+            "neighbors": top_k,
+            "embedding_profile_ids": sorted(
+                {m.embedding_profile_id for m in records if m.embedding_profile_id is not None}
+            ),
+            "threshold": threshold,
+            "evidence": "symbol-summary-v1",
+            "equivalence_verified": False,
+            "grouping": "connected_components",
+            "similarity_basis": "maximum_matching_edge",
+            "total_families": len(families),
+            "families": [
                 {
-                    "symbols_indexed": len(records),
-                    "threshold": threshold,
-                    "evidence": "symbol-summary-v1",
-                    "equivalence_verified": False,
-                    "grouping": "connected_components",
-                    "similarity_basis": "maximum_matching_edge",
-                    "total_families": len(families),
-                    "families": [
+                    "similarity": round(f.similarity, 4),
+                    "min_edge_similarity": f.min_edge_similarity,
+                    "matching_pairs": f.matching_pairs,
+                    "cohesion": asdict(f.cohesion) if f.cohesion is not None else None,
+                    "summary_input_variants": (
+                        len({m.input_hash for m in f.members})
+                        if all(m.input_hash for m in f.members)
+                        else None
+                    ),
+                    "files": f.files,
+                    "members": [
                         {
-                            "similarity": round(f.similarity, 4),
-                            "min_edge_similarity": f.min_edge_similarity,
-                            "matching_pairs": f.matching_pairs,
-                            "cohesion": asdict(f.cohesion) if f.cohesion is not None else None,
-                            "summary_input_variants": (
-                                len({m.input_hash for m in f.members})
-                                if all(m.input_hash for m in f.members)
-                                else None
-                            ),
-                            "files": f.files,
-                            "members": [
-                                {
-                                    "id": m.id,
-                                    "file": m.file_path,
-                                    "symbol": m.symbol_name,
-                                    "kind": m.kind,
-                                    "line": m.line_number,
-                                }
-                                for m in f.members
-                            ],
+                            "id": m.id,
+                            "file": m.file_path,
+                            "symbol": m.symbol_name,
+                            "kind": m.kind,
+                            "line": m.line_number,
                         }
-                        for f in families[:limit]
+                        for m in f.members
                     ],
                 }
-            )
-        )
+                for f in families[:limit]
+            ],
+        }
+        if as_sarif:
+            _emit_similarity_sarif(root, payload, mode=mode)
+        else:
+            console.print_json(_json.dumps(payload))
         return
 
     console.print(
@@ -2228,6 +2257,23 @@ def graph_similar(
             console.print(f"   … +{len(fam.members) - 6} more")
 
 
+def _emit_similarity_sarif(root: Path, payload: dict[str, Any], *, mode: str) -> None:
+    from victor.core.graph_rag.similarity_sarif import similarity_sarif
+
+    report = similarity_sarif(root, payload, mode=mode)
+    _emit_sarif_report(report)
+
+
+def _emit_sarif_report(report: dict[str, Any]) -> None:
+    from victor.core.graph_rag.similarity_sarif import bounded_sarif_text
+
+    text, successful = bounded_sarif_text(report)
+    sys.stdout.write(text)
+    sys.stdout.write("\n")
+    if not successful:
+        raise typer.Exit(1)
+
+
 def _graph_similar_structural(
     root: Path,
     *,
@@ -2238,6 +2284,7 @@ def _graph_similar_structural(
     same_file: bool,
     limit: int,
     as_json: bool,
+    as_sarif: bool = False,
     ast_metric: str = "shingle",
     languages: Optional[set[str]] = None,
     cross_language: bool = False,
@@ -2249,7 +2296,9 @@ def _graph_similar_structural(
     from victor.core.graph_rag.structural_clones import report_to_dict, scan
 
     try:
-        with console.status("[dim]normalising function bodies…[/dim]") as status:
+        with (Console(stderr=True) if as_sarif else console).status(
+            "[dim]normalising function bodies…[/dim]"
+        ) as status:
             report = scan(
                 root,
                 scope=scope,
@@ -2265,10 +2314,18 @@ def _graph_similar_structural(
                     f"[dim]normalising {done}/{total}: {escape(rel)}[/dim]"
                 ),
             )
-    except (TooManyPairsError, ValueError) as exc:
+    except (TooManyPairsError, ImportError, OSError, RuntimeError, ValueError) as exc:
+        if as_sarif:
+            _emit_similarity_sarif(
+                root, {"coverage_complete": False, "error": str(exc)[:1500]}, mode="structural"
+            )
+            return
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(1)
 
+    if as_sarif:
+        _emit_similarity_sarif(root, report_to_dict(report, limit), mode="structural")
+        return
     if as_json:
         console.print_json(json.dumps(report_to_dict(report, limit)))
         if not report.coverage_complete:

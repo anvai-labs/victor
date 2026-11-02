@@ -924,6 +924,11 @@ module = [
 ]
 ignore_errors = true
 
+# Similarity reporting keeps its own unsuppressed typed serialization boundary.
+[[tool.mypy.overrides]]
+module = ["victor.core.graph_rag.similarity_sarif"]
+ignore_errors = false
+
 # SA-04/TYPE-02: qualified shared contracts must actually be checked,
 # rather than inheriting the historical victor.* error-suppression exception.
 [[tool.mypy.overrides]]

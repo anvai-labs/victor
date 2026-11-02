@@ -64,6 +64,21 @@ def test_selector_changes_select_its_own_regressions():
 
 
 @pytest.mark.parametrize(
+    "source",
+    [
+        "victor/core/graph_rag/similarity_sarif.py",
+        "victor/core/graph_rag/semantic_clones.py",
+        "victor/ui/commands/graph.py",
+    ],
+)
+def test_similarity_reporting_selects_real_store_and_native_integration(source):
+    owners = set(select([source]))
+    assert "tests/unit/core/graph_rag/test_semantic_clone_store.py" in owners
+    if source.endswith(("similarity_sarif.py", "graph.py")):
+        assert "tests/unit/core/graph_rag/test_token_clones.py" in owners
+
+
+@pytest.mark.parametrize(
     ("source", "owners"),
     [
         *[

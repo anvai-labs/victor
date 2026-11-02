@@ -67,6 +67,96 @@ def test_token_sarif_missing_backend_is_unsuccessful_execution(tmp_path):
     )
 
 
+def test_structural_sarif_exports_real_source_families(tmp_path):
+    import json
+
+    for name in ("a.py", "b.py"):
+        (tmp_path / name).write_text("def f(x):\n value=x+1\n return value*3+4\n")
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--min-nodes", "5", "--sarif")
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.output)["runs"][0]
+    assert run["invocations"][0]["executionSuccessful"]
+    assert run["results"]
+    assert run["artifacts"][0]["hashes"]["sha-256"]
+    assert all(row["properties"]["channel"] == "structural" for row in run["results"])
+
+
+def test_body_sarif_preserves_failure_as_machine_readable_execution(tmp_path):
+    import json
+
+    with patch(
+        "victor.core.graph_rag.similarity_analysis.analyze_source",
+        side_effect=OSError("missing weights"),
+    ):
+        result = _invoke("--path", str(tmp_path), "--mode", "body", "--sarif")
+    assert result.exit_code == 1
+    run = json.loads(result.output)["runs"][0]
+    assert not run["invocations"][0]["executionSuccessful"]
+    assert "missing weights" in str(run["invocations"])
+
+
+def test_sarif_stdout_uses_the_bounded_encoding_without_pretty_expansion(tmp_path, monkeypatch):
+    import json
+    from rich.console import Console
+    from victor.core.graph_rag import similarity_sarif, structural_clones
+    from victor.ui.commands import graph
+
+    for name in ("a.py", "b.py"):
+        (tmp_path / name).write_text("def f(x):\n value=x+1\n return value*3+4\n")
+    original = structural_clones.report_to_dict
+
+    def diagnostic(*args, **kwargs):
+        raw = original(*args, **kwargs)
+        nested = list(range(300))
+        for _ in range(40):
+            nested = [nested]
+        raw["stats"]["diagnostic"] = nested
+        return raw
+
+    monkeypatch.setattr(structural_clones, "report_to_dict", diagnostic)
+    monkeypatch.setattr(similarity_sarif, "_MAX_BYTES", 12000)
+    monkeypatch.setattr(graph, "console", Console(force_terminal=True, width=20))
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--min-nodes", "5", "--sarif")
+    assert result.exit_code == 0, result.output
+    assert len(result.stdout.encode()) <= 12000
+    assert json.loads(result.stdout)["runs"][0]["invocations"][0]["executionSuccessful"]
+
+
+def test_summary_sarif_is_index_evidence_and_retains_component_members(tmp_path):
+    import json
+    import numpy as np
+    from victor.core.graph_rag.semantic_clones import SymbolRecord
+
+    records = [SymbolRecord(str(i), f"{i}.py", "f", "semantic", i) for i in range(3)]
+    theta = np.array([0, 0.2, 0.45])
+    matrix = np.column_stack((np.cos(theta), np.sin(theta)))
+    with patch(
+        "victor.core.graph_rag.semantic_clones.load_embedding_symbols",
+        return_value=(records, matrix),
+    ):
+        result = _invoke("--path", str(tmp_path), "--threshold", "0.95", "--sarif")
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.output)["runs"][0]
+    assert run["properties"]["source_freshness"] == "unverified_index_snapshot"
+    assert len(run["results"]) == 1
+    assert run["results"][0]["properties"]["member_count"] == 3
+    assert run["results"][0]["properties"]["matching_pairs"] == 2
+
+
+def test_missing_summary_index_and_structural_failure_emit_sarif(tmp_path):
+    import json
+
+    result = _invoke("--path", str(tmp_path), "--sarif")
+    assert result.exit_code == 1
+    assert not json.loads(result.output)["runs"][0]["invocations"][0]["executionSuccessful"]
+    with patch(
+        "victor.core.graph_rag.structural_clones.scan", side_effect=OSError("source inaccessible")
+    ):
+        result = _invoke("--path", str(tmp_path), "--mode", "structural", "--sarif")
+    assert result.exit_code == 1
+    assert not json.loads(result.output)["runs"][0]["invocations"][0]["executionSuccessful"]
+
+
 def test_copy_workflow_rejects_incompatible_cli_options_before_scanning(tmp_path):
     with patch(
         "victor.core.graph_rag.similarity_analysis.analyze_source",
