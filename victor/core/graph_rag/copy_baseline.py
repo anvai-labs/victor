@@ -76,11 +76,20 @@ class CopyProfile:
     include_same_file: bool
     source_policy_digest: str
     producers: tuple[tuple[str, str], ...]
+    exclude_patterns: tuple[str, ...] = ()
+    profile_version: int = 2
 
     def __post_init__(self) -> None:
         _integer(self.min_tokens, 1, 1_000_000)
         _integer(self.min_lines, 0, 100_000)
         _hash(self.source_policy_digest)
+        if type(self.profile_version) is not int or self.profile_version not in {1, 2}:
+            raise ValueError("Unsupported copy profile version")
+        checked = TokenOptions(fingerprints=True, exclude_patterns=self.exclude_patterns)
+        if checked.exclude_patterns != self.exclude_patterns or (
+            self.profile_version == 1 and self.exclude_patterns
+        ):
+            raise ValueError("Noncanonical or unsupported copy exclusions")
         if any(
             type(value) is not bool
             for value in (
@@ -99,8 +108,8 @@ class CopyProfile:
             _hash(digest)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "schema": "victor-copy-profile-v1",
+        result: dict[str, Any] = {
+            "schema": f"victor-copy-profile-v{self.profile_version}",
             "fingerprint_schema": FINGERPRINT_SCHEMA,
             "source_policy_digest": self.source_policy_digest,
             "backend": {
@@ -119,11 +128,17 @@ class CopyProfile:
             },
             "producers": dict(self.producers),
         }
+        if self.profile_version == 2:
+            result["selection"]["exclude_patterns"] = list(self.exclude_patterns)
+        return result
 
     @classmethod
     def from_dict(cls, value: Any) -> CopyProfile:
         try:
             backend, selection, producers = value["backend"], value["selection"], value["producers"]
+            if value["schema"] not in {"victor-copy-profile-v1", "victor-copy-profile-v2"}:
+                raise ValueError("Unsupported copy profile schema")
+            legacy = value["schema"] == "victor-copy-profile-v1"
             profile = cls(
                 backend["min_tokens"],
                 backend["min_lines"],
@@ -134,6 +149,8 @@ class CopyProfile:
                 selection["include_same_file"],
                 value["source_policy_digest"],
                 tuple((name, producers[name]) for name in _PRODUCERS),
+                () if legacy else tuple(selection["exclude_patterns"]),
+                1 if legacy else 2,
             )
             if canonical(value) != canonical(profile.to_dict()):
                 raise ValueError("Unsupported or ambiguous copy profile")
@@ -184,6 +201,7 @@ def copy_profile(
             (name, hashlib.sha256((directory / name).read_bytes()).hexdigest())
             for name in _PRODUCERS
         ),
+        exclude_patterns=options.exclude_patterns,
     )
 
 
@@ -195,6 +213,7 @@ def require_current_copy_profile(profile: CopyProfile) -> None:
             min_lines=profile.min_lines,
             normalize_identifiers=profile.normalize_identifiers,
             fingerprints=True,
+            exclude_patterns=profile.exclude_patterns,
         ),
         scope=profile.scope,
         include_tests=profile.include_tests,

@@ -68,6 +68,70 @@ def profile():
     return copy_profile(TokenOptions(min_tokens=20, min_lines=0, fingerprints=True))
 
 
+def test_resource_budgets_do_not_change_copy_identity_but_exclusions_do():
+    lower = copy_profile(
+        TokenOptions(fingerprints=True, max_rss_bytes=192 * 1024**2, max_file_bytes=2 * 1024**2)
+    )
+    higher = copy_profile(
+        TokenOptions(
+            fingerprints=True,
+            max_rss_bytes=2 * 1024**3,
+            max_file_bytes=8 * 1024**2,
+            timeout_seconds=120,
+        )
+    )
+    excluded = copy_profile(TokenOptions(fingerprints=True, exclude_patterns=("aliases/**",)))
+    assert lower == higher
+    assert lower != excluded
+    assert excluded.to_dict()["selection"]["exclude_patterns"] == ["aliases/**"]
+
+
+async def test_exact_v1_baseline_is_readable_and_can_be_explicitly_replaced(tmp_path, profile):
+    import hashlib
+    from pathlib import Path
+    from collections import Counter
+    from victor.core.graph_rag.copy_artifacts import load_copy_baseline, write_copy_baseline
+    from victor.core.graph_rag.copy_baseline import canonical
+
+    artifact = json.loads(
+        (
+            Path(__file__).resolve().parents[4]
+            / "docs/architecture/evidence/copy-workflow-2026-11-02.json"
+        ).read_text()
+    )
+    application = artifact["candidate_application"]
+    old_profile = application["profile"]
+    counts = Counter(
+        (row["fingerprint"], row["kind"], row["format"])
+        for row in application["result"]["fingerprints"]
+    )
+    legacy = {
+        "schema": "victor-copy-baseline-v1",
+        "profile": old_profile,
+        "profile_digest": hashlib.sha256(canonical(old_profile).encode()).hexdigest(),
+        "source_digest": application["application"]["sarif"]["runs"][0]["properties"][
+            "source_digest"
+        ],
+        "source_count": 166,
+        "counts": [
+            {"fingerprint": key[0], "kind": key[1], "format": key[2], "count": count}
+            for key, count in sorted(counts.items())
+        ],
+    }
+    data = (json.dumps(legacy, indent=2) + "\n").encode()
+    assert hashlib.sha256(data).hexdigest() == application["application"]["baseline_sha256"]
+    destination = tmp_path / "copies.json"
+    destination.write_bytes(data)
+    old = await load_copy_baseline(destination)
+    assert old.profile.profile_version == 1
+    current = parse_copy_report(report(profile, [("a.rs", "b.rs")]), profile)
+    with pytest.raises(ValueError, match="compatible"):
+        compare_copies(current, old)
+    assert destination.read_bytes() == data
+    await write_copy_baseline(destination, current, source_root=tmp_path)
+    assert (await load_copy_baseline(destination)).profile.profile_version == 2
+
+
 def test_count_delta_is_attributed_to_the_whole_changed_fingerprint_group(profile):
     baseline = make_baseline(parse_copy_report(report(profile, [("a.rs", "c.rs")]), profile))
     # A newly inserted b.rs changes the backend's pair ordering. Counting only a

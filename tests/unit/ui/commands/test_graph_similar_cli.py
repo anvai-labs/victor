@@ -73,6 +73,8 @@ def test_copy_workflow_rejects_incompatible_cli_options_before_scanning(tmp_path
         side_effect=AssertionError("must not scan"),
     ):
         cases = [
+            ["--mode", "semantic", "--token-memory-mib", "192"],
+            ["--mode", "hybrid", "--token-exclude", "alias.py"],
             ["--mode", "semantic", "--baseline", str(tmp_path / "copies.json")],
             ["--mode", "tokens", "--fail-on-new"],
             ["--mode", "tokens", "--changed-file", "a.py"],
