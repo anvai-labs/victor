@@ -98,7 +98,7 @@ class _ConstrainedMarkdown:
     def __init__(self, content: str, max_width: int | None = None) -> None:
         self._content = content
         self._max_width = max_width
-        self._markdown = VictorMarkdown(content)
+        self._markdown = VictorMarkdown(content, style="markdown.text", justify="left")
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         # If we have an explicit max_width, constrain the render options
