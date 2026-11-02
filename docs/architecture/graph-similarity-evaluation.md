@@ -131,6 +131,51 @@ Families are never expanded into artificial pair matches. For example, A–B=0.8
 and B–C=0.8 can coexist with A–C=0.28. The body diagnostic path retains the latter
 score instead of assigning the family's strongest edge to every member.
 
+### Family explanations
+
+Body and indexed-summary vector families expose a representative, mean member-pair
+cosine and a directly scored pair witness in JSON and terminal output. Member IDs
+resolve each reference to its reported source location. These IDs identify members
+of the current analysis; they are not persistent source-copy baseline fingerprints.
+
+The representative maximizes mean cosine to the other members, with canonical ID
+ordering and a 1e-12 tolerance on mean-score ties. The sum of normalized vectors
+also yields the mean of all distinct member-pair cosines without enumerating a
+quadratic matrix. Two farthest-member sweeps find an actual witness pair; they do
+**not** certify the globally least-similar pair. The report explicitly retains
+`pairwise_minimum_verified: false`. A representative can be close to every member
+while another member pair falls below the retrieval threshold.
+
+The scope is **all component members**, including pairs excluded by file/language
+retrieval filters. Explanations use normalized float64 geometry and leave the
+existing float32 retrieval, edge counts and thresholds unchanged. These numbers
+describe the selected vector representation, not probability, behavior, safe
+extraction or ABI compatibility. Summary vectors still omit function bodies.
+Hybrid channels remain independent. Source-copy gates must use their own stable
+evidence and error/coverage policy, never these semantic family counts.
+
+Four O(n*d) passes use bounded float64 blocks (8 MiB by default), O(n+d) metadata
+and bounded indexing temporaries. Inputs must remain immutable during analysis.
+The [retained observations](evidence/vector-family-cohesion-2026-11-02.json) compare
+merged baseline `28c13496e` with the candidate. Five observations per fresh process
+preserve matching family/edge/score digests in all three cases. Median engine wall
+times, baseline/candidate: 234 real vectors at synthetic locations 0.780/3.936 ms;
+5,000 replicated real vectors 256.905/291.887 ms; seeded 5,000-vector control
+130.949/182.541 ms. The replicated case retained 168 components and 89,513 edges;
+peak process RSS was 145,408,000/150,487,040 bytes. These are added explanation
+costs, not speed improvements. All locations are synthetic, including the real
+vector fixture, so these family counts do not describe a source audit.
+
+Reproduce with `scripts/benchmark_vector_families.py --count 5000 --runs 5` in
+separate baseline/candidate processes using the same Python environment. The
+optional `--fixture` accepts a bounded numeric `.npy` file without pickle and
+records its hash. The retained fixture contains the 234 body vectors reconstructed
+from the earlier cache observation's source/input/vector manifests; its source
+hashes and pinned model profile are retained. Imports, fixture creation, source
+collection and model inference are outside the engine timer; RSS is a lifetime
+peak. Single-host diagnostic controls do not qualify independent-project accuracy,
+full-project latency, the 200,000-symbol ceiling or cross-platform performance.
+
 Thresholds are selected only from calibration projects, separately per relation
 and unordered language pair. Both classes and the selected true positives must
 meet `minimum_support`. Selection maximizes true positives subject to the requested

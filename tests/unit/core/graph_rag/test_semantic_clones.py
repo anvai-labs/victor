@@ -280,6 +280,30 @@ def test_chain_reports_edge_range_and_does_not_claim_pairwise_equivalence():
     assert family.min_edge_similarity == pytest.approx(np.cos(0.25), abs=1e-6)
     assert family.similarity == pytest.approx(np.cos(0.2), abs=1e-6)
     assert float(vec(0) @ vec(0.45)) < 0.95
+    assert family.cohesion.representative_id == "1"
+    assert family.cohesion.witness_ids == ("0", "2")
+    assert family.cohesion.witness_similarity < 0.95
+    assert not family.cohesion.pairwise_minimum_verified
+
+
+def test_duplicate_record_ids_are_not_ambiguous_family_representatives():
+    records = [rec(0, "a.py", "a"), rec(0, "b.py", "b")]
+    with pytest.raises(ValueError, match="unique"):
+        find_clone_families(records, np.stack([vec(0), vec(0)]))
+
+
+def test_cohesion_covers_all_members_independent_of_retrieval_filters():
+    records = [rec(0, "same.py", "a"), rec(1, "other.rs", "b"), rec(2, "same.py", "c")]
+    (family,) = find_clone_families(
+        records,
+        np.stack([vec(0), vec(0.2), vec(0.45)]),
+        threshold=0.95,
+        language_ids=["python", "rust", "python"],
+        language_scope="cross",
+    )
+    assert family.matching_pairs == 2
+    assert family.cohesion.witness_ids == ("0", "2")
+    assert family.cohesion.scope == "all_component_member_pairs"
 
 
 @pytest.mark.parametrize(

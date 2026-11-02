@@ -81,12 +81,31 @@ RELATED_TESTS = {
         "tests/unit/scripts/test_benchmark_body_model_failure.py",
     ),
     "scripts/benchmark_body_cache.py": ("tests/unit/scripts/test_benchmark_body_cache.py",),
+    "scripts/benchmark_vector_families.py": (
+        "tests/unit/scripts/test_benchmark_vector_families.py",
+    ),
     "victor/core/graph_rag/body_provenance.py": (
         "tests/unit/core/graph_rag/test_body_provenance.py",
         "tests/unit/core/graph_rag/test_body_clones.py",
         "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
         "tests/unit/core/graph_rag/test_similarity_channels.py",
         "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/family_cohesion.py": (
+        "tests/unit/core/graph_rag/test_family_cohesion.py",
+        "tests/unit/core/graph_rag/test_semantic_clones.py",
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/semantic_clones.py": (
+        "tests/unit/core/graph_rag/test_semantic_clones.py",
+        "tests/unit/core/graph_rag/test_family_cohesion.py",
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/ui/rendering/clone_families.py": (
+        "tests/unit/ui/rendering/test_clone_families.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
     ),
     "victor/core/graph_rag/jni_contracts.py": (
         "tests/unit/core/graph_rag/test_jni_contracts.py",

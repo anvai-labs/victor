@@ -64,6 +64,10 @@ def test_full_bodies_are_windowed_without_silent_truncation(tmp_path):
     assert received[0]["trust_remote_code"] is False
     assert all(len(text) + 2 <= 32 for text in model.calls)
     members = payload["families"][0]["members"]
+    cohesion = payload["families"][0]["cohesion"]
+    assert cohesion["member_pairs"] == 1
+    assert cohesion["mean_pair_similarity"] == pytest.approx(1)
+    assert cohesion["scope"] == "all_component_member_pairs"
     assert all(not m["truncated"] for m in members)
     assert members[0]["window_token_spans"][0][0] == 0
     assert members[0]["window_token_spans"][-1][1] == len(report.units[0].source_code)

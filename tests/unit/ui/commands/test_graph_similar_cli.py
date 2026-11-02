@@ -108,6 +108,7 @@ def test_renders_families_from_the_loader(tmp_path: Path):
 
 
 def test_json_output_shape(tmp_path: Path):
+    import json
     import numpy as np
 
     from victor.core.graph_rag.semantic_clones import SymbolRecord
@@ -128,6 +129,58 @@ def test_json_output_shape(tmp_path: Path):
     assert '"similarity"' in result.output
     assert '"equivalence_verified": false' in result.output
     assert '"similarity_basis": "maximum_matching_edge"' in result.output
+    family = json.loads(result.output)["families"][0]
+    assert family["cohesion"]["representative_id"] in {m["id"] for m in family["members"]}
+    assert family["cohesion"]["scope"] == "all_component_member_pairs"
+    assert not family["cohesion"]["pairwise_minimum_verified"]
+
+
+def test_summary_human_output_exposes_a_direct_weak_pair(tmp_path):
+    import numpy as np
+    from victor.core.graph_rag.semantic_clones import SymbolRecord
+
+    records = [SymbolRecord(str(i), f"{i}.py", "f", "semantic", 1) for i in range(3)]
+    theta = np.array([0, 0.2, 0.45])
+    matrix = np.column_stack((np.cos(theta), np.sin(theta)))
+    with patch(
+        "victor.core.graph_rag.semantic_clones.load_embedding_symbols",
+        return_value=(records, matrix),
+    ):
+        result = _invoke("--path", str(tmp_path), "--threshold", "0.95")
+    assert result.exit_code == 0, result.output
+    assert "representative: 1.py:1" in result.output
+    assert "pair witness: 0.py:1" in result.output
+    assert "0.900" in result.output
+    assert "not a verified pairwise minimum" in result.output
+
+
+def test_body_human_output_resolves_cohesion_ids_to_source(tmp_path):
+    from victor.core.graph_rag.body_clones import BodyOptions, LocalBodyEncoder, analyze_bodies
+    from victor.core.graph_rag.structural_clones import scan
+
+    class Encoder(LocalBodyEncoder):
+        def windows(self, source):
+            return [source], [(0, len(source))]
+
+        def encode(self, texts):
+            return [[1, 0, 0] for _ in texts]
+
+    for name in ("a.py", "b.py"):
+        (tmp_path / name).write_text("def f(x):\n value=x+1\n return value*3\n")
+    options = BodyOptions(model_id="test/model", revision="0" * 40, dimension=3)
+
+    channel = analyze_bodies(
+        scan(tmp_path, min_nodes=5, retain_source=True),
+        options=options,
+        encoder=Encoder(options),
+    )
+    payload = {"coverage_complete": True, "channels": {"body": channel}}
+    with patch("victor.core.graph_rag.similarity_analysis.analyze_source", return_value=payload):
+        result = _invoke("--path", str(tmp_path), "--mode", "body")
+    assert result.exit_code == 0, result.output
+    assert "representative:" in result.output
+    assert "pair witness:" in result.output
+    assert ".py:1" in result.output
 
 
 def test_no_families_message(tmp_path: Path):

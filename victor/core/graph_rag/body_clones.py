@@ -474,6 +474,7 @@ def analyze_bodies(
             )
             vectors.append(ready[digest])
             metadata[identity] = {
+                "id": identity,
                 "file": unit.file_path,
                 "symbol": unit.name,
                 "line": unit.line,
@@ -581,6 +582,7 @@ def analyze_bodies(
                 "score_basis": "maximum_matching_edge",
                 "min_edge_similarity": family.min_edge_similarity,
                 "matching_edges": family.matching_pairs,
+                "cohesion": asdict(family.cohesion) if family.cohesion is not None else None,
                 "members": [metadata[m.id] for m in family.members],
             }
             for family in families
