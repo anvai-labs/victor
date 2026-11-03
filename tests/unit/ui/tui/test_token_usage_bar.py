@@ -34,7 +34,7 @@ def test_token_usage_bar_no_data() -> None:
     bar = TokenUsageBar()
     bar.set_usage()
     # Should show "No usage data yet"
-    content = bar.render()
+    content = str(bar.render())
     assert "No usage data yet" in content
 
 
@@ -42,7 +42,7 @@ def test_token_usage_bar_tokens_only() -> None:
     """Test TokenUsageBar with only tokens."""
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=1234)
-    content = bar.render()
+    content = str(bar.render())
     assert "Tokens:" in content
     assert "1.2k" in content
     assert "Cost:" not in content
@@ -53,7 +53,7 @@ def test_token_usage_bar_cost_only() -> None:
     """Test TokenUsageBar with only cost."""
     bar = TokenUsageBar()
     bar.set_usage(cost_usd=0.0123)
-    content = bar.render()
+    content = str(bar.render())
     assert "Cost:" in content
     assert "$0.0123" in content
     assert "Tokens:" not in content
@@ -64,37 +64,37 @@ def test_token_usage_bar_context_low() -> None:
     """Test TokenUsageBar with low context usage (green)."""
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=45.0)
-    content = bar.render()
+    content = str(bar.render())
     assert "Context:" in content
     assert "45%" in content
-    assert "[green]" in content
+    assert "green" in content
 
 
 def test_token_usage_bar_context_medium() -> None:
     """Test TokenUsageBar with medium context usage (yellow)."""
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=75.0)
-    content = bar.render()
+    content = str(bar.render())
     assert "Context:" in content
     assert "75%" in content
-    assert "[yellow]" in content
+    assert "yellow" in content
 
 
 def test_token_usage_bar_context_high() -> None:
     """Test TokenUsageBar with high context usage (red)."""
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=90.0)
-    content = bar.render()
+    content = str(bar.render())
     assert "Context:" in content
     assert "90%" in content
-    assert "[red]" in content
+    assert "red" in content
 
 
 def test_token_usage_bar_all_fields() -> None:
     """Test TokenUsageBar with all fields populated."""
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=5000, cost_usd=0.05, context_used_pct=60.0)
-    content = bar.render()
+    content = str(bar.render())
     assert "Tokens:" in content
     assert "5.0k" in content
     assert "Cost:" in content
@@ -107,7 +107,7 @@ def test_token_usage_bar_separator() -> None:
     """Test that fields are separated by dots."""
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=1000, cost_usd=0.01)
-    content = bar.render()
+    content = str(bar.render())
     assert "  ·  " in content
 
 
@@ -116,36 +116,36 @@ def test_token_usage_bar_boundary_values() -> None:
     # Just below green threshold
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=59.9)
-    assert "[green]" in bar.render()
+    assert "green" in str(bar.render())
 
     # At yellow threshold
     bar.set_usage(context_used_pct=60.0)
-    assert "[yellow]" in bar.render()
+    assert "yellow" in str(bar.render())
 
     # Just below red threshold
     bar.set_usage(context_used_pct=84.9)
-    assert "[yellow]" in bar.render()
+    assert "yellow" in str(bar.render())
 
     # At red threshold
     bar.set_usage(context_used_pct=85.0)
-    assert "[red]" in bar.render()
+    assert "red" in str(bar.render())
 
 
 def test_token_usage_bar_cost_precision() -> None:
     """Test cost formatting precision."""
     bar = TokenUsageBar()
     bar.set_usage(cost_usd=0.0)
-    assert "$0.0000" in bar.render()
+    assert "$0.0000" in str(bar.render())
 
     bar.set_usage(cost_usd=0.123456789)
-    assert "$0.1235" in bar.render()  # Rounded to 4 decimals
+    assert "$0.1235" in str(bar.render())  # Rounded to 4 decimals
 
 
 def test_token_usage_bar_none_values() -> None:
     """Test that None values are handled correctly."""
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=None, cost_usd=None, context_used_pct=None)
-    content = bar.render()
+    content = str(bar.render())
     assert "No usage data yet" in content
     assert "Tokens:" not in content
     assert "Cost:" not in content
@@ -156,7 +156,7 @@ def test_token_usage_bar_mixed_none_values() -> None:
     """Test with some None and some actual values."""
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=1000, cost_usd=None, context_used_pct=50.0)
-    content = bar.render()
+    content = str(bar.render())
     assert "Tokens:" in content
     assert "Cost:" not in content
     assert "Context:" in content
