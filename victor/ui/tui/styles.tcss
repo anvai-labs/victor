@@ -67,7 +67,7 @@ Screen {
 }
 
 #prompt {
-    height: 3;
+    height: 4;
     border: round $primary;
     background: $panel;
     color: $foreground;
