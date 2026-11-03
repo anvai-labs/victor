@@ -102,7 +102,9 @@ class StatusBar(Static):
         if cost_usd is not None:
             parts.append(f"[dim]Cost:[/] [bold]${cost_usd:.4f}[/]")
         if context_used_pct is not None:
-            color = "green" if context_used_pct < 60 else ("yellow" if context_used_pct < 85 else "red")
+            color = (
+                "green" if context_used_pct < 60 else ("yellow" if context_used_pct < 85 else "red")
+            )
             parts.append(f"[dim]Context:[/] [{color}]{context_used_pct:.0f}%[/]")
         if not parts:
             return "[dim italic]No usage data yet[/]"
