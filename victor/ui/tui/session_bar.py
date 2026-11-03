@@ -110,12 +110,10 @@ class SessionBar(Static):
             model_provider += f" [dim]via[/] [white]{escape(info.provider)}[/]"
         parts.append(f"[dim]model:[/] [white]{model_provider}[/]")
 
-        # Budget
-        if info.budget_total:
+        # Tool budget (only show if set)
+        if info.budget_total and info.budget_total > 0:
             budget_str = f"{info.budget_used}/{info.budget_total}"
-        else:
-            budget_str = str(info.budget_used)
-        parts.append(f"[dim]budget:[/] [white]{budget_str}[/]")
+            parts.append(f"[dim]budget:[/] [white]{budget_str}[/]")
 
         # DYNAMIC INFO - bright accent colors
         # Context usage with percentage

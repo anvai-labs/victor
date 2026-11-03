@@ -93,8 +93,8 @@ class TestBuildLine:
     def test_budget_without_total(self) -> None:
         info = SessionInfo(budget_used=5, budget_total=None)
         line = SessionBar._build_line(info)
-        # Should contain just the used count
-        assert "5" in line
+        # Should NOT show budget when total is None (tool budget not set)
+        assert "budget" not in line.lower()
 
     def test_context_with_used_and_total(self) -> None:
         info = SessionInfo(
