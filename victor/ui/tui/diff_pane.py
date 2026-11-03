@@ -127,7 +127,7 @@ if RichLog is not None:
 
     class DiffPane(RichLog):
         """Collapsible unified-diff pane; shows one edit at a time, newest first.
-        
+
         Supports three display modes:
         - hidden: not visible (display=False)
         - condensed: compact 5-line preview (default when edits occur)
