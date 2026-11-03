@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from rich.panel import Panel
 from rich.table import Table
@@ -357,8 +357,8 @@ class ResumeCommand(BaseSlashCommand):
     def metadata(self) -> CommandMetadata:
         return CommandMetadata(
             name="resume",
-            description="Resume a session from SQLite history",
-            usage="/resume [session_id]",
+            description="Resume a session from SQLite history or import from file",
+            usage="/resume [session_id] [--from-file <path>] [--project <path>]",
             category="session",
             requires_agent=True,
         )
@@ -371,10 +371,19 @@ class ResumeCommand(BaseSlashCommand):
         from victor.agent.message_history import MessageHistory
         from victor.agent.conversation.store import ConversationStore
 
+        # Check for --from-file flag (import from exported JSON)
+        from_file = self._get_flag_value(ctx, "--from-file") or self._get_flag_value(ctx, "-f")
+        if from_file:
+            self._import_from_file(ctx, from_file)
+            return
+
+        # Check for --project flag (cross-project session lookup)
+        project_path = self._get_flag_value(ctx, "--project") or self._get_flag_value(ctx, "-p")
+
         # If session_id provided as argument, load it directly
         if ctx.args:
             session_id = ctx.args[0]
-            self._load_session(ctx, session_id)
+            self._load_session(ctx, session_id, project_path=project_path)
             return
 
         # Otherwise, show interactive selection
@@ -425,19 +434,30 @@ class ResumeCommand(BaseSlashCommand):
             ctx.console.print(f"[red]Failed to list sessions:[/] {e}")
             logger.exception("Error listing sessions")
 
-    def _load_session(self, ctx: CommandContext, session_id: str) -> None:
+    def _load_session(self, ctx: CommandContext, session_id: str, project_path: Optional[str] = None) -> None:
         """Load and restore a session.
 
         Args:
             ctx: Command context
             session_id: Session ID to load
+            project_path: Optional project path for cross-project session lookup
         """
         from victor.agent.conversation.state_machine import ConversationStateMachine
         from victor.agent.message_history import MessageHistory
         from victor.agent.conversation.store import ConversationStore
 
         try:
-            store = ConversationStore()
+            # If project_path specified, create store pointing to that project's DB
+            if project_path:
+                from pathlib import Path
+                project_db = Path(project_path) / ".victor" / "project.db"
+                if not project_db.exists():
+                    ctx.console.print(f"[red]Project database not found:[/] {project_db}")
+                    return
+                store = ConversationStore(db_path=project_db)
+            else:
+                store = ConversationStore()
+            
             session_data = store.load_session(session_id)
 
             if session_data is None:
@@ -543,6 +563,233 @@ class ResumeCommand(BaseSlashCommand):
         except Exception as e:
             ctx.console.print(f"[red]Failed to load session:[/] {e}")
             logger.exception("Error loading session")
+
+    def _import_from_file(self, ctx: CommandContext, file_path: str) -> None:
+        """Import session from exported JSON file (OpenAI, Bedrock, DeepSeek, etc).
+
+        Args:
+            ctx: Command context
+            file_path: Path to exported JSON file
+        """
+        import json
+        from pathlib import Path
+        from victor.agent.conversation.store import ConversationStore
+        from victor.agent.conversation.models import ConversationSession
+
+        try:
+            path = Path(file_path).expanduser().resolve()
+            if not path.exists():
+                ctx.console.print(f"[red]File not found:[/] {path}")
+                return
+
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Detect format and convert to ConversationSession
+            session = self._detect_and_convert_format(data, source_file=str(path))
+            if session is None:
+                ctx.console.print("[red]Could not detect session format[/]")
+                ctx.console.print("[dim]Supported formats: Victor, OpenAI ChatGPT, Anthropic, Bedrock, DeepSeek[/]")
+                return
+
+            # Save to current project's database
+            store = ConversationStore()
+            store.save_session(session)
+
+            ctx.console.print(
+                Panel(
+                    f"Session imported successfully!\n\n"
+                    f"[bold]ID:[/] {session.session_id}\n"
+                    f"[bold]Title:[/] {session.title or 'Untitled'}\n"
+                    f"[bold]Messages:[/] {session.message_count}\n"
+                    f"[bold]Source:[/] {path.name}\n\n"
+                    f"[dim]Use /resume {session.session_id} to load it[/]",
+                    title="Session Imported",
+                    border_style="green",
+                )
+            )
+        except json.JSONDecodeError as e:
+            ctx.console.print(f"[red]Invalid JSON file:[/] {e}")
+        except Exception as e:
+            ctx.console.print(f"[red]Failed to import session:[/] {e}")
+            logger.exception("Error importing session")
+
+    def _detect_and_convert_format(self, data: dict, source_file: str) -> Optional[ConversationSession]:
+        """Detect session format and convert to ConversationSession.
+
+        Supports:
+        - Victor native format
+        - OpenAI ChatGPT export (conversations.json)
+        - Anthropic Claude export
+        - AWS Bedrock export
+        - DeepSeek export
+        """
+        from victor.agent.conversation.models import ConversationSession, Message
+        from datetime import datetime
+        import uuid
+
+        # Victor native format
+        if 'session_id' in data and 'messages' in data:
+            return self._convert_victor_format(data)
+
+        # OpenAI ChatGPT export format
+        if isinstance(data, list) and len(data) > 0 and 'mapping' in data[0]:
+            return self._convert_openai_format(data[0], source_file)
+        if 'mapping' in data and 'current_node' in data:
+            return self._convert_openai_format(data, source_file)
+
+        # Anthropic format
+        if 'conversation' in data or ('messages' in data and 'model' in data):
+            return self._convert_anthropic_format(data, source_file)
+
+        # Bedrock format
+        if 'conversationId' in data or 'conversation_id' in data:
+            return self._convert_bedrock_format(data, source_file)
+
+        # Generic format with messages array
+        if 'messages' in data and isinstance(data['messages'], list):
+            return self._convert_generic_format(data, source_file)
+
+        return None
+
+    def _convert_victor_format(self, data: dict) -> ConversationSession:
+        """Convert Victor native format."""
+        from victor.agent.conversation.models import ConversationSession, Message
+        from datetime import datetime
+
+        messages = []
+        for msg_data in data.get('messages', []):
+            messages.append(Message(
+                role=msg_data.get('role', 'user'),
+                content=msg_data.get('content', ''),
+                timestamp=datetime.fromisoformat(msg_data['timestamp']) if 'timestamp' in msg_data else datetime.now()
+            ))
+
+        return ConversationSession(
+            session_id=data.get('session_id', str(uuid.uuid4())),
+            title=data.get('title'),
+            messages=messages,
+            model=data.get('model'),
+            provider=data.get('provider'),
+            created_at=datetime.fromisoformat(data['created_at']) if 'created_at' in data else datetime.now()
+        )
+
+    def _convert_openai_format(self, data: dict, source_file: str) -> ConversationSession:
+        """Convert OpenAI ChatGPT export format."""
+        from victor.agent.conversation.models import ConversationSession, Message
+        from datetime import datetime
+
+        # ChatGPT uses a tree structure with 'mapping'
+        mapping = data.get('mapping', {})
+        current_node = data.get('current_node')
+
+        # Build message chain from tree
+        messages = []
+        node_id = current_node
+        while node_id and node_id in mapping:
+            node = mapping[node_id]
+            message = node.get('message')
+            if message and message.get('author', {}).get('role') in ['user', 'assistant']:
+                content = message.get('content', {})
+                if content.get('content_type') == 'text':
+                    text = ''.join(content.get('parts', []))
+                    messages.append(Message(
+                        role=message['author']['role'],
+                        content=text,
+                        timestamp=datetime.fromtimestamp(message.get('create_time', 0))
+                    ))
+            node_id = node.get('parent')
+
+        messages.reverse()  # Tree is built backwards
+
+        title = data.get('title', 'Imported from ChatGPT')
+        create_time = data.get('create_time', 0)
+
+        return ConversationSession(
+            session_id=f"openai_{uuid.uuid4().hex[:12]}",
+            title=title,
+            messages=messages,
+            model="gpt-4",  # Default, could be extracted from metadata
+            provider="openai",
+            created_at=datetime.fromtimestamp(create_time) if create_time else datetime.now()
+        )
+
+    def _convert_anthropic_format(self, data: dict, source_file: str) -> ConversationSession:
+        """Convert Anthropic Claude export format."""
+        from victor.agent.conversation.models import ConversationSession, Message
+        from datetime import datetime
+
+        messages = []
+        for msg in data.get('messages', data.get('conversation', {}).get('messages', [])):
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+            if isinstance(content, list):
+                # Anthropic uses array format for content
+                content = '\n'.join(
+                    item.get('text', '') for item in content if item.get('type') == 'text'
+                )
+            messages.append(Message(
+                role=role,
+                content=content,
+                timestamp=datetime.now()
+            ))
+
+        return ConversationSession(
+            session_id=f"anthropic_{uuid.uuid4().hex[:12]}",
+            title=data.get('title', 'Imported from Claude'),
+            messages=messages,
+            model=data.get('model', 'claude-3'),
+            provider="anthropic",
+            created_at=datetime.now()
+        )
+
+    def _convert_bedrock_format(self, data: dict, source_file: str) -> ConversationSession:
+        """Convert AWS Bedrock export format."""
+        from victor.agent.conversation.models import ConversationSession, Message
+        from datetime import datetime
+
+        messages = []
+        for msg in data.get('messages', data.get('turns', [])):
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+            if isinstance(content, dict):
+                content = content.get('text', str(content))
+            messages.append(Message(
+                role=role,
+                content=content,
+                timestamp=datetime.now()
+            ))
+
+        return ConversationSession(
+            session_id=f"bedrock_{uuid.uuid4().hex[:12]}",
+            title=data.get('title', 'Imported from Bedrock'),
+            messages=messages,
+            model=data.get('modelId', data.get('model', 'claude-3')),
+            provider="bedrock",
+            created_at=datetime.now()
+        )
+
+    def _convert_generic_format(self, data: dict, source_file: str) -> ConversationSession:
+        """Convert generic message array format."""
+        from victor.agent.conversation.models import ConversationSession, Message
+        from datetime import datetime
+
+        messages = []
+        for msg in data.get('messages', []):
+            messages.append(Message(
+                role=msg.get('role', 'user'),
+                content=msg.get('content', ''),
+                timestamp=datetime.now()
+            ))
+
+        return ConversationSession(
+            session_id=f"import_{uuid.uuid4().hex[:12]}",
+            title=data.get('title', f'Imported from {Path(source_file).stem}'),
+            messages=messages,
+            model=data.get('model'),
+            provider=data.get('provider', 'unknown'),
+            created_at=datetime.now()
+        )
 
 
 @register_command
