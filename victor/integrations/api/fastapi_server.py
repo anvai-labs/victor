@@ -511,12 +511,6 @@ class VictorFastAPIServer:
         self._workflow_executions: Dict[str, Dict[str, Any]] = {}
         self._shutting_down = False
 
-        # Track WebSocket auth failures for rate limiting
-        self._ws_auth_failures: Dict[str, int] = {}
-        self._ws_auth_failure_lock = (
-            asyncio.Lock() if asyncio.get_event_loop().is_running() else None
-        )
-
         # Create FastAPI app with lifespan. Auth is enforced per-route in
         # _setup_routes/_setup_router_plugins (co-design review U7-F1..F3:
         # auth was previously opt-in per handler — only /chat* verified, so

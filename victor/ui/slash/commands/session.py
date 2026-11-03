@@ -598,14 +598,22 @@ class ResumeCommand(BaseSlashCommand):
 
             # Save to current project's database
             store = ConversationStore()
-            store.save_session(session)
+            # Extract messages from session and save with required metadata
+            messages_dict = [{"role": msg.role, "content": msg.content} for msg in session.messages]
+            store.save_session(
+                conversation={"messages": messages_dict},
+                model=session.model or "unknown",
+                provider=session.provider or "unknown",
+                session_id=session.session_id,
+                title=session.title,
+            )
 
             ctx.console.print(
                 Panel(
                     f"Session imported successfully!\n\n"
                     f"[bold]ID:[/] {session.session_id}\n"
                     f"[bold]Title:[/] {session.title or 'Untitled'}\n"
-                    f"[bold]Messages:[/] {session.message_count}\n"
+                    f"[bold]Messages:[/] {len(session.messages)}\n"
                     f"[bold]Source:[/] {path.name}\n\n"
                     f"[dim]Use /resume {session.session_id} to load it[/]",
                     title="Session Imported",
@@ -657,13 +665,14 @@ class ResumeCommand(BaseSlashCommand):
 
     def _convert_victor_format(self, data: dict) -> ConversationSession:
         """Convert Victor native format."""
-        from victor.agent.conversation.session_model import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession
+        from victor.agent.conversation.types import ConversationMessage
         from datetime import datetime
 
         messages = []
         for msg_data in data.get("messages", []):
             messages.append(
-                Message(
+                ConversationMessage(
                     role=msg_data.get("role", "user"),
                     content=msg_data.get("content", ""),
                     timestamp=(
@@ -689,7 +698,8 @@ class ResumeCommand(BaseSlashCommand):
 
     def _convert_openai_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert OpenAI ChatGPT export format."""
-        from victor.agent.conversation.session_model import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession
+        from victor.agent.conversation.types import ConversationMessage
         from datetime import datetime
 
         # ChatGPT uses a tree structure with 'mapping'
@@ -707,7 +717,7 @@ class ResumeCommand(BaseSlashCommand):
                 if content.get("content_type") == "text":
                     text = "".join(content.get("parts", []))
                     messages.append(
-                        Message(
+                        ConversationMessage(
                             role=message["author"]["role"],
                             content=text,
                             timestamp=datetime.fromtimestamp(message.get("create_time", 0)),
@@ -731,7 +741,8 @@ class ResumeCommand(BaseSlashCommand):
 
     def _convert_anthropic_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert Anthropic Claude export format."""
-        from victor.agent.conversation.session_model import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession
+        from victor.agent.conversation.types import ConversationMessage
         from datetime import datetime
 
         messages = []
@@ -743,7 +754,9 @@ class ResumeCommand(BaseSlashCommand):
                 content = "\n".join(
                     item.get("text", "") for item in content if item.get("type") == "text"
                 )
-            messages.append(Message(role=role, content=content, timestamp=datetime.now()))
+            messages.append(
+                ConversationMessage(role=role, content=content, timestamp=datetime.now())
+            )
 
         return ConversationSession(
             session_id=f"anthropic_{uuid.uuid4().hex[:12]}",
@@ -756,7 +769,8 @@ class ResumeCommand(BaseSlashCommand):
 
     def _convert_bedrock_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert AWS Bedrock export format."""
-        from victor.agent.conversation.session_model import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession
+        from victor.agent.conversation.types import ConversationMessage
         from datetime import datetime
 
         messages = []
@@ -765,7 +779,9 @@ class ResumeCommand(BaseSlashCommand):
             content = msg.get("content", "")
             if isinstance(content, dict):
                 content = content.get("text", str(content))
-            messages.append(Message(role=role, content=content, timestamp=datetime.now()))
+            messages.append(
+                ConversationMessage(role=role, content=content, timestamp=datetime.now())
+            )
 
         return ConversationSession(
             session_id=f"bedrock_{uuid.uuid4().hex[:12]}",
@@ -778,13 +794,14 @@ class ResumeCommand(BaseSlashCommand):
 
     def _convert_generic_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert generic message array format."""
-        from victor.agent.conversation.session_model import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession
+        from victor.agent.conversation.types import ConversationMessage
         from datetime import datetime
 
         messages = []
         for msg in data.get("messages", []):
             messages.append(
-                Message(
+                ConversationMessage(
                     role=msg.get("role", "user"),
                     content=msg.get("content", ""),
                     timestamp=datetime.now(),
@@ -875,7 +892,7 @@ class CompactCommand(BaseSlashCommand):
                 summary = summary_response.content
 
                 # Create new conversation with summary + recent messages
-                from victor.agent.message_types import Message
+                from victor.core.provider_messages import Message
 
                 new_messages = [
                     Message(
