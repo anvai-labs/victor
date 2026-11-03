@@ -487,7 +487,7 @@ This revision corrected the initial draft (commit `ad937784c`). Summary of chang
 
 | Initial draft claim | Corrected fact | How verified |
 |---|---|---|
-| "43 LLM providers" | **25 provider adapters** (`*_provider.py`); CLAUDE.md canon says 25. The 43 figure likely counted registry aliases/routes, not adapters | `ls victor/providers/ \| grep -c '_provider.py$'` → 25 |
+| Initial claim overstated provider count | **25 provider adapters** (`*_provider.py`); CLAUDE.md canon says 25. The original figure likely counted registry aliases/routes, not adapters | `ls victor/providers/ \| grep -c '_provider.py$'` → 25 |
 | "36,871 collected unit tests" | **38,177** as of this tree (excluding `tests/unit/scripts`, a local-only noise dir) | `pytest --collect-only -q` |
 | "Only 2 integration test files found" | **122 files / 1,776 test functions** under `tests/integration/`; the draft audited the wrong path/naming convention | `git ls-files tests/integration/`, `grep -c def test_` |
 | "5 different ValidationResult types" | **7 definitions across 6 modules**, including two duplicate names (`ToolValidationResult` ×2, `ConfigValidationResult` ×2) | `grep -rn "class .*ValidationResult" victor/` |
