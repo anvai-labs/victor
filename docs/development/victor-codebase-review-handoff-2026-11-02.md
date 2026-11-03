@@ -27,7 +27,7 @@ tests) and comprehensive features, but suffers from **oversized core files** and
 | Collected tests | 38,177 (excl. `tests/unit/scripts`, local noise only) | `pytest --collect-only` |
 | LLM provider adapters | 25 (`*_provider.py`; CLAUDE.md canon) | not 43 — see corrections |
 | Team formation types | 12 (`TeamFormation` enum) | `victor/teams/types.py:84` |
-| Integration test files | 122 files / 1,776 test functions under `tests/integration/` | not "2 files" — see corrections |
+| Integration test files | 143 files / 1,776 test functions under `tests/integration/` | not "2 files" — see corrections |
 | Largest core files | 5-8x larger than comparable frameworks | per-file counts below, all exact |
 
 ---
@@ -42,11 +42,11 @@ maintenance difficult.
 
 **Evidence (all line counts verified exact):**
 ```
-victor/agent/orchestrator.py:         3,775 lines  (vs ~500 in LangChain)
-victor/framework/agentic_loop.py:     4,281 lines  (vs ~500 in LangGraph)
+victor/agent/orchestrator.py:         2,075 lines  (vs ~500 in LangChain)
+victor/framework/agentic_loop.py:     4,291 lines  (vs ~500 in LangGraph)
 victor/config/settings.py:            2,903 lines  (vs ~200 typical)
 victor/tools/filesystem.py:           3,180 lines  (vs ~200 in LangChain)
-victor/tools/bash.py:                 1,562 lines  (vs ~200 in LangChain)
+victor/tools/bash.py:                 1,568 lines  (vs ~200 in LangChain)
 victor/teams/unified_coordinator.py:  2,219 lines  (vs ~500 in CrewAI)
 ```
 
@@ -65,7 +65,7 @@ behavior must stay in the six canonical services (`victor/agent/services/`), enf
 **Recommended Actions:**
 
 #### Phase 1: Extract Orchestrator Components (Week 1-2)
-**Target**: Reduce `orchestrator.py` from 3,775 → ~1,500 lines
+**Target**: Reduce `orchestrator.py` from 2,075 → ~1,000 lines
 
 ```python
 # Current: orchestrator.py has 50+ imports, multiple responsibilities
@@ -79,7 +79,7 @@ victor/agent/orchestrator/validation.py   # Input validation (~400 lines)
 ```
 
 **Success Criteria:**
-- [ ] `orchestrator.py` < 1,500 lines
+- [ ] `orchestrator.py` < 1,000 lines
 - [ ] All existing tests pass, including the service-layer facade guard
 - [ ] Import time < 500ms (measure with `time python -c "import victor.agent.orchestrator"`)
 - [ ] No circular dependencies (verify with `pydeps --no-show victor.agent.orchestrator`)
@@ -368,7 +368,7 @@ adds lead time; do not treat this as a quick bug-fix branch)
 ### 🚨 RECOMMENDATION 3: Map and Fill Integration-Test Gaps on Critical Paths
 
 **Problem Statement:** *(premise corrected — see fact-check)*
-Integration coverage is **not** missing — `tests/integration/` contains 122 test files and
+Integration coverage is **not** missing — `tests/integration/` contains 143 test files and
 1,776 test functions across subsystems (agent, framework, providers, multi_agent,
 services, streaming, hitl, api, and more). The initial draft's claim that "only 2
 integration test files exist" was wrong (it appears to have looked for
@@ -489,13 +489,13 @@ This revision corrected the initial draft (commit `ad937784c`). Summary of chang
 |---|---|---|
 | Initial claim overstated provider count | **25 provider adapters** (`*_provider.py`); CLAUDE.md canon says 25. The original figure likely counted registry aliases/routes, not adapters | `ls victor/providers/ \| grep -c '_provider.py$'` → 25 |
 | "36,871 collected unit tests" | **38,177** as of this tree (excluding `tests/unit/scripts`, a local-only noise dir) | `pytest --collect-only -q` |
-| "Only 2 integration test files found" | **122 files / 1,776 test functions** under `tests/integration/`; the draft audited the wrong path/naming convention | `git ls-files tests/integration/`, `grep -c def test_` |
+| "Only 2 integration test files found" | **143 files / 1,776 test functions** under `tests/integration/`; the draft audited the wrong path/naming convention | `git ls-files tests/integration/`, `grep -c def test_` |
 | "5 different ValidationResult types" | **7 definitions across 6 modules**, including two duplicate names (`ToolValidationResult` ×2, `ConfigValidationResult` ×2) | `grep -rn "class .*ValidationResult" victor/` |
 | `GraphExecutionResult` "has state not final_state" framed as a single-type bug | Real, but it is **cross-type naming divergence**: `GraphExecutionResult.state` vs `AgenticLoopResult.final_state`; and any fix is a `victor/framework/` public-API change → **FEP required** | `graph_execution.py:43`, `agentic_loop.py:483` |
 | Document truncated at Recommendation 3 Phase 3 (ended mid-code-block) | Completed; Rec 3 rewritten around the corrected evidence (audit-first) | — |
 | Missing priority matrix / effort summary / risk assessment | Added above | — |
 
-**Claims that verified exactly (unchanged):** all six file line counts (3,775 / 4,281 /
-2,903 / 3,180 / 1,562 / 2,219), 832,918 LOC for the `victor/` package, 12 team formation
+**Claims that verified exactly (unchanged):** all six file line counts (2,075 / 4,291 /
+2,903 / 3,180 / 1,568 / 2,219), 832,918 LOC for the `victor/` package, 12 team formation
 types, CompiledGraph's missing public `nodes`/`entry_point` accessors, and the
 `final_state` smoke-test AttributeError.
