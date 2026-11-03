@@ -550,6 +550,14 @@ class VictorTUIApp(App[None]):
         except Exception:
             pass
         
+        # Get context budget from settings (profile's context.max_context_tokens)
+        context_budget = None
+        try:
+            if hasattr(self._settings, 'context') and hasattr(self._settings.context, 'max_context_tokens'):
+                context_budget = self._settings.context.max_context_tokens
+        except Exception:
+            pass
+        
         info = SessionInfo(
             session_id=_short(getattr(self._agent, "active_session_id", None)),
             mode=self._mode,
@@ -560,7 +568,7 @@ class VictorTUIApp(App[None]):
             budget_total=self._tool_budget,
             context_pct=context_pct,
             context_used=context_used,
-            context_total=context_total,
+            context_total=context_budget or context_total,
             token_usage=self._token_usage,
             cost_usd=self._last_cost,
         )
