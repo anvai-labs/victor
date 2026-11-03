@@ -143,13 +143,17 @@ class SessionBar(Static):
         if usage.total_tokens > 0:
             token_parts = []
             if usage.prompt_tokens > 0:
-                token_parts.append(f"p=[bright_magenta]{_format_tokens(usage.prompt_tokens)}[/]")
+                token_parts.append(
+                    f"p=[bright_magenta]{_format_tokens(usage.prompt_tokens)}[/]"
+                )
             if usage.completion_tokens > 0:
                 token_parts.append(
                     f"c=[bright_magenta]{_format_tokens(usage.completion_tokens)}[/]"
                 )
             if usage.reasoning_tokens > 0:
-                token_parts.append(f"r=[bright_magenta]{_format_tokens(usage.reasoning_tokens)}[/]")
+                token_parts.append(
+                    f"r=[bright_magenta]{_format_tokens(usage.reasoning_tokens)}[/]"
+                )
             if usage.cached_tokens > 0:
                 token_parts.append(
                     f"cache=[bright_magenta]{_format_tokens(usage.cached_tokens)}[/]"
