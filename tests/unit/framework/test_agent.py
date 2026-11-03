@@ -2337,6 +2337,7 @@ class TestProviderSwitching:
     @pytest.mark.asyncio
     async def test_switch_provider_success(self):
         """switch_provider should return True when switch_model succeeds."""
+        from victor.framework.agent import Agent
         agent = Agent.__new__(Agent)
         agent._provider = "openai"
         agent._model = "gpt-4"
@@ -2355,6 +2356,7 @@ class TestProviderSwitching:
     @pytest.mark.asyncio
     async def test_switch_provider_failure(self):
         """switch_provider should return False when switch_model raises."""
+        from victor.framework.agent import Agent
         agent = Agent.__new__(Agent)
 
         async def mock_switch_model(provider, model):
@@ -2367,6 +2369,7 @@ class TestProviderSwitching:
 
     def test_get_current_provider_info_basic(self):
         """get_current_provider_info should return provider and model info."""
+        from victor.framework.agent import Agent
         agent = Agent.__new__(Agent)
         agent._provider = "anthropic"
         agent._model = "claude-3-sonnet"
@@ -2386,6 +2389,7 @@ class TestProviderSwitching:
 
     def test_get_current_provider_info_with_orchestrator(self):
         """get_current_provider_info should enrich from orchestrator when available."""
+        from victor.framework.agent import Agent
         agent = Agent.__new__(Agent)
         agent._provider = "openai"
         agent._model = "gpt-4"

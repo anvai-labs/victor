@@ -91,8 +91,8 @@ class StatusBar(Static):
     def compose_line_for_prompt(
         self,
         *,
-        total_tokens: Optional[int],
-        cost_usd: Optional[float],
+        total_tokens: Optional[int] = None,
+        cost_usd: Optional[float] = None,
         context_used_pct: Optional[float] = None,
     ) -> str:
         """Render a compact line for display above the prompt input."""
