@@ -64,30 +64,36 @@ def test_token_usage_bar_context_low() -> None:
     """Test TokenUsageBar with low context usage (green)."""
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=45.0)
-    content = str(bar.render())
+    rendered = bar.render()
+    content = str(rendered)
     assert "Context:" in content
     assert "45%" in content
-    assert "green" in content
+    # Check that at least one span has green style
+    assert any("green" in str(span.style) for span in rendered.spans)
 
 
 def test_token_usage_bar_context_medium() -> None:
     """Test TokenUsageBar with medium context usage (yellow)."""
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=75.0)
-    content = str(bar.render())
+    rendered = bar.render()
+    content = str(rendered)
     assert "Context:" in content
     assert "75%" in content
-    assert "yellow" in content
+    # Check that at least one span has yellow style
+    assert any("yellow" in str(span.style) for span in rendered.spans)
 
 
 def test_token_usage_bar_context_high() -> None:
     """Test TokenUsageBar with high context usage (red)."""
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=90.0)
-    content = str(bar.render())
+    rendered = bar.render()
+    content = str(rendered)
     assert "Context:" in content
     assert "90%" in content
-    assert "red" in content
+    # Check that at least one span has red style
+    assert any("red" in str(span.style) for span in rendered.spans)
 
 
 def test_token_usage_bar_all_fields() -> None:
@@ -116,19 +122,23 @@ def test_token_usage_bar_boundary_values() -> None:
     # Just below green threshold
     bar = TokenUsageBar()
     bar.set_usage(context_used_pct=59.9)
-    assert "green" in str(bar.render())
+    rendered = bar.render()
+    assert any("green" in str(span.style) for span in rendered.spans)
 
     # At yellow threshold
     bar.set_usage(context_used_pct=60.0)
-    assert "yellow" in str(bar.render())
+    rendered = bar.render()
+    assert any("yellow" in str(span.style) for span in rendered.spans)
 
     # Just below red threshold
     bar.set_usage(context_used_pct=84.9)
-    assert "yellow" in str(bar.render())
+    rendered = bar.render()
+    assert any("yellow" in str(span.style) for span in rendered.spans)
 
     # At red threshold
     bar.set_usage(context_used_pct=85.0)
-    assert "red" in str(bar.render())
+    rendered = bar.render()
+    assert any("red" in str(span.style) for span in rendered.spans)
 
 
 def test_token_usage_bar_cost_precision() -> None:
