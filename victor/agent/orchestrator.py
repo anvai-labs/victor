@@ -1442,35 +1442,40 @@ class AgentOrchestrator(
             container=getattr(self, "_container", None),
         )
 
+    def _get_tool_strategy_runtime(self):
+        """Get the cached service-owned tool-strategy runtime helper.
+
+        ToolStrategyRuntime holds only a reference to this orchestrator (its
+        runtime host); caching one instance removes the per-call construction
+        the delegations below used to do.
+        """
+        runtime = getattr(self, "_tool_strategy_runtime", None)
+        if runtime is None:
+            from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
+
+            runtime = ToolStrategyRuntime(self)
+            self._tool_strategy_runtime = runtime
+        return runtime
+
     def _sort_tools_for_kv_stability(self, tools):
         """Sort tools for KV-cache stability; session-local cache is managed here."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).sort_tools_for_kv_stability(tools)
+        return self._get_tool_strategy_runtime().sort_tools_for_kv_stability(tools)
 
     def _should_stabilize_tool_order(self) -> bool:
         """Return whether this turn should use byte-stable tool ordering."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).should_stabilize_tool_order()
+        return self._get_tool_strategy_runtime().should_stabilize_tool_order()
 
     def _resolve_kv_strategy_setting(self) -> str:
         """Read kv_tool_strategy from settings; default to 'context_aware'."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).resolve_kv_strategy_setting()
+        return self._get_tool_strategy_runtime().resolve_kv_strategy_setting()
 
     def _apply_kv_tool_strategy(self, tools):
         """Delegate configured KV strategy and session caching to the strategy runtime."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).apply_kv_tool_strategy(tools)
+        return self._get_tool_strategy_runtime().apply_kv_tool_strategy(tools)
 
     def _context_aware_profile_session_locked(self) -> bool:
         """Whether the provider-economics profile wants session-stable tools."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).context_aware_profile_session_locked()
+        return self._get_tool_strategy_runtime().context_aware_profile_session_locked()
 
     def _is_tool_strategy_v2_enabled(self) -> bool:
         """Check if the context-aware tool strategy (v2) is enabled.
@@ -1479,15 +1484,11 @@ class AgentOrchestrator(
         ``tool_strategy_v2_enabled`` settings field was an unreachable,
         exception-only fallback (defaulted False) and has been removed.
         """
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).is_tool_strategy_v2_enabled()
+        return self._get_tool_strategy_runtime().is_tool_strategy_v2_enabled()
 
     def _apply_context_aware_strategy(self, tools):
         """Delegate context-aware selection and its telemetry to the strategy runtime."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).apply_context_aware_strategy(tools)
+        return self._get_tool_strategy_runtime().apply_context_aware_strategy(tools)
 
     def _get_context_window(self, provider, model: str) -> int:
         """Get context window size for provider/model.
@@ -1499,17 +1500,13 @@ class AgentOrchestrator(
         Returns:
             Context window in tokens
         """
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).get_context_window(provider, model)
+        return self._get_tool_strategy_runtime().get_context_window(provider, model)
 
     def _estimate_tool_tokens(
         self, tool, provider_category: str = None, _use_cache: bool = True
     ) -> int:
         """Delegate token estimation to ToolService."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).estimate_tool_tokens(
+        return self._get_tool_strategy_runtime().estimate_tool_tokens(
             tool, provider_category, _use_cache=_use_cache
         )
 
@@ -1533,9 +1530,9 @@ class AgentOrchestrator(
 
     def _semantic_select_tools(self, tools, max_tokens: int, provider_category: str = None) -> list:
         """Delegate semantic tool selection to ToolService."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        return ToolStrategyRuntime(self).semantic_select_tools(tools, max_tokens, provider_category)
+        return self._get_tool_strategy_runtime().semantic_select_tools(
+            tools, max_tokens, provider_category
+        )
 
     def _emit_tool_strategy_event(
         self,
@@ -1548,9 +1545,7 @@ class AgentOrchestrator(
         tools=None,
     ):
         """Delegate tool-strategy telemetry to the strategy runtime."""
-        from victor.agent.services.tool_strategy_runtime import ToolStrategyRuntime
-
-        ToolStrategyRuntime(self).emit_tool_strategy_event(
+        self._get_tool_strategy_runtime().emit_tool_strategy_event(
             strategy,
             tool_count,
             tool_tokens,
