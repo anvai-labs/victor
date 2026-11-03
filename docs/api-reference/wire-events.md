@@ -95,6 +95,28 @@ Pass `"session_id"` (from `POST /session/token`) to continue an existing
 conversation; the response's `X-Session-Id` header identifies the session
 serving the stream.
 
+## Session metrics
+
+`GET /session/{session_id}/metrics` (same API key auth as the other REST
+endpoints) returns per-session runtime telemetry — the framework's session
+metrics (tokens, context size) plus the last turn's cost record — without
+touching the websocket:
+
+```
+GET /session/<id>/metrics
+
+{
+  "session_id": "<id>",
+  "metrics": {"context_tokens": 591745, ...},
+  "last_turn": {"tokens_in": 12000, "cost_usd": 0.04, ...}
+}
+```
+
+Returns `404` for an unknown session; agents without the telemetry port
+return just `{"session_id": ...}`. Useful for watching context growth while
+a long agent turn streams (e.g. detecting the runaway-context failure mode
+behind repeated tool timeouts).
+
 ## Consuming in Python
 
 ```python

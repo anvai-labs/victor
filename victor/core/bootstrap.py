@@ -1361,18 +1361,25 @@ def ensure_bootstrapped(
     """
     container = get_container()
 
-    # Check if already bootstrapped (Settings registered)
-    if container.is_registered(Settings):
-        # Container already bootstrapped — still run plugin discovery so capabilities
-        # from installed verticals (e.g. CodebaseIndex for graph tool) are registered
-        # even when no --vertical flag is passed.
-        _discover_plugin_capabilities(None)
-        # Check if we need to switch verticals
-        if vertical is not None:
-            _ensure_vertical_activated(container, settings or container.get(Settings), vertical)
-        return container
+    # Race condition fix: Use lock to prevent double-bootstrap when called concurrently
+    import threading
 
-    return bootstrap_container(settings, vertical=vertical)
+    if not hasattr(ensure_bootstrapped, "_lock"):
+        ensure_bootstrapped._lock = threading.Lock()
+
+    with ensure_bootstrapped._lock:
+        # Check if already bootstrapped (Settings registered)
+        if container.is_registered(Settings):
+            # Container already bootstrapped — still run plugin discovery so capabilities
+            # from installed verticals (e.g. CodebaseIndex for graph tool) are registered
+            # even when no --vertical flag is passed.
+            _discover_plugin_capabilities(None)
+            # Check if we need to switch verticals
+            if vertical is not None:
+                _ensure_vertical_activated(container, settings or container.get(Settings), vertical)
+            return container
+
+        return bootstrap_container(settings, vertical=vertical)
 
 
 def _ensure_vertical_activated(

@@ -239,6 +239,10 @@ class PlanningGate:
         """
         self._config = config if config is not None else PlanningGateConfig(enabled=enabled)
         self.enabled = self._config.enabled
+        # Thread safety: protect counters from concurrent corruption
+        import threading
+
+        self._counter_lock = threading.Lock()
         self._fast_path_count = 0
         self._total_decisions = 0
         self._forced_slow_path_count = 0
@@ -275,19 +279,18 @@ class PlanningGate:
             return True  # Gate disabled, always use LLM planning
 
         query_lower = context.get("query", "").lower() if context else ""
-        action_keywords = [
-            "run ",
-            "execute",
-            "create ",
-            "write ",
-            "delete ",
-            "list ",
-            "show ",
-            "get ",
-            "find ",
-            "search ",
-        ]
-        has_action_keyword = any(keyword in query_lower for keyword in action_keywords)
+        # PERF-1: Pre-compiled regex for O(1) keyword matching instead of O(n*m) substring scans
+        if not hasattr(self, "_ACTION_RE"):
+            import re
+
+            self._ACTION_RE = re.compile(
+                r"\b(?:run|execute|create|write|delete|list|show|get|find|search)\b"
+            )
+        has_action_keyword = bool(self._ACTION_RE.search(query_lower))
+
+        # EDGE-3: Force slow path for empty queries to prevent incorrect fast-pathing
+        if not query_lower:
+            has_action_keyword = False
 
         if isinstance(routing_hints, dict) and routing_hints.get("planning_force_llm"):
             reason = str(routing_hints.get("planning_force_reason") or "runtime_feedback")
@@ -1539,7 +1542,9 @@ class AgenticLoop(TopologyPlanningMixin):
                 for result in tool_results
                 if isinstance(result, dict)
             },
-            tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0),
+            # EDGE-8: Count non-dict results toward tool_count to prevent spin detector undercount
+            tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0)
+            + sum(1 for r in tool_results if not isinstance(r, dict)),
             tool_signatures=getattr(action_result, "tool_signatures", None),
             tool_results=tool_results,
             iteration=iteration,
@@ -3985,7 +3990,13 @@ class AgenticLoop(TopologyPlanningMixin):
             intent = (
                 intent_raw if isinstance(intent_raw, ActionIntent) else ActionIntent(intent_raw)
             )
-        except Exception:
+        except Exception as e:
+            # EDGE-2: Log fallback for debugging checkpoint corruption
+            logger.warning(
+                "Corrupted perception state: intent_raw=%r failed to parse, falling back to AMBIGUOUS. Error: %s",
+                intent_raw,
+                e,
+            )
             intent = ActionIntent.AMBIGUOUS
 
         try:
@@ -3994,7 +4005,13 @@ class AgenticLoop(TopologyPlanningMixin):
                 if isinstance(complexity_raw, TaskComplexity)
                 else TaskComplexity(complexity_raw)
             )
-        except Exception:
+        except Exception as e:
+            # EDGE-2: Log fallback for debugging checkpoint corruption
+            logger.warning(
+                "Corrupted perception state: complexity_raw=%r failed to parse, falling back to MEDIUM. Error: %s",
+                complexity_raw,
+                e,
+            )
             complexity = TaskComplexity.MEDIUM
 
         task_analysis = TaskAnalysis(

@@ -30,6 +30,7 @@ import asyncio
 from victor import __version__
 from functools import partial
 import logging
+import os
 import secrets
 import time
 import uuid
@@ -433,6 +434,7 @@ class VictorFastAPIServer:
         hitl_persistent: bool = True,
         enable_graphql: bool = True,
         session_config: Optional["SessionConfig"] = None,
+        allow_unauthenticated: Optional[bool] = None,
     ):
         """Initialize the FastAPI server.
 
@@ -447,6 +449,9 @@ class VictorFastAPIServer:
             hitl_auth_token: Optional auth token for HITL endpoints
             hitl_persistent: Use SQLite for persistent HITL storage (default: True)
             enable_graphql: Enable GraphQL endpoint at /graphql (default: True)
+            allow_unauthenticated: Explicit opt-in for unauthenticated mode.
+                When False (default) and no api_keys configured, raises ValueError.
+                Set to True or env VICTOR_ALLOW_UNAUTHENTICATED=1 to allow.
         """
         self.host = host
         self.port = port
@@ -458,6 +463,25 @@ class VictorFastAPIServer:
         self.hitl_auth_token = hitl_auth_token
         self.hitl_persistent = hitl_persistent
         self._enable_graphql = enable_graphql
+
+        # Security: require explicit opt-in for unauthenticated mode
+        env_allow_unauth = os.environ.get("VICTOR_ALLOW_UNAUTHENTICATED", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if allow_unauthenticated is None:
+            allow_unauthenticated = env_allow_unauth
+
+        if not self.api_keys and not allow_unauthenticated:
+            raise ValueError(
+                "Server requires api_keys or explicit allow_unauthenticated=True. "
+                "Running without authentication exposes all endpoints (chat, tools, "
+                "shell execution, HITL approvals) to any network client. "
+                "Set allow_unauthenticated=True or VICTOR_ALLOW_UNAUTHENTICATED=1 for local dev."
+            )
+
+        self._allow_unauthenticated = allow_unauthenticated
 
         from victor.config.settings import load_settings
         from victor.core.bootstrap import ensure_bootstrapped

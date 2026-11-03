@@ -241,13 +241,10 @@ def _make_query(server: VictorFastAPIServer) -> type:
                     return {"error": "Model selector learner not available"}
                 rankings = learner.get_provider_rankings()
                 return {
-                    "strategy": learner.strategy.value,
-                    "epsilon": round(learner.epsilon, 3),
-                    "total_selections": learner._total_selections,
                     "top_provider": rankings[0]["provider"] if rankings else None,
                 }
-            except Exception as e:
-                return {"error": str(e)}
+            except Exception:
+                return {"error": "Internal error"}
 
     return Query
 

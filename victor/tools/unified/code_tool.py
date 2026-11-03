@@ -67,6 +67,13 @@ async def analyze_metrics(path: str):
 _LITERAL_SEARCH_TIMEOUT_ENV = "VICTOR_TIMEOUT_LITERAL_SEARCH"
 _LITERAL_SEARCH_TIMEOUT_DEFAULT = 30.0
 
+# Wall-clock budget for semantic/graph delegation so a hung vertical backend
+# (measured live: victor-coding code_search stalls past the 60s pipeline cap
+# and burns the turn) degrades to literal grep instead of timing the whole
+# tool out. Same env-overridable convention as the literal budget.
+_SEMANTIC_SEARCH_TIMEOUT_ENV = "VICTOR_TIMEOUT_SEMANTIC_SEARCH"
+_SEMANTIC_SEARCH_TIMEOUT_DEFAULT = 45.0
+
 
 def _literal_search_timeout() -> float:
     raw = os.environ.get(_LITERAL_SEARCH_TIMEOUT_ENV, "")
@@ -192,6 +199,22 @@ def _normalize_grep_flags(tokens: list) -> tuple[list, Optional[str]]:
             continue
         out.append(token)
     return out, None
+
+
+def _semantic_search_timeout() -> float:
+    raw = os.environ.get(_SEMANTIC_SEARCH_TIMEOUT_ENV, "")
+    try:
+        return float(raw) if raw else _SEMANTIC_SEARCH_TIMEOUT_DEFAULT
+    except ValueError:
+        return _SEMANTIC_SEARCH_TIMEOUT_DEFAULT
+
+
+def _semantic_timeout_message(query: str) -> str:
+    return (
+        f"### ❌ ERROR\nSemantic search for {query!r} exceeded "
+        f"{_semantic_search_timeout():.0f}s and was cancelled. Narrow the path "
+        f"argument, use --mode literal, or raise {_SEMANTIC_SEARCH_TIMEOUT_ENV}."
+    )
 
 
 def _literal_timeout_message(query: str) -> str:
@@ -425,17 +448,46 @@ async def _code_search(parsed_args) -> str:
         )
 
     try:
-        result = await search_fn(
-            query=parsed_args.query,
-            path=parsed_args.path,
-            mode=parsed_args.mode,
-            k=parsed_args.k,
+        result = await asyncio.wait_for(
+            search_fn(
+                query=parsed_args.query,
+                path=parsed_args.path,
+                mode=parsed_args.mode,
+                k=parsed_args.k,
+            ),
+            timeout=_semantic_search_timeout(),
+        )
+    except asyncio.TimeoutError:
+        # Hung backend — degrade to literal grep rather than surfacing a bare
+        # timeout the caller cannot act on (the pipeline would otherwise kill
+        # the whole tool at its own cap after a longer stall).
+        try:
+            results = await _timed_grep_search(query=parsed_args.query, path=parsed_args.path)
+        except asyncio.TimeoutError:
+            return _literal_timeout_message(parsed_args.query)
+        return (
+            f"### 💡 SYSTEM HINT\nSemantic search timed out after "
+            f"{_semantic_search_timeout():.0f}s (raise {_SEMANTIC_SEARCH_TIMEOUT_ENV} "
+            "if the index is worth waiting for); showing literal grep results.\n\n"
+            + format_grep_results(results)
         )
     except TypeError:
         # Signature drift between versions — retry without the ``k`` kwarg.
         try:
-            result = await search_fn(
-                query=parsed_args.query, path=parsed_args.path, mode=parsed_args.mode
+            result = await asyncio.wait_for(
+                search_fn(query=parsed_args.query, path=parsed_args.path, mode=parsed_args.mode),
+                timeout=_semantic_search_timeout(),
+            )
+        except asyncio.TimeoutError:
+            try:
+                results = await _timed_grep_search(query=parsed_args.query, path=parsed_args.path)
+            except asyncio.TimeoutError:
+                return _literal_timeout_message(parsed_args.query)
+            return (
+                f"### 💡 SYSTEM HINT\nSemantic search timed out after "
+                f"{_semantic_search_timeout():.0f}s (raise {_SEMANTIC_SEARCH_TIMEOUT_ENV} "
+                "if the index is worth waiting for); showing literal grep results.\n\n"
+                + format_grep_results(results)
             )
         except Exception as e:
             return f"### ❌ ERROR\nSemantic search failed: {e}"
