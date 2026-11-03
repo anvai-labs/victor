@@ -87,31 +87,37 @@ class SessionBar(Static):
 
     @staticmethod
     def _build_line(info: SessionInfo) -> str:
-        """Build a compact horizontal representation of session state."""
+        """Build a compact horizontal representation of session state.
+        
+        Static info (session, mode, profile, model, provider) uses neutral colors.
+        Dynamic info (context, tokens, cost) uses bright accent colors to stand out.
+        """
         parts: list[str] = []
 
+        # STATIC INFO - neutral colors
         # Session ID (truncated)
         session_short = info.session_id[:8] if len(info.session_id) > 8 else info.session_id
-        parts.append(f"[dim]session:[/] [bold]{escape(session_short)}[/]")
+        parts.append(f"[dim]session:[/] [white]{escape(session_short)}[/]")
 
         # Mode
-        parts.append(f"[dim]mode:[/] {escape(info.mode)}")
+        parts.append(f"[dim]mode:[/] [white]{escape(info.mode)}[/]")
 
         # Profile and Model/Provider
         if info.profile and info.profile != "—":
-            parts.append(f"[dim]profile:[/] [cyan]{escape(info.profile)}[/]")
+            parts.append(f"[dim]profile:[/] [white]{escape(info.profile)}[/]")
         model_provider = f"{info.model}"
         if info.provider and info.provider != "—":
-            model_provider += f" [dim]via[/] [magenta]{escape(info.provider)}[/]"
-        parts.append(f"[dim]model:[/] {model_provider}")
+            model_provider += f" [dim]via[/] [white]{escape(info.provider)}[/]"
+        parts.append(f"[dim]model:[/] [white]{model_provider}[/]")
 
         # Budget
         if info.budget_total:
             budget_str = f"{info.budget_used}/{info.budget_total}"
         else:
             budget_str = str(info.budget_used)
-        parts.append(f"[dim]budget:[/] {budget_str}")
+        parts.append(f"[dim]budget:[/] [white]{budget_str}[/]")
 
+        # DYNAMIC INFO - bright accent colors
         # Context usage with percentage
         if info.context_used is not None and info.context_total is not None:
             used_str = _format_tokens(info.context_used)
@@ -127,31 +133,31 @@ class SessionBar(Static):
                     color = "green"
                 context_str = f"[{color}]{used_str}/{total_str} ({pct_str})[/]"
             else:
-                context_str = f"{used_str}/{total_str}"
+                context_str = f"[bright_cyan]{used_str}/{total_str}[/]"
             parts.append(f"[dim]context:[/] {context_str}")
         elif info.context_pct is not None:
             pct_str = f"{info.context_pct:.1f}%"
-            parts.append(f"[dim]context:[/] {pct_str}")
+            parts.append(f"[dim]context:[/] [bright_cyan]{pct_str}[/]")
 
         # Token breakdown (if available)
         usage = info.token_usage
         if usage.total_tokens > 0:
             token_parts = []
             if usage.prompt_tokens > 0:
-                token_parts.append(f"prompt={_format_tokens(usage.prompt_tokens)}")
+                token_parts.append(f"prompt=[bright_magenta]{_format_tokens(usage.prompt_tokens)}[/]")
             if usage.completion_tokens > 0:
-                token_parts.append(f"completion={_format_tokens(usage.completion_tokens)}")
+                token_parts.append(f"completion=[bright_magenta]{_format_tokens(usage.completion_tokens)}[/]")
             if usage.reasoning_tokens > 0:
-                token_parts.append(f"reasoning={_format_tokens(usage.reasoning_tokens)}")
+                token_parts.append(f"reasoning=[bright_magenta]{_format_tokens(usage.reasoning_tokens)}[/]")
             if usage.cached_tokens > 0:
-                token_parts.append(f"cached={_format_tokens(usage.cached_tokens)}")
+                token_parts.append(f"cached=[bright_magenta]{_format_tokens(usage.cached_tokens)}[/]")
             if token_parts:
                 tokens_str = " ".join(token_parts)
                 parts.append(f"[dim]tokens:[/] {tokens_str}")
 
         # Cost
         if info.cost_usd is not None:
-            parts.append(f"[dim]cost:[/] ${info.cost_usd:.4f}")
+            parts.append(f"[dim]cost:[/] [bright_yellow]${info.cost_usd:.4f}[/]")
 
         return " [dim]·[/] ".join(parts)
 
