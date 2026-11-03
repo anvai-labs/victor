@@ -192,6 +192,14 @@ if RichLog is not None:
     class WireTimeline(RichLog):
         """RichLog that renders v1 wire events with chat-surface semantics."""
 
+        DEFAULT_CSS = """
+        WireTimeline {
+            scrollbar-size-vertical: 1;
+            scrollbar-size-horizontal: 1;
+            can-focus: true;
+        }
+        """
+
         def __init__(self, **kwargs: Any) -> None:
             kwargs.setdefault("wrap", True)
             kwargs.setdefault("markup", True)

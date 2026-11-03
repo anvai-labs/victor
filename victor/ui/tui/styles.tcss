@@ -19,7 +19,7 @@ Screen {
 }
 
 #session-bar {
-    height: 1;
+    height: 2;
     padding: 0 1;
     background: $panel;
     color: $foreground;
@@ -34,6 +34,8 @@ Screen {
     color: $foreground;
     overflow-x: hidden;
     overflow-y: auto;
+    scrollbar-size: 1 1;
+    scrollbar-gutter: auto;
 }
 
 #diff-pane {
