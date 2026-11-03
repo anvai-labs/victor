@@ -196,7 +196,6 @@ if RichLog is not None:
         WireTimeline {
             scrollbar-size-vertical: 1;
             scrollbar-size-horizontal: 1;
-            can-focus: true;
         }
         """
 
