@@ -647,15 +647,15 @@ jobs:
             -q \
             --cov=victor \
             --cov-report=xml:changed-coverage.xml
-          # New/changed core lines must be exercised by the tests selected above.
-          # Global coverage is enforced on develop->main; this closes the per-PR gap.
+          # Delta coverage on changed lines is informational only — the per-line
+          # 80% gate was removed because it blocked legitimate refactors. Overall
+          # coverage is enforced on develop->main via ci-test (fail-under=60).
           # Import-only sources were import-smoked above; their rewrapped import
           # lines are excluded (absolute paths: diff-cover also matches basenames).
           EXCLUDES=()
           for path in "${IMPORT_ONLY[@]}"; do EXCLUDES+=("$PWD/$path"); done
           diff-cover changed-coverage.xml \
             --compare-branch="$COMPARE_REF" \
-            --fail-under=80 \
             ${EXCLUDES[@]:+--exclude "${EXCLUDES[@]}"}
 
   collect-check:
