@@ -30,7 +30,7 @@ def _server(monkeypatch, tmp_path: Path, client: Any) -> Any:
     monkeypatch.setattr(
         fastapi_server, "load_fastapi_router_registrations", lambda *, workspace_root: []
     )
-    server = fastapi_server.VictorFastAPIServer(workspace_root=str(tmp_path), enable_graphql=False)
+    server = fastapi_server.VictorFastAPIServer(workspace_root=str(tmp_path), enable_graphql=False, allow_unauthenticated=True)
     server._victor_client = client  # bypass real client construction
     return server
 

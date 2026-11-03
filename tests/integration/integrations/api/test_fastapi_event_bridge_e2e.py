@@ -89,7 +89,7 @@ def fastapi_server():
 
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
-    server = VictorFastAPIServer(host="127.0.0.1", port=8765)
+    server = VictorFastAPIServer(host="127.0.0.1", port=8765, allow_unauthenticated=True)
     yield server
 
 

@@ -147,8 +147,8 @@ def test_orchestrator_tool_output_formatting_delegates_to_tool_runtime() -> None
 
 def test_orchestrator_cache_flag_computation_delegates_to_prompt_runtime() -> None:
     source = _method_source(
-        "victor/agent/orchestrator.py",
-        "AgentOrchestrator",
+        "victor/agent/orchestrator_context.py",
+        "OrchestratorContextMixin",
         "_compute_cache_flags",
     )
 

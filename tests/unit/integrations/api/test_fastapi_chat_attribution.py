@@ -62,6 +62,7 @@ def _create_server(monkeypatch, tmp_path: Path, orchestrator, **server_kwargs):
     server = fastapi_server.VictorFastAPIServer(
         workspace_root=str(tmp_path),
         enable_graphql=False,
+        allow_unauthenticated=True,
         **server_kwargs,
     )
     server._orchestrator = orchestrator

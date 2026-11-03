@@ -53,6 +53,7 @@ async def fastapi_server():
         host="localhost",
         port=0,
         enable_cors=True,
+        allow_unauthenticated=True,
     )
 
     # Manually initialize the event bridge if not already initialized

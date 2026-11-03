@@ -88,6 +88,7 @@ def test_fastapi_server_includes_core_lsp_routes_without_router_plugins(
     server = fastapi_server.VictorFastAPIServer(
         workspace_root=str(tmp_path),
         enable_graphql=False,
+        allow_unauthenticated=True,
     )
 
     assert "/lsp/completions" in _route_paths(server.app)
@@ -120,6 +121,7 @@ def test_fastapi_server_includes_lsp_routes_from_router_plugin(
     server = fastapi_server.VictorFastAPIServer(
         workspace_root=str(tmp_path),
         enable_graphql=False,
+        allow_unauthenticated=True,
     )
 
     assert "/lsp/completions" in _route_paths(server.app)
