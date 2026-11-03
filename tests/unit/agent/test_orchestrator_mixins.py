@@ -13,7 +13,6 @@ from victor.agent.orchestrator import AgentOrchestrator
 from victor.agent.orchestrator_context import OrchestratorContextMixin
 from victor.agent.orchestrator_init_runtime import OrchestratorInitRuntimeMixin
 from victor.agent.orchestrator_metrics import OrchestratorMetricsMixin
-from victor.agent.orchestrator_progressive import PROGRESSIVE_TOOLS
 from victor.agent.orchestrator_prompting import OrchestratorPromptingMixin
 from victor.agent.orchestrator_protocol_conformance import (
     OrchestratorProtocolConformanceMixin,
@@ -111,30 +110,20 @@ class TestNoCrossBaseShadowing:
         assert isinstance(static, property)
 
 
-class TestToolStrategyLocator:
-    def test_locator_caches_single_runtime(self):
+class TestToolStrategyConstruction:
+    def test_strategy_methods_construct_real_runtime_per_call(self):
+        # MagicMock(spec=AgentOrchestrator) hosts auto-create attribute caches,
+        # so the tool-strategy delegations must construct ToolStrategyRuntime
+        # per call (a getattr-cached locator would bind to a mock runtime and
+        # silently skip the real strategy logic). Pin the construction shape.
         from unittest.mock import patch
 
-        orch = object.__new__(AgentOrchestrator)
-        runtime = MagicMock()
-        with patch(
-            "victor.agent.services.tool_strategy_runtime.ToolStrategyRuntime",
-            return_value=runtime,
-        ) as ctor:
-            first = AgentOrchestrator._get_tool_strategy_runtime(orch)
-            second = AgentOrchestrator._get_tool_strategy_runtime(orch)
-        assert first is runtime and second is runtime
+        orch = MagicMock(spec=AgentOrchestrator)
+        with patch("victor.agent.services.tool_strategy_runtime.ToolStrategyRuntime") as ctor:
+            ctor.return_value.sort_tools_for_kv_stability.return_value = ["t"]
+            result = AgentOrchestrator._sort_tools_for_kv_stability(orch, ["x"])
+        assert result == ["t"]
         ctor.assert_called_once_with(orch)
-
-    def test_bare_instances_construct_lazily(self):
-        # object.__new__ instances (delegation-pin pattern) start without the
-        # cache attribute; the locator must handle that.
-        orch = object.__new__(AgentOrchestrator)
-        runtime = MagicMock()
-        orch._tool_strategy_runtime = runtime
-        assert AgentOrchestrator._sort_tools_for_kv_stability(orch, ["t"]) is (
-            runtime.sort_tools_for_kv_stability.return_value
-        )
 
 
 class TestImportSurface:
