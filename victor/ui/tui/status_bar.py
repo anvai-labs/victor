@@ -22,7 +22,7 @@ state so a quiet agent never reads as a frozen terminal (ADR-021).
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from rich.markup import escape
 from textual.widgets import Static

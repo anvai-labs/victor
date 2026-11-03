@@ -2340,13 +2340,13 @@ class TestProviderSwitching:
         agent = Agent.__new__(Agent)
         agent._provider = "openai"
         agent._model = "gpt-4"
-        
+
         async def mock_switch_model(provider, model):
             agent._provider = provider
             agent._model = model
-        
+
         agent.switch_model = mock_switch_model
-        
+
         result = await agent.switch_provider("anthropic", "claude-3")
         assert result is True
         assert agent._provider == "anthropic"
@@ -2356,12 +2356,12 @@ class TestProviderSwitching:
     async def test_switch_provider_failure(self):
         """switch_provider should return False when switch_model raises."""
         agent = Agent.__new__(Agent)
-        
+
         async def mock_switch_model(provider, model):
             raise RuntimeError("Provider not available")
-        
+
         agent.switch_model = mock_switch_model
-        
+
         result = await agent.switch_provider("invalid", "model")
         assert result is False
 
@@ -2371,14 +2371,14 @@ class TestProviderSwitching:
         agent._provider = "anthropic"
         agent._model = "claude-3-sonnet"
         agent._orchestrator = None
-        
+
         def mock_supports_streaming():
             return True
-        
+
         agent.supports_streaming = mock_supports_streaming
-        
+
         info = agent.get_current_provider_info()
-        
+
         assert info["provider_name"] == "anthropic"
         assert info["model_name"] == "claude-3-sonnet"
         assert info["supports_streaming"] is True
@@ -2389,26 +2389,26 @@ class TestProviderSwitching:
         agent = Agent.__new__(Agent)
         agent._provider = "openai"
         agent._model = "gpt-4"
-        
+
         # Mock orchestrator with provider_manager
         mock_pm = MagicMock()
         mock_pm.get_current_provider_info.return_value = {
             "api_base": "https://api.openai.com",
-            "rate_limit": 1000
+            "rate_limit": 1000,
         }
         mock_pm.current_provider = None
-        
+
         mock_orchestrator = MagicMock()
         mock_orchestrator.provider_manager = mock_pm
         agent._orchestrator = mock_orchestrator
-        
+
         def mock_supports_streaming():
             return False
-        
+
         agent.supports_streaming = mock_supports_streaming
-        
+
         info = agent.get_current_provider_info()
-        
+
         assert info["provider_name"] == "openai"
         assert info["model_name"] == "gpt-4"
         assert info["api_base"] == "https://api.openai.com"
