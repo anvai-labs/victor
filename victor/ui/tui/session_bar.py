@@ -74,10 +74,12 @@ class SessionBar(Static):
     DEFAULT_CSS = """
     SessionBar {
         dock: bottom;
-        height: 1;
+        height: 2;
         background: $surface;
         color: $text;
         padding: 0 1;
+        text-wrap: wrap;
+        overflow-y: hidden;
     }
     """
 
@@ -87,42 +89,41 @@ class SessionBar(Static):
 
     @staticmethod
     def _build_line(info: SessionInfo) -> str:
-        """Build a compact horizontal representation of session state.
+        """Build a two-line representation of session state.
 
-        Static info (session, mode, profile, model, provider) uses neutral colors.
-        Dynamic info (context, tokens, cost) uses bright accent colors to stand out.
+        Line 1: Static info (session, mode, profile, model, provider, budget).
+        Line 2: Dynamic info (context, tokens, cost) — the info the user cares
+        about — rendered with bright accent colors so it stands out.
         """
-        parts: list[str] = []
+        # ── Line 1: static metadata ──────────────────────────────
+        static_parts: list[str] = []
 
-        # STATIC INFO - neutral colors
-        # Session ID (truncated)
         session_short = info.session_id[:8] if len(info.session_id) > 8 else info.session_id
-        parts.append(f"[dim]session:[/] [white]{escape(session_short)}[/]")
+        static_parts.append(f"[dim]session:[/] [white]{escape(session_short)}[/]")
+        static_parts.append(f"[dim]mode:[/] [white]{escape(info.mode)}[/]")
 
-        # Mode
-        parts.append(f"[dim]mode:[/] [white]{escape(info.mode)}[/]")
-
-        # Profile and Model/Provider
         if info.profile and info.profile != "—":
-            parts.append(f"[dim]profile:[/] [white]{escape(info.profile)}[/]")
+            static_parts.append(f"[dim]profile:[/] [white]{escape(info.profile)}[/]")
         model_provider = f"{info.model}"
         if info.provider and info.provider != "—":
             model_provider += f" [dim]via[/] [white]{escape(info.provider)}[/]"
-        parts.append(f"[dim]model:[/] [white]{model_provider}[/]")
+        static_parts.append(f"[dim]model:[/] [white]{model_provider}[/]")
 
-        # Tool budget (only show if set)
         if info.budget_total and info.budget_total > 0:
             budget_str = f"{info.budget_used}/{info.budget_total}"
-            parts.append(f"[dim]budget:[/] [white]{budget_str}[/]")
+            static_parts.append(f"[dim]budget:[/] [white]{budget_str}[/]")
 
-        # DYNAMIC INFO - bright accent colors
+        line1 = " [dim]·[/] ".join(static_parts)
+
+        # ── Line 2: dynamic usage info ───────────────────────────
+        dynamic_parts: list[str] = []
+
         # Context usage with percentage
         if info.context_used is not None and info.context_total is not None:
             used_str = _format_tokens(info.context_used)
             total_str = _format_tokens(info.context_total)
             if info.context_pct is not None:
                 pct_str = f"{info.context_pct:.1f}%"
-                # Color-code based on usage percentage
                 if info.context_pct >= 90:
                     color = "red"
                 elif info.context_pct >= 70:
@@ -132,40 +133,42 @@ class SessionBar(Static):
                 context_str = f"[{color}]{used_str}/{total_str} ({pct_str})[/]"
             else:
                 context_str = f"[bright_cyan]{used_str}/{total_str}[/]"
-            parts.append(f"[dim]context:[/] {context_str}")
+            dynamic_parts.append(f"[dim]context:[/] {context_str}")
         elif info.context_pct is not None:
             pct_str = f"{info.context_pct:.1f}%"
-            parts.append(f"[dim]context:[/] [bright_cyan]{pct_str}[/]")
+            dynamic_parts.append(f"[dim]context:[/] [bright_cyan]{pct_str}[/]")
 
         # Token breakdown (if available)
         usage = info.token_usage
         if usage.total_tokens > 0:
             token_parts = []
             if usage.prompt_tokens > 0:
-                token_parts.append(
-                    f"prompt=[bright_magenta]{_format_tokens(usage.prompt_tokens)}[/]"
-                )
+                token_parts.append(f"p=[bright_magenta]{_format_tokens(usage.prompt_tokens)}[/]")
             if usage.completion_tokens > 0:
                 token_parts.append(
-                    f"completion=[bright_magenta]{_format_tokens(usage.completion_tokens)}[/]"
+                    f"c=[bright_magenta]{_format_tokens(usage.completion_tokens)}[/]"
                 )
             if usage.reasoning_tokens > 0:
-                token_parts.append(
-                    f"reasoning=[bright_magenta]{_format_tokens(usage.reasoning_tokens)}[/]"
-                )
+                token_parts.append(f"r=[bright_magenta]{_format_tokens(usage.reasoning_tokens)}[/]")
             if usage.cached_tokens > 0:
                 token_parts.append(
-                    f"cached=[bright_magenta]{_format_tokens(usage.cached_tokens)}[/]"
+                    f"cache=[bright_magenta]{_format_tokens(usage.cached_tokens)}[/]"
                 )
             if token_parts:
                 tokens_str = " ".join(token_parts)
-                parts.append(f"[dim]tokens:[/] {tokens_str}")
+                dynamic_parts.append(
+                    f"[dim]tokens:[/] {tokens_str}"
+                    f" [dim](total:[/] [bright_white]{_format_tokens(usage.total_tokens)}[/][dim])[/]"
+                )
 
         # Cost
         if info.cost_usd is not None:
-            parts.append(f"[dim]cost:[/] [bright_yellow]${info.cost_usd:.4f}[/]")
+            dynamic_parts.append(f"[dim]cost:[/] [bright_yellow]${info.cost_usd:.4f}[/]")
 
-        return " [dim]·[/] ".join(parts)
+        if dynamic_parts:
+            line2 = " [dim]·[/] ".join(dynamic_parts)
+            return f"{line1}\n{line2}"
+        return line1
 
 
 def _format_tokens(tokens: int) -> str:

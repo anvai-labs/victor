@@ -143,11 +143,11 @@ class TestBuildLine:
             )
         )
         line = SessionBar._build_line(info)
-        # Values are wrapped in bright_magenta markup
-        assert "prompt=[bright_magenta]1.0K[/]" in line
-        assert "completion=[bright_magenta]500[/]" in line
-        assert "reasoning=[bright_magenta]200[/]" in line
-        assert "cached=[bright_magenta]100[/]" in line
+        # Values are wrapped in bright_magenta markup (abbreviated labels)
+        assert "p=[bright_magenta]1.0K[/]" in line
+        assert "c=[bright_magenta]500[/]" in line
+        assert "r=[bright_magenta]200[/]" in line
+        assert "cache=[bright_magenta]100[/]" in line
         assert "[bright_magenta]" in line
 
     def test_cost_display(self) -> None:

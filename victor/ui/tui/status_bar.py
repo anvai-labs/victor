@@ -22,7 +22,7 @@ state so a quiet agent never reads as a frozen terminal (ADR-021).
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from rich.markup import escape
 from textual.widgets import Static
@@ -87,6 +87,28 @@ class StatusBar(Static):
         if cost_usd is not None:
             parts.append(f"${cost_usd:.4f}")
         return " · ".join(parts)
+
+    def compose_line_for_prompt(
+        self,
+        *,
+        total_tokens: Optional[int] = None,
+        cost_usd: Optional[float] = None,
+        context_used_pct: Optional[float] = None,
+    ) -> str:
+        """Render a compact line for display above the prompt input."""
+        parts: List[str] = []
+        if total_tokens is not None:
+            parts.append(f"[dim]Tokens:[/] [bold]{_human_tokens(total_tokens)}[/]")
+        if cost_usd is not None:
+            parts.append(f"[dim]Cost:[/] [bold]${cost_usd:.4f}[/]")
+        if context_used_pct is not None:
+            color = (
+                "green" if context_used_pct < 60 else ("yellow" if context_used_pct < 85 else "red")
+            )
+            parts.append(f"[dim]Context:[/] [{color}]{context_used_pct:.0f}%[/]")
+        if not parts:
+            return "[dim italic]No usage data yet[/]"
+        return "  ·  ".join(parts)
 
 
 def _human_tokens(n: int) -> str:

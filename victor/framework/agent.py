@@ -886,6 +886,65 @@ class Agent:
         self._provider = provider
         self._model = model
 
+    async def switch_provider(
+        self,
+        provider_name: str,
+        model: str,
+    ) -> bool:
+        """Switch to a different provider and model.
+
+        This is the primary API for runtime provider switching, used by
+        slash commands like /profile and /model.
+
+        Args:
+            provider_name: New provider name (e.g., 'anthropic', 'openai')
+            model: New model identifier (e.g., 'claude-sonnet-4-5', 'gpt-4')
+
+        Returns:
+            True if switch succeeded, False otherwise
+        """
+        try:
+            await self.switch_model(provider_name, model)
+            return True
+        except Exception:
+            return False
+
+    def get_current_provider_info(self) -> Dict[str, Any]:
+        """Get information about the current provider and model.
+
+        Returns:
+            Dictionary with provider_name, model_name, supports_tool_calling,
+            supports_streaming, and other provider capabilities.
+        """
+        info: Dict[str, Any] = {
+            "provider_name": self._provider,
+            "model_name": self._model,
+            "supports_tool_calling": "N/A",
+            "supports_streaming": self.supports_streaming(),
+        }
+
+        # Try to get more detailed info from orchestrator's provider manager
+        if hasattr(self._orchestrator, "provider_manager"):
+            pm = self._orchestrator.provider_manager
+            if hasattr(pm, "get_current_provider_info"):
+                try:
+                    detailed_info = pm.get_current_provider_info()
+                    info.update(detailed_info)
+                except Exception:
+                    pass
+            # Fallback: try to get capabilities from current provider
+            if hasattr(pm, "current_provider") and pm.current_provider is not None:
+                try:
+                    provider = pm.current_provider
+                    if hasattr(provider, "supports_tool_calling"):
+                        info["supports_tool_calling"] = provider.supports_tool_calling()
+                    if hasattr(provider, "supports_streaming"):
+                        info["supports_streaming"] = provider.supports_streaming()
+                except Exception:
+                    pass
+
+        return info
+
     def set_tools(self, tools: Union[ToolSet, List[str]]) -> None:
         """Update available tools.
 

@@ -51,6 +51,7 @@ from victor.ui.tui.prompt_queue import PromptQueue
 from victor.ui.tui.session_bar import SessionBar, SessionInfo, TokenUsage
 from victor.ui.tui.status_bar import StatusBar
 from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
+from victor.ui.tui.token_usage_bar import TokenUsageBar
 from victor.ui.tui.watchdog import with_stall_watchdog
 
 #: Seconds of model silence before the status bar shows a "waiting…" indicator.
@@ -74,6 +75,10 @@ def _abbrev_path(path: str, home: Optional[str] = None) -> str:
 
 class VictorTUIApp(App[None]):
     """Interactive IDE-style TUI: sidebar · conversation · status · prompt."""
+
+    # Enable mouse support for scrollbar interaction
+    ENABLE_COMMAND_PALETTE = True
+    MOUSE_ENABLED = True
 
     class QueueChanged(Message):
         """A prompt was enqueued, consumed, or cleared; re-project the status."""
@@ -142,6 +147,7 @@ class VictorTUIApp(App[None]):
 
         # Detailed token usage tracking.
         self._token_usage = TokenUsage()
+        self._context_pct: Optional[float] = None
 
         # A capturing console so shared slash commands can render into the log.
         self._capture_buffer = io.StringIO()
@@ -158,6 +164,7 @@ class VictorTUIApp(App[None]):
                 yield DiffPane(id="diff-pane")
             yield StatusBar(id="status-bar")
             yield SessionBar(id="session-bar")
+            yield TokenUsageBar(id="token-usage-bar")
             yield PromptInput(placeholder="Message…  (/help for commands)", id="prompt")
         yield Footer()
 
@@ -456,9 +463,13 @@ class VictorTUIApp(App[None]):
         session_bar.display = not session_bar.display
 
     def action_toggle_diff(self) -> None:
+        """Toggle diff pane expand/collapse, or reveal if hidden."""
         pane = self.query_one("#diff-pane", DiffPane)
         if pane.has_edits:
-            pane.display = not pane.display
+            if not pane.display:
+                pane.display = True
+            else:
+                pane.toggle_expand()
 
     def action_diff_next(self) -> None:
         self.query_one("#diff-pane", DiffPane).cycle()
@@ -537,10 +548,24 @@ class VictorTUIApp(App[None]):
             waiting_seconds=self._waiting_seconds,
             queued=len(self._queue),
         )
+        self._update_token_usage_bar()
+
+    def _update_token_usage_bar(self) -> None:
+        """Refresh the token usage bar above the prompt input."""
+        try:
+            bar = self.query_one("#token-usage-bar", TokenUsageBar)
+        except Exception:  # noqa: BLE001
+            return
+        bar.set_usage(
+            total_tokens=self._last_tokens,
+            cost_usd=self._last_cost,
+            context_used_pct=self._context_pct,
+        )
 
     async def _refresh_sidebar(self) -> None:
         """Refresh the horizontal session bar with current session state."""
         context_used, context_total, context_pct = await self._compute_context_usage()
+        self._context_pct = context_pct
 
         # Get profile name from settings if available
         profile = "—"
