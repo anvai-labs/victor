@@ -13,17 +13,17 @@ Screen {
     height: 1fr;
 }
 
-#agent-sidebar {
-    width: 28;
-    min-width: 22;
-    padding: 1 1;
-    border-right: solid $primary;
-    background: $panel;
-    color: $foreground;
+#main-area {
+    height: 1fr;
+    width: 100%;
 }
 
-#main {
-    width: 1fr;
+#session-bar {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $foreground;
+    border-top: solid $primary;
 }
 
 #conversation {
@@ -102,3 +102,24 @@ HelpScreen, CommandPalette {
 
 #palette-input { margin-bottom: 1; }
 #palette-list { height: auto; max-height: 20; }
+
+IntentConfirmationScreen {
+    align: center middle;
+}
+
+#intent-dialog {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    border: thick $warning;
+    background: $surface;
+}
+
+#intent-title { padding-bottom: 1; }
+#intent-task { color: $secondary; padding-bottom: 1; }
+#intent-context { color: $secondary; padding-bottom: 1; }
+#intent-options-title { padding-top: 1; padding-bottom: 1; }
+#intent-option-1, #intent-option-2, #intent-option-3 { padding-bottom: 1; }
+#intent-actions { padding-top: 1; }
