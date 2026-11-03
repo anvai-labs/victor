@@ -1,0 +1,38 @@
+{
+  "head": "a21b98514aee36c05e5ee9df8e9d3d6bcec83a6d",
+  "pr": 1670,
+  "run_id": 41533829843,
+  "scope": "Actual Windows immutable SCIP snapshots, three tests per matrix version; separate P1 source/process qualification; source/index/accuracy/release claims are not extended.",
+  "jobs": [
+    {
+      "python_matrix": "3.12",
+      "job_id": "125580653704",
+      "url": "https://github.com/anvai-labs/victor/actions/runs/41533829843/job/125580653704",
+      "protobuf": "7.36.2",
+      "snapshot_tests_passed": 3,
+      "sha256": "20eee7817207038740b22cb05869b20292f798d6eedec3319efbfbd49a252dd5",
+      "log": "victor-scip-windows-312.log"
+    },
+    {
+      "python_matrix": "3.13",
+      "job_id": "125580653507",
+      "url": "https://github.com/anvai-labs/victor/actions/runs/41533829843/job/125580653507",
+      "protobuf": "7.36.2",
+      "snapshot_tests_passed": 3,
+      "sha256": "a3944c697b345b287a081c68c93554915d19628cda108c1e6da5fa4f01f7802f",
+      "log": "victor-scip-windows-313.log"
+    },
+    {
+      "python_matrix": "3.14",
+      "job_id": "125580653427",
+      "url": "https://github.com/anvai-labs/victor/actions/runs/41533829843/job/125580653427",
+      "protobuf": "7.36.2",
+      "snapshot_tests_passed": 3,
+      "sha256": "b5979bc7998eea4fd8a669c06a10747062975018d0f3d64240c522e994ac8b77",
+      "log": "victor-scip-windows-314.log"
+    }
+  ],
+  "merge": "ca797a4e8fb6f0ea14bc23ad33830a6dc5513584",
+  "all_applicable_checks_successful": 44,
+  "durable_raw_logs_directory": ".victor/sandbox/graph-scip-windows-20261102"
+}

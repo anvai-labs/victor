@@ -127,8 +127,10 @@ has no demonstrated benefit for this Markdown truncation defect.
 Initial implementation branch: `feature/codegraph-deduplication`, based on fetched
 `origin/develop` commit `095e981bf6c0ca7eef9a73d82e4822efa4b6d1a4`. At that checkpoint work was retained
 in `.worktrees/codegraph-deduplication`, before commit and publication. See the
-[current parity assessment](graph-similarity-parity-and-roadmap.md#publication-candidate-and-adversarial-review)
-for the rebased candidate and independent review; the PR owns subsequent merge status.
+[historical publication record](../development/completed-work.md#source-similarity-checkpoint-history)
+for the rebased candidate and independent review; the
+[execution ledger](graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger)
+owns current status.
 
 The initial focused integration/CLI/table/timeline suite passes 35 tests and exceeds
 95% coverage for the deduplication module (95.39%). Black, Ruff and MyPy on touched
@@ -162,7 +164,8 @@ PYTHONPATH="$PWD:$PWD/victor-codegraph" python -m pytest -o addopts='' \
 The subsequent source-similarity audit completed the wider affected run and
 records its results, environment-specific Mermaid retry and current full
 collection in [the combined validation evidence](code-similarity-audit-2026-11-01.md#local-validation-and-continuation).
-Before publication, complete the repository's independent review and PR gates.
+This initial increment subsequently merged in [#1657](https://github.com/anvai-labs/victor/pull/1657)
+after independent review and green PR CI; the execution ledger records later increments.
 The integration tests are the owner for rollback,
 stale plans, disabled foreign keys, unsupported dependent state/schema, cache and
 FTS consistency, shared vector references, and cancellation settlement.

@@ -121,6 +121,20 @@ An absent/skipped required job is not qualification.
 The tested server/x64 matrix is not evidence for Windows ARM64, network volumes,
 ReFS, linked worktrees, Windows baseline writes or every desktop Windows build.
 
+The [retained platform observations](evidence/windows-source-qualification-2026-11-02.json)
+bind the reviewed source head, merged PR, actual run/artifact identities and raw
+file hashes. Each matrix version passes 49 tests with six POSIX-only skips.
+Combined statement-plus-branch coverage is 84.25%; branch-only coverage is 71.43%.
+All six synthetic 4,096-file / 32 MiB acquisition results have the same digest.
+Raw reports are preserved locally outside temporary directories. Current task
+status belongs to the [canonical similarity ledger](graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger).
+
+The [bounded SCIP snapshot tests](evidence/scip-windows-snapshots-2026-11-02.json)
+separately exercise occurrence projection, immutable captured bytes and oversized
+input rejection on actual Windows Python 3.12–3.14 with protobuf 7.36.2. Their
+three tests pass per version. This qualifies that route; the scoped Rust latency
+and RSS measurements remain POSIX observations.
+
 ## Primary references
 
 - [NtOpenFile](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntopenfile)

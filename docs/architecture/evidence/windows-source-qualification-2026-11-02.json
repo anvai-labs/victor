@@ -1,0 +1,199 @@
+{
+  "schema": "victor-windows-source-qualification-v1",
+  "head": "f0809be3a97212984d2db5223f4989b1462b9c92",
+  "merge": "49bb48318d929063eb44597e8dc9f87755635578",
+  "run_id": 41530362152,
+  "run_url": "https://github.com/anvai-labs/victor/actions/runs/41530362152",
+  "pr_url": "https://github.com/anvai-labs/victor/pull/1669",
+  "all_applicable_checks_successful": 45,
+  "raw_artifact_files_sha256": {
+    "artifacts.json": "e33f00757bdf3086aaaa33ed65a1c053fe62caa2a34d0b5fad528006102b0f56",
+    "run.json": "b1fd37b5c33fe3adfe396ec6410ebc117f99c2a727b4944cdbc60e3a6ed8957a",
+    "windows-source-python-3.12/windows-coverage.xml": "2246e074925aa4c9cc2b81c8f2507d41c5f0be6c4b7e2d6b95dbaed0fc254ca9",
+    "windows-source-python-3.12/windows-source-benchmark.json": "0c874694055ff72684d43c1ce310f6aa750d7091a542542c925ee200c5a067dc",
+    "windows-source-python-3.12/windows-source.xml": "f2f08bf19fb3a9736e7dd3a968f74ddfe05f66e05ad780ad9cb6f12e0419c58f",
+    "windows-source-python-3.13/windows-coverage.xml": "75ab189297ad75fc9fb88e6a0c556707e2900547e8c3a217ccf672ec14275cbe",
+    "windows-source-python-3.13/windows-source-benchmark.json": "726285ff38347ca479365e6e953aa5039b8f8b3fffd2a564e74886ec2ea22e3f",
+    "windows-source-python-3.13/windows-source.xml": "a362109bd7651d3885deec0c0230e33079872dbe03038f54f3ac2f2a2b47af25",
+    "windows-source-python-3.14/windows-coverage.xml": "42b876cbb73e3c927bddebc85f48b5274d6b1510a87a18f7fd48a85258951af0",
+    "windows-source-python-3.14/windows-source-benchmark.json": "f65d77b455855412621274926b00bc1ea30ef092825bf982180be5336fa29754",
+    "windows-source-python-3.14/windows-source.xml": "3ce4161c7a52daa07bdde93a9b888d75df7643c5fd8a0296f89a5acc84033ddb"
+  },
+  "observations": [
+    {
+      "python": "3.12.10",
+      "platform": "Windows-2025Server-10.0.26100-SP0",
+      "machine": "AMD64",
+      "tests": {
+        "tests": 55,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 6,
+        "passed": 49
+      },
+      "coverage": {
+        "raw": {
+          "lines-valid": 429,
+          "lines-covered": 383,
+          "branches-valid": 168,
+          "branches-covered": 120
+        },
+        "combined_statement_and_branch_percent": 84.25460636515913,
+        "line_percent": 89.27738927738928,
+        "branch_percent": 71.42857142857143,
+        "required_combined_floor_percent": 70
+      },
+      "benchmark": {
+        "platform": "Windows-2025Server-10.0.26100-SP0",
+        "machine": "AMD64",
+        "python": "3.12.10",
+        "filesystem": {
+          "files": 4096,
+          "bytes": 33554432,
+          "wall_seconds": 1.6027052999999682,
+          "parent_cpu_seconds": 1.578125,
+          "sampled_parent_peak_rss_bytes": 45461504,
+          "bytes_per_second": 20936120.94500509,
+          "sha256": "682c68156be3ab97b7bed55efd754f78edf5b6c10f9674a7d3e97ad7bfb65269"
+        },
+        "git": {
+          "files": 4096,
+          "bytes": 33554432,
+          "wall_seconds": 1.6142455000000382,
+          "parent_cpu_seconds": 1.484375,
+          "sampled_parent_peak_rss_bytes": 46542848,
+          "bytes_per_second": 20786449.14915309,
+          "sha256": "682c68156be3ab97b7bed55efd754f78edf5b6c10f9674a7d3e97ad7bfb65269"
+        },
+        "scope": "inventory/read/hash; parsing and detector inference excluded"
+      },
+      "artifact": {
+        "digest": "sha256:b3978d8d31f3fec2667e60f18b3ca1720a0702951aca3ed5780c6cd1a9e23a4a",
+        "expires_at": "2027-01-31T21:39:39Z",
+        "id": 13182462300,
+        "name": "windows-source-python-3.12",
+        "size_in_bytes": 4108
+      }
+    },
+    {
+      "python": "3.13.17",
+      "platform": "Windows-2025Server-10.0.26100-SP0",
+      "machine": "AMD64",
+      "tests": {
+        "tests": 55,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 6,
+        "passed": 49
+      },
+      "coverage": {
+        "raw": {
+          "lines-valid": 429,
+          "lines-covered": 383,
+          "branches-valid": 168,
+          "branches-covered": 120
+        },
+        "combined_statement_and_branch_percent": 84.25460636515913,
+        "line_percent": 89.27738927738928,
+        "branch_percent": 71.42857142857143,
+        "required_combined_floor_percent": 70
+      },
+      "benchmark": {
+        "platform": "Windows-2025Server-10.0.26100-SP0",
+        "machine": "AMD64",
+        "python": "3.13.17",
+        "filesystem": {
+          "files": 4096,
+          "bytes": 33554432,
+          "wall_seconds": 1.029471400000034,
+          "parent_cpu_seconds": 1.015625,
+          "sampled_parent_peak_rss_bytes": 47525888,
+          "bytes_per_second": 32593845.734810013,
+          "sha256": "682c68156be3ab97b7bed55efd754f78edf5b6c10f9674a7d3e97ad7bfb65269"
+        },
+        "git": {
+          "files": 4096,
+          "bytes": 33554432,
+          "wall_seconds": 1.0424106000000393,
+          "parent_cpu_seconds": 0.9375,
+          "sampled_parent_peak_rss_bytes": 48381952,
+          "bytes_per_second": 32189265.918821946,
+          "sha256": "682c68156be3ab97b7bed55efd754f78edf5b6c10f9674a7d3e97ad7bfb65269"
+        },
+        "scope": "inventory/read/hash; parsing and detector inference excluded"
+      },
+      "artifact": {
+        "digest": "sha256:54a42b762e52a5fd2074e730b0fdde84a6050f175b3066f66c4cf1d6ccdf3486",
+        "expires_at": "2027-01-31T21:39:39Z",
+        "id": 13180634962,
+        "name": "windows-source-python-3.13",
+        "size_in_bytes": 4133
+      }
+    },
+    {
+      "python": "3.14.10",
+      "platform": "Windows-2025Server-10.0.26100-SP0",
+      "machine": "AMD64",
+      "tests": {
+        "tests": 55,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 6,
+        "passed": 49
+      },
+      "coverage": {
+        "raw": {
+          "lines-valid": 429,
+          "lines-covered": 383,
+          "branches-valid": 168,
+          "branches-covered": 120
+        },
+        "combined_statement_and_branch_percent": 84.25460636515913,
+        "line_percent": 89.27738927738928,
+        "branch_percent": 71.42857142857143,
+        "required_combined_floor_percent": 70
+      },
+      "benchmark": {
+        "platform": "Windows-2025Server-10.0.26100-SP0",
+        "machine": "AMD64",
+        "python": "3.14.10",
+        "filesystem": {
+          "files": 4096,
+          "bytes": 33554432,
+          "wall_seconds": 1.5838313999999798,
+          "parent_cpu_seconds": 1.59375,
+          "sampled_parent_peak_rss_bytes": 49942528,
+          "bytes_per_second": 21185608.51868477,
+          "sha256": "682c68156be3ab97b7bed55efd754f78edf5b6c10f9674a7d3e97ad7bfb65269"
+        },
+        "git": {
+          "files": 4096,
+          "bytes": 33554432,
+          "wall_seconds": 1.585011900000012,
+          "parent_cpu_seconds": 1.46875,
+          "sampled_parent_peak_rss_bytes": 50749440,
+          "bytes_per_second": 21169829.7028557,
+          "sha256": "682c68156be3ab97b7bed55efd754f78edf5b6c10f9674a7d3e97ad7bfb65269"
+        },
+        "scope": "inventory/read/hash; parsing and detector inference excluded"
+      },
+      "artifact": {
+        "digest": "sha256:5a32af501d3ca271068eab20de97d0600dd99c02d7e5c4d99bd18db9533926cb",
+        "expires_at": "2027-01-31T21:39:39Z",
+        "id": 13182970270,
+        "name": "windows-source-python-3.14",
+        "size_in_bytes": 4108
+      }
+    }
+  ],
+  "local_raw_evidence_directory": ".victor/sandbox/graph-windows-qualification-20261102/f0809be3a-41530362152",
+  "scope": [
+    "Actual Windows 2025 AMD64 APIs; local NTFS and ordinary Git",
+    "Synthetic 4096-file / 32 MiB acquisition capacity; parsing and inference excluded",
+    "RSS is sampled parent RSS; CPU is parent CPU, not whole Git process-tree CPU",
+    "Six skips are POSIX-only contracts; no Windows test failure/skip",
+    "Statement-plus-branch coverage 84.25% differs from branch-only 71.43%",
+    "UNC/non-NTFS, linked-worktree selectors and Windows baseline publication unsupported",
+    "Reader snapshot route is qualified separately by PR #1670; no release or clone-accuracy claim"
+  ]
+}

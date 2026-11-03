@@ -313,8 +313,9 @@ from source checkouts selected through `PYTHONPATH`.
 
 The earlier whole-project observation reached the default 768 MiB native RSS
 budget and failed explicitly; it did not create a baseline and does not qualify
-whole-project capacity. Secure Windows acquisition remains unsupported. A
-supported scoped run is not whole-project or release acceptance.
+whole-project capacity. That observation predates the separately qualified
+[Windows source adapter](windows-source-acquisition.md). A supported scoped run
+is not whole-project or release acceptance.
 
 ### Selected-project capacity
 
@@ -563,10 +564,11 @@ The first pilot exposed a high body-vector score for structurally different
 The report therefore provides a hard-negative regression opportunity, not a new
 claim that semantic equivalence has been solved. The next data priority is more
 independent projects, reviewed lineages and hard negatives, followed by typed
-context ablation and measured retrieval. Unsupported macros/await, Windows source
-handles, ABI verification and ANN/incremental indexing remain separate subsequent
-increments; token-copy baselines and SARIF are merged in #1665, with broader
-reporting validation owned by the active roadmap ledger.
+context ablation and measured retrieval. Windows source handles and broader
+reporting now have separate qualifications. Unsupported macros/await, ABI
+verification and ANN adoption retain their own acceptance boundaries; source
+coverage and incremental/retrieval evidence belong to the
+[canonical execution ledger](graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger).
 
 The [independent-project expansion](../../tests/fixtures/graph_similarity/independent-projects.json)
 adds 24 Python/Python structural pairs from pinned
@@ -649,5 +651,6 @@ Initial independent review found four issues, fixed before the first push:
 The numeric review additionally compared 11,872 nonzero cases with independent
 libc `strtof`; threshold review checked 243 enumerated policy cases. Exact final
 review, local checks and CI belong to the PR and commit-bound attestation. These
-observations do not qualify a release, Windows source adapter, universal semantic
-equivalence or safe automatic extraction.
+observations do not qualify a release, universal semantic equivalence or safe
+automatic extraction. Windows source acquisition has its own
+[platform qualification](windows-source-acquisition.md).

@@ -1,9 +1,9 @@
 # Graph similarity: parity assessment and implementation direction
 
-**Assessment date:** 2026-11-01. **Implementation assessed:**
-`feature/codegraph-deduplication`, rebased onto `develop` (recorded checkpoint `61d25a056`).
-The publication candidate and independent review are recorded below; the PR owns
-subsequent CI and merge status. **Comparator:** installed jscpd **5.4.2**.
+**Original assessment:** 2026-11-01, `feature/codegraph-deduplication`
+(recorded checkpoint `61d25a056`). The capability summary includes subsequent
+qualified increments; the execution ledger below owns current task status and
+each PR owns its exact review/CI/merge evidence. **Comparator:** pinned jscpd **5.4.2**.
 The [earlier audit](code-similarity-audit-2026-11-01.md) records the ProximaDB
 measurements and their scope; this document owns the current capability assessment
 and proposed next increments.
@@ -32,12 +32,12 @@ that the current command performs program-graph equivalence detection.
 | Type-3 function structure | **Parity in join mechanics; below in breadth** | Both can use subtree fingerprints and an exact Jaccard threshold join. Normalization, unit selection and score calibration differ. Victor's default shingle/LSH mode is a separate approximate candidate search. |
 | Supported languages and embedded code | **Below** | Kotlin now reaches normalized exact 1.0; source routing uses the shared extension map with optional SCIP enrichment. C#, Scala, PHP, Swift, Lua and Bash frontends are enabled. Vue/Svelte/Astro scripts, Astro frontmatter and explicitly selected Markdown fences now have host-line mapping and conservative coverage. Template expressions and other embedded formats remain outside scope. |
 | Recovery from partially invalid files | **Below in recall; stronger explicit coverage status** | Both tools now retain the valid Rust pair. Victor marks recovered members and keeps incomplete coverage/nonzero status; malformed functions and partial-file SCIP/FFI evidence are rejected. Python now recovers clean fragments through its optional grammar, preserving partial status and excluding unresolved nonlocal context. |
-| Semantic body similarity / ports | **Body capability implemented; quality unmeasured** | `--mode body` uses complete function-source token windows, an immutable local model profile, separate cache and same/cross-language edge filtering. A real local BGE run covers all 234 eligible bodies in the retained subset. The default is a general text baseline with uncalibrated code accuracy. No jscpd semantic model was run; there is no precision/recall winner claim. |
-| Portable operation matching | **Experimental additional evidence** | Common translated examples work. The staged implementation increases complete portable projections from 3 to 167 of 234 eligible bodies; 67 still reject unsupported constructs, principally macros. It cannot establish general polyglot parity. Comparing it only with jscpd's same-language AST pass would exclude jscpd's relevant semantic capability. |
+| Semantic body similarity / ports | **Body capability implemented; quality unqualified** | `--mode body` uses complete function-source token windows, an immutable local model profile, separate cache and same/cross-language edge filtering. A real local BGE run covers all 234 eligible bodies in the retained subset. The default is a general text baseline with uncalibrated code accuracy. No jscpd semantic model was run; there is no precision/recall winner claim. |
+| Portable operation matching | **Experimental additional evidence** | Common translated examples work. The matched manifest's v3 projection covers 169 of 234 eligible bodies; 65 still reject unsupported constructs, principally macros. This does not establish general polyglot parity. Comparing it only with jscpd's same-language AST pass would exclude jscpd's relevant semantic capability. |
 | Compiler identity context | **Above for this specific evidence** | Same-spelling `store.get` calls to different SCIP targets split Victor's normalized exact tier. jscpd's lexical AST pair scores 1.0. Victor still offers a template candidate; that candidate is not an equivalence claim. |
 | Native binding context | **Above for this specific evidence** | Victor exposes JNI declaration/export links and fresh indexed FFI references separately from clones. Automatic N-API, dynamic JNI registration and ABI verification are absent. |
 | Families and explanation | **Partial parity / different presentation** | Victor explicitly returns component members and link-score metadata. jscpd also groups internally and can expose candidate relationships through EDN. “jscpd is pairwise only” is not a sound advantage claim. Components do not imply all-pairs equivalence. |
-| CI and developer workflow | **Token workflow merged; broader parity pending** | jscpd provides baselines, changed-code gates and multiple report formats. Victor adds compatible token-copy counts, grouped changed-file gates and error-aware token SARIF in #1665. Exact review/CI/merge evidence remains in the active ledger; broader-channel reporting is implemented locally with final validation pending in the active ledger. Selected-project capacity merged in #1666 with explicit resources and exclusions; it is not release qualification. |
+| CI and developer workflow | **Token gates and independent-channel reports available** | Victor provides compatible token-copy counts, grouped changed-file gates and bounded/error-aware SARIF for token, structural, body, summary and hybrid evidence. Explicit resource and exclusion policies cover selected-project capacity. Exact review/CI/merge evidence remains in the active ledger; these workflow features do not establish broad detector-quality or release parity. |
 | Scalability and incremental work | **Not established under matched conditions** | Victor rescans syntax; body-input/profile caching avoids repeated model inference. Exact vector joins remain quadratic despite bounded score tiles and function/neighbor budgets. Earlier Rust timings used different scopes, filters and SCIP work; they cannot establish a speed ratio. |
 
 jscpd's current [documented detector/reporting interfaces](https://github.com/kucherenko/jscpd/blob/master/docs/rust.md)
@@ -260,8 +260,8 @@ two families and reduce the count while increasing duplication.
 | Priority | Experiment / implementation increment | Evidence needed before general availability |
 | --- | --- | --- |
 | P0 | Maintain the probe harness and relation/coverage schema; audit normalization and snapshots | Positive and negative controls per supported frontend; no false clean result when no supported input was analyzed; explicit unverified ABI/equivalence |
-| P1 | Extend binding and embedded-format coverage; script/fence recovery increment implemented locally | Rust closure/match renames and language/region fixtures reach their intended tier; source locations stay exact; malformed portions remain reported |
-| P1 | Continue portable lowering beyond the implemented 167/234 coverage | Per-language real-code coverage and subsequent blockers after each stage; no dropped effects; hand-labeled positives and hard negatives, not only translated arithmetic |
+| P1 | Extend binding and embedded-format coverage beyond the delivered script/fence recovery subset | Rust closure/match renames and language/region fixtures reach their intended tier; source locations stay exact; malformed portions remain reported |
+| P1 | Continue portable lowering beyond the implemented 169/234 coverage | Per-language real-code coverage and subsequent blockers after each stage; no dropped effects; hand-labeled positives and hard negatives, not only translated arithmetic |
 | P1 | Calibrate implemented body-vector/token channels on held-out projects | Reproducible source manifests, pinned profiles, project-held-out labels, precision/recall and review precision@k; report code/model inference separately |
 | P2 | Graph/context ablation and typed binding adapters | Gain over syntax/body-only baselines; correct graph semantics; aliases and ABI/lifetime/error counterexamples; unresolved cases remain unresolved |
 | P2 | Incremental feature cache and bounded retrieval | Unchanged-file reuse, correct dependency invalidation, same answers as cold rebuilds, concurrent publication tests, measured cold/warm CPU/RSS/latency |
@@ -313,9 +313,10 @@ At the pre-review checkpoint, implemented locally on the same branch:
 - String interpolation preserves variable uses; it is not reduced to a constant
   string that would hide changed parameter/capture roles.
 
-That checkpoint's embedded-region next step is implemented in the source-channel increment below. Continue portable
-lowering only after measuring each stage against the retained 234-body corpus;
-body vectors, token fragments, ABI validation and CI ratchets remain separate work.
+That checkpoint's embedded-region next step is implemented in the source-channel
+increment. Later body-vector, token-fragment and CI-ratchet work is recorded in
+the execution ledger. Further portable lowering needs measurement against the
+retained 234-body corpus; ABI validation remains unqualified.
 
 ## Changes made during the earlier assessment
 
@@ -330,8 +331,8 @@ body vectors, token fragments, ABI validation and CI ratchets remain separate wo
 - Added a reproducible local-only capability harness and retained raw before/after
   evidence. These are diagnostics, not a semantic-model leaderboard.
 
-Continuation uses the same feature worktree. Independent review and publication
-gates remain pending. The reproducible probe command, with a protobuf-capable
+This historical checkpoint preceded independent review and publication; their
+completed milestones belong to the execution ledger. The reproducible probe command, with a protobuf-capable
 development environment activated, is:
 
 ```bash
@@ -351,126 +352,34 @@ writer regression. This is not execution of the entire repository test suite.
 Current probe implementation hashes were checked against the final code.
 
 
-## Continuation validation and handoff
+## Earlier validation record
 
-Final focused gate: **229 passed** in the protobuf-capable Python 3.12 environment.
-The wider affected/architecture gate passed **1,170 tests**, with 40 skips and one
-explicitly deselected unchanged `test_render_with_mmdc_produces_svg` browser test.
-An initial run hit that known browser/cache failure; it was not a source-analysis
-failure and no browser or production visualization code was changed. The wider
-run preceded the final outside-unit capture and ambiguous-scope controls; the
-229-test focused run includes both final changes.
+The completed interim handoff is condensed in [checkpoint history](../development/completed-work.md#source-similarity-checkpoint-history), including the browser failure, skipped/deselected scope and original local-only state. The execution ledger below owns current status.
 
-Black and Ruff pass all **31** changed Python files; MyPy passes all **18** changed
-production/diagnostic files; **37,552 tests collect**. This is not a full-suite
-execution. The 21 retained probes record grammar/dependency versions and final
-implementation hashes. The 40-file observation retains source hashes so it can
-be reconstructed from matching branch sources, without relying on temporary
-files. No native acceleration, model download, user-project reindex or graph-row
-mutation occurred during this increment.
+## Source-channel scope and qualification boundaries
 
-At that checkpoint all work remained local and uncommitted on `feature/codegraph-deduplication`, based
-on `095e981bf`, in `.worktrees/codegraph-deduplication`. Independent adversarial
-review, commit/publication and CI remain pending; local checks do not establish
-merge or release. The earlier next task was embedded regions; the executable diagnostic entry points remain
-`scripts/audit_graph_similarity_parity.py` and `scripts/benchmark_graph_similarity.py`.
+The maintained [scanner contracts](structural-clone-detection.md) describe
+embedded-source recovery, source offsets, independent body/token/structural
+channels, bounded failures and cache/input identities. The completed local
+implementation handoff and its failed/skipped platform probes are condensed in
+[checkpoint history](../development/completed-work.md#source-similarity-checkpoint-history).
+Current task status belongs to the execution ledger below.
 
+Unsupported macro/type/effect projections, broad production code-model quality,
+compiled/runtime ABI verification and representative large-corpus scaling remain
+unqualified domains. ANN adoption needs a measured target miss plus exact-reference
+acceptance. These limits do not certify functional equivalence, safe extraction
+or safe backend deletion. Baselines, changed-code gates and bounded SARIF now have
+their own delivered contracts and retained evidence.
 
-## Current source-channel implementation and handoff
+## Review and publication history
 
-Implemented locally in the existing feature worktree:
-
-- Vue/Svelte/Astro scripts, Astro frontmatter (including CRLF) and opt-in CommonMark
-  fences preserve host lines and region kinds. External/unknown/malformed script
-  regions, ambiguous attributes, selection limits and empty filtered scopes remain
-  incomplete. Documentation/virtual regions cannot supply runtime JNI facts or
-  inherit unverified host SCIP offsets.
-- Valid Python sibling functions survive malformed files through clean fragment
-  recovery. Missing enclosing nonlocal context stays rejected. Qualified C++
-  out-of-class methods and Python exception binders have additional regressions.
-- Portable v2 covers lexical captures, match/conditional patterns, contexts,
-  containers, casts, borrows, error propagation, field order, ranges and tuple
-  discard positions. Value-producing and discarded Rust conditional expressions
-  remain distinct. Unknown constructs never become silently empty operations.
-- Body vectors use `function-source-token-windows-v1`, a pinned local model,
-  verified source-offset windows, explicit pooling and separate checksummed
-  input/profile cache entries. Complete declaration/body text is captured;
-  preceding decorators, enclosing module context and macro expansion are outside
-  this input contract. Zero/invalid inference and corrupt cache entries fail;
-  failed batches cannot publish partial inputs. Cache revisions remain isolated.
-- Token mode reuses local jscpd 5.4.2 on bounded scratch snapshots. It ignores
-  project configuration and validates report paths/spans/kinds/counts. Runtime,
-  input, report and process limits are explicit; restricted OS environments expose
-  direct-process rather than full-descendant RSS monitoring. No npx/install path
-  is invoked. Same-file and identifier-pattern options are explicit.
-- Hybrid mode runs source channels independently, reports per-channel failures,
-  checks added/removed/modified file manifests and never expands components into
-  unsupported pairwise claims. AST pair-budget exhaustion leaves other channels
-  available. Body-only collection avoids unused SCIP and subtree work.
-
-Operational commands and profile/cache/budget details are in the
-[scanner documentation](structural-clone-detection.md). Current diagnostic entry
-points are `scripts/audit_graph_similarity_parity.py`,
-`scripts/benchmark_graph_similarity.py` and
-`scripts/benchmark_graph_similarity_channels.py`.
-
-Remaining acceptance work is code-model calibration, unsupported macro/type/effect
-lowering, representative whole-project/ANN scaling, typed native-binding/ABI
-validation, graph-context ablation and baseline/SARIF/changed-code workflows.
-The optional token backend does not make those Victor workflows implemented.
-The default model is intentionally marked uncalibrated. No result certifies
-functional equivalence, safe extraction or safe backend deletion.
-
-Final local checks: **302 focused tests passed** in the protobuf-capable
-Python 3.12.6 environment; **1,245 wider affected/architecture tests passed** with
-40 skips and one unchanged browser test explicitly deselected in Python 3.12.16.
-**37,625 tests collect**. This is not execution of the entire test suite. The
-standalone system Python 3.14 probe could not import the application because
-`cachetools` is absent; no Python 3.14, other-OS or wheel-install acceptance is
-claimed. Black and Ruff pass all **41** changed Python files; MyPy passes
-all **23** changed production/diagnostic files. Final engine hashes match both
-retained channel artifacts. No new native toolchain, model download, project reindex or graph-row
-mutation occurred.
-
-At this pre-review checkpoint, changes were **uncommitted and unpublished**, based on `095e981bf` in
-`.worktrees/codegraph-deduplication`. Independent review and publication/CI/release
-gates were pending at that checkpoint. Local source acceptance must not be reported as merged or
-released. Next executable research increment: build the held-out review set and
-run fixed-model pair/port precision and hard-negative calibration; retain the
-current bounded exact implementation as its oracle before evaluating ANN.
-
-
-## Publication candidate and adversarial review
-
-The implementation was committed, then reconciled onto `origin/develop`
-`b3f09333aef5524a38a55fd9aee6f33973b82fa8`. The TUI conflict preserves the incoming
-compact code renderer and adds responsive tables through its isolated registry.
-A later fetch/rebase incorporates `61d25a056366f94eeff96f4a0cefe946ca1d9a88`;
-the additional upstream changes affect only the agent-service tracker. Later
-documentation-only rebases and the final publication base are recorded in the PR.
-The earlier uncommitted/095e981bf sections are historical measurement checkpoints.
-
-Independent review of candidate `23f7c3a0b7b16e5f7ebf761134c891eca1dda135` was clean
-for graph-row repair/storage, and initially found eight source-channel/normalization issues. A rereview found
-two further acquisition/monitoring issues.
-The [review disposition](codegraph-deduplication-review-2026-11-01.md) records each
-finding and its regression. The revised Python normalization is
-`normalized-body-v4-field-roles`; [reviewed probes](evidence/code-similarity-reviewed-2026-11-01.json)
-record current engine hashes and recalculated scores. Previous artifacts retain
-their original version/hash attribution and must not be called final-code checks.
-
-Publication remains gated on a clean independent rereview of the exact final
-commit, its local commit-bound attestation, and green required CI. The PR records
-that commit, CI results and merge state; this dated checkpoint is not release
-acceptance. Source scanning now explicitly requires secure descriptor-relative
-opens; unsupported platforms fail incomplete instead of following a weak path
-fallback. Full Windows source support requires a separately validated adapter.
-
+Completed candidate/rebase instructions are condensed in [checkpoint history](../development/completed-work.md#source-similarity-checkpoint-history). The [independent findings and regressions](codegraph-deduplication-review-2026-11-01.md) and [reviewed probes](evidence/code-similarity-reviewed-2026-11-01.json) retain their original producer attribution. Exact review and CI belong to each PR; these historical observations do not qualify later code or a release.
 
 ## Foundation-first continuation
 
 The [evaluation protocol and execution order](graph-similarity-evaluation.md)
-defines the next foundation: reviewed pair manifests, split/leakage validation,
+defines the foundation: reviewed pair manifests, split/leakage validation,
 exact pair observations and calibration policies before broader detector or
 application claims. Controlled fixtures and a small repository pilot are separate
 inputs. The first measured coverage repair preserves explicitly typed Rust float
@@ -478,11 +387,12 @@ literals under `portable-operations-v3-typed-floats`; previous v2 measurements
 remain historical. Threshold, source and implementation changes invalidate
 calibration provenance. PR evidence owns publication and acceptance state.
 
-Build subsequent increments from this evidence: expand independent reviewed data,
-then cover rejected constructs without dropping effects, ablate typed/compiler
-context, measure incremental/ANN retrieval against exact pairs, and only then
-apply family explanations and baseline/SARIF/changed-code policies. No current
-pilot certifies production semantic equivalence or safe backend consolidation.
+The execution ledger records the delivered project pilot, coverage repair,
+compiler-context ablation, exact incremental retrieval, family explanations and
+baseline/SARIF/changed-code policies. Further coverage or retrieval changes need
+new independent data and exact-reference controls; ANN adoption requires a
+measured target miss. No current pilot certifies production semantic equivalence
+or safe backend consolidation.
 
 
 ## Active goal execution ledger
@@ -491,13 +401,21 @@ The user requested continued execution through foundations and applications.
 This section owns source-similarity continuation status; PRs own exact head,
 review/CI/merge evidence. Release and production qualification remain separate.
 
+All eight scoped continuation increments below are merged into `develop`,
+following the initial deduplication/source-channel increment in
+[#1657](https://github.com/anvai-labs/victor/pull/1657). The implementation and
+bounded qualification scope is complete. The broader accuracy, ABI, unsupported
+frontend/platform and scaling boundaries above remain unqualified; extending
+them requires new acceptance evidence rather than treating these merged pilots
+as universal guarantees.
+
 | ID | Dependency and acceptance | State / executable next action |
 | --- | --- | --- |
 | F1 | Reviewed pair protocol, source snapshots, calibration/test isolation and exact pair scores | Merged in [#1658](https://github.com/anvai-labs/victor/pull/1658), `1c4fd0950`; all PR CI and independent scope reviews clean. Portable v3 coverage is 169/234 on the matched manifest. |
 | F2 | F1; bounded failure and typed binding evidence before broader similarity claims | Merged in [#1659](https://github.com/anvai-labs/victor/pull/1659), `7b4942c91`, after exact-commit clean review and all PR CI. Matched 234-function invalid-profile probe: 234 constructions → one, same 234 errors; standard-JNI diagnostics retain unknown/ABI/runtime limits. [Evidence and reproduction](graph-similarity-evaluation.md). |
-| G1 | F1/F2; correct input graph semantics and context ablation | Graph foundation merged in [#1660](https://github.com/anvai-labs/victor/pull/1660), `d5bf69043`, with all CI and exact review; source CFG remains heuristic. Bounded compiler-input continuation: owner `/root`, branch `feature/graph-compiler-evidence`, baseline `49bb48318` (merged P1 source tree `71a54d6a2`); replacing the metadata-only unpublished ancestor preserved every tested producer byte. Measured 280 MB Rust SCIP arena caused ~1.1 GB scoped-scan RSS; lazy consumed-field projection preserves all selected unit/family/source digests and cuts local latency/RSS. Local 366 affected tests plus 34 final reader/observer tests, 363 guards, 38,824 collection, strict 2-owner and 2,116-source configured typing, 92% changed-line coverage, static/hygiene/version/security and unchanged duplication ratchet pass. Independent reader/observer review found allocation/oversize and observer blocking/growth gaps; all fixed with negative regressions; final [producer-bound measurements](evidence/scip-scoped-reader-2026-11-02.json) retained; Windows snapshot qualification/exact commit review/CI pending. Separate callee-context ablation owner `/root/project_calibration`, branch `feature/graph-context-ablation`, baseline `a3aef5894`; authored controlled labels frozen before scoring and actual compiler generation underway. No graph-weighted fusion without measured gain/coverage. |
-| R1 | F1/G1; measured retrieval/cache behavior against exact observations | Cache foundation merged in [#1661](https://github.com/anvai-labs/victor/pull/1661), `28c13496e`, after exact review and all 40 CI checks. Producer/runtime keys, validated input binding, custom isolation and generation checks preserve all 233 vector inputs and 27,261 requested scores; warm zero-load remains. [Measured limits and evidence](graph-similarity-evaluation.md). Broader retrieval scaling and incremental behavior remain unqualified; do not add ANN/native work without a measured target miss. Capacity continuation completed from `feature/graph-source-capacity`, baseline `60e58f41e`. Configurable bounded RSS/file/deadline options and profile-bound root-relative POSIX exclusions are merged; defaults and selected-source symlink rejection remain. The independent review found prefix overmatching; the regression reproduced it and a dedicated segment matcher fixes it. The retained [capacity observation](evidence/source-capacity-2026-11-02.json) verifies all 3,418 acquired Git blobs and 65 native pairs, complete selected-policy coverage, baseline roundtrip and schema-valid SARIF. Final local preflight: 345 affected/TUI tests, 222 CI guard tests, 38,683 collected, strict six-owner and repository typing, 93% changed-line coverage, formatting/lint/hygiene/version/high-security checks and unchanged duplication ratchet pass. Independent review reports no open production findings after 50,000 glob-oracle cases. Merged in [#1666](https://github.com/anvai-labs/victor/pull/1666), `5335d5879`, after clean exact-head review (`8798254a8`) and all 40 applicable CI checks. The capacity increment is complete. Broader retrieval/incremental continuation is claimed by `/root/windows_source` on `feature/graph-incremental-qualification`, baseline `a3aef5894`, in a genuinely independent fourth worktree while P1 CI runs. Next: a current-producer cold baseline on the immutable 40-file / 234-function workload, edit/delete/restore/rename parity against fresh rebuilds and an independent actual-vector global-retrieval oracle. Historical caches stay separately labelled; replicas are capacity controls. No ANN/native rewrite absent a measured target miss. |
-| A1 | Explicit edge evidence and deterministic source identities | Vector-family explanations merged in [#1662](https://github.com/anvai-labs/victor/pull/1662), `50e5a58ab`. Source inventory/fingerprint foundation merged in [#1664](https://github.com/anvai-labs/victor/pull/1664), `f7d4b606e`, after exact review and all 40 CI checks. [Matched evidence](evidence/copy-contracts-2026-11-02.json) preserves 40 source hashes and three clone records. Copy-count baselines and grouped changed-file gates merged in [#1665](https://github.com/anvai-labs/victor/pull/1665), `60e58f41e`, after clean exact-head review (`0c851c88f`) and all 41 applicable CI checks. [Qualification](graph-similarity-evaluation.md) preserves all 166 input hashes and three native copy records while correcting physical coverage 127→166. Local preflight: 308 affected/TUI tests, 270 guards, 38,646 collected, strict six-owner and repository typing, 92% changed-line coverage, formatting/lint/hygiene/version/high-security checks and unchanged duplication ratchet passed. Never gate on semantic family count alone. |
-| A2 | A1 and complete/error-aware reports | Token SARIF and CLI integration merged with A1 in [#1665](https://github.com/anvai-labs/victor/pull/1665), `60e58f41e`, after exact review and all 41 applicable CI checks. Official OASIS schema checks pass for success/failure outputs, with actual pair references and unqualified native columns retained in properties. Broader SARIF is claimed by this session on `feature/graph-similarity-sarif`, rebased onto merged `develop` `5335d5879`. Family-level SARIF for structural/body/summary/hybrid is implemented locally, retaining profiles/score basis, suppressed and FFI evidence, report limits and failed-channel results. RED→GREEN covers native token metadata, malformed envelopes, producer/source hash binding and JSON depth/budgets. Final local preflight: 512 affected/TUI tests, 222 earlier CI guards plus 54 final affected guards, 38,731 collected, unsuppressed serializer/configured repository typing, 91% changed-line coverage, formatting/lint/hygiene/version/high-security checks and unchanged duplication ratchet pass. The final writer bounds exact stdout bytes for all SARIF modes; native/store CI owners are pinned by selector tests. Retained qualification separates source analysis from final exporter/writer replay and verifies official schema/URI checks. Clean exact-head review is recorded for `1ac65b531`, including 247 independent tests and 5,000 JSON-byte oracle cases. [#1667](https://github.com/anvai-labs/victor/pull/1667) merged as `821b8a6b6` after all 40 applicable CI checks passed; the broader reporting increment is complete. Fetch/check conflicts before merge and rebase only when needed. Keep token-copy gates separate and do not invent pair edges or source freshness. |
-| P1 | Secure source acquisition parity | Merged in [#1669](https://github.com/anvai-labs/victor/pull/1669), `49bb48318d929063eb44597e8dc9f87755635578`, after clean exact review of `f0809be3a` and all 45 applicable CI checks. Actual Windows 2025 x64 Python 3.12–3.14 qualifies NTFS handle-relative acquisition and private Job Object ownership, with 49 tests / six POSIX-only skips each, 84.25% branch-aware coverage and matched 4,096-file / 32 MiB filesystem/Git bytes. Local 646 passes / 45 platform skips and 38,812 collection. One conflict-free rebase was required by strict branch protection; source/tree stayed identical, metadata trailers were removed, and new-SHA CI passed before merge. UNC/non-NTFS, linked-worktree selectors and Windows baseline publication remain explicit unsupported boundaries. This is platform qualification, not a release claim; the new reader snapshot route has its own pending OS tests. |
+| G1 | F1/F2; correct input graph semantics and context ablation | Graph foundation [#1660](https://github.com/anvai-labs/victor/pull/1660), `d5bf69043`; bounded SCIP reader [#1670](https://github.com/anvai-labs/victor/pull/1670), `ca797a4e8`; and callee-context ablation [#1671](https://github.com/anvai-labs/victor/pull/1671), `1c6fe96e5`, are merged after exact independent review and green CI (44 checks for each later increment). The [280 MB Rust-index observation](evidence/scip-scoped-reader-2026-11-02.json) preserves all source/unit/family digests while single-file median RSS falls 1,129→59 MB and wall time 0.596→0.202 s. [Windows snapshots](evidence/scip-windows-snapshots-2026-11-02.json) pass three tests per Python 3.12–3.14 / protobuf 7.36.2 matrix. The [authored context ablation](graph-callee-context-ablation.md) compares fixed syntax/control/actual-static-indexer legs on 3 positive / 4 negative / 1 unknown pairs; context improves this narrow control but retains the literal false positive. Source CFG and text-absent SCIP freshness remain heuristic. No weighted fusion or production equivalence qualification is claimed. |
+| R1 | F1/G1; measured retrieval/cache behavior against exact observations | Cache foundation [#1661](https://github.com/anvai-labs/victor/pull/1661), `28c13496e`, selected-project capacity [#1666](https://github.com/anvai-labs/victor/pull/1666), `5335d5879`, and [incremental qualification](body-cache-incremental-qualification.md) [#1672](https://github.com/anvai-labs/victor/pull/1672), `df9561cb5`, are merged after clean exact independent reviews and green CI (44 successful checks for #1672 at reviewed `5815aeb1d`). Profile-bound exclusions and bounded RSS/file/deadline controls preserve the 3,418-source / 65-pair selected capacity observation. Final incremental v2: 234 functions / 233 unique vectors / 27,261 requested pairs; warm global/requested runs load no model; all six valid edit/delete/restore/rename states agree with fresh cold references (max score delta 1.788139e-7 / vector 8.568168e-8 within 1e-6). Unstaged deletion stays incomplete. Independent full-cohort dense/scalar controls verify 15 global families / 20 direct edges; raw edge identities are not exposed/certified. Local 306 affected passes / 38,902 collected and strict four-owner/static/security gates pass. Raw 282-file evidence is durable; original `ca797a4e8` inference and the separately recorded `1c6fe96e5` zero-inference/no-cache-write replay of 14 cohorts remain separately attributed. Replicated-vector n1,000/n5,000 probes are capacity controls, not independent-source accuracy or broad scaling qualification. No ANN/native rewrite absent a measured target miss. |
+| A1 | Explicit edge evidence and deterministic source identities | Family explanations [#1662](https://github.com/anvai-labs/victor/pull/1662), `50e5a58ab`; source inventory/fingerprints [#1664](https://github.com/anvai-labs/victor/pull/1664), `f7d4b606e`; copy baselines/changed-file gates [#1665](https://github.com/anvai-labs/victor/pull/1665), `60e58f41e`, are merged with exact reviews and all applicable CI. [Matched source evidence](evidence/copy-contracts-2026-11-02.json) and [workflow qualification](graph-similarity-evaluation.md) retain source/profile hashes, native copies, physical eligibility accounting, witness/cohesion limits and failed-budget observations. Native copy-count gates remain distinct from transitive semantic family counts. |
+| A2 | A1 and complete/error-aware reports | Token SARIF [#1665](https://github.com/anvai-labs/victor/pull/1665), `60e58f41e`, and broader bounded SARIF [#1667](https://github.com/anvai-labs/victor/pull/1667), `821b8a6b6`, are merged after exact review and green CI. Official OASIS schema/URI checks, input/profile/producer bindings, partial/error status, suppressed/FFI evidence and exact stdout-byte limits are retained in [reporting contracts and evidence](graph-similarity-evaluation.md). Final broader preflight covered 512 affected/TUI tests, 38,731 collection, 91% changed-line coverage and independent 247-test / 5,000-JSON-oracle checks. Exporter replay and original inference keep separate hashes; no all-pairs edges or source freshness are invented. |
+| P1 | Secure source acquisition parity | [#1669](https://github.com/anvai-labs/victor/pull/1669), `49bb48318`, merged after exact `f0809be3a` review and all 45 CI checks. [Retained qualification](evidence/windows-source-qualification-2026-11-02.json): Windows 2025 AMD64 / NTFS / ordinary Git, Python 3.12–3.14; 49 tests pass and six POSIX-only cases skip per version; combined statement-plus-branch coverage 84.25% (branch-only 71.43%); all 4,096-file / 32 MiB filesystem/Git digests agree. Strict branch protection required one source-identical rebase; reviewed new-SHA CI passed before merge. UNC/non-NTFS, linked-worktree selectors and Windows baseline publication remain explicit unsupported boundaries. Reader snapshots have the separate G1 qualification above. |
 | Q1 | Independent projects/lineages and relation-specific acceptance | Expanded pilot merged in [#1668](https://github.com/anvai-labs/victor/pull/1668), `a3aef5894240d86d9e60a90583a2103628c53c9d`, after clean exact review (`b1ff75841`) and all 40 applicable CI checks. 24 independently reviewed real-source pairs (Requests calibration / Flask held-out), six immutable source files, 40 unique bodies, narrow structural labels and explicit dependence limits. [Evidence](evidence/graph-independent-projects-2026-11-02.json) preserves historical producer profiles, cold/warm scores, abstentions and confidence limits. Only syntax admits the stated narrow policy; portable and default BGE have no feasible policy. Pilot increment complete; broad behavioral/generalization claims remain unqualified, and no score certifies semantic equivalence, safe extraction or backend deletion. |
