@@ -102,3 +102,24 @@ HelpScreen, CommandPalette {
 
 #palette-input { margin-bottom: 1; }
 #palette-list { height: auto; max-height: 20; }
+
+IntentConfirmationScreen {
+    align: center middle;
+}
+
+#intent-dialog {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    border: thick $warning;
+    background: $surface;
+}
+
+#intent-title { padding-bottom: 1; }
+#intent-task { color: $secondary; padding-bottom: 1; }
+#intent-context { color: $secondary; padding-bottom: 1; }
+#intent-options-title { padding-top: 1; padding-bottom: 1; }
+#intent-option-1, #intent-option-2, #intent-option-3 { padding-bottom: 1; }
+#intent-actions { padding-top: 1; }

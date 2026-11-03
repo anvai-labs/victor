@@ -98,7 +98,7 @@ async def test_mounts_all_panes() -> None:
     app = _make_app()
     async with app.run_test():
         assert app.query_one("#conversation") is not None
-        assert app.query_one("#agent-sidebar") is not None
+        assert app.query_one("#session-bar") is not None
         assert app.query_one("#status-bar") is not None
         assert app.query_one("#prompt") is not None
 
@@ -154,7 +154,7 @@ async def test_help_action_opens_help_screen() -> None:
 async def test_toggle_sidebar_hides_and_shows() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
-        sidebar = app.query_one("#agent-sidebar")
+        sidebar = app.query_one("#session-bar")
         assert sidebar.display is True
         app.action_toggle_sidebar()
         await pilot.pause()
