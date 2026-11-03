@@ -119,8 +119,8 @@ class IntentConfirmationScreen(ModalScreen[IntentAction]):
 
             # Actions
             yield Static(
-                "[dim]\\[1-3] select option   \\[d] discard   \\[c] chat about it   "
-                f"auto-discard in {self._request.timeout_seconds}s[/]",
+                f"[dim]\\[1-3] select option   auto-discard in {self._request.timeout_seconds}s   "
+                "\\[d] discard   \\[c] chat about it[/]",
                 id="intent-actions",
             )
 
