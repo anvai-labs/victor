@@ -462,7 +462,12 @@ class ServiceContainer:
                 resolving.discard(service_type)
 
         # Singleton or Scoped (scoped in root acts as singleton)
-        with self._lock:
+        # Race condition fix: Use RLock to prevent deadlock on re-entrant factory calls
+        if not hasattr(self, '_rlock'):
+            import threading
+            self._rlock = threading.RLock()
+
+        with self._rlock:
             if descriptor.instance is None:
                 resolving.add(service_type)
                 try:

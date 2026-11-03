@@ -1136,13 +1136,28 @@ def create_hitl_router(
     oidc_config = OidcConfig.from_env()
 
     def _encode_state(request_id: str, action: str, token: Optional[str]) -> str:
-        return f"{request_id}|{action}|{token or ''}"
+        # P1: Use base64+JSON to prevent pipe-character injection in request_id.
+        import base64
+        import json
+        payload = {"rid": request_id, "act": action, "tok": token or ""}
+        return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
 
     def _decode_state(state: str) -> tuple:
-        parts = state.split("|", 2)
-        if len(parts) != 3:
-            return "", "", ""
-        return parts[0], parts[1], parts[2]
+        # P1: Decode base64+JSON format with fallback to legacy pipe-delimited.
+        import base64
+        import json
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            payload = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
+            return payload.get("rid", ""), payload.get("act", ""), payload.get("tok", "")
+        except Exception:
+            # Fallback for in-flight OIDC callbacks using legacy format
+            logger.warning("Falling back to legacy pipe-delimited state format (deprecated)")
+            parts = state.split("|", 2)
+            if len(parts) != 3:
+                return "", "", ""
+            return parts[0], parts[1], parts[2]
 
     async def _record_decision(
         request_id: str,
@@ -1187,7 +1202,9 @@ def create_hitl_router(
         if not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Invalid authorization format")
         token = authorization[7:]
-        if token != expected_token:
+        # P1: Use timing-safe comparison to prevent byte-by-byte recovery attacks.
+        import secrets
+        if not secrets.compare_digest(token, expected_token):
             raise HTTPException(status_code=401, detail="Invalid token")
 
     @router.get("/requests")
@@ -1243,7 +1260,18 @@ def create_hitl_router(
         from victor.workflows.hitl_signing import get_signing_secret, verify_action
 
         secret = get_signing_secret()
-        if secret and not verify_action(request_id, action, token, secret=secret):
+        # P0: Reject when no signing secret is configured — without this check,
+        # any crafted URL with any token value would be accepted for approve/reject.
+        if secret is None:
+            return HTMLResponse(
+                status_code=403,
+                content=_render_decision_page(
+                    "HITL signing not configured",
+                    "Approval/rejection requires a signing secret to be configured.",
+                    ok=False,
+                ),
+            )
+        if not verify_action(request_id, action, token, secret=secret):
             return HTMLResponse(
                 status_code=403,
                 content=_render_decision_page(
