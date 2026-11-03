@@ -17,11 +17,14 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 from rich.panel import Panel
 from rich.table import Table
 
+from victor.agent.conversation.models import ConversationSession
 from victor.ui.slash.protocol import BaseSlashCommand, CommandContext, CommandMetadata
 from victor.ui.slash.registry import register_command
 
@@ -113,7 +116,6 @@ class SaveCommand(BaseSlashCommand):
         if not self._require_agent(ctx):
             return
 
-        from victor.agent.session import get_session_manager
         from victor.agent.conversation.store import ConversationStore
 
         # Check for --new flag
@@ -367,8 +369,6 @@ class ResumeCommand(BaseSlashCommand):
         if not self._require_agent(ctx):
             return
 
-        from victor.agent.conversation.state_machine import ConversationStateMachine
-        from victor.agent.message_history import MessageHistory
         from victor.agent.conversation.store import ConversationStore
 
         # Check for --from-file flag (import from exported JSON)
@@ -457,7 +457,7 @@ class ResumeCommand(BaseSlashCommand):
                 store = ConversationStore(db_path=project_db)
             else:
                 store = ConversationStore()
-            
+
             session_data = store.load_session(session_id)
 
             if session_data is None:
@@ -574,7 +574,6 @@ class ResumeCommand(BaseSlashCommand):
         import json
         from pathlib import Path
         from victor.agent.conversation.store import ConversationStore
-        from victor.agent.conversation.models import ConversationSession
 
         try:
             path = Path(file_path).expanduser().resolve()
@@ -624,9 +623,6 @@ class ResumeCommand(BaseSlashCommand):
         - AWS Bedrock export
         - DeepSeek export
         """
-        from victor.agent.conversation.models import ConversationSession, Message
-        from datetime import datetime
-        import uuid
 
         # Victor native format
         if 'session_id' in data and 'messages' in data:
