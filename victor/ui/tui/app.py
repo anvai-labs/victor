@@ -508,17 +508,17 @@ class VictorTUIApp(App[None]):
             return
         if not isinstance(report, dict) or not report:
             return
-        
+
         # Extract total tokens
         tokens = report.get("total_tokens")
         if tokens is None:
             tokens = (report.get("prompt_tokens") or 0) + (report.get("completion_tokens") or 0)
         self._last_tokens = int(tokens) if tokens else None
-        
+
         # Extract cost
         cost = report.get("total_cost_usd")
         self._last_cost = float(cost) if isinstance(cost, (int, float)) else None
-        
+
         # Extract detailed token usage breakdown
         self._token_usage = TokenUsage(
             prompt_tokens=int(report.get("prompt_tokens") or 0),
@@ -541,23 +541,25 @@ class VictorTUIApp(App[None]):
     async def _refresh_sidebar(self) -> None:
         """Refresh the horizontal session bar with current session state."""
         context_used, context_total, context_pct = await self._compute_context_usage()
-        
+
         # Get profile name from settings if available
         profile = "—"
         try:
-            if hasattr(self._settings, 'profile') and self._settings.profile:
+            if hasattr(self._settings, "profile") and self._settings.profile:
                 profile = self._settings.profile
         except Exception:
             pass
-        
+
         # Get context budget from settings (profile's context.max_context_tokens)
         context_budget = None
         try:
-            if hasattr(self._settings, 'context') and hasattr(self._settings.context, 'max_context_tokens'):
+            if hasattr(self._settings, "context") and hasattr(
+                self._settings.context, "max_context_tokens"
+            ):
                 context_budget = self._settings.context.max_context_tokens
         except Exception:
             pass
-        
+
         info = SessionInfo(
             session_id=_short(getattr(self._agent, "active_session_id", None)),
             mode=self._mode,
