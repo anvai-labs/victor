@@ -88,7 +88,7 @@ class SessionBar(Static):
     @staticmethod
     def _build_line(info: SessionInfo) -> str:
         """Build a compact horizontal representation of session state.
-        
+
         Static info (session, mode, profile, model, provider) uses neutral colors.
         Dynamic info (context, tokens, cost) uses bright accent colors to stand out.
         """
@@ -142,13 +142,21 @@ class SessionBar(Static):
         if usage.total_tokens > 0:
             token_parts = []
             if usage.prompt_tokens > 0:
-                token_parts.append(f"prompt=[bright_magenta]{_format_tokens(usage.prompt_tokens)}[/]")
+                token_parts.append(
+                    f"prompt=[bright_magenta]{_format_tokens(usage.prompt_tokens)}[/]"
+                )
             if usage.completion_tokens > 0:
-                token_parts.append(f"completion=[bright_magenta]{_format_tokens(usage.completion_tokens)}[/]")
+                token_parts.append(
+                    f"completion=[bright_magenta]{_format_tokens(usage.completion_tokens)}[/]"
+                )
             if usage.reasoning_tokens > 0:
-                token_parts.append(f"reasoning=[bright_magenta]{_format_tokens(usage.reasoning_tokens)}[/]")
+                token_parts.append(
+                    f"reasoning=[bright_magenta]{_format_tokens(usage.reasoning_tokens)}[/]"
+                )
             if usage.cached_tokens > 0:
-                token_parts.append(f"cached=[bright_magenta]{_format_tokens(usage.cached_tokens)}[/]")
+                token_parts.append(
+                    f"cached=[bright_magenta]{_format_tokens(usage.cached_tokens)}[/]"
+                )
             if token_parts:
                 tokens_str = " ".join(token_parts)
                 parts.append(f"[dim]tokens:[/] {tokens_str}")

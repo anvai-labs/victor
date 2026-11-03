@@ -69,7 +69,7 @@ class PromptInput(Input):
 
     def _on_paste(self, event: events.Paste) -> None:
         """Insert the full bracketed-paste payload (Textual keeps only line one).
-        
+
         Skip if we just handled a paste via action_paste() within the last 100ms
         to avoid double-paste when Ctrl+V triggers both handlers.
         """
