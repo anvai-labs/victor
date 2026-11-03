@@ -126,7 +126,20 @@ except Exception:  # pragma: no cover - only in a broken install
 if RichLog is not None:
 
     class DiffPane(RichLog):
-        """Collapsible unified-diff pane; shows one edit at a time, newest first."""
+        """Collapsible unified-diff pane; shows one edit at a time, newest first.
+        
+        Supports three display modes:
+        - hidden: not visible (display=False)
+        - condensed: compact 5-line preview (default when edits occur)
+        - expanded: full modal view with scrolling (toggle with F3)
+        """
+
+        DEFAULT_CSS = """
+        DiffPane {
+            scrollbar-size-vertical: 1;
+            scrollbar-size-horizontal: 1;
+        }
+        """
 
         def __init__(self, **kwargs: Any) -> None:
             kwargs.setdefault("wrap", False)
@@ -135,6 +148,7 @@ if RichLog is not None:
             super().__init__(**kwargs)
             self._edits: List[EditDiff] = []
             self._index = 0
+            self._expanded = False  # Track expanded/modal state
 
         @property
         def has_edits(self) -> bool:
@@ -142,9 +156,10 @@ if RichLog is not None:
             return bool(self._edits)
 
         def add_edit(self, edit: EditDiff) -> None:
-            """Append an edit, focus it, and reveal the pane."""
+            """Append an edit, focus it, and reveal the pane in condensed mode."""
             self._edits.append(edit)
             self._index = len(self._edits) - 1
+            self._expanded = False
             self.display = True
             self._render_current()
 
@@ -156,10 +171,26 @@ if RichLog is not None:
             self.display = True
             self._render_current()
 
+        def toggle_expand(self) -> None:
+            """Toggle between condensed (5-line) and expanded (full modal) view."""
+            if not self._edits:
+                return
+            self._expanded = not self._expanded
+            if self._expanded:
+                self.add_class("expanded")
+            else:
+                self.remove_class("expanded")
+            self._render_current()
+
+        @property
+        def is_expanded(self) -> bool:
+            return self._expanded
+
         def clear_edits(self) -> None:
             """Drop all captured edits and hide the pane (e.g. on a new turn)."""
             self._edits = []
             self._index = 0
+            self._expanded = False
             self.clear()
             self.display = False
 
@@ -170,6 +201,19 @@ if RichLog is not None:
             edit = self._edits[self._index]
             counter = f"({self._index + 1}/{len(self._edits)})"
             stats = f"  [dim]{escape(edit.stats)}[/]" if edit.stats else ""
-            self.write(f"[bold]▾ diff · {escape(edit.path)}[/]  [dim]{counter}[/]{stats}")
-            for line in edit.lines:
-                self.write(line if edit.colored else _colorize(line))
+            mode_hint = "[dim]F3: expand[/]" if not self._expanded else "[dim]F3: collapse[/]"
+            self.write(
+                f"[bold]▾ diff · {escape(edit.path)}[/]  [dim]{counter}[/]{stats}  {mode_hint}"
+            )
+            if self._expanded:
+                # Full view: show all diff lines
+                for line in edit.lines:
+                    self.write(line if edit.colored else _colorize(line))
+            else:
+                # Condensed view: show first 5 lines max
+                shown = edit.lines[:5]
+                for line in shown:
+                    self.write(line if edit.colored else _colorize(line))
+                hidden = len(edit.lines) - len(shown)
+                if hidden > 0:
+                    self.write(f"  [dim italic](+{hidden} more lines — press F3 to expand)[/]")

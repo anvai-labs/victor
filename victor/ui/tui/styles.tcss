@@ -40,13 +40,23 @@ Screen {
 
 #diff-pane {
     height: auto;
-    max-height: 45%;
+    max-height: 8;
     padding: 0 1;
     border-top: solid $primary;
     background: $surface;
     color: $foreground;
     overflow-y: auto;
     scrollbar-size: 1 1;
+}
+
+#diff-pane.expanded {
+    height: 100%;
+    max-height: 100%;
+    layer: modal;
+    dock: top;
+    background: $background;
+    border: thick $accent;
+    padding: 1;
 }
 
 #status-bar {
