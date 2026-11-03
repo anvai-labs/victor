@@ -13,17 +13,17 @@ Screen {
     height: 1fr;
 }
 
-#agent-sidebar {
-    width: 28;
-    min-width: 22;
-    padding: 1 1;
-    border-right: solid $primary;
-    background: $panel;
-    color: $foreground;
+#main-area {
+    height: 1fr;
+    width: 100%;
 }
 
-#main {
-    width: 1fr;
+#session-bar {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $foreground;
+    border-top: solid $primary;
 }
 
 #conversation {

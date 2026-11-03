@@ -48,7 +48,7 @@ from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
 from victor.ui.tui.prompt_input import PromptInput
 from victor.ui.tui.prompt_queue import PromptQueue
-from victor.ui.tui.sidebar import AgentState, AgentStatePanel
+from victor.ui.tui.session_bar import SessionBar, SessionInfo, TokenUsage
 from victor.ui.tui.status_bar import StatusBar
 from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
 from victor.ui.tui.watchdog import with_stall_watchdog
@@ -140,6 +140,9 @@ class VictorTUIApp(App[None]):
         self._last_tokens: Optional[int] = None
         self._last_cost: Optional[float] = None
 
+        # Detailed token usage tracking.
+        self._token_usage = TokenUsage()
+
         # A capturing console so shared slash commands can render into the log.
         self._capture_buffer = io.StringIO()
         self._capture_console = Console(file=self._capture_buffer, force_terminal=False, width=100)
@@ -149,13 +152,13 @@ class VictorTUIApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
-        with Horizontal(id="body"):
-            yield AgentStatePanel(id="agent-sidebar")
-            with Vertical(id="main"):
+        with Vertical(id="body"):
+            with Horizontal(id="main-area"):
                 yield ConversationLog(id="conversation")
                 yield DiffPane(id="diff-pane")
-                yield StatusBar(id="status-bar")
-                yield PromptInput(placeholder="Message…  (/help for commands)", id="prompt")
+            yield StatusBar(id="status-bar")
+            yield SessionBar(id="session-bar")
+            yield PromptInput(placeholder="Message…  (/help for commands)", id="prompt")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -448,8 +451,9 @@ class VictorTUIApp(App[None]):
         self.push_screen(HelpScreen())
 
     def action_toggle_sidebar(self) -> None:
-        sidebar = self.query_one("#agent-sidebar", AgentStatePanel)
-        sidebar.display = not sidebar.display
+        """Toggle the horizontal session bar visibility."""
+        session_bar = self.query_one("#session-bar", SessionBar)
+        session_bar.display = not session_bar.display
 
     def action_toggle_diff(self) -> None:
         pane = self.query_one("#diff-pane", DiffPane)
@@ -497,18 +501,32 @@ class VictorTUIApp(App[None]):
     # ── status + sidebar projection ───────────────────────────────
 
     def _apply_last_turn_cost(self) -> None:
+        """Extract detailed token usage and cost from the last turn."""
         try:
             report = self._client.get_last_turn_cost()
         except Exception:  # noqa: BLE001
             return
         if not isinstance(report, dict) or not report:
             return
+        
+        # Extract total tokens
         tokens = report.get("total_tokens")
         if tokens is None:
             tokens = (report.get("prompt_tokens") or 0) + (report.get("completion_tokens") or 0)
         self._last_tokens = int(tokens) if tokens else None
+        
+        # Extract cost
         cost = report.get("total_cost_usd")
         self._last_cost = float(cost) if isinstance(cost, (int, float)) else None
+        
+        # Extract detailed token usage breakdown
+        self._token_usage = TokenUsage(
+            prompt_tokens=int(report.get("prompt_tokens") or 0),
+            completion_tokens=int(report.get("completion_tokens") or 0),
+            reasoning_tokens=int(report.get("reasoning_tokens") or 0),
+            cached_tokens=int(report.get("cached_tokens") or 0),
+            total_tokens=int(tokens) if tokens else 0,
+        )
 
     def _update_status(self) -> None:
         self.query_one("#status-bar", StatusBar).set_status(
@@ -521,20 +539,32 @@ class VictorTUIApp(App[None]):
         )
 
     async def _refresh_sidebar(self) -> None:
+        """Refresh the horizontal session bar with current session state."""
         context_used, context_total, context_pct = await self._compute_context_usage()
-        state = AgentState(
+        
+        # Get profile name from settings if available
+        profile = "—"
+        try:
+            if hasattr(self._settings, 'profile') and self._settings.profile:
+                profile = self._settings.profile
+        except Exception:
+            pass
+        
+        info = SessionInfo(
             session_id=_short(getattr(self._agent, "active_session_id", None)),
             mode=self._mode,
             model=self._safe(lambda: self._client.model) or "—",
             provider=self._safe(lambda: self._client.provider_name) or "—",
-            cwd=_abbrev_path(os.getcwd()),
+            profile=profile,
             budget_used=0,
             budget_total=self._tool_budget,
             context_pct=context_pct,
             context_used=context_used,
             context_total=context_total,
+            token_usage=self._token_usage,
+            cost_usd=self._last_cost,
         )
-        self.query_one("#agent-sidebar", AgentStatePanel).set_state(state)
+        self.query_one("#session-bar", SessionBar).set_session_info(info)
 
     async def _compute_context_usage(self) -> tuple[Optional[int], Optional[int], Optional[float]]:
         """Read current context telemetry through the framework client."""
