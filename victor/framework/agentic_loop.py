@@ -239,6 +239,9 @@ class PlanningGate:
         """
         self._config = config if config is not None else PlanningGateConfig(enabled=enabled)
         self.enabled = self._config.enabled
+        # Thread safety: protect counters from concurrent corruption
+        import threading
+        self._counter_lock = threading.Lock()
         self._fast_path_count = 0
         self._total_decisions = 0
         self._forced_slow_path_count = 0

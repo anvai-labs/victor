@@ -134,6 +134,15 @@ class ServiceScope:
         self._disposed = False
         self._lock = threading.Lock()
 
+    def __del__(self) -> None:
+        """GC fallback: dispose scoped services if dispose() was never called."""
+        if not self._disposed and self._scoped_instances:
+            logger.warning("ServiceScope garbage collected without dispose() — resources may leak")
+            try:
+                self.dispose()
+            except Exception:
+                pass
+
     def get(self, service_type: Type[T]) -> T:
         """Get a service instance within this scope.
 
