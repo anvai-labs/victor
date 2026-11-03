@@ -549,6 +549,43 @@ async def get_history(
     return {"history": [], "limit": limit}
 
 
+@app.get("/session/{session_id}/metrics")
+async def get_session_metrics(
+    session_id: str, _: None = Depends(_require_api_key)
+) -> Dict[str, Any]:
+    """Per-session runtime telemetry (tokens, context, cost) for one session.
+
+    Backs observability for the failure mode seen in execution logs (repeated
+    tool timeouts + runaway context growth): lets a client poll session
+    metrics without touching the websocket. Reads the framework telemetry
+    port (``VictorClient.get_session_metrics``) — never agent internals.
+    """
+    session = await SESSION_STORE.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result: Dict[str, Any] = {"session_id": session_id}
+    get_metrics = getattr(session.agent, "get_session_metrics", None)
+    if callable(get_metrics):
+        try:
+            metrics = await get_metrics()
+            if isinstance(metrics, dict):
+                result["metrics"] = metrics
+        except Exception as e:
+            logger.warning(f"Session {session_id}: metrics lookup failed: {e}")
+
+    last_cost = getattr(session.agent, "get_last_turn_cost", None)
+    if callable(last_cost):
+        try:
+            cost = last_cost()
+            if isinstance(cost, dict):
+                result["last_turn"] = cost
+        except Exception as e:
+            logger.warning(f"Session {session_id}: last-turn cost lookup failed: {e}")
+
+    return result
+
+
 @app.get("/credentials/get")
 async def get_credentials(
     provider: str = Query(...), _: None = Depends(_require_api_key)
