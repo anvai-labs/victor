@@ -472,8 +472,9 @@ class ServiceContainer:
 
         # Singleton or Scoped (scoped in root acts as singleton)
         # Race condition fix: Use RLock to prevent deadlock on re-entrant factory calls
-        if not hasattr(self, '_rlock'):
+        if not hasattr(self, "_rlock"):
             import threading
+
             self._rlock = threading.RLock()
 
         with self._rlock:

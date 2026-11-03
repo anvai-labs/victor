@@ -1,3 +1,4 @@
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -522,4 +523,681 @@ class VictorFastAPIServer:
         # git/config/agents/terminal were open). An app-level dependency is
         # NOT usable: it also runs for websocket routes, where FastAPI's
         # solver cannot supply a Request parameter (it crashes the socket).
-        # Security: Always disable docs by default"} to prevent information disclosure
+        # On keyed servers the docs surfaces are disabled — they disclose the
+        # full route tree and add nothing for authenticated clients.
+        self.app = FastAPI(
+            title="Victor API",
+            description="AI Coding Assistant API for IDE integrations",
+            version=__version__,
+            lifespan=self._lifespan,
+            **({"docs_url": None, "redoc_url": None, "openapi_url": None} if self.api_keys else {}),
+        )
+
+        # Configure CORS with secure defaults
+        # Allow localhost for development and VS Code webview origins
+        if enable_cors:
+            cors_origins = [
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "https://localhost:*",
+                "https://127.0.0.1:*",
+                "vscode-webview://*",
+            ]
+            self.app.add_middleware(
+                CORSMiddleware,
+                allow_origins=cors_origins,
+                allow_origin_regex=r"^(http://localhost:\d+|http://127\.0\.0\.1:\d+|vscode-webview://[a-z0-9-]+)$",
+                allow_credentials=True,
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                allow_headers=[
+                    "Content-Type",
+                    "Accept",
+                    "Authorization",
+                    "X-Requested-With",
+                ],
+            )
+
+        # Setup routes
+        self._setup_routes()
+        self._setup_router_plugins()
+
+        # Setup GraphQL endpoint if enabled
+        if self._enable_graphql:
+            try:
+                from victor.integrations.api.graphql_schema import create_graphql_schema
+                from strawberry.fastapi import GraphQLRouter
+
+                schema = create_graphql_schema(self)
+                graphql_router = GraphQLRouter(schema)
+                # HTTP queries/mutations get the API-key dependency;
+                # subscriptions (websocket) get the WS guard.
+                self._include_with_auth(graphql_router, prefix="/graphql")
+                logger.info("GraphQL endpoint enabled at /graphql")
+            except ImportError:
+                logger.debug("strawberry-graphql not installed, GraphQL disabled")
+
+        # Setup HITL routes if enabled
+        if self.enable_hitl:
+            self._setup_hitl_routes()
+
+    async def _verify_api_key(self, request: Request) -> Optional[str]:
+        """Verify API key if authentication is configured. Returns client_id or None."""
+        if not self.api_keys:
+            return None
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]
+            if api_key in self.api_keys:
+                return self.api_keys[api_key]
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    # Paths reachable without an API key: health/status probes. The /ws chat
+    # socket authenticates at the message level (auth frame, gated in
+    # _handle_ws_message); HITL keeps its own optional token auth.
+    AUTH_EXEMPT_PATHS = frozenset({"/health", "/status"})
+
+    def _make_auth_dependency(self):
+        """Build the HTTP-route auth dependency (closure over this server)."""
+
+        async def _enforce_api_auth(request: Request) -> None:
+            """Auth gate for HTTP routes: a valid API key is required when
+            keys are configured. Keyless servers (local dev, most tests) are
+            unaffected — the gate short-circuits without keys."""
+            if not self.api_keys:
+                return
+            if request.url.path in self.AUTH_EXEMPT_PATHS:
+                return
+            await self._verify_api_key(request)
+
+        return _enforce_api_auth
+
+    def _make_ws_auth_dependency(self):
+        """Build the websocket-route auth dependency (closure over server)."""
+
+        async def _enforce_ws_auth(websocket: WebSocket) -> None:
+            """Auth gate for websocket routes: Bearer header or ?api_key=
+            query parameter. The /ws chat socket is exempt (message-level
+            auth); this guards event streams (/ws/events, workflow streams,
+            GraphQL subscriptions)."""
+            if not self.api_keys:
+                return
+            header = websocket.headers.get("Authorization", "")
+            if header.startswith("Bearer ") and header[7:] in self.api_keys:
+                return
+            if websocket.query_params.get("api_key") in self.api_keys:
+                return
+            # In websocket scope FastAPI closes the connection when a
+            # dependency raises HTTPException.
+            raise HTTPException(status_code=403, detail="Not authenticated")
+
+        return _enforce_ws_auth
+
+    def _include_with_auth(
+        self, router: APIRouter, *, prefix: str = "", guard_websockets: bool = True
+    ) -> None:
+        """Include ``router`` with auth attached per route class, WITHOUT
+        mutating the (possibly module-shared) router object.
+
+        HTTP routes get the API-key dependency; websocket routes get the WS
+        guard, except the message-authenticated /ws chat socket. Splitting
+        into fresh child routers is load-bearing twice over:
+
+        - A router-level include dependency applies to websocket routes too,
+          and a Request-taking dependency crashes websocket scope — so
+          mixed routers (workflow_routes: one WS stream + nine HTTP routes
+          incl. POST /workflows/execute; GraphQL subscriptions) need HTTP
+          and WS handled separately.
+        - Appending to ``route.dependencies`` of a module-level shared
+          router (the observability router is a singleton) binds THIS
+          server's key-closure onto every later server that includes it —
+          cross-server/cross-test auth pollution (found by adversarial
+          review). include_router copies routes; fresh child routers keep
+          those copies per-server.
+        """
+        http_dep = Depends(self._make_auth_dependency())
+        ws_dep = Depends(self._make_ws_auth_dependency())
+        http_routes, plain_ws_routes, guarded_ws_routes = [], [], []
+        for route in router.routes:
+            if isinstance(route, APIRoute):
+                http_routes.append(route)
+            elif isinstance(route, APIWebSocketRoute):
+                if not guard_websockets or route.path == "/ws":
+                    plain_ws_routes.append(route)  # /ws: message-level auth
+                else:
+                    guarded_ws_routes.append(route)
+
+        if http_routes:
+            child = APIRouter()
+            child.routes.extend(http_routes)
+            self.app.include_router(child, prefix=prefix, dependencies=[http_dep])
+        if plain_ws_routes:
+            child = APIRouter()
+            child.routes.extend(plain_ws_routes)
+            self.app.include_router(child, prefix=prefix)
+        if guarded_ws_routes:
+            child = APIRouter()
+            child.routes.extend(guarded_ws_routes)
+            self.app.include_router(child, prefix=prefix, dependencies=[ws_dep])
+        if not (http_routes or plain_ws_routes or guarded_ws_routes):
+            self.app.include_router(router, prefix=prefix)
+
+    @asynccontextmanager
+    async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
+        """Manage server lifespan."""
+        logger.info(f"Starting Victor FastAPI server on {self.host}:{self.port}")
+
+        # Initialize EventBridge for real-time event streaming
+        event_bus = get_observability_bus()
+        self._event_bridge = EventBridge(event_bus)
+        await self._event_bridge.async_start()
+        logger.info("EventBridge started for real-time event streaming")
+
+        # Initialize WorkflowEventBridge for workflow visualization
+        self._workflow_event_bridge = WorkflowEventBridge(event_bus)
+        await self._workflow_event_bridge.start()
+        logger.info("WorkflowEventBridge started for workflow visualization")
+
+        yield
+
+        # Cleanup
+        if self._event_bridge:
+            await self._event_bridge.async_stop()
+        if self._workflow_event_bridge:
+            await self._workflow_event_bridge.stop()
+        if self._orchestrator:
+            await self._orchestrator.graceful_shutdown()
+        # Close WebSocket connections
+        for ws in self._ws_clients + self._event_clients:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        logger.info("Victor FastAPI server shutdown complete")
+
+    def _setup_routes(self) -> None:
+        """Set up API routes by including extracted APIRouter modules.
+
+        Auth attaches per-route (see _attach_route_auth) so mixed
+        HTTP+websocket routers get HTTP gating without breaking their
+        websocket routes.
+        """
+        from victor.integrations.api.routes import create_all_routers
+
+        for router in create_all_routers(self):
+            self._include_with_auth(router)
+
+    def _setup_router_plugins(self) -> None:
+        """Load optional FastAPI routers from vertical packages.
+
+        Routers are discovered via `victor.api_routers` entry points.
+        """
+        registrations = load_fastapi_router_registrations(workspace_root=self.workspace_root)
+        for registration in registrations:
+            try:
+                self._include_with_auth(registration.router, prefix=registration.prefix)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to include router from entry point '%s' (%s): %s",
+                    registration.entry_point_name,
+                    registration.entry_point_value,
+                    exc,
+                )
+
+    def _detect_capabilities(self) -> List[str]:
+        """Detect capabilities from currently mounted API routes."""
+        route_paths = collect_route_paths(self.app)
+        capabilities: set[str] = set()
+
+        if "/chat" in route_paths:
+            capabilities.add("chat")
+        if "/completions" in route_paths:
+            capabilities.add("completions")
+        if "/search/semantic" in route_paths or "/search/code" in route_paths:
+            capabilities.add("search")
+        if any(path.startswith("/lsp/") for path in route_paths):
+            capabilities.add("lsp")
+        if "/agents/start" in route_paths:
+            capabilities.add("agents")
+        if "/plans" in route_paths:
+            capabilities.add("plans")
+        if "/workflows/execute" in route_paths:
+            capabilities.add("workflows")
+        if "/teams" in route_paths:
+            capabilities.add("teams")
+        if "/tools" in route_paths:
+            capabilities.add("tools")
+        if "/mcp/servers" in route_paths:
+            capabilities.add("mcp")
+
+        return sorted(capabilities)
+
+    # =========================================================================
+    # HITL (Human-in-the-Loop) Routes
+    # =========================================================================
+
+    def _setup_hitl_routes(self) -> None:
+        """Set up HITL (Human-in-the-Loop) endpoints for workflow approvals.
+
+        This enables the unified server to handle both VS Code/IDE requests
+        and workflow approval requests on the same port.
+
+        Endpoints added:
+            GET /hitl/requests - List pending approval requests
+            GET /hitl/requests/{id} - Get specific request
+            POST /hitl/respond/{id} - Submit approval/rejection
+            GET /hitl/ui - Web-based approval UI
+            GET /hitl/history - Approval history (SQLite only)
+        """
+        try:
+            from victor.workflows.hitl_api import (
+                HITLStore,
+                SQLiteHITLStore,
+                create_hitl_router,
+            )
+
+            # Create HITL store - SQLite for persistence, in-memory otherwise
+            if self.hitl_persistent:
+                self._hitl_store = SQLiteHITLStore()
+                logger.info(f"HITL using SQLite store: {self._hitl_store.db_path}")
+            else:
+                self._hitl_store = HITLStore()
+                logger.info("HITL using in-memory store")
+
+            # Create and include the HITL router
+            hitl_router = create_hitl_router(
+                store=self._hitl_store,
+                require_auth=bool(self.hitl_auth_token),
+                auth_token=self.hitl_auth_token,
+            )
+            if self.api_keys and not self.hitl_auth_token:
+                # API keys configured but no dedicated HITL token: the HITL
+                # routes must not stay open (approving agent tool gates
+                # unauthenticated — adversarial-review finding). Gate them
+                # with the API key.
+                self._include_with_auth(hitl_router, prefix="/hitl", guard_websockets=False)
+            else:
+                self.app.include_router(hitl_router, prefix="/hitl")
+
+            logger.info("HITL endpoints enabled at /hitl/*")
+
+        except ImportError as e:
+            logger.warning(f"HITL endpoints not available: {e}")
+
+    def get_hitl_store(self) -> Optional[Any]:
+        """Get the HITL store for this server instance.
+
+        Returns:
+            HITLStore if HITL is enabled, None otherwise
+        """
+        return self._hitl_store
+
+    # =========================================================================
+    # Helper Methods
+    # =========================================================================
+
+    async def _get_orchestrator(self) -> Any:
+        """Get or create the orchestrator."""
+        if self._orchestrator is None:
+            client = await self._get_victor_client()
+            agent = await client.initialize()
+            if hasattr(agent, "get_orchestrator"):
+                self._orchestrator = agent.get_orchestrator()
+            else:
+                self._orchestrator = agent
+
+        return self._orchestrator
+
+    async def _get_victor_client(self) -> Any:
+        """Get or create the framework-managed client for API conversation access."""
+        if self._victor_client is None:
+            if self._orchestrator is not None:
+                self._victor_client = _LegacyOrchestratorClientAdapter(self._orchestrator)
+            else:
+                self._victor_client = self._session_runner.create_client(self._session_config)
+                await self._session_runner.initialize_client(self._victor_client)
+
+        return self._victor_client
+
+    async def update_session_config(self, session_config: "SessionConfig") -> None:
+        """Replace runtime session config and reset cached runtime owners."""
+        from victor.framework.session_runner import create_victor_client
+
+        self._session_config = session_config
+        self._session_runner = type(self._session_runner)(
+            self._settings,
+            self._session_config,
+            client_factory=partial(create_victor_client, container=self._container),
+        )
+        if self._victor_client is not None:
+            try:
+                await self._victor_client.close()
+            except Exception:
+                logger.debug("Failed to close VictorClient during config switch", exc_info=True)
+            self._victor_client = None
+        if self._orchestrator is not None:
+            try:
+                await self._orchestrator.graceful_shutdown()
+            except Exception:
+                logger.debug(
+                    "Failed to shutdown orchestrator during config switch",
+                    exc_info=True,
+                )
+            self._orchestrator = None
+
+    async def reset_conversation(self) -> None:
+        """Reset conversation history using VictorClient (service layer)."""
+        client = await self._get_victor_client()
+        await client.reset_conversation()
+
+    async def get_conversation_messages(
+        self, limit: Optional[int] = None, role: Optional[str] = None
+    ) -> List[Any]:
+        """Get conversation messages using VictorClient (service layer).
+
+        Args:
+            limit: Maximum number of messages to return
+            role: Optional filter by message role
+
+        Returns:
+            List of message objects
+        """
+        client = await self._get_victor_client()
+        return await client.get_messages(limit=limit, role=role)
+
+    async def _record_rl_feedback(self) -> None:
+        """Record RL feedback for the current session."""
+        if self._orchestrator is None:
+            return
+
+        try:
+            from victor.framework.rl.base import RLOutcome
+            from victor.framework.rl.coordinator import get_rl_coordinator
+
+            coordinator = get_rl_coordinator()
+            learner = coordinator.get_learner("model_selector")
+            if learner is None:
+                return
+
+            provider = self._orchestrator.provider
+            if provider is None:
+                return
+
+            msg_count = 0
+            if hasattr(self._orchestrator, "message_count"):
+                msg_count = self._orchestrator.message_count
+            elif hasattr(self._orchestrator, "get_messages"):
+                messages = self._orchestrator.get_messages()
+                msg_count = len(messages) if messages else 0
+
+            if msg_count == 0:
+                return
+
+            metrics = {}
+            if hasattr(self._orchestrator, "get_session_metrics"):
+                metrics = self._orchestrator.get_session_metrics() or {}
+
+            # Compute quality score based on session metrics
+            latency = metrics.get("total_latency", 0)
+            token_count = metrics.get("total_tokens", 0)
+            tool_calls = metrics.get("tool_calls", 0)
+
+            # Base quality: 1.0 for successful session
+            quality_score = 1.0
+
+            # Latency penalty: -0.1 per 30s over 30s threshold (max -0.5)
+            if latency > 30:
+                quality_score -= min(0.1 * (latency - 30) / 30, 0.5)
+
+            # Tool usage bonus: +0.05 per tool (max +0.2)
+            if tool_calls > 0:
+                quality_score += min(0.05 * tool_calls, 0.2)
+
+            outcome = RLOutcome(
+                provider=provider.name,
+                model=getattr(provider, "model", "unknown"),
+                task_type="chat",  # API sessions are general chat
+                success=True,
+                quality_score=max(0.0, min(1.0, quality_score)),
+                metadata={
+                    "session_id": str(uuid.uuid4())[:8],
+                    "latency_seconds": latency,
+                    "token_count": token_count,
+                    "tool_calls_made": tool_calls,
+                    "message_count": msg_count,
+                },
+                vertical="coding",
+            )
+
+            coordinator.record_outcome("model_selector", outcome, "coding")
+
+            # Get updated Q-value for logging
+            rankings = learner.get_provider_rankings()
+            provider_ranking = next((r for r in rankings if r["provider"] == provider.name), None)
+            new_q = provider_ranking["q_value"] if provider_ranking else 0.0
+
+            logger.info(
+                f"RL API session feedback: {provider.name} "
+                f"({msg_count} messages, {tool_calls} tools) → Q={new_q:.3f}"
+            )
+
+        except Exception as e:
+            logger.debug(f"RL feedback recording skipped: {e}")
+
+    async def _handle_ws_message(self, ws: WebSocket, data: Dict[str, Any]) -> None:
+        """Handle incoming WebSocket messages."""
+        msg_type = data.get("type", "")
+
+        if msg_type == "chat":
+            messages = data.get("messages", [])
+            if not messages:
+                await ws.send_json({"type": "error", "message": "No messages"})
+                return
+
+            # Auth gate: when API keys are configured, chat turns require a
+            # prior successful `auth` message. Previously the flag was set
+            # but never enforced — an unauthenticated WS client got full
+            # agent execution (co-design review U7-F1).
+            if self.api_keys and not getattr(getattr(ws, "state", None), "authenticated", False):
+                await ws.send_json({"type": "error", "message": "Not authenticated"})
+                return
+
+            client = await self._get_victor_client()
+
+            # FEP-0020 attribution join: the client_id resolved by the WebSocket
+            # `auth` message is bound for this turn so downstream cost/usage
+            # records carry the authenticated subject.
+            from victor.core.context import bind_attribution
+
+            ws_client_id = getattr(getattr(ws, "state", None), "client_id", None)
+
+            try:
+                with bind_attribution(subject_id=ws_client_id):
+                    async for chunk in client.stream_chat(messages[-1].get("content", "")):
+                        content = getattr(chunk, "content", "")
+                        metadata = getattr(chunk, "metadata", {}) or {}
+                        if content:
+                            await ws.send_json({"type": "content", "content": content})
+                        elif "tool_start" in metadata:
+                            await ws.send_json(
+                                {"type": "tool_call", "tool_call": metadata["tool_start"]}
+                            )
+                        elif "tool_result" in metadata:
+                            await ws.send_json(
+                                {
+                                    "type": "tool_result",
+                                    "tool_result": metadata["tool_result"],
+                                }
+                            )
+
+                await ws.send_json({"type": "done"})
+            except Exception as e:
+                await ws.send_json({"type": "error", "message": str(e)})
+
+        elif msg_type == "ping":
+            await ws.send_json({"type": "pong"})
+
+        elif msg_type == "auth":
+            api_key = data.get("api_key", "")
+            if api_key and self.api_keys:
+                matched = next(
+                    (k for k in self.api_keys if secrets.compare_digest(k, api_key)),
+                    None,
+                )
+                if matched:
+                    if not hasattr(ws, "state"):
+                        ws.state = type("State", (), {})()
+                    ws.state.authenticated = True
+                    ws.state.client_id = self.api_keys[matched]
+                    logger.debug("WebSocket client authenticated via message")
+                    await ws.send_json({"type": "auth_success"})
+                else:
+                    await ws.send_json({"type": "auth_failed", "message": "Invalid API key"})
+            elif not self.api_keys:
+                await ws.send_json({"type": "auth_success"})
+            else:
+                await ws.send_json({"type": "auth_failed", "message": "No API key provided"})
+
+        elif msg_type == "subscribe":
+            channel = data.get("channel", "")
+            await ws.send_json({"type": "subscribed", "channel": channel})
+
+    async def _broadcast_ws(self, message: Dict[str, Any]) -> None:
+        """Broadcast a message to all connected WebSocket clients."""
+        for ws in self._ws_clients:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                pass
+
+    async def _broadcast_agent_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Broadcast agent events to all connected WebSocket clients.
+
+        Used by BackgroundAgentManager to send real-time updates.
+        """
+        message = {
+            "type": "agent_event",
+            "event": event_type,
+            "data": data,
+            "timestamp": time.time(),
+        }
+        await self._broadcast_ws(message)
+
+    def _format_messages_markdown(self, messages: List[Dict[str, Any]]) -> str:
+        """Format messages as markdown."""
+        lines = ["# Conversation Export\n"]
+        for msg in messages:
+            role = msg.get("role", "unknown").upper()
+            content = msg.get("content", "")
+            lines.append(f"## {role}\n")
+            lines.append(f"{content}\n")
+        return "\n".join(lines)
+
+    def _get_tool_category(self, tool_name: str) -> str:
+        """Get category for a tool based on its name."""
+        categories = {
+            "filesystem": ["read", "write", "ls", "edit", "glob", "overview"],
+            "search": ["search", "grep", "semantic_code_search", "code_search"],
+            "git": ["git", "commit_msg", "conflicts", "pr", "merge"],
+            "shell": ["shell", "bash", "sandbox"],
+            "refactor": ["extract", "inline", "organize_imports", "rename", "refactor"],
+            "code_intelligence": ["symbol", "refs", "lsp"],
+            "web": ["fetch", "http", "web", "web_search", "web_fetch"],
+            "docker": ["docker"],
+            "database": ["database", "db"],
+            "testing": ["test", "pytest"],
+            "documentation": ["docs", "documentation", "docs_coverage"],
+            "analysis": ["code_review", "metrics", "scan", "audit", "iac"],
+            "infrastructure": ["cicd", "pipeline", "dependency"],
+            "batch": ["batch"],
+            "cache": ["cache"],
+            "mcp": ["mcp"],
+            "workflow": ["workflow", "scaffold"],
+            "patch": ["patch"],
+        }
+
+        for category, keywords in categories.items():
+            if any(kw in tool_name.lower() for kw in keywords):
+                return category.replace("_", " ").title()
+
+        return "Other"
+
+    def _is_dangerous_tool(self, tool_name: str) -> bool:
+        """Check if a tool is considered dangerous."""
+        dangerous_tools = {
+            "shell",
+            "bash",
+            "sandbox",
+            "docker",
+            "write",
+            "edit",
+            "delete",
+            "rm",
+            "database",
+        }
+        return tool_name.lower() in dangerous_tools
+
+    def run(self) -> None:
+        """Run the server synchronously."""
+        import uvicorn
+
+        uvicorn.run(self.app, host=self.host, port=self.port)
+
+    async def start_async(self) -> "VictorFastAPIServer":
+        """Start the server asynchronously and return self for cleanup."""
+        import uvicorn
+
+        config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="info")
+        self._server = uvicorn.Server(config)
+        asyncio.create_task(self._server.serve())
+        logger.info(f"Victor FastAPI server running on {self.host}:{self.port}")
+        return self
+
+    async def shutdown(self) -> None:
+        """Shutdown the server gracefully.
+
+        This uses uvicorn's built-in shutdown mechanism to properly terminate
+        the server without affecting the asyncio event loop or causing system issues.
+        """
+        if hasattr(self, "_server") and self._server is not None:
+            # Signal the server to exit gracefully
+            self._server.should_exit = True
+
+            # Use uvicorn's built-in shutdown if available
+            if hasattr(self._server, "shutdown"):
+                try:
+                    await asyncio.wait_for(self._server.shutdown(), timeout=3.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    # Timeout is acceptable - server will exit on its own
+                    pass
+                except Exception as e:
+                    logger.warning(f"Server shutdown encountered error: {e}")
+
+            # Small delay to ensure port is released (not for event loop stability)
+            await asyncio.sleep(0.1)
+
+    async def _delayed_shutdown(self) -> None:
+        """Delayed shutdown helper for /shutdown endpoint.
+
+        This method is called asynchronously after the shutdown response is sent,
+        allowing the HTTP response to complete before the server actually shuts down.
+        """
+        # Check if shutdown is already in progress
+        if self._shutting_down:
+            return
+
+        # Small delay to ensure response is sent
+        await asyncio.sleep(0.5)
+
+        # Perform actual shutdown
+        if hasattr(self, "_server") and self._server is not None:
+            if hasattr(self._server, "shutdown"):
+                try:
+                    await asyncio.wait_for(self._server.shutdown(), timeout=3.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
+                    logger.warning(f"Delayed shutdown encountered error: {e}")
+
+
+def create_fastapi_app(workspace_root: Optional[str] = None) -> FastAPI:
+    """Create the FastAPI application."""
+    server = VictorFastAPIServer(workspace_root=workspace_root)
+    return server.app

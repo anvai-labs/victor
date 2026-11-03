@@ -241,6 +241,7 @@ class PlanningGate:
         self.enabled = self._config.enabled
         # Thread safety: protect counters from concurrent corruption
         import threading
+
         self._counter_lock = threading.Lock()
         self._fast_path_count = 0
         self._total_decisions = 0
@@ -279,11 +280,14 @@ class PlanningGate:
 
         query_lower = context.get("query", "").lower() if context else ""
         # PERF-1: Pre-compiled regex for O(1) keyword matching instead of O(n*m) substring scans
-        if not hasattr(self, '_ACTION_RE'):
+        if not hasattr(self, "_ACTION_RE"):
             import re
-            self._ACTION_RE = re.compile(r'\b(?:run|execute|create|write|delete|list|show|get|find|search)\b')
+
+            self._ACTION_RE = re.compile(
+                r"\b(?:run|execute|create|write|delete|list|show|get|find|search)\b"
+            )
         has_action_keyword = bool(self._ACTION_RE.search(query_lower))
-        
+
         # EDGE-3: Force slow path for empty queries to prevent incorrect fast-pathing
         if not query_lower:
             has_action_keyword = False
@@ -1539,7 +1543,8 @@ class AgenticLoop(TopologyPlanningMixin):
                 if isinstance(result, dict)
             },
             # EDGE-8: Count non-dict results toward tool_count to prevent spin detector undercount
-            tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0) + sum(1 for r in tool_results if not isinstance(r, dict)),
+            tool_count=int(getattr(action_result, "tool_calls_count", 0) or 0)
+            + sum(1 for r in tool_results if not isinstance(r, dict)),
             tool_signatures=getattr(action_result, "tool_signatures", None),
             tool_results=tool_results,
             iteration=iteration,
@@ -3989,7 +3994,8 @@ class AgenticLoop(TopologyPlanningMixin):
             # EDGE-2: Log fallback for debugging checkpoint corruption
             logger.warning(
                 "Corrupted perception state: intent_raw=%r failed to parse, falling back to AMBIGUOUS. Error: %s",
-                intent_raw, e
+                intent_raw,
+                e,
             )
             intent = ActionIntent.AMBIGUOUS
 
@@ -4003,7 +4009,8 @@ class AgenticLoop(TopologyPlanningMixin):
             # EDGE-2: Log fallback for debugging checkpoint corruption
             logger.warning(
                 "Corrupted perception state: complexity_raw=%r failed to parse, falling back to MEDIUM. Error: %s",
-                complexity_raw, e
+                complexity_raw,
+                e,
             )
             complexity = TaskComplexity.MEDIUM
 

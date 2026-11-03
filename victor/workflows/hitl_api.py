@@ -1139,6 +1139,7 @@ def create_hitl_router(
         # P1: Use base64+JSON to prevent pipe-character injection in request_id.
         import base64
         import json
+
         payload = {"rid": request_id, "act": action, "tok": token or ""}
         return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
 
@@ -1147,6 +1148,7 @@ def create_hitl_router(
         import base64
         import json
         import logging
+
         logger = logging.getLogger(__name__)
         try:
             payload = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
@@ -1204,6 +1206,7 @@ def create_hitl_router(
         token = authorization[7:]
         # P1: Use timing-safe comparison to prevent byte-by-byte recovery attacks.
         import secrets
+
         if not secrets.compare_digest(token, expected_token):
             raise HTTPException(status_code=401, detail="Invalid token")
 

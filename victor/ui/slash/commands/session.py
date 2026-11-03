@@ -24,7 +24,7 @@ from typing import Any, Optional
 from rich.panel import Panel
 from rich.table import Table
 
-from victor.agent.conversation.models import ConversationSession
+from victor.agent.conversation.session_model import ConversationSession
 from victor.ui.slash.protocol import BaseSlashCommand, CommandContext, CommandMetadata
 from victor.ui.slash.registry import register_command
 
@@ -434,7 +434,9 @@ class ResumeCommand(BaseSlashCommand):
             ctx.console.print(f"[red]Failed to list sessions:[/] {e}")
             logger.exception("Error listing sessions")
 
-    def _load_session(self, ctx: CommandContext, session_id: str, project_path: Optional[str] = None) -> None:
+    def _load_session(
+        self, ctx: CommandContext, session_id: str, project_path: Optional[str] = None
+    ) -> None:
         """Load and restore a session.
 
         Args:
@@ -450,6 +452,7 @@ class ResumeCommand(BaseSlashCommand):
             # If project_path specified, create store pointing to that project's DB
             if project_path:
                 from pathlib import Path
+
                 project_db = Path(project_path) / ".victor" / "project.db"
                 if not project_db.exists():
                     ctx.console.print(f"[red]Project database not found:[/] {project_db}")
@@ -581,14 +584,16 @@ class ResumeCommand(BaseSlashCommand):
                 ctx.console.print(f"[red]File not found:[/] {path}")
                 return
 
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             # Detect format and convert to ConversationSession
             session = self._detect_and_convert_format(data, source_file=str(path))
             if session is None:
                 ctx.console.print("[red]Could not detect session format[/]")
-                ctx.console.print("[dim]Supported formats: Victor, OpenAI ChatGPT, Anthropic, Bedrock, DeepSeek[/]")
+                ctx.console.print(
+                    "[dim]Supported formats: Victor, OpenAI ChatGPT, Anthropic, Bedrock, DeepSeek[/]"
+                )
                 return
 
             # Save to current project's database
@@ -613,7 +618,9 @@ class ResumeCommand(BaseSlashCommand):
             ctx.console.print(f"[red]Failed to import session:[/] {e}")
             logger.exception("Error importing session")
 
-    def _detect_and_convert_format(self, data: dict, source_file: str) -> Optional[ConversationSession]:
+    def _detect_and_convert_format(
+        self, data: dict, source_file: str
+    ) -> Optional[ConversationSession]:
         """Detect session format and convert to ConversationSession.
 
         Supports:
@@ -625,81 +632,93 @@ class ResumeCommand(BaseSlashCommand):
         """
 
         # Victor native format
-        if 'session_id' in data and 'messages' in data:
+        if "session_id" in data and "messages" in data:
             return self._convert_victor_format(data)
 
         # OpenAI ChatGPT export format
-        if isinstance(data, list) and len(data) > 0 and 'mapping' in data[0]:
+        if isinstance(data, list) and len(data) > 0 and "mapping" in data[0]:
             return self._convert_openai_format(data[0], source_file)
-        if 'mapping' in data and 'current_node' in data:
+        if "mapping" in data and "current_node" in data:
             return self._convert_openai_format(data, source_file)
 
         # Anthropic format
-        if 'conversation' in data or ('messages' in data and 'model' in data):
+        if "conversation" in data or ("messages" in data and "model" in data):
             return self._convert_anthropic_format(data, source_file)
 
         # Bedrock format
-        if 'conversationId' in data or 'conversation_id' in data:
+        if "conversationId" in data or "conversation_id" in data:
             return self._convert_bedrock_format(data, source_file)
 
         # Generic format with messages array
-        if 'messages' in data and isinstance(data['messages'], list):
+        if "messages" in data and isinstance(data["messages"], list):
             return self._convert_generic_format(data, source_file)
 
         return None
 
     def _convert_victor_format(self, data: dict) -> ConversationSession:
         """Convert Victor native format."""
-        from victor.agent.conversation.models import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession, Message
         from datetime import datetime
 
         messages = []
-        for msg_data in data.get('messages', []):
-            messages.append(Message(
-                role=msg_data.get('role', 'user'),
-                content=msg_data.get('content', ''),
-                timestamp=datetime.fromisoformat(msg_data['timestamp']) if 'timestamp' in msg_data else datetime.now()
-            ))
+        for msg_data in data.get("messages", []):
+            messages.append(
+                Message(
+                    role=msg_data.get("role", "user"),
+                    content=msg_data.get("content", ""),
+                    timestamp=(
+                        datetime.fromisoformat(msg_data["timestamp"])
+                        if "timestamp" in msg_data
+                        else datetime.now()
+                    ),
+                )
+            )
 
         return ConversationSession(
-            session_id=data.get('session_id', str(uuid.uuid4())),
-            title=data.get('title'),
+            session_id=data.get("session_id", str(uuid.uuid4())),
+            title=data.get("title"),
             messages=messages,
-            model=data.get('model'),
-            provider=data.get('provider'),
-            created_at=datetime.fromisoformat(data['created_at']) if 'created_at' in data else datetime.now()
+            model=data.get("model"),
+            provider=data.get("provider"),
+            created_at=(
+                datetime.fromisoformat(data["created_at"])
+                if "created_at" in data
+                else datetime.now()
+            ),
         )
 
     def _convert_openai_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert OpenAI ChatGPT export format."""
-        from victor.agent.conversation.models import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession, Message
         from datetime import datetime
 
         # ChatGPT uses a tree structure with 'mapping'
-        mapping = data.get('mapping', {})
-        current_node = data.get('current_node')
+        mapping = data.get("mapping", {})
+        current_node = data.get("current_node")
 
         # Build message chain from tree
         messages = []
         node_id = current_node
         while node_id and node_id in mapping:
             node = mapping[node_id]
-            message = node.get('message')
-            if message and message.get('author', {}).get('role') in ['user', 'assistant']:
-                content = message.get('content', {})
-                if content.get('content_type') == 'text':
-                    text = ''.join(content.get('parts', []))
-                    messages.append(Message(
-                        role=message['author']['role'],
-                        content=text,
-                        timestamp=datetime.fromtimestamp(message.get('create_time', 0))
-                    ))
-            node_id = node.get('parent')
+            message = node.get("message")
+            if message and message.get("author", {}).get("role") in ["user", "assistant"]:
+                content = message.get("content", {})
+                if content.get("content_type") == "text":
+                    text = "".join(content.get("parts", []))
+                    messages.append(
+                        Message(
+                            role=message["author"]["role"],
+                            content=text,
+                            timestamp=datetime.fromtimestamp(message.get("create_time", 0)),
+                        )
+                    )
+            node_id = node.get("parent")
 
         messages.reverse()  # Tree is built backwards
 
-        title = data.get('title', 'Imported from ChatGPT')
-        create_time = data.get('create_time', 0)
+        title = data.get("title", "Imported from ChatGPT")
+        create_time = data.get("create_time", 0)
 
         return ConversationSession(
             session_id=f"openai_{uuid.uuid4().hex[:12]}",
@@ -707,84 +726,78 @@ class ResumeCommand(BaseSlashCommand):
             messages=messages,
             model="gpt-4",  # Default, could be extracted from metadata
             provider="openai",
-            created_at=datetime.fromtimestamp(create_time) if create_time else datetime.now()
+            created_at=datetime.fromtimestamp(create_time) if create_time else datetime.now(),
         )
 
     def _convert_anthropic_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert Anthropic Claude export format."""
-        from victor.agent.conversation.models import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession, Message
         from datetime import datetime
 
         messages = []
-        for msg in data.get('messages', data.get('conversation', {}).get('messages', [])):
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
+        for msg in data.get("messages", data.get("conversation", {}).get("messages", [])):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
             if isinstance(content, list):
                 # Anthropic uses array format for content
-                content = '\n'.join(
-                    item.get('text', '') for item in content if item.get('type') == 'text'
+                content = "\n".join(
+                    item.get("text", "") for item in content if item.get("type") == "text"
                 )
-            messages.append(Message(
-                role=role,
-                content=content,
-                timestamp=datetime.now()
-            ))
+            messages.append(Message(role=role, content=content, timestamp=datetime.now()))
 
         return ConversationSession(
             session_id=f"anthropic_{uuid.uuid4().hex[:12]}",
-            title=data.get('title', 'Imported from Claude'),
+            title=data.get("title", "Imported from Claude"),
             messages=messages,
-            model=data.get('model', 'claude-3'),
+            model=data.get("model", "claude-3"),
             provider="anthropic",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
     def _convert_bedrock_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert AWS Bedrock export format."""
-        from victor.agent.conversation.models import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession, Message
         from datetime import datetime
 
         messages = []
-        for msg in data.get('messages', data.get('turns', [])):
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
+        for msg in data.get("messages", data.get("turns", [])):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
             if isinstance(content, dict):
-                content = content.get('text', str(content))
-            messages.append(Message(
-                role=role,
-                content=content,
-                timestamp=datetime.now()
-            ))
+                content = content.get("text", str(content))
+            messages.append(Message(role=role, content=content, timestamp=datetime.now()))
 
         return ConversationSession(
             session_id=f"bedrock_{uuid.uuid4().hex[:12]}",
-            title=data.get('title', 'Imported from Bedrock'),
+            title=data.get("title", "Imported from Bedrock"),
             messages=messages,
-            model=data.get('modelId', data.get('model', 'claude-3')),
+            model=data.get("modelId", data.get("model", "claude-3")),
             provider="bedrock",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
     def _convert_generic_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert generic message array format."""
-        from victor.agent.conversation.models import ConversationSession, Message
+        from victor.agent.conversation.session_model import ConversationSession, Message
         from datetime import datetime
 
         messages = []
-        for msg in data.get('messages', []):
-            messages.append(Message(
-                role=msg.get('role', 'user'),
-                content=msg.get('content', ''),
-                timestamp=datetime.now()
-            ))
+        for msg in data.get("messages", []):
+            messages.append(
+                Message(
+                    role=msg.get("role", "user"),
+                    content=msg.get("content", ""),
+                    timestamp=datetime.now(),
+                )
+            )
 
         return ConversationSession(
             session_id=f"import_{uuid.uuid4().hex[:12]}",
-            title=data.get('title', f'Imported from {Path(source_file).stem}'),
+            title=data.get("title", f"Imported from {Path(source_file).stem}"),
             messages=messages,
-            model=data.get('model'),
-            provider=data.get('provider', 'unknown'),
-            created_at=datetime.now()
+            model=data.get("model"),
+            provider=data.get("provider", "unknown"),
+            created_at=datetime.now(),
         )
 
 

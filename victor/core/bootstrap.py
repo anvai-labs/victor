@@ -1363,7 +1363,8 @@ def ensure_bootstrapped(
 
     # Race condition fix: Use lock to prevent double-bootstrap when called concurrently
     import threading
-    if not hasattr(ensure_bootstrapped, '_lock'):
+
+    if not hasattr(ensure_bootstrapped, "_lock"):
         ensure_bootstrapped._lock = threading.Lock()
 
     with ensure_bootstrapped._lock:
