@@ -562,7 +562,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.26.0",
+    "victor-native>=0.26.1",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
