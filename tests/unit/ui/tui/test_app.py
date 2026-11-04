@@ -7,6 +7,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from victor.framework.hitl import ApprovalRequest, ApprovalStatus
 from victor.ui.tui.app import VictorTUIApp
+from victor.ui.tui.themes import resolve_theme
 from victor.ui.tui.approval_modal import ApprovalScreen
 from victor.ui.tui.palette import HelpScreen
 
@@ -92,6 +93,23 @@ async def _settle(app: VictorTUIApp, rounds: int = 4) -> None:
         await app.workers.wait_for_complete()
         await app.workers.wait_for_complete()
         await asyncio.sleep(0)
+
+
+async def test_terminal_theme_mounts_and_cycles_all_four() -> None:
+    """The victor-terminal theme must mount (ANSI mode, no Color.parse crash)
+    and F6 cycling must survive every theme in the cycle — the adversarial
+    review caught the empty-color-string variant crashing on mount."""
+    app = _make_app()
+    app._initial_theme = resolve_theme("terminal")
+    async with app.run_test():
+        assert app.theme == "victor-terminal"
+        seen: list[str] = []
+        for _ in range(4):
+            app.action_cycle_theme()
+            await asyncio.sleep(0)
+            seen.append(app.theme)
+        assert seen[0] == "victor-dark"  # cycle wraps terminal -> dark
+        assert seen[3] == "victor-terminal"
 
 
 async def test_mounts_all_panes() -> None:

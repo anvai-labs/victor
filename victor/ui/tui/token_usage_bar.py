@@ -14,7 +14,7 @@
 
 """Token usage display bar for the TUI.
 
-Compact two-line panel: context window gauge with absolute tokens, and
+Compact three-line panel: context window gauge with absolute tokens, and
 turn/session telemetry (input/output/cache/cost). Designed for elegant
 spacing with balanced colors that respect terminal-native themes.
 """
@@ -53,7 +53,7 @@ class TokenUsageBar(Static):
 
     DEFAULT_CSS = """
     TokenUsageBar {
-        height: 3;
+        height: 4;
         padding: 0 1;
         background: $surface;
         color: $foreground;
@@ -64,7 +64,6 @@ class TokenUsageBar(Static):
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         self._session_cost_usd: float = 0.0
-        self._session_requests: int = 0
 
     # ── public API ────────────────────────────────────────────────
     def set_usage(
@@ -85,7 +84,6 @@ class TokenUsageBar(Static):
         # money + requests
         cost_usd: Optional[float] = None,
         session_cost_usd: Optional[float] = None,
-        request_count: Optional[int] = None,
         model: Optional[str] = None,
     ) -> None:
         """Update the token usage display.
@@ -103,7 +101,6 @@ class TokenUsageBar(Static):
             total_tokens: Last-turn total tokens (computed when omitted).
             cost_usd: Last-turn cost in USD.
             session_cost_usd: Session cumulative cost (accumulated locally when omitted).
-            request_count: Last-turn provider request count (accumulated when omitted).
             model: Current model label.
         """
         # session accumulation (caller may pass authoritative totals instead)
@@ -111,8 +108,6 @@ class TokenUsageBar(Static):
             self._session_cost_usd = float(session_cost_usd)
         elif cost_usd is not None:
             self._session_cost_usd += float(cost_usd)
-        if request_count is not None:
-            self._session_requests = int(request_count)
 
         line1 = self._render_line1(
             context_used_tokens, context_limit_tokens, context_used_pct, model
@@ -209,8 +204,6 @@ class TokenUsageBar(Static):
             parts.append(f"[dim]last turn[/] [bright_yellow]${cost:.4f}[/]")
         if self._session_cost_usd:
             parts.append(f"[dim]session total[/] [bright_yellow]${self._session_cost_usd:.4f}[/]")
-        if self._session_requests:
-            parts.append(f"[dim]requests[/] [bright_white]{self._session_requests}[/]")
         if not parts:
             return ""
         return "  ·  ".join(parts)

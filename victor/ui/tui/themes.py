@@ -83,17 +83,38 @@ VICTOR_HIGH_CONTRAST = Theme(
 #: Uses transparent-ish defaults so iTerm2/Terminal.app backgrounds show through.
 VICTOR_TERMINAL = Theme(
     name="victor-terminal",
-    primary="#888888",
-    secondary="#aaaaaa",
-    accent="#bbbbbb",
-    foreground="",
-    background="",
-    surface="",
-    panel="",
-    success="#50fa7b",
-    warning="#f1fa8c",
-    error="#ff5555",
+    # Textual's terminal-native path: ``ansi=True`` plus the ``ansi_*`` color
+    # tokens (mirroring the built-in ansi themes) resolve every surface color
+    # from the LAUNCHING terminal's palette. (The original empty-string colors
+    # crashed Color.parse on mount; fixed per adversarial review.)
+    primary="ansi_blue",
+    secondary="ansi_cyan",
+    accent="ansi_green",
+    foreground="ansi_default",
+    background="ansi_default",
+    surface="ansi_default",
+    panel="ansi_default",
+    success="ansi_green",
+    warning="ansi_yellow",
+    error="ansi_red",
     dark=True,
+    ansi=True,
+    # Textual's screen/component CSS references these ANSI variables; the
+    # built-in ansi themes ship exactly this mapping.
+    variables={
+        "ansi-background": "ansi_black",
+        "ansi-foreground": "ansi_white",
+        "border-blurred": "ansi_black",
+        "block-cursor-foreground": "ansi_black",
+        "block-cursor-background": "ansi_white",
+        "input-cursor-background": "ansi_black",
+        "input-cursor-foreground": "ansi_bright_white",
+        "input-cursor-text-style": "none",
+        "input-selection-background": "ansi_bright_blue",
+        "input-selection-foreground": "ansi_black",
+        "screen-selection-background": "ansi_bright_blue",
+        "screen-selection-foreground": "ansi_black",
+    },
 )
 
 #: All TUI themes, in cycle order (F6 advances through these).

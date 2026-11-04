@@ -166,3 +166,31 @@ def test_token_usage_bar_mixed_none_values() -> None:
     content = str(bar.render())
     assert "turn" in content
     assert "context" in content
+
+
+async def test_line3_visible_when_mounted() -> None:
+    """Mounted regression pin: the panel's box must fit all three lines.
+
+    The adversarial review caught ``height: 3`` + ``border-top`` clipping the
+    cost line to a 2-line content area (cost telemetry invisible). Rendered
+    text asserts line 3 exists; the mounted region asserts the box fits it.
+    """
+
+    from textual.app import App
+
+    class _BarApp(App[None]):
+        def compose(self):
+            yield TokenUsageBar(id="bar")
+
+    app = _BarApp()
+    async with app.run_test() as pilot:
+        bar = app.query_one("#bar", TokenUsageBar)
+        bar.set_usage(total_tokens=1234, cost_usd=0.05, session_cost_usd=0.02)
+        await pilot.pause()
+        content = str(bar.render())
+        assert "last turn $0.0500" in content
+        assert "session total $0.0200" in content
+        assert bar.region.height >= 4, (
+            f"panel box {bar.region.height} lines cannot show 3 content lines "
+            "plus the border (the clipping regression)"
+        )

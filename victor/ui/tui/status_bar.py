@@ -15,7 +15,8 @@
 """Status bar for the interactive TUI.
 
 One line projecting runtime state: inferred loop phase, live tool counter,
-session id, model/provider, and profile. Token/cost telemetry lives in
+and session id. Model/provider/profile live in the header;
+token/cost/context telemetry lives in
 ``TokenUsageBar`` to avoid duplication. When the stall watchdog fires, the
 phase is replaced by a visible "waiting on model" state so a quiet agent
 never reads as a frozen terminal (ADR-021).
@@ -30,7 +31,7 @@ from textual.widgets import Static
 
 
 class StatusBar(Static):
-    """Runtime state bar: phase · tools · session · model."""
+    """Runtime state bar: phase · tools · session."""
 
     DEFAULT_CSS = """
     StatusBar {

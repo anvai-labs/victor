@@ -601,8 +601,7 @@ class VictorTUIApp(App[None]):
             cache_hit_rate=report.get("cache_hit_rate"),
             total_tokens=self._last_tokens,
             cost_usd=self._last_cost,
-            session_cost_usd=report.get("session_cost_usd") or None,
-            request_count=report.get("request_count") or None,
+            session_cost_usd=report.get("session_cost_usd"),
             model=self._model_label(),
         )
 

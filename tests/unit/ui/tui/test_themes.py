@@ -15,7 +15,7 @@ from victor.ui.tui.themes import (
 # ── pure registry ─────────────────────────────────────────────────
 
 
-def test_three_themes_registered() -> None:
+def test_all_themes_registered() -> None:
     names = {theme.name for theme in THEMES}
     assert names == {
         "victor-dark",
