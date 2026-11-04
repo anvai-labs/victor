@@ -983,8 +983,10 @@ class ToolPipeline:
             except ValueError:
                 intent = None
 
+        # Only pin readonly for DISPLAY_ONLY intent, not READ_ONLY
+        # READ_ONLY intent often needs to execute commands like pytest, sed, etc.
         if (
-            intent in {ActionIntent.DISPLAY_ONLY, ActionIntent.READ_ONLY}
+            intent == ActionIntent.DISPLAY_ONLY
             and adjusted.get("readonly") is not True
         ):
             adjusted["readonly"] = True
