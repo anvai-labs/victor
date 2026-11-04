@@ -14,11 +14,13 @@
 
 """Textual themes for the interactive TUI (ADR-020).
 
-Three registered themes — dark (Dracula-family, matching the REPL palette), a
-clean light theme, and a maximal-contrast accessibility theme. ``styles.tcss``
-references theme variables (``$background``, ``$surface``, ``$primary``, …) rather
-than hard-coded hex, so switching the active theme restyles the whole app. Users
-pick one at launch (``victor tui --theme light``) or cycle at runtime (F6).
+Four registered themes — dark (Dracula-family, matching the REPL palette), a
+clean light theme, a maximal-contrast accessibility theme, and a terminal-native
+theme that respects the launched terminal's colors (like Claude/Codex do).
+``styles.tcss`` references theme variables (``$background``, ``$surface``, 
+``$primary``, …) rather than hard-coded hex, so switching the active theme 
+restyles the whole app. Users pick one at launch (``victor tui --theme light``) 
+or cycle at runtime (F6).
 
 Pure data + helpers; the only Textual dependency is the ``Theme`` value type.
 """
@@ -77,8 +79,25 @@ VICTOR_HIGH_CONTRAST = Theme(
     dark=True,
 )
 
+#: Terminal-native — respects the launched terminal's colors (like Claude/Codex).
+#: Uses transparent-ish defaults so iTerm2/Terminal.app backgrounds show through.
+VICTOR_TERMINAL = Theme(
+    name="victor-terminal",
+    primary="#888888",
+    secondary="#aaaaaa",
+    accent="#bbbbbb",
+    foreground="",
+    background="",
+    surface="",
+    panel="",
+    success="#50fa7b",
+    warning="#f1fa8c",
+    error="#ff5555",
+    dark=True,
+)
+
 #: All TUI themes, in cycle order (F6 advances through these).
-THEMES: List[Theme] = [VICTOR_DARK, VICTOR_LIGHT, VICTOR_HIGH_CONTRAST]
+THEMES: List[Theme] = [VICTOR_DARK, VICTOR_LIGHT, VICTOR_HIGH_CONTRAST, VICTOR_TERMINAL]
 
 #: Canonical default theme name.
 DEFAULT_THEME = VICTOR_DARK.name
@@ -90,6 +109,8 @@ _ALIASES = {
     "high-contrast": VICTOR_HIGH_CONTRAST.name,
     "high_contrast": VICTOR_HIGH_CONTRAST.name,
     "hc": VICTOR_HIGH_CONTRAST.name,
+    "terminal": VICTOR_TERMINAL.name,
+    "native": VICTOR_TERMINAL.name,
 }
 
 _NAMES = {theme.name for theme in THEMES}

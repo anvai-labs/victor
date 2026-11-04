@@ -48,7 +48,6 @@ from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
 from victor.ui.tui.prompt_input import PromptInput
 from victor.ui.tui.prompt_queue import PromptQueue
-from victor.ui.tui.session_bar import SessionBar, SessionInfo, TokenUsage
 from victor.ui.tui.status_bar import StatusBar
 from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
 from victor.ui.tui.token_usage_bar import TokenUsageBar
@@ -163,7 +162,6 @@ class VictorTUIApp(App[None]):
                 yield ConversationLog(id="conversation")
                 yield DiffPane(id="diff-pane")
             yield StatusBar(id="status-bar")
-            yield SessionBar(id="session-bar")
             yield TokenUsageBar(id="token-usage-bar")
             yield PromptInput(placeholder="Message…  (/help for commands)", id="prompt")
         yield Footer()
@@ -548,13 +546,26 @@ class VictorTUIApp(App[None]):
         )
 
     def _update_status(self) -> None:
+        # Get session/model info for status bar
+        session_id = _short(getattr(self._agent, "active_session_id", None))
+        model = self._safe(lambda: self._client.model)
+        provider = self._safe(lambda: self._client.provider_name)
+        profile = "—"
+        try:
+            if hasattr(self._settings, "profile") and self._settings.profile:
+                profile = self._settings.profile
+        except Exception:
+            pass
+        
         self.query_one("#status-bar", StatusBar).set_status(
             phase_label=self._phase.label(),
             tool_count=self._phase.tool_count,
-            total_tokens=self._last_tokens,
-            cost_usd=self._last_cost,
             waiting_seconds=self._waiting_seconds,
             queued=len(self._queue),
+            session_id=session_id,
+            model=model,
+            provider=provider,
+            profile=profile,
         )
         self._update_token_usage_bar()
 
@@ -600,7 +611,7 @@ class VictorTUIApp(App[None]):
         )
 
     async def _refresh_sidebar(self) -> None:
-        """Refresh the horizontal session bar with current session state."""
+        """Update context telemetry for the token usage bar."""
         context_used, context_total, context_pct = await self._compute_context_usage()
         self._context_pct = context_pct
         # Cache absolute token counts for the usage bar's gauge.
@@ -608,40 +619,6 @@ class VictorTUIApp(App[None]):
             self._context_used_tokens = context_used
         if isinstance(context_total, int) and context_total > 0:
             self._context_limit_tokens = context_total
-
-        # Get profile name from settings if available
-        profile = "—"
-        try:
-            if hasattr(self._settings, "profile") and self._settings.profile:
-                profile = self._settings.profile
-        except Exception:
-            pass
-
-        # Get context budget from settings (profile's context.max_context_tokens)
-        context_budget = None
-        try:
-            if hasattr(self._settings, "context") and hasattr(
-                self._settings.context, "max_context_tokens"
-            ):
-                context_budget = self._settings.context.max_context_tokens
-        except Exception:
-            pass
-
-        info = SessionInfo(
-            session_id=_short(getattr(self._agent, "active_session_id", None)),
-            mode=self._mode,
-            model=self._safe(lambda: self._client.model) or "—",
-            provider=self._safe(lambda: self._client.provider_name) or "—",
-            profile=profile,
-            budget_used=0,
-            budget_total=self._tool_budget,
-            context_pct=context_pct,
-            context_used=context_used,
-            context_total=context_budget or context_total,
-            token_usage=self._token_usage,
-            cost_usd=self._last_cost,
-        )
-        self.query_one("#session-bar", SessionBar).set_session_info(info)
 
     async def _compute_context_usage(self) -> tuple[Optional[int], Optional[int], Optional[float]]:
         """Read current context telemetry through the framework client."""

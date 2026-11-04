@@ -49,14 +49,15 @@ def _gauge(pct: float, width: int = 20) -> str:
 
 
 class TokenUsageBar(Static):
-    """Compact token/context/cost telemetry panel."""
+    """Token/context/cost telemetry panel with spacious layout."""
 
     DEFAULT_CSS = """
     TokenUsageBar {
-        height: 2;
+        height: 3;
         padding: 0 1;
         background: $surface;
         color: $foreground;
+        border-top: solid $primary;
     }
     """
 
@@ -127,10 +128,12 @@ class TokenUsageBar(Static):
             cost_usd,
         )
 
-        if not line1 and not line2:
+        line3 = self._render_line3(cost=cost_usd)
+        if not line1 and not line2 and not line3:
             self.update("[dim italic]No usage data yet[/]")
         else:
-            self.update(f"{line1}\n{line2}")
+            parts = [p for p in (line1, line2, line3) if p]
+            self.update("\n".join(parts))
 
     # ── renderers ─────────────────────────────────────────────────
     def _render_line1(
@@ -140,21 +143,22 @@ class TokenUsageBar(Static):
         pct: Optional[float],
         model: Optional[str],
     ) -> str:
-        """Line 1: Context window gauge with absolute tokens."""
+        """Line 1: Context window gauge with absolute tokens and model."""
         parts: list[str] = []
         if model:
             parts.append(f"[bold bright_cyan]{model}[/]")
         if limit and limit > 0 and used is not None and used >= 0:
             ratio = min(100.0, used / limit * 100.0)
             color = _ctx_color(ratio)
+            # Wider gauge for better visibility
             parts.append(
-                f"[dim]ctx[/] [{color}]{_gauge(ratio)}[/] "
+                f"[dim]context[/] [{color}]{_gauge(ratio, width=30)}[/] "
                 f"[{color}]{_human_tokens(used)}/{_human_tokens(limit)}[/] "
-                f"[dim]{ratio:.0f}%[/]"
+                f"[dim]({ratio:.0f}%)[/]"
             )
         elif pct is not None:
             color = _ctx_color(pct)
-            parts.append(f"[dim]ctx[/] [{color}]{_gauge(pct)} {pct:.0f}%[/]")
+            parts.append(f"[dim]context[/] [{color}]{_gauge(pct, width=30)} {pct:.0f}%[/]")
         return "  ".join(parts)
 
     def _render_line2(
@@ -168,7 +172,7 @@ class TokenUsageBar(Static):
         total: Optional[int],
         cost: Optional[float],
     ) -> str:
-        """Line 2: Turn/session telemetry (input/output/cache/cost)."""
+        """Line 2: Turn token breakdown (in / out / cache / total)."""
         parts: list[str] = []
 
         # input side with cache annotation
@@ -196,12 +200,17 @@ class TokenUsageBar(Static):
         if total:
             parts.append(f"[dim]turn[/] [bright_white]{_human_tokens(total)}[/]")
 
-        # expenses
-        if cost is not None:
-            parts.append(f"[dim]turn $[/][bright_yellow]{cost:.4f}[/]")
-        if self._session_cost_usd:
-            parts.append(f"[dim]session $[/][bright_yellow]{self._session_cost_usd:.4f}[/]")
-        if self._session_requests:
-            parts.append(f"[dim]{self._session_requests} req[/]")
+        return "  ·  ".join(parts)
 
+    def _render_line3(self, cost: Optional[float]) -> str:
+        """Line 3: Session cost summary (consolidated, no duplication)."""
+        parts: list[str] = []
+        if cost is not None:
+            parts.append(f"[dim]last turn[/] [bright_yellow]${cost:.4f}[/]")
+        if self._session_cost_usd:
+            parts.append(f"[dim]session total[/] [bright_yellow]${self._session_cost_usd:.4f}[/]")
+        if self._session_requests:
+            parts.append(f"[dim]requests[/] [bright_white]{self._session_requests}[/]")
+        if not parts:
+            return ""
         return "  ·  ".join(parts)

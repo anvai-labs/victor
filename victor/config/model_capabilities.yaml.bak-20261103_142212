@@ -1,0 +1,2282 @@
+# Model Capabilities Configuration v0.2.0
+#
+# MODEL-CENTRIC SCHEMA: Each model is the authoritative source of truth.
+# Helper tools can update specific sections for individual models.
+#
+# Schema:
+#   models.<model_pattern>:
+#     training:        # What the model was trained to do (provider-independent)
+#     providers:       # How each provider enables these capabilities
+#     settings:        # Tuning parameters
+#
+# Resolution order:
+#   1. defaults
+#   2. provider_defaults.<provider>
+#   3. models.<pattern>.training (inherent capabilities)
+#   4. models.<pattern>.providers.<provider> (provider-specific overrides)
+#   5. models.<pattern>.settings (tuning)
+
+schema_version: "0.3.0"
+
+# =============================================================================
+# MODEL KIND TAXONOMY
+# =============================================================================
+# model_kind classifies a model's generation paradigm:
+#
+#   standard   — Classic autoregressive sampling. Accepts `temperature`,
+#                `top_p`, etc. This is the default for all models.
+#
+#   reasoning  — Deliberation-based model (chain-of-thought / effort-based).
+#                Does NOT accept `temperature` or `top_p`. Uses
+#                `reasoning_effort` (low/high/max) instead. Sending temperature
+#                to these models causes the Sandhi gateway to reject the request
+#                with a policy error. Examples: GLM-5.3, claude-sonnet-5,
+#                claude-fable-*, OpenAI o-series.
+#
+# This is the SINGLE SOURCE OF TRUTH for temperature support. Provider code
+# reads model_kind via ModelCapabilityResolver and conditionally omits
+# temperature — no more scattered per-provider duck-typing.
+#
+# Schema for each model entry:
+#   training.model_kind: standard | reasoning   (default: standard)
+#   training.temperature_supported: true | false (derived from model_kind;
+#     explicit override allowed for edge cases like partial-reasoning models)
+
+# =============================================================================
+# GLOBAL DEFAULTS
+# =============================================================================
+defaults:
+  # Default capability assumptions for unknown models
+  training:
+    tool_calling: false
+    thinking_mode: false
+    code_generation: false
+    vision: false
+    reasoning: false
+    # model_kind: standard means temperature IS accepted (the safe default).
+    # Override to "reasoning" for models that reject temperature.
+    model_kind: standard
+    temperature_supported: true
+
+  # Default provider support
+  provider_support:
+    native_tool_calls: false
+    streaming_tool_calls: false
+    parallel_tool_calls: false
+    tool_choice_param: false
+
+  # Default fallback parsing (when native support unavailable)
+  fallback:
+    json_parsing: true
+    xml_parsing: true
+
+  # Default settings
+  settings:
+    recommended_max_tools: 15
+    recommended_tool_budget: 10
+    requires_strict_prompting: true
+    argument_format: json
+    # Exploration multiplier: models that need more "thinking" turns get higher values
+    # This multiplies the max_exploration_iterations limit
+    exploration_multiplier: 1.0
+    # Continuation patience: how many empty turns to allow before forcing completion
+    continuation_patience: 10
+    # Timeout multiplier: slow local models (30B+ params) need longer timeouts
+    # Multiplies provider timeout (default 300s)
+    timeout_multiplier: 1.0
+    # Tool reliability rating: how reliably the model produces proper tool calls
+    # Values: high (works reliably), medium (may need retries), low (often fails)
+    # Models with 'low' reliability will use enhanced prompting and fallback parsing
+    tool_reliability: medium
+    # Payload size limits (bytes) - prevents HTTP 413 errors
+    # Default is generous; providers with strict limits override this
+    max_request_payload_bytes: 10485760  # 10MB default
+    # Truncation strategy when payload exceeds limit:
+    # - truncate_oldest: Remove oldest messages first
+    # - truncate_tool_results: Truncate large tool results
+    # - reduce_tools: Reduce number of tools sent
+    # - fail: Fail with informative error
+    payload_truncation_strategy: truncate_oldest
+
+  # Token-optimized serialization settings
+  # Controls how tool outputs are formatted to minimize token usage
+  serialization:
+    # Preferred format (null = auto-select based on data)
+    # Options: json, json_minified, toon, csv, markdown_table, reference_encoded
+    preferred_format: null
+
+    # Formats to try for auto-selection (order = preference)
+    allowed_formats:
+      - toon
+      - csv
+      - json_minified
+      - json
+
+    # Minimum array size to consider tabular formats (TOON/CSV)
+    min_array_size_for_tabular: 3
+
+    # Minimum savings threshold to switch from JSON (0.0-1.0)
+    min_savings_threshold: 0.20
+
+    # Include format hint for LLM to understand the encoding
+    include_format_hint: true
+
+    # Enable reference encoding for repetitive values
+    enable_reference_encoding: true
+
+    # Minimum repetition ratio to use references (0.0-1.0)
+    min_repetition_for_references: 0.5
+
+    # Maximum nesting depth for compact formats
+    max_nesting_for_compact: 1
+
+    # Debug mode - include analysis metadata in output
+    debug_mode: false
+
+# =============================================================================
+# PROVIDER DEFAULTS
+# =============================================================================
+# Infrastructure-level capabilities for each provider.
+# These define what the provider CAN support, not what individual models do.
+
+provider_defaults:
+  # Cloud providers - full native support via their APIs
+  anthropic:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 50
+    recommended_tool_budget: 20
+    # Claude handles all formats well, prefer readability
+    serialization:
+      preferred_format: null  # auto-select
+      include_format_hint: true
+      min_savings_threshold: 0.15
+
+  openai:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 50
+    recommended_tool_budget: 20
+
+  google:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 15
+
+  xai:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 15
+
+  # Z.AI (Zhipu) - cloud provider, GLM models with native tool support
+  zai:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 20
+
+  # Moonshot (Kimi) - cloud provider with tool support
+  moonshot:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 20
+
+  # DeepSeek - cloud provider with tool support
+  deepseek:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 20
+
+  # Ollama - requires {{ if .Tools }} in Modelfile template
+  # Local inference is slower than cloud, especially for 30B+ models
+  ollama:
+    native_tool_calls: false  # Must be enabled per-model
+    streaming_tool_calls: false
+    parallel_tool_calls: false
+    tool_choice_param: false
+    requires_strict_prompting: true
+    recommended_max_tools: 20
+    recommended_tool_budget: 12
+    # Local inference needs longer timeouts (300s * 2 = 600s = 10min)
+    timeout_multiplier: 2.0
+    # More exploration turns for local models
+    exploration_multiplier: 1.5
+
+  # LMStudio - llama.cpp enables tools for ALL models (0.3.6+)
+  lmstudio:
+    native_tool_calls: true
+    streaming_tool_calls: false
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 25
+    recommended_tool_budget: 15
+    # Local inference needs longer timeouts (300s * 1.5 = 450s = 7.5min)
+    timeout_multiplier: 1.5
+    # Slightly more exploration turns for local models
+    exploration_multiplier: 1.3
+
+  # InferFlux - the server extracts tool calls from model output into OpenAI
+  # tool_calls (preamble-convention JSON, <tool_call> XML, and Mistral formats;
+  # multiple calls per completion supported) on both streaming and
+  # non-streaming paths, for any GGUF model, so tools are enabled
+  # provider-wide like lmstudio. parallel_tool_calls stays false until
+  # multi-call turns are exercised through Victor's loop end to end; the
+  # server already returns them with per-call indices.
+  inferflux:
+    native_tool_calls: true
+    streaming_tool_calls: false
+    parallel_tool_calls: false
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 25
+    recommended_tool_budget: 15
+    # Self-hosted local inference: same generous timeouts as lmstudio
+    timeout_multiplier: 1.5
+    exploration_multiplier: 1.3
+
+  # vLLM - guided decoding via Outlines for all models
+  vllm:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 15
+
+  # llama.cpp server (llama-server) - OpenAI-compatible endpoint with native
+  # function-calling via --jinja (emits `finish_reason: tool_calls`, streams
+  # tool_call deltas). Same class as LMStudio/vLLM, NOT the strict-prompted
+  # Ollama path; without this it inherits the global `false` default and the
+  # agent narrates instead of calling tools.
+  llamacpp:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 25
+    recommended_tool_budget: 15
+    # Local inference needs longer timeouts (300s * 1.5 = 450s = 7.5min)
+    timeout_multiplier: 1.5
+    exploration_multiplier: 1.3
+
+  # Moonshot AI - OpenAI-compatible API for Kimi K2 models
+  moonshot:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 40
+    recommended_tool_budget: 20
+
+  # DeepSeek API - OpenAI-compatible with reasoning support
+  deepseek:
+    native_tool_calls: true  # Only deepseek-chat, not deepseek-reasoner
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 20
+    # DeepSeek models need more "thinking" turns, give them higher exploration limit
+    exploration_multiplier: 1.5
+    continuation_patience: 10
+
+  # Groq Cloud - Ultra-fast inference with free tier
+  # NOTE: Groq has strict payload size limits (413 errors) due to LPU architecture
+  # Keep max_tools low to prevent payload too large errors
+  groqcloud:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 12
+    recommended_tool_budget: 15
+    # Payload size limit (bytes) - Groq LPU constraint
+    max_request_payload_bytes: 4194304  # 4MB - strict Groq limit
+    payload_truncation_strategy: truncate_tool_results  # Prefer truncating tool results
+    # Aggressive compression to stay within payload limits
+    serialization:
+      preferred_format: null  # auto-select most compact
+      include_format_hint: true
+      min_savings_threshold: 0.10  # use compact formats more aggressively
+      allowed_formats:
+        - csv          # most compact for tabular
+        - toon
+        - json_minified
+        - json
+
+  # Cerebras Cloud - Ultra-fast inference via Wafer Scale Engine
+  # Free tier: 30 req/min, 60K-150K tokens/min
+  # https://inference-docs.cerebras.ai/
+  cerebras:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 20
+
+  # Mistral AI API - Native tool calling support
+  # https://docs.mistral.ai/capabilities/function_calling/
+  mistral:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 15
+
+  # Together AI - OpenAI-compatible with native tool support
+  # https://docs.together.ai/docs/function-calling
+  together:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 15
+
+  # OpenRouter - Routes to multiple providers, tool support varies by model
+  # https://openrouter.ai/docs#tool-use
+  openrouter:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 25
+    recommended_tool_budget: 15
+
+  # Fireworks AI - Fast inference with tool calling
+  # https://docs.fireworks.ai/guides/function-calling
+  fireworks:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 15
+
+  # Azure OpenAI - Same capabilities as OpenAI
+  azure:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 50
+    recommended_tool_budget: 20
+
+  # AWS Bedrock - Tool support for Claude, Llama, Mistral models
+  # https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use.html
+  bedrock:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 40
+    recommended_tool_budget: 20
+
+  # Google Vertex AI - Same as Google AI but enterprise
+  vertex:
+    native_tool_calls: true
+    streaming_tool_calls: true
+    parallel_tool_calls: true
+    tool_choice_param: true
+    requires_strict_prompting: false
+    recommended_max_tools: 30
+    recommended_tool_budget: 15
+
+  # HuggingFace Inference API - Model-dependent tool support
+  huggingface:
+    native_tool_calls: false  # Varies by model, default to false
+    streaming_tool_calls: false
+    parallel_tool_calls: false
+    tool_choice_param: false
+    requires_strict_prompting: true
+    recommended_max_tools: 15
+    recommended_tool_budget: 10
+
+  # Replicate - Model-dependent, mostly for image/audio models
+  replicate:
+    native_tool_calls: false  # Most models don't support tools
+    streaming_tool_calls: false
+    parallel_tool_calls: false
+    tool_choice_param: false
+    requires_strict_prompting: true
+    recommended_max_tools: 10
+    recommended_tool_budget: 8
+
+# =============================================================================
+# MODEL CONFIGURATIONS
+# =============================================================================
+# Each model pattern is authoritative. Helper tools update specific sections.
+
+models:
+  # ---------------------------------------------------------------------------
+  # QWEN FAMILY
+  # ---------------------------------------------------------------------------
+
+  "qwen3-coder*":
+    # Training capabilities (what the model was trained to do)
+    training:
+      tool_calling: true
+      thinking_mode: true
+      thinking_disable_prefix: "/no_think"  # Qwen3 prefix to skip thinking
+      code_generation: true
+
+    # Provider-specific support
+    providers:
+      ollama:
+        native_tool_calls: false  # NO {{ if .Tools }} in Ollama template
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true   # llama.cpp enables it
+      vllm:
+        native_tool_calls: true   # Guided decoding enables it
+      llamacpp:
+        native_tool_calls: true   # llama-server --jinja emits native tool_calls
+        requires_strict_prompting: false
+
+    # Model settings
+    settings:
+      recommended_tool_budget: 10
+      argument_format: xml
+
+  "qwen3-coder-tools*":
+    # Custom -tools variant with Modelfile tool template
+    training:
+      tool_calling: true
+      thinking_mode: true
+      thinking_disable_prefix: "/no_think"  # Qwen3 prefix to skip thinking
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Custom Modelfile enables it
+        parallel_tool_calls: true
+        # Set to true for stricter prompts to prevent continuation without action
+        requires_strict_prompting: true
+        # How many empty responses before forcing continuation prompt
+        continuation_patience: 6
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+      llamacpp:
+        native_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: xml
+      # Stricter thresholds for this model
+      stage_transition_confidence: 0.75
+      # High reliability - tested and works well with tool calling
+      tool_reliability: high
+
+  "qwen3:*":
+    # Base Qwen3 (non-coder) - HAS Ollama tool support
+    training:
+      tool_calling: true
+      thinking_mode: true
+      thinking_disable_prefix: "/no_think"  # Qwen3 prefix to skip thinking
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Has {{ if .Tools }} in template
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: xml
+
+  "qwen2.5*":
+    # Generic qwen2.5 - most have Ollama tool support
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Has {{ if .Tools }} in template
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+      cerebras:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: xml
+
+  # qwen2.5-coder larger sizes - NO tool template in Ollama
+  # NOTE: qwen2.5-coder has INCONSISTENT tool support across sizes:
+  #   - qwen2.5-coder:1.5b HAS {{ if .Tools }} (uses generic qwen2.5* config)
+  #   - qwen2.5-coder:7b HAS {{ if .Tools }} (uses generic qwen2.5* config)
+  #   - qwen2.5-coder:14b does NOT have tool template
+  #   - qwen2.5-coder:32b does NOT have tool template
+  # These specific patterns override the generic qwen2.5* for larger sizes.
+  "qwen2.5-coder:14b*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false  # NO {{ if .Tools }} in template
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true   # llama.cpp enables it
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 12
+      argument_format: xml
+
+  "qwen2.5-coder:32b*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false  # NO {{ if .Tools }} in template
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 12
+      argument_format: xml
+
+  "qwen2.5-coder-tools*":
+    # Custom -tools variant with tool template added
+    # NOTE: Qwen 2.5 Coder on Ollama may output PARAMETER syntax instead of JSON.
+    # Use qwen3-coder-tools for more reliable tool calling.
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Custom Modelfile enables it
+        parallel_tool_calls: true
+        requires_strict_prompting: true  # Need stricter prompting
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: xml
+      # Low reliability on Ollama - may output PARAMETER syntax instead of proper tool calls
+      tool_reliability: low
+
+  # Shorthand naming (qwen25 instead of qwen2.5) - matches user-created models
+  # NOTE: Some qwen25-coder-tools Modelfiles may be missing the .Tools template.
+  # If tool calls fail, check: curl http://localhost:11434/api/show -d '{"name":"MODEL"}'
+  "qwen25-coder-tools*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Custom Modelfile enables it
+        parallel_tool_calls: true
+        requires_strict_prompting: true  # Need stricter prompting
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: xml
+      # Low reliability - Modelfile may be missing .Tools template
+      tool_reliability: low
+
+  # ---------------------------------------------------------------------------
+  # LLAMA FAMILY
+  # ---------------------------------------------------------------------------
+
+  "llama3.1*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Has {{ if .Tools }} in template
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+      cerebras:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: json
+
+  "llama3.2*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: json
+
+  "llama3.3*":
+    # NOTE: Llama 3.3 on Ollama often describes tools in prose but doesn't
+    # actually call them. Use qwen3-coder-tools for more reliable tool calling.
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: true  # Need stricter prompting
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+      cerebras:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      argument_format: json
+      # Low reliability on Ollama - often describes tools but doesn't call them
+      tool_reliability: low
+      # 70B models need longer timeouts (300s * 3 = 900s = 15min)
+      timeout_multiplier: 3.0
+
+  "codellama*":
+    training:
+      tool_calling: false  # Limited tool training
+      code_generation: true
+
+    providers:
+      # CodeLlama has no native function calling in the official Meta model
+      # (see MODEL_CARD.md); community function-calling variants are separate
+      # fine-tunes. A runtime can format tools into the prompt, but it cannot
+      # give the weights a capability they were never trained for — so no
+      # provider may claim native tool calls here.
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      vllm:
+        native_tool_calls: false
+        requires_strict_prompting: true
+
+    settings:
+      recommended_tool_budget: 8
+
+  # ---------------------------------------------------------------------------
+  # MISTRAL FAMILY
+  # ---------------------------------------------------------------------------
+
+  "mistral*":
+    training:
+      tool_calling: true   # Trained with tool support
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false  # NO {{ if .Tools }} in template
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true   # llama.cpp enables it
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "mistral-tools*":
+    # Custom -tools variant
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Custom Modelfile
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  "mixtral*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "mixtral-tools*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  "ministral*":
+    training:
+      tool_calling: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "devstral*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "devstral-tools*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  # ---------------------------------------------------------------------------
+  # DEEPSEEK FAMILY
+  # ---------------------------------------------------------------------------
+
+  "deepseek-coder*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "deepseek-coder-tools*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  "deepseek-coder-v2*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "deepseek-coder-v2-tools*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  "deepseek-r1*":
+    training:
+      tool_calling: true
+      reasoning: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "deepseek-r1-tools*":
+    # NOTE: DeepSeek R1 on Ollama often produces truncated JSON tool calls
+    # like {"tool_call": } or outputs verbose reasoning before tools.
+    # Use qwen3-coder-tools for more reliable tool calling.
+    training:
+      tool_calling: true
+      reasoning: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: true  # Need stricter prompting
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+      # Low reliability on Ollama - often produces truncated or malformed tool calls
+      tool_reliability: low
+      # 70B models need longer timeouts (300s * 3 = 900s = 15min)
+      timeout_multiplier: 3.0
+
+  # ---------------------------------------------------------------------------
+  # GOOGLE FAMILY
+  # ---------------------------------------------------------------------------
+
+  "gemma4*":
+    training:
+      tool_calling: true   # Gemma 4 has native tool/function calling
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  "gemma3*":
+    training:
+      tool_calling: true   # Google trained with tool support
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: false  # NO {{ if .Tools }} in template
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "gemma3-tools*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 12
+
+  "gemma:*":
+    # Legacy Gemma (1.x/2.x). Native function calling arrived with Gemma 4
+    # (and FunctionGemma for 3-270M) — both matched by their own patterns
+    # below. Base Gemma needs a separate fine-tune, which is why third-party
+    # *-Function-Calling variants exist. No runtime can substitute for that.
+    training:
+      tool_calling: false
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      vllm:
+        native_tool_calls: false
+        requires_strict_prompting: true
+
+    settings:
+      recommended_tool_budget: 8
+
+  # ---------------------------------------------------------------------------
+  # MICROSOFT PHI FAMILY
+  # ---------------------------------------------------------------------------
+
+  "phi*":
+    training:
+      tool_calling: true   # Some tool capability
+      reasoning: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+        parallel_tool_calls: false  # Smaller models may struggle
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 8
+
+  "phi-tools*":
+    training:
+      tool_calling: true
+      reasoning: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  # ---------------------------------------------------------------------------
+  # COHERE FAMILY
+  # ---------------------------------------------------------------------------
+
+  "command-r*":
+    training:
+      tool_calling: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Has tool support in template
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  # ---------------------------------------------------------------------------
+  # FUNCTION CALLING SPECIALISTS
+  # ---------------------------------------------------------------------------
+
+  "hermes*":
+    training:
+      tool_calling: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 18
+
+  "functionary*":
+    training:
+      tool_calling: true   # Designed for function calling
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 20
+
+  "firefunction*":
+    training:
+      tool_calling: true
+
+    providers:
+      ollama:
+        native_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  "gpt-oss*":
+    training:
+      tool_calling: true
+      thinking_mode: true   # Harmony analysis/commentary channels (request `think`)
+      code_generation: true
+
+    providers:
+      ollama:
+        native_tool_calls: true   # Has {{ if .Tools }} in template
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  # ---------------------------------------------------------------------------
+  # OTHER MODELS
+  # ---------------------------------------------------------------------------
+
+  "yi*":
+    training:
+      tool_calling: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 10
+
+  "internlm*":
+    training:
+      tool_calling: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  "jamba*":
+    training:
+      tool_calling: true
+
+    providers:
+      ollama:
+        native_tool_calls: false
+        requires_strict_prompting: true
+      lmstudio:
+        native_tool_calls: true
+      vllm:
+        native_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+  # ---------------------------------------------------------------------------
+  # MOONSHOT KIMI K2 FAMILY
+  # ---------------------------------------------------------------------------
+  # Kimi K2 is a trillion-parameter MoE model with 32B active parameters
+  # and 256k context window. Supports native tool calling and reasoning traces.
+
+  "kimi-k2-thinking*":
+    training:
+      tool_calling: true
+      reasoning: true
+      thinking_mode: true
+      code_generation: true
+
+    providers:
+      moonshot:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+
+  "kimi-k2-instruct*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      moonshot:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  "kimi-k3*":
+    # Kimi K3 flagship: 2.8T MoE, 1M-token context, always-on thinking,
+    # native vision. Served from the international .ai platform endpoint;
+    # routed automatically by MoonshotProvider.resolve_base_url_for_model.
+    training:
+      tool_calling: true
+      reasoning: true
+      thinking_mode: true
+      code_generation: true
+
+    providers:
+      moonshot:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # DEEPSEEK API MODELS
+  # ---------------------------------------------------------------------------
+  # DeepSeek-V3.2 models with 128K context window
+  # Note: deepseek-reasoner does NOT support function calling
+
+  "deepseek-chat*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      deepseek:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 30
+      recommended_tool_budget: 20
+      argument_format: json
+
+  "deepseek-reasoner*":
+    training:
+      tool_calling: false  # Reasoner does NOT support function calling
+      reasoning: true
+      thinking_mode: true
+      code_generation: true
+
+    providers:
+      deepseek:
+        native_tool_calls: false  # No function calling in reasoner
+        streaming_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 0  # No tools
+      recommended_tool_budget: 5  # Minimal, for exploration only
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # GROQ CLOUD MODELS
+  # ---------------------------------------------------------------------------
+  # Ultra-fast inference via Groq LPU hardware
+  # Free developer tier available at https://console.groq.com
+
+  "llama-3.3-70b-versatile*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      groqcloud:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 25
+      argument_format: json
+
+  "llama-3.1-8b-instant*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      groqcloud:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 30
+      recommended_tool_budget: 15
+      argument_format: json
+
+  "openai/gpt-oss-*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      groqcloud:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: false  # GPT-OSS doesn't support parallel calls
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 30
+      recommended_tool_budget: 15
+      argument_format: json
+
+  "qwen/qwen3-32b*":
+    training:
+      tool_calling: true
+      thinking_mode: true
+      thinking_disable_prefix: "/no_think"
+      code_generation: true
+
+    providers:
+      groqcloud:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  "moonshotai/kimi-k2-instruct*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      groqcloud:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+
+  "meta-llama/llama-4-scout*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      groqcloud:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        requires_strict_prompting: false
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # MISTRAL API MODELS
+  # ---------------------------------------------------------------------------
+  # Mistral AI direct API models (not Ollama)
+
+  "mistral-large*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      mistral:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  "mistral-small*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      mistral:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 30
+      recommended_tool_budget: 15
+      argument_format: json
+
+  "codestral*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      mistral:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 35
+      recommended_tool_budget: 18
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # TOGETHER AI MODELS
+  # ---------------------------------------------------------------------------
+
+  "meta-llama/Meta-Llama*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      together:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 35
+      recommended_tool_budget: 18
+      argument_format: json
+
+  "mistralai/*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      together:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 30
+      recommended_tool_budget: 15
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # FIREWORKS AI MODELS
+  # ---------------------------------------------------------------------------
+
+  "accounts/fireworks/models/llama*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      fireworks:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 35
+      recommended_tool_budget: 18
+      argument_format: json
+
+  "accounts/fireworks/models/qwen*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      fireworks:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 35
+      recommended_tool_budget: 18
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # AZURE OPENAI MODELS
+  # ---------------------------------------------------------------------------
+  # Azure uses deployment names, which can be anything
+  # Provider defaults apply for all Azure models
+
+  "gpt-4*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      azure:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 25
+      argument_format: json
+
+  "gpt-4o*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      azure:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 25
+      argument_format: json
+      tool_reliability: high
+
+  "gpt-4o-mini*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      azure:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+      tool_reliability: high
+
+  "gpt-5.4-mini*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    providers:
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 25
+      argument_format: json
+      tool_reliability: high
+
+  "gpt-5.4*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+      thinking_mode: true
+
+    providers:
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "gpt-5.4-pro*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+      thinking_mode: true
+
+    providers:
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 35
+      argument_format: json
+      tool_reliability: high
+
+  "o3-*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    providers:
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "gpt-3.5*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      azure:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      openai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 30
+      recommended_tool_budget: 15
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # ANTHROPIC CLAUDE MODELS
+  # ---------------------------------------------------------------------------
+
+  "claude-*":
+    training:
+      tool_calling: true
+      code_generation: true
+      model_kind: standard
+      temperature_supported: true
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      bedrock:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 25
+      argument_format: json
+
+  # claude-sonnet-5 and claude-fable-* are reasoning / extended-thinking models
+  # that do NOT accept temperature. Sending it causes the Sandhi gateway (and
+  # the Anthropic API directly) to reject the request with a policy error.
+  "claude-sonnet-5*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+      thinking_mode: true
+      model_kind: reasoning
+      temperature_supported: false
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+      exploration_multiplier: 1.5
+
+  "claude-fable-*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+      thinking_mode: true
+      model_kind: reasoning
+      temperature_supported: false
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 35
+      argument_format: json
+      tool_reliability: high
+      exploration_multiplier: 2.0
+
+  # ---------------------------------------------------------------------------
+  # ANTHROPIC CLAUDE OPUS 4.5
+  # ---------------------------------------------------------------------------
+
+  "claude-opus-4-5*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      bedrock:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  # ---------------------------------------------------------------------------
+  # GOOGLE GEMINI MODELS
+  # ---------------------------------------------------------------------------
+
+  "gemini-*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      google:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      vertex:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  "gemini-3*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+      thinking_mode: true
+
+    providers:
+      google:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      vertex:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "gemini-3.1*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+      thinking_mode: true
+
+    providers:
+      google:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      vertex:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "gemini-2.0*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+      thinking_mode: true
+
+    providers:
+      google:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      vertex:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "gemini-1.5-flash-8b*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      google:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+      vertex:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # XAI GROK MODELS
+  # ---------------------------------------------------------------------------
+
+  "grok-*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      xai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  "grok-4*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    providers:
+      xai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "grok-4.20*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    providers:
+      xai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 35
+      argument_format: json
+      tool_reliability: high
+
+  "grok-4-1-fast*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    providers:
+      xai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "grok-2*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      xai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_max_tools: 40
+      recommended_tool_budget: 20
+      argument_format: json
+
+  # ---------------------------------------------------------------------------
+  # Z.AI GLM Models (GLM-5.x, GLM-4.7)
+  # ---------------------------------------------------------------------------
+
+  "glm-5*":
+    training:
+      tool_calling: true
+      thinking_mode: true
+      code_generation: true
+      reasoning: true
+      # GLM-5.x base wildcard: standard sampling (GLM-5.1, 5.2 accept temperature)
+      model_kind: standard
+      temperature_supported: true
+
+    providers:
+      zai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 25
+      tool_reliability: high
+
+  # GLM-5.3 is a pure reasoning model — it uses reasoning_effort (low/high/max)
+  # and does NOT accept temperature. Sending temperature causes the Sandhi
+  # gateway to reject the request with a policy error.
+  "glm-5.3*":
+    training:
+      tool_calling: true
+      thinking_mode: true
+      code_generation: true
+      reasoning: true
+      model_kind: reasoning
+      temperature_supported: false
+
+    providers:
+      zai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 30
+      tool_reliability: high
+      exploration_multiplier: 1.5
+
+  "glm-5.1*":
+    training:
+      tool_calling: true
+      thinking_mode: true
+      code_generation: true
+      reasoning: true
+      model_kind: standard
+      temperature_supported: true
+
+    providers:
+      zai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 30
+      tool_reliability: high
+
+  "glm-4.7*":
+    training:
+      tool_calling: true
+      thinking_mode: true
+      code_generation: true
+
+    providers:
+      zai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 20
+
+  "glm-4.6*":
+    training:
+      tool_calling: true
+      code_generation: true
+
+    providers:
+      zai:
+        native_tool_calls: true
+        streaming_tool_calls: true
+
+    settings:
+      recommended_tool_budget: 15
+
+# =============================================================================
+# TOOL SERIALIZATION CONFIGURATION
+# =============================================================================
+# Tool-specific serialization preferences and output type hints.
+# This enables smarter format selection based on what each tool produces.
+#
+# Output types:
+#   - tabular: List of uniform objects (databases, search results)
+#   - text: Plain text content (file content, bash output)
+#   - structured: Nested JSON structures
+#   - mixed: Variable output depending on operation
+
+tool_serialization:
+  # Default preferences for all tools
+  defaults:
+    output_type: mixed
+    preferred_format: null  # auto-select
+    min_rows_for_tabular: 3  # Minimum rows to use TOON/CSV
+    serialization_enabled: true
+
+  # Tool categories with shared configuration
+  categories:
+    # Database and data tools - strongly prefer tabular formats
+    data_tools:
+      tools:
+        - database_tool
+        - sql_query
+        - csv_reader
+      output_type: tabular
+      preferred_formats:
+        - csv
+        - toon
+        - json_minified
+      min_savings_threshold: 0.15
+
+    # Search tools - often return structured results
+    search_tools:
+      tools:
+        - code_search
+        - semantic_code_search
+        - web_search
+      output_type: tabular
+      preferred_formats:
+        - toon
+        - json_minified
+
+    # File tools - text content, no serialization
+    file_tools:
+      tools:
+        - read_file
+        - list_directory
+      output_type: text
+      serialization_enabled: false  # Keep as text
+
+    # Bash/command tools - text output
+    command_tools:
+      tools:
+        - execute_bash
+        - docker
+      output_type: text
+      serialization_enabled: false
+
+    # Git tools - mixed output (some tabular, some text)
+    git_tools:
+      tools:
+        - git
+      output_type: mixed
+      preferred_formats:
+        - toon
+        - json_minified
+
+    # Refactoring/analysis tools - structured JSON output
+    analysis_tools:
+      tools:
+        - refactor
+        - code_review
+        - metrics
+        - dependency_analysis
+      output_type: structured
+      preferred_formats:
+        - json_minified
+        - json
+
+  # Individual tool overrides (highest priority)
+  tools:
+    # Database tool always returns tabular data
+    database_tool:
+      output_type: tabular
+      preferred_format: csv
+      min_rows_for_tabular: 2
+
+    # Code search returns file:line matches
+    code_search:
+      output_type: tabular
+      preferred_format: toon
+
+    # Semantic search returns ranked results
+    semantic_code_search:
+      output_type: tabular
+      preferred_format: toon
+
+    # List directory is already compact
+    list_directory:
+      serialization_enabled: false
+
+    # Read file should never be serialized (code needs verbatim)
+    read_file:
+      serialization_enabled: false
+
+    # Bash output is text
+    execute_bash:
+      serialization_enabled: false
+
+    # Web search returns structured results
+    web_search:
+      output_type: tabular
+      preferred_format: toon
+      include_format_hint: true
+
+    # Git log/status can be tabular
+    git:
+      output_type: mixed
+      # Only serialize for log/status/branch operations
+      serialize_operations:
+        - log
+        - status
+        - branch
+      skip_operations:
+        - diff
+        - show
