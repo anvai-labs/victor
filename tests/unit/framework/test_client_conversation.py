@@ -140,7 +140,7 @@ async def test_victor_client_resume_session_validates_before_hydration(
     # covered by test_session_resume; here we assert VictorClient wires it.
     captured = {}
 
-    def _fake_hydrate(context_service, controller, data):
+    def _fake_hydrate(context_service, controller, data, orchestrator=None):
         captured["context"] = context_service
         captured["controller"] = controller
         captured["data"] = data
