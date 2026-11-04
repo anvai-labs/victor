@@ -3,7 +3,12 @@
 All notable changes to Victor are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.26.0] - Unreleased
+
+The never-tagged 0.25.0 train (agent stamina ×5, hardened shell/consensus
+semantics, victor-contracts 0.17.0, verticals 0.16.0) was prepared on
+2026-10-31 but no release tags were pushed, so nothing past v0.24.0 has
+shipped. That content and everything below ship together as 0.26.0.
 
 ### Changed
 
@@ -25,10 +30,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Legacy conversation recovery preserves model, provider, profile, token budgets,
   timestamps and project ownership, retaining canonical defaults for missing values.
 
-## [0.25.0] - 2026-10-31
+### Also in this release (prepared as 0.25.0, 2026-10-31)
 
-Requires `victor-contracts>=0.17.0` (published first); first-party verticals 0.16.0 ship
-alongside (`verticals-v0.16.0`).
+Requires `victor-contracts>=0.17.0` (tagged and published first); first-party
+verticals 0.16.0 ship alongside (`verticals-v0.16.0`).
 
 ### Changed
 
