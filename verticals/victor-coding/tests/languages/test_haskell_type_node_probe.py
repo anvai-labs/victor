@@ -37,9 +37,7 @@ MODULE_PATH = Path(__file__).resolve().parents[2] / (
 def _load_additional_module():
     """Load additional.py by path so the test exercises the checked-out file
     rather than whatever the editable install maps."""
-    spec = importlib.util.spec_from_file_location(
-        "_additional_under_test", MODULE_PATH
-    )
+    spec = importlib.util.spec_from_file_location("_additional_under_test", MODULE_PATH)
     module = importlib.util.module_from_spec(spec)
     sys.modules.setdefault("_additional_under_test", module)
     spec.loader.exec_module(module)
@@ -64,9 +62,7 @@ class _StubQuery:
             raise ValueError(f"invalid node type: {pattern}")
 
 
-def test_probe_prefers_fixed_spelling_when_grammar_supports_it(
-    additional_module, monkeypatch
-):
+def test_probe_prefers_fixed_spelling_when_grammar_supports_it(additional_module, monkeypatch):
     import tree_sitter
 
     monkeypatch.setattr(tree_sitter, "Query", _StubQuery)

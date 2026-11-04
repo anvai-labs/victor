@@ -26,13 +26,62 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from victor.config.orchestrator_constants import TOOL_SELECTION_PRESETS
 from victor.core.model_parameters import ReasoningEffort
 
-__all__ = ["ProfileConfig"]
+__all__ = ["ProfileConfig", "ThinkingConfig"]
+
+
+# ---------------------------------------------------------------------------
+# Thinking configuration — first-class profile field (Proposal 5)
+# ---------------------------------------------------------------------------
+
+# Anthropic provider slugs that enforce the temperature+thinking constraint.
+# When a profile uses one of these providers with thinking.enabled=true,
+# the cross-field validator rejects a co-present `temperature` setting.
+_ANTHROPIC_THINKING_PROVIDERS = frozenset({"anthropic", "bedrock"})
+
+
+class ThinkingConfig(BaseModel):
+    """Extended-thinking configuration for Anthropic (and compatible) models.
+
+    When ``enabled`` is ``True`` the provider receives a ``thinking`` block
+    in the request.  Anthropic's API **rejects** ``temperature`` alongside
+    an enabled thinking block — Victor strips it automatically, but a profile
+    that explicitly sets both fields will be rejected at load time so the
+    conflict is surfaced early rather than silently swallowed.
+
+    Example profile YAML::
+
+        profiles:
+          my_thinking_profile:
+            provider: anthropic
+            model: claude-sonnet-4-5-20251101
+            thinking:
+              enabled: true
+              budget_tokens: 12000
+            # temperature: 0.7  ← would raise ValidationError
+
+    Attributes:
+        enabled: Activate extended thinking for this profile (default: False).
+        budget_tokens: Token budget for the thinking block.  Anthropic models
+            have per-model maximums; see model_capabilities.yaml for defaults.
+            Must be >= 1024 (Anthropic minimum) and <= 100000.
+    """
+
+    enabled: bool = False
+    budget_tokens: int = Field(
+        10000,
+        ge=1024,
+        le=100000,
+        description=(
+            "Token budget for the thinking block.  Anthropic's minimum is 1024; "
+            "per-model maximums are listed in model_capabilities.yaml."
+        ),
+    )
 
 
 class ProfileConfig(BaseSettings):
@@ -62,6 +111,25 @@ class ProfileConfig(BaseSettings):
         None,
         description="Default reasoning effort for capable models; explicit requests override it. "
         "Allowed levels depend on the selected provider and model.",
+    )
+    thinking: Optional[ThinkingConfig] = Field(
+        None,
+        description=(
+            "Extended-thinking configuration for Anthropic thinking models "
+            "(claude-sonnet-4-5, claude-sonnet-5, claude-opus-4-8, etc.). "
+            "When thinking.enabled=true, temperature must NOT be set — "
+            "Anthropic's API rejects the combination. Victor enforces this at "
+            "profile-load time so the error surfaces before any API call is made."
+        ),
+    )
+    thinking_budget_tokens: Optional[int] = Field(
+        None,
+        ge=1024,
+        le=100000,
+        description=(
+            "Convenience alias: sets thinking.budget_tokens without requiring the "
+            "full thinking block. Ignored when thinking is None or thinking.enabled=False."
+        ),
     )
     description: Optional[str] = Field(None, description="Optional profile description")
     tool_selection: Optional[Dict[str, Any]] = Field(
@@ -136,6 +204,36 @@ class ProfileConfig(BaseSettings):
     )
     # Future: session_time_limit for total session duration cap (regardless of activity)
     timeout: Optional[int] = Field(None, gt=0, description="Request timeout in seconds")
+
+    @model_validator(mode="after")
+    def validate_thinking_temperature_compat(self) -> "ProfileConfig":
+        """Reject profiles that set both temperature and thinking.enabled.
+
+        Anthropic's API returns a 400 error when ``temperature`` is present
+        alongside an enabled ``thinking`` block.  Catching it here surfaces a
+        clear ValidationError at profile-load time so the user can fix their
+        profiles.yaml before any API call is attempted.
+
+        Only enforced for Anthropic-family providers (``anthropic``, ``bedrock``)
+        because other providers may accept both fields independently.
+        """
+        if (
+            self.provider in _ANTHROPIC_THINKING_PROVIDERS
+            and self.thinking is not None
+            and self.thinking.enabled
+            # temperature has a default of 0.6; only flag it when the field
+            # was explicitly supplied (i.e. the user set it in their YAML).
+            # We detect "explicitly supplied" by checking model_fields_set,
+            # which Pydantic populates only for fields present in the input.
+            and "temperature" in self.model_fields_set
+        ):
+            raise ValueError(
+                f"Profile '{getattr(self, 'model', '?')}' on provider '{self.provider}': "
+                "'temperature' must not be set when 'thinking.enabled' is true. "
+                "Anthropic's API rejects both together. "
+                "Remove 'temperature' from your profile or set 'thinking.enabled: false'."
+            )
+        return self
 
     @field_validator("tool_selection")
     @classmethod

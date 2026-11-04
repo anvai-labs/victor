@@ -14,11 +14,13 @@
 
 """Textual themes for the interactive TUI (ADR-020).
 
-Three registered themes — dark (Dracula-family, matching the REPL palette), a
-clean light theme, and a maximal-contrast accessibility theme. ``styles.tcss``
-references theme variables (``$background``, ``$surface``, ``$primary``, …) rather
-than hard-coded hex, so switching the active theme restyles the whole app. Users
-pick one at launch (``victor tui --theme light``) or cycle at runtime (F6).
+Four registered themes — dark (Dracula-family, matching the REPL palette), a
+clean light theme, a maximal-contrast accessibility theme, and a terminal-native
+theme that respects the launched terminal's colors (like Claude/Codex do).
+``styles.tcss`` references theme variables (``$background``, ``$surface``,
+``$primary``, …) rather than hard-coded hex, so switching the active theme
+restyles the whole app. Users pick one at launch (``victor tui --theme light``)
+or cycle at runtime (F6).
 
 Pure data + helpers; the only Textual dependency is the ``Theme`` value type.
 """
@@ -77,8 +79,46 @@ VICTOR_HIGH_CONTRAST = Theme(
     dark=True,
 )
 
+#: Terminal-native — respects the launched terminal's colors (like Claude/Codex).
+#: Uses transparent-ish defaults so iTerm2/Terminal.app backgrounds show through.
+VICTOR_TERMINAL = Theme(
+    name="victor-terminal",
+    # Textual's terminal-native path: ``ansi=True`` plus the ``ansi_*`` color
+    # tokens (mirroring the built-in ansi themes) resolve every surface color
+    # from the LAUNCHING terminal's palette. (The original empty-string colors
+    # crashed Color.parse on mount; fixed per adversarial review.)
+    primary="ansi_blue",
+    secondary="ansi_cyan",
+    accent="ansi_green",
+    foreground="ansi_default",
+    background="ansi_default",
+    surface="ansi_default",
+    panel="ansi_default",
+    success="ansi_green",
+    warning="ansi_yellow",
+    error="ansi_red",
+    dark=True,
+    ansi=True,
+    # Textual's screen/component CSS references these ANSI variables; the
+    # built-in ansi themes ship exactly this mapping.
+    variables={
+        "ansi-background": "ansi_black",
+        "ansi-foreground": "ansi_white",
+        "border-blurred": "ansi_black",
+        "block-cursor-foreground": "ansi_black",
+        "block-cursor-background": "ansi_white",
+        "input-cursor-background": "ansi_black",
+        "input-cursor-foreground": "ansi_bright_white",
+        "input-cursor-text-style": "none",
+        "input-selection-background": "ansi_bright_blue",
+        "input-selection-foreground": "ansi_black",
+        "screen-selection-background": "ansi_bright_blue",
+        "screen-selection-foreground": "ansi_black",
+    },
+)
+
 #: All TUI themes, in cycle order (F6 advances through these).
-THEMES: List[Theme] = [VICTOR_DARK, VICTOR_LIGHT, VICTOR_HIGH_CONTRAST]
+THEMES: List[Theme] = [VICTOR_DARK, VICTOR_LIGHT, VICTOR_HIGH_CONTRAST, VICTOR_TERMINAL]
 
 #: Canonical default theme name.
 DEFAULT_THEME = VICTOR_DARK.name
@@ -90,6 +130,8 @@ _ALIASES = {
     "high-contrast": VICTOR_HIGH_CONTRAST.name,
     "high_contrast": VICTOR_HIGH_CONTRAST.name,
     "hc": VICTOR_HIGH_CONTRAST.name,
+    "terminal": VICTOR_TERMINAL.name,
+    "native": VICTOR_TERMINAL.name,
 }
 
 _NAMES = {theme.name for theme in THEMES}

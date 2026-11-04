@@ -2171,10 +2171,78 @@ def _editor_available() -> bool:
         "For surgical edits to existing files, use edit with 'replace' operation instead",
         "Supports undo via /undo command",
         "Automatically uses LSP validation/formatting when available for the language",
-        "REQUIRED: 'path' and 'content' must be separate keyword arguments, not a JSON object",
+        "IMPORTANT: Pass 'path' and 'content' as SEPARATE keyword arguments",
+        "CORRECT: write(path='file.py', content='code here')",
+        'WRONG: write(value=\'{"path": "file.py"}\') - do NOT wrap in value envelope',
     ],
 )
 async def write(
+    path: str,
+    content: str,
+    *,
+    mode: str = "overwrite",  # "overwrite" (default), "append", "replace"
+    validate: bool = False,
+    format_code: bool = False,
+    dry_run: bool = False,
+    force: bool = False,
+) -> Union[str, Dict[str, Any]]:
+    """Write a file with intuitive mode selection.
+
+    Args:
+        path: File path to write to
+        content: Content to write
+        mode: Write mode - one of:
+            - "overwrite" (default): Replace entire file content (creates if doesn't exist)
+            - "append": Add content to end of file (creates if doesn't exist)
+            - "replace": Same as overwrite (alias for clarity)
+        validate: Run LSP validation
+        format_code: Auto-format with LSP
+        dry_run: Don't actually write, just validate
+        force: Skip read-before-overwrite check
+
+    Examples:
+        write(path="file.py", content="code")  # overwrite/create
+        write(path="log.txt", content="new line", mode="append")  # append
+        write(path="config.yaml", content="new config", mode="replace")  # replace
+
+    Note:
+        For surgical edits (replacing specific lines), use edit() instead.
+        In EXPLORE/PLAN modes, writes are restricted to .victor/sandbox/.
+    """
+    # Normalize mode aliases
+    mode = mode.lower()
+    if mode in ("replace", "overwrite"):
+        mode = "overwrite"
+    elif mode == "append":
+        mode = "append"
+    else:
+        logger.warning(f"Unknown write mode '{mode}', defaulting to 'overwrite'")
+        mode = "overwrite"
+
+    # Handle append mode
+    if mode == "append":
+        file_path = Path(path).expanduser().resolve()
+        if file_path.exists():
+            # Read existing content and append
+            try:
+                existing = file_path.read_text()
+                content = existing + content
+            except Exception as e:
+                logger.warning(f"Failed to read existing file for append: {e}")
+                # Fall through to normal write
+
+    # Delegate to the main write logic
+    return await _write_impl(
+        path=path,
+        content=content,
+        validate=validate,
+        format_code=format_code,
+        dry_run=dry_run,
+        force=force,
+    )
+
+
+async def _write_impl(
     path: str,
     content: str,
     *,
@@ -2183,29 +2251,7 @@ async def write(
     dry_run: bool = False,
     force: bool = False,
 ) -> Union[str, Dict[str, Any]]:
-    """Write a file — thin facade over ``edit(create)``.
-
-    Requires `path` AND `content`; overwriting an existing file requires
-    reading it first in this session.
-
-    Consolidating write() onto edit() gives ONE write path and ONE
-    read-before-overwrite gate (see ``enforce_read_before_write``). Behavior is
-    preserved from the previous standalone implementation:
-
-    * **Simple mode** (default): auto LSP validate/format for code files, then
-      create/overwrite. Returns a success message string.
-    * **Enhanced mode** (``validate`` / ``format_code`` / ``dry_run``): returns
-      a Dict with LSP diagnostics; ``dry_run`` writes nothing.
-
-    Safety: overwriting an existing file that was NOT read this session is
-    refused. Pass ``force=True`` to opt out (intentional full rewrite /
-    generated output).
-
-    Note:
-        In EXPLORE/PLAN modes, writes are restricted to .victor/sandbox/.
-        Use /mode build to enable unrestricted file writes.
-        Falls back to a regular write if LSP is not available for the file type.
-    """
+    """Internal write implementation — thin facade over ``edit(create)``."""
     file_path = Path(path).expanduser().resolve()
 
     # Enforce sandbox restrictions in EXPLORE/PLAN modes (fail fast, before any

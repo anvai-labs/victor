@@ -27,15 +27,33 @@ def test_inferflux_is_thin_typed_policy(provider: InferfluxProvider) -> None:
 
 def test_model_policy_lineup_and_prefix_routes(provider: InferfluxProvider) -> None:
     # Model ids are operator config server-side; the YAML tier pins the
-    # production aiserver1 lineup (qwen3-coder-30b on the R9700 at n_ctx
-    # 98304 / 4 sequences with q8_0 KV; gpt-oss-20b on the RTX 4000 Ada at
-    # n_ctx 65536 / 4). The windows mirror each pool's per-sequence context.
+    # production aiserver1 lineup. qwen3-coder-30b and qwen3.8-27b share the
+    # R9700 ROCm pool (n_ctx 98304 / 4 sequences with q8_0 KV = 24576
+    # per-sequence); lfm2.5-8b-a1b runs on the same pool at the same per-seq
+    # limit; gpt-oss-20b runs its own CUDA pool (n_ctx 65536 / 4 = 16384).
+    # The context_window() method resolves via prefix routes, so the per-seq
+    # pool limit (24576 / 16384) is what budgeting sees, regardless of the
+    # per-model informational context_window in the YAML (which describes the
+    # model's native capability, not the serving pool's per-seq cap).
     required = {"description", "context_window", "max_output", "supports_tools"}
     assert all(required <= metadata.keys() for metadata in INFERFLUX_MODELS.values())
-    assert set(INFERFLUX_MODELS) == {"qwen3-coder-30b", "gpt-oss-20b"}
+    assert set(INFERFLUX_MODELS) == {
+        "qwen3-coder-30b",
+        "gpt-oss-20b",
+        "qwen3.8-27b",
+        "lfm2.5-8b-a1b",
+    }
     assert provider.get_default_model() == "qwen3-coder-30b"
     assert INFERFLUX_MODELS["qwen3-coder-30b"]["supports_tools"] is True
+    assert INFERFLUX_MODELS["gpt-oss-20b"]["supports_thinking"] is True
+    assert INFERFLUX_MODELS["qwen3.8-27b"]["supports_thinking"] is False
+    assert INFERFLUX_MODELS["lfm2.5-8b-a1b"]["supports_thinking"] is False
+    # context_window() follows prefix routes, not the per-model YAML fields —
+    # qwen*/lfm* share the R9700 pool's 24576 per-seq cap; gpt-oss its own
+    # 16384 cap.
     assert provider.context_window("qwen3-coder-30b") == 24576
+    assert provider.context_window("qwen3.8-27b") == 24576
+    assert provider.context_window("lfm2.5-8b-a1b") == 24576
     assert provider.context_window("gpt-oss-20b") == 16384
     # Unknown operator id: the prefix routes (then the default) catch it, so
     # budgeting still matches whatever the server actually loads.

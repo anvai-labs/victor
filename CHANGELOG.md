@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+The next release is **0.26.0**: the never-tagged 0.25.0 train (agent
+stamina ×5, hardened shell/consensus semantics, victor-contracts 0.17.0,
+verticals 0.16.0) was prepared on 2026-10-31 but no release tags were
+pushed — nothing past v0.24.0 has shipped — so that content and everything
+below ships together as 0.26.0.
+
 ### Changed
 
 - Consensus defaults to three rounds across the formation, team preset and voting
@@ -25,10 +31,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Legacy conversation recovery preserves model, provider, profile, token budgets,
   timestamps and project ownership, retaining canonical defaults for missing values.
 
-## [0.25.0] - 2026-10-31
+### Also in this release (prepared as 0.25.0, 2026-10-31)
 
-Requires `victor-contracts>=0.17.0` (published first); first-party verticals 0.16.0 ship
-alongside (`verticals-v0.16.0`).
+Requires `victor-contracts>=0.17.0` (tagged and published first); first-party
+verticals 0.16.0 ship alongside (`verticals-v0.16.0`).
 
 ### Changed
 

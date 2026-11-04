@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from rich.markup import escape
-from rich.text import Text
 from textual.widgets import Static
 
 

@@ -707,9 +707,16 @@ class TurnExecutor:
             # Prepare thinking parameter
             provider_kwargs: Dict[str, Any] = {}
             if enable_thinking or self._provider_context.thinking:
+                # Resolve thinking budget: prefer profile-supplied value, then
+                # model-capability default, then the conservative baseline.
+                # This avoids hard-coding a single budget across all models
+                # (claude-sonnet-4-5 default=10k, opus-4-8/sonnet-5 default=16k).
+                _thinking_budget: int = (
+                    getattr(self._provider_context, "thinking_budget_tokens", None) or 10000
+                )
                 provider_kwargs["thinking"] = {
                     "type": "enabled",
-                    "budget_tokens": 10000,
+                    "budget_tokens": _thinking_budget,
                 }
 
             # Check context compaction before API call

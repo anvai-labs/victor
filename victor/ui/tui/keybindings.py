@@ -16,7 +16,7 @@
 
 Ships sane defaults; an optional ``~/.victor/keybindings.json`` remaps any action
 to a different key. The file maps *action name* → *key* so users rebind by intent
-(e.g. ``{"toggle_sidebar": "f2", "interrupt": "escape"}``) without needing to know
+(e.g. ``{"interrupt": "escape", "toggle_diff": "ctrl+d"}``) without needing to know
 Textual's binding tuples. A missing or malformed file falls back to the defaults.
 
 Pure logic; imports nothing from Textual and is unit-testable standalone.
@@ -40,7 +40,6 @@ DEFAULT_BINDINGS: Tuple[Binding, ...] = (
     ("escape", "interrupt", "Interrupt"),
     ("ctrl+p", "command_palette", "Commands"),
     ("f1", "help", "Help"),
-    ("f2", "toggle_sidebar", "Sidebar"),
     ("f3", "toggle_diff", "Diff"),
     ("f4", "diff_next", "Next edit"),
     ("f6", "cycle_theme", "Theme"),

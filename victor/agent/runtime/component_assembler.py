@@ -336,20 +336,26 @@ class ComponentAssembler:
             LifecycleCompactionSummarizerAdapter,
         )
 
-        max_context_tokens = int(
-            getattr(getattr(orchestrator, "settings", None), "max_context_tokens", 0) or 0
+        # The lifecycle service is the ACTIVE compactor on service-layer chat
+        # paths (turn_execution_runtime prefers it and returns early), so its
+        # window must come from the same unified resolution as the controller
+        # and the TUI gauge. Historically it read a flat settings attribute
+        # that never existed (settings only exposes the nested
+        # context.max_context_tokens), silently falling back to
+        # chars//4-or-model-window — profile/env overrides never reached it.
+        from victor.config.context_window import resolve_context_window
+
+        lifecycle_window = resolve_context_window(
+            orchestrator.provider_name,
+            orchestrator.model,
+            settings=getattr(orchestrator, "settings", None),
         )
-        if max_context_tokens <= 0:
-            max_context_chars = getattr(
-                getattr(orchestrator, "settings", None), "max_context_chars", None
-            )
-            if max_context_chars:
-                max_context_tokens = max(1, int(max_context_chars) // 4)
-            else:
-                try:
-                    max_context_tokens = int(orchestrator._get_model_context_window())
-                except Exception:
-                    max_context_tokens = 100000
+        max_context_tokens = lifecycle_window.tokens
+        logger.info(
+            "[context-window] lifecycle-service %s | overflow_threshold=%.0f%%",
+            lifecycle_window.describe(),
+            90.0,
+        )
 
         lifecycle_summarizer = None
         create_compaction_summarizer = getattr(factory, "create_compaction_summarizer", None)

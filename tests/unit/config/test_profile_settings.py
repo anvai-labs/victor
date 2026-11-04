@@ -49,6 +49,8 @@ def test_field_surface_unchanged():
         "temperatures",
         "max_tokens",
         "reasoning_effort",
+        "thinking",
+        "thinking_budget_tokens",
         "description",
         "tool_selection",
         "planning_provider",
