@@ -556,8 +556,10 @@ class ResumeCommand(BaseSlashCommand):
                 if prompt_builder_runtime is None:
                     # Try to get it via the service accessor pattern
                     prompt_builder_runtime = getattr(orchestrator, "prompt_builder_runtime", None)
-                
-                if prompt_builder_runtime and hasattr(prompt_builder_runtime, "ensure_system_prompt_current"):
+
+                if prompt_builder_runtime and hasattr(
+                    prompt_builder_runtime, "ensure_system_prompt_current"
+                ):
                     prompt_builder_runtime.ensure_system_prompt_current()
                     logger.info("Refreshed system prompt with current project context on resume")
                 elif hasattr(orchestrator, "build_system_prompt"):
