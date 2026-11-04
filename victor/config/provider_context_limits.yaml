@@ -196,10 +196,15 @@ models:
     context_window: 131072
 
   # Qwen Models
+  # Specific 256k patterns must precede the broad qwen3* — first fnmatch
+  # wins in get_provider_limits.
   "qwen3.8-27b*":
     context_window: 262144  # 256k for local Qwen3.8-27B
   "qwen3-coder*":
     context_window: 262144  # 256k for Qwen3-Coder models (30b, 480b, etc.)
+  # qwen3.7-plus (Bailian coding plan): 256k input window.
+  "qwen3.7-plus*":
+    context_window: 262144
   "qwen3*":
     context_window: 131072
   "qwen2.5*":

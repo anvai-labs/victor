@@ -110,6 +110,16 @@ class ContextMetrics:
     message_count: int
     is_overflow_risk: bool = False
     max_context_chars: int = CONTEXT_LIMITS.max_context_chars
+    # Token-space window (from resolve_context_window). When present,
+    # utilization/overflow operate in token space against the real model
+    # window instead of the legacy char budget.
+    max_context_tokens: Optional[int] = None
+    context_window_source: str = ""
+    # Real provider prompt_tokens of the last call (includes system prompt +
+    # tool schemas that message-char estimates miss) and cumulative session
+    # prefill volume feeding the budget-aware compaction trigger.
+    last_actual_prompt_tokens: Optional[int] = None
+    session_prompt_tokens: int = 0
 
     @property
     def total_chars(self) -> int:
@@ -118,10 +128,19 @@ class ContextMetrics:
 
     @property
     def utilization(self) -> float:
+        if self.max_context_tokens:
+            return min(1.0, self.estimated_tokens / self.max_context_tokens)
+        return min(1.0, self.char_count / self.max_context_chars) if self.max_context_chars else 0.0
+
+    @property
+    def char_utilization(self) -> float:
+        """Legacy char-space utilization (kept for tracing/diagnostics)."""
         return min(1.0, self.char_count / self.max_context_chars) if self.max_context_chars else 0.0
 
     @property
     def max_tokens(self) -> int:
+        if self.max_context_tokens:
+            return self.max_context_tokens
         return int(self.max_context_chars / 2.8)
 
     @property
@@ -132,6 +151,11 @@ class ContextMetrics:
 @dataclass
 class ConversationConfig:
     max_context_chars: int = CONTEXT_LIMITS.max_context_chars
+    # Token-space context window (resolved via victor.config.context_window).
+    # When set, utilization and overflow-risk operate in token space against
+    # the real model window; max_context_chars remains the legacy fallback.
+    max_context_tokens: Optional[int] = None
+    context_window_source: str = "unresolved"
     chars_per_token_estimate: int = CONTEXT_LIMITS.chars_per_token_estimate
     enable_stage_tracking: bool = True
     enable_context_monitoring: bool = True
@@ -203,6 +227,7 @@ class ConversationController:
         self._normalizer = prompt_normalizer or get_prompt_normalizer()
         # Token accounting: actual API-returned token counts replace char estimation
         self._last_actual_prompt_tokens: Optional[int] = None
+        self._chars_at_last_actual: int = 0
         self._observed_chars_per_token: float = float(self.config.chars_per_token_estimate)
 
     def get_session_cost_usd(self) -> float:
@@ -394,6 +419,7 @@ class ConversationController:
             return
         self._session_prompt_tokens += prompt_tokens
         self._last_actual_prompt_tokens = prompt_tokens
+        self._chars_at_last_actual = total_chars
         if total_chars > 0:
             observed = total_chars / prompt_tokens
             # Rolling average: 80% old, 20% new observation
@@ -411,7 +437,13 @@ class ConversationController:
         """Calculate current context metrics.
 
         Uses actual API-returned prompt_tokens when available (set via
-        record_actual_usage()), falling back to calibrated char estimation.
+        record_actual_usage()), projecting forward with the calibrated
+        chars-per-token ratio; falls back to pure char estimation.
+
+        Token-space projection matters because real prompt_tokens include the
+        system prompt and tool schemas — often 30-60K tokens that message-char
+        estimates never see. The 2026-11 wedged sessions overflowed a 128K
+        model window while the char-based utilization read ~0.72.
 
         Returns:
             ContextMetrics with size and overflow information
@@ -419,18 +451,41 @@ class ConversationController:
         total_chars = sum(len(m.content) for m in self.messages)
 
         if self._last_actual_prompt_tokens is not None:
-            # Project current size using the calibrated chars-per-token ratio
-            estimated_tokens = int(total_chars / self._observed_chars_per_token)
+            # Anchor on the last REAL prompt size and project the change in
+            # message chars since (negative after compaction/trim keeps the
+            # real system-prompt + tool-schema overhead baked into the anchor;
+            # the next record_actual_usage re-anchors exactly).
+            char_delta = total_chars - self._chars_at_last_actual
+            estimated_tokens = max(
+                1,
+                int(
+                    self._last_actual_prompt_tokens
+                    + char_delta / max(1.0, self._observed_chars_per_token)
+                ),
+            )
         else:
             estimated_tokens = total_chars // self.config.chars_per_token_estimate
+
+        window_tokens = self.config.max_context_tokens
+        if window_tokens:
+            is_overflow_risk = estimated_tokens > int(
+                window_tokens * CONTEXT_LIMITS.overflow_threshold
+            )
+        else:
+            is_overflow_risk = (
+                total_chars > self.config.max_context_chars * CONTEXT_LIMITS.overflow_threshold
+            )
 
         return ContextMetrics(
             char_count=total_chars,
             estimated_tokens=estimated_tokens,
             message_count=len(self.messages),
-            is_overflow_risk=total_chars
-            > self.config.max_context_chars * CONTEXT_LIMITS.overflow_threshold,
+            is_overflow_risk=is_overflow_risk,
             max_context_chars=self.config.max_context_chars,
+            max_context_tokens=window_tokens,
+            context_window_source=self.config.context_window_source,
+            last_actual_prompt_tokens=self._last_actual_prompt_tokens,
+            session_prompt_tokens=self._session_prompt_tokens,
         )
 
     def check_context_overflow(self) -> bool:
@@ -548,6 +603,33 @@ class ConversationController:
                 retained.update(results.get(call_id, set()))
         return retained
 
+    @property
+    def last_compaction_age_seconds(self) -> float:
+        """Seconds since the last completed compaction (inf if never)."""
+        import time
+
+        if self._last_compaction_time == 0.0:
+            return float("inf")
+        return max(0.0, time.time() - self._last_compaction_time)
+
+    def budget_compaction_due(self) -> tuple[bool, int, Optional[int]]:
+        """Check the session-prefill budget trigger independently.
+
+        The budget trigger must be evaluable on its own: historically it only
+        ran inside ``smart_compact_history``, which is only reached after the
+        compactor's utilization gate passes — so sessions with low (mis-)
+        estimated utilization accumulated 4-13M cumulative prefill tokens,
+        10-32x over the 400K limit, with the budget guard never getting a
+        chance to fire (victor.log 2026-11-01..04).
+
+        Returns:
+            Tuple of (due, session_prompt_tokens, limit).
+        """
+        limit = self.config.max_session_prefill_tokens
+        if limit is None:
+            return False, self._session_prompt_tokens, None
+        return self._session_prompt_tokens >= int(limit), self._session_prompt_tokens, int(limit)
+
     def _should_compact(self, current_utilization: float) -> bool:
         """Check if compaction should be triggered based on threshold and minimum interval.
 
@@ -586,10 +668,14 @@ class ConversationController:
         # Check minimum interval (prevents aggressive compaction)
         time_since_last = time.time() - self._last_compaction_time
         if time_since_last < self.MIN_COMPACTION_INTERVAL_SECONDS:
-            logger.debug(
-                f"Compaction blocked: only {time_since_last:.1f}s since last compaction "
-                f"(need {self.MIN_COMPACTION_INTERVAL_SECONDS}s). "
-                f"Utilization={current_utilization:.2f}, threshold={self.config.compaction_threshold:.2f}"
+            logger.info(
+                "[compaction] blocked by min-interval: only %.1fs since last compaction "
+                "(need %.0fs). utilization=%.2f threshold=%.2f — duplicate triggers "
+                "suppressed until the interval elapses",
+                time_since_last,
+                self.MIN_COMPACTION_INTERVAL_SECONDS,
+                current_utilization,
+                self.config.compaction_threshold,
             )
             return False
 
