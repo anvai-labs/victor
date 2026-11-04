@@ -14,9 +14,9 @@
 
 """Token usage display bar for the TUI.
 
-Full-fidelity panel: absolute context limit with a proportional gauge,
-per-turn token breakdown (prompt / cached / reasoning / generative),
-cache hit rate, and cost (last turn + session cumulative).
+Compact two-line panel: context window gauge with absolute tokens, and
+turn/session telemetry (input/output/cache/cost). Designed for elegant
+spacing with balanced colors that respect terminal-native themes.
 """
 
 from __future__ import annotations
@@ -34,27 +34,28 @@ def _human_tokens(n: float) -> str:
 
 
 def _ctx_color(pct: float) -> str:
+    """Context utilization color: green → yellow → red."""
     if pct < 60:
-        return "green"
+        return "bright_green"
     if pct < 85:
-        return "yellow"
-    return "red"
+        return "bright_yellow"
+    return "bright_red"
 
 
-def _gauge(pct: float, width: int = 14) -> str:
+def _gauge(pct: float, width: int = 20) -> str:
     """Render a proportional unicode gauge; solid fill = used share."""
     filled = max(0, min(width, round(pct / 100.0 * width)))
-    return "▓" * filled + "░" * (width - filled)
+    return "█" * filled + "░" * (width - filled)
 
 
 class TokenUsageBar(Static):
-    """Widget displaying context, token breakdown, cache and cost telemetry."""
+    """Compact token/context/cost telemetry panel."""
 
     DEFAULT_CSS = """
     TokenUsageBar {
         height: 2;
         padding: 0 1;
-        background: $panel;
+        background: $surface;
         color: $foreground;
     }
     """
@@ -110,7 +111,7 @@ class TokenUsageBar(Static):
         elif cost_usd is not None:
             self._session_cost_usd += float(cost_usd)
         if request_count is not None:
-            self._session_requests += int(request_count)
+            self._session_requests = int(request_count)
 
         line1 = self._render_line1(
             context_used_tokens, context_limit_tokens, context_used_pct, model
@@ -139,20 +140,21 @@ class TokenUsageBar(Static):
         pct: Optional[float],
         model: Optional[str],
     ) -> str:
+        """Line 1: Context window gauge with absolute tokens."""
         parts: list[str] = []
         if model:
-            parts.append(f"[bold cyan]{model}[/]")
+            parts.append(f"[bold bright_cyan]{model}[/]")
         if limit and limit > 0 and used is not None and used >= 0:
             ratio = min(100.0, used / limit * 100.0)
             color = _ctx_color(ratio)
             parts.append(
-                f"[dim]Ctx[/] [{color}]{_gauge(ratio)}[/] "
+                f"[dim]ctx[/] [{color}]{_gauge(ratio)}[/] "
                 f"[{color}]{_human_tokens(used)}/{_human_tokens(limit)}[/] "
                 f"[dim]{ratio:.0f}%[/]"
             )
         elif pct is not None:
             color = _ctx_color(pct)
-            parts.append(f"[dim]Ctx[/] [{color}]{_gauge(pct)} {pct:.0f}%[/]")
+            parts.append(f"[dim]ctx[/] [{color}]{_gauge(pct)} {pct:.0f}%[/]")
         return "  ".join(parts)
 
     def _render_line2(
@@ -166,11 +168,12 @@ class TokenUsageBar(Static):
         total: Optional[int],
         cost: Optional[float],
     ) -> str:
+        """Line 2: Turn/session telemetry (input/output/cache/cost)."""
         parts: list[str] = []
 
         # input side with cache annotation
         if prompt is not None and prompt >= 0:
-            seg = f"[dim]In[/] [bold]{_human_tokens(prompt)}[/]"
+            seg = f"[dim]in[/] [bright_white]{_human_tokens(prompt)}[/]"
             if cached:
                 seg += f" [dim](cache R {_human_tokens(cached)}"
                 if cache_write:
@@ -182,24 +185,22 @@ class TokenUsageBar(Static):
 
         # output side: reasoning vs generative split
         if completion is not None and completion >= 0:
-            seg = f"[dim]Out[/] [bold]{_human_tokens(completion)}[/]"
+            seg = f"[dim]out[/] [bright_white]{_human_tokens(completion)}[/]"
             if reasoning:
                 gen = max(0, completion - reasoning)
-                seg += (
-                    f" [dim](reason {_human_tokens(reasoning)} · " f"gen {_human_tokens(gen)})[/]"
-                )
+                seg += f" [dim](reason {_human_tokens(reasoning)} · gen {_human_tokens(gen)})[/]"
             parts.append(seg)
 
         if total is None and (prompt is not None or completion is not None):
             total = (prompt or 0) + (completion or 0)
         if total:
-            parts.append(f"[dim]Turn[/] {_human_tokens(total)}")
+            parts.append(f"[dim]turn[/] [bright_white]{_human_tokens(total)}[/]")
 
         # expenses
         if cost is not None:
-            parts.append(f"[dim]Turn $[/][bold]{cost:.4f}[/]")
+            parts.append(f"[dim]turn $[/][bright_yellow]{cost:.4f}[/]")
         if self._session_cost_usd:
-            parts.append(f"[dim]Session $[/][bold]{self._session_cost_usd:.4f}[/]")
+            parts.append(f"[dim]session $[/][bright_yellow]{self._session_cost_usd:.4f}[/]")
         if self._session_requests:
             parts.append(f"[dim]{self._session_requests} req[/]")
 
