@@ -27,9 +27,15 @@ Pure data + helpers; the only Textual dependency is the ``Theme`` value type.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, List
 
 from textual.theme import Theme
+
+# Textual 8.0 added the ``ansi=True`` terminal-native path to ``Theme``; older
+# releases (e.g. 7.x still in some deployed anaconda envs) reject the kwarg.
+# Detect at import time and pick the right construction for VICTOR_TERMINAL.
+_THEME_SUPPORTS_ANSI = "ansi" in inspect.signature(Theme.__init__).parameters
 
 #: Dark (default) — Dracula family, matches victor/ui/theme.py's REPL palette.
 VICTOR_DARK = Theme(
@@ -81,41 +87,63 @@ VICTOR_HIGH_CONTRAST = Theme(
 
 #: Terminal-native — respects the launched terminal's colors (like Claude/Codex).
 #: Uses transparent-ish defaults so iTerm2/Terminal.app backgrounds show through.
-VICTOR_TERMINAL = Theme(
-    name="victor-terminal",
-    # Textual's terminal-native path: ``ansi=True`` plus the ``ansi_*`` color
-    # tokens (mirroring the built-in ansi themes) resolve every surface color
-    # from the LAUNCHING terminal's palette. (The original empty-string colors
-    # crashed Color.parse on mount; fixed per adversarial review.)
-    primary="ansi_blue",
-    secondary="ansi_cyan",
-    accent="ansi_green",
-    foreground="ansi_default",
-    background="ansi_default",
-    surface="ansi_default",
-    panel="ansi_default",
-    success="ansi_green",
-    warning="ansi_yellow",
-    error="ansi_red",
-    dark=True,
-    ansi=True,
-    # Textual's screen/component CSS references these ANSI variables; the
-    # built-in ansi themes ship exactly this mapping.
-    variables={
-        "ansi-background": "ansi_black",
-        "ansi-foreground": "ansi_white",
-        "border-blurred": "ansi_black",
-        "block-cursor-foreground": "ansi_black",
-        "block-cursor-background": "ansi_white",
-        "input-cursor-background": "ansi_black",
-        "input-cursor-foreground": "ansi_bright_white",
-        "input-cursor-text-style": "none",
-        "input-selection-background": "ansi_bright_blue",
-        "input-selection-foreground": "ansi_black",
-        "screen-selection-background": "ansi_bright_blue",
-        "screen-selection-foreground": "ansi_black",
-    },
-)
+#:
+#: Textual 8.0+ supports ``ansi=True`` + ``ansi_*`` color tokens for real
+#: terminal palette inheritance. Older Textuals (7.x) don't — fall back to the
+#: same dark palette as VICTOR_DARK so the TUI still mounts instead of crashing
+#: at module import with ``Theme.__init__() got an unexpected keyword argument
+#: 'ansi'``. The ansi variables dict is only attached on Textual 8+; on 7.x the
+#: variables are silently ignored (the fallback colors still render).
+if _THEME_SUPPORTS_ANSI:
+    VICTOR_TERMINAL = Theme(
+        name="victor-terminal",
+        primary="ansi_blue",
+        secondary="ansi_cyan",
+        accent="ansi_green",
+        foreground="ansi_default",
+        background="ansi_default",
+        surface="ansi_default",
+        panel="ansi_default",
+        success="ansi_green",
+        warning="ansi_yellow",
+        error="ansi_red",
+        dark=True,
+        ansi=True,
+        # Textual's screen/component CSS references these ANSI variables; the
+        # built-in ansi themes ship exactly this mapping.
+        variables={
+            "ansi-background": "ansi_black",
+            "ansi-foreground": "ansi_white",
+            "border-blurred": "ansi_black",
+            "block-cursor-foreground": "ansi_black",
+            "block-cursor-background": "ansi_white",
+            "input-cursor-background": "ansi_black",
+            "input-cursor-foreground": "ansi_bright_white",
+            "input-cursor-text-style": "none",
+            "input-selection-background": "ansi_bright_blue",
+            "input-selection-foreground": "ansi_black",
+            "screen-selection-background": "ansi_bright_blue",
+            "screen-selection-foreground": "ansi_black",
+        },
+    )
+else:
+    # Textual < 8.0 fallback: the dark Dracula palette. The terminal-native
+    # feature is degraded (explicit colors instead of terminal palette) but
+    # the TUI still mounts and the theme-cycle (F6) still works.
+    VICTOR_TERMINAL = Theme(
+        name="victor-terminal",
+        primary="#bd93f9",
+        secondary="#8be9fd",
+        accent="#ffb86c",
+        foreground="#f8f8f2",
+        background="#282a36",
+        surface="#44475a",
+        panel="#44475a",
+        success="#50fa7b",
+        warning="#f1fa8c",
+        error="#ff5555",
+        dark=True,
+    )
 
 #: All TUI themes, in cycle order (F6 advances through these).
 THEMES: List[Theme] = [VICTOR_DARK, VICTOR_LIGHT, VICTOR_HIGH_CONTRAST, VICTOR_TERMINAL]
