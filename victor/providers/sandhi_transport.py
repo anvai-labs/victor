@@ -1490,8 +1490,9 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
         # Sandhi's anthropic encoder re-encodes messages/tools from the typed
         # fields and merges `cache_control` only from extensions["anthropic"]
         # (system blocks by index, tools by name) — the native body is the sole
-        # carrier of the FEP-0011 prompt-cache markers. Attach it, then prove
-        # the channel end-to-end so a silent cache-loss refactor fails loudly.
+        # carrier of the FEP-0011 prompt-cache markers. Attach it, then verify
+        # the channel at construction time so a refactor that severs it (or
+        # strips the markers) fails loudly instead of silently decaching.
         request["extensions"] = {"anthropic": native}
         _assert_anthropic_cache_channel(
             native, request, supports_caching=self.supports_prompt_caching()

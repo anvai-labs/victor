@@ -279,6 +279,27 @@ def test_cache_channel_guard_passes_when_caching_unsupported_or_nothing_cacheabl
     st._assert_anthropic_cache_channel(markerless, request_plain, supports_caching=False)
 
 
+def test_anthropic_request_rejects_unknown_thinking_type_with_temperature():
+    """`thinking.type` outside {enabled,disabled} must fail locally, not at the wire.
+
+    _build_request_params only strips temperature for the recognized enabled
+    shapes, so an unrecognized type used to ship temperature+thinking to a
+    guaranteed Anthropic 400. The policy-layer guard now rejects the pair
+    before it leaves Victor. Pins _is_thinking_active against loosening: any
+    shape it stops treating as active re-silences this failure.
+    """
+    provider = make_provider()
+    with pytest.raises(RuntimeError, match="thinking"):
+        provider._anthropic_request(
+            [Message(role="user", content="hello")],
+            model="claude-test",
+            temperature=0.7,
+            max_tokens=1024,
+            tools=None,
+            thinking={"type": "auto"},
+        )
+
+
 def test_anthropic_request_guard_rejects_temperature_alongside_thinking(monkeypatch):
     """Belt-and-suspenders mirror of sandhi's encoder guard, at the policy layer."""
 
