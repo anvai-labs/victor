@@ -552,7 +552,7 @@ class VictorTUIApp(App[None]):
                 profile = self._settings.profile
         except Exception:
             pass
-        
+
         self.query_one("#status-bar", StatusBar).set_status(
             phase_label=self._phase.label(),
             tool_count=self._phase.tool_count,

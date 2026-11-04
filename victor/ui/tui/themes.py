@@ -17,9 +17,9 @@
 Four registered themes — dark (Dracula-family, matching the REPL palette), a
 clean light theme, a maximal-contrast accessibility theme, and a terminal-native
 theme that respects the launched terminal's colors (like Claude/Codex do).
-``styles.tcss`` references theme variables (``$background``, ``$surface``, 
-``$primary``, …) rather than hard-coded hex, so switching the active theme 
-restyles the whole app. Users pick one at launch (``victor tui --theme light``) 
+``styles.tcss`` references theme variables (``$background``, ``$surface``,
+``$primary``, …) rather than hard-coded hex, so switching the active theme
+restyles the whole app. Users pick one at launch (``victor tui --theme light``)
 or cycle at runtime (F6).
 
 Pure data + helpers; the only Textual dependency is the ``Theme`` value type.
