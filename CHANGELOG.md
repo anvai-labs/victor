@@ -7,12 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Nothing yet; the next entries land here after 0.26.0 ships.
 
-## [0.26.0] - Unreleased
+## [Unreleased]
 
-The never-tagged 0.25.0 train (agent stamina ×5, hardened shell/consensus
-semantics, victor-contracts 0.17.0, verticals 0.16.0) was prepared on
-2026-10-31 but no release tags were pushed, so nothing past v0.24.0 has
-shipped. That content and everything below ship together as 0.26.0.
+The next release is **0.26.0**. The never-tagged 0.25.0 train (agent
+stamina ×5, hardened shell/consensus semantics, victor-contracts 0.17.0,
+verticals 0.16.0) was prepared on 2026-10-31 but no release tags were
+pushed — nothing past v0.24.0 has shipped — so that content and everything
+below ship together as 0.26.0.
 
 ### Changed
 
