@@ -315,12 +315,10 @@ class AnthropicProvider(BaseProvider):
         # both — even if a caller passes thinking via kwargs before we process it.
         thinking_kwarg = kwargs.get("thinking")
         thinking_active = (
-            isinstance(thinking_kwarg, dict)
-            and str(thinking_kwarg.get("type", "")) == "enabled"
-        ) or (
-            isinstance(thinking_kwarg, dict)
-            and bool(thinking_kwarg.get("enabled", False))
-        ) or thinking_kwarg is True
+            (isinstance(thinking_kwarg, dict) and str(thinking_kwarg.get("type", "")) == "enabled")
+            or (isinstance(thinking_kwarg, dict) and bool(thinking_kwarg.get("enabled", False)))
+            or thinking_kwarg is True
+        )
 
         request_params: Dict[str, Any] = {
             "model": model,

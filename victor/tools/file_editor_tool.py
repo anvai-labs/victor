@@ -449,7 +449,7 @@ from victor.tools.filesystem import enforce_read_before_write, enforce_sandbox_p
     ],
     priority_hints=[
         "CRITICAL: 'ops' parameter is REQUIRED - must be a list of operation dictionaries",
-        "CORRECT: edit(ops=[{\"type\": \"replace\", \"path\": \"file.py\", \"old_str\": \"old\", \"new_str\": \"new\"}])",
+        'CORRECT: edit(ops=[{"type": "replace", "path": "file.py", "old_str": "old", "new_str": "new"}])',
         "WRONG: edit(value='{\"ops\": [...]}') - do NOT wrap in value envelope",
         "Each operation needs 'type' (replace/create/delete/rename) and 'path'",
         "For replace: also include 'old_str' and 'new_str'",

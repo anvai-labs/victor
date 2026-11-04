@@ -2173,7 +2173,7 @@ def _editor_available() -> bool:
         "Automatically uses LSP validation/formatting when available for the language",
         "IMPORTANT: Pass 'path' and 'content' as SEPARATE keyword arguments",
         "CORRECT: write(path='file.py', content='code here')",
-        "WRONG: write(value='{\"path\": \"file.py\"}') - do NOT wrap in value envelope",
+        'WRONG: write(value=\'{"path": "file.py"}\') - do NOT wrap in value envelope',
     ],
 )
 async def write(

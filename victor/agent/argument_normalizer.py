@@ -839,6 +839,7 @@ class ArgumentNormalizer:
                         # Try to parse as JSON
                         try:
                             import json
+
                             parsed_ops = json.loads(ops_extract)
                             if isinstance(parsed_ops, list):
                                 logger.debug(
@@ -849,13 +850,14 @@ class ArgumentNormalizer:
                                 return {"ops": parsed_ops}
                         except Exception:
                             pass
-                    
+
                     # If we have a non-empty payload, try to salvage any operation-like structure
                     if payload_size > 10:
                         # Check if it looks like a single operation (has 'type' and 'path')
                         if '"type"' in payload and '"path"' in payload:
                             try:
                                 import json
+
                                 # Try to extract as single operation
                                 single_op = self._extract_by_schema(payload, ["type", "path"])
                                 if single_op and "type" in single_op:

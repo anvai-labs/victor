@@ -711,9 +711,9 @@ class TurnExecutor:
                 # model-capability default, then the conservative baseline.
                 # This avoids hard-coding a single budget across all models
                 # (claude-sonnet-4-5 default=10k, opus-4-8/sonnet-5 default=16k).
-                _thinking_budget: int = getattr(
-                    self._provider_context, "thinking_budget_tokens", None
-                ) or 10000
+                _thinking_budget: int = (
+                    getattr(self._provider_context, "thinking_budget_tokens", None) or 10000
+                )
                 provider_kwargs["thinking"] = {
                     "type": "enabled",
                     "budget_tokens": _thinking_budget,
