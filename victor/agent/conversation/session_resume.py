@@ -72,6 +72,38 @@ def hydrate_session(
     # Conversation controller: repoint its history at the stored session.
     if conversation_controller is not None and hasattr(conversation_controller, "load_history"):
         conversation_controller.load_history(history)
+        
+        # Re-anchor token tracking after resume. The controller's token accounting
+        # state (_last_actual_prompt_tokens, _session_prompt_tokens, etc.) is reset
+        # on init, so after restoring a large conversation we need to estimate the
+        # current token count to ensure compaction triggers correctly.
+        # Without this, a 125k/128k session appears as 0 utilization and compaction
+        # never fires.
+        try:
+            total_chars = sum(len(m.content) for m in history.messages)
+            if total_chars > 0:
+                # Estimate tokens using the controller's chars_per_token_estimate
+                # (default 3.5 chars/token). This is rough but sufficient to get
+                # utilization into the right ballpark for compaction decisions.
+                chars_per_token = getattr(conversation_controller.config, "chars_per_token_estimate", 3.5)
+                estimated_tokens = total_chars // max(1, int(chars_per_token))
+                # Use record_actual_usage to anchor the token tracking. We pass
+                # the estimated tokens as if they were real prompt_tokens from
+                # the API. This sets _last_actual_prompt_tokens and calibrates
+                # the chars-per-token ratio for future projections.
+                conversation_controller.record_actual_usage(
+                    prompt_tokens=estimated_tokens,
+                    total_chars=total_chars
+                )
+                # Also seed _session_prompt_tokens so the budget-aware spend
+                # trigger in _should_compact() sees the cumulative volume.
+                conversation_controller._session_prompt_tokens = estimated_tokens
+                logger.info(
+                    "Re-anchored token tracking on resume: ~%d tokens from %d chars",
+                    estimated_tokens, total_chars
+                )
+        except Exception as e:
+            logger.warning(f"Failed to re-anchor token tracking on resume: {e}")
 
     # Refresh system prompt with current project context (AGENTS.md, CLAUDE.md, etc.)
     # The stored session may have been created in a different workspace, so we need
