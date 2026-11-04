@@ -1,0 +1,687 @@
+{
+  "schema": "victor-similarity-corpus-v1",
+  "projects": [
+    {
+      "id": "requests",
+      "repository": "psf/requests",
+      "revision": "b25c87d7cb8d6a18a37fa12442b5f883f9e41741",
+      "split": "calibration",
+      "origin": "repository"
+    },
+    {
+      "id": "flask",
+      "repository": "pallets/flask",
+      "revision": "2c1b30d0503cfb064f1cb252e6614a06915a362a",
+      "split": "test",
+      "origin": "repository"
+    }
+  ],
+  "units": [
+    {
+      "id": "requests:src/requests/api.py:options",
+      "project": "requests",
+      "file": "src/requests/api.py",
+      "language": "python",
+      "symbol": "options",
+      "line": 76,
+      "end_line": 85,
+      "source_hash": "fd96fd39aeedcd5222cd32b016b3e30c463d7a3b66fce9d2444467003c46b10b"
+    },
+    {
+      "id": "requests:src/requests/api.py:delete",
+      "project": "requests",
+      "file": "src/requests/api.py",
+      "language": "python",
+      "symbol": "delete",
+      "line": 148,
+      "end_line": 157,
+      "source_hash": "fd96fd39aeedcd5222cd32b016b3e30c463d7a3b66fce9d2444467003c46b10b"
+    },
+    {
+      "id": "requests:src/requests/api.py:put",
+      "project": "requests",
+      "file": "src/requests/api.py",
+      "language": "python",
+      "symbol": "put",
+      "line": 118,
+      "end_line": 130,
+      "source_hash": "fd96fd39aeedcd5222cd32b016b3e30c463d7a3b66fce9d2444467003c46b10b"
+    },
+    {
+      "id": "requests:src/requests/api.py:patch",
+      "project": "requests",
+      "file": "src/requests/api.py",
+      "language": "python",
+      "symbol": "patch",
+      "line": 133,
+      "end_line": 145,
+      "source_hash": "fd96fd39aeedcd5222cd32b016b3e30c463d7a3b66fce9d2444467003c46b10b"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar.keys",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "keys",
+      "line": 234,
+      "end_line": 240,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar.values",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "values",
+      "line": 251,
+      "end_line": 257,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar.iterkeys",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "iterkeys",
+      "line": 225,
+      "end_line": 232,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar.itervalues",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "itervalues",
+      "line": 242,
+      "end_line": 249,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar.list_domains",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "list_domains",
+      "line": 277,
+      "end_line": 283,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar.list_paths",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "list_paths",
+      "line": 285,
+      "end_line": 291,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/structures.py:LookupDict.__getitem__",
+      "project": "requests",
+      "file": "src/requests/structures.py",
+      "language": "python",
+      "symbol": "__getitem__",
+      "line": 93,
+      "end_line": 96,
+      "source_hash": "f886e6855cf4e92fb968f499b94b6167afba0fd5ce8d1b935c739a6d8d38d573"
+    },
+    {
+      "id": "requests:src/requests/structures.py:LookupDict.get",
+      "project": "requests",
+      "file": "src/requests/structures.py",
+      "language": "python",
+      "symbol": "get",
+      "line": 98,
+      "end_line": 99,
+      "source_hash": "f886e6855cf4e92fb968f499b94b6167afba0fd5ce8d1b935c739a6d8d38d573"
+    },
+    {
+      "id": "requests:src/requests/api.py:head",
+      "project": "requests",
+      "file": "src/requests/api.py",
+      "language": "python",
+      "symbol": "head",
+      "line": 88,
+      "end_line": 100,
+      "source_hash": "fd96fd39aeedcd5222cd32b016b3e30c463d7a3b66fce9d2444467003c46b10b"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar.multiple_domains",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "multiple_domains",
+      "line": 293,
+      "end_line": 304,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar._find",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "_find",
+      "line": 366,
+      "end_line": 384,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:RequestsCookieJar._find_no_duplicates",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "_find_no_duplicates",
+      "line": 386,
+      "end_line": 413,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/structures.py:CaseInsensitiveDict.__getitem__",
+      "project": "requests",
+      "file": "src/requests/structures.py",
+      "language": "python",
+      "symbol": "__getitem__",
+      "line": 51,
+      "end_line": 52,
+      "source_hash": "f886e6855cf4e92fb968f499b94b6167afba0fd5ce8d1b935c739a6d8d38d573"
+    },
+    {
+      "id": "requests:src/requests/structures.py:CaseInsensitiveDict.__delitem__",
+      "project": "requests",
+      "file": "src/requests/structures.py",
+      "language": "python",
+      "symbol": "__delitem__",
+      "line": 54,
+      "end_line": 55,
+      "source_hash": "f886e6855cf4e92fb968f499b94b6167afba0fd5ce8d1b935c739a6d8d38d573"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:MockRequest.has_header",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "has_header",
+      "line": 72,
+      "end_line": 73,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "requests:src/requests/cookies.py:MockRequest.get_header",
+      "project": "requests",
+      "file": "src/requests/cookies.py",
+      "language": "python",
+      "symbol": "get_header",
+      "line": 75,
+      "end_line": 76,
+      "source_hash": "6cd8be8aa123e0d3d9d34fa86feac7bf392f39bccdde5129830de0ea9692dd7c"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.get",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "get",
+      "line": 296,
+      "end_line": 301,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.post",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "post",
+      "line": 304,
+      "end_line": 309,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.put",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "put",
+      "line": 312,
+      "end_line": 317,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.patch",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "patch",
+      "line": 328,
+      "end_line": 333,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.before_request",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "before_request",
+      "line": 460,
+      "end_line": 484,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.after_request",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "after_request",
+      "line": 487,
+      "end_line": 505,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.context_processor",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "context_processor",
+      "line": 542,
+      "end_line": 556,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.url_defaults",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "url_defaults",
+      "line": 584,
+      "end_line": 595,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sessions.py:SessionInterface.get_cookie_name",
+      "project": "flask",
+      "file": "src/flask/sessions.py",
+      "language": "python",
+      "symbol": "get_cookie_name",
+      "line": 185,
+      "end_line": 187,
+      "source_hash": "76ebd81a608687f1f772032ecb6a1e4a3ac2b02bcbca517808128e5e9374426b"
+    },
+    {
+      "id": "flask:src/flask/sessions.py:SessionInterface.get_cookie_secure",
+      "project": "flask",
+      "file": "src/flask/sessions.py",
+      "language": "python",
+      "symbol": "get_cookie_secure",
+      "line": 216,
+      "end_line": 220,
+      "source_hash": "76ebd81a608687f1f772032ecb6a1e4a3ac2b02bcbca517808128e5e9374426b"
+    },
+    {
+      "id": "flask:src/flask/sessions.py:SessionInterface.get_cookie_httponly",
+      "project": "flask",
+      "file": "src/flask/sessions.py",
+      "language": "python",
+      "symbol": "get_cookie_httponly",
+      "line": 209,
+      "end_line": 214,
+      "source_hash": "76ebd81a608687f1f772032ecb6a1e4a3ac2b02bcbca517808128e5e9374426b"
+    },
+    {
+      "id": "flask:src/flask/sessions.py:SessionInterface.get_cookie_samesite",
+      "project": "flask",
+      "file": "src/flask/sessions.py",
+      "language": "python",
+      "symbol": "get_cookie_samesite",
+      "line": 222,
+      "end_line": 227,
+      "source_hash": "76ebd81a608687f1f772032ecb6a1e4a3ac2b02bcbca517808128e5e9374426b"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold._method_route",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "_method_route",
+      "line": 284,
+      "end_line": 293,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.route",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "route",
+      "line": 336,
+      "end_line": 365,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sansio/scaffold.py:Scaffold.endpoint",
+      "project": "flask",
+      "file": "src/flask/sansio/scaffold.py",
+      "language": "python",
+      "symbol": "endpoint",
+      "line": 436,
+      "end_line": 457,
+      "source_hash": "c120125d8745456266a9c2f45eaf93ecdf8f0d55128851af8cef643d9839f1b9"
+    },
+    {
+      "id": "flask:src/flask/sessions.py:SessionInterface.get_cookie_path",
+      "project": "flask",
+      "file": "src/flask/sessions.py",
+      "language": "python",
+      "symbol": "get_cookie_path",
+      "line": 201,
+      "end_line": 207,
+      "source_hash": "76ebd81a608687f1f772032ecb6a1e4a3ac2b02bcbca517808128e5e9374426b"
+    },
+    {
+      "id": "flask:src/flask/sessions.py:SessionInterface.get_expiration_time",
+      "project": "flask",
+      "file": "src/flask/sessions.py",
+      "language": "python",
+      "symbol": "get_expiration_time",
+      "line": 237,
+      "end_line": 245,
+      "source_hash": "76ebd81a608687f1f772032ecb6a1e4a3ac2b02bcbca517808128e5e9374426b"
+    },
+    {
+      "id": "flask:src/flask/sessions.py:SessionInterface.should_set_cookie",
+      "project": "flask",
+      "file": "src/flask/sessions.py",
+      "language": "python",
+      "symbol": "should_set_cookie",
+      "line": 247,
+      "end_line": 261,
+      "source_hash": "76ebd81a608687f1f772032ecb6a1e4a3ac2b02bcbca517808128e5e9374426b"
+    },
+    {
+      "id": "flask:src/flask/json/provider.py:JSONProvider.dump",
+      "project": "flask",
+      "file": "src/flask/json/provider.py",
+      "language": "python",
+      "symbol": "dump",
+      "line": 49,
+      "end_line": 57,
+      "source_hash": "e62984cd8e478d5d87a1456b41b24ba970b330da595df0f46355ea74b5765c10"
+    },
+    {
+      "id": "flask:src/flask/json/provider.py:JSONProvider.load",
+      "project": "flask",
+      "file": "src/flask/json/provider.py",
+      "language": "python",
+      "symbol": "load",
+      "line": 67,
+      "end_line": 73,
+      "source_hash": "e62984cd8e478d5d87a1456b41b24ba970b330da595df0f46355ea74b5765c10"
+    }
+  ],
+  "pairs": [
+    {
+      "id": "requests-options-delete",
+      "left": "requests:src/requests/api.py:options",
+      "right": "requests:src/requests/api.py:delete",
+      "relation": "structure",
+      "positive": true,
+      "family": "requests-http-forwarding",
+      "rationale": "Both bodies return one request call with a literal verb, URL and expanded keyword arguments, with no preparatory mutation.",
+      "domain": "Single-stage HTTP forwarding call; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-put-patch",
+      "left": "requests:src/requests/api.py:put",
+      "right": "requests:src/requests/api.py:patch",
+      "relation": "structure",
+      "positive": true,
+      "family": "requests-http-forwarding",
+      "rationale": "Both bodies return one request call with a literal verb, URL, explicit data keyword and expanded keyword arguments.",
+      "domain": "Single-stage HTTP forwarding with a data operand; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-keys-values",
+      "left": "requests:src/requests/cookies.py:RequestsCookieJar.keys",
+      "right": "requests:src/requests/cookies.py:RequestsCookieJar.values",
+      "relation": "structure",
+      "positive": true,
+      "family": "requests-jar-enumeration",
+      "rationale": "Both return list applied to a zero-argument iterator helper; element meaning differs and is excluded.",
+      "domain": "Iterator-result list materialization; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-iterkeys-itervalues",
+      "left": "requests:src/requests/cookies.py:RequestsCookieJar.iterkeys",
+      "right": "requests:src/requests/cookies.py:RequestsCookieJar.itervalues",
+      "relation": "structure",
+      "positive": true,
+      "family": "requests-jar-enumeration",
+      "rationale": "Both iterate iter(self) and yield one cookie member per iteration; neither materializes a list.",
+      "domain": "Single-member generator projection; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-domains-paths",
+      "left": "requests:src/requests/cookies.py:RequestsCookieJar.list_domains",
+      "right": "requests:src/requests/cookies.py:RequestsCookieJar.list_paths",
+      "relation": "structure",
+      "positive": true,
+      "family": "requests-jar-enumeration",
+      "rationale": "Both allocate a list, traverse cookies, append a member only when absent, and return the list.",
+      "domain": "Order-preserving unique-member list accumulation; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-getitem-get",
+      "left": "requests:src/requests/structures.py:LookupDict.__getitem__",
+      "right": "requests:src/requests/structures.py:LookupDict.get",
+      "relation": "structure",
+      "positive": true,
+      "family": "requests-lookup-dictionary",
+      "rationale": "Both return one self.__dict__.get(key, default) call; the explicit default is None versus a caller argument.",
+      "domain": "Dictionary lookup with explicit default operand; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-head-options",
+      "left": "requests:src/requests/api.py:head",
+      "right": "requests:src/requests/api.py:options",
+      "relation": "structure",
+      "positive": false,
+      "family": "requests-http-forwarding",
+      "rationale": "head mutates kwargs using setdefault before forwarding; options forwards directly. The extra mutation stage is material to this structural label.",
+      "domain": "HTTP forwarding stages including keyword-map mutation; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-keys-iterkeys",
+      "left": "requests:src/requests/cookies.py:RequestsCookieJar.keys",
+      "right": "requests:src/requests/cookies.py:RequestsCookieJar.iterkeys",
+      "relation": "structure",
+      "positive": false,
+      "family": "requests-jar-enumeration",
+      "rationale": "keys materializes a helper iterator with list; iterkeys contains a loop and yield. Related API results do not make their local operation sequences the same.",
+      "domain": "Local generator production versus list materialization; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-domains-multiple",
+      "left": "requests:src/requests/cookies.py:RequestsCookieJar.list_domains",
+      "right": "requests:src/requests/cookies.py:RequestsCookieJar.multiple_domains",
+      "relation": "structure",
+      "positive": false,
+      "family": "requests-jar-enumeration",
+      "rationale": "list_domains conditionally appends unseen domains then returns a list; multiple_domains tests a conjunction, may return True inside the loop, appends outside the condition, and finally returns False.",
+      "domain": "Accumulation, branch position and early-return operation pattern; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-first-duplicate-check",
+      "left": "requests:src/requests/cookies.py:RequestsCookieJar._find",
+      "right": "requests:src/requests/cookies.py:RequestsCookieJar._find_no_duplicates",
+      "relation": "structure",
+      "positive": false,
+      "family": "requests-jar-lookup",
+      "rationale": "_find returns the first matching value from nested filters; _find_no_duplicates accumulates a candidate and adds a conflict exception before a deferred return and missing-value error.",
+      "domain": "Filtered lookup control flow including duplicate detection and error paths; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-read-delete",
+      "left": "requests:src/requests/structures.py:CaseInsensitiveDict.__getitem__",
+      "right": "requests:src/requests/structures.py:CaseInsensitiveDict.__delitem__",
+      "relation": "structure",
+      "positive": false,
+      "family": "requests-lookup-dictionary",
+      "rationale": "Both lowercase the key but one returns a stored tuple element while the other deletes the mapping entry.",
+      "domain": "Mapping read versus deletion, preserving operation kind; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "requests-has-get-header",
+      "left": "requests:src/requests/cookies.py:MockRequest.has_header",
+      "right": "requests:src/requests/cookies.py:MockRequest.get_header",
+      "relation": "structure",
+      "positive": false,
+      "family": "requests-header-lookup",
+      "rationale": "has_header short-circuits two membership tests; get_header nests dictionary get calls with a default operand.",
+      "domain": "Header lookup membership versus value retrieval and short-circuit structure; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-get-post",
+      "left": "flask:src/flask/sansio/scaffold.py:Scaffold.get",
+      "right": "flask:src/flask/sansio/scaffold.py:Scaffold.post",
+      "relation": "structure",
+      "positive": true,
+      "family": "flask-route-forwarding",
+      "rationale": "Both return self._method_route with literal method, rule and options; the same setupmethod decorator applies.",
+      "domain": "Single-stage route registration forwarding; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-put-patch",
+      "left": "flask:src/flask/sansio/scaffold.py:Scaffold.put",
+      "right": "flask:src/flask/sansio/scaffold.py:Scaffold.patch",
+      "relation": "structure",
+      "positive": true,
+      "family": "flask-route-forwarding",
+      "rationale": "Both return self._method_route with literal method, rule and options; the same setupmethod decorator applies.",
+      "domain": "Single-stage route registration forwarding; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-before-after",
+      "left": "flask:src/flask/sansio/scaffold.py:Scaffold.before_request",
+      "right": "flask:src/flask/sansio/scaffold.py:Scaffold.after_request",
+      "relation": "structure",
+      "positive": true,
+      "family": "flask-hook-registration",
+      "rationale": "Both call setdefault(None, []) on a callback mapping, append f, and return f. Callback execution timing and signatures are excluded.",
+      "domain": "Callback-map initialization followed by append and identity return; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-context-url-defaults",
+      "left": "flask:src/flask/sansio/scaffold.py:Scaffold.context_processor",
+      "right": "flask:src/flask/sansio/scaffold.py:Scaffold.url_defaults",
+      "relation": "structure",
+      "positive": true,
+      "family": "flask-hook-registration",
+      "rationale": "Both append f to a mapping's existing None-key list and return f, with the same setupmethod decorator; later callback behavior is excluded.",
+      "domain": "Existing callback-list append and identity return; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-name-secure",
+      "left": "flask:src/flask/sessions.py:SessionInterface.get_cookie_name",
+      "right": "flask:src/flask/sessions.py:SessionInterface.get_cookie_secure",
+      "relation": "structure",
+      "positive": true,
+      "family": "flask-cookie-configuration",
+      "rationale": "Both return one app.config subscription with a literal key and no fallback; returned types and cookie meaning differ.",
+      "domain": "Direct configuration subscription return; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-httponly-samesite",
+      "left": "flask:src/flask/sessions.py:SessionInterface.get_cookie_httponly",
+      "right": "flask:src/flask/sessions.py:SessionInterface.get_cookie_samesite",
+      "relation": "structure",
+      "positive": true,
+      "family": "flask-cookie-configuration",
+      "rationale": "Both return one app.config subscription with a literal key and no fallback; returned types and cookie meaning differ.",
+      "domain": "Direct configuration subscription return; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-get-method-route",
+      "left": "flask:src/flask/sansio/scaffold.py:Scaffold.get",
+      "right": "flask:src/flask/sansio/scaffold.py:Scaffold._method_route",
+      "relation": "structure",
+      "positive": false,
+      "family": "flask-route-forwarding",
+      "rationale": "get forwards directly; _method_route first tests forbidden options and raises TypeError, then constructs a methods list and expands options into route.",
+      "domain": "Route forwarding including validation, exceptions and argument construction; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-route-endpoint",
+      "left": "flask:src/flask/sansio/scaffold.py:Scaffold.route",
+      "right": "flask:src/flask/sansio/scaffold.py:Scaffold.endpoint",
+      "relation": "structure",
+      "positive": false,
+      "family": "flask-route-forwarding",
+      "rationale": "Both return decorators, but route's nested decorator pops an endpoint option then calls add_url_rule; endpoint's nested decorator assigns directly into view_functions.",
+      "domain": "Decorator bodies including nested state mutation and registration call stages; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-before-context",
+      "left": "flask:src/flask/sansio/scaffold.py:Scaffold.before_request",
+      "right": "flask:src/flask/sansio/scaffold.py:Scaffold.context_processor",
+      "relation": "structure",
+      "positive": false,
+      "family": "flask-hook-registration",
+      "rationale": "before_request performs setdefault(None, []) before append; context_processor directly subscripts an existing list before append. Map initialization is part of this structural domain.",
+      "domain": "Callback registration preserving mapping initialization versus direct lookup; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-name-path",
+      "left": "flask:src/flask/sessions.py:SessionInterface.get_cookie_name",
+      "right": "flask:src/flask/sessions.py:SessionInterface.get_cookie_path",
+      "relation": "structure",
+      "positive": false,
+      "family": "flask-cookie-configuration",
+      "rationale": "get_cookie_name returns a single config subscription; get_cookie_path uses short-circuit or between two config subscriptions.",
+      "domain": "Configuration return preserving fallback and short-circuit operations; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-expiration-set-cookie",
+      "left": "flask:src/flask/sessions.py:SessionInterface.get_expiration_time",
+      "right": "flask:src/flask/sessions.py:SessionInterface.should_set_cookie",
+      "relation": "structure",
+      "positive": false,
+      "family": "flask-cookie-configuration",
+      "rationale": "Expiration branches on permanence and computes a current-time addition or None; should_set_cookie returns an or/and expression over modification, permanence and config flags.",
+      "domain": "Session cookie decision control flow and datetime versus boolean operations; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    },
+    {
+      "id": "flask-dump-load",
+      "left": "flask:src/flask/json/provider.py:JSONProvider.dump",
+      "right": "flask:src/flask/json/provider.py:JSONProvider.load",
+      "relation": "structure",
+      "positive": false,
+      "family": "flask-json-streams",
+      "rationale": "dump passes self.dumps output into fp.write and has no return value; load reads fp then returns self.loads output. Nested calls carry data in opposite directions.",
+      "domain": "JSON stream data flow preserving read/write direction and return operation; identifier/member/constant substitutions allowed within the stated pattern; not behavior, source-copy identity, transitive helper equivalence, HTTP semantics or safe refactoring",
+      "reviewed_by": "source-inspection-frozen-before-scoring-v1"
+    }
+  ]
+}

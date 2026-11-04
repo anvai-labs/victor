@@ -58,6 +58,7 @@ def _create_server(monkeypatch, tmp_path: Path, orchestrator: _FakeOrchestrator)
     server = fastapi_server.VictorFastAPIServer(
         workspace_root=str(tmp_path),
         enable_graphql=False,
+        allow_unauthenticated=True,
     )
     server._orchestrator = orchestrator
     return server
@@ -250,6 +251,7 @@ async def test_fastapi_server_uses_framework_client_factory_for_conversation_acc
         server = fastapi_server.VictorFastAPIServer(
             workspace_root=str(tmp_path),
             enable_graphql=False,
+            allow_unauthenticated=True,
         )
 
         client = await server._get_victor_client()

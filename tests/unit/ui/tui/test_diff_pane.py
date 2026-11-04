@@ -87,6 +87,66 @@ async def test_diffpane_add_reveals_and_cycles() -> None:
         assert pane.display is False
 
 
+async def test_diffpane_toggle_expand() -> None:
+    """Test toggle_expand method and is_expanded property."""
+    app = _PaneHost()
+    async with app.run_test() as pilot:
+        pane = app.query_one("#dp", DiffPane)
+
+        # No edits - toggle should be no-op
+        pane.toggle_expand()
+        await pilot.pause()
+        assert pane.is_expanded is False
+
+        # Add edit with multiple lines
+        lines = [f"+line {i}" for i in range(10)]
+        pane.add_edit(EditDiff(path="a.py", stats="+10 -0", lines=lines))
+        await pilot.pause()
+
+        # Initially collapsed
+        assert pane.is_expanded is False
+
+        # Toggle to expanded
+        pane.toggle_expand()
+        await pilot.pause()
+        assert pane.is_expanded is True
+        assert pane.has_class("expanded")
+
+        # Toggle back to collapsed
+        pane.toggle_expand()
+        await pilot.pause()
+        assert pane.is_expanded is False
+        assert not pane.has_class("expanded")
+
+
+async def test_diffpane_expanded_rendering() -> None:
+    """Test that expanded view shows all lines, collapsed shows first 5."""
+    app = _PaneHost()
+    async with app.run_test() as pilot:
+        pane = app.query_one("#dp", DiffPane)
+
+        # Add edit with 10 lines
+        lines = [f"+line {i}" for i in range(10)]
+        pane.add_edit(EditDiff(path="a.py", stats="+10 -0", lines=lines, colored=True))
+        await pilot.pause()
+
+        # Collapsed: verify state
+        assert pane.is_expanded is False
+        assert pane.has_edits is True
+
+        # Expanded: verify state changes
+        pane.toggle_expand()
+        await pilot.pause()
+        assert pane.is_expanded is True
+        assert pane.has_class("expanded")
+
+        # Toggle back
+        pane.toggle_expand()
+        await pilot.pause()
+        assert pane.is_expanded is False
+        assert not pane.has_class("expanded")
+
+
 # ── app integration ───────────────────────────────────────────────
 
 
@@ -153,4 +213,57 @@ async def test_non_edit_tool_result_does_not_reveal_pane() -> None:
         app._maybe_capture_diff(action)
         await pilot.pause()
         assert pane.has_edits is False
+        assert pane.display is False
+
+
+async def test_action_diff_toggle_with_edits() -> None:
+    """Test action_toggle_diff reveals pane and toggles expand/collapse."""
+    app = _app()
+    async with app.run_test() as pilot:
+        pane = app.query_one("#diff-pane", DiffPane)
+
+        # Add an edit first
+        pane.add_edit(EditDiff(path="a.py", stats="+1 -1", lines=["-old", "+new"]))
+        await pilot.pause()
+        assert pane.display is True
+        assert pane.is_expanded is False
+
+        # Toggle should expand (pane is visible)
+        app.action_toggle_diff()
+        await pilot.pause()
+        assert pane.is_expanded is True
+
+        # Toggle again should collapse
+        app.action_toggle_diff()
+        await pilot.pause()
+        assert pane.is_expanded is False
+
+
+async def test_action_diff_toggle_reveals_hidden_pane() -> None:
+    """Test action_toggle_diff reveals pane when hidden."""
+    app = _app()
+    async with app.run_test() as pilot:
+        pane = app.query_one("#diff-pane", DiffPane)
+
+        # Add an edit and hide the pane
+        pane.add_edit(EditDiff(path="a.py", stats="+1 -1", lines=["-old", "+new"]))
+        await pilot.pause()
+        pane.display = False
+
+        # Toggle should reveal the pane
+        app.action_toggle_diff()
+        await pilot.pause()
+        assert pane.display is True
+
+
+async def test_action_diff_toggle_no_edits() -> None:
+    """Test action_toggle_diff is no-op when no edits exist."""
+    app = _app()
+    async with app.run_test() as pilot:
+        pane = app.query_one("#diff-pane", DiffPane)
+        assert pane.display is False
+
+        # Toggle with no edits should remain hidden
+        app.action_toggle_diff()
+        await pilot.pause()
         assert pane.display is False

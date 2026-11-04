@@ -1,0 +1,3022 @@
+{
+  "schema": "victor-callee-context-observations-v1",
+  "date": "2026-11-02",
+  "consumer_baseline": "ca797a4e8fb6f0ea14bc23ad33830a6dc5513584",
+  "observer_sha256": "5942cd41f6aa759b2f978ce8a404c21ebde0b3a19baca6effdf994b5ce17a16a",
+  "fixture_manifest_sha256": "c4a4d6e30e8ee8e43fdb1cae06d74869964c3f7e7be4e72454652a312794b26c",
+  "production_quality_qualified": false,
+  "labels_frozen_before_scoring": true,
+  "source_files": {
+    "compiler-binding.json": "04ff2eb31d051edc5b42bbfe0a9998c1357b79a4d99cffa21bc7fc181eb58530",
+    "compiler.scip": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3",
+    "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+    "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+    "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+    "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+    "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c",
+    "manifest.json": "c4a4d6e30e8ee8e43fdb1cae06d74869964c3f7e7be4e72454652a312794b26c",
+    "pyrightconfig.json": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4"
+  },
+  "existing_controlled_probe": {
+    "implementation_baseline": "a3aef5894240d86d9e60a90583a2103628c53c9d",
+    "audit_script_sha256": "46deeddc1936da2bfc644f2b8c7eeaa7934d04302f4017ae8f7196b106a6ebd4",
+    "engine_sha256": "cf1b9e80e26e4583108af83133a5972a2ef86312bebeffcdfc45d31ef72bf614",
+    "observation": {
+      "probe": "scip_different_targets",
+      "provenance": "hand-authored SCIP identity injection, not compiler output",
+      "source_hashes": {
+        "a.py": "6e9298d5356a90071132d6e237ebac1532d0d93b1f99bb7b7a0ef24228000ce6",
+        "b.py": "6e9298d5356a90071132d6e237ebac1532d0d93b1f99bb7b7a0ef24228000ce6"
+      },
+      "syntax": {
+        "families": [
+          {
+            "tier": "exact",
+            "score": 1.0
+          }
+        ],
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends_and_script_regions",
+          "include_docs": false,
+          "selected_regions": 2,
+          "normalization_schema": "normalized-body-v4-field-roles",
+          "binding_support": {
+            "python": "compiler-symbol-tables"
+          },
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "binding_error_files": 0,
+          "recovered_units": 0,
+          "unreadable_files": 0,
+          "source_read_errors": [],
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 0,
+          "scip_dumps": [],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 0,
+          "stale_files": 0,
+          "ast_only_files": 2,
+          "scip_dump": false,
+          "skipped_buckets": 0,
+          "matching_budget_exceeded": 0,
+          "analysis_errors": [],
+          "seconds": 0.1,
+          "exact_families": 1,
+          "template_families": 0,
+          "near_families": 0,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        }
+      },
+      "controlled_context": {
+        "families": [
+          {
+            "tier": "template",
+            "score": 1.0
+          },
+          {
+            "tier": "near",
+            "score": 0.65
+          }
+        ],
+        "stats": {
+          "functions": 2,
+          "source_files": 2,
+          "coverage_scope": "selected_supported_frontends_and_script_regions",
+          "include_docs": false,
+          "selected_regions": 2,
+          "normalization_schema": "normalized-body-v4-field-roles",
+          "binding_support": {
+            "python": "compiler-symbol-tables"
+          },
+          "excluded_artifact_files": 0,
+          "near_metric": "subtree",
+          "cross_language": false,
+          "rust_files": 0,
+          "python_files": 2,
+          "unavailable_languages": [],
+          "parse_error_files": 0,
+          "binding_error_files": 0,
+          "recovered_units": 0,
+          "unreadable_files": 0,
+          "source_read_errors": [],
+          "oversized_files": 0,
+          "languages": {
+            "python": 2
+          },
+          "resolved_symbols": 2,
+          "scip_dumps": [
+            "scip-python.scip"
+          ],
+          "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+          "scip_files": 2,
+          "stale_files": 0,
+          "ast_only_files": 0,
+          "scip_dump": true,
+          "skipped_buckets": 0,
+          "matching_budget_exceeded": 0,
+          "analysis_errors": [],
+          "seconds": 0.1,
+          "exact_families": 0,
+          "template_families": 1,
+          "near_families": 1,
+          "cross_language_families": 0,
+          "suppressed_families": 0
+        }
+      }
+    }
+  },
+  "actual_index_generation": {
+    "implementation_baseline": "a3aef5894240d86d9e60a90583a2103628c53c9d",
+    "bounded_process_sha256": "bc4a326b2397e1998018744392088cd82ff66b66f2b748aa2078524364b2fedc",
+    "indexer_version": "0.6.8",
+    "node_version": "v24.21.0",
+    "analyzed_source_executed": false,
+    "models_loaded_or_downloaded": false,
+    "raw_output_unmodified": true,
+    "source_bytes_verified_after_generation": true,
+    "observation": {
+      "exit_code": 0,
+      "memory_scope": "owned-process-group",
+      "wall_seconds": 29.798512083943933,
+      "parent_cpu_seconds": 8.435562,
+      "arguments": [
+        "/opt/homebrew/lib/node_modules/@sourcegraph/scip-python/index.js",
+        "index",
+        "--cwd",
+        "/Users/vijaysingh/code/codingagent/.worktrees/graph-project-calibration/.victor/sandbox/graph-context-ablation/scip-run-v3/source",
+        "--project-name",
+        "victor-context-control",
+        "--project-version",
+        "1",
+        "--output",
+        "/Users/vijaysingh/code/codingagent/.worktrees/graph-project-calibration/.victor/sandbox/graph-context-ablation/scip-run-v3/index.scip",
+        "--quiet"
+      ],
+      "tool_entry_sha256": "ce60dd39157c8f52d8f9de8f060743e1135b697c52253de65521a19b84e19d2a",
+      "source_hashes": {
+        "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+        "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+        "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+        "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+        "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+      },
+      "config_sha256": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4",
+      "python_environment": "existing Python3.12.6 sharedvenv; PATH prepended, PYTHONPATH removed, user-site disabled",
+      "index_bytes": 20787,
+      "index_sha256": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3"
+    }
+  },
+  "measurement": {
+    "runs": [
+      {
+        "cli_wall_seconds": 0.6898882500827312,
+        "cli_scope": "fresh process through exit, including imports and exclusive publication; parent scheduler included",
+        "observation": {
+          "schema": "victor-callee-context-ablation-v1",
+          "production_quality_qualified": false,
+          "weighted_fusion": false,
+          "program_semantics_verified": false,
+          "evaluation_scope": "authored_requested_pair_controls; not independent-project or retrieval accuracy",
+          "decision_rule": "pre-existing exact normalized-token identity; no trained threshold",
+          "oracle_domain": "Authored source-inspection controls only. Exact frozen classes/functions and built-in nonempty str keys or exact built-in int inputs; no subclasses, monkeypatching, concurrent mutation, effects, ABI or general semantic equivalence. Labels are not inferred from names or detector scores. Compiler/indexer identity is separate provenance, never behavioral certification.",
+          "python": "3.12.6",
+          "platform": "macOS-26.2-arm64-arm-64bit",
+          "machine": "arm64",
+          "protobuf_runtime": "6.33.6",
+          "implementation": {
+            "structural_clones.py": "d4fcb509f9226045def45fcf518ccfd22379e7c86b1bc02ea461d8a62c9ede79",
+            "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+            "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+            "source_reader.py": "865ca7c1896cbf996466f3e49708c672004746b7d21ce4ef169728ae1d38d719",
+            "copy_artifacts.py": "28553b8f74c97df0c4402f6f1cbc54de9df5a3d089035bd3c72d910b7f903048",
+            "_scip/scip_pb2.py": "09e50911f8c12c8b196c8b985ef6be5e863eb0d76c3d4175515dfad112541350",
+            "benchmark_callee_context.py": "5942cd41f6aa759b2f978ce8a404c21ebde0b3a19baca6effdf994b5ce17a16a"
+          },
+          "engine_module": "/Users/vijaysingh/code/codingagent/.worktrees/graph-project-calibration/victor/core/graph_rag/structural_clones.py",
+          "fixture_sha256": "c4a4d6e30e8ee8e43fdb1cae06d74869964c3f7e7be4e72454652a312794b26c",
+          "source_hashes": {
+            "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+            "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+            "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+            "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+            "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+          },
+          "source_files": 5,
+          "source_bytes": 1876,
+          "compared_units": 12,
+          "requested_pairs": 8,
+          "indexed": {
+            "index_sha256": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3",
+            "bytes": 20787,
+            "declared_producer": {
+              "name": "scip-python",
+              "version": "0.6.8",
+              "kind": "actual_static_indexer_output; Pyright-backed, not native compilation or runtime verification",
+              "tool_entry_sha256": "ce60dd39157c8f52d8f9de8f060743e1135b697c52253de65521a19b84e19d2a",
+              "config_sha256": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4"
+            },
+            "source_freshness": "source_hash_sidecar_matches; curator provenance, not authentication",
+            "status": "available",
+            "metadata_producer": {
+              "name": "scip-python",
+              "version": "0.6.8"
+            },
+            "document_count": 5,
+            "occurrence_count": 171
+          },
+          "controlled_provenance": "curator-authored target identities; not compiler output",
+          "features": {
+            "syntax": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "controlled": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "indexed": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            }
+          },
+          "pairs": [
+            {
+              "id": "renamed-same-owner",
+              "left": "registry_read",
+              "right": "renamed_read",
+              "positive": true,
+              "rationale": "The exact frozen Registry.get target returns len(key); both callers add the same literal two, with only parameter/local renaming.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-spelling-different-owner",
+              "left": "registry_read",
+              "right": "cache_read",
+              "positive": false,
+              "rationale": "Frozen Registry.get returns len(key), Cache.get returns -len(key); adding two differs for nonempty built-in strings, despite identical body spelling.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "aliased-same-target",
+              "left": "control_alias_read",
+              "right": "control_alias_renamed",
+              "positive": true,
+              "rationale": "The two import aliases resolve to the same frozen shared_read helper, which delegates Registry.get; callers add two.",
+              "syntax": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-alias-different-target",
+              "left": "control_alias_read",
+              "right": "control_alias_negative",
+              "positive": false,
+              "rationale": "The same lookup spelling imports shared_read versus shared_negative; the latter negates the getter result before the identical caller adds two.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-operator-same-target",
+              "left": "registry_read",
+              "right": "changed_operator",
+              "positive": false,
+              "rationale": "Both call Registry.get but add versus subtract two; a matching callee identity does not erase this operation change.",
+              "syntax": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-literal-same-target",
+              "left": "registry_read",
+              "right": "changed_literal",
+              "positive": false,
+              "rationale": "Both call Registry.get but add two versus three. Production normalization collapses these literal values; retaining a false positive is part of this diagnostic.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "unresolved-any-receiver",
+              "left": "unknown_first",
+              "right": "unknown_second",
+              "positive": null,
+              "rationale": "Any supplies no statically resolved receiver target. The oracle is unknown, not a negative; compiler-context scoring must retain unresolved evidence.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              },
+              "indexed": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              }
+            },
+            {
+              "id": "no-calls",
+              "left": "no_call_first",
+              "right": "no_call_second",
+              "positive": true,
+              "rationale": "Both add the same literal two to an exact built-in integer; there is no call-target feature to add, and syntax evidence remains unchanged.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              }
+            }
+          ],
+          "summary": {
+            "syntax": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 2,
+              "fp": 3,
+              "fn": 1,
+              "tn": 1,
+              "precision": 0.4,
+              "conditional_recall": 0.6666666666666666,
+              "end_to_end_recall": 0.6666666666666666,
+              "labelled_pair_precision_by_k": [
+                0.4,
+                0.4,
+                0.39999999999999997,
+                0.4,
+                0.4,
+                0.3333333333333333,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "controlled": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "indexed": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            }
+          },
+          "timings": {
+            "indexed_capture_and_projection_seconds": 0.025142667116597295,
+            "syntax_extract_seconds": 0.006050541065633297,
+            "controlled_extract_seconds": 0.003443624824285507,
+            "indexed_extract_seconds": 0.004139541881158948
+          },
+          "wall_seconds": 0.07209266605786979,
+          "parent_cpu_seconds": 0.03974,
+          "process_peak_rss_bytes": 55820288,
+          "rss_scope": "process_lifetime_peak; not incremental context or child memory",
+          "timing_scope": "source capture, extraction, requested scoring; excludes index generation and serialization"
+        }
+      },
+      {
+        "cli_wall_seconds": 0.38476575003005564,
+        "cli_scope": "fresh process through exit, including imports and exclusive publication; parent scheduler included",
+        "observation": {
+          "schema": "victor-callee-context-ablation-v1",
+          "production_quality_qualified": false,
+          "weighted_fusion": false,
+          "program_semantics_verified": false,
+          "evaluation_scope": "authored_requested_pair_controls; not independent-project or retrieval accuracy",
+          "decision_rule": "pre-existing exact normalized-token identity; no trained threshold",
+          "oracle_domain": "Authored source-inspection controls only. Exact frozen classes/functions and built-in nonempty str keys or exact built-in int inputs; no subclasses, monkeypatching, concurrent mutation, effects, ABI or general semantic equivalence. Labels are not inferred from names or detector scores. Compiler/indexer identity is separate provenance, never behavioral certification.",
+          "python": "3.12.6",
+          "platform": "macOS-26.2-arm64-arm-64bit",
+          "machine": "arm64",
+          "protobuf_runtime": "6.33.6",
+          "implementation": {
+            "structural_clones.py": "d4fcb509f9226045def45fcf518ccfd22379e7c86b1bc02ea461d8a62c9ede79",
+            "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+            "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+            "source_reader.py": "865ca7c1896cbf996466f3e49708c672004746b7d21ce4ef169728ae1d38d719",
+            "copy_artifacts.py": "28553b8f74c97df0c4402f6f1cbc54de9df5a3d089035bd3c72d910b7f903048",
+            "_scip/scip_pb2.py": "09e50911f8c12c8b196c8b985ef6be5e863eb0d76c3d4175515dfad112541350",
+            "benchmark_callee_context.py": "5942cd41f6aa759b2f978ce8a404c21ebde0b3a19baca6effdf994b5ce17a16a"
+          },
+          "engine_module": "/Users/vijaysingh/code/codingagent/.worktrees/graph-project-calibration/victor/core/graph_rag/structural_clones.py",
+          "fixture_sha256": "c4a4d6e30e8ee8e43fdb1cae06d74869964c3f7e7be4e72454652a312794b26c",
+          "source_hashes": {
+            "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+            "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+            "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+            "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+            "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+          },
+          "source_files": 5,
+          "source_bytes": 1876,
+          "compared_units": 12,
+          "requested_pairs": 8,
+          "indexed": {
+            "index_sha256": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3",
+            "bytes": 20787,
+            "declared_producer": {
+              "name": "scip-python",
+              "version": "0.6.8",
+              "kind": "actual_static_indexer_output; Pyright-backed, not native compilation or runtime verification",
+              "tool_entry_sha256": "ce60dd39157c8f52d8f9de8f060743e1135b697c52253de65521a19b84e19d2a",
+              "config_sha256": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4"
+            },
+            "source_freshness": "source_hash_sidecar_matches; curator provenance, not authentication",
+            "status": "available",
+            "metadata_producer": {
+              "name": "scip-python",
+              "version": "0.6.8"
+            },
+            "document_count": 5,
+            "occurrence_count": 171
+          },
+          "controlled_provenance": "curator-authored target identities; not compiler output",
+          "features": {
+            "syntax": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "controlled": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "indexed": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            }
+          },
+          "pairs": [
+            {
+              "id": "renamed-same-owner",
+              "left": "registry_read",
+              "right": "renamed_read",
+              "positive": true,
+              "rationale": "The exact frozen Registry.get target returns len(key); both callers add the same literal two, with only parameter/local renaming.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-spelling-different-owner",
+              "left": "registry_read",
+              "right": "cache_read",
+              "positive": false,
+              "rationale": "Frozen Registry.get returns len(key), Cache.get returns -len(key); adding two differs for nonempty built-in strings, despite identical body spelling.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "aliased-same-target",
+              "left": "control_alias_read",
+              "right": "control_alias_renamed",
+              "positive": true,
+              "rationale": "The two import aliases resolve to the same frozen shared_read helper, which delegates Registry.get; callers add two.",
+              "syntax": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-alias-different-target",
+              "left": "control_alias_read",
+              "right": "control_alias_negative",
+              "positive": false,
+              "rationale": "The same lookup spelling imports shared_read versus shared_negative; the latter negates the getter result before the identical caller adds two.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-operator-same-target",
+              "left": "registry_read",
+              "right": "changed_operator",
+              "positive": false,
+              "rationale": "Both call Registry.get but add versus subtract two; a matching callee identity does not erase this operation change.",
+              "syntax": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-literal-same-target",
+              "left": "registry_read",
+              "right": "changed_literal",
+              "positive": false,
+              "rationale": "Both call Registry.get but add two versus three. Production normalization collapses these literal values; retaining a false positive is part of this diagnostic.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "unresolved-any-receiver",
+              "left": "unknown_first",
+              "right": "unknown_second",
+              "positive": null,
+              "rationale": "Any supplies no statically resolved receiver target. The oracle is unknown, not a negative; compiler-context scoring must retain unresolved evidence.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              },
+              "indexed": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              }
+            },
+            {
+              "id": "no-calls",
+              "left": "no_call_first",
+              "right": "no_call_second",
+              "positive": true,
+              "rationale": "Both add the same literal two to an exact built-in integer; there is no call-target feature to add, and syntax evidence remains unchanged.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              }
+            }
+          ],
+          "summary": {
+            "syntax": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 2,
+              "fp": 3,
+              "fn": 1,
+              "tn": 1,
+              "precision": 0.4,
+              "conditional_recall": 0.6666666666666666,
+              "end_to_end_recall": 0.6666666666666666,
+              "labelled_pair_precision_by_k": [
+                0.4,
+                0.4,
+                0.39999999999999997,
+                0.4,
+                0.4,
+                0.3333333333333333,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "controlled": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "indexed": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            }
+          },
+          "timings": {
+            "indexed_capture_and_projection_seconds": 0.010785958031192422,
+            "syntax_extract_seconds": 0.004580625100061297,
+            "controlled_extract_seconds": 0.0033206671942025423,
+            "indexed_extract_seconds": 0.0032966248691082
+          },
+          "wall_seconds": 0.04737970791757107,
+          "parent_cpu_seconds": 0.033051,
+          "process_peak_rss_bytes": 56393728,
+          "rss_scope": "process_lifetime_peak; not incremental context or child memory",
+          "timing_scope": "source capture, extraction, requested scoring; excludes index generation and serialization"
+        }
+      },
+      {
+        "cli_wall_seconds": 0.43014979106374085,
+        "cli_scope": "fresh process through exit, including imports and exclusive publication; parent scheduler included",
+        "observation": {
+          "schema": "victor-callee-context-ablation-v1",
+          "production_quality_qualified": false,
+          "weighted_fusion": false,
+          "program_semantics_verified": false,
+          "evaluation_scope": "authored_requested_pair_controls; not independent-project or retrieval accuracy",
+          "decision_rule": "pre-existing exact normalized-token identity; no trained threshold",
+          "oracle_domain": "Authored source-inspection controls only. Exact frozen classes/functions and built-in nonempty str keys or exact built-in int inputs; no subclasses, monkeypatching, concurrent mutation, effects, ABI or general semantic equivalence. Labels are not inferred from names or detector scores. Compiler/indexer identity is separate provenance, never behavioral certification.",
+          "python": "3.12.6",
+          "platform": "macOS-26.2-arm64-arm-64bit",
+          "machine": "arm64",
+          "protobuf_runtime": "6.33.6",
+          "implementation": {
+            "structural_clones.py": "d4fcb509f9226045def45fcf518ccfd22379e7c86b1bc02ea461d8a62c9ede79",
+            "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+            "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+            "source_reader.py": "865ca7c1896cbf996466f3e49708c672004746b7d21ce4ef169728ae1d38d719",
+            "copy_artifacts.py": "28553b8f74c97df0c4402f6f1cbc54de9df5a3d089035bd3c72d910b7f903048",
+            "_scip/scip_pb2.py": "09e50911f8c12c8b196c8b985ef6be5e863eb0d76c3d4175515dfad112541350",
+            "benchmark_callee_context.py": "5942cd41f6aa759b2f978ce8a404c21ebde0b3a19baca6effdf994b5ce17a16a"
+          },
+          "engine_module": "/Users/vijaysingh/code/codingagent/.worktrees/graph-project-calibration/victor/core/graph_rag/structural_clones.py",
+          "fixture_sha256": "c4a4d6e30e8ee8e43fdb1cae06d74869964c3f7e7be4e72454652a312794b26c",
+          "source_hashes": {
+            "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+            "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+            "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+            "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+            "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+          },
+          "source_files": 5,
+          "source_bytes": 1876,
+          "compared_units": 12,
+          "requested_pairs": 8,
+          "indexed": {
+            "index_sha256": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3",
+            "bytes": 20787,
+            "declared_producer": {
+              "name": "scip-python",
+              "version": "0.6.8",
+              "kind": "actual_static_indexer_output; Pyright-backed, not native compilation or runtime verification",
+              "tool_entry_sha256": "ce60dd39157c8f52d8f9de8f060743e1135b697c52253de65521a19b84e19d2a",
+              "config_sha256": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4"
+            },
+            "source_freshness": "source_hash_sidecar_matches; curator provenance, not authentication",
+            "status": "available",
+            "metadata_producer": {
+              "name": "scip-python",
+              "version": "0.6.8"
+            },
+            "document_count": 5,
+            "occurrence_count": 171
+          },
+          "controlled_provenance": "curator-authored target identities; not compiler output",
+          "features": {
+            "syntax": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "controlled": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "indexed": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            }
+          },
+          "pairs": [
+            {
+              "id": "renamed-same-owner",
+              "left": "registry_read",
+              "right": "renamed_read",
+              "positive": true,
+              "rationale": "The exact frozen Registry.get target returns len(key); both callers add the same literal two, with only parameter/local renaming.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-spelling-different-owner",
+              "left": "registry_read",
+              "right": "cache_read",
+              "positive": false,
+              "rationale": "Frozen Registry.get returns len(key), Cache.get returns -len(key); adding two differs for nonempty built-in strings, despite identical body spelling.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "aliased-same-target",
+              "left": "control_alias_read",
+              "right": "control_alias_renamed",
+              "positive": true,
+              "rationale": "The two import aliases resolve to the same frozen shared_read helper, which delegates Registry.get; callers add two.",
+              "syntax": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-alias-different-target",
+              "left": "control_alias_read",
+              "right": "control_alias_negative",
+              "positive": false,
+              "rationale": "The same lookup spelling imports shared_read versus shared_negative; the latter negates the getter result before the identical caller adds two.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-operator-same-target",
+              "left": "registry_read",
+              "right": "changed_operator",
+              "positive": false,
+              "rationale": "Both call Registry.get but add versus subtract two; a matching callee identity does not erase this operation change.",
+              "syntax": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-literal-same-target",
+              "left": "registry_read",
+              "right": "changed_literal",
+              "positive": false,
+              "rationale": "Both call Registry.get but add two versus three. Production normalization collapses these literal values; retaining a false positive is part of this diagnostic.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "unresolved-any-receiver",
+              "left": "unknown_first",
+              "right": "unknown_second",
+              "positive": null,
+              "rationale": "Any supplies no statically resolved receiver target. The oracle is unknown, not a negative; compiler-context scoring must retain unresolved evidence.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              },
+              "indexed": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              }
+            },
+            {
+              "id": "no-calls",
+              "left": "no_call_first",
+              "right": "no_call_second",
+              "positive": true,
+              "rationale": "Both add the same literal two to an exact built-in integer; there is no call-target feature to add, and syntax evidence remains unchanged.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              }
+            }
+          ],
+          "summary": {
+            "syntax": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 2,
+              "fp": 3,
+              "fn": 1,
+              "tn": 1,
+              "precision": 0.4,
+              "conditional_recall": 0.6666666666666666,
+              "end_to_end_recall": 0.6666666666666666,
+              "labelled_pair_precision_by_k": [
+                0.4,
+                0.4,
+                0.39999999999999997,
+                0.4,
+                0.4,
+                0.3333333333333333,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "controlled": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "indexed": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            }
+          },
+          "timings": {
+            "indexed_capture_and_projection_seconds": 0.013673707842826843,
+            "syntax_extract_seconds": 0.005568582797423005,
+            "controlled_extract_seconds": 0.015311208087950945,
+            "indexed_extract_seconds": 0.00394499977119267
+          },
+          "wall_seconds": 0.07991608395241201,
+          "parent_cpu_seconds": 0.042246000000000006,
+          "process_peak_rss_bytes": 55394304,
+          "rss_scope": "process_lifetime_peak; not incremental context or child memory",
+          "timing_scope": "source capture, extraction, requested scoring; excludes index generation and serialization"
+        }
+      },
+      {
+        "cli_wall_seconds": 0.5390170419123024,
+        "cli_scope": "fresh process through exit, including imports and exclusive publication; parent scheduler included",
+        "observation": {
+          "schema": "victor-callee-context-ablation-v1",
+          "production_quality_qualified": false,
+          "weighted_fusion": false,
+          "program_semantics_verified": false,
+          "evaluation_scope": "authored_requested_pair_controls; not independent-project or retrieval accuracy",
+          "decision_rule": "pre-existing exact normalized-token identity; no trained threshold",
+          "oracle_domain": "Authored source-inspection controls only. Exact frozen classes/functions and built-in nonempty str keys or exact built-in int inputs; no subclasses, monkeypatching, concurrent mutation, effects, ABI or general semantic equivalence. Labels are not inferred from names or detector scores. Compiler/indexer identity is separate provenance, never behavioral certification.",
+          "python": "3.12.6",
+          "platform": "macOS-26.2-arm64-arm-64bit",
+          "machine": "arm64",
+          "protobuf_runtime": "6.33.6",
+          "implementation": {
+            "structural_clones.py": "d4fcb509f9226045def45fcf518ccfd22379e7c86b1bc02ea461d8a62c9ede79",
+            "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+            "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+            "source_reader.py": "865ca7c1896cbf996466f3e49708c672004746b7d21ce4ef169728ae1d38d719",
+            "copy_artifacts.py": "28553b8f74c97df0c4402f6f1cbc54de9df5a3d089035bd3c72d910b7f903048",
+            "_scip/scip_pb2.py": "09e50911f8c12c8b196c8b985ef6be5e863eb0d76c3d4175515dfad112541350",
+            "benchmark_callee_context.py": "5942cd41f6aa759b2f978ce8a404c21ebde0b3a19baca6effdf994b5ce17a16a"
+          },
+          "engine_module": "/Users/vijaysingh/code/codingagent/.worktrees/graph-project-calibration/victor/core/graph_rag/structural_clones.py",
+          "fixture_sha256": "c4a4d6e30e8ee8e43fdb1cae06d74869964c3f7e7be4e72454652a312794b26c",
+          "source_hashes": {
+            "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+            "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+            "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+            "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+            "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+          },
+          "source_files": 5,
+          "source_bytes": 1876,
+          "compared_units": 12,
+          "requested_pairs": 8,
+          "indexed": {
+            "index_sha256": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3",
+            "bytes": 20787,
+            "declared_producer": {
+              "name": "scip-python",
+              "version": "0.6.8",
+              "kind": "actual_static_indexer_output; Pyright-backed, not native compilation or runtime verification",
+              "tool_entry_sha256": "ce60dd39157c8f52d8f9de8f060743e1135b697c52253de65521a19b84e19d2a",
+              "config_sha256": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4"
+            },
+            "source_freshness": "source_hash_sidecar_matches; curator provenance, not authentication",
+            "status": "available",
+            "metadata_producer": {
+              "name": "scip-python",
+              "version": "0.6.8"
+            },
+            "document_count": 5,
+            "occurrence_count": 171
+          },
+          "controlled_provenance": "curator-authored target identities; not compiler output",
+          "features": {
+            "syntax": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "controlled": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "indexed": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            }
+          },
+          "pairs": [
+            {
+              "id": "renamed-same-owner",
+              "left": "registry_read",
+              "right": "renamed_read",
+              "positive": true,
+              "rationale": "The exact frozen Registry.get target returns len(key); both callers add the same literal two, with only parameter/local renaming.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-spelling-different-owner",
+              "left": "registry_read",
+              "right": "cache_read",
+              "positive": false,
+              "rationale": "Frozen Registry.get returns len(key), Cache.get returns -len(key); adding two differs for nonempty built-in strings, despite identical body spelling.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "aliased-same-target",
+              "left": "control_alias_read",
+              "right": "control_alias_renamed",
+              "positive": true,
+              "rationale": "The two import aliases resolve to the same frozen shared_read helper, which delegates Registry.get; callers add two.",
+              "syntax": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-alias-different-target",
+              "left": "control_alias_read",
+              "right": "control_alias_negative",
+              "positive": false,
+              "rationale": "The same lookup spelling imports shared_read versus shared_negative; the latter negates the getter result before the identical caller adds two.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-operator-same-target",
+              "left": "registry_read",
+              "right": "changed_operator",
+              "positive": false,
+              "rationale": "Both call Registry.get but add versus subtract two; a matching callee identity does not erase this operation change.",
+              "syntax": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-literal-same-target",
+              "left": "registry_read",
+              "right": "changed_literal",
+              "positive": false,
+              "rationale": "Both call Registry.get but add two versus three. Production normalization collapses these literal values; retaining a false positive is part of this diagnostic.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "unresolved-any-receiver",
+              "left": "unknown_first",
+              "right": "unknown_second",
+              "positive": null,
+              "rationale": "Any supplies no statically resolved receiver target. The oracle is unknown, not a negative; compiler-context scoring must retain unresolved evidence.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              },
+              "indexed": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              }
+            },
+            {
+              "id": "no-calls",
+              "left": "no_call_first",
+              "right": "no_call_second",
+              "positive": true,
+              "rationale": "Both add the same literal two to an exact built-in integer; there is no call-target feature to add, and syntax evidence remains unchanged.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              }
+            }
+          ],
+          "summary": {
+            "syntax": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 2,
+              "fp": 3,
+              "fn": 1,
+              "tn": 1,
+              "precision": 0.4,
+              "conditional_recall": 0.6666666666666666,
+              "end_to_end_recall": 0.6666666666666666,
+              "labelled_pair_precision_by_k": [
+                0.4,
+                0.4,
+                0.39999999999999997,
+                0.4,
+                0.4,
+                0.3333333333333333,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "controlled": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "indexed": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            }
+          },
+          "timings": {
+            "indexed_capture_and_projection_seconds": 0.026037875097244978,
+            "syntax_extract_seconds": 0.007704874966293573,
+            "controlled_extract_seconds": 0.00333591690286994,
+            "indexed_extract_seconds": 0.005099874921143055
+          },
+          "wall_seconds": 0.1073731251526624,
+          "parent_cpu_seconds": 0.04488800000000004,
+          "process_peak_rss_bytes": 56360960,
+          "rss_scope": "process_lifetime_peak; not incremental context or child memory",
+          "timing_scope": "source capture, extraction, requested scoring; excludes index generation and serialization"
+        }
+      },
+      {
+        "cli_wall_seconds": 0.3955280838999897,
+        "cli_scope": "fresh process through exit, including imports and exclusive publication; parent scheduler included",
+        "observation": {
+          "schema": "victor-callee-context-ablation-v1",
+          "production_quality_qualified": false,
+          "weighted_fusion": false,
+          "program_semantics_verified": false,
+          "evaluation_scope": "authored_requested_pair_controls; not independent-project or retrieval accuracy",
+          "decision_rule": "pre-existing exact normalized-token identity; no trained threshold",
+          "oracle_domain": "Authored source-inspection controls only. Exact frozen classes/functions and built-in nonempty str keys or exact built-in int inputs; no subclasses, monkeypatching, concurrent mutation, effects, ABI or general semantic equivalence. Labels are not inferred from names or detector scores. Compiler/indexer identity is separate provenance, never behavioral certification.",
+          "python": "3.12.6",
+          "platform": "macOS-26.2-arm64-arm-64bit",
+          "machine": "arm64",
+          "protobuf_runtime": "6.33.6",
+          "implementation": {
+            "structural_clones.py": "d4fcb509f9226045def45fcf518ccfd22379e7c86b1bc02ea461d8a62c9ede79",
+            "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+            "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+            "source_reader.py": "865ca7c1896cbf996466f3e49708c672004746b7d21ce4ef169728ae1d38d719",
+            "copy_artifacts.py": "28553b8f74c97df0c4402f6f1cbc54de9df5a3d089035bd3c72d910b7f903048",
+            "_scip/scip_pb2.py": "09e50911f8c12c8b196c8b985ef6be5e863eb0d76c3d4175515dfad112541350",
+            "benchmark_callee_context.py": "5942cd41f6aa759b2f978ce8a404c21ebde0b3a19baca6effdf994b5ce17a16a"
+          },
+          "engine_module": "/Users/vijaysingh/code/codingagent/.worktrees/graph-project-calibration/victor/core/graph_rag/structural_clones.py",
+          "fixture_sha256": "c4a4d6e30e8ee8e43fdb1cae06d74869964c3f7e7be4e72454652a312794b26c",
+          "source_hashes": {
+            "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+            "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+            "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+            "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+            "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+          },
+          "source_files": 5,
+          "source_bytes": 1876,
+          "compared_units": 12,
+          "requested_pairs": 8,
+          "indexed": {
+            "index_sha256": "397125671f0645bfa656202d9a2b306ff257aa5362d1a62b5d431d37589904e3",
+            "bytes": 20787,
+            "declared_producer": {
+              "name": "scip-python",
+              "version": "0.6.8",
+              "kind": "actual_static_indexer_output; Pyright-backed, not native compilation or runtime verification",
+              "tool_entry_sha256": "ce60dd39157c8f52d8f9de8f060743e1135b697c52253de65521a19b84e19d2a",
+              "config_sha256": "10ad853dd1a71e51015e59e146bfb5eb180a8ddcb16acd148a06e5745bb725d4"
+            },
+            "source_freshness": "source_hash_sidecar_matches; curator provenance, not authentication",
+            "status": "available",
+            "metadata_producer": {
+              "name": "scip-python",
+              "version": "0.6.8"
+            },
+            "document_count": 5,
+            "occurrence_count": 171
+          },
+          "controlled_provenance": "curator-authored target identities; not compiler output",
+          "features": {
+            "syntax": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "controlled": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python controlled-identity 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            },
+            "indexed": {
+              "control_alias_negative": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_negative()."
+                ]
+              },
+              "control_alias_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "control_alias_renamed": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/shared_read()."
+                ]
+              },
+              "registry_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "renamed_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "cache_read": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Cache#get()."
+                ]
+              },
+              "changed_operator": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "changed_literal": {
+                "call_sites": 1,
+                "resolved_call_sites": 1,
+                "targets": [
+                  "scip-python python victor-context-control 1 control_stores/Registry#get()."
+                ]
+              },
+              "unknown_first": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "unknown_second": {
+                "call_sites": 1,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_first": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              },
+              "no_call_second": {
+                "call_sites": 0,
+                "resolved_call_sites": 0,
+                "targets": []
+              }
+            }
+          },
+          "pairs": [
+            {
+              "id": "renamed-same-owner",
+              "left": "registry_read",
+              "right": "renamed_read",
+              "positive": true,
+              "rationale": "The exact frozen Registry.get target returns len(key); both callers add the same literal two, with only parameter/local renaming.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-spelling-different-owner",
+              "left": "registry_read",
+              "right": "cache_read",
+              "positive": false,
+              "rationale": "Frozen Registry.get returns len(key), Cache.get returns -len(key); adding two differs for nonempty built-in strings, despite identical body spelling.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "aliased-same-target",
+              "left": "control_alias_read",
+              "right": "control_alias_renamed",
+              "positive": true,
+              "rationale": "The two import aliases resolve to the same frozen shared_read helper, which delegates Registry.get; callers add two.",
+              "syntax": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "same-alias-different-target",
+              "left": "control_alias_read",
+              "right": "control_alias_negative",
+              "positive": false,
+              "rationale": "The same lookup spelling imports shared_read versus shared_negative; the latter negates the getter result before the identical caller adds two.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5757575757575758,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-operator-same-target",
+              "left": "registry_read",
+              "right": "changed_operator",
+              "positive": false,
+              "rationale": "Both call Registry.get but add versus subtract two; a matching callee identity does not erase this operation change.",
+              "syntax": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 0.5882352941176471,
+                "exact": false,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "changed-literal-same-target",
+              "left": "registry_read",
+              "right": "changed_literal",
+              "positive": false,
+              "rationale": "Both call Registry.get but add two versus three. Production normalization collapses these literal values; retaining a false positive is part of this diagnostic.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              }
+            },
+            {
+              "id": "unresolved-any-receiver",
+              "left": "unknown_first",
+              "right": "unknown_second",
+              "positive": null,
+              "rationale": "Any supplies no statically resolved receiver target. The oracle is unknown, not a negative; compiler-context scoring must retain unresolved evidence.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "available",
+                "reason": null
+              },
+              "controlled": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              },
+              "indexed": {
+                "score": null,
+                "exact": null,
+                "status": "abstained",
+                "reason": "unresolved_or_ambiguous_call_target"
+              }
+            },
+            {
+              "id": "no-calls",
+              "left": "no_call_first",
+              "right": "no_call_second",
+              "positive": true,
+              "rationale": "Both add the same literal two to an exact built-in integer; there is no call-target feature to add, and syntax evidence remains unchanged.",
+              "syntax": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "controlled": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              },
+              "indexed": {
+                "score": 1.0,
+                "exact": true,
+                "status": "no_call_sites",
+                "reason": null
+              }
+            }
+          ],
+          "summary": {
+            "syntax": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 2,
+              "fp": 3,
+              "fn": 1,
+              "tn": 1,
+              "precision": 0.4,
+              "conditional_recall": 0.6666666666666666,
+              "end_to_end_recall": 0.6666666666666666,
+              "labelled_pair_precision_by_k": [
+                0.4,
+                0.4,
+                0.39999999999999997,
+                0.4,
+                0.4,
+                0.3333333333333333,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "controlled": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            },
+            "indexed": {
+              "labelled_pairs": 7,
+              "unknown_oracle_pairs": 1,
+              "scored_labelled_pairs": 7,
+              "abstained_labelled_pairs": 0,
+              "tp": 3,
+              "fp": 1,
+              "fn": 0,
+              "tn": 3,
+              "precision": 0.75,
+              "conditional_recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_by_k": [
+                0.75,
+                0.75,
+                0.75,
+                0.75,
+                0.6,
+                0.5,
+                0.42857142857142855
+              ],
+              "rank_scope": "all budgets 1..scored labelled pairs; expected uniform score ties"
+            }
+          },
+          "timings": {
+            "indexed_capture_and_projection_seconds": 0.0182286249473691,
+            "syntax_extract_seconds": 0.00856949994340539,
+            "controlled_extract_seconds": 0.005636624991893768,
+            "indexed_extract_seconds": 0.0033963751047849655
+          },
+          "wall_seconds": 0.05335541581735015,
+          "parent_cpu_seconds": 0.03992200000000001,
+          "process_peak_rss_bytes": 56606720,
+          "rss_scope": "process_lifetime_peak; not incremental context or child memory",
+          "timing_scope": "source capture, extraction, requested scoring; excludes index generation and serialization"
+        }
+      }
+    ],
+    "geometry_sha256": "c307e45bd6be720f11ac89607ab5ab975b8e39ed0df881cbc49f9023d4c72402",
+    "medians": {
+      "cli_wall_seconds": 0.43014979106374085,
+      "wall_seconds": 0.07209266605786979,
+      "parent_cpu_seconds": 0.03992200000000001,
+      "process_peak_rss_bytes": 56360960,
+      "indexed_capture_and_projection_seconds": 0.0182286249473691,
+      "syntax_extract_seconds": 0.006050541065633297,
+      "controlled_extract_seconds": 0.003443624824285507,
+      "indexed_extract_seconds": 0.00394499977119267
+    }
+  },
+  "limits": [
+    "All eight pairs are authored correlated controls in one Python project, not independent-project accuracy or whole-repository retrieval.",
+    "The oracle has three positives, four negatives and one unknown under the exact frozen-source/builtins/no-subclass/no-monkeypatch domain.",
+    "Actual scip-python is a Pyright-backed static indexer, not native compilation, ABI or runtime-behavior verification.",
+    "Compiler documents omit source text; the source-hash sidecar is curator provenance, not authenticated proof of the bytes read by the producer.",
+    "The captured per-document coordinate encoding is unspecified; all selected names are ASCII.",
+    "Literal normalization still merges the changed-literal counterexample; unknown Any receivers remain unresolved. No learned threshold or weighted fusion is introduced.",
+    "Five fresh-process observations on one ARM64 macOS host retain all raw observations. Leg order is fixed syntax/control/indexed; caching/warming prevents attributing faster later legs to a performance improvement.",
+    "CLI wall includes startup/imports/publication; observer wall/CPU excludes those boundaries and index generation. Parent CPU and lifetime RSS do not measure indexer child CPU or incremental context memory.",
+    "Tool entry hash and declared producer/runtime versions are provenance, not authentication of the complete installed dependency closure.",
+    "Shared-host scheduling and cold-cache state are uncontrolled; raw observations are retained without choosing a favorable run."
+  ]
+}

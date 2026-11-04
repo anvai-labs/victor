@@ -30,6 +30,7 @@ multi-line message submits verbatim.
 from __future__ import annotations
 
 import asyncio
+import time
 
 from textual import events
 from textual.widgets import Input
@@ -39,6 +40,12 @@ from victor.ui.tui.clipboard import read_clipboard
 
 class PromptInput(Input):
     """An ``Input`` whose paste reads the OS clipboard and keeps every line."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Track when we handled a paste via action_paste() to avoid double-paste
+        # when the terminal also sends a bracketed paste event
+        self._last_action_paste_time: float = 0.0
 
     def _replace_selection(self, text: str) -> None:
         """Insert ``text`` at the cursor, replacing any active selection."""
@@ -57,9 +64,19 @@ class PromptInput(Input):
         if not text:
             text = self.app.clipboard  # text copied earlier inside the app
         self._replace_selection(text)
+        # Mark that we just handled a paste, so _on_paste can skip duplicates
+        self._last_action_paste_time = time.monotonic()
 
     def _on_paste(self, event: events.Paste) -> None:
-        """Insert the full bracketed-paste payload (Textual keeps only line one)."""
+        """Insert the full bracketed-paste payload (Textual keeps only line one).
+
+        Skip if we just handled a paste via action_paste() within the last 100ms
+        to avoid double-paste when Ctrl+V triggers both handlers.
+        """
+        # Check if action_paste() just fired (within 100ms)
+        if time.monotonic() - self._last_action_paste_time < 0.1:
+            event.stop()
+            return
         if event.text:
             self._replace_selection(event.text)
         event.stop()

@@ -17,6 +17,15 @@ To keep the runner queue free and feature work merging fast, CI is split by the 
 >
 > On **PRs targeting main** and the resulting **protected push to main**, the changed-file unit job is skipped (`ci-fast.yml` → `quick-tests`): the diff spans the release delta and exceeds the quick gate's target/time cap. The full sharded suite verifies every promotion PR through `ci-test`; main's other lint, security and import gates still run. Feature/develop quick tests retain their 200-target cap and reject unmapped core sources.
 
+Affected native/CCG changes also run `native-ccg-qualification.yml`: portable
+release-wheel builds and bare installations on five OS/architecture targets for
+Python 3.12 and 3.13. It is an additional conditional PR workflow; wait for all
+its checks before merging. `release.yml` reuses that same qualified wheel matrix,
+so publication consumes the validated platform/version shape. Wheel and checker
+artifacts are separate; publication/checksums retain the `native-wheels-*`
+artifact contract. This is native packaging evidence, not secure Windows source
+scanner or source-program semantic qualification.
+
 The existing **CI Success** context joins the complete event-specific gate. On
 main pull requests, `ci-fast` calls the full test, integration, build, security,
 validation, performance, contracts, codegraph, vertical and vertical-package

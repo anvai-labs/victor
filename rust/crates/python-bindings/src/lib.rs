@@ -78,6 +78,9 @@ mod protocol;
 /// appropriate Python exceptions when needed.
 #[pymodule]
 fn victor_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Physical statement identity / raw CCG input contract.
+    m.add("CCG_STATEMENT_SCHEMA", 2)?;
+
     // Version info
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 

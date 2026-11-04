@@ -89,6 +89,7 @@ def _create_server(monkeypatch, tmp_path: Path, orchestrator, **server_kwargs):
     server = fastapi_server.VictorFastAPIServer(
         workspace_root=str(tmp_path),
         enable_graphql=False,
+        allow_unauthenticated=True,
         **server_kwargs,
     )
     server._orchestrator = orchestrator
@@ -652,7 +653,9 @@ async def test_classify_falls_back_to_managed_default_provider(monkeypatch, tmp_
     # Server bootstraps with REAL settings; the defaults stub is applied only
     # for the request, after bootstrap has completed.
     monkeypatch.setattr(fs_mod, "load_fastapi_router_registrations", lambda *, workspace_root: [])
-    server = fs_mod.VictorFastAPIServer(workspace_root=str(tmp_path), enable_graphql=False)
+    server = fs_mod.VictorFastAPIServer(
+        workspace_root=str(tmp_path), enable_graphql=False, allow_unauthenticated=True
+    )
     server._orchestrator = _Orch()
 
     class _ProviderCfg:

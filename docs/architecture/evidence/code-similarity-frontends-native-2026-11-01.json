@@ -1,0 +1,372 @@
+{
+  "schema": "victor-source-similarity-observation-v1",
+  "date": "2026-11-01",
+  "baseline_commit": "095e981bf",
+  "uncommitted": true,
+  "accuracy_benchmark": false,
+  "source_mutation": false,
+  "scope": "40 copied native accelerator files; no SCIP or graph artifacts",
+  "invocation": "python scripts/benchmark_graph_similarity.py CORPUS --cross-language --metric subtree --threshold 0.8 --min-nodes 40",
+  "python": "3.12.6",
+  "dependency_versions": {
+    "tree-sitter": "0.26.0",
+    "tree-sitter-bash": "0.25.1",
+    "tree-sitter-c": "0.24.1",
+    "tree-sitter-c-sharp": "0.23.1",
+    "tree-sitter-cpp": "0.23.4",
+    "tree-sitter-go": "0.25.0",
+    "tree-sitter-java": "0.23.5",
+    "tree-sitter-javascript": "0.25.0",
+    "tree-sitter-kotlin": "1.1.0",
+    "tree-sitter-lua": "0.4.1",
+    "tree-sitter-php": "0.24.1",
+    "tree-sitter-python": "0.25.0",
+    "tree-sitter-ruby": "0.23.1",
+    "tree-sitter-rust": "0.24.2",
+    "tree-sitter-scala": "0.24.0",
+    "tree-sitter-swift": "0.0.1",
+    "tree-sitter-typescript": "0.23.2",
+    "victor-codegraph": "0.14.0"
+  },
+  "implementation_hashes": {
+    "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+    "clone_bindings.py": "6ae7826a5cbb43481250df9a1c47a6a31a8cac714e2f1d0116caf6ae81a66335",
+    "ffi_bindings.py": "f6adda42316ff931c8e753ea4f93f2d034aba8da4095c2deb0363bfea88853e6",
+    "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+    "polyglot_clones.py": "ed2d4b23a4c66409b666fa91867d28590fd15b7113cb85c1b0bdb4e32b07ff6c",
+    "portable_clones.py": "cac80b7d0b4254491599805a4adc80907a2b265ac1e64e1a8fa6e4ab2d026882",
+    "semantic_clones.py": "b22740c10525b27d872c32bbd3eef33f846cfbd47fea89d64e35d3391fbe4897",
+    "structural_clones.py": "e9153de7318423b77a19ad750566d8c6a808300a7b13c0d31893aad5936ba938",
+    "treesitter_clones.py": "2ec5cd2e7c0d4943333600951171af74cb9a90a1e8a7a4c10d44dc3d5362de90"
+  },
+  "observations": [
+    {
+      "wall_seconds": 0.6919697499834001,
+      "cpu_seconds": 0.597143,
+      "process_max_rss_bytes": 63848448
+    }
+  ],
+  "measurement_note": "Single local ARM64 observation with concurrent test activity; no latency/speedup claim. Counters describe coverage, not accuracy.",
+  "stats": {
+    "functions": 234,
+    "source_files": 40,
+    "coverage_scope": "selected_supported_frontends",
+    "normalization_schema": "normalized-body-v3-lexical-bindings",
+    "binding_support": {
+      "python": "compiler-symbol-tables",
+      "rust": "lexical-subset"
+    },
+    "excluded_artifact_files": 0,
+    "near_metric": "subtree",
+    "cross_language": true,
+    "portable_schema": "portable-operations-v1",
+    "portable_units": 3,
+    "portable_unsupported_units": 231,
+    "portable_small_units": 0,
+    "portable_unsupported_reasons": {
+      "string_literal": 5,
+      "generic_function": 1,
+      "unary_expression": 5,
+      "scoped_identifier": 76,
+      "match_expression": 28,
+      "let_condition": 7,
+      "closure_expression": 25,
+      "continue_expression": 1,
+      "use_declaration": 3,
+      "reference_expression": 5,
+      "index_expression": 2,
+      "macro_invocation": 6,
+      "try_expression": 16,
+      "array_expression": 1,
+      "type_cast_expression": 2,
+      "struct_expression": 4,
+      "char_literal": 1,
+      "tuple_expression": 4,
+      "compound_assignment_expr": 1,
+      "With": 23,
+      "List": 2,
+      "Tuple": 1,
+      "Dict": 2,
+      "DictComp": 3,
+      "GeneratorExp": 1,
+      "keyword-call": 4,
+      "IfExp": 1,
+      "Compare": 1
+    },
+    "portable_coverage_complete": false,
+    "ffi_jni_declarations": 0,
+    "ffi_jni_exports": 0,
+    "ffi_ambiguous_bindings": 0,
+    "ffi_unresolved_bindings": 0,
+    "ffi_index_available": 0,
+    "ffi_relationships": 0,
+    "rust_files": 24,
+    "python_files": 16,
+    "unavailable_languages": [],
+    "parse_error_files": 0,
+    "binding_error_files": 0,
+    "recovered_units": 0,
+    "unreadable_files": 0,
+    "oversized_files": 0,
+    "languages": {
+      "python": 16,
+      "rust": 24
+    },
+    "resolved_symbols": 0,
+    "scip_dumps": [],
+    "scip_freshness": "source-text-when-present-otherwise-mtime-and-range-heuristic",
+    "scip_files": 0,
+    "stale_files": 0,
+    "ast_only_files": 40,
+    "scip_dump": false,
+    "skipped_buckets": 0,
+    "seconds": 0.7,
+    "exact_families": 2,
+    "template_families": 0,
+    "near_families": 0,
+    "cross_language_families": 0,
+    "suppressed_families": 0
+  },
+  "source_manifest": [
+    {
+      "file": "rust/crates/python-bindings/src/arg_normalizer.rs",
+      "sha256": "1ba480a32bd8307e6ad01e363fd71fbee6b415b435fc240078577e15d420d684",
+      "bytes": 13646,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/ast_indexer.rs",
+      "sha256": "b29e88b2674c1249712771ea99ce8140785ca9356cc9c97eea7e76dcbf100aec",
+      "bytes": 11596,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/ccg_extract.rs",
+      "sha256": "e5afbd2ab7d49a06f67094171ddf1f10438f428b6792e00e0bb309c0558925bb",
+      "bytes": 45614,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/chunking.rs",
+      "sha256": "447dd37e6bb86f8a167896abcc4e3e013c2971edcc2b83a4b19f29d1bfaeb0cf",
+      "bytes": 20815,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/classifier.rs",
+      "sha256": "e0d144a2e216ef1141aecc738074fba69f5a17ec9484e99a51de37d8f673a2d4",
+      "bytes": 19990,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/context_fitter.rs",
+      "sha256": "f844546ff313207bf70e91d53d8ae2b0da92604c3d5cf9045e8ae6c4b6c57950",
+      "bytes": 24315,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/dedup.rs",
+      "sha256": "039ad6ea837946fecd24bbe03bddfc541ff67cc46e887745cf45511c6d040af8",
+      "bytes": 8523,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/embeddings.rs",
+      "sha256": "5521221461ddfd3599e8fc5648c2163a1b815642e9c29414b7728fa14c8cf950",
+      "bytes": 20880,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/extractor.rs",
+      "sha256": "dfd1374552c835b703344520fe405d9344d10cb863b6c47e72351c84c6f6050d",
+      "bytes": 11915,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/graph_algo.rs",
+      "sha256": "7d802ea134636271d0316749abde5734147127f9a06c5e21a60e9182db56a973",
+      "bytes": 11246,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/hashing.rs",
+      "sha256": "271282513226518ec6dbeaa6af899d494077da8117d65f16ae5aa414b639bef8",
+      "bytes": 6419,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/json_repair.rs",
+      "sha256": "38d3f798acb0bc353508f08f96ca0e7e9b06cb9c4637b39c748afd1b50fa853a",
+      "bytes": 13792,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/lib.rs",
+      "sha256": "d9ca50435926273c9d1d3f64a07549c0aa813e9d010c3a0d15b55d0149b1f9c7",
+      "bytes": 13878,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/pattern_match.rs",
+      "sha256": "fadad9867445137e0f72e221aa87d5bb810623d42a2f64e663e4f96e011b2d06",
+      "bytes": 16164,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/plugin_ccg.rs",
+      "sha256": "3496d3c50e5885f56928fdbe8d7bfa1a563c7614316cb4a09e7fb9b195d62864",
+      "bytes": 28333,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/protocol.rs",
+      "sha256": "2e86f353f3a69aded74fce45eeea1c26d25ac2c3ca6b11a27a7aff1d5e377ded",
+      "bytes": 13337,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/sanitizer.rs",
+      "sha256": "5919112c576ba51b0df7419df55473239100dbdfedaa831d966ae179bc11ed58",
+      "bytes": 10172,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/secrets.rs",
+      "sha256": "747f98b80babdcda7aa93a1e801703d1ff9cd8211a91b4b7b413fd8a47078f6d",
+      "bytes": 10806,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/similarity.rs",
+      "sha256": "c3ebd66fd5ba0e84a7763048542d1408cd262e923204f77fba59972c9cabed7e",
+      "bytes": 34166,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/streaming_filter.rs",
+      "sha256": "4146a666c14c0e12f8c9897fd2782442f66dedd00f425878dbd4b8367ad51df1",
+      "bytes": 18396,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/thinking.rs",
+      "sha256": "f4a6b20a465c38e739c50b995940e67e21e1180df85608bc9d47aef7986038e2",
+      "bytes": 20779,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/tokenizer.rs",
+      "sha256": "cb817a9f7aea02bc2ffbb1200a2fc533237961be36bbc0fe35b792710bc9258e",
+      "bytes": 20123,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/trace_scanner.rs",
+      "sha256": "21b2ae353519290d29b8ebe362075eae5572eaf964d965123c542891fbaf8c7a",
+      "bytes": 7053,
+      "matches_worktree": true
+    },
+    {
+      "file": "rust/crates/python-bindings/src/yaml_loader.rs",
+      "sha256": "9aca10e8c7c4f57b105336eba7e54914e5c9649de28b79a9d6c1c3763202c6f2",
+      "bytes": 8069,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/__init__.py",
+      "sha256": "6b89b8d1368ac46afccb7d0243738722522ca8c502c876b4f5297cdf6caabb2c",
+      "bytes": 1589,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/arg_normalizer.py",
+      "sha256": "6ab55c040cd5d30f29325b7850c14e78fd65b6e6f6eec70bc98b022db25296f9",
+      "bytes": 8827,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/ast_indexer.py",
+      "sha256": "707c5d9914f44904d2151bf8d35493719b2791c3a1b89d8d9e2ec5c936088917",
+      "bytes": 9147,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/chunker.py",
+      "sha256": "35a614540d9ce3a2e121765fedb9430b857cb8c9f39e7cb6e43b27936c18c2cf",
+      "bytes": 6655,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/context_fitter.py",
+      "sha256": "5992b40b2ba899261265c2f7bb3b218e3da8c124a1a7de14134700a0b7b168cd",
+      "bytes": 3516,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/graph_algo.py",
+      "sha256": "abf00f6ba19209b9c54f00b062aeead777b27d72fd69c11cfdf6a4f454f771a8",
+      "bytes": 5444,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/similarity.py",
+      "sha256": "012af8c6c7a30253e37a9d0594c5935c27bdbdf96e163fe2f9a4367f2cf6372b",
+      "bytes": 7040,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/symbol_extractor.py",
+      "sha256": "35d1a626738a1eff48e34d366632aa0dc7cfdea2966bb574059d629a85a2c16c",
+      "bytes": 5038,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/python/tokenizer.py",
+      "sha256": "be221d368a58be1195dd1bb578d895b6ea0aaef0532e81550c42225ee856baaf",
+      "bytes": 2970,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/rust/__init__.py",
+      "sha256": "907145a10631923e609d8dd0cc2f3ed5e68bf998af50b44c61df7c4f655a0bd3",
+      "bytes": 1365,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/rust/arg_normalizer.py",
+      "sha256": "15c40b88e896655dee1bd51bb9adacc88a4ee4aef0225da682fb6e2be0b9ca90",
+      "bytes": 4885,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/rust/ast_indexer.py",
+      "sha256": "d872937abeb3a2f8864f50f00ac32414bb27be8a516f4a06462efeae0732c679",
+      "bytes": 3948,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/rust/chunker.py",
+      "sha256": "838fcf9ccd1e1206ba50b8f96ab739f275ee6a44f53dc19e359f17da948b14c8",
+      "bytes": 4787,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/rust/context_fitter.py",
+      "sha256": "cd9f2cdefd3565ae1c52b420260718da3f92c7ba9695d67c15fe03e504439c60",
+      "bytes": 4923,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/rust/similarity.py",
+      "sha256": "616fce1d2f36ebb41e47e2c88ad4737090f449aedde386e7c01682b90e80f2ba",
+      "bytes": 5995,
+      "matches_worktree": true
+    },
+    {
+      "file": "victor/native/rust/tokenizer.py",
+      "sha256": "918a6fe3526b6c71493ebecd24a5130777f6df01dec79021c218052d645c2ebb",
+      "bytes": 3816,
+      "matches_worktree": true
+    }
+  ]
+}

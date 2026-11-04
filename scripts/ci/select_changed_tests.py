@@ -61,7 +61,214 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "scripts/benchmark_scip_scope.py": ("tests/unit/scripts/test_benchmark_scip_scope.py",),
+    **dict.fromkeys(
+        (
+            "victor/core/graph_rag/scip_documents.py",
+            "victor/core/graph_rag/structural_clones.py",
+            "victor/core/graph_rag/precise_index.py",
+        ),
+        (
+            "tests/unit/core/graph_rag/test_scip_documents.py",
+            "tests/unit/core/graph_rag/test_scip_documents_windows.py",
+            "tests/unit/core/graph_rag/test_structural_clones.py",
+            "tests/unit/core/graph_rag/test_polyglot_clones.py",
+            "tests/unit/core/graph_rag/test_precise_index.py",
+        ),
+    ),
+    "victor/core/indexing/ccg_builder.py": (
+        "tests/unit/core/indexing/test_ccg_structural_cfg.py",
+        "tests/unit/processing/native/test_ccg_extract.py",
+    ),
+    ".github/workflows/native-ccg-qualification.yml": (
+        "tests/unit/scripts/test_native_ccg_qualification.py",
+    ),
+    "scripts/ci/check_native_ccg_wheel.py": (
+        "tests/unit/scripts/test_native_ccg_wheel_check.py",
+        "tests/unit/scripts/test_native_ccg_qualification.py",
+    ),
+    "scripts/benchmark_ccg_dependence.py": ("tests/unit/scripts/test_benchmark_ccg_dependence.py",),
+    "victor/core/graph_rag/control_dependence.py": (
+        "tests/unit/core/graph_rag/test_control_dependence.py",
+        "tests/unit/core/indexing/test_ccg_builder_control_dependence.py",
+    ),
+    "scripts/benchmark_body_model_failure.py": (
+        "tests/unit/scripts/test_benchmark_body_model_failure.py",
+    ),
+    "scripts/benchmark_body_cache.py": ("tests/unit/scripts/test_benchmark_body_cache.py",),
+    "scripts/qualify_body_incremental.py": (
+        "tests/unit/scripts/test_benchmark_body_cache.py",
+        "tests/unit/scripts/test_body_qualification_io.py",
+    ),
+    "scripts/body_qualification_io.py": (
+        "tests/unit/scripts/test_body_qualification_io.py",
+        "tests/unit/scripts/test_benchmark_body_cache.py",
+    ),
+    "scripts/body_qualification_metrics.py": ("tests/unit/scripts/test_benchmark_body_cache.py",),
+    "scripts/benchmark_vector_families.py": (
+        "tests/unit/scripts/test_benchmark_vector_families.py",
+    ),
+    "scripts/benchmark_graph_similarity_channels.py": (
+        "tests/unit/scripts/test_benchmark_graph_similarity_channels.py",
+    ),
+    "victor/core/graph_rag/body_provenance.py": (
+        "tests/unit/core/graph_rag/test_body_provenance.py",
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/bounded_process.py": (
+        "tests/unit/core/graph_rag/test_bounded_process.py",
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_source_inventory.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+    ),
+    "victor/core/graph_rag/source_inventory.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_source_inventory.py",
+        "tests/unit/core/graph_rag/test_source_reader.py",
+        "tests/unit/core/graph_rag/test_structural_clones.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+    ),
+    "victor/core/graph_rag/source_reader.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_source_reader.py",
+        "tests/unit/core/graph_rag/test_source_inventory.py",
+        "tests/unit/core/graph_rag/test_structural_clones.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+    ),
+    "victor/core/graph_rag/windows_source.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_source_reader.py",
+    ),
+    "victor/core/graph_rag/windows_process.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_bounded_process.py",
+    ),
+    "victor/core/graph_rag/windows_inventory.py": (
+        "tests/unit/core/graph_rag/test_windows_source.py",
+        "tests/unit/core/graph_rag/test_source_inventory.py",
+    ),
+    "victor/core/graph_rag/token_fingerprints.py": (
+        "tests/unit/core/graph_rag/test_token_fingerprints.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/token_clones.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/token_coverage.py": (
+        "tests/unit/core/graph_rag/test_token_coverage.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+    ),
+    "victor/core/graph_rag/copy_baseline.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/copy_artifacts.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/similarity_sarif.py": (
+        "tests/unit/core/graph_rag/test_similarity_sarif.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_semantic_clone_store.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/ui/commands/graph.py": (
+        "tests/unit/core/graph_rag/test_copy_baseline.py",
+        "tests/unit/core/graph_rag/test_token_clones.py",
+        "tests/unit/core/graph_rag/test_semantic_clone_store.py",
+    ),
+    "victor/core/graph_rag/family_cohesion.py": (
+        "tests/unit/core/graph_rag/test_family_cohesion.py",
+        "tests/unit/core/graph_rag/test_semantic_clones.py",
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/semantic_clones.py": (
+        "tests/unit/core/graph_rag/test_semantic_clones.py",
+        "tests/unit/core/graph_rag/test_semantic_clone_store.py",
+        "tests/unit/core/graph_rag/test_family_cohesion.py",
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/ui/rendering/clone_families.py": (
+        "tests/unit/ui/rendering/test_clone_families.py",
+        "tests/unit/ui/commands/test_graph_similar_cli.py",
+    ),
+    "victor/core/graph_rag/jni_contracts.py": (
+        "tests/unit/core/graph_rag/test_jni_contracts.py",
+        "tests/unit/core/graph_rag/test_polyglot_clones.py",
+    ),
+    "scripts/benchmark_graph_similarity_evaluation.py": (
+        "tests/unit/scripts/test_benchmark_graph_similarity_evaluation.py",
+    ),
+    "victor/core/graph_rag/numeric_literals.py": (
+        "tests/unit/core/graph_rag/test_numeric_literals.py",
+        "tests/unit/core/graph_rag/test_portable_operations.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+    ),
+    "scripts/evaluate_graph_similarity.py": (
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/body_clones.py": (
+        "tests/unit/core/graph_rag/test_body_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+    ),
+    "victor/core/graph_rag/similarity_evaluation.py": (
+        "tests/unit/core/graph_rag/test_similarity_evaluation.py",
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/similarity_pair_scoring.py": (
+        "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+        "tests/unit/scripts/test_evaluate_graph_similarity.py",
+    ),
+    "victor/core/graph_rag/clone_bindings.py": (
+        "tests/unit/core/graph_rag/test_similarity_frontends.py",
+        "tests/unit/core/graph_rag/test_portable_operations.py",
+    ),
+    "victor/core/graph_rag/dedup.py": (
+        "tests/integration/codegraph/test_deduplication.py",
+        "tests/unit/ui/commands/test_graph_dedup_cli.py",
+    ),
+    "victor/core/graph_rag/ffi_bindings.py": ("tests/unit/core/graph_rag/test_polyglot_clones.py",),
+    "victor/core/graph_rag/language_parsers.py": (
+        "tests/unit/core/graph_rag/test_multilanguage_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_frontends.py",
+        "tests/unit/core/graph_rag/test_indexing_codegraph_fallback.py",
+    ),
+    "victor/core/graph_rag/portable_clones.py": (
+        "tests/unit/core/graph_rag/test_portable_operations.py",
+        "tests/unit/core/graph_rag/test_polyglot_clones.py",
+    ),
+    "victor/core/graph_rag/similarity_analysis.py": (
+        "tests/unit/core/graph_rag/test_similarity_channels.py",
+    ),
+    "victor/core/graph_rag/source_regions.py": (
+        "tests/unit/core/graph_rag/test_embedded_clones.py",
+    ),
+    "victor/core/graph_rag/treesitter_clones.py": (
+        "tests/unit/core/graph_rag/test_multilanguage_clones.py",
+        "tests/unit/core/graph_rag/test_similarity_frontends.py",
+        "tests/unit/core/graph_rag/test_polyglot_clones.py",
+    ),
     "scripts/ci/gate_results.py": ("tests/unit/scripts/test_promotion_gates.py",),
+    "scripts/ci/windows_source_required.py": (
+        "tests/unit/scripts/test_windows_source_required.py",
+        "tests/unit/scripts/test_promotion_gates.py",
+    ),
     "scripts/ci/changed_test_base.py": ("tests/unit/scripts/test_promotion_gates.py",),
     "victor/agent/tool_pipeline.py": (
         "tests/unit/agent/services/test_chat_service_tool_result.py",
@@ -557,6 +764,8 @@ RELATED_TESTS = {
             "tests/unit/core/graph_rag/test_precise_index.py",
             "tests/unit/core/graph_rag/test_precise_providers.py",
             "tests/unit/core/graph_rag/test_precise_cache.py",
+            "tests/unit/core/graph_rag/test_scip_documents.py",
+            "tests/unit/core/graph_rag/test_scip_documents_windows.py",
         ),
     ),
     **dict.fromkeys(
@@ -1158,6 +1367,29 @@ def select(changed: list[str]) -> list[str]:
     unmapped_sources: list[str] = []
     for raw in changed:
         p = raw.strip()
+        if p.startswith("tests/fixtures/graph_context/") or p in {
+            "scripts/benchmark_callee_context.py",
+            "tests/unit/scripts/test_benchmark_callee_context.py",
+        }:
+            # The SCIP owner selects the declared protobuf runtime/mandatory
+            # reader flag in ci-fast. Missing owners must fail, never skip.
+            targets.update(
+                {
+                    "tests/unit/scripts/test_benchmark_callee_context.py",
+                    "tests/unit/core/graph_rag/test_scip_documents.py",
+                }
+            )
+            continue
+        if p.startswith("tests/fixtures/graph_similarity/"):
+            targets.update(
+                target
+                for target in (
+                    "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
+                    "tests/unit/scripts/test_evaluate_graph_similarity.py",
+                )
+                if (ROOT / target).exists()
+            )
+            continue
         if not p.endswith(".py"):
             continue
         existing_related = tuple(

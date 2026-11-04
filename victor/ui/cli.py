@@ -88,7 +88,6 @@ from victor.ui.commands.viz import viz_app
 from victor.ui.commands.ui import ui_app
 from victor.ui.commands.tools import tools_app
 from victor.ui.commands.scaffold import scaffold_app
-from victor.ui.commands.scheduler import scheduler_app
 from victor.ui.commands.sessions import sessions_app
 from victor.ui.commands.db import db_app
 from victor.ui.commands.vertical import vertical_app
@@ -438,6 +437,7 @@ config_app.add_typer(profiles_app, name="profiles")
 config_app.add_typer(providers_app)
 
 index_app.add_typer(graph_app)
+app.add_typer(graph_app, name="codegraph", hidden=True)
 index_app.add_typer(embeddings_app)
 
 tools_app.add_typer(capabilities_app)

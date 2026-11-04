@@ -468,9 +468,10 @@ class TestMarkdownRendering:
         result = _markdown_block("Hello **world**")
 
         # Should return a Markdown object
+        from victor.ui.rendering.markdown import _ConstrainedMarkdown
         from rich.markdown import Markdown
 
-        assert isinstance(result, Markdown)
+        assert isinstance(result, (_ConstrainedMarkdown, Markdown))
 
     def test_render_image_placeholder(self):
         """Image placeholder is rendered correctly."""

@@ -67,10 +67,10 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PROMOTION-025-ADVERSARIAL-02 — MAIN_CI_PENDING** (2026-11-02), owner:
-  promotion adversarial repair session. Active branch `promote/adversarial-repairs`
-  in `.worktrees/main-adversarial-promote`; main baseline `8e142c2cb`, complete
-  develop snapshot `b3f09333aef5524a38a55fd9aee6f33973b82fa8`. The merge preserves
+- **PROMOTION-025-ADVERSARIAL-02 — MERGED_MAIN_SYNCED** (2026-11-02), owner:
+  promotion adversarial repair session. Completed branch `promote/adversarial-repairs`
+  and `.worktrees/main-adversarial-promote` were removed. Main baseline: `8e142c2cb`;
+  complete develop snapshot: `b3f09333aef5524a38a55fd9aee6f33973b82fa8`. The merge preserves
   both complete histories; every non-ledger file matches that develop snapshot.
   Earlier baselines were `9ff07d21c`, `22f9d5427`, `43d117796` (identical source
   tree to `22f9d5427`) and `0964ffbc2` (preserved upstream #1651 runner change).
@@ -129,12 +129,46 @@ edit. A mock test is not live provider or C5 evidence.
   Evidence, exact hashes, failed/green logs and PR verdicts are preserved in the
   main checkout `.victor/reviews/promotion-025-adversarial-02/` and
   `.victor/reviews/promotion-defects-ci/`; merged repair worktrees/branches were
-  removed after copying and hash-verifying evidence. This session retains only
-  the active promotion worktree. Next: record review for the updated commit, push
-  one qualified #1653 update, then require its final-head complete battery and
-  normal review. Executable continuation: `gh pr checks 1653 --repo anvai-labs/victor`;
-  inspect that exact head/review state. No repair main merge,
-  tag, release, provider-runtime or live C5 acceptance is claimed.
+  removed after copying and hash-verifying evidence. The final promotion head
+  `33793da5b12c118142bfde21b726d8f481a7518b`
+  is independently attested and pushed to #1653; its source matches develop
+  `b3f09333a` except this ledger. Local collection again passes 37,970 tests.
+  Final full-battery CI on that exact head: **78 SUCCESS, seven SKIPPED,
+  two NEUTRAL** (Semgrep OSS comparison and Trivy); no failure/cancellation or
+  pending result. The Semgrep comparison warns that the prior standalone
+  `security.yml:sast-scan` configuration is absent after reusable-workflow
+  ownership changed; its introduced-alert comparison is unavailable. The actual
+  SAST scan passed; full reports and this comparison limitation are retained.
+  Both required `CI Success` and `Promotion CI Success` passed.
+  Main strict/app-bound checks and the one-review requirement were reverified.
+  Before merge, GitHub required one approving review. The user explicitly
+  authorized admin merge for this solo-developer repository; #1653 was admin-merged
+  at 2026-11-02 03:27:54 UTC as `61d25a056366f94eeff96f4a0cefe946ca1d9a88`.
+  The merge tree exactly matches reviewed head `33793da5b`; branch protections
+  were preserved. This is an authorized review bypass, not a GitHub approval.
+  Updated promotion, source parity, independent attestations and complete final
+  check JSON are preserved under the declared main-checkout evidence archive.
+  The merged promotion worktree/branch were removed after evidence preservation.
+  Other sessions and user files remain untouched. This entry records the completed
+  merge and sync; raw evidence remains archived locally. No tag, release or live
+  acceptance is claimed.
+  User requested syncing main back into develop and avoiding duplicate CI for
+  unchanged code. Verified develop `b3f09333a` is an ancestor of main `61d25a056`,
+  and main has the exact source tree of reviewed/full-CI-passing `33793da5b`.
+  Fast-forwarded remote develop directly to main without force or a new merge
+  commit; GitHub marked sync [#1655](https://github.com/anvai-labs/victor/pull/1655)
+  merged at 2026-11-02 03:41:20 UTC. At that sync boundary, both remote branches
+  pointed to
+  `61d25a056366f94eeff96f4a0cefe946ca1d9a88`. The duplicate sync PR workflow
+  also completed SUCCESS on that commit; no workflow cancellation was needed.
+  Local main/develop and their remote-tracking refs matched at that boundary.
+  The user requested reusing the already-qualified source tree for this fast-forward.
+  For future promotion syncs, fast-forward when ancestry permits; use a reviewed
+  merge if develop has diverged. Never overwrite new develop commits or squash
+  away main ancestry. No promotion or sync worktree remains. This documentation
+  completion record targets develop; main remains at the verified promotion.
+  No tag/release/live acceptance. Next: fetch and reconcile both branches before
+  selecting new work.
 
 - **PROMOTION-025-REVIEW — MERGED** (2026-11-01), owner: develop promotion
   review session; branch `fix/develop-review`, initial baseline `3094bdc75`,

@@ -140,10 +140,13 @@ AI version source; update it on `develop`, run `python scripts/sync_version.py
 5. Independently tag a contracts release `sdk-vX.Y.Z` to invoke
    `release-contracts.yml`.
 
-The native wheel has an independent immutable version in `rust/pyproject.toml`;
-update its Cargo manifest, Cargo lock and root native extra together. The version
-check rejects a partial bump. Rebuilding changed native dependencies or metadata
-requires a new version; publication does not silently reuse existing PyPI wheels.
+The native wheel version tracks the Victor AI release version. Update `VERSION`
+and run `python scripts/sync_version.py --ai` to update the AI metadata, native
+Python/Cargo manifests, lock and root native extra together. The read-only
+`python scripts/check_version_sync.py` rejects drift and partial bumps. Rebuilding
+changed native dependencies or metadata requires a new immutable version;
+publication does not silently reuse existing PyPI wheels. The synchronizer
+rejects unknown flags before writing; it is not the read-only checker.
 
 A release run resolves its destinations before building. Production publication
 requires a tag matching `VERSION`. For a rehearsal, dispatch with **Publish to

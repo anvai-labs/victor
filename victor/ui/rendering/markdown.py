@@ -6,9 +6,10 @@ import re
 from collections import defaultdict
 from typing import Iterable, List, Tuple
 
+from rich import box
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.markdown import CodeBlock as RichCodeBlock
-from rich.markdown import Markdown
+from rich.markdown import Markdown, TableElement
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
@@ -31,6 +32,83 @@ class _CompactCodeBlock(RichCodeBlock):
 
 class _VictorMarkdown(Markdown):
     elements = {**Markdown.elements, "fence": _CompactCodeBlock, "code_block": _CompactCodeBlock}
+
+
+class ResponsiveTableElement(TableElement):
+    """Fold cells or stack fields when columns cannot fit the available pane."""
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        headers = self.header.row.cells if self.header and self.header.row else []
+        rows = self.body.rows if self.body else []
+        count = max([len(headers), *(len(row.cells) for row in rows)], default=0)
+        if options.max_width < count * 10:
+            for row in rows:
+                for index, cell in enumerate(row.cells):
+                    heading = (
+                        headers[index].content.copy()
+                        if index < len(headers)
+                        else Text(str(index + 1))
+                    )
+                    heading.stylize("markdown.table.header")
+                    value = Text.assemble(heading, ": ", cell.content)
+                    value.no_wrap = False
+                    value.overflow = "fold"
+                    yield value
+                yield Text("")
+            if not rows:
+                for header in headers:
+                    yield header.content
+            return
+        table = Table(
+            box=box.SIMPLE, pad_edge=False, collapse_padding=True, style="markdown.table.border"
+        )
+        for index in range(count):
+            heading = headers[index].content.copy() if index < len(headers) else Text("")
+            heading.stylize("markdown.table.header")
+            table.add_column(
+                heading,
+                overflow="fold",
+                no_wrap=False,
+                min_width=1,
+                justify=heading.justify or "left",
+            )
+        for row in rows:
+            cells = [cell.content.copy() for cell in row.cells]
+            for cell in cells:
+                cell.no_wrap = False
+                cell.overflow = "fold"
+            table.add_row(*cells)
+        yield table
+
+
+class VictorMarkdown(_VictorMarkdown):
+    """Victor's element registry, isolated from other users of Rich Markdown."""
+
+    elements = {**_VictorMarkdown.elements, "table_open": ResponsiveTableElement}
+
+
+class _ConstrainedMarkdown:
+    """Wrapper that enforces explicit width constraints on Markdown renderables.
+
+    Ensures that width constraints are properly propagated to all nested elements
+    (code blocks, tables, etc.) even when the parent container's width is not
+    reliably communicated by the rendering framework.
+    """
+
+    def __init__(self, content: str, max_width: int | None = None) -> None:
+        self._content = content
+        self._max_width = max_width
+        self._markdown = VictorMarkdown(content, style="markdown.text", justify="left")
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        # If we have an explicit max_width, constrain the render options
+        if self._max_width is not None:
+            constrained_options = options.update_width(self._max_width)
+        else:
+            constrained_options = options
+
+        # Render the markdown with constrained options
+        yield from console.render(self._markdown, constrained_options)
 
 
 _DIAGRAM_LANGS = {"mermaid"}
@@ -76,7 +154,7 @@ def _escape_rich_markup_from_text(text: str) -> str:
     return _RICH_MARKUP_PATTERN.sub(_escape_match, text)
 
 
-def _markdown_block(text: str) -> Markdown:
+def _markdown_block(text: str) -> RenderableType:
     """Consistently style markdown output with a lighter base.
 
     ``rich.markdown.Markdown`` does not interpret Rich inline markup (it parses
@@ -85,8 +163,11 @@ def _markdown_block(text: str) -> Markdown:
     ``[text]`` portion of markdown links and broke ``[text](url)`` rendering.
     ``_escape_rich_markup_from_text`` is retained as a utility for any
     markup-aware Rich path (e.g. ``console.print(Text(...))``) that may need it.
+
+    Returns a constrained markdown wrapper that ensures width constraints are
+    properly propagated to nested elements (code blocks, tables, etc.).
     """
-    return _VictorMarkdown(text, style="markdown.text", justify="left")
+    return _ConstrainedMarkdown(text)
 
 
 def find_safe_split(content: str) -> int:

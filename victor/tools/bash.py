@@ -1527,7 +1527,13 @@ async def shell(
         # Include informative error message when command fails
         if process.returncode != 0:
             error_parts = []
-            error_parts.append(f"Command failed with exit code {process.returncode}")
+            # Always attribute the failure to the command that ran (log
+            # analysis showed exit-code errors reach the file log with no
+            # tool/args context, making 22/30 failures in a 3h window
+            # unattributable). Keep it bounded so long commands don't bloat
+            # logs; stderr preview below carries the diagnosis.
+            cmd_preview = cmd if len(cmd) <= 200 else cmd[:200] + "..."
+            error_parts.append(f"Command failed with exit code {process.returncode}: {cmd_preview}")
             if stderr_str.strip():
                 # Truncate stderr if too long, keeping first and last parts
                 stderr_preview = stderr_str.strip()

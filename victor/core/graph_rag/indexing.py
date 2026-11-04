@@ -84,16 +84,11 @@ _T = TypeVar("_T")
 # capability registry (see GraphIndexingPipeline._analysis_provider). The maps
 # below are consulted when no enhanced provider is registered or when an
 # enhanced provider's call raises.
-_TREE_SITTER_LANGUAGE_MODULES = {
-    "python": ("tree_sitter_python", "language"),
-    "javascript": ("tree_sitter_javascript", "language"),
-    "typescript": ("tree_sitter_typescript", "language_typescript"),
-    "go": ("tree_sitter_go", "language"),
-    "rust": ("tree_sitter_rust", "language"),
-    "java": ("tree_sitter_java", "language"),
-    "c": ("tree_sitter_c", "language"),
-    "cpp": ("tree_sitter_cpp", "language"),
-}
+from victor.core.graph_rag.language_parsers import (
+    LANGUAGE_MODULES as _TREE_SITTER_LANGUAGE_MODULES,
+    create_parser,
+    parser_input,
+)
 
 _TREE_SITTER_DEFINITION_TYPES = {
     "python": {
@@ -136,7 +131,18 @@ _TREE_SITTER_DEFINITION_TYPES = {
         "enum_declaration",
         "record_declaration",
     },
+    "c": {"function_definition", "struct_specifier", "enum_specifier", "type_definition"},
+    "cpp": {
+        "function_definition",
+        "struct_specifier",
+        "enum_specifier",
+        "type_definition",
+        "class_specifier",
+        "namespace_definition",
+    },
+    "ruby": {"method", "singleton_method", "class", "module"},
 }
+_TREE_SITTER_DEFINITION_TYPES["tsx"] = _TREE_SITTER_DEFINITION_TYPES["typescript"]
 
 _TREE_SITTER_NODE_TYPE_MAP = {
     "function_definition": "function",
@@ -162,6 +168,17 @@ _TREE_SITTER_NODE_TYPE_MAP = {
     "java_class_declaration": "class",
     "java_interface_declaration": "interface",
     "enum_declaration": "enum",
+    "method_declaration": "method",
+    "type_declaration": "type",
+    "struct_specifier": "struct",
+    "enum_specifier": "enum",
+    "class_specifier": "class",
+    "type_definition": "type_alias",
+    "namespace_definition": "module",
+    "method": "method",
+    "singleton_method": "method",
+    "class": "class",
+    "module": "module",
 }
 
 _TREE_SITTER_IDENTIFIER_TYPES = {
@@ -169,6 +186,7 @@ _TREE_SITTER_IDENTIFIER_TYPES = {
     "property_identifier",
     "field_identifier",
     "type_identifier",
+    "namespace_identifier",
 }
 
 
@@ -1960,16 +1978,7 @@ class GraphIndexingPipeline:
         else:
             if language == "python" or language in TREE_SITTER_GRAMMAR:
                 return True
-        symbol_languages = {
-            "python",
-            "javascript",
-            "typescript",
-            "go",
-            "rust",
-            "java",
-            "c",
-            "cpp",
-        }
+        symbol_languages = _TREE_SITTER_LANGUAGE_MODULES
         if language in symbol_languages:
             return True
 
@@ -2002,21 +2011,7 @@ class GraphIndexingPipeline:
 
     def _create_ts_parser(self, language: str) -> Optional[Any]:
         """Create a fresh tree-sitter parser for *language* (caller caches it)."""
-        if language not in _TREE_SITTER_LANGUAGE_MODULES:
-            return None
-        try:
-            import tree_sitter as ts
-
-            module_name, func_name = _TREE_SITTER_LANGUAGE_MODULES[language]
-            lang_module = __import__(module_name)
-            lang_func = getattr(lang_module, func_name)
-            lang_obj = lang_func()
-            ts_language = (
-                ts.Language(lang_obj) if not isinstance(lang_obj, ts.Language) else lang_obj
-            )
-            return ts.Parser(ts_language)
-        except Exception:
-            return None
+        return create_parser(language)
 
     def _get_thread_loop(self) -> asyncio.AbstractEventLoop:
         """Return (creating once per thread) a persistent event loop for the caller thread.
@@ -2492,7 +2487,7 @@ class GraphIndexingPipeline:
                     cache[language] = parser
 
             if parser is not None:
-                tree = parser.parse(bytes(source_code, "utf-8"))
+                tree = parser.parse(parser_input(bytes(source_code, "utf-8"), language))
                 nodes.extend(
                     self._extract_definitions(tree.root_node, file_path, language, source_code)
                 )
@@ -2694,6 +2689,12 @@ class GraphIndexingPipeline:
         Returns:
             Language identifier
         """
+        from victor.core.graph_rag.language_parsers import SOURCE_LANGUAGES
+
+        # Precise indexing and structural frontends share one suffix inventory.
+        registered = SOURCE_LANGUAGES.get(file_path.suffix.lower())
+        if registered is not None:
+            return registered
         try:
             from victor_codegraph.languages import detect_language
         except ImportError:
@@ -2703,25 +2704,7 @@ class GraphIndexingPipeline:
             if detected is not None:
                 return detected
         ext_map = {
-            ".py": "python",
-            ".js": "javascript",
-            ".jsx": "javascript",
-            ".ts": "typescript",
-            ".tsx": "typescript",
-            ".go": "go",
-            ".rs": "rust",
-            ".java": "java",
-            ".c": "c",
-            ".cpp": "cpp",
-            ".cc": "cpp",
-            ".cxx": "cpp",
-            ".h": "c",
-            ".hpp": "cpp",
-            ".hh": "cpp",
-            ".hxx": "cpp",
             ".cs": "c_sharp",
-            ".rb": "ruby",
-            ".rbi": "ruby",
             ".php": "php",
             ".swift": "swift",
             ".kt": "kotlin",
@@ -2761,7 +2744,7 @@ class GraphIndexingPipeline:
         # Use tree-sitter to extract symbols
         try:
             parser = self._get_tree_sitter_parser(language)
-            tree = parser.parse(bytes(source_code, "utf-8"))
+            tree = parser.parse(parser_input(bytes(source_code, "utf-8"), language))
 
             # Extract function/class definitions
             nodes.extend(
@@ -2970,7 +2953,7 @@ class GraphIndexingPipeline:
             return "public"
 
         # JavaScript/TypeScript: check modifiers
-        if language in {"javascript", "typescript"}:
+        if language in {"javascript", "typescript", "tsx"}:
             for child in self._iter_tree_children(node):
                 if child.type == "property_identifier":
                     text = self._node_text(child)
@@ -3397,7 +3380,7 @@ class GraphIndexingPipeline:
             # Parse source
             source_code = file_path.read_text(encoding="utf-8")
             parser = self._get_tree_sitter_parser(language)
-            tree = parser.parse(bytes(source_code, "utf-8"))
+            tree = parser.parse(parser_input(bytes(source_code, "utf-8"), language))
 
             # Use handler to detect calls
 
@@ -3492,7 +3475,7 @@ class GraphIndexingPipeline:
             # Parse source
             source_code = file_path.read_text(encoding="utf-8")
             parser = self._get_tree_sitter_parser(language)
-            tree = parser.parse(bytes(source_code, "utf-8"))
+            tree = parser.parse(parser_input(bytes(source_code, "utf-8"), language))
 
             # Find function calls
             calls = self._extract_function_calls(tree.root_node, language)
@@ -3552,7 +3535,7 @@ class GraphIndexingPipeline:
                 if callee_name and current_function:
                     calls.append((current_function, callee_name))
 
-            elif language in ("javascript", "typescript") and node_type == "call_expression":
+            elif language in ("javascript", "typescript", "tsx") and node_type == "call_expression":
                 callee_name = self._extract_callee_name(node, language)
                 if callee_name and current_function:
                     calls.append((current_function, callee_name))
@@ -3591,6 +3574,17 @@ class GraphIndexingPipeline:
             name = self._extract_identifier_text(name_node)
             if name:
                 return name
+
+        # C/C++ names are nested under the declarator. Reading the type first
+        # would name every JNI function after its return type (for example jint).
+        declarator = node.child_by_field_name("declarator")
+        while declarator is not None:
+            name = self._extract_identifier_text(declarator)
+            if name:
+                return name
+            declarator = declarator.child_by_field_name(
+                "declarator"
+            ) or declarator.child_by_field_name("name")
 
         # Rust impl_item: prefer `type` (implementing type) over the
         # first-identifier scan (which would return the trait name).
@@ -3646,7 +3640,7 @@ class GraphIndexingPipeline:
                         return self._node_text(child)
 
         # For JS/TS, find first identifier
-        elif language in ("javascript", "typescript"):
+        elif language in ("javascript", "typescript", "tsx"):
             return find_identifier(call_node)
 
         return None
@@ -3683,7 +3677,11 @@ class GraphIndexingPipeline:
             if metadata.get("has_embedding") and metadata.get("embedding_profile_id") != profile_id:
                 raise ValueError("embedding profile changed or unknown; rebuild in a fresh index")
 
-    async def _generate_embeddings(self) -> GraphIndexStats:
+    async def refresh_embeddings(self, node_ids: Set[str]) -> GraphIndexStats:
+        """Refresh selected persisted symbols without reparsing source files."""
+        return await self._generate_embeddings(node_ids=node_ids)
+
+    async def _generate_embeddings(self, *, node_ids: Set[str] | None = None) -> GraphIndexStats:
         """Generate embeddings for graph nodes — batched and staleness-aware.
 
         - Incremental runs consider only nodes from files parsed this run;
@@ -3745,7 +3743,9 @@ class GraphIndexingPipeline:
             all_nodes = await self.graph_store.get_all_nodes()
             self._check_stored_embedding_profiles(all_nodes, profile.identity)
             nodes = all_nodes
-            if self.config.incremental and self._files_to_process:
+            if node_ids is not None:
+                nodes = [n for n in all_nodes if n.node_id in node_ids]
+            elif self.config.incremental and self._files_to_process:
                 nodes = [n for n in all_nodes if n.file in self._files_to_process]
 
             # Staleness filter: fingerprint of the text that would be embedded.

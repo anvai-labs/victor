@@ -1,0 +1,187 @@
+{
+  "schema": "victor-callee-context-controls-v1",
+  "oracle_domain": "Authored source-inspection controls only. Exact frozen classes/functions and built-in nonempty str keys or exact built-in int inputs; no subclasses, monkeypatching, concurrent mutation, effects, ABI or general semantic equivalence. Labels are not inferred from names or detector scores. Compiler/indexer identity is separate provenance, never behavioral certification.",
+  "source_hashes": {
+    "control_alias_negative.py": "7f6fde9bf79fddac6c4a3ef00e636176fee5a227cb66797d1344814f33e7f52a",
+    "control_alias_read.py": "ee69d151da34a292b6089b14ebe13d5a1bf8193df63ae3c6b1f3bbe84e714ecd",
+    "control_alias_renamed.py": "e5d9ab06353aa97c528e625162f8fee76e9f4558615ca291c913e1d6f420a03b",
+    "control_methods.py": "c829d920309002998dc16e28803e14c42f29d512fb53b9cdbdc17304f3555f01",
+    "control_stores.py": "e32db80a54df7eab094fb18d22136e528b7208d5e4e3d135f75763e33fc20c3c"
+  },
+  "units": [
+    {
+      "id": "control_alias_negative",
+      "file": "control_alias_negative.py",
+      "symbol": "compute",
+      "line": 4,
+      "end_line": 6,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/shared_negative()."
+      ]
+    },
+    {
+      "id": "control_alias_read",
+      "file": "control_alias_read.py",
+      "symbol": "compute",
+      "line": 4,
+      "end_line": 6,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/shared_read()."
+      ]
+    },
+    {
+      "id": "control_alias_renamed",
+      "file": "control_alias_renamed.py",
+      "symbol": "compute",
+      "line": 4,
+      "end_line": 6,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/shared_read()."
+      ]
+    },
+    {
+      "id": "registry_read",
+      "file": "control_methods.py",
+      "symbol": "registry_read",
+      "line": 8,
+      "end_line": 10,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/Registry#get()."
+      ]
+    },
+    {
+      "id": "renamed_read",
+      "file": "control_methods.py",
+      "symbol": "renamed_read",
+      "line": 13,
+      "end_line": 15,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/Registry#get()."
+      ]
+    },
+    {
+      "id": "cache_read",
+      "file": "control_methods.py",
+      "symbol": "cache_read",
+      "line": 18,
+      "end_line": 20,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/Cache#get()."
+      ]
+    },
+    {
+      "id": "changed_operator",
+      "file": "control_methods.py",
+      "symbol": "changed_operator",
+      "line": 23,
+      "end_line": 25,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/Registry#get()."
+      ]
+    },
+    {
+      "id": "changed_literal",
+      "file": "control_methods.py",
+      "symbol": "changed_literal",
+      "line": 28,
+      "end_line": 30,
+      "controlled_targets": [
+        "scip-python python controlled-identity 1 control_stores/Registry#get()."
+      ]
+    },
+    {
+      "id": "unknown_first",
+      "file": "control_methods.py",
+      "symbol": "unknown_first",
+      "line": 33,
+      "end_line": 35,
+      "controlled_targets": [
+        null
+      ]
+    },
+    {
+      "id": "unknown_second",
+      "file": "control_methods.py",
+      "symbol": "unknown_second",
+      "line": 38,
+      "end_line": 40,
+      "controlled_targets": [
+        null
+      ]
+    },
+    {
+      "id": "no_call_first",
+      "file": "control_methods.py",
+      "symbol": "no_call_first",
+      "line": 43,
+      "end_line": 44,
+      "controlled_targets": []
+    },
+    {
+      "id": "no_call_second",
+      "file": "control_methods.py",
+      "symbol": "no_call_second",
+      "line": 47,
+      "end_line": 48,
+      "controlled_targets": []
+    }
+  ],
+  "pairs": [
+    {
+      "id": "renamed-same-owner",
+      "left": "registry_read",
+      "right": "renamed_read",
+      "positive": true,
+      "rationale": "The exact frozen Registry.get target returns len(key); both callers add the same literal two, with only parameter/local renaming."
+    },
+    {
+      "id": "same-spelling-different-owner",
+      "left": "registry_read",
+      "right": "cache_read",
+      "positive": false,
+      "rationale": "Frozen Registry.get returns len(key), Cache.get returns -len(key); adding two differs for nonempty built-in strings, despite identical body spelling."
+    },
+    {
+      "id": "aliased-same-target",
+      "left": "control_alias_read",
+      "right": "control_alias_renamed",
+      "positive": true,
+      "rationale": "The two import aliases resolve to the same frozen shared_read helper, which delegates Registry.get; callers add two."
+    },
+    {
+      "id": "same-alias-different-target",
+      "left": "control_alias_read",
+      "right": "control_alias_negative",
+      "positive": false,
+      "rationale": "The same lookup spelling imports shared_read versus shared_negative; the latter negates the getter result before the identical caller adds two."
+    },
+    {
+      "id": "changed-operator-same-target",
+      "left": "registry_read",
+      "right": "changed_operator",
+      "positive": false,
+      "rationale": "Both call Registry.get but add versus subtract two; a matching callee identity does not erase this operation change."
+    },
+    {
+      "id": "changed-literal-same-target",
+      "left": "registry_read",
+      "right": "changed_literal",
+      "positive": false,
+      "rationale": "Both call Registry.get but add two versus three. Production normalization collapses these literal values; retaining a false positive is part of this diagnostic."
+    },
+    {
+      "id": "unresolved-any-receiver",
+      "left": "unknown_first",
+      "right": "unknown_second",
+      "positive": null,
+      "rationale": "Any supplies no statically resolved receiver target. The oracle is unknown, not a negative; compiler-context scoring must retain unresolved evidence."
+    },
+    {
+      "id": "no-calls",
+      "left": "no_call_first",
+      "right": "no_call_second",
+      "positive": true,
+      "rationale": "Both add the same literal two to an exact built-in integer; there is no call-target feature to add, and syntax evidence remains unchanged."
+    }
+  ]
+}

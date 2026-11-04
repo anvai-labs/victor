@@ -2,7 +2,7 @@
 
 **Status:** Adopted engineering guidance; implementation investigations remain incremental
 
-**Last verified:** 2026-09-20
+**Last verified:** 2026-11-02 (CCG identity, graph semantics and wheel matrix)
 
 Victor should keep Python as the orchestration, integration, and I/O language and use the existing
 Rust/PyO3 workspace as its default compiled acceleration path. Adding Cython, Numba, or a direct
@@ -11,7 +11,7 @@ tool is an exception that requires measurements showing the existing choices can
 
 ## Current codebase reality
 
-- `rust/crates/python-bindings` builds `victor_native` with PyO3 0.29 and maturin. The workspace
+- `rust/crates/python-bindings` builds `victor_native` with PyO3 0.30 and maturin. The workspace
   already covers tokenization, context fitting, similarity, embeddings, graph algorithms, parsing,
   filtering, indexing, and security scans.
 - Python adapters under `victor/processing/native/` retain reference or fallback behavior. The
@@ -19,9 +19,9 @@ tool is an exception that requires measurements showing the existing choices can
   the tokenizer and context fitter; equivalent differential coverage is not yet universal.
 - Rust release builds use optimization level 3, fat LTO, one codegen unit, and panic unwinding so a
   Rust panic does not abort the Python process.
-- Release automation builds Linux x86-64 and ARM64 wheels for Python 3.12–3.13, plus the configured
-  macOS and Windows targets. The matrix is not uniform: both macOS architectures and Windows x64
-  currently build only for the active Python 3.12 and Windows ARM64 is absent. All packages
+- Release automation reuses the affected-change native qualification matrix: Linux x86-64 and
+  ARM64, macOS x86-64 and ARM64, and Windows x64, each on Python 3.12 and 3.13. Windows ARM64 is
+  absent. Builds, installed-wheel checks, source-platform qualification and releases are distinct. All packages
   require Python 3.12+; a supported interpreter does not imply a wheel for every platform.
 - The FFI is already batch-oriented in several places, but the current source scan finds
   `Python::detach` concentrated in similarity operations. Several embedding APIs still accept
@@ -29,6 +29,14 @@ tool is an exception that requires measurements showing the existing choices can
   investigations than adding another native language.
 
 ## Required decision sequence
+
+The [2026-11-02 control-dependence correction](graph-control-dependence.md)
+supersedes the earlier complete-CCG reachability interpretation below. Statement
+schema v2 uses physical byte spans; the native batch returns CFG/DDG inputs and
+the facade derives bounded exit-path postdominance in typed Python. Historical
+shape/parity timings do not establish semantic correctness or current output
+parity. Source CFGs remain explicitly heuristic and do not supply verified
+semantic-ranking confidence.
 
 1. **Define the user-level target.** Record the deployment shape and a latency, throughput, CPU, or
    memory target. Include realistic input distributions and concurrency.

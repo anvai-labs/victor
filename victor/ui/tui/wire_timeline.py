@@ -192,9 +192,19 @@ if RichLog is not None:
     class WireTimeline(RichLog):
         """RichLog that renders v1 wire events with chat-surface semantics."""
 
+        DEFAULT_CSS = """
+        WireTimeline {
+            scrollbar-size-vertical: 1;
+            scrollbar-size-horizontal: 1;
+        }
+        """
+
         def __init__(self, **kwargs: Any) -> None:
             kwargs.setdefault("wrap", True)
             kwargs.setdefault("markup", True)
+            # RichLog's default minimum of 78 overrides its measured pane
+            # width, cropping content in narrower conversation layouts.
+            kwargs.setdefault("min_width", 1)
             super().__init__(**kwargs)
             self._state = WireTimelineState()
 

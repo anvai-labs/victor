@@ -20,6 +20,8 @@ falls back to literal ``grep_search`` otherwise (or for ``--mode literal``).
 
 from unittest.mock import AsyncMock, patch
 
+import asyncio
+
 import pytest
 
 from victor.tools.unified.code_tool import code_tool
@@ -92,6 +94,27 @@ class TestCodeSearchSemanticDelegation:
             result = await code_tool('code search "foo"')
         assert "SYSTEM HINT" in result
         assert "index missing" in result
+        assert "### ❌ ERROR" not in result
+
+    @pytest.mark.asyncio
+    async def test_semantic_backend_timeout_falls_back_to_literal(self):
+        """A hung semantic backend must not stall the tool past its own budget:
+        it degrades to literal grep with a hint (the runaway failure mode
+        measured live — code_search stalls past the 60s pipeline cap)."""
+        mock_search = AsyncMock(side_effect=asyncio.TimeoutError)
+        mock_grep = AsyncMock(return_value=[{"file": "a.py", "line": 1, "content": "auth"}])
+        with (
+            patch(
+                "victor.tools.unified._vertical_resolver.resolve_vertical_callable",
+                return_value=(mock_search, "victor_coding.tools.code_search_tool"),
+            ),
+            patch("victor.tools.unified._search_helpers.grep_search", mock_grep),
+        ):
+            result = await code_tool('code search "auth" src')
+        mock_grep.assert_awaited_once()
+        assert "SYSTEM HINT" in result
+        assert "timed out" in result
+        assert "a.py:1" in result
         assert "### ❌ ERROR" not in result
 
 

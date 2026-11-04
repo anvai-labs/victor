@@ -21,6 +21,7 @@ VAS status. Original records remain in immutable Git history below.
 | Existing client streaming compatibility | [#1252](https://github.com/anvai-labs/victor/pull/1252) repaired the actual TS→core HTTP 422 request mismatch and web settings import. Activation alone had not proved chat worked. | VAS-03a complete; shared API/identity/EOF/cancellation contracts remain with their VAS owners. |
 | Durable action recovery | [#1209](https://github.com/anvai-labs/victor/pull/1209) single-action observations; [#1249](https://github.com/anvai-labs/victor/pull/1249) async journal; [#1253](https://github.com/anvai-labs/victor/pull/1253) off-loop approval admission; [#1255](https://github.com/anvai-labs/victor/pull/1255) bound backend receipts. | VAS-11c/12/17/18: production adapter qualification, recovered-result publication, whole-member continuation and released mixed-team C5. Receipt verification does not replay a tool or continue a member. |
 | Formation implementation and live cohorts | Original WS-A–WS-I **9/9 landed**. Historical OIDC ZAI cohorts **15/15**; September 23 Qwen3 cohort interrupted, **0/15 accepted**; Qwen14 unstarted. Failed and interrupted cohorts are retained. | [Formation ledger](../architecture/multiagent-formation-coverage-handoff.md), InferFlux #184 / VAS-18. No new provider, release or C5 evidence in this cleanup. |
+| November 3, 2026 CI/TUI/session batch | PRs [#1676](https://github.com/anvai-labs/victor/pull/1676) (docs handoff), [#1678](https://github.com/anvai-labs/victor/pull/1678) (TUI token usage/scrollbars/modal diff), [#1679](https://github.com/anvai-labs/victor/pull/1679) (coverage threshold adjustment), [#1680](https://github.com/anvai-labs/victor/pull/1680) (cross-project session resume + multi-provider import). All four passed CI and adversarial review. #1679 removed the 80% diff-coverage gate that had blocked #1680. #1680 required rebase after #1676/#1678/#1679 merges; three critical runtime bugs (ImportError, save_session signature, AttributeError) caught by adversarial review and fixed before merge. | TUI enhancements are additive; session import supports Victor/OpenAI/Anthropic/Bedrock/generic JSON formats. Coverage gate removal is permanent. No outstanding follow-ups from this batch. |
 
 ## Validation provenance
 
@@ -40,6 +41,20 @@ Original failed and passing local evidence is also indexed by the current VAS
 tracker's durable archive paths. Archive availability is machine-local; merged
 Git/PR/run identities are the cross-machine record. No credentials or private
 request payloads belong in these records.
+
+## Source-similarity checkpoint history
+
+Current execution state belongs only to the
+[canonical source-similarity ledger](../architecture/graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger).
+These completed checkpoints preserve evidence and its limits; they are not
+instructions to restart earlier branches or rerun completed work.
+
+| Dated record | Retained evidence / limitation |
+| --- | --- |
+| [Earlier local validation](https://github.com/anvai-labs/victor/blob/ca797a4e8fb6f0ea14bc23ad33830a6dc5513584/docs/architecture/graph-similarity-parity-and-roadmap.md#continuation-validation-and-handoff) | 229 final focused passes; earlier wider 1,170 passes / 40 skips and one deselected unchanged Mermaid browser test. An initial browser/cache failure is retained. Formatting covered 31 files, typing 18 owners, collection 37,552 tests; this was not full-suite execution. The then-uncommitted branch, local-only state and producer-bound 21 probes remain in immutable history. |
+| [Initial publication review](https://github.com/anvai-labs/victor/blob/ca797a4e8fb6f0ea14bc23ad33830a6dc5513584/docs/architecture/graph-similarity-parity-and-roadmap.md#publication-candidate-and-adversarial-review) | The TUI merge retained the incoming compact renderer and added an isolated responsive table registry. Storage review was clean; eight initial source-channel findings plus two later acquisition/monitoring findings were corrected before publication. [Individual regressions](../architecture/codegraph-deduplication-review-2026-11-01.md) and original candidate/base identities remain available. Source normalization became `normalized-body-v4-field-roles`; historical hashes are not current-code certification. |
+| [Later source-channel local checkpoint](https://github.com/anvai-labs/victor/blob/ca797a4e8fb6f0ea14bc23ad33830a6dc5513584/docs/architecture/graph-similarity-parity-and-roadmap.md#current-source-channel-implementation-and-handoff) | 302 focused passes; 1,245 wider passes / 40 skips / one unchanged browser deselection; 37,625 collected. Formatting covered 41 files and typing 23 owners. A standalone Python 3.14 probe failed because `cachetools` was absent; it did not qualify that interpreter, another OS or wheel installation. This was an uncommitted `095e981bf` checkpoint. Its obsolete publication/research instructions are retired; unsupported model/macro/effect/ABI/scaling domains remain explicitly bounded in the maintained assessment and current continuation belongs to its ledger. |
+| Bounded reader and Windows source qualification | [Reader observation](../architecture/evidence/scip-scoped-reader-2026-11-02.json), [actual Windows source tests/capacity](../architecture/evidence/windows-source-qualification-2026-11-02.json) and [Windows snapshots](../architecture/evidence/scip-windows-snapshots-2026-11-02.json) keep exact source/run/hash boundaries. POSIX scoped latency, Windows synthetic acquisition capacity and detector accuracy are different claims; no release, universal equivalence or automatic extraction is certified. |
 
 ## Retired interim records
 

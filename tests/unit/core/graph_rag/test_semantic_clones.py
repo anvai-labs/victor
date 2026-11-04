@@ -81,13 +81,13 @@ class TestScopePredicateAndHelpers:
         pred = _scope_predicate(None, include_tests=False)
         assert "symbol_name NOT LIKE '%:%'" in pred
         for marker in TEST_PATH_MARKERS:
-            assert f"file_path NOT LIKE '%{marker}%'" in pred
+            assert f"NOT starts_with(file_path, '{marker.lstrip('/')}')" in pred
 
     def test_predicate_scope_and_tests(self):
         from victor.core.graph_rag.semantic_clones import _scope_predicate
 
         pred = _scope_predicate("victor/agent/", include_tests=True)
-        assert "file_path LIKE 'victor/agent/%'" in pred
+        assert "starts_with(file_path, 'victor/agent/')" in pred
         assert "NOT LIKE '%/tests/%'" not in pred
 
     def test_predicate_escapes_quotes(self):
@@ -100,9 +100,7 @@ class TestScopePredicateAndHelpers:
         from victor.core.graph_rag.semantic_clones import _in_scope
 
         assert _in_scope("victor/core/x.py", None, False)
-        # markers carry a leading slash — root-level test dirs (no parent
-        # segment) are NOT excluded; pin that as the documented behavior
-        assert _in_scope("tests/unit/x.py", None, False)
+        assert not _in_scope("tests/unit/x.py", None, False)
         assert not _in_scope("pkg/tests/unit/x.py", None, False)
         assert _in_scope("victor/agent/x.py", "victor/agent/", False)
         assert not _in_scope("victor/core/x.py", "victor/agent/", False)
@@ -266,3 +264,70 @@ class TestPairBudget:
         records, mat = self._dense()
         families = find_clone_families(records, mat, threshold=0.5, max_pairs=40 * 39 // 2)
         assert len(families) == 1 and len(families[0].members) == 40
+
+
+def test_same_file_matches_do_not_consume_cross_file_budget():
+    records = [rec(i, "same.rs", "test_stats") for i in range(5)]
+    assert find_clone_families(records, np.tile(vec(0), (5, 1)), max_pairs=0) == []
+
+
+def test_chain_reports_edge_range_and_does_not_claim_pairwise_equivalence():
+    records = [rec(i, f"{i}.rs", "f") for i in range(3)]
+    families = find_clone_families(records, np.stack([vec(0), vec(0.2), vec(0.45)]), threshold=0.95)
+    assert len(families) == 1
+    family = families[0]
+    assert family.matching_pairs == 2
+    assert family.min_edge_similarity == pytest.approx(np.cos(0.25), abs=1e-6)
+    assert family.similarity == pytest.approx(np.cos(0.2), abs=1e-6)
+    assert float(vec(0) @ vec(0.45)) < 0.95
+    assert family.cohesion.representative_id == "1"
+    assert family.cohesion.witness_ids == ("0", "2")
+    assert family.cohesion.witness_similarity < 0.95
+    assert not family.cohesion.pairwise_minimum_verified
+
+
+def test_duplicate_record_ids_are_not_ambiguous_family_representatives():
+    records = [rec(0, "a.py", "a"), rec(0, "b.py", "b")]
+    with pytest.raises(ValueError, match="unique"):
+        find_clone_families(records, np.stack([vec(0), vec(0)]))
+
+
+def test_cohesion_covers_all_members_independent_of_retrieval_filters():
+    records = [rec(0, "same.py", "a"), rec(1, "other.rs", "b"), rec(2, "same.py", "c")]
+    (family,) = find_clone_families(
+        records,
+        np.stack([vec(0), vec(0.2), vec(0.45)]),
+        threshold=0.95,
+        language_ids=["python", "rust", "python"],
+        language_scope="cross",
+    )
+    assert family.matching_pairs == 2
+    assert family.cohesion.witness_ids == ("0", "2")
+    assert family.cohesion.scope == "all_component_member_pairs"
+
+
+@pytest.mark.parametrize(
+    "matrix", [np.array([[np.nan, 1.0], [1.0, 0.0]]), np.zeros((2, 2)), np.ones((3, 2))]
+)
+def test_invalid_vectors_are_rejected(matrix):
+    with pytest.raises(ValueError, match="vector"):
+        find_clone_families([rec(0, "a.rs", "a"), rec(1, "b.rs", "b")], matrix)
+
+
+def test_cosine_workspace_is_bounded_across_both_dimensions(monkeypatch):
+    import victor.core.graph_rag.semantic_clones as sc
+
+    monkeypatch.setattr(sc, "BLOCK_ROWS", 3)
+    original = np.matmul
+    sizes = []
+
+    def multiply(a, b):
+        result = original(a, b)
+        sizes.append(result.nbytes)
+        return result
+
+    monkeypatch.setattr(np, "matmul", multiply)
+    records = [rec(i, f"{i}.rs", "f") for i in range(17)]
+    families = sc.find_clone_families(records, np.tile(vec(0), (17, 1)), max_similarity_bytes=48)
+    assert len(families[0].members) == 17
+    assert sizes and max(sizes) <= 48

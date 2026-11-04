@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -46,6 +47,20 @@ if TYPE_CHECKING:
     from victor.storage.graph.protocol import GraphNode, GraphStoreProtocol
 
 logger = logging.getLogger(__name__)
+
+
+def _source_bytes(ast_root: Any, source_code: str | None) -> bytes | None:
+    """Keep absolute offsets; trimmed root text cannot recover a missing prefix."""
+    if source_code is not None:
+        return source_code.encode("utf-8")
+    data = getattr(ast_root, "text", None)
+    if not isinstance(data, bytes):
+        if type(getattr(ast_root, "start_byte", None)) is int:
+            raise ValueError("Full original source is required when parser input is not retained")
+        return None  # Synthetic ASTs may expose explicit Point tuples only.
+    if getattr(ast_root, "start_byte", 0) != 0:
+        raise ValueError("Full original source is required when the AST root trims its prefix")
+    return data
 
 
 def _get_graph_types() -> tuple[type, type, type]:
@@ -301,7 +316,7 @@ class CodeContextGraphBuilder:
             return [], []
 
         try:
-            source_code = file_path.read_text(encoding="utf-8")
+            source_code = file_path.read_bytes().decode("utf-8")
         except (OSError, UnicodeDecodeError) as e:
             logger.warning(f"Failed to read {file_path}: {e}")
             return [], []
@@ -309,11 +324,9 @@ class CodeContextGraphBuilder:
         previous_language = self.language
         self.language = lang
         try:
-            # Native fast path (engine phase 2): the complete CCG —
-            # statements + CFG + CDG + DDG — in one detached batch call,
-            # record-for-record identical to the Python builders below
-            # (differential parity pinned by tests; the Python path STAYS
-            # as oracle and fallback).
+            # Native parsing/statements/CFG/DDG arrive in one detached batch.
+            # The facade derives CDG with the same bounded typed-Python graph
+            # reference as the fallback. Source flow remains heuristic.
             native_result = self._build_native_ccg(file_path, lang, source_code)
             if native_result is not None:
                 all_nodes, all_edges = native_result
@@ -342,7 +355,7 @@ class CodeContextGraphBuilder:
     def _build_native_ccg(  # pragma: no cover - extension-only path
         self, file_path: Path, lang: str, source_code: str
     ) -> Optional[Tuple[List[Any], List[Any]]]:
-        """The complete native CCG as (nodes, edges), or None to fall back.
+        """Native CCG inputs plus qualified graph CDG, or None to fall back.
 
         GraphNode/GraphEdge construction stays here with the exact
         metadata shapes the Python builders produce (sequential CFG edges
@@ -393,8 +406,10 @@ class CodeContextGraphBuilder:
             # Sequential edges carry file metadata; structural don't —
             # the exact shapes of _build_cfg_edges.
             edges.append(_edge(record, {"file": file_str} if not record.structural else None))
-        for record in result.cdg_edges:
-            edges.append(_edge(record, {"file": file_str}))
+        # Older wheels emit reachability under the CDG name. Never consume
+        # those records as control dependence; normalize their CFG through the
+        # same bounded reference used by the Python fallback.
+        edges.extend(self._derive_cdg(nodes, edges))
         for record in result.ddg_edges:
             edges.append(_edge(record, {"variable": record.variable, "file": file_str}))
         return nodes, edges
@@ -534,7 +549,9 @@ class CodeContextGraphBuilder:
         nodes.extend(statement_nodes)
 
         # Build CFG edges by analyzing control flow
-        cfg_edges = self._build_cfg_edges(statement_nodes, ast_root, file_path)
+        cfg_edges = self._build_cfg_edges(
+            statement_nodes, ast_root, file_path, source_code=source_code
+        )
         edges.extend(cfg_edges)
 
         return nodes, edges
@@ -566,6 +583,14 @@ class CodeContextGraphBuilder:
 
         nodes: List[Any] = []
         file_str = str(file_path)
+        data = _source_bytes(ast_root, source_code)
+        starts = (
+            [0, *(i + 1 for i, value in enumerate(data) if value == 10)]
+            if data is not None
+            else None
+        )
+        if data is not None:
+            source_lines = data.decode("utf-8").split("\n")
 
         def walk(node: Any, parent_scope: str = "") -> None:
             """Recursively walk the AST and extract statement nodes."""
@@ -577,8 +602,19 @@ class CodeContextGraphBuilder:
                 statement_type = self._classify_statement(node_type)
                 if statement_type != StatementType.UNKNOWN:
                     # Get line numbers
-                    start_line = node.start_point[0] + 1 if hasattr(node, "start_point") else 0
-                    end_line = node.end_point[0] + 1 if hasattr(node, "end_point") else 0
+                    start_byte, end_byte = getattr(node, "start_byte", None), getattr(
+                        node, "end_byte", None
+                    )
+                    start_line = (
+                        bisect_right(starts, start_byte)
+                        if starts is not None and type(start_byte) is int
+                        else node.start_point[0] + 1
+                    )
+                    end_line = (
+                        bisect_right(starts, end_byte)
+                        if starts is not None and type(end_byte) is int
+                        else node.end_point[0] + 1
+                    )
 
                     # Extract statement content
                     content = ""
@@ -586,7 +622,14 @@ class CodeContextGraphBuilder:
                         content = source_lines[start_line - 1].strip()
 
                     # Generate unique node ID
-                    node_id = self._generate_statement_id(file_str, start_line, end_line, node_type)
+                    node_id = self._generate_statement_id(
+                        file_str,
+                        start_line,
+                        end_line,
+                        node_type,
+                        start_byte=start_byte,
+                        end_byte=end_byte,
+                    )
 
                     # Determine visibility
                     visibility = self._determine_visibility(node, content)
@@ -803,7 +846,14 @@ class CodeContextGraphBuilder:
         return None
 
     def _generate_statement_id(
-        self, file_path: str, start_line: int, end_line: int, node_type: str
+        self,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        node_type: str,
+        *,
+        start_byte: Optional[int] = None,
+        end_byte: Optional[int] = None,
     ) -> str:
         """Generate a unique stable ID for a statement node.
 
@@ -816,8 +866,14 @@ class CodeContextGraphBuilder:
         Returns:
             Unique node ID string
         """
-        # Create a stable hash based on location
-        id_string = f"{file_path}:{start_line}:{end_line}:{node_type}"
+        # Real parser nodes use physical byte spans: nested/sibling calls can
+        # share the same line range. The line-only form supports synthetic AST
+        # callers without byte positions; it is not a source identity contract.
+        id_string = (
+            f"ccg-statement-v2:{file_path}:{start_byte}:{end_byte}:{node_type}"
+            if type(start_byte) is int and type(end_byte) is int
+            else f"{file_path}:{start_line}:{end_line}:{node_type}"
+        )
         return hashlib.sha256(id_string.encode()).hexdigest()[:16]
 
     def _build_cfg_edges(
@@ -825,6 +881,8 @@ class CodeContextGraphBuilder:
         nodes: List[Any],
         ast_root: Any,
         file_path: Path,
+        *,
+        source_code: str | None = None,
     ) -> List[Any]:
         """Build CFG edges between statement nodes.
 
@@ -866,7 +924,9 @@ class CodeContextGraphBuilder:
         # Structural edges from the AST (closes the old TODO): false branches,
         # loop back-edges, exception/catch/finally flow, switch/match dispatch.
         seen = {(e.src, e.dst, e.type) for e in edges}
-        for edge in self._build_structural_cfg_edges(sorted_nodes, ast_root):
+        for edge in self._build_structural_cfg_edges(
+            sorted_nodes, ast_root, source_code=source_code
+        ):
             key = (edge.src, edge.dst, edge.type)
             if key not in seen:
                 seen.add(key)
@@ -933,7 +993,9 @@ class CodeContextGraphBuilder:
                     best_id = node.node_id
         return best_id
 
-    def _build_structural_cfg_edges(self, nodes: List[Any], ast_root: Any) -> List[Any]:
+    def _build_structural_cfg_edges(
+        self, nodes: List[Any], ast_root: Any, *, source_code: str | None = None
+    ) -> List[Any]:
         """CFG edges derived from AST structure rather than line adjacency.
 
         Emits, per construct:
@@ -947,6 +1009,18 @@ class CodeContextGraphBuilder:
         """
         _, GraphEdge, EdgeType = _get_graph_types()
         edges: List[Any] = []
+        data = _source_bytes(ast_root, source_code)
+        starts = (
+            [0, *(i + 1 for i, value in enumerate(data) if value == 10)]
+            if isinstance(data, bytes)
+            else None
+        )
+
+        def line_at(node: Any, *, end: bool = False) -> int:
+            offset = getattr(node, "end_byte" if end else "start_byte", None)
+            if starts is not None and type(offset) is int:
+                return bisect_right(starts, offset)
+            return int((node.end_point if end else node.start_point)[0]) + 1
 
         def _first_statement_in_span(start: int, end: int) -> Optional[str]:
             """First exact statement start within [start, end] (line order)."""
@@ -976,8 +1050,8 @@ class CodeContextGraphBuilder:
             be an extracted statement — resolve to the first statement inside
             its span instead.
             """
-            dst_head = dst_node.start_point[0] + 1
-            dst_end = dst_node.end_point[0] + 1
+            dst_head = line_at(dst_node)
+            dst_end = line_at(dst_node, end=True)
             src = self._statement_id_at_line(nodes, src_line)
             dst = _first_statement_in_span(dst_head, dst_end)
             if src and dst and src != dst:
@@ -989,7 +1063,7 @@ class CodeContextGraphBuilder:
             t = getattr(n, "type", None)
             children = list(getattr(n, "children", []) or [])
             if t is not None:
-                line = n.start_point[0] + 1
+                line = line_at(n)
                 if t in self._IF_NODES:
                     seen_alt_lines: Set[int] = set()
                     alts = [n.child_by_field_name("alternative")]
@@ -997,13 +1071,13 @@ class CodeContextGraphBuilder:
                     for alt in alts:
                         if alt is None:
                             continue
-                        alt_line = alt.start_point[0] + 1
+                        alt_line = line_at(alt)
                         if alt_line in seen_alt_lines:
                             continue
                         seen_alt_lines.add(alt_line)
                         _emit(line, alt, EdgeType.CFG_FALSE_BRANCH)
                 elif t in self._LOOP_NODES:
-                    last_line = n.end_point[0] + 1
+                    last_line = line_at(n, end=True)
                     if last_line > line:
                         src = _last_statement_in_span(line, last_line)
                         dst = self._statement_id_at_line(nodes, line)
@@ -1077,99 +1151,72 @@ class CodeContextGraphBuilder:
         nodes: List[Any],
         cfg_edges: List[Any],
     ) -> List[Any]:
-        """Build Control Dependence Graph from CFG.
+        """Derive exit-path control dependence, conditional on this heuristic CFG."""
+        return self._derive_cdg(nodes, cfg_edges)
 
-        Uses the post-dominance algorithm from Cytron et al.
+    def _derive_cdg(self, nodes: List[Any], cfg_edges: List[Any]) -> List[Any]:
+        """Shared typed-Python normalization for builtin and native CFG records.
 
-        Args:
-            nodes: CFG nodes
-            cfg_edges: CFG edges
-
-        Returns:
-            List of GraphEdge instances representing CDG
+        Source CFG extraction remains heuristic; correct graph postdominance
+        does not establish compiler control flow, termination or equivalence.
+        Invalid or resource-limited graphs publish no partial CDG edges.
         """
-        _, GraphEdge, EdgeType = _get_graph_types()
+        from victor.core.graph_rag.control_dependence import (
+            ALGORITHM,
+            DependenceResult,
+            control_dependence,
+        )
 
-        edges: List[Any] = []
-
-        if not nodes or not cfg_edges:
-            return edges
-
-        # Build adjacency list for CFG
-        successors: Dict[str, List[str]] = {}
-        for node in nodes:
-            successors[node.node_id] = []
-
-        for edge in cfg_edges:
-            if edge.src in successors:
+        _, GraphEdge, _ = _get_graph_types()
+        by_id = {node.node_id: node for node in nodes}
+        successors: Dict[str, List[str]] = {node_id: [] for node_id in by_id}
+        try:
+            if len(by_id) != len(nodes):
+                raise ValueError("Duplicate CFG node IDs")
+            for edge in cfg_edges:
+                if edge.src not in successors:
+                    raise ValueError("CFG edge has an unknown source")
                 successors[edge.src].append(edge.dst)
-
-        # Find condition nodes (if statements, loops)
-        condition_nodes = [
-            n
-            for n in nodes
-            if n.statement_type
-            in {
-                StatementType.CONDITION.value,
-                StatementType.LOOP.value,
-                StatementType.SWITCH.value,
+            result = control_dependence(successors)
+        except ValueError as exc:
+            logger.warning("Control-dependence analysis rejected CFG: %s", exc)
+            result = DependenceResult((), False, "invalid_cfg", "inferred_sinks")
+        for node in nodes:
+            metadata = getattr(node, "metadata", None)
+            if isinstance(metadata, dict):
+                metadata.update(
+                    {
+                        "cdg_algorithm": ALGORITHM,
+                        "cdg_complete": result.complete,
+                        "cdg_reason": result.reason,
+                        "cfg_provenance": "source_heuristic",
+                        "program_semantics_verified": False,
+                    }
+                )
+        if not result.complete:
+            logger.warning("Control-dependence analysis incomplete: %s", result.reason)
+            return []
+        edges: List[Any] = []
+        for source, target in result.dependencies:
+            condition = by_id[source]
+            metadata = {
+                "algorithm": ALGORITHM,
+                "exit_basis": result.exit_basis,
+                "cfg_provenance": "source_heuristic",
+                "program_semantics_verified": False,
             }
-        ]
-
-        # Create CDG edges from conditions to their dependent nodes
-        for condition in condition_nodes:
-            # Get all nodes dominated by this condition
-            dominated = self._find_dominated_nodes(condition.node_id, successors, nodes)
-
-            for dominated_id in dominated:
-                if dominated_id != condition.node_id:
-                    edge_type = self._determine_cdg_edge_type(condition)
-                    edge = GraphEdge(
-                        src=condition.node_id,
-                        dst=dominated_id,
-                        type=edge_type,
-                        weight=1.0,
-                        metadata={"file": condition.file} if condition.file else {},
-                    )
-                    edges.append(edge)
-
+            if condition.file:
+                metadata["file"] = condition.file
+            edges.append(
+                GraphEdge(
+                    src=source,
+                    dst=target,
+                    type=self._determine_cdg_edge_type(condition),
+                    weight=1.0,
+                    metadata=metadata,
+                )
+            )
         return edges
-
-    def _find_dominated_nodes(
-        self,
-        start_id: str,
-        successors: Dict[str, List[str]],
-        nodes: List[Any],
-    ) -> List[str]:
-        """Find all nodes dominated by start_id using simple reachability.
-
-        Args:
-            start_id: Starting node ID
-            successors: Adjacency list of successors
-            nodes: All nodes in the graph
-
-        Returns:
-            List of dominated node IDs
-        """
-        dominated: Set[str] = set()
-        to_visit = [start_id]
-        visited: Set[str] = set()
-
-        while to_visit:
-            current = to_visit.pop()
-            if current in visited:
-                continue
-            visited.add(current)
-
-            if current != start_id:
-                dominated.add(current)
-
-            # Add successors
-            for succ in successors.get(current, []):
-                if succ not in visited:
-                    to_visit.append(succ)
-
-        return list(dominated)
 
     def _determine_cdg_edge_type(self, condition: Any) -> str:
         """Determine the CDG edge type for a condition node.
@@ -1219,6 +1266,14 @@ class CodeContextGraphBuilder:
         # Build symbol table (variable definitions)
         symbol_table: Dict[str, VariableInfo] = {}
         scope_stack: List[str] = [""]  # Stack of scope IDs
+        data = source_code.encode("utf-8")
+        starts = [0, *(i + 1 for i, value in enumerate(data) if value == 10)]
+
+        def line_at(node: Any, *, end: bool = False) -> int:
+            offset = getattr(node, "end_byte" if end else "start_byte", None)
+            if type(offset) is int:
+                return bisect_right(starts, offset)
+            return int((node.end_point if end else node.start_point)[0]) + 1
 
         # Walk AST and track variable definitions/uses
         def walk(node: Any, depth: int = 0) -> None:
@@ -1232,7 +1287,7 @@ class CodeContextGraphBuilder:
                 var_name = self._extract_variable_name(node)
                 if var_name:
                     current_scope = scope_stack[-1] if scope_stack else ""
-                    node_id = self._find_node_at_line(nodes, node.start_point[0] + 1)
+                    node_id = self._find_node_at_line(nodes, line_at(node))
 
                     var_info = VariableInfo(
                         name=var_name,
@@ -1249,7 +1304,7 @@ class CodeContextGraphBuilder:
                 key = f"{current_scope}:{var_name}"
                 if key in symbol_table:
                     var_info = symbol_table[key]
-                    use_node_id = self._find_node_at_line(nodes, node.start_point[0] + 1)
+                    use_node_id = self._find_node_at_line(nodes, line_at(node))
                     if use_node_id and use_node_id != var_info.defining_node:
                         var_info.use_sites.append(use_node_id)
 
@@ -1257,9 +1312,11 @@ class CodeContextGraphBuilder:
             if self._is_scope_boundary(node_type):
                 new_scope = self._generate_statement_id(
                     str(file_path),
-                    node.start_point[0] + 1,
-                    node.end_point[0] + 1,
+                    line_at(node),
+                    line_at(node, end=True),
                     node_type,
+                    start_byte=getattr(node, "start_byte", None),
+                    end_byte=getattr(node, "end_byte", None),
                 )
                 scope_stack.append(new_scope)
 

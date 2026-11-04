@@ -154,9 +154,11 @@ fn determine_visibility(language: &str, content: &str) -> Option<String> {
     }
 }
 
-fn statement_id(file_path: &str, start_line: i64, end_line: i64, node_type: &str) -> String {
+fn statement_id(file_path: &str, start_byte: usize, end_byte: usize, node_type: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(format!("{file_path}:{start_line}:{end_line}:{node_type}"));
+    hasher.update(format!(
+        "ccg-statement-v2:{file_path}:{start_byte}:{end_byte}:{node_type}"
+    ));
     let digest = hasher.finalize();
     digest
         .iter()
@@ -209,12 +211,8 @@ fn extract_statements_from_tree(
                 .get(start_line as usize - 1)
                 .map(|l| l.trim())
                 .unwrap_or("");
-            let content_preview = if raw_line.len() > 100 {
-                &raw_line[..100]
-            } else {
-                raw_line
-            };
-            let node_id = statement_id(file_path, start_line, end_line, node_type);
+            let content_preview: String = raw_line.chars().take(100).collect();
+            let node_id = statement_id(file_path, node.start_byte(), node.end_byte(), node_type);
             records.push(StatementRecord {
                 visibility: determine_visibility(language, raw_line),
                 node_id: node_id.clone(),
@@ -222,7 +220,7 @@ fn extract_statements_from_tree(
                 statement_type: statement_type.to_string(),
                 start_line,
                 end_line,
-                content_preview: content_preview.to_string(),
+                content_preview,
                 scope_id: parent_scope.to_string(),
             });
             scope_for_children = node_id;
@@ -301,16 +299,14 @@ pub fn extract_statements_batch(
 // ============================================================================
 // Engine phase 2: the complete CCG (CFG + CDG + DDG edge builders).
 //
-// Reproduces _build_cfg_edges (sequential + structural), _build_cdg
-// (reachability domination) and _build_ddg (def-use chains) exactly.
+// Reproduces _build_cfg_edges (sequential + structural) and _build_ddg.
+// The Python facade derives qualified CDG with its bounded reference algorithm.
 // Parity notes baked into the design:
 //   - sequential edges: stable sort by line (walk order breaks ties);
 //   - structural edges: LIFO stack order (children visited last-first,
 //     matching Python's stack.pop()) and (src,dst,type) dedup against the
 //     sequential edges;
-//   - CDG edges: Python iterates a hash-randomized set, so consumers must
-//     be order-insensitive (the store upserts by key) — Rust returns them
-//     sorted for determinism;
+//   - cdg_edges is empty under statement schema v2; the facade owns CDG;
 //   - DDG: symbol table preserves first-definition insertion order;
 //     duplicate use-sites are REPRODUCED (Python appends without dedup).
 // ============================================================================
@@ -729,64 +725,6 @@ fn build_structural_cfg_edges(
     edges
 }
 
-/// Control dependence: for each condition/loop/switch node, every node
-/// reachable from it in the CFG (Python's reachability approximation).
-/// Returned sorted — Python's set-iteration order is hash-randomized, so
-/// consumers must be order-insensitive (they are: keyed upserts).
-fn build_cdg_edges(records: &[StatementRecord], cfg_edges: &[EdgeRecord]) -> Vec<EdgeRecord> {
-    use std::collections::HashMap;
-    if records.is_empty() || cfg_edges.is_empty() {
-        return Vec::new();
-    }
-    let mut successors: HashMap<&str, Vec<&str>> = HashMap::new();
-    for record in records {
-        successors.entry(record.node_id.as_str()).or_default();
-    }
-    for edge in cfg_edges {
-        if let Some(list) = successors.get_mut(edge.src.as_str()) {
-            list.push(edge.dst.as_str());
-        }
-    }
-
-    let mut edges: Vec<EdgeRecord> = Vec::new();
-    for condition in records
-        .iter()
-        .filter(|r| matches!(r.statement_type.as_str(), "condition" | "loop" | "switch"))
-    {
-        let edge_kind = if condition.statement_type == "loop" {
-            "CDG_LOOP"
-        } else {
-            "CDG"
-        };
-        // Reachability from the condition node.
-        let mut visited: std::collections::HashSet<&str> = Default::default();
-        let mut to_visit: Vec<&str> = vec![condition.node_id.as_str()];
-        while let Some(current) = to_visit.pop() {
-            if !visited.insert(current) {
-                continue;
-            }
-            if current != condition.node_id.as_str() {
-                edges.push(EdgeRecord {
-                    src: condition.node_id.clone(),
-                    dst: current.to_string(),
-                    edge_type: edge_kind.to_string(),
-                    variable: None,
-                    structural: false,
-                });
-            }
-            if let Some(succs) = successors.get(current) {
-                for succ in succs {
-                    if !visited.contains(succ) {
-                        to_visit.push(succ);
-                    }
-                }
-            }
-        }
-    }
-    edges.sort_by(|a, b| (&a.src, &a.dst, &a.edge_type).cmp(&(&b.src, &b.dst, &b.edge_type)));
-    edges
-}
-
 struct VariableInfo {
     name: String,
     defining_node: Option<String>,
@@ -901,7 +839,7 @@ fn build_ddg_edges(
 
         // Scope boundaries push/pop around child recursion.
         let pushed = if is_scope_boundary(kind) {
-            let scope_id = statement_id(file_path, node_line(node), node_end_line(node), kind);
+            let scope_id = statement_id(file_path, node.start_byte(), node.end_byte(), kind);
             scope_stack.push(scope_id);
             true
         } else {
@@ -1000,7 +938,9 @@ fn build_ccg_for_tree(
             }
         }
     }
-    let cdg_edges = build_cdg_edges(&statements, &cfg_edges);
+    // Qualified control dependence is computed once by the bounded Python
+    // facade from these CFG records; never construct legacy reachability CDG.
+    let cdg_edges = Vec::new();
     let ddg_edges = build_ddg_edges(language, &statements, &tree.root_node(), file_path, source);
     CcgFileResult {
         statements,
@@ -1010,7 +950,7 @@ fn build_ccg_for_tree(
     }
 }
 
-/// Build the complete CCG (statements + CFG + CDG + DDG edges) for a
+/// Build CCG inputs (statements + CFG + DDG; facade owns CDG) for a
 /// batch of files — engine phase 2. Same FFI contract as
 /// `extract_statements_batch`; same ValueError/fallback behavior.
 #[pyfunction]
@@ -1109,10 +1049,10 @@ mod tests {
 
     #[test]
     fn statement_id_is_sha256_prefix_hex16() {
-        // Python: hashlib.sha256(b"a.py:3:5:if_statement").hexdigest()[:16]
+        // Python: hashlib.sha256(b"ccg-statement-v2:a.py:3:5:if_statement").hexdigest()[:16]
         let expected = {
             let mut h = Sha256::new();
-            h.update(b"a.py:3:5:if_statement");
+            h.update(b"ccg-statement-v2:a.py:3:5:if_statement");
             h.finalize()
                 .iter()
                 .map(|b| format!("{b:02x}"))
@@ -1121,6 +1061,40 @@ mod tests {
         };
         assert_eq!(statement_id("a.py", 3, 5, "if_statement"), expected);
         assert_eq!(statement_id("a.py", 3, 5, "if_statement").len(), 16);
+    }
+
+    #[test]
+    fn same_line_calls_have_distinct_physical_ids() {
+        let source = b"def f():\n    return outer(inner(), sibling())\n";
+        let tree = parse_python(source);
+        let records = extract_statements_from_tree("python", "calls.py", source, &tree);
+        let calls: Vec<_> = records
+            .iter()
+            .filter(|r| r.statement_type == "call")
+            .collect();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(
+            calls
+                .iter()
+                .map(|r| &r.node_id)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn preview_truncates_characters_without_splitting_utf8() {
+        let source = format!("def f():\n    return '{}'\n", "🔥".repeat(110));
+        let tree = parse_python(source.as_bytes());
+        let records =
+            extract_statements_from_tree("python", "unicode.py", source.as_bytes(), &tree);
+        let returned = records
+            .iter()
+            .find(|r| r.statement_type == "return")
+            .unwrap();
+        assert_eq!(returned.content_preview.chars().count(), 100);
+        assert!(returned.content_preview.starts_with("return '🔥"));
     }
 
     #[test]
@@ -1196,22 +1170,6 @@ mod tests {
     }
 
     #[test]
-    fn cdg_edges_sorted_deterministic() {
-        let source = b"def f(x):\n    if x:\n        a = 1\n        b = a\n    else:\n        c = 2\n    return a\n";
-        let tree = parse_python(source);
-        let records = extract_statements_from_tree("python", "a.py", source, &tree);
-        let cfg = build_sequential_cfg_edges(&records);
-        let cdg = build_cdg_edges(&records, &cfg);
-        assert!(!cdg.is_empty());
-        let mut sorted = cdg.clone();
-        sorted.sort_by(|a, b| (&a.src, &a.dst, &a.edge_type).cmp(&(&b.src, &b.dst, &b.edge_type)));
-        assert_eq!(cdg, sorted);
-        assert!(cdg
-            .iter()
-            .all(|e| e.edge_type == "CDG" || e.edge_type == "CDG_LOOP"));
-    }
-
-    #[test]
     fn ddg_edges_reproduce_def_use_with_redundant_visits() {
         // The double-recursion semantics: uses appended per occurrence per
         // ancestor visit — duplicates preserved.
@@ -1245,7 +1203,7 @@ mod tests {
         let result = build_ccg_for_tree("python", "a.py", source, &tree);
         assert!(!result.statements.is_empty());
         assert!(!result.cfg_edges.is_empty());
-        assert!(!result.cdg_edges.is_empty());
+        assert!(result.cdg_edges.is_empty());
         assert!(!result.ddg_edges.is_empty());
     }
 }

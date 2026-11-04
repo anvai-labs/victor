@@ -48,7 +48,11 @@ HOTSPOT_LINE_CAPS = {
     # moving keyword classification into the task-guidance service.
     # Ratcheted 2026-09-19 (FEP-0031 turn frame): 4209 -> 4070 after moving
     # setup, task reporting, teardown, and their state probes into ChatTurnRuntime.
-    "victor/agent/orchestrator.py": 4070,
+    # Ratcheted 2026-11-02 (Rec 1 Phase 1 facade decomposition): 4070 -> 2075 after
+    # moving progressive-tools, init-runtime, protocol-conformance, context,
+    # metrics, vertical, and prompting clusters into orchestrator_* sibling
+    # modules (mixins). Pure code motion; service-delegation floors unchanged.
+    "victor/agent/orchestrator.py": 2075,
     # ADR-030: only the canonical graph executor and result types remain.
     "victor/workflows/unified_executor.py": 484,
     "victor/agent/services/planning_runtime.py": 3518,
@@ -85,9 +89,13 @@ HOTSPOT_LINE_CAPS = {
 # service instead. Item 27 (ChatService inversion) should drive these down.
 ORCHESTRATOR_STRUCTURAL_CAPS = {
     # FEP-0031 turn-frame ownership removed seven facade methods and their probes.
-    "def_count": 219,
-    "getattr_self_probes": 120,
-    "hasattr_self_probes": 24,
+    # Ratcheted 2026-11-02 (Rec 1 Phase 1 facade decomposition): method clusters
+    # moved to orchestrator_* mixin siblings — 91 methods left the class body
+    # (219 -> 106 defs); their getattr/hasattr probes moved with them and are
+    # now counted in their owning modules, not here.
+    "def_count": 106,
+    "getattr_self_probes": 43,
+    "hasattr_self_probes": 12,
 }
 
 

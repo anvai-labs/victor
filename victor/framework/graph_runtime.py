@@ -21,6 +21,7 @@ from victor.core.errors import ProviderPolicyError
 import asyncio
 import logging
 import time
+from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import (
@@ -244,7 +245,8 @@ async def _run_graph_execution_loop(
     node_history: List[str] = []
     state_history: List[Tuple[str, Any]] = []
     routing_state = checkpoint_manager.routing_state if sequential_fanout else None
-    pending_nodes = list(routing_state["pending_nodes"][1:]) if routing_state else []
+    # PERF-2: Use deque for O(1) popleft instead of O(n) list.pop(0)
+    pending_nodes = deque(routing_state["pending_nodes"][1:]) if routing_state else deque()
     visited_nodes = set(routing_state["visited_nodes"]) if routing_state else set()
 
     def save_frontier(next_nodes: List[str]) -> None:
@@ -408,7 +410,8 @@ async def _run_graph_execution_loop(
                 )
 
             if sequential_fanout:
-                current_node = pending_nodes.pop(0) if pending_nodes else end_node_token
+                # PERF-2: Use deque.popleft() for O(1) instead of list.pop(0) for O(n)
+                current_node = pending_nodes.popleft() if pending_nodes else end_node_token
                 continue
 
             next_target = get_next_node(current_node, state)

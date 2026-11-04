@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.25.0"
+version = "0.26.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -562,12 +562,13 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.25.0",
+    "victor-native>=0.26.0",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
 graph = [
     "victor-codegraph[treesitter]==0.14.0",
+    "protobuf>=6.33.6,<8",  # Optional SCIP reader; vendored Python gencode remains compatible.
     "tree-sitter-python>=0.23",
     "tree-sitter-javascript>=0.23",
     "tree-sitter-typescript>=0.23",
@@ -924,6 +925,11 @@ module = [
 ]
 ignore_errors = true
 
+# Similarity reporting and SCIP inputs keep unsuppressed typed boundaries.
+[[tool.mypy.overrides]]
+module = ["victor.core.graph_rag.similarity_sarif", "victor.core.graph_rag.scip_documents"]
+ignore_errors = false
+
 # SA-04/TYPE-02: qualified shared contracts must actually be checked,
 # rather than inheriting the historical victor.* error-suppression exception.
 [[tool.mypy.overrides]]
@@ -965,6 +971,11 @@ omit = [
     # generated code in the diff would sink the changed-line coverage gate
     # in environments where the binding tests skip.
     "victor/core/graph_rag/_scip/*",
+    # Actual Windows handle/job APIs are line-measured by ci-graph-windows.yml
+    # using scripts/ci/windows-source-coverage.ini; Ubuntu changed-line coverage cannot qualify them.
+    "victor/core/graph_rag/windows_source.py",
+    "victor/core/graph_rag/windows_process.py",
+    "victor/core/graph_rag/windows_inventory.py",
     # CLI modules require interactive terminal testing
     "victor/ui/cli.py",
     "victor/ui/commands.py",

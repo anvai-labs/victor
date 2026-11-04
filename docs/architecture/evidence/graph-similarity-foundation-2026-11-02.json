@@ -1,0 +1,2229 @@
+{
+  "schema": "victor-similarity-foundation-evidence-v1",
+  "date": "2026-11-02",
+  "production_quality_qualified": false,
+  "model_downloads": false,
+  "source_mutation": false,
+  "profiles": {
+    "4538782430796d8bfab0a485119cb3f52f7c7063e551ceae42250e1760586118": {
+      "schema": "victor-pair-score-profile-v1",
+      "channel": "syntax",
+      "python": "3.12.16",
+      "dependencies": {
+        "tree-sitter": "0.26.0",
+        "tree-sitter-bash": "0.25.1",
+        "tree-sitter-c": "0.24.2",
+        "tree-sitter-c-sharp": "0.23.5",
+        "tree-sitter-cpp": "0.23.4",
+        "tree-sitter-go": "0.25.0",
+        "tree-sitter-java": "0.23.5",
+        "tree-sitter-javascript": "0.25.0",
+        "tree-sitter-kotlin": "1.1.0",
+        "tree-sitter-lua": "0.5.0",
+        "tree-sitter-php": "0.24.1",
+        "tree-sitter-python": "0.25.0",
+        "tree-sitter-ruby": "0.23.1",
+        "tree-sitter-rust": "0.24.2",
+        "tree-sitter-scala": "0.26.2",
+        "tree-sitter-swift": "0.7.3",
+        "tree-sitter-typescript": "0.23.2"
+      },
+      "normalization": "normalized-body-v4-field-roles",
+      "portable": "portable-operations-v3-typed-floats",
+      "compiler_evidence": "not_evaluated",
+      "score_basis": "set_jaccard",
+      "body": null,
+      "implementation": {
+        "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+        "body_clones.py": "d13fe212329c19df5eddeae061a1c5014cd63504924a325d887392056fa18a10",
+        "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+        "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+        "portable_clones.py": "76781109bdbcab1524a0f96bd631a0d14ec01a22b2e3ded5f9a76aeb7b2d8b3e",
+        "numeric_literals.py": "c0c0fe440b19b9996374f9185e3a1d3277f097187e689d49a1ef35c6b6c73a92",
+        "similarity_pair_scoring.py": "ab44bc45bd8c01436d3202aaeacaa8e0ce7b55e7157285849167ab186e5c8d04",
+        "similarity_evaluation.py": "2ce1d06aa380ec939671cb8ed87b16fbafbe14fd5765801535dab66ab34f882f",
+        "source_reader.py": "33233303668e240fc2a9dcb8265f25475e931cdbde496562ab2f15fb87e4f5fd",
+        "structural_clones.py": "596e224cf0af573991b36c91cc469f16c0121843a74f28dc2f732ae2db80c181",
+        "treesitter_clones.py": "1ba375c44c50c84d2b9ef45c61df516615a8aa6458370dd15b940261ca8cb332"
+      }
+    },
+    "70ed6cc18290b3b685e836fde0c987647ad642d0d233568ac5be7c058819aa46": {
+      "schema": "victor-pair-score-profile-v1",
+      "channel": "portable",
+      "python": "3.12.16",
+      "dependencies": {
+        "tree-sitter": "0.26.0",
+        "tree-sitter-bash": "0.25.1",
+        "tree-sitter-c": "0.24.2",
+        "tree-sitter-c-sharp": "0.23.5",
+        "tree-sitter-cpp": "0.23.4",
+        "tree-sitter-go": "0.25.0",
+        "tree-sitter-java": "0.23.5",
+        "tree-sitter-javascript": "0.25.0",
+        "tree-sitter-kotlin": "1.1.0",
+        "tree-sitter-lua": "0.5.0",
+        "tree-sitter-php": "0.24.1",
+        "tree-sitter-python": "0.25.0",
+        "tree-sitter-ruby": "0.23.1",
+        "tree-sitter-rust": "0.24.2",
+        "tree-sitter-scala": "0.26.2",
+        "tree-sitter-swift": "0.7.3",
+        "tree-sitter-typescript": "0.23.2"
+      },
+      "normalization": "normalized-body-v4-field-roles",
+      "portable": "portable-operations-v3-typed-floats",
+      "compiler_evidence": "not_evaluated",
+      "score_basis": "set_jaccard",
+      "body": null,
+      "implementation": {
+        "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+        "body_clones.py": "d13fe212329c19df5eddeae061a1c5014cd63504924a325d887392056fa18a10",
+        "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+        "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+        "portable_clones.py": "76781109bdbcab1524a0f96bd631a0d14ec01a22b2e3ded5f9a76aeb7b2d8b3e",
+        "numeric_literals.py": "c0c0fe440b19b9996374f9185e3a1d3277f097187e689d49a1ef35c6b6c73a92",
+        "similarity_pair_scoring.py": "ab44bc45bd8c01436d3202aaeacaa8e0ce7b55e7157285849167ab186e5c8d04",
+        "similarity_evaluation.py": "2ce1d06aa380ec939671cb8ed87b16fbafbe14fd5765801535dab66ab34f882f",
+        "source_reader.py": "33233303668e240fc2a9dcb8265f25475e931cdbde496562ab2f15fb87e4f5fd",
+        "structural_clones.py": "596e224cf0af573991b36c91cc469f16c0121843a74f28dc2f732ae2db80c181",
+        "treesitter_clones.py": "1ba375c44c50c84d2b9ef45c61df516615a8aa6458370dd15b940261ca8cb332"
+      }
+    },
+    "a25f1d7447b2c57c84ea65f4f1a09dbd18160b7ae16e087dc4dc72335d8040b9": {
+      "schema": "victor-pair-score-profile-v1",
+      "channel": "body",
+      "python": "3.12.16",
+      "dependencies": {
+        "numpy": "2.2.6",
+        "sentence-transformers": "6.0.1",
+        "tokenizers": "0.23.2",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "tree-sitter": "0.26.0",
+        "tree-sitter-bash": "0.25.1",
+        "tree-sitter-c": "0.24.2",
+        "tree-sitter-c-sharp": "0.23.5",
+        "tree-sitter-cpp": "0.23.4",
+        "tree-sitter-go": "0.25.0",
+        "tree-sitter-java": "0.23.5",
+        "tree-sitter-javascript": "0.25.0",
+        "tree-sitter-kotlin": "1.1.0",
+        "tree-sitter-lua": "0.5.0",
+        "tree-sitter-php": "0.24.1",
+        "tree-sitter-python": "0.25.0",
+        "tree-sitter-ruby": "0.23.1",
+        "tree-sitter-rust": "0.24.2",
+        "tree-sitter-scala": "0.26.2",
+        "tree-sitter-swift": "0.7.3",
+        "tree-sitter-typescript": "0.23.2",
+        "victor-codegraph": "0.8.1"
+      },
+      "normalization": "normalized-body-v4-field-roles",
+      "portable": "portable-operations-v3-typed-floats",
+      "compiler_evidence": "not_evaluated",
+      "score_basis": "cosine",
+      "body": {
+        "model_id": "BAAI/bge-small-en-v1.5",
+        "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+        "dimension": 384,
+        "max_tokens": 512,
+        "overlap": 64,
+        "max_functions": 5000,
+        "max_windows": 20000,
+        "comparison_scope": "all",
+        "text_contract": "function-source-token-windows-v1",
+        "pooling": "mean-unit-windows-then-unit-v1"
+      },
+      "implementation": {
+        "ast_fingerprints.py": "8418f7d13b9e568e6c1712577aecb59b068df14bc529d7f60b8af4d0bb209891",
+        "body_clones.py": "d13fe212329c19df5eddeae061a1c5014cd63504924a325d887392056fa18a10",
+        "clone_bindings.py": "9b73792153d76dee18cef5df334f55d7e362838b0676f47472f33f7050b344d3",
+        "language_parsers.py": "85f7bc0bd5e6ae1a77d652204ac59535f0b18d18755cd4dcc6e74ecd3d21fbfd",
+        "portable_clones.py": "76781109bdbcab1524a0f96bd631a0d14ec01a22b2e3ded5f9a76aeb7b2d8b3e",
+        "numeric_literals.py": "c0c0fe440b19b9996374f9185e3a1d3277f097187e689d49a1ef35c6b6c73a92",
+        "similarity_pair_scoring.py": "ab44bc45bd8c01436d3202aaeacaa8e0ce7b55e7157285849167ab186e5c8d04",
+        "similarity_evaluation.py": "2ce1d06aa380ec939671cb8ed87b16fbafbe14fd5765801535dab66ab34f882f",
+        "source_reader.py": "33233303668e240fc2a9dcb8265f25475e931cdbde496562ab2f15fb87e4f5fd",
+        "structural_clones.py": "596e224cf0af573991b36c91cc469f16c0121843a74f28dc2f732ae2db80c181",
+        "treesitter_clones.py": "1ba375c44c50c84d2b9ef45c61df516615a8aa6458370dd15b940261ca8cb332"
+      }
+    }
+  },
+  "cohorts": {
+    "controls": {
+      "manifest": "tests/fixtures/graph_similarity/controls.json",
+      "manifest_sha256": "6ef081029e5764eb6d1048220cb81a9d9d7922f3574860e4174bc4888881f026",
+      "corpus_identity": "c247fc7c1e26e7fe9cce19e7a28a023fd080de858d8010c58e164a06fcc081f9",
+      "projects": [
+        {
+          "id": "controls-calibration",
+          "repository": "controlled:calibration",
+          "revision": "controls-v1",
+          "split": "calibration",
+          "origin": "controlled_fixture"
+        },
+        {
+          "id": "controls-test",
+          "repository": "controlled:test",
+          "revision": "controls-v1",
+          "split": "test",
+          "origin": "controlled_fixture"
+        }
+      ],
+      "labelled_pairs": 36,
+      "channels": {
+        "syntax": {
+          "profile": "4538782430796d8bfab0a485119cb3f52f7c7063e551ceae42250e1760586118",
+          "performance": {
+            "run": {
+              "wall_seconds": 0.040666582994163036,
+              "cpu_seconds": 0.040346999999999966,
+              "process_max_rss_bytes": 51265536,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 885.2477230547538
+            }
+          },
+          "coverage_complete": false,
+          "decision_complete": false,
+          "production_quality_qualified": false,
+          "policy": {
+            "channel": "syntax",
+            "profile": "4538782430796d8bfab0a485119cb3f52f7c7063e551ceae42250e1760586118",
+            "corpus": "c247fc7c1e26e7fe9cce19e7a28a023fd080de858d8010c58e164a06fcc081f9",
+            "calibration_scores": "afedc8c13de13d183164373563793895fa1f40766229c2459068e5a4ce75c900",
+            "minimum_precision": 0.95,
+            "minimum_support": 2,
+            "thresholds": {},
+            "rejected": {
+              "behavior|cpp|java": "insufficient_calibration_support",
+              "behavior|python|python": "no_threshold_meets_precision",
+              "behavior|python|rust": "insufficient_calibration_support",
+              "behavior|rust|typescript": "insufficient_calibration_support"
+            }
+          },
+          "observations": [
+            {
+              "pair_id": "calibration-0-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-2",
+              "score": 0.6571428571428571,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-3",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-0-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-2",
+              "score": 0.6571428571428571,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-3",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            }
+          ],
+          "calibration": {
+            "overall": {
+              "labelled_pairs": 18,
+              "positive_pairs": 8,
+              "scored_pairs": 4,
+              "abstained_pairs": 14,
+              "decided_pairs": 0,
+              "unqualified_pairs": 4,
+              "coverage": 0.2222222222222222,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "behavior|cpp|java": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 0,
+                "abstained_pairs": 4,
+                "decided_pairs": 0,
+                "unqualified_pairs": 0,
+                "coverage": 0.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": null,
+                "ranked_pairs_at_k": 0
+              },
+              "behavior|python|python": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|rust": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 0,
+                "abstained_pairs": 5,
+                "decided_pairs": 0,
+                "unqualified_pairs": 0,
+                "coverage": 0.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": null,
+                "ranked_pairs_at_k": 0
+              },
+              "behavior|rust|typescript": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 0,
+                "abstained_pairs": 5,
+                "decided_pairs": 0,
+                "unqualified_pairs": 0,
+                "coverage": 0.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": null,
+                "ranked_pairs_at_k": 0
+              }
+            }
+          },
+          "test": {
+            "overall": {
+              "labelled_pairs": 18,
+              "positive_pairs": 8,
+              "scored_pairs": 4,
+              "abstained_pairs": 14,
+              "decided_pairs": 0,
+              "unqualified_pairs": 4,
+              "coverage": 0.2222222222222222,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "behavior|cpp|java": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 0,
+                "abstained_pairs": 4,
+                "decided_pairs": 0,
+                "unqualified_pairs": 0,
+                "coverage": 0.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": null,
+                "ranked_pairs_at_k": 0
+              },
+              "behavior|python|python": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|rust": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 0,
+                "abstained_pairs": 5,
+                "decided_pairs": 0,
+                "unqualified_pairs": 0,
+                "coverage": 0.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": null,
+                "ranked_pairs_at_k": 0
+              },
+              "behavior|rust|typescript": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 0,
+                "abstained_pairs": 5,
+                "decided_pairs": 0,
+                "unqualified_pairs": 0,
+                "coverage": 0.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": null,
+                "ranked_pairs_at_k": 0
+              }
+            }
+          },
+          "abstentions": [
+            {
+              "pair_id": "calibration-1-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-1-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-2-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "calibration-3-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-1-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-2-4",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-0",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-1",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-2",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            },
+            {
+              "pair_id": "test-3-3",
+              "score": null,
+              "error": "Syntax fingerprints have separate language namespaces"
+            }
+          ]
+        },
+        "portable": {
+          "profile": "70ed6cc18290b3b685e836fde0c987647ad642d0d233568ac5be7c058819aa46",
+          "performance": {
+            "run": {
+              "wall_seconds": 0.038654875010252,
+              "cpu_seconds": 0.03856999999999999,
+              "process_max_rss_bytes": 50839552,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 931.3184945094797
+            }
+          },
+          "coverage_complete": true,
+          "decision_complete": false,
+          "production_quality_qualified": false,
+          "policy": {
+            "channel": "portable",
+            "profile": "70ed6cc18290b3b685e836fde0c987647ad642d0d233568ac5be7c058819aa46",
+            "corpus": "c247fc7c1e26e7fe9cce19e7a28a023fd080de858d8010c58e164a06fcc081f9",
+            "calibration_scores": "165752f0754ecec7f643b7bea297fd3d401a17a52d93040505a3062025d0cbc1",
+            "minimum_precision": 0.95,
+            "minimum_support": 2,
+            "thresholds": {
+              "behavior|cpp|java": 1.0,
+              "behavior|python|python": 1.0
+            },
+            "rejected": {
+              "behavior|python|rust": "no_threshold_meets_precision",
+              "behavior|rust|typescript": "no_threshold_meets_precision"
+            }
+          },
+          "observations": [
+            {
+              "pair_id": "calibration-0-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-3",
+              "score": 0.4117647058823529,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-3",
+              "score": 0.4117647058823529,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-4",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-3",
+              "score": 0.4117647058823529,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-4",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-3",
+              "score": 0.4117647058823529,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-3",
+              "score": 0.4117647058823529,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-3",
+              "score": 0.4117647058823529,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-4",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-3",
+              "score": 0.4117647058823529,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-4",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-0",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-1",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-2",
+              "score": 0.5,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-3",
+              "score": 0.4117647058823529,
+              "error": null
+            }
+          ],
+          "calibration": {
+            "overall": {
+              "labelled_pairs": 18,
+              "positive_pairs": 8,
+              "scored_pairs": 18,
+              "abstained_pairs": 0,
+              "decided_pairs": 8,
+              "unqualified_pairs": 10,
+              "coverage": 1.0,
+              "tp": 4,
+              "fp": 0,
+              "fn": 0,
+              "tn": 4,
+              "precision": 1.0,
+              "precision_wilson_lower_95": 0.5101091635454027,
+              "recall": 1.0,
+              "end_to_end_recall": 0.5,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "behavior|cpp|java": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 4,
+                "unqualified_pairs": 0,
+                "coverage": 1.0,
+                "tp": 2,
+                "fp": 0,
+                "fn": 0,
+                "tn": 2,
+                "precision": 1.0,
+                "precision_wilson_lower_95": 0.3423802275066531,
+                "recall": 1.0,
+                "end_to_end_recall": 1.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|python": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 4,
+                "unqualified_pairs": 0,
+                "coverage": 1.0,
+                "tp": 2,
+                "fp": 0,
+                "fn": 0,
+                "tn": 2,
+                "precision": 1.0,
+                "precision_wilson_lower_95": 0.3423802275066531,
+                "recall": 1.0,
+                "end_to_end_recall": 1.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|rust": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              },
+              "behavior|rust|typescript": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              }
+            }
+          },
+          "test": {
+            "overall": {
+              "labelled_pairs": 18,
+              "positive_pairs": 8,
+              "scored_pairs": 18,
+              "abstained_pairs": 0,
+              "decided_pairs": 8,
+              "unqualified_pairs": 10,
+              "coverage": 1.0,
+              "tp": 4,
+              "fp": 0,
+              "fn": 0,
+              "tn": 4,
+              "precision": 1.0,
+              "precision_wilson_lower_95": 0.5101091635454027,
+              "recall": 1.0,
+              "end_to_end_recall": 0.5,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "behavior|cpp|java": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 4,
+                "unqualified_pairs": 0,
+                "coverage": 1.0,
+                "tp": 2,
+                "fp": 0,
+                "fn": 0,
+                "tn": 2,
+                "precision": 1.0,
+                "precision_wilson_lower_95": 0.3423802275066531,
+                "recall": 1.0,
+                "end_to_end_recall": 1.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|python": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 4,
+                "unqualified_pairs": 0,
+                "coverage": 1.0,
+                "tp": 2,
+                "fp": 0,
+                "fn": 0,
+                "tn": 2,
+                "precision": 1.0,
+                "precision_wilson_lower_95": 0.3423802275066531,
+                "recall": 1.0,
+                "end_to_end_recall": 1.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|rust": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              },
+              "behavior|rust|typescript": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              }
+            }
+          },
+          "abstentions": []
+        },
+        "body": {
+          "profile": "a25f1d7447b2c57c84ea65f4f1a09dbd18160b7ae16e087dc4dc72335d8040b9",
+          "performance": {
+            "cold": {
+              "wall_seconds": 4.475582666927949,
+              "cpu_seconds": 4.795712,
+              "process_max_rss_bytes": 655048704,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 8.043645415382416,
+              "body_stats": {
+                "functions": 72,
+                "unique_inputs": 72,
+                "inferred_windows": 72,
+                "cache_hits": 0,
+                "retrieval": "requested_pair_cosine",
+                "neighbors": null
+              }
+            },
+            "warm": {
+              "wall_seconds": 0.07393708312883973,
+              "cpu_seconds": 0.073744,
+              "process_max_rss_bytes": 61521920,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 486.9004628877214,
+              "body_stats": {
+                "functions": 72,
+                "unique_inputs": 72,
+                "inferred_windows": 0,
+                "cache_hits": 72,
+                "retrieval": "requested_pair_cosine",
+                "neighbors": null
+              }
+            }
+          },
+          "coverage_complete": true,
+          "decision_complete": false,
+          "production_quality_qualified": false,
+          "policy": {
+            "channel": "body",
+            "profile": "a25f1d7447b2c57c84ea65f4f1a09dbd18160b7ae16e087dc4dc72335d8040b9",
+            "corpus": "c247fc7c1e26e7fe9cce19e7a28a023fd080de858d8010c58e164a06fcc081f9",
+            "calibration_scores": "31c3572a7d50a4484666590c0cfadd7a2cd5711a7dc261c5b44cf4ddf4e51852",
+            "minimum_precision": 0.95,
+            "minimum_support": 2,
+            "thresholds": {},
+            "rejected": {
+              "behavior|cpp|java": "no_threshold_meets_precision",
+              "behavior|python|python": "no_threshold_meets_precision",
+              "behavior|python|rust": "no_threshold_meets_precision",
+              "behavior|rust|typescript": "no_threshold_meets_precision"
+            }
+          },
+          "observations": [
+            {
+              "pair_id": "calibration-0-0",
+              "score": 0.9736683368682861,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-1",
+              "score": 0.974898099899292,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-2",
+              "score": 0.9761201739311218,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-0-3",
+              "score": 0.9734863042831421,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-0",
+              "score": 0.9058293104171753,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-1",
+              "score": 0.9010766744613647,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-2",
+              "score": 0.9027837514877319,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-3",
+              "score": 0.8971390724182129,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-1-4",
+              "score": 0.908668041229248,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-0",
+              "score": 0.9225873351097107,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-1",
+              "score": 0.9200992584228516,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-2",
+              "score": 0.9206064939498901,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-3",
+              "score": 0.9166673421859741,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-2-4",
+              "score": 0.9234650135040283,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-0",
+              "score": 0.9726632833480835,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-1",
+              "score": 0.966058611869812,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-2",
+              "score": 0.9709006547927856,
+              "error": null
+            },
+            {
+              "pair_id": "calibration-3-3",
+              "score": 0.9636194705963135,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-0",
+              "score": 0.9685710072517395,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-1",
+              "score": 0.9686927795410156,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-2",
+              "score": 0.9712793827056885,
+              "error": null
+            },
+            {
+              "pair_id": "test-0-3",
+              "score": 0.9699030518531799,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-0",
+              "score": 0.8849459290504456,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-1",
+              "score": 0.881438136100769,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-2",
+              "score": 0.880059003829956,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-3",
+              "score": 0.8821103572845459,
+              "error": null
+            },
+            {
+              "pair_id": "test-1-4",
+              "score": 0.8867446780204773,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-0",
+              "score": 0.9066251516342163,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-1",
+              "score": 0.9038215279579163,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-2",
+              "score": 0.9036976099014282,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-3",
+              "score": 0.9061546921730042,
+              "error": null
+            },
+            {
+              "pair_id": "test-2-4",
+              "score": 0.9093917012214661,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-0",
+              "score": 0.9668855667114258,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-1",
+              "score": 0.9582328796386719,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-2",
+              "score": 0.9633760452270508,
+              "error": null
+            },
+            {
+              "pair_id": "test-3-3",
+              "score": 0.9589557647705078,
+              "error": null
+            }
+          ],
+          "calibration": {
+            "overall": {
+              "labelled_pairs": 18,
+              "positive_pairs": 8,
+              "scored_pairs": 18,
+              "abstained_pairs": 0,
+              "decided_pairs": 0,
+              "unqualified_pairs": 18,
+              "coverage": 1.0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "behavior|cpp|java": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|python": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|rust": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              },
+              "behavior|rust|typescript": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              }
+            }
+          },
+          "test": {
+            "overall": {
+              "labelled_pairs": 18,
+              "positive_pairs": 8,
+              "scored_pairs": 18,
+              "abstained_pairs": 0,
+              "decided_pairs": 0,
+              "unqualified_pairs": 18,
+              "coverage": 1.0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "behavior|cpp|java": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|python": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              },
+              "behavior|python|rust": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              },
+              "behavior|rust|typescript": {
+                "labelled_pairs": 5,
+                "positive_pairs": 2,
+                "scored_pairs": 5,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 5,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.4,
+                "ranked_pairs_at_k": 5
+              }
+            }
+          },
+          "abstentions": []
+        }
+      }
+    },
+    "repository-pilot": {
+      "manifest": "tests/fixtures/graph_similarity/repository-pilot.json",
+      "manifest_sha256": "fc3711a0de726ca6c76e2f5ea5935306370026e143d07ae2b38de719b273086b",
+      "corpus_identity": "89ee6e6f58c4bfd898e3a757a16cce8e233c2ded9cf8cbe67e59358b8cdd4d7b",
+      "projects": [
+        {
+          "id": "victor",
+          "repository": "anvai-labs/victor",
+          "revision": "8502c87aa048eea3187febb8796e55ce89985c20",
+          "split": "calibration",
+          "origin": "repository"
+        },
+        {
+          "id": "proximadb",
+          "repository": "local:proximadb",
+          "revision": "d68515e5749dba3842c998088a64022c9c6de409",
+          "split": "test",
+          "origin": "repository"
+        }
+      ],
+      "labelled_pairs": 8,
+      "channels": {
+        "syntax": {
+          "profile": "4538782430796d8bfab0a485119cb3f52f7c7063e551ceae42250e1760586118",
+          "performance": {
+            "run": {
+              "wall_seconds": 0.30721170897595584,
+              "cpu_seconds": 0.306252,
+              "process_max_rss_bytes": 60538880,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 26.040674122307383
+            }
+          },
+          "coverage_complete": true,
+          "decision_complete": false,
+          "production_quality_qualified": false,
+          "policy": {
+            "channel": "syntax",
+            "profile": "4538782430796d8bfab0a485119cb3f52f7c7063e551ceae42250e1760586118",
+            "corpus": "89ee6e6f58c4bfd898e3a757a16cce8e233c2ded9cf8cbe67e59358b8cdd4d7b",
+            "calibration_scores": "417e8b9b23f686ddbeb2343dcb43579648cd06721d05e3500d4e8cf175ac8af8",
+            "minimum_precision": 0.95,
+            "minimum_support": 2,
+            "thresholds": {},
+            "rejected": {
+              "structure|rust|rust": "no_threshold_meets_precision"
+            }
+          },
+          "observations": [
+            {
+              "pair_id": "p-cosine-helper-pattern",
+              "score": 0.08888888888888889,
+              "error": null
+            },
+            {
+              "pair_id": "p-cosine-loop-vs-iterator",
+              "score": 0.24271844660194175,
+              "error": null
+            },
+            {
+              "pair_id": "p-dot-vs-cosine",
+              "score": 0.05747126436781609,
+              "error": null
+            },
+            {
+              "pair_id": "p-memory-vs-persistence",
+              "score": 0.22033898305084745,
+              "error": null
+            },
+            {
+              "pair_id": "v-dot-copy",
+              "score": 1.0,
+              "error": null
+            },
+            {
+              "pair_id": "v-dot-vs-norm",
+              "score": 0.48514851485148514,
+              "error": null
+            },
+            {
+              "pair_id": "v-normalize-pattern",
+              "score": 0.3333333333333333,
+              "error": null
+            },
+            {
+              "pair_id": "v-normalize-vs-cosine",
+              "score": 0.08080808080808081,
+              "error": null
+            }
+          ],
+          "calibration": {
+            "overall": {
+              "labelled_pairs": 4,
+              "positive_pairs": 2,
+              "scored_pairs": 4,
+              "abstained_pairs": 0,
+              "decided_pairs": 0,
+              "unqualified_pairs": 4,
+              "coverage": 1.0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "structure|rust|rust": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              }
+            }
+          },
+          "test": {
+            "overall": {
+              "labelled_pairs": 4,
+              "positive_pairs": 2,
+              "scored_pairs": 4,
+              "abstained_pairs": 0,
+              "decided_pairs": 0,
+              "unqualified_pairs": 4,
+              "coverage": 1.0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "structure|rust|rust": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 0,
+                "unqualified_pairs": 4,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              }
+            }
+          },
+          "abstentions": []
+        },
+        "portable": {
+          "profile": "70ed6cc18290b3b685e836fde0c987647ad642d0d233568ac5be7c058819aa46",
+          "performance": {
+            "run": {
+              "wall_seconds": 0.28712737490423024,
+              "cpu_seconds": 0.28635099999999997,
+              "process_max_rss_bytes": 57868288,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 27.862198798245398
+            }
+          },
+          "coverage_complete": false,
+          "decision_complete": false,
+          "production_quality_qualified": false,
+          "policy": {
+            "channel": "portable",
+            "profile": "70ed6cc18290b3b685e836fde0c987647ad642d0d233568ac5be7c058819aa46",
+            "corpus": "89ee6e6f58c4bfd898e3a757a16cce8e233c2ded9cf8cbe67e59358b8cdd4d7b",
+            "calibration_scores": "005c282fa38015e8aacc28af0bf5dc8e21b00bd2859b252e21c8eb2494759e9e",
+            "minimum_precision": 0.95,
+            "minimum_support": 2,
+            "thresholds": {},
+            "rejected": {
+              "structure|rust|rust": "insufficient_calibration_support"
+            }
+          },
+          "observations": [
+            {
+              "pair_id": "p-cosine-helper-pattern",
+              "score": 0.05084745762711865,
+              "error": null
+            },
+            {
+              "pair_id": "p-cosine-loop-vs-iterator",
+              "score": 0.17142857142857143,
+              "error": null
+            },
+            {
+              "pair_id": "p-dot-vs-cosine",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            },
+            {
+              "pair_id": "p-memory-vs-persistence",
+              "score": null,
+              "error": "Portable projection unavailable: await_expression"
+            },
+            {
+              "pair_id": "v-dot-copy",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            },
+            {
+              "pair_id": "v-dot-vs-norm",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            },
+            {
+              "pair_id": "v-normalize-pattern",
+              "score": 0.2222222222222222,
+              "error": null
+            },
+            {
+              "pair_id": "v-normalize-vs-cosine",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            }
+          ],
+          "calibration": {
+            "overall": {
+              "labelled_pairs": 4,
+              "positive_pairs": 2,
+              "scored_pairs": 1,
+              "abstained_pairs": 3,
+              "decided_pairs": 0,
+              "unqualified_pairs": 1,
+              "coverage": 0.25,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "structure|rust|rust": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 1,
+                "abstained_pairs": 3,
+                "decided_pairs": 0,
+                "unqualified_pairs": 1,
+                "coverage": 0.25,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 1.0,
+                "ranked_pairs_at_k": 1
+              }
+            }
+          },
+          "test": {
+            "overall": {
+              "labelled_pairs": 4,
+              "positive_pairs": 2,
+              "scored_pairs": 2,
+              "abstained_pairs": 2,
+              "decided_pairs": 0,
+              "unqualified_pairs": 2,
+              "coverage": 0.5,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "precision_wilson_lower_95": null,
+              "recall": null,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "structure|rust|rust": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 2,
+                "abstained_pairs": 2,
+                "decided_pairs": 0,
+                "unqualified_pairs": 2,
+                "coverage": 0.5,
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "tn": 0,
+                "precision": null,
+                "precision_wilson_lower_95": null,
+                "recall": null,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 1.0,
+                "ranked_pairs_at_k": 2
+              }
+            }
+          },
+          "abstentions": [
+            {
+              "pair_id": "p-dot-vs-cosine",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            },
+            {
+              "pair_id": "p-memory-vs-persistence",
+              "score": null,
+              "error": "Portable projection unavailable: await_expression"
+            },
+            {
+              "pair_id": "v-dot-copy",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            },
+            {
+              "pair_id": "v-dot-vs-norm",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            },
+            {
+              "pair_id": "v-normalize-vs-cosine",
+              "score": null,
+              "error": "Portable projection unavailable: macro_invocation"
+            }
+          ]
+        },
+        "body": {
+          "profile": "a25f1d7447b2c57c84ea65f4f1a09dbd18160b7ae16e087dc4dc72335d8040b9",
+          "performance": {
+            "cold": {
+              "wall_seconds": 4.509765540948138,
+              "cpu_seconds": 5.114579,
+              "process_max_rss_bytes": 694386688,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 1.773928140467824,
+              "body_stats": {
+                "functions": 12,
+                "unique_inputs": 12,
+                "inferred_windows": 12,
+                "cache_hits": 0,
+                "retrieval": "requested_pair_cosine",
+                "neighbors": null
+              }
+            },
+            "warm": {
+              "wall_seconds": 0.2570095839910209,
+              "cpu_seconds": 0.256129,
+              "process_max_rss_bytes": 63029248,
+              "rss_scope": "process_lifetime_peak",
+              "timing_scope": "source_capture_scoring_calibration_report_assembly",
+              "labelled_pairs_per_second": 31.127243878498685,
+              "body_stats": {
+                "functions": 12,
+                "unique_inputs": 12,
+                "inferred_windows": 0,
+                "cache_hits": 12,
+                "retrieval": "requested_pair_cosine",
+                "neighbors": null
+              }
+            }
+          },
+          "coverage_complete": true,
+          "decision_complete": true,
+          "production_quality_qualified": false,
+          "policy": {
+            "channel": "body",
+            "profile": "a25f1d7447b2c57c84ea65f4f1a09dbd18160b7ae16e087dc4dc72335d8040b9",
+            "corpus": "89ee6e6f58c4bfd898e3a757a16cce8e233c2ded9cf8cbe67e59358b8cdd4d7b",
+            "calibration_scores": "3c247d93654895b2d806a98ba870291ba53909fe865729dc8c08aebe9ba64100",
+            "minimum_precision": 0.95,
+            "minimum_support": 2,
+            "thresholds": {
+              "structure|rust|rust": 0.956649661064148
+            },
+            "rejected": {}
+          },
+          "observations": [
+            {
+              "pair_id": "p-cosine-helper-pattern",
+              "score": 0.9167370796203613,
+              "error": null
+            },
+            {
+              "pair_id": "p-cosine-loop-vs-iterator",
+              "score": 0.9283106327056885,
+              "error": null
+            },
+            {
+              "pair_id": "p-dot-vs-cosine",
+              "score": 0.8041678667068481,
+              "error": null
+            },
+            {
+              "pair_id": "p-memory-vs-persistence",
+              "score": 0.9795458316802979,
+              "error": null
+            },
+            {
+              "pair_id": "v-dot-copy",
+              "score": 0.987504243850708,
+              "error": null
+            },
+            {
+              "pair_id": "v-dot-vs-norm",
+              "score": 0.9130980968475342,
+              "error": null
+            },
+            {
+              "pair_id": "v-normalize-pattern",
+              "score": 0.956649661064148,
+              "error": null
+            },
+            {
+              "pair_id": "v-normalize-vs-cosine",
+              "score": 0.7355746030807495,
+              "error": null
+            }
+          ],
+          "calibration": {
+            "overall": {
+              "labelled_pairs": 4,
+              "positive_pairs": 2,
+              "scored_pairs": 4,
+              "abstained_pairs": 0,
+              "decided_pairs": 4,
+              "unqualified_pairs": 0,
+              "coverage": 1.0,
+              "tp": 2,
+              "fp": 0,
+              "fn": 0,
+              "tn": 2,
+              "precision": 1.0,
+              "precision_wilson_lower_95": 0.3423802275066531,
+              "recall": 1.0,
+              "end_to_end_recall": 1.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "structure|rust|rust": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 4,
+                "unqualified_pairs": 0,
+                "coverage": 1.0,
+                "tp": 2,
+                "fp": 0,
+                "fn": 0,
+                "tn": 2,
+                "precision": 1.0,
+                "precision_wilson_lower_95": 0.3423802275066531,
+                "recall": 1.0,
+                "end_to_end_recall": 1.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              }
+            }
+          },
+          "test": {
+            "overall": {
+              "labelled_pairs": 4,
+              "positive_pairs": 2,
+              "scored_pairs": 4,
+              "abstained_pairs": 0,
+              "decided_pairs": 4,
+              "unqualified_pairs": 0,
+              "coverage": 1.0,
+              "tp": 0,
+              "fp": 1,
+              "fn": 2,
+              "tn": 1,
+              "precision": 0.0,
+              "precision_wilson_lower_95": 0.0,
+              "recall": 0.0,
+              "end_to_end_recall": 0.0,
+              "labelled_pair_precision_at_k": null,
+              "ranked_pairs_at_k": null
+            },
+            "facets": {
+              "structure|rust|rust": {
+                "labelled_pairs": 4,
+                "positive_pairs": 2,
+                "scored_pairs": 4,
+                "abstained_pairs": 0,
+                "decided_pairs": 4,
+                "unqualified_pairs": 0,
+                "coverage": 1.0,
+                "tp": 0,
+                "fp": 1,
+                "fn": 2,
+                "tn": 1,
+                "precision": 0.0,
+                "precision_wilson_lower_95": 0.0,
+                "recall": 0.0,
+                "end_to_end_recall": 0.0,
+                "labelled_pair_precision_at_k": 0.5,
+                "ranked_pairs_at_k": 4
+              }
+            }
+          },
+          "abstentions": []
+        }
+      }
+    }
+  },
+  "notes": [
+    "Controlled templates are protocol tests, not held-out accuracy evidence.",
+    "The repository pilot contains only four calibration and four held-out structural pairs.",
+    "Cold/warm refers to the vector cache, not operating-system file caches.",
+    "Timing excludes interpreter startup and report serialization; RSS is process-lifetime peak."
+  ],
+  "runner_implementation": "f4bd980f7613f3eda57e90481de36d3b51c11c112efe7e1354b6bf73c82b17fd",
+  "protocol_scale": {
+    "schema": "victor-similarity-protocol-benchmark-v1",
+    "detector_retrieval_benchmark": false,
+    "accuracy_benchmark": false,
+    "pairs": 50000,
+    "units": 5000,
+    "runs": 5,
+    "python": "3.12.16",
+    "platform": "macOS-26.2-arm64-arm-64bit",
+    "wall_seconds": [
+      0.9077193748671561,
+      0.928284958936274,
+      0.9191281250678003,
+      0.9228172500152141,
+      0.9481605000328273
+    ],
+    "cpu_seconds": [
+      0.9023230000000001,
+      0.915734,
+      0.9147560000000001,
+      0.9161030000000001,
+      0.9371940000000003
+    ],
+    "median_wall_seconds": 0.9228172500152141,
+    "max_wall_seconds": 0.9481605000328273,
+    "median_cpu_seconds": 0.915734,
+    "process_max_rss_bytes": 216023040,
+    "rss_scope": "process_lifetime_peak",
+    "implementation": {
+      "benchmark_graph_similarity_evaluation.py": "e1e4ace01eee0cc4934481796539df907bce2d7eb80dd775736b7e729cd1a867",
+      "similarity_evaluation.py": "2ce1d06aa380ec939671cb8ed87b16fbafbe14fd5765801535dab66ab34f882f"
+    }
+  },
+  "retained_source_coverage": {
+    "kind": "retained-source-coverage-only",
+    "accuracy_benchmark": false,
+    "min_nodes": 40,
+    "include_tests": false,
+    "source_manifest_matches_prior": true,
+    "prior_schema": "portable-operations-v2",
+    "prior_supported": 167,
+    "stats": {
+      "functions": 234,
+      "source_files": 40,
+      "portable_schema": "portable-operations-v3-typed-floats",
+      "portable_units": 169,
+      "portable_unsupported_units": 65,
+      "portable_unsupported_reasons": {
+        "macro_invocation": 53,
+        "function_item": 2,
+        "pattern:reference_pattern": 2,
+        "match-pattern": 1,
+        "string-escape-or-interpolation": 1,
+        "attribute_item": 1,
+        "assignment-pattern": 4,
+        "FunctionDef": 1
+      },
+      "parse_error_files": 0,
+      "unreadable_files": 0
+    },
+    "source_manifest": {
+      "rust/crates/python-bindings/src/arg_normalizer.rs": "1ba480a32bd8307e6ad01e363fd71fbee6b415b435fc240078577e15d420d684",
+      "rust/crates/python-bindings/src/ast_indexer.rs": "b29e88b2674c1249712771ea99ce8140785ca9356cc9c97eea7e76dcbf100aec",
+      "rust/crates/python-bindings/src/ccg_extract.rs": "e5afbd2ab7d49a06f67094171ddf1f10438f428b6792e00e0bb309c0558925bb",
+      "rust/crates/python-bindings/src/chunking.rs": "447dd37e6bb86f8a167896abcc4e3e013c2971edcc2b83a4b19f29d1bfaeb0cf",
+      "rust/crates/python-bindings/src/classifier.rs": "e0d144a2e216ef1141aecc738074fba69f5a17ec9484e99a51de37d8f673a2d4",
+      "rust/crates/python-bindings/src/context_fitter.rs": "f844546ff313207bf70e91d53d8ae2b0da92604c3d5cf9045e8ae6c4b6c57950",
+      "rust/crates/python-bindings/src/dedup.rs": "039ad6ea837946fecd24bbe03bddfc541ff67cc46e887745cf45511c6d040af8",
+      "rust/crates/python-bindings/src/embeddings.rs": "5521221461ddfd3599e8fc5648c2163a1b815642e9c29414b7728fa14c8cf950",
+      "rust/crates/python-bindings/src/extractor.rs": "dfd1374552c835b703344520fe405d9344d10cb863b6c47e72351c84c6f6050d",
+      "rust/crates/python-bindings/src/graph_algo.rs": "7d802ea134636271d0316749abde5734147127f9a06c5e21a60e9182db56a973",
+      "rust/crates/python-bindings/src/hashing.rs": "271282513226518ec6dbeaa6af899d494077da8117d65f16ae5aa414b639bef8",
+      "rust/crates/python-bindings/src/json_repair.rs": "38d3f798acb0bc353508f08f96ca0e7e9b06cb9c4637b39c748afd1b50fa853a",
+      "rust/crates/python-bindings/src/lib.rs": "d9ca50435926273c9d1d3f64a07549c0aa813e9d010c3a0d15b55d0149b1f9c7",
+      "rust/crates/python-bindings/src/pattern_match.rs": "fadad9867445137e0f72e221aa87d5bb810623d42a2f64e663e4f96e011b2d06",
+      "rust/crates/python-bindings/src/plugin_ccg.rs": "3496d3c50e5885f56928fdbe8d7bfa1a563c7614316cb4a09e7fb9b195d62864",
+      "rust/crates/python-bindings/src/protocol.rs": "2e86f353f3a69aded74fce45eeea1c26d25ac2c3ca6b11a27a7aff1d5e377ded",
+      "rust/crates/python-bindings/src/sanitizer.rs": "5919112c576ba51b0df7419df55473239100dbdfedaa831d966ae179bc11ed58",
+      "rust/crates/python-bindings/src/secrets.rs": "747f98b80babdcda7aa93a1e801703d1ff9cd8211a91b4b7b413fd8a47078f6d",
+      "rust/crates/python-bindings/src/similarity.rs": "c3ebd66fd5ba0e84a7763048542d1408cd262e923204f77fba59972c9cabed7e",
+      "rust/crates/python-bindings/src/streaming_filter.rs": "4146a666c14c0e12f8c9897fd2782442f66dedd00f425878dbd4b8367ad51df1",
+      "rust/crates/python-bindings/src/thinking.rs": "f4a6b20a465c38e739c50b995940e67e21e1180df85608bc9d47aef7986038e2",
+      "rust/crates/python-bindings/src/tokenizer.rs": "cb817a9f7aea02bc2ffbb1200a2fc533237961be36bbc0fe35b792710bc9258e",
+      "rust/crates/python-bindings/src/trace_scanner.rs": "21b2ae353519290d29b8ebe362075eae5572eaf964d965123c542891fbaf8c7a",
+      "rust/crates/python-bindings/src/yaml_loader.rs": "9aca10e8c7c4f57b105336eba7e54914e5c9649de28b79a9d6c1c3763202c6f2",
+      "victor/native/python/__init__.py": "6b89b8d1368ac46afccb7d0243738722522ca8c502c876b4f5297cdf6caabb2c",
+      "victor/native/python/arg_normalizer.py": "6ab55c040cd5d30f29325b7850c14e78fd65b6e6f6eec70bc98b022db25296f9",
+      "victor/native/python/ast_indexer.py": "707c5d9914f44904d2151bf8d35493719b2791c3a1b89d8d9e2ec5c936088917",
+      "victor/native/python/chunker.py": "35a614540d9ce3a2e121765fedb9430b857cb8c9f39e7cb6e43b27936c18c2cf",
+      "victor/native/python/context_fitter.py": "5992b40b2ba899261265c2f7bb3b218e3da8c124a1a7de14134700a0b7b168cd",
+      "victor/native/python/graph_algo.py": "abf00f6ba19209b9c54f00b062aeead777b27d72fd69c11cfdf6a4f454f771a8",
+      "victor/native/python/similarity.py": "012af8c6c7a30253e37a9d0594c5935c27bdbdf96e163fe2f9a4367f2cf6372b",
+      "victor/native/python/symbol_extractor.py": "35d1a626738a1eff48e34d366632aa0dc7cfdea2966bb574059d629a85a2c16c",
+      "victor/native/python/tokenizer.py": "be221d368a58be1195dd1bb578d895b6ea0aaef0532e81550c42225ee856baaf",
+      "victor/native/rust/__init__.py": "907145a10631923e609d8dd0cc2f3ed5e68bf998af50b44c61df7c4f655a0bd3",
+      "victor/native/rust/arg_normalizer.py": "15c40b88e896655dee1bd51bb9adacc88a4ee4aef0225da682fb6e2be0b9ca90",
+      "victor/native/rust/ast_indexer.py": "d872937abeb3a2f8864f50f00ac32414bb27be8a516f4a06462efeae0732c679",
+      "victor/native/rust/chunker.py": "838fcf9ccd1e1206ba50b8f96ab739f275ee6a44f53dc19e359f17da948b14c8",
+      "victor/native/rust/context_fitter.py": "cd9f2cdefd3565ae1c52b420260718da3f92c7ba9695d67c15fe03e504439c60",
+      "victor/native/rust/similarity.py": "616fce1d2f36ebb41e47e2c88ad4737090f449aedde386e7c01682b90e80f2ba",
+      "victor/native/rust/tokenizer.py": "918a6fe3526b6c71493ebecd24a5130777f6df01dec79021c218052d645c2ebb"
+    }
+  }
+}

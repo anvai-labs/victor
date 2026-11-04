@@ -1,6 +1,29 @@
 import pytest
 from unittest.mock import patch, AsyncMock
 from victor.tools.unified.shell_tool import shell_tool
+from victor.tools.bash import shell as execute_bash
+
+
+@pytest.mark.asyncio
+async def test_execute_bash_failure_names_the_command():
+    """Exit-code failures must attribute the failing command in the error
+    message (log analysis: 22/30 ERROR lines in a 3h window carried only
+    'Command failed with exit code N', unattributable in the file log)."""
+    result = await execute_bash(cmd="exit 7")
+    assert result["success"] is False
+    assert result["return_code"] == 7
+    assert "exit code 7" in result["error"]
+    assert "exit 7" in result["error"]  # the command itself is named
+
+
+@pytest.mark.asyncio
+async def test_execute_bash_failure_command_preview_is_bounded():
+    """Very long commands are truncated to 200 chars + '...' in the error."""
+    long_cmd = "echo " + "a" * 500 + " && exit 3"
+    result = await execute_bash(cmd=long_cmd)
+    assert result["success"] is False
+    assert len(result["error"]) < 1200  # no full command/stderr dump
+    assert "..." in result["error"]
 
 
 @pytest.mark.asyncio

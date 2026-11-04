@@ -28,6 +28,181 @@ def _invoke(*args):
     return runner.invoke(graph_app, ["similar", *args])
 
 
+def test_token_mode_missing_backend_keeps_json_failure(tmp_path):
+    import json
+
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "tokens",
+        "--jscpd-binary",
+        "victor-missing-jscpd",
+        "--json",
+    )
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert not payload["coverage_complete"]
+    assert "Install jscpd" in payload["error"]
+
+
+def test_token_sarif_missing_backend_is_unsuccessful_execution(tmp_path):
+    import json
+
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "tokens",
+        "--sarif",
+        "--jscpd-binary",
+        "victor-missing-jscpd",
+    )
+    assert result.exit_code == 1
+    run = json.loads(result.output)["runs"][0]
+    assert not run["invocations"][0]["executionSuccessful"]
+    assert not run["results"]
+    assert (
+        "Install jscpd" in run["invocations"][0]["toolExecutionNotifications"][0]["message"]["text"]
+    )
+
+
+def test_structural_sarif_exports_real_source_families(tmp_path):
+    import json
+
+    for name in ("a.py", "b.py"):
+        (tmp_path / name).write_text("def f(x):\n value=x+1\n return value*3+4\n")
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--min-nodes", "5", "--sarif")
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.output)["runs"][0]
+    assert run["invocations"][0]["executionSuccessful"]
+    assert run["results"]
+    assert run["artifacts"][0]["hashes"]["sha-256"]
+    assert all(row["properties"]["channel"] == "structural" for row in run["results"])
+
+
+def test_body_sarif_preserves_failure_as_machine_readable_execution(tmp_path):
+    import json
+
+    with patch(
+        "victor.core.graph_rag.similarity_analysis.analyze_source",
+        side_effect=OSError("missing weights"),
+    ):
+        result = _invoke("--path", str(tmp_path), "--mode", "body", "--sarif")
+    assert result.exit_code == 1
+    run = json.loads(result.output)["runs"][0]
+    assert not run["invocations"][0]["executionSuccessful"]
+    assert "missing weights" in str(run["invocations"])
+
+
+def test_sarif_stdout_uses_the_bounded_encoding_without_pretty_expansion(tmp_path, monkeypatch):
+    import json
+    from rich.console import Console
+    from victor.core.graph_rag import similarity_sarif, structural_clones
+    from victor.ui.commands import graph
+
+    for name in ("a.py", "b.py"):
+        (tmp_path / name).write_text("def f(x):\n value=x+1\n return value*3+4\n")
+    original = structural_clones.report_to_dict
+
+    def diagnostic(*args, **kwargs):
+        raw = original(*args, **kwargs)
+        nested = list(range(300))
+        for _ in range(40):
+            nested = [nested]
+        raw["stats"]["diagnostic"] = nested
+        return raw
+
+    monkeypatch.setattr(structural_clones, "report_to_dict", diagnostic)
+    monkeypatch.setattr(similarity_sarif, "_MAX_BYTES", 12000)
+    monkeypatch.setattr(graph, "console", Console(force_terminal=True, width=20))
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--min-nodes", "5", "--sarif")
+    assert result.exit_code == 0, result.output
+    assert len(result.stdout.encode()) <= 12000
+    assert json.loads(result.stdout)["runs"][0]["invocations"][0]["executionSuccessful"]
+
+
+def test_summary_sarif_is_index_evidence_and_retains_component_members(tmp_path):
+    import json
+    import numpy as np
+    from victor.core.graph_rag.semantic_clones import SymbolRecord
+
+    records = [SymbolRecord(str(i), f"{i}.py", "f", "semantic", i) for i in range(3)]
+    theta = np.array([0, 0.2, 0.45])
+    matrix = np.column_stack((np.cos(theta), np.sin(theta)))
+    with patch(
+        "victor.core.graph_rag.semantic_clones.load_embedding_symbols",
+        return_value=(records, matrix),
+    ):
+        result = _invoke("--path", str(tmp_path), "--threshold", "0.95", "--sarif")
+    assert result.exit_code == 0, result.output
+    run = json.loads(result.output)["runs"][0]
+    assert run["properties"]["source_freshness"] == "unverified_index_snapshot"
+    assert len(run["results"]) == 1
+    assert run["results"][0]["properties"]["member_count"] == 3
+    assert run["results"][0]["properties"]["matching_pairs"] == 2
+
+
+def test_missing_summary_index_and_structural_failure_emit_sarif(tmp_path):
+    import json
+
+    result = _invoke("--path", str(tmp_path), "--sarif")
+    assert result.exit_code == 1
+    assert not json.loads(result.output)["runs"][0]["invocations"][0]["executionSuccessful"]
+    with patch(
+        "victor.core.graph_rag.structural_clones.scan", side_effect=OSError("source inaccessible")
+    ):
+        result = _invoke("--path", str(tmp_path), "--mode", "structural", "--sarif")
+    assert result.exit_code == 1
+    assert not json.loads(result.output)["runs"][0]["invocations"][0]["executionSuccessful"]
+
+
+def test_copy_workflow_rejects_incompatible_cli_options_before_scanning(tmp_path):
+    with patch(
+        "victor.core.graph_rag.similarity_analysis.analyze_source",
+        side_effect=AssertionError("must not scan"),
+    ):
+        cases = [
+            ["--mode", "semantic", "--token-memory-mib", "192"],
+            ["--mode", "hybrid", "--token-exclude", "alias.py"],
+            ["--mode", "semantic", "--baseline", str(tmp_path / "copies.json")],
+            ["--mode", "tokens", "--fail-on-new"],
+            ["--mode", "tokens", "--changed-file", "a.py"],
+            ["--mode", "tokens", "--sarif", "--json"],
+            [
+                "--mode",
+                "tokens",
+                "--write-baseline",
+                str(tmp_path / "out.json"),
+                "--baseline",
+                str(tmp_path / "copies.json"),
+            ],
+        ]
+        for args in cases:
+            result = _invoke("--path", str(tmp_path), *args)
+            assert result.exit_code == 2, result.output
+
+
+def test_embedded_docs_flag_reaches_structural_scan(tmp_path):
+    import json
+
+    source = "```rust\nfn compute(x:i32)->i32 { let value=x+1; value*3+4 }\n```\n"
+    for name in ("a.md", "b.md"):
+        (tmp_path / name).write_text(source)
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "structural",
+        "--include-docs",
+        "--min-nodes",
+        "5",
+        "--json",
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["families"]
+
+
 def test_missing_store_hint(tmp_path: Path):
     result = _invoke("--path", str(tmp_path))
     assert result.exit_code == 1
@@ -70,6 +245,7 @@ def test_renders_families_from_the_loader(tmp_path: Path):
 
 
 def test_json_output_shape(tmp_path: Path):
+    import json
     import numpy as np
 
     from victor.core.graph_rag.semantic_clones import SymbolRecord
@@ -88,6 +264,60 @@ def test_json_output_shape(tmp_path: Path):
     assert result.exit_code == 0
     assert '"symbols_indexed": 2' in result.output
     assert '"similarity"' in result.output
+    assert '"equivalence_verified": false' in result.output
+    assert '"similarity_basis": "maximum_matching_edge"' in result.output
+    family = json.loads(result.output)["families"][0]
+    assert family["cohesion"]["representative_id"] in {m["id"] for m in family["members"]}
+    assert family["cohesion"]["scope"] == "all_component_member_pairs"
+    assert not family["cohesion"]["pairwise_minimum_verified"]
+
+
+def test_summary_human_output_exposes_a_direct_weak_pair(tmp_path):
+    import numpy as np
+    from victor.core.graph_rag.semantic_clones import SymbolRecord
+
+    records = [SymbolRecord(str(i), f"{i}.py", "f", "semantic", 1) for i in range(3)]
+    theta = np.array([0, 0.2, 0.45])
+    matrix = np.column_stack((np.cos(theta), np.sin(theta)))
+    with patch(
+        "victor.core.graph_rag.semantic_clones.load_embedding_symbols",
+        return_value=(records, matrix),
+    ):
+        result = _invoke("--path", str(tmp_path), "--threshold", "0.95")
+    assert result.exit_code == 0, result.output
+    assert "representative: 1.py:1" in result.output
+    assert "pair witness: 0.py:1" in result.output
+    assert "0.900" in result.output
+    assert "not a verified pairwise minimum" in result.output
+
+
+def test_body_human_output_resolves_cohesion_ids_to_source(tmp_path):
+    from victor.core.graph_rag.body_clones import BodyOptions, LocalBodyEncoder, analyze_bodies
+    from victor.core.graph_rag.structural_clones import scan
+
+    class Encoder(LocalBodyEncoder):
+        def windows(self, source):
+            return [source], [(0, len(source))]
+
+        def encode(self, texts):
+            return [[1, 0, 0] for _ in texts]
+
+    for name in ("a.py", "b.py"):
+        (tmp_path / name).write_text("def f(x):\n value=x+1\n return value*3\n")
+    options = BodyOptions(model_id="test/model", revision="0" * 40, dimension=3)
+
+    channel = analyze_bodies(
+        scan(tmp_path, min_nodes=5, retain_source=True),
+        options=options,
+        encoder=Encoder(options),
+    )
+    payload = {"coverage_complete": True, "channels": {"body": channel}}
+    with patch("victor.core.graph_rag.similarity_analysis.analyze_source", return_value=payload):
+        result = _invoke("--path", str(tmp_path), "--mode", "body")
+    assert result.exit_code == 0, result.output
+    assert "representative:" in result.output
+    assert "pair witness:" in result.output
+    assert ".py:1" in result.output
 
 
 def test_no_families_message(tmp_path: Path):
@@ -106,7 +336,7 @@ def test_no_families_message(tmp_path: Path):
     ):
         result = _invoke("--path", str(tmp_path), "--threshold", "0.99")
     assert result.exit_code == 0
-    assert "No semantic near-duplicates" in result.output
+    assert "No summary-similarity candidates" in result.output
 
 
 def test_too_many_pairs_is_a_clean_error(tmp_path: Path):
@@ -124,7 +354,7 @@ def test_too_many_pairs_is_a_clean_error(tmp_path: Path):
     ):
         result = _invoke("--path", str(tmp_path), "--threshold", "0.5")
     assert result.exit_code == 1
-    assert "--threshold 0.85" in " ".join(result.output.split())
+    assert "Raise --threshold" in " ".join(result.output.split())
 
 
 # --- --mode structural ------------------------------------------------------
@@ -181,6 +411,83 @@ def test_structural_json_shape(tmp_path: Path):
     assert {"file", "symbol", "line", "size"} <= set(family["members"][0])
 
 
+def test_subtree_metric_is_available_through_cli(tmp_path):
+    result = _invoke(
+        "--path",
+        str(_structural_repo(tmp_path)),
+        "--mode",
+        "structural",
+        "--min-nodes",
+        "10",
+        "--ast-metric",
+        "subtree",
+        "--json",
+    )
+    assert result.exit_code == 0, result.output
+    import json
+
+    assert json.loads(result.output)["stats"]["near_metric"] == "subtree"
+
+
+def test_invalid_subtree_metric_is_clean_error(tmp_path):
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--ast-metric", "typo")
+    assert result.exit_code == 1
+    assert "Unknown AST metric" in result.output
+
+
+def test_cross_language_cli_detects_typescript_and_rust_automatically(tmp_path):
+    import json
+
+    (tmp_path / "reference.ts").write_text(
+        "function f(x:number,y:number) { let sum=x+y; return sum*2; }"
+    )
+    (tmp_path / "native.rs").write_text("fn f(a:i32,b:i32)->i32 { let value=a+b; value*2 }")
+    result = _invoke(
+        "--path",
+        str(tmp_path),
+        "--mode",
+        "structural",
+        "--cross-language",
+        "--min-nodes",
+        "5",
+        "--json",
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["stats"]["cross_language_families"] == 1
+    assert data["families"][0]["evidence"] == "portable_operation_shape"
+    assert data["equivalence_verified"] is False
+
+
+def test_jni_relationship_prints_even_without_duplicate_bodies(tmp_path):
+    (tmp_path / "Native.java").write_text("package pkg; class Native { native int sum(int x); }")
+    (tmp_path / "native.cpp").write_text(
+        "JNIEXPORT jint JNICALL Java_pkg_Native_sum(JNIEnv *e, jobject o, jint x) { return x+1; }"
+    )
+    result = _invoke(
+        "--path", str(tmp_path), "--mode", "structural", "--cross-language", "--min-nodes", "5"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Java_pkg_Native_sum" in result.output
+    assert "jni_declaration_export" in result.output
+    assert "matching_declaration" in result.output
+    assert "ABI unverified" in result.output
+
+
+def test_language_filter_and_incomplete_coverage_are_machine_readable(tmp_path):
+    import json
+
+    (tmp_path / "broken.rs").write_text("fn broken( { invalid")
+    result = _invoke(
+        "--path", str(tmp_path), "--mode", "structural", "--language", "rust", "--json"
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.output)["coverage_complete"] is False
+    result = _invoke("--path", str(tmp_path), "--language", "rust")
+    assert result.exit_code == 2
+    assert "require --mode structural" in result.output
+
+
 def test_structural_no_families_message(tmp_path: Path):
     import subprocess
 
@@ -190,6 +497,17 @@ def test_structural_no_families_message(tmp_path: Path):
     result = _invoke("--path", str(tmp_path), "--mode", "structural", "--min-nodes", "10")
     assert result.exit_code == 0
     assert "No structural near-duplicates" in result.output
+
+
+def test_unsupported_scope_cannot_exit_as_a_clean_scan(tmp_path):
+    import json
+
+    (tmp_path / "only.sql").write_text("SELECT 1")
+    result = _invoke("--path", str(tmp_path), "--mode", "structural", "--json")
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["stats"]["source_files"] == 0
+    assert payload["coverage_complete"] is False
 
 
 def test_structural_budget_is_a_clean_error(tmp_path: Path):
