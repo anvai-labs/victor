@@ -18,10 +18,10 @@ def test_defaults_when_file_missing(tmp_path: Path) -> None:
 
 def test_override_replaces_only_that_action(tmp_path: Path) -> None:
     path = tmp_path / "kb.json"
-    path.write_text(json.dumps({"toggle_sidebar": "f5"}), encoding="utf-8")
+    path.write_text(json.dumps({"toggle_diff": "f5"}), encoding="utf-8")
     bindings = load_keybindings(path)
     keys = {action: key for key, action, _ in bindings}
-    assert keys["toggle_sidebar"] == "f5"
+    assert keys["toggle_diff"] == "f5"
     assert keys["quit"] == "ctrl+q"  # untouched default
 
 

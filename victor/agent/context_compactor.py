@@ -40,10 +40,21 @@ Usage:
 
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from victor.agent.compaction_observability import (
+    CompactionAction,
+    CompactionTrigger,
+    coerce_int,
+    duplicate_suppression_age,
+    evaluate_trigger,
+    log_compaction_result,
+    probe_budget_state,
+    threshold_origin_label,
+)
 from victor.agent.decisions.support import DecisionSupportMixin
 from victor.config.orchestrator_constants import (
     COMPACTION_CONFIG,
@@ -76,16 +87,6 @@ class MessagePriority(int, Enum):
     HIGH = 75  # Important context
     CRITICAL = 100  # Error messages, recent context
     PINNED = 150  # Output requirements - never compacted
-
-
-class CompactionTrigger(Enum):
-    """What triggered the compaction."""
-
-    NONE = "none"  # No compaction needed
-    THRESHOLD = "threshold"  # Hit utilization threshold
-    OVERFLOW = "overflow"  # Actually overflowing
-    MANUAL = "manual"  # Manually requested
-    SCHEDULED = "scheduled"  # Background scheduled compaction
 
 
 class TruncationStrategy(Enum):
@@ -224,34 +225,6 @@ class CompactorConfig:
             TaskPhase.REVIEW: 0.75,  # Reduced from 0.85 - full context for review
         }
     )
-
-
-@dataclass
-class CompactionAction:
-    """Result of a compaction check/action.
-
-    Attributes:
-        trigger: What triggered the action
-        messages_removed: Number of messages removed
-        chars_freed: Approximate characters freed
-        tokens_freed: Approximate tokens freed
-        truncations_applied: Number of truncations applied
-        new_utilization: Context utilization after action
-        details: Additional details about what was done
-    """
-
-    trigger: CompactionTrigger
-    messages_removed: int = 0
-    chars_freed: int = 0
-    tokens_freed: int = 0
-    truncations_applied: int = 0
-    new_utilization: float = 0.0
-    details: List[str] = field(default_factory=list)
-
-    @property
-    def action_taken(self) -> bool:
-        """Whether any action was taken."""
-        return self.messages_removed > 0 or self.truncations_applied > 0
 
 
 @dataclass
@@ -868,6 +841,9 @@ class ContextCompactor(DecisionSupportMixin):
 
         # Get base threshold (adaptive > phase-aware > default)
         base_threshold = self._get_compaction_threshold(phase, messages)
+        threshold_origin = threshold_origin_label(
+            self._adaptive_enabled, messages, phase, self.config.enable_phase_aware
+        )
 
         # Get effective thresholds (RL config overrides phase-aware)
         effective_threshold = (
@@ -885,18 +861,39 @@ class ContextCompactor(DecisionSupportMixin):
                 f"Phase-aware compaction: phase={phase.value}, threshold={effective_threshold:.0%}"
             )
 
-        # Determine trigger
-        if force:
-            trigger = CompactionTrigger.MANUAL
-        elif metrics.is_overflow_risk:
-            trigger = CompactionTrigger.OVERFLOW
-        elif self.config.enable_proactive and utilization >= effective_threshold:
-            trigger = CompactionTrigger.THRESHOLD
-        else:
-            return CompactionAction(
-                trigger=CompactionTrigger.NONE,
-                new_utilization=utilization,
-            )
+        # Determine trigger (budget evaluated independently of utilization —
+        # see compaction_observability.evaluate_trigger) and emit the trace.
+        budget_state = probe_budget_state(self.controller)
+        trigger = evaluate_trigger(
+            logger,
+            metrics,
+            force=force,
+            enable_proactive=self.config.enable_proactive,
+            utilization=utilization,
+            threshold=effective_threshold,
+            origin=threshold_origin,
+            budget_state=budget_state,
+        )
+        if trigger is CompactionTrigger.NONE:
+            return CompactionAction(trigger=CompactionTrigger.NONE, new_utilization=utilization)
+
+        # Stampede suppression: several trigger paths evaluate the same
+        # boundary; skip duplicates within the min interval (overflow and
+        # forced runs always pass through).
+        if not force and trigger is not CompactionTrigger.OVERFLOW:
+            age = duplicate_suppression_age(self.controller)
+            if age is not None:
+                logger.info(
+                    "[compaction] duplicate %s trigger suppressed: compaction "
+                    "completed %.1fs ago",
+                    trigger.value,
+                    age,
+                )
+                return CompactionAction(
+                    trigger=CompactionTrigger.NONE,
+                    new_utilization=utilization,
+                    details=[f"Suppressed duplicate {trigger.value} trigger"],
+                )
 
         if not force and not self._has_eligible_compaction_payload(
             effective_min_messages,
@@ -967,6 +964,8 @@ class ContextCompactor(DecisionSupportMixin):
 
         # Perform compaction
         chars_before = metrics.char_count
+        tokens_before = coerce_int(metrics.estimated_tokens) or 0
+        started_at = time.monotonic()
         messages_removed = self.controller.smart_compact_history(
             target_messages=effective_min_messages,
             current_query=current_query,
@@ -1030,10 +1029,17 @@ class ContextCompactor(DecisionSupportMixin):
             except Exception as e:
                 logger.debug(f"Failed to emit compaction event: {e}")
 
-        log_method = logger.info if action_taken else logger.debug
-        log_method(
-            f"Compaction complete: {messages_removed} messages removed, "
-            f"{truncations_applied} tool outputs truncated, ~{tokens_freed} tokens freed"
+        log_compaction_result(
+            logger,
+            action_taken=action_taken,
+            trigger_value=trigger.value,
+            messages_removed=messages_removed,
+            truncations_applied=truncations_applied,
+            tokens_freed=tokens_freed,
+            tokens_before=tokens_before,
+            utilization=utilization,
+            metrics_after=metrics_after,
+            started_at=started_at,
         )
 
         return action
@@ -1139,6 +1145,10 @@ class ContextCompactor(DecisionSupportMixin):
 
         if metrics.is_overflow_risk:
             return True, CompactionTrigger.OVERFLOW
+
+        budget_due, _session_prefill, _limit = probe_budget_state(self.controller)
+        if budget_due:
+            return True, CompactionTrigger.BUDGET
 
         if self.config.enable_proactive:
             effective_threshold = self.config.proactive_threshold

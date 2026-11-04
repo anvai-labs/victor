@@ -1388,6 +1388,18 @@ class ContextServiceRegistry:
             metrics_before.total_tokens > self._config.max_tokens
             or metrics_before.utilization_percent >= self._config.overflow_threshold_percent
         )
+        # Decision trace for the ACTIVE service-layer compactor: without it a
+        # session can sit silently over (or under) its resolved window with no
+        # log evidence of what the trigger saw (2026-11 wedged-session class).
+        logger.info(
+            "[compaction-check] path=lifecycle est_tokens=%s window=%s util=%.1f%% "
+            "overflow_threshold=%.0f%% decision=%s",
+            f"{metrics_before.total_tokens:,}",
+            f"{self._config.max_tokens:,}",
+            metrics_before.utilization_percent,
+            self._config.overflow_threshold_percent,
+            "trigger:overflow" if should_compact else "skip",
+        )
         if not should_compact:
             return {
                 **runtime_context.identity_metadata(),

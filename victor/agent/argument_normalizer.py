@@ -811,7 +811,7 @@ class ArgumentNormalizer:
                     )
                     return tolerant_extract
 
-                # Final schema-driven fallback for write/shell value envelopes.
+                # Final schema-driven fallback for write/shell/edit value envelopes.
                 if canonical_tool_name == "write" and payload_size > 50:
                     salvaged = self._extract_by_schema(payload, ["path", "content"])
                     if salvaged:
@@ -830,6 +830,44 @@ class ArgumentNormalizer:
                             len(str(salvaged.get("cmd", ""))),
                         )
                         return salvaged
+
+                # Enhanced recovery for edit tool - handle empty or malformed ops
+                if canonical_tool_name == "edit":
+                    # Try to extract ops as JSON array
+                    ops_extract = self._extract_string_value_tolerant(payload, "ops")
+                    if ops_extract is not None:
+                        # Try to parse as JSON
+                        try:
+                            import json
+
+                            parsed_ops = json.loads(ops_extract)
+                            if isinstance(parsed_ops, list):
+                                logger.debug(
+                                    "[%s] Schema recovery: edit ops from malformed envelope (%d ops)",
+                                    self.provider_name,
+                                    len(parsed_ops),
+                                )
+                                return {"ops": parsed_ops}
+                        except Exception:
+                            pass
+
+                    # If we have a non-empty payload, try to salvage any operation-like structure
+                    if payload_size > 10:
+                        # Check if it looks like a single operation (has 'type' and 'path')
+                        if '"type"' in payload and '"path"' in payload:
+                            try:
+                                import json
+
+                                # Try to extract as single operation
+                                single_op = self._extract_by_schema(payload, ["type", "path"])
+                                if single_op and "type" in single_op:
+                                    logger.debug(
+                                        "[%s] Schema recovery: edit single operation from malformed envelope",
+                                        self.provider_name,
+                                    )
+                                    return {"ops": [single_op]}
+                            except Exception:
+                                pass
 
                 # Return original arguments if all layers failed
                 return arguments

@@ -18,6 +18,7 @@ import ssl
 import uuid
 from contextlib import aclosing
 from json import JSONDecodeError
+from collections.abc import Mapping
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
 from urllib.parse import urlparse
 
@@ -171,6 +172,82 @@ _INTERNAL_KWARG_KEYS = frozenset(
 
 _wire_contract_checked = False
 _installed_contract_minor: int = 0
+
+
+def _is_thinking_active(value: Any) -> bool:
+    """Return True when a thinking kwarg value signals enabled extended thinking.
+
+    Handles all shapes Victor callers produce:
+    - ``True`` (bare bool)
+    - ``{"type": "enabled", ...}``  (Anthropic-native shape)
+    - ``{"enabled": True, ...}``    (neutral ThinkingV1 shape)
+    Returns False for None, ``False``, ``{"type": "disabled"}``, or any
+    unrecognised shape so the caller can safely fall through.
+    """
+    if value is None or value is False:
+        return False
+    if value is True:
+        return True
+    if isinstance(value, dict):
+        if "enabled" in value:
+            return bool(value["enabled"])
+        if "type" in value:
+            return str(value["type"]) != "disabled"
+    return False
+
+
+def _anthropic_cache_marker_count(native: Mapping[str, Any]) -> int:
+    """Count ``cache_control`` entries on an Anthropic native body's cacheables."""
+    count = 0
+    system = native.get("system")
+    if isinstance(system, list):
+        count += sum(1 for block in system if isinstance(block, dict) and "cache_control" in block)
+    tools = native.get("tools")
+    if isinstance(tools, list):
+        count += sum(1 for tool in tools if isinstance(tool, dict) and "cache_control" in tool)
+    return count
+
+
+def _assert_anthropic_cache_channel(
+    native: Mapping[str, Any],
+    request: Mapping[str, Any],
+    *,
+    supports_caching: bool,
+) -> None:
+    """Loud invariant for the FEP-0011 prompt-cache channel through Sandhi.
+
+    ``cache_control`` markers reach the Anthropic wire only inside
+    ``extensions["anthropic"]``: the typed contract has no field for them, and
+    Sandhi's anthropic encoder re-encodes messages/tools from the typed fields,
+    merging markers from the native bucket alone (system blocks by index, tools
+    by name). Losing the bucket does NOT fail the request — Anthropic just
+    silently stops caching (zero cache hits, every read full price). Fail fast
+    instead, on both severance directions:
+
+    1. the native body must carry markers whenever the provider supports prompt
+       caching and there is a system block or tool list to cache;
+    2. whatever markers the native body carries must still be attached to the
+       typed request's anthropic bucket.
+    """
+    markers = _anthropic_cache_marker_count(native)
+    cacheable = isinstance(native.get("system"), list) or bool(native.get("tools"))
+    if supports_caching and cacheable and markers == 0:
+        raise RuntimeError(
+            "anthropic prompt-cache markers missing: _build_request_params produced a "
+            "system block or tool list without any cache_control entry while "
+            "supports_prompt_caching() is True — FEP-0011 prefix-caching policy "
+            "regression (every request would silently read at full price)"
+        )
+    if markers:
+        extensions = request.get("extensions")
+        attached = extensions.get("anthropic") if isinstance(extensions, dict) else None
+        if not isinstance(attached, Mapping) or _anthropic_cache_marker_count(attached) < markers:
+            raise RuntimeError(
+                f"anthropic prompt-cache markers severed: the native body carries {markers} "
+                "cache_control entries but the typed request's extensions['anthropic'] "
+                "does not — Sandhi's encoder takes cache_control only from that bucket, "
+                "so the request would succeed with zero cache hits"
+            )
 
 
 def _normalize_thinking(value: Any) -> Optional[Dict[str, Any]]:
@@ -1386,17 +1463,40 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
             tools=tools,
             **kwargs,
         )
+        # Defence-in-depth, mirroring sandhi's encoder guard: `temperature`
+        # must never ride alongside active extended thinking on the native
+        # channel (Anthropic rejects the pair with a 400).
+        if "temperature" in native and _is_thinking_active(native.get("thinking")):
+            raise RuntimeError(
+                "anthropic request would send temperature alongside extended "
+                "thinking — _build_request_params must omit temperature when "
+                "thinking is active (Anthropic API rejects the combination)"
+            )
         openai_payload: Dict[str, Any] = {
             "model": model,
             "messages": build_openai_messages(messages),
-            "temperature": temperature,
             "max_tokens": max_tokens,
         }
         if tools:
             openai_payload["tools"] = convert_tools_to_openai_format(tools)
             openai_payload["tool_choice"] = "auto"
         request = _typed_request_from_openai_payload(openai_payload)
+        # Temperature policy lives in exactly one place: _build_request_params
+        # already omits `temperature` when extended thinking is active — mirror
+        # its decision onto the typed contract instead of recomputing the
+        # thinking shape here (two independent checks could drift apart).
+        if "temperature" in native:
+            request["temperature"] = native["temperature"]
+        # Sandhi's anthropic encoder re-encodes messages/tools from the typed
+        # fields and merges `cache_control` only from extensions["anthropic"]
+        # (system blocks by index, tools by name) — the native body is the sole
+        # carrier of the FEP-0011 prompt-cache markers. Attach it, then verify
+        # the channel at construction time so a refactor that severs it (or
+        # strips the markers) fails loudly instead of silently decaching.
         request["extensions"] = {"anthropic": native}
+        _assert_anthropic_cache_channel(
+            native, request, supports_caching=self.supports_prompt_caching()
+        )
         return request
 
     async def chat(

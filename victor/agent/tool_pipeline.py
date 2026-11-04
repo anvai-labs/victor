@@ -983,10 +983,9 @@ class ToolPipeline:
             except ValueError:
                 intent = None
 
-        if (
-            intent in {ActionIntent.DISPLAY_ONLY, ActionIntent.READ_ONLY}
-            and adjusted.get("readonly") is not True
-        ):
+        # Only pin readonly for DISPLAY_ONLY intent, not READ_ONLY
+        # READ_ONLY intent often needs to execute commands like pytest, sed, etc.
+        if intent == ActionIntent.DISPLAY_ONLY and adjusted.get("readonly") is not True:
             adjusted["readonly"] = True
             changed = True
             logger.info("Pinned shell readonly=True due to %s intent", intent.value)

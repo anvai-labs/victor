@@ -172,6 +172,159 @@ async def test_stream_uses_typed_anthropic_events(runtime):
     }
 
 
+def test_anthropic_request_attaches_cache_markers_to_typed_extensions():
+    """FEP-0011 prompt-cache markers ride ONLY in extensions["anthropic"].
+
+    Sandhi's anthropic encoder re-encodes messages/tools from the typed fields
+    and merges ``cache_control`` exclusively from the native bucket (system
+    blocks by index, tools by name). The typed request must therefore carry the
+    full native body, markers intact, on every call.
+    """
+    provider = make_provider()
+    request = provider._anthropic_request(
+        [Message(role="system", content="policy"), Message(role="user", content="hello")],
+        model="claude-test",
+        temperature=0.3,
+        max_tokens=1024,
+        tools=[
+            ToolDefinition(
+                name="lookup",
+                description="Lookup",
+                parameters={"type": "object"},
+                schema_level="full",
+            )
+        ],
+    )
+    native = request["extensions"]["anthropic"]
+    assert native["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert native["tools"][0]["cache_control"] == {"type": "ephemeral"}
+    # The typed channel stays consistent with the native policy decision.
+    assert request["temperature"] == 0.3
+    assert request["messages"][0]["role"] == "system"
+
+
+def test_anthropic_request_mirrors_native_temperature_policy_under_thinking():
+    """Temperature+thinking policy is decided once, in _build_request_params.
+
+    The typed request must mirror the native body's temperature decision
+    instead of recomputing the thinking shape — the two checks could otherwise
+    drift apart and resurrect the 400 the guard exists to prevent.
+    """
+    provider = make_provider()
+    request = provider._anthropic_request(
+        [Message(role="user", content="hello")],
+        model="claude-test",
+        temperature=0.7,
+        max_tokens=1024,
+        tools=None,
+        thinking={"type": "enabled", "budget_tokens": 2048},
+    )
+    native = request["extensions"]["anthropic"]
+    assert "temperature" not in native
+    assert "temperature" not in request
+    assert native["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+
+
+def test_anthropic_request_guard_fires_when_native_drops_cache_markers(monkeypatch):
+    """A _build_request_params regression must fail loudly, not silently decache."""
+
+    def markerless(messages, *, model, temperature, max_tokens, tools=None, **kwargs):
+        return {
+            "model": model,
+            "messages": [],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            # system/tools present but WITHOUT cache_control — the regression
+            "system": [{"type": "text", "text": "policy"}],
+            "tools": [{"name": "lookup", "description": "d", "input_schema": {}}],
+        }
+
+    provider = make_provider()
+    monkeypatch.setattr(provider, "_build_request_params", markerless)
+    with pytest.raises(RuntimeError, match="prompt-cache markers missing"):
+        provider._anthropic_request(
+            [Message(role="system", content="policy"), Message(role="user", content="hi")],
+            model="claude-test",
+            temperature=0.3,
+            max_tokens=1024,
+            tools=[ToolDefinition(name="lookup", description="d", parameters={"type": "object"})],
+        )
+
+
+def test_cache_channel_guard_fires_when_extensions_severed():
+    """Markers in the native body but not on the typed request = severed channel."""
+    native = {
+        "model": "claude-test",
+        "messages": [],
+        "max_tokens": 100,
+        "system": [{"type": "text", "text": "policy", "cache_control": {"type": "ephemeral"}}],
+    }
+    severed = {"schema_version": "1", "model": "claude-test", "messages": [], "extensions": {}}
+    with pytest.raises(RuntimeError, match="prompt-cache markers severed"):
+        st._assert_anthropic_cache_channel(native, severed, supports_caching=True)
+
+
+def test_cache_channel_guard_passes_when_caching_unsupported_or_nothing_cacheable():
+    native_plain = {"model": "m", "messages": [], "max_tokens": 100}
+    request_plain = {"schema_version": "1", "model": "m", "messages": []}
+    # No system block / no tools: nothing to cache, no markers required.
+    st._assert_anthropic_cache_channel(native_plain, request_plain, supports_caching=True)
+    # Provider opts out of caching: markers never required.
+    markerless = {
+        "model": "m",
+        "messages": [],
+        "max_tokens": 100,
+        "system": [{"type": "text", "text": "policy"}],
+    }
+    st._assert_anthropic_cache_channel(markerless, request_plain, supports_caching=False)
+
+
+def test_anthropic_request_rejects_unknown_thinking_type_with_temperature():
+    """`thinking.type` outside {enabled,disabled} must fail locally, not at the wire.
+
+    _build_request_params only strips temperature for the recognized enabled
+    shapes, so an unrecognized type used to ship temperature+thinking to a
+    guaranteed Anthropic 400. The policy-layer guard now rejects the pair
+    before it leaves Victor. Pins _is_thinking_active against loosening: any
+    shape it stops treating as active re-silences this failure.
+    """
+    provider = make_provider()
+    with pytest.raises(RuntimeError, match="thinking"):
+        provider._anthropic_request(
+            [Message(role="user", content="hello")],
+            model="claude-test",
+            temperature=0.7,
+            max_tokens=1024,
+            tools=None,
+            thinking={"type": "auto"},
+        )
+
+
+def test_anthropic_request_guard_rejects_temperature_alongside_thinking(monkeypatch):
+    """Belt-and-suspenders mirror of sandhi's encoder guard, at the policy layer."""
+
+    def contradictory(messages, *, model, temperature, max_tokens, tools=None, **kwargs):
+        return {
+            "model": model,
+            "messages": [],
+            "max_tokens": max_tokens,
+            "temperature": temperature,  # BOTH present — the regression
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+        }
+
+    provider = make_provider()
+    monkeypatch.setattr(provider, "_build_request_params", contradictory)
+    with pytest.raises(RuntimeError, match="temperature.*thinking|thinking.*temperature"):
+        provider._anthropic_request(
+            [Message(role="user", content="hello")],
+            model="claude-test",
+            temperature=0.7,
+            max_tokens=1024,
+            tools=None,
+            thinking={"type": "enabled", "budget_tokens": 2048},
+        )
+
+
 @pytest.mark.asyncio
 async def test_stream_assembles_parallel_tool_calls(runtime):
     """Streaming tool-call events assemble into the final chunk's tool_calls.

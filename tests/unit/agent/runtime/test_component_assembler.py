@@ -142,7 +142,7 @@ def test_assemble_intelligence_creates_context_lifecycle_service():
         create_compaction_summarizer=MagicMock(return_value=MagicMock()),
     )
     settings = SimpleNamespace(
-        max_context_tokens=32000,
+        context=SimpleNamespace(max_context_tokens=32000),
         max_context_chars=None,
         context_compaction_strategy="tiered",
     )
@@ -171,6 +171,52 @@ def test_assemble_intelligence_creates_context_lifecycle_service():
             SimpleNamespace(session_id="session", agent_id="agent")
         ).get_max_tokens()
         == 32000
+    )
+
+
+def test_assemble_intelligence_lifecycle_window_falls_back_to_resolver():
+    """Without a user-set context window the lifecycle service uses the resolver.
+
+    The lifecycle service used to read a flat settings.max_context_tokens
+    attribute that never exists on real Settings — silently falling back to
+    chars//4 or the raw model window so profile/env overrides never reached
+    the one compactor actually consulted on service-layer chat paths.
+    """
+    factory = SimpleNamespace(
+        create_rl_coordinator=MagicMock(return_value=None),
+        create_context_compactor=MagicMock(return_value=MagicMock()),
+        create_context_assembler=MagicMock(return_value=MagicMock()),
+        create_usage_analytics=MagicMock(return_value=MagicMock()),
+        create_sequence_tracker=MagicMock(return_value=MagicMock()),
+        create_tool_output_formatter=MagicMock(return_value=MagicMock()),
+        create_observability=MagicMock(return_value=MagicMock()),
+        create_compaction_summarizer=MagicMock(return_value=MagicMock()),
+    )
+    settings = SimpleNamespace(
+        context_compaction_strategy="tiered",
+    )
+    orchestrator = SimpleNamespace(
+        _factory=factory,
+        _conversation_controller=MagicMock(),
+        _session_ledger=MagicMock(),
+        provider_name="no-such-provider",
+        model="totally-unknown-model",
+        debug_logger=MagicMock(),
+        settings=settings,
+        memory_manager=MagicMock(),
+        _init_manager=MagicMock(),
+        _get_model_context_window=MagicMock(return_value=64000),
+    )
+
+    ComponentAssembler.assemble_intelligence(orchestrator)
+
+    assert isinstance(orchestrator._context_lifecycle_service, ContextLifecycleService)
+    # Resolver fallback: unknown provider+model -> 128000 (not _get_model_context_window's 64000)
+    assert (
+        orchestrator._context_lifecycle_service.context_for(
+            SimpleNamespace(session_id="session", agent_id="agent")
+        ).get_max_tokens()
+        == 128000
     )
 
 

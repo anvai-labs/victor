@@ -1777,6 +1777,137 @@ models:
       tool_reliability: high
 
   # ---------------------------------------------------------------------------
+  # ANTHROPIC CLAUDE EXTENDED-THINKING MODELS
+  # These models support extended thinking (interleaved reasoning) via the
+  # Anthropic `thinking` API parameter. Critically, Anthropic's API rejects
+  # `temperature` when `thinking` is active — Victor strips it automatically
+  # in AnthropicProvider._build_request_params and
+  # SandhiAnthropicProvider._anthropic_request when thinking is enabled.
+  # See: sandhi-providers/src/anthropic_typed.rs encode_anthropic_request
+  # ---------------------------------------------------------------------------
+
+  "claude-sonnet-4-5*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    capabilities:
+      thinking_model: true              # Supports extended thinking
+      no_temperature_in_thinking: true  # temperature forbidden when thinking enabled
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        thinking_mode: true
+        thinking_budget_default: 10000
+        thinking_budget_max: 32000
+      bedrock:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        thinking_mode: true
+        thinking_budget_default: 10000
+        thinking_budget_max: 32000
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 25
+      argument_format: json
+      tool_reliability: high
+
+  "claude-sonnet-5*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    capabilities:
+      thinking_model: true
+      no_temperature_in_thinking: true
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        thinking_mode: true
+        thinking_budget_default: 10000
+        thinking_budget_max: 131072
+      bedrock:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        thinking_mode: true
+        thinking_budget_default: 10000
+        thinking_budget_max: 131072
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "claude-opus-4-8*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    capabilities:
+      thinking_model: true
+      no_temperature_in_thinking: true
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        thinking_mode: true
+        thinking_budget_default: 16000
+        thinking_budget_max: 131072
+      bedrock:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        thinking_mode: true
+        thinking_budget_default: 16000
+        thinking_budget_max: 131072
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  "claude-fable-5*":
+    training:
+      tool_calling: true
+      code_generation: true
+      reasoning: true
+
+    capabilities:
+      thinking_model: true
+      no_temperature_in_thinking: true
+
+    providers:
+      anthropic:
+        native_tool_calls: true
+        streaming_tool_calls: true
+        parallel_tool_calls: true
+        thinking_mode: true
+        thinking_budget_default: 16000
+        thinking_budget_max: 131072
+
+    settings:
+      recommended_max_tools: 50
+      recommended_tool_budget: 30
+      argument_format: json
+      tool_reliability: high
+
+  # ---------------------------------------------------------------------------
   # GOOGLE GEMINI MODELS
   # ---------------------------------------------------------------------------
 

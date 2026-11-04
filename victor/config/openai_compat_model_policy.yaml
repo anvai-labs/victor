@@ -478,3 +478,15 @@ providers:
         max_output: 8192
         supports_tools: true
         supports_thinking: true
+      qwen3.8-27b:
+        description: Qwen3.8-27B UD-Q4_K_XL (on-disk; load via inferflux model switch)
+        context_window: 262144
+        max_output: 8192
+        supports_tools: true
+        supports_thinking: false
+      lfm2.5-8b-a1b:
+        description: Liquid LFM2.5-8B-A1B Q4_K_M ultra-fast MoE (on-disk; load via switch)
+        context_window: 262144
+        max_output: 8192
+        supports_tools: true
+        supports_thinking: false
