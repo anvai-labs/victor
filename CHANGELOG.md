@@ -3,6 +3,10 @@
 All notable changes to Victor are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+Nothing yet; the next entries land here after 0.26.0 ships.
+
 ## [0.26.0] - Unreleased
 
 The never-tagged 0.25.0 train (agent stamina ×5, hardened shell/consensus
