@@ -18,7 +18,6 @@ from rich import box
 from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -29,7 +28,7 @@ from victor.config.settings import get_project_paths, load_settings
 from victor.core.async_utils import run_sync
 
 # Framework-first boundary: UI composes VictorClient/SessionConfig only.
-from victor.core.verticals import get_vertical, list_verticals
+from victor.core.verticals import list_verticals
 from victor.core.errors import (
     ConfigurationError,
     ProviderError,
@@ -52,7 +51,6 @@ from victor.ui.rendering.utils import render_status_message
 from victor.ui.rendering.handler import RenderedStreamError
 from victor.ui.commands.utils import (
     preload_semantic_index,
-    check_codebase_index,
     get_rl_profile_suggestion,
     setup_safety_confirmation,
     setup_logging,
@@ -67,7 +65,6 @@ from victor.workflows import (
 from victor.workflows.visualization import (
     WorkflowVisualizer,
     OutputFormat as VizFormat,
-    RenderBackend,
     get_available_backends,
 )
 
@@ -3571,7 +3568,29 @@ async def _run_cli_repl(
                     f"[dim]{_cli_work_status_message(enable_planning)}[/]",
                     spinner="dots",
                 ):
-                    response = await agent.chat(user_input, use_planning=enable_planning)
+                    # agent.chat() is SYNC on framework.Agent (returns ChatSession,
+                    # not a coroutine). Use run() which is always async on both
+                    # AgentOrchestrator and framework.Agent and returns TaskResult.
+                    # For AgentOrchestrator, pass use_planning if supported.
+                    import inspect as _inspect
+
+                    _run_fn = getattr(agent, "run", None)
+                    _chat_fn = getattr(agent, "chat", None)
+                    if _inspect.iscoroutinefunction(_chat_fn):
+                        # AgentOrchestrator: async chat() accepts use_planning
+                        _sig = _inspect.signature(_chat_fn)
+                        if "use_planning" in _sig.parameters:
+                            response = await _chat_fn(user_input, use_planning=enable_planning)
+                        else:
+                            response = await _chat_fn(user_input)
+                    elif _inspect.iscoroutinefunction(_run_fn):
+                        # framework.Agent: async run() returns TaskResult
+                        response = await _run_fn(user_input)
+                    else:
+                        raise RuntimeError(
+                            f"Agent {type(agent).__name__} exposes neither "
+                            "async chat() nor async run()"
+                        )
                 console.print(Markdown(response.content))
 
             # FEP-0012: capture the RL reward label after the agent's turn. Both

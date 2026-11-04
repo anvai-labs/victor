@@ -48,7 +48,7 @@ from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
 from victor.ui.tui.prompt_input import PromptInput
 from victor.ui.tui.prompt_queue import PromptQueue
-from victor.ui.tui.session_bar import SessionBar, SessionInfo, TokenUsage
+from victor.ui.tui.session_bar import TokenUsage
 from victor.ui.tui.status_bar import StatusBar
 from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
 from victor.ui.tui.token_usage_bar import TokenUsageBar
@@ -163,7 +163,6 @@ class VictorTUIApp(App[None]):
                 yield ConversationLog(id="conversation")
                 yield DiffPane(id="diff-pane")
             yield StatusBar(id="status-bar")
-            yield SessionBar(id="session-bar")
             yield TokenUsageBar(id="token-usage-bar")
             yield PromptInput(placeholder="Message…  (/help for commands)", id="prompt")
         yield Footer()
@@ -457,11 +456,6 @@ class VictorTUIApp(App[None]):
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
-    def action_toggle_sidebar(self) -> None:
-        """Toggle the horizontal session bar visibility."""
-        session_bar = self.query_one("#session-bar", SessionBar)
-        session_bar.display = not session_bar.display
-
     def action_toggle_diff(self) -> None:
         """Toggle diff pane expand/collapse, or reveal if hidden."""
         pane = self.query_one("#diff-pane", DiffPane)
@@ -523,30 +517,51 @@ class VictorTUIApp(App[None]):
         # Extract total tokens
         tokens = report.get("total_tokens")
         if tokens is None:
-            tokens = (report.get("prompt_tokens") or 0) + (report.get("completion_tokens") or 0)
+            tokens = (report.get("api_prompt_tokens") or report.get("prompt_tokens") or 0) + (
+                report.get("api_completion_tokens") or report.get("completion_tokens") or 0
+            )
         self._last_tokens = int(tokens) if tokens else None
 
         # Extract cost
         cost = report.get("total_cost_usd")
         self._last_cost = float(cost) if isinstance(cost, (int, float)) else None
 
+        # Keep the canonical report so the usage bar can render full fidelity
+        # (cache read/write, hit rate, request count, reasoning split).
+        self._last_report = report
+
         # Extract detailed token usage breakdown
         self._token_usage = TokenUsage(
-            prompt_tokens=int(report.get("prompt_tokens") or 0),
-            completion_tokens=int(report.get("completion_tokens") or 0),
+            prompt_tokens=int(report.get("api_prompt_tokens") or report.get("prompt_tokens") or 0),
+            completion_tokens=int(
+                report.get("api_completion_tokens") or report.get("completion_tokens") or 0
+            ),
             reasoning_tokens=int(report.get("reasoning_tokens") or 0),
-            cached_tokens=int(report.get("cached_tokens") or 0),
+            cached_tokens=int(report.get("cache_read_tokens") or report.get("cached_tokens") or 0),
             total_tokens=int(tokens) if tokens else 0,
         )
 
     def _update_status(self) -> None:
+        # Get session/model info for status bar
+        session_id = _short(getattr(self._agent, "active_session_id", None))
+        model = self._safe(lambda: self._client.model)
+        provider = self._safe(lambda: self._client.provider_name)
+        profile = "—"
+        try:
+            if hasattr(self._settings, "profile") and self._settings.profile:
+                profile = self._settings.profile
+        except Exception:
+            pass
+
         self.query_one("#status-bar", StatusBar).set_status(
             phase_label=self._phase.label(),
             tool_count=self._phase.tool_count,
-            total_tokens=self._last_tokens,
-            cost_usd=self._last_cost,
             waiting_seconds=self._waiting_seconds,
             queued=len(self._queue),
+            session_id=session_id,
+            model=model,
+            provider=provider,
+            profile=profile,
         )
         self._update_token_usage_bar()
 
@@ -556,50 +571,49 @@ class VictorTUIApp(App[None]):
             bar = self.query_one("#token-usage-bar", TokenUsageBar)
         except Exception:  # noqa: BLE001
             return
+        report = getattr(self, "_last_report", None) or {}
+        context_used: Optional[int] = None
+        context_limit: Optional[int] = None
+        try:
+            window = self._client.context_window()
+            if window and window > 0:
+                context_limit = int(window)
+                cached_limit = getattr(self, "_context_limit_tokens", None)
+                if isinstance(cached_limit, int) and cached_limit > 0:
+                    context_limit = cached_limit
+                metrics = getattr(self, "_context_used_tokens", None)
+                if isinstance(metrics, int) and metrics >= 0:
+                    context_used = metrics
+        except Exception:  # noqa: BLE001
+            context_limit = None
         bar.set_usage(
+            context_used_tokens=context_used,
+            context_limit_tokens=context_limit,
+            context_used_pct=self._context_pct,
+            prompt_tokens=report.get("api_prompt_tokens") or report.get("prompt_tokens"),
+            completion_tokens=report.get("api_completion_tokens")
+            or report.get("completion_tokens"),
+            reasoning_tokens=report.get("reasoning_tokens")
+            or (self._token_usage.reasoning_tokens or None),
+            cached_tokens=report.get("cache_read_tokens")
+            or (self._token_usage.cached_tokens or None),
+            cache_write_tokens=report.get("cache_write_tokens") or None,
+            cache_hit_rate=report.get("cache_hit_rate"),
             total_tokens=self._last_tokens,
             cost_usd=self._last_cost,
-            context_used_pct=self._context_pct,
+            session_cost_usd=report.get("session_cost_usd"),
+            model=self._model_label(),
         )
 
     async def _refresh_sidebar(self) -> None:
-        """Refresh the horizontal session bar with current session state."""
+        """Update context telemetry for the token usage bar."""
         context_used, context_total, context_pct = await self._compute_context_usage()
         self._context_pct = context_pct
-
-        # Get profile name from settings if available
-        profile = "—"
-        try:
-            if hasattr(self._settings, "profile") and self._settings.profile:
-                profile = self._settings.profile
-        except Exception:
-            pass
-
-        # Get context budget from settings (profile's context.max_context_tokens)
-        context_budget = None
-        try:
-            if hasattr(self._settings, "context") and hasattr(
-                self._settings.context, "max_context_tokens"
-            ):
-                context_budget = self._settings.context.max_context_tokens
-        except Exception:
-            pass
-
-        info = SessionInfo(
-            session_id=_short(getattr(self._agent, "active_session_id", None)),
-            mode=self._mode,
-            model=self._safe(lambda: self._client.model) or "—",
-            provider=self._safe(lambda: self._client.provider_name) or "—",
-            profile=profile,
-            budget_used=0,
-            budget_total=self._tool_budget,
-            context_pct=context_pct,
-            context_used=context_used,
-            context_total=context_budget or context_total,
-            token_usage=self._token_usage,
-            cost_usd=self._last_cost,
-        )
-        self.query_one("#session-bar", SessionBar).set_session_info(info)
+        # Cache absolute token counts for the usage bar's gauge.
+        if isinstance(context_used, int) and context_used >= 0:
+            self._context_used_tokens = context_used
+        if isinstance(context_total, int) and context_total > 0:
+            self._context_limit_tokens = context_total
 
     async def _compute_context_usage(self) -> tuple[Optional[int], Optional[int], Optional[float]]:
         """Read current context telemetry through the framework client."""

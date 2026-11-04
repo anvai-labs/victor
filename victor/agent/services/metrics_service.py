@@ -753,7 +753,14 @@ class AgentMetricsService:
             cache_hit_rate,
         )
 
-        return report.to_dict()
+        report_dict = report.to_dict()
+        # Inject session-level cumulative data for TUI display
+        # The report has per-task deltas, but TUI needs session totals
+        session_requests, _, session_costs = self._tracker_summary()
+        report_dict["session_cost_usd"] = float(session_costs.get("total", 0.0) or 0.0)
+        report_dict["session_request_count"] = session_requests
+
+        return report_dict
 
     def get_last_task_report(self) -> Optional[Dict[str, Any]]:
         """Return the most recent completed task report."""
