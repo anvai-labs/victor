@@ -5,11 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-The next release is **0.26.0**: the never-tagged 0.25.0 train (agent
-stamina ×5, hardened shell/consensus semantics, victor-contracts 0.17.0,
-verticals 0.16.0) was prepared on 2026-10-31 but no release tags were
-pushed — nothing past v0.24.0 has shipped — so that content and everything
-below ships together as 0.26.0.
+### Fixed
+
+- TUI: `VICTOR_TERMINAL` theme no longer crashes on Textual < 8.0. Detection
+  via ``inspect.signature(Theme.__init__)`` picks the ansi-native path on
+  Textual 8+ and falls back to the VICTOR_DARK hex palette on older installs
+  (e.g. the anaconda env on aiserver1, Textual 7.5.0). The theme name,
+  dark-mode flag, and theme-cycle (F6) are unchanged — users on older Textuals
+  get a degraded-but-functional dark theme instead of a module-import crash.
+
+## [0.26.0] - 2026-11-04
+
+The never-tagged 0.25.0 train (agent stamina ×5, hardened shell/consensus
+semantics, victor-contracts 0.17.0, verticals 0.16.0) was prepared on
+2026-10-31 but no release tags were pushed — nothing past v0.24.0 had
+shipped — so that content and everything below shipped together as 0.26.0.
 
 ### Changed
 
