@@ -547,6 +547,29 @@ class ResumeCommand(BaseSlashCommand):
                     except Exception as e:
                         logger.debug(f"Compaction context injection skipped on resume: {e}")
 
+            # Refresh system prompt with current project context (AGENTS.md, CLAUDE.md, etc.)
+            # The stored session may have been created in a different workspace, so we need
+            # to rebuild the system prompt with the current project's instructions.
+            try:
+                orchestrator = getattr(ctx.agent, "_orchestrator", None) or ctx.agent
+                prompt_builder_runtime = getattr(orchestrator, "_prompt_builder_runtime", None)
+                if prompt_builder_runtime is None:
+                    # Try to get it via the service accessor pattern
+                    prompt_builder_runtime = getattr(orchestrator, "prompt_builder_runtime", None)
+                
+                if prompt_builder_runtime and hasattr(prompt_builder_runtime, "ensure_system_prompt_current"):
+                    prompt_builder_runtime.ensure_system_prompt_current()
+                    logger.info("Refreshed system prompt with current project context on resume")
+                elif hasattr(orchestrator, "build_system_prompt"):
+                    # Fallback: rebuild and set the system prompt directly
+                    new_system_prompt = orchestrator.build_system_prompt()
+                    if _cc:
+                        _cc.set_system_prompt(new_system_prompt)
+                        _cc.ensure_system_message()
+                        logger.info("Rebuilt system prompt with current project context on resume")
+            except Exception as e:
+                logger.warning(f"Failed to refresh system prompt on resume: {e}")
+
             ctx.console.print(
                 Panel(
                     f"Session restored from SQLite!\n\n"

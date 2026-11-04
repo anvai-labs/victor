@@ -34,6 +34,7 @@ def hydrate_session(
     context_service: Any,
     conversation_controller: Any,
     session_data: Dict[str, Any],
+    orchestrator: Any = None,
 ) -> Dict[str, Any]:
     """Repopulate both live message stores from a stored session.
 
@@ -49,6 +50,9 @@ def hydrate_session(
             ``load_history``); tolerated as ``None`` / missing the method.
         session_data: A stored-session dict from ``load_session`` — carries
             ``conversation`` (a ``MessageHistory`` dict) and ``metadata``.
+        orchestrator: Optional orchestrator instance for refreshing system prompt
+            with current project context. When provided, the system prompt is
+            rebuilt to include the current workspace's AGENTS.md/CLAUDE.md/etc.
 
     Returns:
         The session ``metadata`` (title, message_count, …) for UI display.
@@ -68,6 +72,28 @@ def hydrate_session(
     # Conversation controller: repoint its history at the stored session.
     if conversation_controller is not None and hasattr(conversation_controller, "load_history"):
         conversation_controller.load_history(history)
+
+    # Refresh system prompt with current project context (AGENTS.md, CLAUDE.md, etc.)
+    # The stored session may have been created in a different workspace, so we need
+    # to rebuild the system prompt with the current project's instructions.
+    if orchestrator is not None:
+        try:
+            prompt_builder_runtime = getattr(orchestrator, "_prompt_builder_runtime", None)
+            if prompt_builder_runtime is None:
+                prompt_builder_runtime = getattr(orchestrator, "prompt_builder_runtime", None)
+            
+            if prompt_builder_runtime and hasattr(prompt_builder_runtime, "ensure_system_prompt_current"):
+                prompt_builder_runtime.ensure_system_prompt_current()
+                logger.info("Refreshed system prompt with current project context on resume")
+            elif hasattr(orchestrator, "build_system_prompt"):
+                # Fallback: rebuild and set the system prompt directly
+                new_system_prompt = orchestrator.build_system_prompt()
+                if conversation_controller and hasattr(conversation_controller, "set_system_prompt"):
+                    conversation_controller.set_system_prompt(new_system_prompt)
+                    conversation_controller.ensure_system_message()
+                    logger.info("Rebuilt system prompt with current project context on resume")
+        except Exception as e:
+            logger.warning(f"Failed to refresh system prompt on resume: {e}")
 
     logger.debug("Resumed session with %d prior messages", len(non_system))
     return session_data.get("metadata", {}) or {}

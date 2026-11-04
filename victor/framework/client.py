@@ -902,7 +902,7 @@ class VictorClient:
             orchestrator._runtime_identity.validate_session_transition(session_id)
         context_service = self._resolve_runtime_services().context
         controller = getattr(orchestrator, "_conversation_controller", None)
-        metadata = hydrate_session(context_service, controller, session_data)
+        metadata = hydrate_session(context_service, controller, session_data, orchestrator=orchestrator)
 
         # Stamp the resumed id/state on the orchestrator so continuation turns
         # append to the same session rather than minting a fresh one.
