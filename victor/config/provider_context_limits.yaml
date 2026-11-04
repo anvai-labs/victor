@@ -196,6 +196,10 @@ models:
     context_window: 131072
 
   # Qwen Models
+  "qwen3.8-27b*":
+    context_window: 262144  # 256k for local Qwen3.8-27B
+  "qwen3-coder*":
+    context_window: 262144  # 256k for Qwen3-Coder models (30b, 480b, etc.)
   "qwen3*":
     context_window: 131072
   "qwen2.5*":
@@ -206,6 +210,10 @@ models:
     context_window: 131072
   "qwen*72b*":
     context_window: 131072
+
+  # Liquid Foundation Models
+  "lfm2.5-8b-a1b*":
+    context_window: 262144  # 256k for local LFM2.5-8B-A1B
 
   # Mistral Models
   "mistral-large*":
