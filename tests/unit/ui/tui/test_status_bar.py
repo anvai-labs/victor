@@ -1,4 +1,10 @@
-"""Unit tests for the StatusBar footer composition (queued segment)."""
+"""Unit tests for the StatusBar footer composition (queued segment).
+
+The TUI rework consolidated model/provider/profile into the header and the
+TokenUsageBar; ``StatusBar._compose_line`` now composes phase · tools · queued ·
+session only. The former ``compose_line_for_prompt`` token/cost/context tests
+live in ``test_token_usage_bar.py`` against the 3-line panel.
+"""
 
 from __future__ import annotations
 
@@ -11,8 +17,6 @@ def _line(*, queued: int = 0, waiting_seconds: Optional[int] = None) -> str:
     return StatusBar._compose_line(
         phase_label="acting",
         tool_count=0,
-        total_tokens=None,
-        cost_usd=None,
         waiting_seconds=waiting_seconds,
         queued=queued,
     )
@@ -28,80 +32,33 @@ def test_queued_segment_renders_count() -> None:
     assert "2 queued" in _line(queued=2)
 
 
-def test_queued_segment_orders_after_tools() -> None:
+def test_queued_segment_orders_after_tools_before_session() -> None:
     line = StatusBar._compose_line(
         phase_label="acting",
         tool_count=3,
-        total_tokens=1234,
-        cost_usd=0.5,
         waiting_seconds=None,
         queued=2,
+        session_id="sess-9",
     )
     assert line.index("3 tools") < line.index("2 queued")
-    assert line.index("2 queued") < line.index("1.2k tok")
-    assert line.index("1.2k tok") < line.index("$0.5000")
+    assert line.index("2 queued") < line.index("sess-9")
 
 
 def test_waiting_indicator_still_wins_over_queued() -> None:
     line = _line(waiting_seconds=7, queued=4)
-    assert "waiting on model (7s)" in line
+    assert "waiting (7s)" in line
     assert "4 queued" in line
 
 
-def test_compose_line_for_prompt_no_data() -> None:
-    """Test compose_line_for_prompt with no data."""
-    # Create a StatusBar instance to call the instance method
-    bar = StatusBar.__new__(StatusBar)
-    result = bar.compose_line_for_prompt()
-    assert result == "[dim italic]No usage data yet[/]"
-
-
-def test_compose_line_for_prompt_tokens_only() -> None:
-    """Test compose_line_for_prompt with only tokens."""
-    bar = StatusBar.__new__(StatusBar)
-    result = bar.compose_line_for_prompt(total_tokens=1234)
-    assert "[dim]Tokens:[/] [bold]1.2k[/]" in result
-    assert "Cost:" not in result
-    assert "Context:" not in result
-
-
-def test_compose_line_for_prompt_cost_only() -> None:
-    """Test compose_line_for_prompt with only cost."""
-    bar = StatusBar.__new__(StatusBar)
-    result = bar.compose_line_for_prompt(cost_usd=0.0123)
-    assert "[dim]Cost:[/] [bold]$0.0123[/]" in result
-    assert "Tokens:" not in result
-    assert "Context:" not in result
-
-
-def test_compose_line_for_prompt_context_low() -> None:
-    """Test compose_line_for_prompt with low context usage (green)."""
-    bar = StatusBar.__new__(StatusBar)
-    result = bar.compose_line_for_prompt(context_used_pct=45.0)
-    assert "[dim]Context:[/] [green]45%[/]" in result
-    assert "Tokens:" not in result
-    assert "Cost:" not in result
-
-
-def test_compose_line_for_prompt_context_medium() -> None:
-    """Test compose_line_for_prompt with medium context usage (yellow)."""
-    bar = StatusBar.__new__(StatusBar)
-    result = bar.compose_line_for_prompt(context_used_pct=75.0)
-    assert "[dim]Context:[/] [yellow]75%[/]" in result
-
-
-def test_compose_line_for_prompt_context_high() -> None:
-    """Test compose_line_for_prompt with high context usage (red)."""
-    bar = StatusBar.__new__(StatusBar)
-    result = bar.compose_line_for_prompt(context_used_pct=90.0)
-    assert "[dim]Context:[/] [red]90%[/]" in result
-
-
-def test_compose_line_for_prompt_all_fields() -> None:
-    """Test compose_line_for_prompt with all fields."""
-    bar = StatusBar.__new__(StatusBar)
-    result = bar.compose_line_for_prompt(total_tokens=5000, cost_usd=0.05, context_used_pct=60.0)
-    assert "[dim]Tokens:[/] [bold]5.0k[/]" in result
-    assert "[dim]Cost:[/] [bold]$0.0500[/]" in result
-    assert "[dim]Context:[/] [yellow]60%[/]" in result
-    assert "  ·  " in result
+def test_model_provider_profile_stay_consolidated_out() -> None:
+    """The rework's contract: identity fields render in header/tokenbar, not here."""
+    line = StatusBar._compose_line(
+        phase_label="acting",
+        tool_count=1,
+        waiting_seconds=None,
+        model="glm-5.3",
+        provider="zai",
+        profile="zai-glm53",
+    )
+    assert "glm-5.3" not in line
+    assert "zai" not in line

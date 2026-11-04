@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
 
 from victor.ui.tui.token_usage_bar import TokenUsageBar, _human_tokens
 
@@ -43,10 +42,10 @@ def test_token_usage_bar_tokens_only() -> None:
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=1234)
     content = str(bar.render())
-    assert "Turn" in content
+    assert "turn" in content
     assert "1.2k" in content
-    assert "Session" not in content
-    assert "Ctx" not in content
+    assert "session total" not in content
+    assert "context" not in content
 
 
 def test_token_usage_bar_cost_only() -> None:
@@ -54,9 +53,9 @@ def test_token_usage_bar_cost_only() -> None:
     bar = TokenUsageBar()
     bar.set_usage(cost_usd=0.0123)
     content = str(bar.render())
-    assert "Turn" in content
+    assert "turn" in content
     assert "$0.0123" in content
-    assert "Ctx" not in content
+    assert "context" not in content
 
 
 def test_token_usage_bar_context_low() -> None:
@@ -65,7 +64,7 @@ def test_token_usage_bar_context_low() -> None:
     bar.set_usage(context_used_pct=45.0)
     rendered = bar.render()
     content = str(rendered)
-    assert "Ctx" in content
+    assert "context" in content
     assert "45%" in content
     # Check that at least one span has green style
     assert any("green" in str(span.style) for span in rendered.spans)
@@ -77,7 +76,7 @@ def test_token_usage_bar_context_medium() -> None:
     bar.set_usage(context_used_pct=75.0)
     rendered = bar.render()
     content = str(rendered)
-    assert "Ctx" in content
+    assert "context" in content
     assert "75%" in content
     # Check that at least one span has yellow style
     assert any("yellow" in str(span.style) for span in rendered.spans)
@@ -89,7 +88,7 @@ def test_token_usage_bar_context_high() -> None:
     bar.set_usage(context_used_pct=90.0)
     rendered = bar.render()
     content = str(rendered)
-    assert "Ctx" in content
+    assert "context" in content
     assert "90%" in content
     # Check that at least one span has red style
     assert any("red" in str(span.style) for span in rendered.spans)
@@ -100,10 +99,10 @@ def test_token_usage_bar_all_fields() -> None:
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=5000, cost_usd=0.05, context_used_pct=60.0)
     content = str(bar.render())
-    assert "Turn" in content
+    assert "turn" in content
     assert "5.0k" in content
     assert "$0.0500" in content
-    assert "Ctx" in content
+    assert "context" in content
     assert "60%" in content
 
 
@@ -165,5 +164,5 @@ def test_token_usage_bar_mixed_none_values() -> None:
     bar = TokenUsageBar()
     bar.set_usage(total_tokens=1000, cost_usd=None, context_used_pct=50.0)
     content = str(bar.render())
-    assert "Turn" in content
-    assert "Ctx" in content
+    assert "turn" in content
+    assert "context" in content

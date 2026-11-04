@@ -48,6 +48,7 @@ from victor.ui.tui.palette import CommandPalette, HelpScreen
 from victor.ui.tui.phase import PhaseTracker
 from victor.ui.tui.prompt_input import PromptInput
 from victor.ui.tui.prompt_queue import PromptQueue
+from victor.ui.tui.session_bar import TokenUsage
 from victor.ui.tui.status_bar import StatusBar
 from victor.ui.tui.themes import DEFAULT_THEME, next_theme, register_all, resolve_theme
 from victor.ui.tui.token_usage_bar import TokenUsageBar
@@ -454,11 +455,6 @@ class VictorTUIApp(App[None]):
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
-
-    def action_toggle_sidebar(self) -> None:
-        """Toggle the horizontal session bar visibility."""
-        session_bar = self.query_one("#session-bar", SessionBar)
-        session_bar.display = not session_bar.display
 
     def action_toggle_diff(self) -> None:
         """Toggle diff pane expand/collapse, or reveal if hidden."""

@@ -17,7 +17,12 @@ from victor.ui.tui.themes import (
 
 def test_three_themes_registered() -> None:
     names = {theme.name for theme in THEMES}
-    assert names == {"victor-dark", "victor-light", "victor-high-contrast"}
+    assert names == {
+        "victor-dark",
+        "victor-light",
+        "victor-high-contrast",
+        "victor-terminal",
+    }
     assert DEFAULT_THEME == "victor-dark"
 
 
@@ -27,6 +32,8 @@ def test_resolve_theme_aliases() -> None:
     assert resolve_theme("high-contrast") == "victor-high-contrast"
     assert resolve_theme("high_contrast") == "victor-high-contrast"
     assert resolve_theme("HC") == "victor-high-contrast"
+    assert resolve_theme("terminal") == "victor-terminal"
+    assert resolve_theme("native") == "victor-terminal"
 
 
 def test_resolve_theme_passthrough_and_fallback() -> None:
@@ -38,7 +45,8 @@ def test_resolve_theme_passthrough_and_fallback() -> None:
 def test_next_theme_cycles_and_wraps() -> None:
     assert next_theme("victor-dark") == "victor-light"
     assert next_theme("victor-light") == "victor-high-contrast"
-    assert next_theme("victor-high-contrast") == "victor-dark"
+    assert next_theme("victor-high-contrast") == "victor-terminal"
+    assert next_theme("victor-terminal") == "victor-dark"
     assert next_theme("unknown") == DEFAULT_THEME
 
 
