@@ -12,54 +12,71 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Status footer for the interactive TUI.
+"""Status bar for the interactive TUI.
 
-One line projecting the inferred loop phase, a live tool counter, and the most
-recent per-turn token/cost figures (``VictorClient.get_last_turn_cost``). When
-the stall watchdog fires, the phase is replaced by a visible "waiting on model"
-state so a quiet agent never reads as a frozen terminal (ADR-021).
+One line projecting runtime state: inferred loop phase, live tool counter,
+and session id. Model/provider/profile live in the header;
+token/cost/context telemetry lives in
+``TokenUsageBar`` to avoid duplication. When the stall watchdog fires, the
+phase is replaced by a visible "waiting on model" state so a quiet agent
+never reads as a frozen terminal (ADR-021).
 """
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from rich.markup import escape
 from textual.widgets import Static
 
 
 class StatusBar(Static):
-    """Footer widget rendering phase · tools · tokens · cost."""
+    """Runtime state bar: phase · tools · session."""
+
+    DEFAULT_CSS = """
+    StatusBar {
+        height: 1;
+        padding: 0 1;
+        background: $surface;
+        color: $foreground;
+    }
+    """
 
     def set_status(
         self,
         *,
         phase_label: str,
         tool_count: int = 0,
-        total_tokens: Optional[int] = None,
-        cost_usd: Optional[float] = None,
         waiting_seconds: Optional[int] = None,
         queued: int = 0,
+        session_id: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        profile: Optional[str] = None,
     ) -> None:
-        """Re-render the footer from the current turn state.
+        """Re-render the status bar from current runtime state.
 
         Args:
             phase_label: Inferred phase text (e.g. ``"acting · read"``).
             tool_count: Tools started so far this turn.
-            total_tokens: Total tokens for the last completed turn, if known.
-            cost_usd: USD cost for the last completed turn, if known.
             waiting_seconds: When set, the watchdog is active; overrides the
                 phase with a "waiting on model (Ns)…" indicator.
             queued: Prompts waiting in the mid-turn queue (hidden when 0).
+            session_id: Short session identifier.
+            model: Current model name.
+            provider: Current provider name.
+            profile: Active profile name.
         """
         self.update(
             self._compose_line(
                 phase_label=phase_label,
                 tool_count=tool_count,
-                total_tokens=total_tokens,
-                cost_usd=cost_usd,
                 waiting_seconds=waiting_seconds,
                 queued=queued,
+                session_id=session_id,
+                model=model,
+                provider=provider,
+                profile=profile,
             )
         )
 
@@ -68,51 +85,28 @@ class StatusBar(Static):
         *,
         phase_label: str,
         tool_count: int,
-        total_tokens: Optional[int],
-        cost_usd: Optional[float],
         waiting_seconds: Optional[int],
         queued: int = 0,
+        session_id: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        profile: Optional[str] = None,
     ) -> str:
+        """Compose a single-line status: phase · tools · queued · session.
+
+        Model/provider/profile are intentionally omitted — the model appears
+        in the header subtitle and the TokenUsageBar's context line. Session
+        is kept here as the minimal runtime identifier.
+        """
         if waiting_seconds is not None:
-            head = f"[yellow]▸ waiting on model ({waiting_seconds}s)…[/]"
+            head = f"[yellow]▸ waiting ({waiting_seconds}s)…[/]"
         else:
-            head = f"[bold]▸ {escape(phase_label)}[/]"
+            head = f"[bold cyan]▸ {escape(phase_label)}[/]"
         parts = [head]
         if tool_count:
-            parts.append(f"{tool_count} tool{'s' if tool_count != 1 else ''}")
+            parts.append(f"[dim]{tool_count} tool{'s' if tool_count != 1 else ''}[/]")
         if queued:
-            parts.append(f"{queued} queued")
-        if total_tokens is not None:
-            parts.append(f"{_human_tokens(total_tokens)} tok")
-        if cost_usd is not None:
-            parts.append(f"${cost_usd:.4f}")
-        return " · ".join(parts)
-
-    def compose_line_for_prompt(
-        self,
-        *,
-        total_tokens: Optional[int] = None,
-        cost_usd: Optional[float] = None,
-        context_used_pct: Optional[float] = None,
-    ) -> str:
-        """Render a compact line for display above the prompt input."""
-        parts: List[str] = []
-        if total_tokens is not None:
-            parts.append(f"[dim]Tokens:[/] [bold]{_human_tokens(total_tokens)}[/]")
-        if cost_usd is not None:
-            parts.append(f"[dim]Cost:[/] [bold]${cost_usd:.4f}[/]")
-        if context_used_pct is not None:
-            color = (
-                "green" if context_used_pct < 60 else ("yellow" if context_used_pct < 85 else "red")
-            )
-            parts.append(f"[dim]Context:[/] [{color}]{context_used_pct:.0f}%[/]")
-        if not parts:
-            return "[dim italic]No usage data yet[/]"
-        return "  ·  ".join(parts)
-
-
-def _human_tokens(n: int) -> str:
-    """Render a token count compactly (e.g. ``12.4k``)."""
-    if n < 1000:
-        return str(n)
-    return f"{n / 1000:.1f}k"
+            parts.append(f"[dim]{queued} queued[/]")
+        if session_id:
+            parts.append(f"[dim]session:[/] [white]{escape(session_id)}[/]")
+        return " [dim]·[/] ".join(parts)

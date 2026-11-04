@@ -7,6 +7,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from victor.framework.hitl import ApprovalRequest, ApprovalStatus
 from victor.ui.tui.app import VictorTUIApp
+from victor.ui.tui.themes import resolve_theme
 from victor.ui.tui.approval_modal import ApprovalScreen
 from victor.ui.tui.palette import HelpScreen
 
@@ -94,11 +95,28 @@ async def _settle(app: VictorTUIApp, rounds: int = 4) -> None:
         await asyncio.sleep(0)
 
 
+async def test_terminal_theme_mounts_and_cycles_all_four() -> None:
+    """The victor-terminal theme must mount (ANSI mode, no Color.parse crash)
+    and F6 cycling must survive every theme in the cycle — the adversarial
+    review caught the empty-color-string variant crashing on mount."""
+    app = _make_app()
+    app._initial_theme = resolve_theme("terminal")
+    async with app.run_test():
+        assert app.theme == "victor-terminal"
+        seen: list[str] = []
+        for _ in range(4):
+            app.action_cycle_theme()
+            await asyncio.sleep(0)
+            seen.append(app.theme)
+        assert seen[0] == "victor-dark"  # cycle wraps terminal -> dark
+        assert seen[3] == "victor-terminal"
+
+
 async def test_mounts_all_panes() -> None:
     app = _make_app()
     async with app.run_test():
         assert app.query_one("#conversation") is not None
-        assert app.query_one("#session-bar") is not None
+        assert app.query_one("#token-usage-bar") is not None
         assert app.query_one("#status-bar") is not None
         assert app.query_one("#prompt") is not None
 
@@ -149,16 +167,6 @@ async def test_help_action_opens_help_screen() -> None:
         app.action_help()
         await pilot.pause()
         assert isinstance(app.screen, HelpScreen)
-
-
-async def test_toggle_sidebar_hides_and_shows() -> None:
-    app = _make_app()
-    async with app.run_test() as pilot:
-        sidebar = app.query_one("#session-bar")
-        assert sidebar.display is True
-        app.action_toggle_sidebar()
-        await pilot.pause()
-        assert sidebar.display is False
 
 
 async def test_approval_screen_resolves_on_approve() -> None:

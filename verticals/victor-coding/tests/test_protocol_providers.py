@@ -35,7 +35,9 @@ class TestCodingToolProvider:
         assert "grep" in strategy.get_tools_for_stage("understand", "coding")
         # stage map membership (order is nondeterministic — set-built)
         assert set(strategy.get_tools_for_stage("implement", "coding")) == {
-            "write", "shell", "edit",
+            "write",
+            "shell",
+            "edit",
         }
         # coding's fallback is [] (plus any task-type enhancements) — NOT the
         # devops [read, shell]; per-vertical fallback is kernel data.
