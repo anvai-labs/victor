@@ -523,19 +523,27 @@ class VictorTUIApp(App[None]):
         # Extract total tokens
         tokens = report.get("total_tokens")
         if tokens is None:
-            tokens = (report.get("prompt_tokens") or 0) + (report.get("completion_tokens") or 0)
+            tokens = (report.get("api_prompt_tokens") or report.get("prompt_tokens") or 0) + (
+                report.get("api_completion_tokens") or report.get("completion_tokens") or 0
+            )
         self._last_tokens = int(tokens) if tokens else None
 
         # Extract cost
         cost = report.get("total_cost_usd")
         self._last_cost = float(cost) if isinstance(cost, (int, float)) else None
 
+        # Keep the canonical report so the usage bar can render full fidelity
+        # (cache read/write, hit rate, request count, reasoning split).
+        self._last_report = report
+
         # Extract detailed token usage breakdown
         self._token_usage = TokenUsage(
-            prompt_tokens=int(report.get("prompt_tokens") or 0),
-            completion_tokens=int(report.get("completion_tokens") or 0),
+            prompt_tokens=int(report.get("api_prompt_tokens") or report.get("prompt_tokens") or 0),
+            completion_tokens=int(
+                report.get("api_completion_tokens") or report.get("completion_tokens") or 0
+            ),
             reasoning_tokens=int(report.get("reasoning_tokens") or 0),
-            cached_tokens=int(report.get("cached_tokens") or 0),
+            cached_tokens=int(report.get("cache_read_tokens") or report.get("cached_tokens") or 0),
             total_tokens=int(tokens) if tokens else 0,
         )
 
@@ -556,16 +564,50 @@ class VictorTUIApp(App[None]):
             bar = self.query_one("#token-usage-bar", TokenUsageBar)
         except Exception:  # noqa: BLE001
             return
+        report = getattr(self, "_last_report", None) or {}
+        context_used: Optional[int] = None
+        context_limit: Optional[int] = None
+        try:
+            window = self._client.context_window()
+            if window and window > 0:
+                context_limit = int(window)
+                cached_limit = getattr(self, "_context_limit_tokens", None)
+                if isinstance(cached_limit, int) and cached_limit > 0:
+                    context_limit = cached_limit
+                metrics = getattr(self, "_context_used_tokens", None)
+                if isinstance(metrics, int) and metrics >= 0:
+                    context_used = metrics
+        except Exception:  # noqa: BLE001
+            context_limit = None
         bar.set_usage(
+            context_used_tokens=context_used,
+            context_limit_tokens=context_limit,
+            context_used_pct=self._context_pct,
+            prompt_tokens=report.get("api_prompt_tokens") or report.get("prompt_tokens"),
+            completion_tokens=report.get("api_completion_tokens")
+            or report.get("completion_tokens"),
+            reasoning_tokens=report.get("reasoning_tokens")
+            or (self._token_usage.reasoning_tokens or None),
+            cached_tokens=report.get("cache_read_tokens")
+            or (self._token_usage.cached_tokens or None),
+            cache_write_tokens=report.get("cache_write_tokens") or None,
+            cache_hit_rate=report.get("cache_hit_rate"),
             total_tokens=self._last_tokens,
             cost_usd=self._last_cost,
-            context_used_pct=self._context_pct,
+            session_cost_usd=report.get("session_cost_usd") or None,
+            request_count=report.get("request_count") or None,
+            model=self._model_label(),
         )
 
     async def _refresh_sidebar(self) -> None:
         """Refresh the horizontal session bar with current session state."""
         context_used, context_total, context_pct = await self._compute_context_usage()
         self._context_pct = context_pct
+        # Cache absolute token counts for the usage bar's gauge.
+        if isinstance(context_used, int) and context_used >= 0:
+            self._context_used_tokens = context_used
+        if isinstance(context_total, int) and context_total > 0:
+            self._context_limit_tokens = context_total
 
         # Get profile name from settings if available
         profile = "—"
