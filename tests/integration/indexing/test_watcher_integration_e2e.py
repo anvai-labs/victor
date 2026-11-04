@@ -266,6 +266,15 @@ class TestFileWatcherInitializer:
         """GraphManager should incrementally refresh the stored graph after file changes."""
         graph_store, manager = await self._build_initial_graph(temp_project)
 
+        # Detach the file watcher for this root so the watcher cannot inject a
+        # racy second _on_file_change event while the explicit refresh (below)
+        # is running. The test drives _on_file_change directly; the watcher's
+        # only role here would be to set pending=True mid-refresh and keep the
+        # loop alive through another cooldown pass, which under CI load could
+        # outlast wait_for_refresh's timeout.
+        root_str = str(temp_project.resolve())
+        await manager._unsubscribe_file_watcher(root_str)
+
         target_file = temp_project / "src" / "module.py"
         time.sleep(0.5)
         target_file.write_text("def bar():\n    return 2\n")
@@ -279,12 +288,16 @@ class TestFileWatcherInitializer:
             temp_project,
             None,
         )
-        await manager.wait_for_refresh(temp_project)
+        completed = await manager.wait_for_refresh(temp_project, timeout=15.0)
+        assert completed, (
+            f"background refresh for {root_str} did not complete within 15s; "
+            f"active task state: {manager._refresh_tasks.get(root_str)}"
+        )
 
         refreshed_nodes = await graph_store.get_nodes_by_file(str(target_file))
         # A synthetic module node (named after the file stem) is prepended per file.
         assert {node.name for node in refreshed_nodes} == {"bar", "module"}
-        assert str(temp_project.resolve()) not in manager._refresh_tasks
+        assert root_str not in manager._refresh_tasks
 
     @pytest.mark.asyncio
     async def test_graph_manager_background_refresh_invokes_refresh_callback(self, temp_project):
@@ -322,6 +335,8 @@ class TestFileWatcherInitializer:
             enable_ccg=False,
             on_refresh_complete=_on_refresh_complete,
         )
+        # Detach the watcher so it can't race the explicit _on_file_change.
+        await manager._unsubscribe_file_watcher(str(temp_project.resolve()))
 
         target_file = temp_project / "src" / "module.py"
         time.sleep(0.5)
@@ -336,7 +351,8 @@ class TestFileWatcherInitializer:
             temp_project,
             None,
         )
-        await manager.wait_for_refresh(temp_project)
+        completed = await manager.wait_for_refresh(temp_project, timeout=15.0)
+        assert completed, "background refresh did not complete within 15s"
 
         assert callback_events
         refreshed_root, changed, deleted, unchanged = callback_events[-1]
@@ -381,6 +397,8 @@ class TestFileWatcherInitializer:
     async def test_graph_manager_background_refresh_indexes_new_file(self, temp_project):
         """Background refresh should index newly created files."""
         graph_store, manager = await self._build_initial_graph(temp_project)
+        # Detach the watcher so it can't race the explicit _on_file_change.
+        await manager._unsubscribe_file_watcher(str(temp_project.resolve()))
 
         new_file = temp_project / "src" / "new_module.py"
         time.sleep(0.5)
@@ -395,7 +413,8 @@ class TestFileWatcherInitializer:
             temp_project,
             None,
         )
-        await manager.wait_for_refresh(temp_project)
+        completed = await manager.wait_for_refresh(temp_project, timeout=15.0)
+        assert completed, "background refresh did not complete within 15s"
 
         new_nodes = await graph_store.get_nodes_by_file(str(new_file))
         assert {node.name for node in new_nodes} == {"created_later", "new_module"}
@@ -404,6 +423,8 @@ class TestFileWatcherInitializer:
     async def test_graph_manager_background_refresh_deletes_removed_file(self, temp_project):
         """Background refresh should remove graph state for deleted files."""
         graph_store, manager = await self._build_initial_graph(temp_project)
+        # Detach the watcher so it can't race the explicit _on_file_change.
+        await manager._unsubscribe_file_watcher(str(temp_project.resolve()))
 
         deleted_file = temp_project / "src" / "module.py"
         assert {node.name for node in await graph_store.get_nodes_by_file(str(deleted_file))} == {
@@ -423,7 +444,8 @@ class TestFileWatcherInitializer:
             temp_project,
             None,
         )
-        await manager.wait_for_refresh(temp_project)
+        completed = await manager.wait_for_refresh(temp_project, timeout=15.0)
+        assert completed, "background refresh did not complete within 15s"
 
         assert await graph_store.get_nodes_by_file(str(deleted_file)) == []
 
