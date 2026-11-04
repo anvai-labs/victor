@@ -173,6 +173,28 @@ _wire_contract_checked = False
 _installed_contract_minor: int = 0
 
 
+def _is_thinking_active(value: Any) -> bool:
+    """Return True when a thinking kwarg value signals enabled extended thinking.
+
+    Handles all shapes Victor callers produce:
+    - ``True`` (bare bool)
+    - ``{"type": "enabled", ...}``  (Anthropic-native shape)
+    - ``{"enabled": True, ...}``    (neutral ThinkingV1 shape)
+    Returns False for None, ``False``, ``{"type": "disabled"}``, or any
+    unrecognised shape so the caller can safely fall through.
+    """
+    if value is None or value is False:
+        return False
+    if value is True:
+        return True
+    if isinstance(value, dict):
+        if "enabled" in value:
+            return bool(value["enabled"])
+        if "type" in value:
+            return str(value["type"]) != "disabled"
+    return False
+
+
 def _normalize_thinking(value: Any) -> Optional[Dict[str, Any]]:
     """Coerce Victor's `{type: enabled|disabled, budget_tokens?}` thinking arg
     into the neutral ThinkingV1 shape `{enabled: bool, budget_tokens?: int}`
@@ -1386,12 +1408,18 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
             tools=tools,
             **kwargs,
         )
+        # Anthropic rejects `temperature` when extended thinking is active
+        # (API error: "temperature is not supported when thinking is enabled").
+        # Strip it from both the neutral ChatRequestV1 payload and the native
+        # Anthropic body so Sandhi never forwards it to the wire.
+        thinking_active = _is_thinking_active(kwargs.get("thinking"))
         openai_payload: Dict[str, Any] = {
             "model": model,
             "messages": build_openai_messages(messages),
-            "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if not thinking_active:
+            openai_payload["temperature"] = temperature
         if tools:
             openai_payload["tools"] = convert_tools_to_openai_format(tools)
             openai_payload["tool_choice"] = "auto"

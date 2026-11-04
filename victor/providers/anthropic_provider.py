@@ -310,12 +310,25 @@ class AnthropicProvider(BaseProvider):
             else:
                 conversation_messages.append(self._serialize_message(msg))
 
+        # Anthropic rejects `temperature` when extended thinking is active.
+        # Detect thinking before building request_params so we never include
+        # both — even if a caller passes thinking via kwargs before we process it.
+        thinking_kwarg = kwargs.get("thinking")
+        thinking_active = (
+            isinstance(thinking_kwarg, dict)
+            and str(thinking_kwarg.get("type", "")) == "enabled"
+        ) or (
+            isinstance(thinking_kwarg, dict)
+            and bool(thinking_kwarg.get("enabled", False))
+        ) or thinking_kwarg is True
+
         request_params: Dict[str, Any] = {
             "model": model,
             "messages": conversation_messages,
             "max_tokens": max_tokens,
-            "temperature": temperature,
         }
+        if not thinking_active:
+            request_params["temperature"] = temperature
         # Spec-strict body: internal orchestration kwargs (execution_mode,
         # topology_*) must never reach a third-party wire body — strict
         # gateways (sandhi's policy allowlist) reject non-spec fields, and
