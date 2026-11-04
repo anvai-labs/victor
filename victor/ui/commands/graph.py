@@ -1894,11 +1894,15 @@ def graph_similar(
         )
 
         source_root = Path(os.path.abspath(path))
-        candidates = sorted(
-            (source_root / ".victor" / "precise").glob("*.scip"),
-            key=lambda p: p.stat().st_size,
-            reverse=True,
-        ) if (source_root / ".victor" / "precise").is_dir() else []
+        candidates = (
+            sorted(
+                (source_root / ".victor" / "precise").glob("*.scip"),
+                key=lambda p: p.stat().st_size,
+                reverse=True,
+            )
+            if (source_root / ".victor" / "precise").is_dir()
+            else []
+        )
         if scip_index is not None:
             candidates.insert(0, Path(scip_index))
         if not candidates:
@@ -1934,7 +1938,6 @@ def graph_similar(
         )
         console.print()
         for family in families:
-            head = family.members[0]
             console.print(
                 f"── callee-family (refs {family.fingerprint_size}; jaccard "
                 f"{family.jaccard:.2f}; {len(family.members)} members)",
