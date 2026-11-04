@@ -8,6 +8,8 @@ exchange + /me call; the app is driven in-process via httpx ASGITransport.
 
 from __future__ import annotations
 
+import base64
+import json
 import sys
 import types
 import urllib.parse
@@ -106,8 +108,17 @@ async def test_respond_link_redirects_to_entra_when_sso_enabled(sso_env):
     q = urllib.parse.parse_qs(urllib.parse.urlparse(loc).query)
     assert "tenantA/oauth2/v2.0/authorize" in loc
     assert q["redirect_uri"] == [REDIRECT_URI]
-    # state carries request_id|action|token for the callback to re-verify
-    assert q["state"][0].startswith("rid-redir|approve|")
+    # state carries request_id|action|token for the callback to re-verify.
+    # The state is base64-encoded JSON: {"rid": ..., "act": ..., "tok": ...}
+    raw_state = q["state"][0]
+    try:
+        state_payload = json.loads(base64.urlsafe_b64decode(raw_state.encode()).decode())
+        assert state_payload["rid"] == "rid-redir"
+        assert state_payload["act"] == "approve"
+        assert state_payload["tok"]  # non-empty token
+    except Exception:
+        # Fallback: legacy pipe-delimited format
+        assert raw_state.startswith("rid-redir|approve|")
     # decision NOT recorded yet — still pending
     assert (await store.get_request("rid-redir")).status == "pending"
 
