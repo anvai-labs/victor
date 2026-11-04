@@ -196,6 +196,10 @@ models:
     context_window: 131072
 
   # Qwen Models
+  # qwen3.7-plus (Bailian coding plan): 256k input window. Must precede the
+  # broad qwen3* pattern — first fnmatch wins in get_provider_limits.
+  "qwen3.7-plus*":
+    context_window: 262144
   "qwen3*":
     context_window: 131072
   "qwen2.5*":

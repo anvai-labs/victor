@@ -202,11 +202,30 @@ class RuntimeBuildersMixin:
             CompactionStrategy,
         )
         from victor.agent.orchestrator_utils import calculate_max_context_chars
+        from victor.config.context_window import resolve_context_window
         from victor.config.conversation_settings import (
             DEFAULT_MAX_SESSION_PREFILL_TOKENS,
         )
+        from victor.config.orchestrator_constants import CONTEXT_LIMITS
 
-        model_context_chars = calculate_max_context_chars(self.settings, provider, model)
+        window = resolve_context_window(provider, model, settings=self.settings)
+        model_context_chars = calculate_max_context_chars(
+            self.settings, provider, model, window_resolution=window
+        )
+        # Session-start window provenance: one INFO line naming the number
+        # every downstream consumer (compaction trigger, gauge, monitor)
+        # divides by, and where it came from. The 2026-11 wedged sessions
+        # divided real usage by different denominators per component with no
+        # log ever recording which was in use.
+        logger.info(
+            "[context-window] %s | thresholds: proactive=%.0f%% overflow=%.0f%% "
+            "budget_prefill=%s",
+            window.describe(),
+            CONTEXT_LIMITS.proactive_compaction_threshold * 100,
+            CONTEXT_LIMITS.overflow_threshold * 100,
+            getattr(self.settings, "max_session_prefill_tokens", None)
+            or DEFAULT_MAX_SESSION_PREFILL_TOKENS,
+        )
 
         compaction_strategy_str = getattr(
             self.settings, "context_compaction_strategy", "tiered"
@@ -224,6 +243,8 @@ class RuntimeBuildersMixin:
         controller = ConversationController(
             config=ConversationConfig(
                 max_context_chars=model_context_chars,
+                max_context_tokens=window.tokens,
+                context_window_source=window.source,
                 enable_stage_tracking=True,
                 enable_context_monitoring=True,
                 compaction_strategy=compaction_strategy,

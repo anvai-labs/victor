@@ -40,6 +40,7 @@ Usage:
 
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -84,6 +85,7 @@ class CompactionTrigger(Enum):
     NONE = "none"  # No compaction needed
     THRESHOLD = "threshold"  # Hit utilization threshold
     OVERFLOW = "overflow"  # Actually overflowing
+    BUDGET = "budget"  # Cumulative session prefill volume over budget
     MANUAL = "manual"  # Manually requested
     SCHEDULED = "scheduled"  # Background scheduled compaction
 
@@ -803,6 +805,107 @@ class ContextCompactor(DecisionSupportMixin):
 
         return "\n".join(summary_parts) if summary_parts else "Prior history summarized."
 
+    def _budget_state(self) -> Tuple[bool, int, Optional[int]]:
+        """Read the controller's session-prefill budget state (best-effort).
+
+        Returns:
+            Tuple of (due, session_prompt_tokens, limit).
+        """
+        controller = self.controller
+        if controller is None or not hasattr(controller, "budget_compaction_due"):
+            return False, 0, None
+        try:
+            result = controller.budget_compaction_due()
+            if isinstance(result, tuple) and len(result) == 3:
+                return result
+            logger.debug("Budget-compaction probe returned unexpected shape: %r", result)
+        except Exception as exc:  # noqa: BLE001 - probe must never raise
+            logger.debug("Budget-compaction probe failed: %s", exc)
+        return False, 0, None
+
+    @staticmethod
+    def _coerce_int(value: Any) -> Optional[int]:
+        """Coerce a metrics field to int; None for mocks/non-numeric values."""
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_float(value: Any) -> Optional[float]:
+        """Coerce a metrics field to float; None for mocks/non-numeric values."""
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _trace_check(
+        self,
+        metrics: Any,
+        threshold: float,
+        decision: str,
+        reason: str,
+        budget: Tuple[bool, int, Optional[int]],
+        threshold_origin: str = "default",
+    ) -> None:
+        """Emit the one-line compaction decision trace.
+
+        Logged at every check (turn boundaries) so a wedged session's log
+        always answers: what did we think the window was, where did it come
+        from, how full was it (tokens AND chars), and why did we (not) compact.
+
+        Every field is coerced defensively — a metrics stand-in that is not a
+        real ContextMetrics must never break the compaction path.
+        """
+        budget_due, session_prefill, prefill_limit = budget
+        window = self._coerce_int(getattr(metrics, "max_context_tokens", None))
+        window_source = getattr(metrics, "context_window_source", None)
+        window_repr = (
+            f"{window:,} ({window_source if isinstance(window_source, str) and window_source else 'unknown'})"
+            if window
+            else "unset(charspace)"
+        )
+        est_tokens = self._coerce_int(getattr(metrics, "estimated_tokens", None))
+        chars = self._coerce_int(getattr(metrics, "char_count", None))
+        last_actual = self._coerce_int(getattr(metrics, "last_actual_prompt_tokens", None))
+        util_token = (
+            self._coerce_float(getattr(metrics, "utilization", None)) if window else None
+        )
+        util_chars = self._coerce_float(getattr(metrics, "char_utilization", None))
+        threshold_value = self._coerce_float(threshold)
+        parts = [
+            f"est_tokens={est_tokens:,}" if est_tokens is not None else "est_tokens=?",
+            f"chars={chars:,}" if chars is not None else "chars=?",
+            (
+                f"last_actual_prompt_tokens={last_actual:,}"
+                if last_actual is not None
+                else "last_actual_prompt_tokens=none"
+            ),
+            f"window={window_repr}",
+            f"util_token={util_token:.1%}" if util_token is not None else "util_token=n/a",
+            f"util_chars={util_chars:.1%}" if util_chars is not None else "util_chars=n/a",
+            (
+                f"threshold={threshold_value:.0%}({threshold_origin})"
+                if threshold_value is not None
+                else f"threshold=?({threshold_origin})"
+            ),
+            (
+                f"budget={session_prefill:,}/{prefill_limit:,}{' DUE' if budget_due else ''}"
+                if prefill_limit
+                else "budget=disabled"
+            ),
+        ]
+        logger.info(
+            "[compaction-check] %s | decision=%s reason=%s",
+            " ".join(parts),
+            decision,
+            reason,
+        )
+
     def check_and_compact(
         self,
         current_query: Optional[str] = None,
@@ -868,6 +971,13 @@ class ContextCompactor(DecisionSupportMixin):
 
         # Get base threshold (adaptive > phase-aware > default)
         base_threshold = self._get_compaction_threshold(phase, messages)
+        threshold_origin = (
+            "adaptive"
+            if (self._adaptive_enabled and messages)
+            else (
+                f"phase:{phase.value}" if (phase and self.config.enable_phase_aware) else "default"
+            )
+        )
 
         # Get effective thresholds (RL config overrides phase-aware)
         effective_threshold = (
@@ -885,18 +995,91 @@ class ContextCompactor(DecisionSupportMixin):
                 f"Phase-aware compaction: phase={phase.value}, threshold={effective_threshold:.0%}"
             )
 
-        # Determine trigger
+        # Determine trigger. The budget condition is evaluated independently of
+        # utilization: it used to live only inside smart_compact_history (i.e.
+        # behind this very gate), so low mis-estimated utilization kept it
+        # silent while cumulative prefill ran 10-32x over its limit.
+        budget_state = self._budget_state()
+        budget_due = budget_state[0]
+
         if force:
             trigger = CompactionTrigger.MANUAL
         elif metrics.is_overflow_risk:
             trigger = CompactionTrigger.OVERFLOW
+        elif budget_due:
+            trigger = CompactionTrigger.BUDGET
         elif self.config.enable_proactive and utilization >= effective_threshold:
             trigger = CompactionTrigger.THRESHOLD
         else:
+            self._trace_check(
+                metrics,
+                effective_threshold,
+                decision="skip",
+                reason=(
+                    f"utilization below threshold (headroom "
+                    f"{max(0, (getattr(metrics, 'max_context_tokens', 0) or 0) - metrics.estimated_tokens):,} tok)"
+                    if getattr(metrics, "max_context_tokens", None)
+                    else "utilization below threshold (char-space)"
+                ),
+                budget=budget_state,
+                threshold_origin=threshold_origin,
+            )
             return CompactionAction(
                 trigger=CompactionTrigger.NONE,
                 new_utilization=utilization,
             )
+
+        self._trace_check(
+            metrics,
+            effective_threshold,
+            decision=f"trigger:{trigger.value}",
+            reason=(
+                "forced"
+                if force
+                else (
+                    "overflow risk"
+                    if trigger is CompactionTrigger.OVERFLOW
+                    else (
+                        f"session prefill {budget_state[1]:,} >= limit {budget_state[2]:,}"
+                        if trigger is CompactionTrigger.BUDGET
+                        else "utilization crossed threshold"
+                    )
+                )
+            ),
+            budget=budget_state,
+            threshold_origin=threshold_origin,
+        )
+
+        # Stampede suppression: several trigger paths (turn boundary, context
+        # service, lifecycle manager, planning runtime) evaluate the same
+        # boundary and used to each log a full trigger + run fast pruning
+        # before smart_compact_history's interval gate stopped them. Skip
+        # early (except real overflow and forced runs) when a compaction just
+        # completed.
+        if (
+            not force
+            and trigger is not CompactionTrigger.OVERFLOW
+            and self.controller is not None
+            and hasattr(self.controller, "last_compaction_age_seconds")
+        ):
+            try:
+                age = self.controller.last_compaction_age_seconds
+                interval = getattr(self.controller, "MIN_COMPACTION_INTERVAL_SECONDS", 60.0)
+                if age < interval:
+                    logger.info(
+                        "[compaction] duplicate %s trigger suppressed: compaction "
+                        "completed %.1fs ago (min interval %.0fs)",
+                        trigger.value,
+                        age,
+                        interval,
+                    )
+                    return CompactionAction(
+                        trigger=CompactionTrigger.NONE,
+                        new_utilization=utilization,
+                        details=[f"Suppressed duplicate {trigger.value} trigger"],
+                    )
+            except Exception as exc:  # noqa: BLE001 - suppression is best-effort
+                logger.debug("Stampede suppression probe failed: %s", exc)
 
         if not force and not self._has_eligible_compaction_payload(
             effective_min_messages,
@@ -967,6 +1150,8 @@ class ContextCompactor(DecisionSupportMixin):
 
         # Perform compaction
         chars_before = metrics.char_count
+        tokens_before = self._coerce_int(metrics.estimated_tokens) or 0
+        started_at = time.monotonic()
         messages_removed = self.controller.smart_compact_history(
             target_messages=effective_min_messages,
             current_query=current_query,
@@ -1031,9 +1216,27 @@ class ContextCompactor(DecisionSupportMixin):
                 logger.debug(f"Failed to emit compaction event: {e}")
 
         log_method = logger.info if action_taken else logger.debug
+        tokens_after = self._coerce_int(getattr(metrics_after, "estimated_tokens", None))
+        util_after = self._coerce_float(getattr(metrics_after, "utilization", None))
+        window_after = self._coerce_int(getattr(metrics_after, "max_context_tokens", None))
+        window_source = getattr(metrics_after, "context_window_source", "")
         log_method(
-            f"Compaction complete: {messages_removed} messages removed, "
-            f"{truncations_applied} tool outputs truncated, ~{tokens_freed} tokens freed"
+            "[compaction-result] trigger=%s removed=%d messages truncated=%d outputs "
+            "freed~%d tokens est_tokens=%s->%s util=%s->%s window=%s took=%.0fms",
+            trigger.value,
+            messages_removed,
+            truncations_applied,
+            tokens_freed,
+            f"{tokens_before:,}",
+            f"{tokens_after:,}" if tokens_after is not None else "?",
+            f"{self._coerce_float(utilization):.1%}" if self._coerce_float(utilization) else "?",
+            f"{util_after:.1%}" if util_after is not None else "?",
+            (
+                f"{window_after:,}/{window_source if isinstance(window_source, str) else 'unknown'}"
+                if window_after
+                else "charspace"
+            ),
+            (time.monotonic() - started_at) * 1000,
         )
 
         return action
@@ -1139,6 +1342,10 @@ class ContextCompactor(DecisionSupportMixin):
 
         if metrics.is_overflow_risk:
             return True, CompactionTrigger.OVERFLOW
+
+        budget_due, _session_prefill, _limit = self._budget_state()
+        if budget_due:
+            return True, CompactionTrigger.BUDGET
 
         if self.config.enable_proactive:
             effective_threshold = self.config.proactive_threshold

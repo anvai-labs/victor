@@ -38,6 +38,7 @@ def calculate_max_context_chars(
     settings: "Settings",
     provider: "BaseProvider",
     model: str,
+    window_resolution: Optional[Any] = None,
 ) -> int:
     """Calculate maximum context size in characters for a model.
 
@@ -48,6 +49,9 @@ def calculate_max_context_chars(
         settings: Application settings
         provider: LLM provider instance
         model: Model identifier
+        window_resolution: Optional pre-resolved ContextWindowResolution
+            (from resolve_context_window). When provided its chars_budget is
+            returned unless a settings char-override wins.
 
     Returns:
         Maximum context size in characters
@@ -55,7 +59,25 @@ def calculate_max_context_chars(
     # Check settings override first
     settings_max = getattr(settings, "max_context_chars", None)
     if settings_max and settings_max > 0:
-        return settings_max
+        # Historically this early return was silent — sessions could run with
+        # an 800K-char denominator while the model window was 128K tokens and
+        # no log ever said so. Always record the effective limit.
+        logger.info(
+            "Model context: settings char-override %s chars (model-aware resolution "
+            "skipped; token window=%s)",
+            f"{int(settings_max):,}",
+            f"{window_resolution.tokens:,}" if window_resolution else "unresolved",
+        )
+        return int(settings_max)
+
+    if window_resolution is not None:
+        logger.info(
+            "Model context: %s tokens -> %s chars limit (source=%s)",
+            f"{window_resolution.tokens:,}",
+            f"{window_resolution.chars_budget:,}",
+            window_resolution.source,
+        )
+        return window_resolution.chars_budget
 
     # Use externalized config (YAML-based)
     provider_name = getattr(provider, "name", "").lower()
