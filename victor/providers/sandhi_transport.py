@@ -1206,9 +1206,7 @@ class SandhiTypedProviderMixin:
         stream_iter = provider.stream_json(json.dumps(request), wire_headers).__aiter__()
         while True:
             try:
-                event_json = await asyncio.wait_for(
-                    stream_iter.__anext__(), timeout=idle_timeout
-                )
+                event_json = await asyncio.wait_for(stream_iter.__anext__(), timeout=idle_timeout)
                 yield event_json
             except asyncio.TimeoutError:
                 logger.warning(
