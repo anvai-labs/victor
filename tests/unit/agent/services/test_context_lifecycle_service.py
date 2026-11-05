@@ -394,3 +394,32 @@ async def test_live_compaction_preserves_pending_tool_call_before_result_injecti
     controller.add_message("tool", "read result", tool_call_id="pending")
     assert any(message is pending for message in controller.messages)
     assert controller.messages[-1].tool_call_id == "pending"
+
+
+class TestControllerAnchoredEstimator:
+    def _history(self, tokens):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(get_context_metrics=lambda: SimpleNamespace(estimated_tokens=tokens))
+
+    def test_real_history_yields_anchored_tokens(self):
+        from victor.agent.services.context_lifecycle_service import _controller_anchored_tokens
+
+        assert _controller_anchored_tokens(self._history(145_200)) == 145_200
+
+    def test_stand_in_history_yields_none(self):
+        from victor.agent.services.context_lifecycle_service import _controller_anchored_tokens
+
+        assert _controller_anchored_tokens(None) is None
+        assert _controller_anchored_tokens({"messages": []}) is None
+
+    def test_broken_metrics_yields_none(self):
+        from victor.agent.services.context_lifecycle_service import _controller_anchored_tokens
+
+        def boom():
+            raise RuntimeError("probe")
+
+        from types import SimpleNamespace
+
+        history = SimpleNamespace(get_context_metrics=boom)
+        assert _controller_anchored_tokens(history) is None

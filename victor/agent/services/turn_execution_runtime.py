@@ -1884,7 +1884,13 @@ class TurnExecutor:
                 "Lifecycle compacted context before non-streaming turn: %s messages removed",
                 result.get("messages_removed", 0),
             )
-        return True
+            return True
+        # Lifecycle ran but did not compact: fall through to the
+        # context-service and legacy-compactor fallbacks instead of
+        # shadowing them. Duplicate compaction is prevented downstream by the
+        # min-interval gate and the compactor's stampede suppression (#1683);
+        # every evaluation leaves a [compaction-check] trace.
+        return False
 
     def _root_runtime_messages(self, orchestrator: Any) -> List[Any]:
         get_messages = getattr(orchestrator, "get_messages", None)
