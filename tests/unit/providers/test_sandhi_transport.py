@@ -1520,3 +1520,60 @@ async def test_typed_timeout_does_not_claim_the_configured_overall_deadline():
     assert "300" not in error.recovery_hint
     assert error.timeout is None
     assert error.status_code == 504
+
+
+@pytest.mark.asyncio
+async def test_sandhi_stream_idle_timeout_raises_on_hung_stream():
+    """_sandhi_stream_with_idle_timeout raises TimeoutError when stream hangs."""
+    import asyncio
+
+    class HungStreamProvider:
+        """Simulates a provider whose stream_json() never yields (connection dropped)."""
+
+        async def stream_json(self, request_json, wire_headers=None):
+            # Simulate a hung connection by sleeping forever
+            await asyncio.sleep(3600)
+            yield  # pragma: no cover - never reached
+
+    class TestProvider(st.SandhiTypedProviderMixin):
+        pass
+
+    provider = TestProvider()
+    hung_provider = HungStreamProvider()
+    request = {"model": "test-model", "messages": []}
+
+    # Use a very short idle timeout for the test
+    with pytest.raises(asyncio.TimeoutError, match="Stream idle timeout"):
+        async for _ in provider._sandhi_stream_with_idle_timeout(
+            hung_provider, request, None, idle_timeout=0.1
+        ):
+            pass  # pragma: no cover - should timeout before yielding
+
+
+@pytest.mark.asyncio
+async def test_sandhi_stream_idle_timeout_passes_through_chunks():
+    """_sandhi_stream_with_idle_timeout yields chunks when stream is healthy."""
+
+    class HealthyStreamProvider:
+        """Simulates a provider whose stream_json() yields chunks normally."""
+
+        async def stream_json(self, request_json, wire_headers=None):
+            yield '{"event": "text_delta", "delta": "hello"}'
+            yield '{"event": "text_delta", "delta": " world"}'
+
+    class TestProvider(st.SandhiTypedProviderMixin):
+        pass
+
+    provider = TestProvider()
+    healthy_provider = HealthyStreamProvider()
+    request = {"model": "test-model", "messages": []}
+
+    chunks = []
+    async for chunk in provider._sandhi_stream_with_idle_timeout(
+        healthy_provider, request, None, idle_timeout=5.0
+    ):
+        chunks.append(chunk)
+
+    assert len(chunks) == 2
+    assert "hello" in chunks[0]
+    assert "world" in chunks[1]

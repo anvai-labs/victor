@@ -158,6 +158,56 @@ class AgentFactory:
         profiles[self._profile] = ProfileConfig(**profile_payload)
         self._settings.load_profiles = lambda: profiles
 
+    def _apply_profile_context_window(self) -> None:
+        """Apply the profile's ``context`` group onto ``settings.context``.
+
+        Unconditional (unlike ``_apply_profile_overrides``, which early-returns
+        for profile-only runs — exactly the ``victor chat -p <profile>`` case).
+        Without this, a profile's ``context.max_context_tokens`` never reached
+        the factory Settings: ``Agent.create`` builds plain ``Settings()``
+        (env + .env only), and the group survived only as
+        ``__pydantic_extra__`` consumed for provider transport kwargs. The
+        resolver (``resolve_context_window``) then logged ``source=
+        model-pattern`` even when the profile pinned a different window.
+
+        Merge semantics: only keys the profile explicitly sets are applied,
+        and never over keys already user-set on ``settings.context``
+        (``model_fields_set``) — env/CLI keep winning over the profile.
+        """
+        try:
+            profiles = self._settings.load_profiles()
+            profile = profiles.get(self._profile) if hasattr(profiles, "get") else None
+            profile_context = getattr(profile, "context", None) if profile else None
+            window_tokens = getattr(profile_context, "max_context_tokens", None)
+            if not isinstance(window_tokens, int) or window_tokens <= 0:
+                return
+
+            from victor.config.context_settings import ContextSettings
+
+            current = getattr(self._settings, "context", None)
+            if current is None:
+                self._settings.context = ContextSettings(max_context_tokens=window_tokens)
+                return
+            if not isinstance(current, ContextSettings):
+                return
+            already_set = "max_context_tokens" in (
+                getattr(current, "model_fields_set", None) or set()
+            )
+            if already_set or current.max_context_tokens == window_tokens:
+                return
+            # Reconstruct from the user-set surface only (plus the profile
+            # key) so defaults do not become "explicitly set" for other
+            # fields_set-aware consumers.
+            user_fields = {
+                key: getattr(current, key)
+                for key in (getattr(current, "model_fields_set", None) or set())
+            }
+            user_fields["max_context_tokens"] = window_tokens
+            self._settings.context = ContextSettings(**user_fields)
+        except Exception:  # noqa: BLE001 - profile context is best-effort
+            # A failure here must never block orchestrator creation.
+            return
+
     async def create(self) -> "AgentOrchestrator":
         """Create a fully configured orchestrator.
 
@@ -171,6 +221,7 @@ class AgentFactory:
         from victor.core.bootstrap import ensure_bootstrapped
 
         self._apply_profile_overrides()
+        self._apply_profile_context_window()
 
         # Step 1: Pre-flight validation
         issues = self.validate()

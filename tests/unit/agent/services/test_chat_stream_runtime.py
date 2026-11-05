@@ -1061,3 +1061,58 @@ async def test_service_streaming_runtime_warns_when_context_lacks_cumulative_usa
         _ = [c async for c in runtime.stream_chat("hello")]
 
     assert any("lacks cumulative_usage" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_service_streaming_runtime_skips_usage_fold_when_turns_anchored():
+    """Per-turn anchoring (usage_anchor_turns > 0) gates the end-of-stream fold.
+
+    The fold records the CUMULATIVE prompt_tokens sum — re-adding it after
+    per-turn deltas would double-count session prefill and mis-anchor the
+    controller on the sum instead of the last call.
+    """
+    orch = _make_orchestrator_stub()
+    runtime = ServiceStreamingRuntime(orch)
+    ctx = SimpleNamespace(
+        cumulative_usage={"prompt_tokens": 900, "completion_tokens": 5, "total_tokens": 905},
+        usage_anchor_turns=3,
+    )
+    orch.get_capability_value.side_effect = lambda name: (
+        ctx if name == "current_stream_context" else None
+    )
+    orch._current_stream_context = ctx
+
+    class DummyExecutor:
+        async def run_unified(self, user_message: str, **kwargs):
+            yield StreamChunk(content="done", is_final=True)
+
+    runtime._streaming_executor = DummyExecutor()
+
+    _ = [item async for item in runtime.stream_chat("hello")]
+
+    orch._conversation_controller.record_actual_usage.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_service_streaming_runtime_folds_when_no_turns_anchored():
+    """Zero anchored turns keeps the historical end-of-stream fold (backstop)."""
+    orch = _make_orchestrator_stub()
+    runtime = ServiceStreamingRuntime(orch)
+    ctx = SimpleNamespace(
+        cumulative_usage={"prompt_tokens": 900, "completion_tokens": 5, "total_tokens": 905},
+        usage_anchor_turns=0,
+    )
+    orch.get_capability_value.side_effect = lambda name: (
+        ctx if name == "current_stream_context" else None
+    )
+    orch._current_stream_context = ctx
+
+    class DummyExecutor:
+        async def run_unified(self, user_message: str, **kwargs):
+            yield StreamChunk(content="done", is_final=True)
+
+    runtime._streaming_executor = DummyExecutor()
+
+    _ = [item async for item in runtime.stream_chat("hello")]
+
+    orch._conversation_controller.record_actual_usage.assert_called()

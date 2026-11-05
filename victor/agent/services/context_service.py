@@ -1380,23 +1380,43 @@ class ContextServiceRegistry:
         strategy: Optional[str] = None,
         min_messages: Optional[int] = None,
         history: Optional[CompactionHistory] = None,
+        anchored_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Compact only the context for the provided agent runtime session."""
+        """Compact only the context for the provided agent runtime session.
+
+        Args:
+            anchored_tokens: Token estimate from the ConversationController
+                (real prompt_tokens anchor incl. system prompt + tool
+                schemas). When provided it replaces the service's
+                char-mirror estimate in the trigger decision — the mirror
+                structurally under-reads tool-heavy sessions.
+        """
         service = self.get_or_create(runtime_context)
         metrics_before = await service.get_context_metrics()
+        if anchored_tokens is not None and anchored_tokens > 0:
+            est_tokens = anchored_tokens
+            utilization_percent = (
+                (est_tokens / self._config.max_tokens * 100) if self._config.max_tokens > 0 else 0.0
+            )
+            estimator = "controller"
+        else:
+            est_tokens = metrics_before.total_tokens
+            utilization_percent = metrics_before.utilization_percent
+            estimator = "mirror"
         should_compact = (
-            metrics_before.total_tokens > self._config.max_tokens
-            or metrics_before.utilization_percent >= self._config.overflow_threshold_percent
+            est_tokens > self._config.max_tokens
+            or utilization_percent >= self._config.overflow_threshold_percent
         )
         # Decision trace for the ACTIVE service-layer compactor: without it a
         # session can sit silently over (or under) its resolved window with no
         # log evidence of what the trigger saw (2026-11 wedged-session class).
         logger.info(
-            "[compaction-check] path=lifecycle est_tokens=%s window=%s util=%.1f%% "
+            "[compaction-check] path=lifecycle estimator=%s est_tokens=%s window=%s util=%.1f%% "
             "overflow_threshold=%.0f%% decision=%s",
-            f"{metrics_before.total_tokens:,}",
+            estimator,
+            f"{est_tokens:,}",
             f"{self._config.max_tokens:,}",
-            metrics_before.utilization_percent,
+            utilization_percent,
             self._config.overflow_threshold_percent,
             "trigger:overflow" if should_compact else "skip",
         )
@@ -1405,8 +1425,8 @@ class ContextServiceRegistry:
                 **runtime_context.identity_metadata(),
                 "compacted": False,
                 "messages_removed": 0,
-                "utilization_before": metrics_before.utilization_percent,
-                "utilization_after": metrics_before.utilization_percent,
+                "utilization_before": utilization_percent,
+                "utilization_after": utilization_percent,
             }
 
         removed = await service.compact_context(
