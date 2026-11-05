@@ -123,6 +123,11 @@ class GraphManager:
     # blocking a single refresh pass.
     _INCREMENTAL_VACUUM_PAGES = 1000
 
+    # Minimum seconds between full VACUUM attempts per root. Prevents repeated
+    # VACUUM on every refresh cycle for DBs that hover around the size threshold,
+    # and avoids hammering a DB that has concurrent readers blocking VACUUM.
+    _MAINTAIN_COOLDOWN_SECONDS = 6 * 3600  # 6 hours
+
     def __init__(self):
         """Initialize GraphManager."""
         self._graph_cache: Dict[str, Dict] = {}
@@ -134,6 +139,7 @@ class GraphManager:
         self._refresh_failures: Dict[str, Dict[str, Any]] = {}
         self._last_refresh_completed_at: Dict[str, float] = {}
         self._last_refresh_source_mtime: Dict[str, float] = {}
+        self._last_maintain_at: Dict[str, float] = {}
 
     @classmethod
     def get_instance(cls) -> "GraphManager":
@@ -446,8 +452,9 @@ class GraphManager:
     def _maybe_maintain_project_db(self, root: Path) -> None:
         """Run VACUUM + WAL checkpoint if the project DB exceeds the size threshold.
 
-        Best-effort: failures are logged but never propagate — a maintenance
-        failure must not break the graph refresh loop.
+        Rate-limited to once per ``_MAINTAIN_COOLDOWN_SECONDS`` per root.
+        Best-effort: failures are logged at WARNING but never propagate — a
+        maintenance failure must not break the graph refresh loop.
         """
         db_path = self._get_project_db_path(root)
         if db_path is None:
@@ -458,11 +465,17 @@ class GraphManager:
             return
         if size < self._DB_MAINTAIN_SIZE_THRESHOLD_BYTES:
             return
+        root_str = str(root.resolve())
+        now = datetime.now().timestamp()
+        last = self._last_maintain_at.get(root_str, 0.0)
+        if now - last < self._MAINTAIN_COOLDOWN_SECONDS:
+            return
         try:
             from victor.core.database import get_project_database
 
             db = get_project_database(root)
             result = db.maintain()
+            self._last_maintain_at[root_str] = now
             logger.info(
                 "[GraphManager] Project DB maintenance for %s: %.1f MB → %.1f MB",
                 root,
@@ -470,12 +483,17 @@ class GraphManager:
                 result["size_after"] / 1024 / 1024,
             )
         except Exception as exc:
-            logger.debug("[GraphManager] Project DB maintenance failed for %s: %s", root, exc)
+            self._last_maintain_at[root_str] = now
+            logger.warning(
+                "[GraphManager] Project DB maintenance failed for %s: %s",
+                root,
+                exc,
+            )
 
     def _incremental_vacuum(self, root: Path) -> None:
         """Reclaim a batch of free pages from the project DB via incremental_vacuum.
 
-        Best-effort: failures are silently ignored. Called during cooldown between
+        Best-effort: failures are logged at DEBUG. Called during cooldown between
         refresh passes so the file shrinks gradually without blocking indexing.
         """
         db_path = self._get_project_db_path(root)
@@ -491,8 +509,12 @@ class GraphManager:
                 conn.commit()
             finally:
                 conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "[GraphManager] incremental_vacuum failed for %s: %s",
+                root,
+                exc,
+            )
 
     async def _run_refresh_loop(self, root: Path, startup_delay_seconds: float = 0.0) -> None:
         """Run one or more coalesced incremental refresh passes for a root."""
