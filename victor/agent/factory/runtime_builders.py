@@ -287,6 +287,31 @@ class RuntimeBuildersMixin:
 
         return self.container.get(ConversationStateMachineProtocol)
 
+    def _resolve_store_context_limits(self, provider_name: str) -> Tuple[int, int]:
+        """Resolve (max_context_tokens, response_reserve) for the store.
+
+        The old flat ``settings.max_context_tokens`` read never existed
+        (the field lives in the nested ``context`` group), silently yielding
+        the 100000 fallback regardless of profile/env/model. Prefer the
+        nested user-set value, then the unified window resolver (model
+        unknown here — the provider default applies), keeping the historical
+        fallback as the last resort.
+        """
+        reserve = getattr(self.settings, "response_token_reserve", 4096)
+        context = getattr(self.settings, "context", None)
+        nested = getattr(context, "max_context_tokens", None)
+        fields_set = getattr(context, "model_fields_set", None) or set()
+        if isinstance(nested, int) and nested > 0 and "max_context_tokens" in fields_set:
+            return nested, reserve
+
+        try:
+            from victor.config.context_window import resolve_context_window
+
+            window = resolve_context_window(provider_name, "", settings=self.settings)
+            return window.tokens, reserve
+        except Exception:  # noqa: BLE001 - resolution must never block the store
+            return 100000, reserve
+
     def create_memory_components(
         self, provider_name: str, tool_capable: bool = True
     ) -> Tuple[Optional["ConversationStore"], Optional[str]]:
@@ -315,8 +340,7 @@ class RuntimeBuildersMixin:
         paths = get_project_paths()
         paths.project_victor_dir.mkdir(parents=True, exist_ok=True)
         db_path = paths.project_db
-        max_context = getattr(self.settings, "max_context_tokens", 100000)
-        response_reserve = getattr(self.settings, "response_token_reserve", 4096)
+        max_context, response_reserve = self._resolve_store_context_limits(provider_name)
         diagnostics: Dict[str, Any] = {
             "status": "initializing",
             "recovered_from_lock": False,

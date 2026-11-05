@@ -84,6 +84,28 @@ class ThinkingConfig(BaseModel):
     )
 
 
+class ProfileContextConfig(BaseModel):
+    """Per-profile context-window overrides (narrow, by design).
+
+    Only the keys victor actually consumes from a profile's context group.
+    Flows into ``settings.context`` (ContextSettings) at factory time — see
+    ``AgentFactory._apply_profile_context_window`` — so
+    ``resolve_context_window`` honors it with ``source=settings``. Untyped
+    profile keys in this group previously survived only as
+    ``__pydantic_extra__`` and never reached the resolver.
+    """
+
+    max_context_tokens: Optional[int] = Field(
+        None,
+        gt=0,
+        description=(
+            "Context window (tokens) for this profile's model. Overrides the "
+            "model-pattern window from provider_context_limits.yaml; "
+            "VICTOR_MAX_CONTEXT_TOKENS and other user-set settings still win."
+        ),
+    )
+
+
 class ProfileConfig(BaseSettings):
     """Configuration for a model profile."""
 
@@ -132,6 +154,14 @@ class ProfileConfig(BaseSettings):
         ),
     )
     description: Optional[str] = Field(None, description="Optional profile description")
+    context: Optional[ProfileContextConfig] = Field(
+        None,
+        description=(
+            "Context-window overrides for this profile (e.g. "
+            "context: {max_context_tokens: 262144}). Applied to settings at "
+            "factory time without clobbering user-set values."
+        ),
+    )
     tool_selection: Optional[Dict[str, Any]] = Field(
         None, description="Tool selection configuration for adaptive thresholds"
     )
