@@ -5,14 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-11-05
+
 ### Fixed
 
+- **indexing**: Add refresh-in-progress guard + minimum spacing to graph watcher (#1697)
+- **providers**: Add idle timeout to Sandhi stream to prevent hung processes (#1696)
+- **db**: Auto-VACUUM project DB in graph watcher lifecycle + lower WAL autocheckpoint (#1694)
+- **compaction**: Streaming boundary checks, lifecycle fallback, profile context window (#1693)
 - TUI: `VICTOR_TERMINAL` theme no longer crashes on Textual < 8.0. Detection
   via ``inspect.signature(Theme.__init__)`` picks the ansi-native path on
   Textual 8+ and falls back to the VICTOR_DARK hex palette on older installs
   (e.g. the anaconda env on aiserver1, Textual 7.5.0). The theme name,
   dark-mode flag, and theme-cycle (F6) are unchanged — users on older Textuals
   get a degraded-but-functional dark theme instead of a module-import crash.
+
+### Chore
+
+- Add .qwen/.gitignore for worktree isolation directories (#1695)
 
 ## [0.26.0] - 2026-11-04
 
