@@ -14,8 +14,10 @@
 
 """Tests for GraphManager."""
 
+import asyncio
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -686,3 +688,75 @@ class TestProjectDbMaintenance:
         with mock.patch.object(manager, "_maybe_maintain_project_db") as mock_maintain:
             await manager.stop_background_refresh(root)
             mock_maintain.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refresh_in_progress_guard_prevents_overlap(self, temp_codebase):
+        """_refresh_in_progress guard should prevent concurrent refreshes for same root."""
+        manager = GraphManager.get_instance()
+        root = temp_codebase.resolve()
+        root_str = str(root)
+
+        manager._background_refresh[root_str] = {"pending": False}
+
+        # Simulate a refresh already in progress
+        manager._refresh_in_progress.add(root_str)
+
+        refresh_started = False
+
+        async def _track_refresh(_root):
+            nonlocal refresh_started
+            refresh_started = True
+
+        # Run the loop with a short timeout — it should wait, not start immediately
+        with (
+            mock.patch.object(manager, "_refresh_graph_index", _track_refresh),
+            mock.patch.object(manager, "_maybe_maintain_project_db"),
+        ):
+            # Clear the in-progress flag after a short delay to let the loop proceed
+            async def _clear_after_delay():
+                await asyncio.sleep(0.2)
+                manager._refresh_in_progress.discard(root_str)
+
+            task = asyncio.create_task(_clear_after_delay())
+            await manager._run_refresh_loop(root)
+            await task
+
+        # The refresh should have eventually started after the guard cleared
+        assert refresh_started is True
+
+    @pytest.mark.asyncio
+    async def test_refresh_loop_enforces_minimum_spacing(self, temp_codebase):
+        """_run_refresh_loop should enforce minimum spacing between refresh starts."""
+        manager = GraphManager.get_instance()
+        root = temp_codebase.resolve()
+        root_str = str(root)
+
+        # Set a very short min_refresh_interval so cooldown doesn't dominate
+        manager._background_refresh[root_str] = {
+            "pending": True,  # Trigger a second pass
+            "on_refresh_error": None,
+            "min_refresh_interval_seconds": 0.0,
+        }
+
+        refresh_times = []
+
+        async def _track_refresh(_root):
+            refresh_times.append(datetime.now().timestamp())
+            # After first refresh, clear pending so loop exits after second
+            if len(refresh_times) == 1:
+                manager._background_refresh[root_str]["pending"] = True
+            else:
+                manager._background_refresh[root_str]["pending"] = False
+
+        with (
+            mock.patch.object(manager, "_refresh_graph_index", _track_refresh),
+            mock.patch.object(manager, "_maybe_maintain_project_db"),
+            mock.patch.object(manager, "_incremental_vacuum"),
+        ):
+            await manager._run_refresh_loop(root)
+
+        # Should have run at least 2 refreshes
+        assert len(refresh_times) >= 2
+        # Spacing between first two refreshes should be >= _MIN_REFRESH_SPACING_SECONDS
+        spacing = refresh_times[1] - refresh_times[0]
+        assert spacing >= manager._MIN_REFRESH_SPACING_SECONDS - 0.1  # Allow small tolerance
