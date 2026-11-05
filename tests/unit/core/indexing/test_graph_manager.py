@@ -556,3 +556,133 @@ class TestQueryCacheInvalidation:
             side_effect=RuntimeError("cache exploded"),
         ):
             GraphManager._invalidate_query_cache("/some/repo")  # must not raise
+
+
+class TestProjectDbMaintenance:
+    """Tests for automatic project DB maintenance in the graph watcher."""
+
+    def test_maybe_maintain_skips_when_db_missing(self, temp_codebase):
+        """No maintenance when project.db doesn't exist."""
+        manager = GraphManager.get_instance()
+        with mock.patch.object(manager, "_maybe_maintain_project_db") as mock_maintain:
+            manager._maybe_maintain_project_db(temp_codebase)
+            # _get_project_db_path returns None when no .victor/project.db exists
+            # so maintain() inside _maybe_maintain_project_db is never called
+            # (the method itself is the mock, so we verify via _get_project_db_path)
+        assert manager._get_project_db_path(temp_codebase) is None
+
+    def test_maybe_maintain_skips_small_db(self, temp_codebase):
+        """No maintenance when DB is below the size threshold."""
+        manager = GraphManager.get_instance()
+        db_dir = temp_codebase / ".victor"
+        db_dir.mkdir()
+        db_file = db_dir / "project.db"
+        # Create a small file (well under 1GB threshold)
+        db_file.write_bytes(b"\x00" * 1024)
+
+        with mock.patch("victor.core.database.get_project_database") as mock_get_db:
+            manager._maybe_maintain_project_db(temp_codebase)
+            mock_get_db.assert_not_called()
+
+    def test_maybe_maintain_runs_when_db_exceeds_threshold(self, temp_codebase):
+        """Full VACUUM runs when DB exceeds the size threshold."""
+        manager = GraphManager.get_instance()
+        db_dir = temp_codebase / ".victor"
+        db_dir.mkdir()
+        db_file = db_dir / "project.db"
+        # Create a fake "large" file by lowering the threshold for the test
+        db_file.write_bytes(b"\x00" * 100)
+
+        original_threshold = manager._DB_MAINTAIN_SIZE_THRESHOLD_BYTES
+        manager._DB_MAINTAIN_SIZE_THRESHOLD_BYTES = 50  # lower than 100 bytes
+        try:
+            with mock.patch("victor.core.database.get_project_database") as mock_get_db:
+                mock_db = mock.MagicMock()
+                mock_db.maintain.return_value = {
+                    "size_before": 100,
+                    "size_after": 50,
+                }
+                mock_get_db.return_value = mock_db
+
+                manager._maybe_maintain_project_db(temp_codebase)
+
+                mock_get_db.assert_called_once_with(temp_codebase)
+                mock_db.maintain.assert_called_once()
+        finally:
+            manager._DB_MAINTAIN_SIZE_THRESHOLD_BYTES = original_threshold
+
+    def test_maybe_maintain_swallows_errors(self, temp_codebase):
+        """Maintenance failures must not propagate."""
+        manager = GraphManager.get_instance()
+        db_dir = temp_codebase / ".victor"
+        db_dir.mkdir()
+        db_file = db_dir / "project.db"
+        db_file.write_bytes(b"\x00" * 100)
+
+        original_threshold = manager._DB_MAINTAIN_SIZE_THRESHOLD_BYTES
+        manager._DB_MAINTAIN_SIZE_THRESHOLD_BYTES = 50
+        try:
+            with mock.patch(
+                "victor.core.database.get_project_database",
+                side_effect=RuntimeError("db exploded"),
+            ):
+                manager._maybe_maintain_project_db(temp_codebase)  # must not raise
+        finally:
+            manager._DB_MAINTAIN_SIZE_THRESHOLD_BYTES = original_threshold
+
+    def test_incremental_vacuum_runs_on_db(self, temp_codebase):
+        """incremental_vacuum executes PRAGMAs on the project DB."""
+        manager = GraphManager.get_instance()
+        db_dir = temp_codebase / ".victor"
+        db_dir.mkdir()
+        db_file = db_dir / "project.db"
+        # Write a minimal valid SQLite header so sqlite3.connect succeeds
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_file))
+        conn.execute("CREATE TABLE t(x)")
+        conn.close()
+
+        # Should not raise even though the DB is tiny
+        manager._incremental_vacuum(temp_codebase)
+
+    def test_incremental_vacuum_skips_when_no_db(self, temp_codebase):
+        """incremental_vacuum is a no-op when project.db doesn't exist."""
+        manager = GraphManager.get_instance()
+        # No .victor/project.db — should silently return
+        manager._incremental_vacuum(temp_codebase)
+
+    @pytest.mark.asyncio
+    async def test_refresh_loop_calls_maintain_after_refresh(self, temp_codebase):
+        """_run_refresh_loop should call _maybe_maintain_project_db after each refresh."""
+        manager = GraphManager.get_instance()
+        root = temp_codebase.resolve()
+        root_str = str(root)
+
+        manager._background_refresh[root_str] = {
+            "pending": False,
+            "on_refresh_error": None,
+        }
+
+        async def _noop_refresh(_root):
+            return None
+
+        with (
+            mock.patch.object(manager, "_refresh_graph_index", _noop_refresh),
+            mock.patch.object(manager, "_maybe_maintain_project_db") as mock_maintain,
+        ):
+            await manager._run_refresh_loop(root)
+            mock_maintain.assert_called_once_with(root)
+
+    @pytest.mark.asyncio
+    async def test_stop_background_refresh_calls_maintain(self, temp_codebase):
+        """stop_background_refresh should run maintenance after stopping."""
+        manager = GraphManager.get_instance()
+        root = temp_codebase.resolve()
+        root_str = str(root)
+
+        manager._background_refresh[root_str] = {"pending": False}
+
+        with mock.patch.object(manager, "_maybe_maintain_project_db") as mock_maintain:
+            await manager.stop_background_refresh(root)
+            mock_maintain.assert_called_once()

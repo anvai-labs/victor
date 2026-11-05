@@ -114,6 +114,20 @@ class GraphManager:
 
     _instance: Optional["GraphManager"] = None
 
+    # Run a full VACUUM + WAL checkpoint when the project DB exceeds this size.
+    # Prevents unbounded growth during long-running graph watchers.
+    _DB_MAINTAIN_SIZE_THRESHOLD_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
+
+    # Number of free pages to reclaim per incremental_vacuum call during
+    # cooldown between refreshes. Keeps the file shrinking gradually without
+    # blocking a single refresh pass.
+    _INCREMENTAL_VACUUM_PAGES = 1000
+
+    # Minimum seconds between full VACUUM attempts per root. Prevents repeated
+    # VACUUM on every refresh cycle for DBs that hover around the size threshold,
+    # and avoids hammering a DB that has concurrent readers blocking VACUUM.
+    _MAINTAIN_COOLDOWN_SECONDS = 6 * 3600  # 6 hours
+
     def __init__(self):
         """Initialize GraphManager."""
         self._graph_cache: Dict[str, Dict] = {}
@@ -125,6 +139,7 @@ class GraphManager:
         self._refresh_failures: Dict[str, Dict[str, Any]] = {}
         self._last_refresh_completed_at: Dict[str, float] = {}
         self._last_refresh_source_mtime: Dict[str, float] = {}
+        self._last_maintain_at: Dict[str, float] = {}
 
     @classmethod
     def get_instance(cls) -> "GraphManager":
@@ -424,6 +439,83 @@ class GraphManager:
             return False
         return float(last_source_mtime) >= float(source_mtime)
 
+    def _get_project_db_path(self, root: Path) -> Optional[Path]:
+        """Resolve the project.db path for a root, returning None if unavailable."""
+        try:
+            db_path = root.resolve() / ".victor" / "project.db"
+            if db_path.exists():
+                return db_path
+        except Exception:
+            pass
+        return None
+
+    def _maybe_maintain_project_db(self, root: Path) -> None:
+        """Run VACUUM + WAL checkpoint if the project DB exceeds the size threshold.
+
+        Rate-limited to once per ``_MAINTAIN_COOLDOWN_SECONDS`` per root.
+        Best-effort: failures are logged at WARNING but never propagate — a
+        maintenance failure must not break the graph refresh loop.
+        """
+        db_path = self._get_project_db_path(root)
+        if db_path is None:
+            return
+        try:
+            size = db_path.stat().st_size
+        except OSError:
+            return
+        if size < self._DB_MAINTAIN_SIZE_THRESHOLD_BYTES:
+            return
+        root_str = str(root.resolve())
+        now = datetime.now().timestamp()
+        last = self._last_maintain_at.get(root_str, 0.0)
+        if now - last < self._MAINTAIN_COOLDOWN_SECONDS:
+            return
+        try:
+            from victor.core.database import get_project_database
+
+            db = get_project_database(root)
+            result = db.maintain()
+            self._last_maintain_at[root_str] = now
+            logger.info(
+                "[GraphManager] Project DB maintenance for %s: %.1f MB → %.1f MB",
+                root,
+                result["size_before"] / 1024 / 1024,
+                result["size_after"] / 1024 / 1024,
+            )
+        except Exception as exc:
+            self._last_maintain_at[root_str] = now
+            logger.warning(
+                "[GraphManager] Project DB maintenance failed for %s: %s",
+                root,
+                exc,
+            )
+
+    def _incremental_vacuum(self, root: Path) -> None:
+        """Reclaim a batch of free pages from the project DB via incremental_vacuum.
+
+        Best-effort: failures are logged at DEBUG. Called during cooldown between
+        refresh passes so the file shrinks gradually without blocking indexing.
+        """
+        db_path = self._get_project_db_path(root)
+        if db_path is None:
+            return
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(str(db_path), timeout=5.0)
+            try:
+                conn.execute(f"PRAGMA incremental_vacuum({self._INCREMENTAL_VACUUM_PAGES})")
+                conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.debug(
+                "[GraphManager] incremental_vacuum failed for %s: %s",
+                root,
+                exc,
+            )
+
     async def _run_refresh_loop(self, root: Path, startup_delay_seconds: float = 0.0) -> None:
         """Run one or more coalesced incremental refresh passes for a root."""
         root_str = str(root.resolve())
@@ -444,12 +536,18 @@ class GraphManager:
                     await asyncio.sleep(0.1)
                     await self._refresh_graph_index(root)
                 self._refresh_failures.pop(root_str, None)
+                # Size-based maintenance: VACUUM if project DB exceeds threshold.
+                # Runs in a thread to avoid blocking the event loop.
+                await asyncio.to_thread(self._maybe_maintain_project_db, root)
                 refresh_config = self._background_refresh.get(root_str)
                 if not refresh_config or not refresh_config.get("pending", False):
                     break
                 refresh_config["pending"] = False
                 cooldown_delay_seconds = self._refresh_cooldown_delay(root_str, refresh_config)
                 if cooldown_delay_seconds > 0:
+                    # Use cooldown time for incremental_vacuum to reclaim free pages
+                    # gradually between refresh passes.
+                    await asyncio.to_thread(self._incremental_vacuum, root)
                     await asyncio.sleep(cooldown_delay_seconds)
         except asyncio.CancelledError:
             raise
@@ -686,7 +784,11 @@ class GraphManager:
             return False
 
     async def stop_background_refresh(self, root: Optional[Path] = None) -> int:
-        """Cancel active background refresh tasks and clear refresh configuration."""
+        """Cancel active background refresh tasks and clear refresh configuration.
+
+        After stopping, runs a best-effort VACUUM + WAL checkpoint on the project
+        database to reclaim space accumulated during the watcher's lifetime.
+        """
         if root is None:
             roots = list(self._background_refresh.keys())
         else:
@@ -704,6 +806,8 @@ class GraphManager:
             self._last_refresh_completed_at.pop(root_str, None)
             self._last_refresh_source_mtime.pop(root_str, None)
             await self._unsubscribe_file_watcher(root_str)
+            # Reclaim WAL and free-page bloat accumulated during the watcher's run.
+            await asyncio.to_thread(self._maybe_maintain_project_db, Path(root_str))
 
         return stopped
 
