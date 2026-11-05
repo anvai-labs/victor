@@ -128,6 +128,11 @@ class GraphManager:
     # and avoids hammering a DB that has concurrent readers blocking VACUUM.
     _MAINTAIN_COOLDOWN_SECONDS = 6 * 3600  # 6 hours
 
+    # Minimum seconds between refresh *starts* for the same root. Prevents rapid
+    # cycling when a refresh completes and pending=True with zero cooldown. This
+    # is a hard floor — the actual delay may be longer due to min_refresh_interval.
+    _MIN_REFRESH_SPACING_SECONDS = 5.0
+
     def __init__(self):
         """Initialize GraphManager."""
         self._graph_cache: Dict[str, Dict] = {}
@@ -140,6 +145,8 @@ class GraphManager:
         self._last_refresh_completed_at: Dict[str, float] = {}
         self._last_refresh_source_mtime: Dict[str, float] = {}
         self._last_maintain_at: Dict[str, float] = {}
+        self._refresh_in_progress: set[str] = set()
+        self._last_refresh_started_at: Dict[str, float] = {}
 
     @classmethod
     def get_instance(cls) -> "GraphManager":
@@ -525,30 +532,53 @@ class GraphManager:
                 await asyncio.sleep(startup_delay_seconds)
 
             while True:
-                try:
-                    await self._refresh_graph_index(root)
-                except FileNotFoundError as exc:
-                    logger.info(
-                        "[GraphManager] Background refresh saw transient missing file for %s; retrying once: %s",
+                # Guard: prevent overlapping refreshes for the same root.
+                # This shouldn't happen in normal operation (single loop per root),
+                # but protects against concurrent ensure_background_refresh calls.
+                if root_str in self._refresh_in_progress:
+                    logger.debug(
+                        "[GraphManager] Refresh already in progress for %s; waiting",
                         root_str,
-                        exc,
                     )
-                    await asyncio.sleep(0.1)
-                    await self._refresh_graph_index(root)
-                self._refresh_failures.pop(root_str, None)
-                # Size-based maintenance: VACUUM if project DB exceeds threshold.
-                # Runs in a thread to avoid blocking the event loop.
-                await asyncio.to_thread(self._maybe_maintain_project_db, root)
+                    await asyncio.sleep(1.0)
+                    continue
+                self._refresh_in_progress.add(root_str)
+                self._last_refresh_started_at[root_str] = datetime.now().timestamp()
+                try:
+                    try:
+                        await self._refresh_graph_index(root)
+                    except FileNotFoundError as exc:
+                        logger.info(
+                            "[GraphManager] Background refresh saw transient missing file for %s; retrying once: %s",
+                            root_str,
+                            exc,
+                        )
+                        await asyncio.sleep(0.1)
+                        await self._refresh_graph_index(root)
+                    self._refresh_failures.pop(root_str, None)
+                    # Size-based maintenance: VACUUM if project DB exceeds threshold.
+                    # Runs in a thread to avoid blocking the event loop.
+                    await asyncio.to_thread(self._maybe_maintain_project_db, root)
+                finally:
+                    self._refresh_in_progress.discard(root_str)
+
                 refresh_config = self._background_refresh.get(root_str)
                 if not refresh_config or not refresh_config.get("pending", False):
                     break
                 refresh_config["pending"] = False
+
+                # Enforce minimum spacing between refresh starts to prevent rapid cycling.
                 cooldown_delay_seconds = self._refresh_cooldown_delay(root_str, refresh_config)
-                if cooldown_delay_seconds > 0:
-                    # Use cooldown time for incremental_vacuum to reclaim free pages
+                last_started = self._last_refresh_started_at.get(root_str, 0.0)
+                elapsed_since_start = datetime.now().timestamp() - last_started
+                spacing_delay = max(0.0, self._MIN_REFRESH_SPACING_SECONDS - elapsed_since_start)
+                total_delay = max(cooldown_delay_seconds, spacing_delay)
+
+                if total_delay > 0:
+                    # Use delay time for incremental_vacuum to reclaim free pages
                     # gradually between refresh passes.
                     await asyncio.to_thread(self._incremental_vacuum, root)
-                    await asyncio.sleep(cooldown_delay_seconds)
+                    await asyncio.sleep(total_delay)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -563,6 +593,7 @@ class GraphManager:
                 exc,
             )
         finally:
+            self._refresh_in_progress.discard(root_str)
             task = self._refresh_tasks.get(root_str)
             if task is current_task:
                 self._refresh_tasks.pop(root_str, None)
