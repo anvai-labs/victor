@@ -415,3 +415,123 @@ def test_mapper_rejects_tools_after_a_terminal_emit():
             tool_exec_result=ToolExecutionResult(),
             disposition=TurnDisposition.RECOVERY_EXHAUSTED,
         )
+
+
+# ---------------------------------------------------------------------------
+# Turn-boundary compaction parity (streaming ACT hooks)
+# ---------------------------------------------------------------------------
+
+
+def _boundary_stream_ctx(classification=None, prompt_start=0):
+    from types import SimpleNamespace as NS
+
+    return NS(
+        task_classification=classification,
+        cumulative_usage={"prompt_tokens": prompt_start},
+        is_qa_task=False,
+    )
+
+
+class _RecordingConversation:
+    def __init__(self):
+        self.recorded = []
+
+    def record_actual_usage(self, prompt_tokens):
+        self.recorded.append(prompt_tokens)
+
+
+async def _run_tool_turn(executor, orch, stream_ctx):
+    """Drive one tool-turn through execute_turn_streaming with stubbed sub-steps."""
+
+    async def fake_provider(orch, runtime_owner, stream_ctx, goals):
+        stream_ctx.cumulative_usage["prompt_tokens"] += 5000
+        return (["read_file"], "", [{"name": "read_file", "arguments": {}}], False)
+
+    async def fake_emit(orch, runtime_owner, stream_ctx, *, decision, tool_calls, **_):
+        decision.tool_calls = tool_calls
+        decision.assistant_content_yielded = False
+        return
+        yield  # pragma: no cover
+
+    async def fake_tools(orch, runtime_owner, stream_ctx, *, result_holder, **_):
+        result_holder.result = ToolExecutionResult(tool_results=[{"success": True}])
+        return
+        yield  # pragma: no cover
+
+    executor._stream_provider_turn = fake_provider
+    executor._emit_assistant_turn = fake_emit
+    executor._execute_tools_turn = fake_tools
+    result = StreamingActResult()
+    chunks = [
+        chunk
+        async for chunk in executor.execute_turn_streaming(
+            orch,
+            object(),
+            stream_ctx,
+            user_message="hi",
+            goals=None,
+            recovery=None,
+            create_recovery_context=None,
+            result=result,
+        )
+    ]
+    return chunks, result
+
+
+async def test_execute_turn_streaming_runs_boundary_checks_at_both_boundaries():
+    """Pre-call AND post-assistant-message compaction checks fire (parity)."""
+    from unittest.mock import AsyncMock
+
+    ex = _executor()
+    conversation = _RecordingConversation()
+    ex.services.conversation = conversation
+    boundary = AsyncMock()
+    orch = SimpleNamespace(turn_executor=SimpleNamespace(_check_context_compaction=boundary))
+    ctx = _boundary_stream_ctx(classification=SimpleNamespace(complexity=None))
+
+    await _run_tool_turn(ex, orch, ctx)
+
+    assert boundary.await_count == 2  # pre-call + post-emit (before tools)
+    assert conversation.recorded == [5000]  # per-turn prompt delta anchored
+    assert ctx.usage_anchor_turns == 1
+
+
+async def test_execute_turn_streaming_skips_boundary_check_without_classification():
+    from unittest.mock import AsyncMock
+
+    ex = _executor()
+    ex.services.conversation = _RecordingConversation()
+    boundary = AsyncMock()
+    orch = SimpleNamespace(turn_executor=SimpleNamespace(_check_context_compaction=boundary))
+    ctx = _boundary_stream_ctx(classification=None)
+
+    await _run_tool_turn(ex, orch, ctx)
+
+    assert boundary.await_count == 0
+    # Usage anchoring is independent of the boundary check.
+    assert ctx.usage_anchor_turns == 1
+
+
+async def test_execute_turn_streaming_boundary_check_failure_never_breaks_turn():
+    from unittest.mock import AsyncMock
+
+    ex = _executor()
+    ex.services.conversation = _RecordingConversation()
+    boundary = AsyncMock(side_effect=RuntimeError("probe"))
+    orch = SimpleNamespace(turn_executor=SimpleNamespace(_check_context_compaction=boundary))
+    ctx = _boundary_stream_ctx(classification=SimpleNamespace(complexity=None))
+
+    chunks, result = await _run_tool_turn(ex, orch, ctx)
+
+    assert boundary.await_count == 2  # both hooks attempted despite raising
+    assert result.turn_result is not None or result.tool_exec_result is not None
+
+
+async def test_execute_turn_streaming_no_turn_executor_is_noop():
+    ex = _executor()
+    ex.services.conversation = _RecordingConversation()
+    orch = SimpleNamespace()  # no turn_executor attribute
+    ctx = _boundary_stream_ctx(classification=SimpleNamespace(complexity=None))
+
+    chunks, result = await _run_tool_turn(ex, orch, ctx)
+    assert result is not None  # turn completed normally

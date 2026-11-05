@@ -1310,6 +1310,57 @@ class StreamingChatExecutor:
             disposition=disposition,
         )
 
+    async def _run_boundary_compaction_check(
+        self, orch: Any, stream_ctx: Any, user_message: str
+    ) -> None:
+        """Run the buffered path's turn-boundary compaction check on streaming.
+
+        The streaming ACT previously had NO boundary check — only the
+        pre-tool-output injection check — so long tool loops never hit a
+        boundary evaluation (the 2026-11 wedged-session shape). Reuses
+        ``turn_executor._check_context_compaction`` wholesale: mid-turn
+        KV-prefix gating (overflow-only override) and the lifecycle →
+        context-service → compactor precedence come for free. Best-effort:
+        a missing turn executor or classification must never break the turn.
+        """
+        turn_executor = getattr(orch, "turn_executor", None)
+        check = getattr(turn_executor, "_check_context_compaction", None)
+        if not callable(check):
+            return
+        classification = getattr(stream_ctx, "task_classification", None)
+        if classification is None:
+            return
+        try:
+            await check(user_message, classification)
+        except Exception:  # noqa: BLE001 - boundary check is best-effort
+            logger.debug("[streaming-compaction] boundary check failed", exc_info=True)
+
+    def _record_turn_usage_anchor(self, stream_ctx: Any, prompt_before: int) -> None:
+        """Anchor the controller on this TURN's prompt_tokens (delta of the sum).
+
+        The end-of-stream fold passes the whole session's cumulative
+        prompt_tokens (a running sum) to ``record_actual_usage`` — for
+        multi-iteration streams that inflated the per-call token anchor and
+        left mid-stream turns with no anchor at all. The delta across one
+        provider call IS that call's prompt_tokens; recording it per turn
+        keeps the session-prefill meter identical (sum of deltas) while the
+        anchor tracks the latest call. Marks ``usage_anchor_turns`` so the
+        final fold can skip (double-count guard).
+        """
+        try:
+            cumulative = getattr(stream_ctx, "cumulative_usage", None) or {}
+            prompt_after = int(cumulative.get("prompt_tokens", 0) or 0)
+            delta = prompt_after - int(prompt_before)
+            if delta <= 0:
+                return
+            record = getattr(self.services, "conversation", None)
+            record = getattr(record, "record_actual_usage", None)
+            if callable(record):
+                record(delta)
+                stream_ctx.usage_anchor_turns = getattr(stream_ctx, "usage_anchor_turns", 0) + 1
+        except Exception:  # noqa: BLE001 - anchoring is best-effort
+            logger.debug("[streaming-compaction] usage anchor failed", exc_info=True)
+
     async def execute_turn_streaming(
         self,
         orch: Any,
@@ -1348,9 +1399,18 @@ class StreamingChatExecutor:
 
         # ACT — provider response (token streaming happens inside _stream_provider_turn).
         _raise_if_stream_cancelled(self.services)
+        # Turn-boundary compaction check (pre-call): parity with the buffered
+        # path's before-API-call evaluation.
+        await self._run_boundary_compaction_check(orch, stream_ctx, user_message)
+        _usage_prompt_before = int(
+            (getattr(stream_ctx, "cumulative_usage", None) or {}).get("prompt_tokens", 0) or 0
+        )
         tools, full_content, tool_calls, garbage_detected = await self._stream_provider_turn(
             orch, runtime_owner, stream_ctx, goals
         )
+        # Anchor the controller on THIS call's prompt_tokens (delta of the
+        # session running sum) instead of waiting for the end-of-stream fold.
+        self._record_turn_usage_anchor(stream_ctx, _usage_prompt_before)
         _raise_if_stream_cancelled(self.services)
         tool_calls, full_content = self.services.tool_calls.parse_and_validate(
             tool_calls,
@@ -1393,6 +1453,12 @@ class StreamingChatExecutor:
             full_content = _emit.recovery_content
         # Empty-response recovery may have replaced the tool calls.
         tool_calls = _emit.tool_calls
+
+        # Turn-boundary compaction check (post-assistant-message): parity
+        # with the buffered path's after-response evaluation — runs before
+        # tool execution so a boundary decision precedes new tool output.
+        if not (_emit.should_return or _emit.should_continue):
+            await self._run_boundary_compaction_check(orch, stream_ctx, user_message)
 
         # ACT — execute tools (only when this turn produced tool calls and emit did not exit).
         tool_exec_result = None
