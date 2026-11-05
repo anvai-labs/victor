@@ -1748,8 +1748,14 @@ def graph_similar(
             "semantic: embedding similarity of names/signatures/docstrings. "
             "structural: function bodies normalised with SCIP symbols when available "
             "(exact / template / near tiers). body: pinned local function-body vectors. "
-            "tokens: pinned local jscpd fragments. hybrid: independent source channels"
+            "tokens: pinned local jscpd fragments. hybrid: independent source channels. "
+            "callee: SCIP resolved-callee-set fingerprints + zero-read dead twins"
         ),
+    ),
+    scip_index: Optional[Path] = typer.Option(
+        None,
+        "--scip-index",
+        help="Callee mode: explicit SCIP dump path (default: newest .victor/precise/*.scip)",
     ),
     min_nodes: int = typer.Option(
         40, "--min-nodes", min=5, help="Structural mode: skip bodies with fewer AST tokens"
@@ -1875,11 +1881,81 @@ def graph_similar(
     Token baselines require a complete scan. ``--write-baseline`` explicitly
     publishes a separate count artifact; comparison never updates it.
     """
-    if mode not in ("semantic", "structural", "body", "tokens", "hybrid"):
+    if mode not in ("semantic", "structural", "body", "tokens", "hybrid", "callee"):
         console.print(
-            f"[red]Unknown --mode {mode!r}; use semantic, structural, body, tokens or hybrid[/red]"
+            f"[red]Unknown --mode {mode!r}; use semantic, structural, body, tokens, hybrid or callee[/red]"
         )
         raise typer.Exit(2)
+    if mode == "callee":
+        from victor.core.graph_rag.callee_clones import (
+            callee_families,
+            dead_twin_definitions,
+            load_scip_documents,
+        )
+
+        source_root = Path(os.path.abspath(path))
+        candidates = (
+            sorted(
+                (source_root / ".victor" / "precise").glob("*.scip"),
+                key=lambda p: p.stat().st_size,
+                reverse=True,
+            )
+            if (source_root / ".victor" / "precise").is_dir()
+            else []
+        )
+        if scip_index is not None:
+            candidates.insert(0, Path(scip_index))
+        if not candidates:
+            console.print(
+                "[red]--mode callee requires a SCIP dump: none found under "
+                ".victor/precise/ (run [cyan]victor index graph index --precise[/cyan] "
+                "or pass --scip-index PATH)[/red]",
+                markup=False,
+            )
+            raise typer.Exit(2)
+        reader = load_scip_documents(candidates[0])
+        if reader is None:
+            console.print(f"[red]Cannot read SCIP dump {candidates[0]}[/red]", markup=False)
+            raise typer.Exit(2)
+        console.print(f"Callee fingerprints over {candidates[0].name}", markup=False)
+        families, _sites = callee_families(reader, max_families=limit)
+        twins = dead_twin_definitions(reader)
+        if not families and not twins:
+            console.print(
+                "[yellow]This dump is degenerate for callee analysis: it carries "
+                "neither symbol roles nor multi-line ranges (scip-python's format). "
+                "Definition sites cannot be distinguished from references — use a "
+                "role-bearing emitter (rust-analyzer SCIP, scip-typescript) or the "
+                "structural mode for this language.[/yellow]",
+                markup=False,
+            )
+            return
+        exact = sum(1 for f in families if f.jaccard == 1.0)
+        console.print(
+            f"families {len(families)} (exact {exact}) · zero-read definitions "
+            f"{len(twins)} · review candidates only — no score proves behavior",
+            markup=False,
+        )
+        console.print()
+        for family in families:
+            console.print(
+                f"── callee-family (refs {family.fingerprint_size}; jaccard "
+                f"{family.jaccard:.2f}; {len(family.members)} members)",
+                markup=False,
+            )
+            for member in family.members[:8]:
+                console.print(
+                    f"   {member.document}:{member.start_line} {member.symbol}",
+                    markup=False,
+                )
+            if len(family.members) > 8:
+                console.print(f"   … +{len(family.members) - 8} more", markup=False)
+        if twins:
+            console.print("── zero-read definitions (dead-twin candidates)", markup=False)
+            for twin in twins[:20]:
+                sites = ", ".join(f"{d}:{ln}" for d, ln in twin.definitions[:3])
+                console.print(f"   {twin.symbol}  [{sites}]", markup=False)
+        return
     copy_workflow = any(
         (
             baseline is not None,
