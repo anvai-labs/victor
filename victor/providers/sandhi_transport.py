@@ -1190,9 +1190,41 @@ class SandhiTypedProviderMixin:
             metadata=metadata or None,
         )
 
+    async def _sandhi_stream_with_idle_timeout(
+        self,
+        provider: Any,
+        request: Dict[str, Any],
+        wire_headers: Optional[str],
+        idle_timeout: float,
+    ) -> AsyncIterator[str]:
+        """Wrap provider.stream_json() with per-chunk idle timeout.
+
+        If no chunk arrives within ``idle_timeout`` seconds, raises
+        asyncio.TimeoutError. This prevents the process from hanging
+        indefinitely when the upstream LLM API connection drops.
+        """
+        stream_iter = provider.stream_json(json.dumps(request), wire_headers).__aiter__()
+        while True:
+            try:
+                event_json = await asyncio.wait_for(stream_iter.__anext__(), timeout=idle_timeout)
+                yield event_json
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Stream idle timeout after %.1fs — no chunk received. "
+                    "The upstream LLM API connection may have dropped.",
+                    idle_timeout,
+                )
+                raise asyncio.TimeoutError(
+                    f"Stream idle timeout: no chunk received within {idle_timeout}s. "
+                    "The upstream LLM API connection may have dropped."
+                )
+            except StopAsyncIteration:
+                break
+
     async def _sandhi_stream(self, request: Dict[str, Any]) -> AsyncIterator[StreamChunk]:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
+        idle_timeout = self._sandhi_stream_idle_timeout()
         call_headers = _wire_call_headers()
         wire_headers = (
             json.dumps(call_headers)
@@ -1206,7 +1238,9 @@ class SandhiTypedProviderMixin:
         usage: Optional[Dict[str, int | bool]] = None
         usage_diagnostics: Optional[Dict[str, Any]] = None
         try:
-            async for event_json in provider.stream_json(json.dumps(request), wire_headers):
+            async for event_json in self._sandhi_stream_with_idle_timeout(
+                provider, request, wire_headers, idle_timeout
+            ):
                 event = json.loads(str(event_json))
                 kind = event.get("event")
                 if kind == "text_delta":
