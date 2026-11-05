@@ -1567,7 +1567,7 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
         "change_groups",
         "file_changes",
     }
-    _WAL_AUTOCHECKPOINT_PAGES = 10000
+    _WAL_AUTOCHECKPOINT_PAGES = 2000
 
     def __init__(self, project_path: Optional[Path] = None):
         """Initialize project database manager.
@@ -1599,8 +1599,9 @@ class ProjectDatabaseManager(_DatabaseManagerBase):
     def _configure_connection(self, conn: sqlite3.Connection) -> None:
         """Apply SQLite settings for the project database.
 
-        The larger auto-checkpoint threshold keeps large graph-indexing writes
-        from triggering frequent WAL checkpoints on small default page budgets.
+        The auto-checkpoint threshold (2000 pages ≈ 8 MB) balances write throughput
+        against WAL growth: low enough that long-running graph watchers don't accumulate
+        multi-gigabyte WAL files, high enough to avoid checkpointing on every small write.
         """
         # auto_vacuum must be set before tables are created to take effect without a VACUUM;
         # on a fresh project DB this lets incremental_vacuum/maintain() reclaim deleted graph
