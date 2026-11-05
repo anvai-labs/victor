@@ -109,6 +109,51 @@ async def test_check_context_compaction_prefers_lifecycle_service():
 
 
 @pytest.mark.asyncio
+async def test_check_context_compaction_falls_through_when_lifecycle_declines():
+    """Lifecycle ran but did not compact -> fallbacks are consulted.
+
+    Regression for the unconditional `return True`: a declined lifecycle
+    decision used to permanently shadow the context-service and legacy
+    compactor paths.
+    """
+    executor = _make_executor()
+    lifecycle = SimpleNamespace(
+        after_agent_turn=AsyncMock(return_value={"compacted": False, "messages_removed": 0})
+    )
+    legacy_compactor = SimpleNamespace(
+        check_and_compact=MagicMock(
+            return_value=SimpleNamespace(action_taken=False, messages_removed=0, tokens_freed=0)
+        )
+    )
+    orchestrator = SimpleNamespace(
+        _context_lifecycle_service=lifecycle,
+        _context_service=None,
+        _context_compactor=legacy_compactor,
+        active_session_id="session_root",
+        agent_id="root_agent",
+        display_name="Root Agent",
+        get_messages=MagicMock(return_value=[{"role": "user", "content": "hello"}]),
+        settings=SimpleNamespace(context_compaction_strategy="tiered"),
+    )
+    from victor.agent.runtime.context import RuntimeIdentity
+
+    orchestrator._memory_session_id = None
+    executor._runtime_context = RuntimeIdentity(orchestrator).resolve
+    executor._orchestrator = orchestrator
+    executor._chat_context._context_compactor = legacy_compactor
+    executor._chat_context._context_service = None  # MagicMock would fabricate one
+    executor._tool_context.tool_calls_used = 0
+
+    await executor._check_context_compaction(
+        "hello",
+        SimpleNamespace(complexity=TaskComplexity.COMPLEX),
+    )
+
+    lifecycle.after_agent_turn.assert_awaited_once()
+    legacy_compactor.check_and_compact.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_check_context_compaction_uses_context_service_before_legacy_compactor():
     executor = _make_executor()
     context_service = SimpleNamespace(

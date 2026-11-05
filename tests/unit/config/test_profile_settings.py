@@ -52,6 +52,7 @@ def test_field_surface_unchanged():
         "thinking",
         "thinking_budget_tokens",
         "description",
+        "context",
         "tool_selection",
         "planning_provider",
         "planning_model",

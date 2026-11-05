@@ -54,6 +54,11 @@ class StreamingChatContext:
     # TaskExecutionReport, sourced from the provider's reported usage. See cumulative_usage
     # below for the real provider numbers accumulated during the stream.
     estimated_content_tokens: float = 0.0
+    # Number of turns whose prompt_tokens were anchored onto the controller
+    # per-turn (chat_stream_executor). When > 0 the end-of-stream usage fold
+    # skips record_actual_usage to avoid double-counting — the fold's
+    # cumulative sum would otherwise re-add what per-turn deltas recorded.
+    usage_anchor_turns: int = 0
     cumulative_usage: Dict[str, int] = field(
         default_factory=lambda: {
             "prompt_tokens": 0,

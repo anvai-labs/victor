@@ -300,3 +300,54 @@ async def test_turn_executor_passes_task_complexity_to_compaction():
         "Check _check_context_service_compaction() — it should forward "
         "task_classification.complexity.value."
     )
+
+
+@pytest.mark.asyncio
+async def test_compact_if_needed_anchored_tokens_override_mirror_estimate():
+    """Controller-anchored tokens replace the char-mirror estimate (estimator parity).
+
+    The mirror under-reads tool-heavy sessions (no system prompt / tool
+    schemas); a real anchor above the window must trigger even when the
+    mirror estimate is far below it.
+    """
+    registry = ContextServiceRegistry(
+        ContextServiceConfig(max_tokens=1000, overflow_threshold_percent=90.0)
+    )
+    context = AgentRuntimeContext(
+        agent_id="root",
+        display_name="Root",
+        role="manager",
+        session_id="session_root",
+    )
+    service = registry.get_or_create(context)
+    for index in range(8):
+        service.add_message(role="user", content=f"short {index}")  # mirror ~2 tok/msg
+
+    # Mirror estimator: ~16 tokens vs 1000 window -> skip.
+    result = await registry.compact_if_needed(context, min_messages=4)
+    assert result["compacted"] is False
+
+    # Controller-anchored estimate above the window -> trigger despite mirror.
+    result = await registry.compact_if_needed(context, min_messages=4, anchored_tokens=1500)
+    assert result["compacted"] is True
+    assert result["messages_removed"] > 0
+
+
+@pytest.mark.asyncio
+async def test_compact_if_needed_anchored_tokens_none_keeps_mirror():
+    registry = ContextServiceRegistry(
+        ContextServiceConfig(max_tokens=20, overflow_threshold_percent=50.0)
+    )
+    context = AgentRuntimeContext(
+        agent_id="root",
+        display_name="Root",
+        role="manager",
+        session_id="session_root",
+    )
+    service = registry.get_or_create(context)
+    for _ in range(8):
+        service.add_message(role="user", content="x" * 20)  # ~5 tokens each
+
+    result = await registry.compact_if_needed(context, min_messages=4, anchored_tokens=None)
+
+    assert result["compacted"] is True  # mirror estimator still works alone

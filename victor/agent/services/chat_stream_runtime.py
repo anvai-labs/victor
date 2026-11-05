@@ -472,8 +472,20 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
                     except Exception:
                         logger.debug("C0 stream-metrics finalize failed", exc_info=True)
 
-                    prompt_tokens = ctx.cumulative_usage.get("prompt_tokens", 0)
-                    self.services.conversation.record_actual_usage(prompt_tokens)
+                    # Usage fold: when per-turn anchoring already recorded
+                    # each call's prompt_tokens (usage_anchor_turns), skip —
+                    # the cumulative sum here would double-count the session
+                    # prefill and mis-anchor the controller on the SUM rather
+                    # than the last call. Keep the fold as the backstop for
+                    # paths that never anchor (e.g. zero provider turns).
+                    if getattr(ctx, "usage_anchor_turns", 0):
+                        logger.debug(
+                            "C0 usage fold skipped: %d turns anchored per-turn",
+                            ctx.usage_anchor_turns,
+                        )
+                    else:
+                        prompt_tokens = ctx.cumulative_usage.get("prompt_tokens", 0)
+                        self.services.conversation.record_actual_usage(prompt_tokens)
 
                 topology_feedback_payload = self._build_stream_topology_feedback_payload(
                     ctx,

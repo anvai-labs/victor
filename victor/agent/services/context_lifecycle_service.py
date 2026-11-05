@@ -24,6 +24,28 @@ from victor.core.provider_messages import Message
 logger = logging.getLogger(__name__)
 
 
+def _controller_anchored_tokens(history: Optional[CompactionHistory]) -> Optional[int]:
+    """Token estimate anchored on the real ConversationController, if available.
+
+    The controller's ``get_context_metrics`` anchors on real provider
+    prompt_tokens (system prompt + tool schemas included) and projects the
+    char delta since — the char-mirror estimate the registry would otherwise
+    use structurally under-reads tool-heavy sessions. Stand-in histories
+    (dicts, mocks) yield None and keep the mirror estimator.
+    """
+    get_metrics = getattr(history, "get_context_metrics", None)
+    if not callable(get_metrics):
+        return None
+    try:
+        metrics = get_metrics()
+        tokens = getattr(metrics, "estimated_tokens", None)
+        if isinstance(tokens, int) and tokens > 0:
+            return tokens
+    except Exception as exc:  # noqa: BLE001 - estimator probe is best-effort
+        logger.debug("Controller-metrics estimator probe failed: %s", exc)
+    return None
+
+
 class LifecycleCompactionSummarizerAdapter:
     """Adapt legacy compaction summarizers to lifecycle-service kwargs."""
 
@@ -185,6 +207,7 @@ class ContextLifecycleService:
             strategy=strategy,
             min_messages=min_messages,
             history=history,
+            anchored_tokens=_controller_anchored_tokens(history),
         )
         tokens_after = service.get_context_size()
         tokens_freed = max(0, tokens_before - tokens_after)
