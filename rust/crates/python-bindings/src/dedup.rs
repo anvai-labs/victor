@@ -92,26 +92,53 @@ fn split_into_blocks(content: &str) -> Vec<&str> {
         return Vec::new();
     }
 
-    // Find code blocks and their positions
+    // All code-fence marker start offsets, precomputed once (linear scan).
+    // Scanning the remaining tail for "```" on every block iteration made this
+    // loop quadratic on large fence-free content, and an unclosed fence made it
+    // spin forever: `next_code` landed on the marker at `pos`, `chunk_end` was
+    // 0, and `pos` never advanced — a multi-megabyte model response with an
+    // unterminated fence pinned a chat session at 100% CPU indefinitely
+    // (observed 2026-11-06, qwen3.7-plus streaming through the stale 0.15.0
+    // wheel).
+    let fences: Vec<usize> = content.match_indices("```").map(|(i, _)| i).collect();
+
     let mut blocks: SmallVec<[&str; 32]> = SmallVec::new();
     let mut pos = 0;
 
     while pos < content.len() {
+        let remaining = &content[pos..];
+
         // Check for code block start
-        if content[pos..].starts_with("```") {
-            // Find the end of the code block
-            if let Some(end_offset) = content[pos + 3..].find("```") {
-                let block_end = pos + 3 + end_offset + 3;
+        if remaining.starts_with("```") {
+            // Find the end of the code block: first fence marker at or after
+            // pos + 3 (same match the old `content[pos + 3..].find("```")`
+            // produced, found here in O(log n) instead of a tail rescan).
+            let close_idx = fences.partition_point(|&p| p < pos + 3);
+            if let Some(&close) = fences.get(close_idx) {
+                let block_end = close + 3;
                 blocks.push(&content[pos..block_end]);
                 pos = block_end;
                 continue;
             }
+            // Unclosed fence: treat the marker as plain text — the Python
+            // fallback only pairs complete fences — and keep scanning past it
+            // so the loop always advances.
         }
 
-        // Find next paragraph break or code block
-        let remaining = &content[pos..];
+        // Find next paragraph break or code block. Boundary fence candidates
+        // start at pos + 3 when the marker at pos is an unclosed fence, so the
+        // marker itself can never produce chunk_end == 0.
+        let search_from = if remaining.starts_with("```") {
+            pos + 3
+        } else {
+            pos
+        };
         let next_break = remaining.find("\n\n").unwrap_or(remaining.len());
-        let next_code = remaining.find("```").unwrap_or(remaining.len());
+        let fence_idx = fences.partition_point(|&p| p < search_from);
+        let next_code = match fences.get(fence_idx) {
+            Some(&p) => p - pos,
+            None => remaining.len(),
+        };
 
         let chunk_end = next_break.min(next_code);
 
@@ -234,6 +261,54 @@ mod tests {
         // Should preserve the code block as one unit
         let has_code_block = blocks.iter().any(|b| b.contains("```rust"));
         assert!(has_code_block);
+    }
+
+    #[test]
+    fn test_split_unclosed_fence_terminates() {
+        // Regression: an unterminated fence used to spin forever (chunk_end == 0,
+        // pos never advanced). The marker must stay in the paragraph text, matching
+        // the Python fallback, which only pairs complete fences.
+        let content = "Intro paragraph.\n\n```rust\nfn main() {}";
+        let blocks = split_into_blocks(content);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0], "Intro paragraph.");
+        assert_eq!(blocks[1], "```rust\nfn main() {}");
+    }
+
+    #[test]
+    fn test_split_lone_fence_marker() {
+        let blocks = split_into_blocks("```");
+        assert_eq!(blocks, vec!["```"]);
+    }
+
+    #[test]
+    fn test_split_fence_mid_paragraph_starts_unit() {
+        // A fence marker not aligned with a paragraph break still starts a code
+        // block unit at the marker; preceding text becomes its own block.
+        let content = "text```py\nx = 1```tail";
+        let blocks = split_into_blocks(content);
+        assert_eq!(blocks, vec!["text", "```py\nx = 1```", "tail"]);
+    }
+
+    #[test]
+    fn test_split_large_fence_free_content_completes() {
+        // ~8 MB of fence-free paragraphs must split in linear time; the old
+        // implementation rescanned the remaining tail for "```" per block.
+        let paragraph = "word ".repeat(20);
+        let content = (vec![paragraph; 80_000]).join("\n\n");
+        let blocks = split_into_blocks(&content);
+        assert_eq!(blocks.len(), 80_000);
+    }
+
+    #[test]
+    fn test_split_large_content_with_trailing_unclosed_fence() {
+        // The exact shape of the 2026-11-06 livelock: many blocks, then one
+        // unterminated fence. Must terminate with the marker kept as text.
+        let paragraph = "word ".repeat(20);
+        let content = format!("{}\n\n```", (vec![paragraph; 20]).join("\n\n"));
+        let blocks = split_into_blocks(&content);
+        assert_eq!(blocks.len(), 21);
+        assert_eq!(blocks[20], "```");
     }
 
     #[test]
