@@ -389,7 +389,7 @@ class ResumeCommand(BaseSlashCommand):
         # Otherwise, show interactive selection
         try:
             store = ConversationStore()
-            
+
             # Parse pagination flags
             page_val = self._get_flag_value(ctx, "--page") or self._get_flag_value(ctx, "-p")
             page = 1
@@ -398,28 +398,28 @@ class ResumeCommand(BaseSlashCommand):
                     page = max(1, int(page_val))
                 except ValueError:
                     pass
-            
+
             page_size = 20
             offset = (page - 1) * page_size
-            
+
             # Fetch more sessions to support pagination
             all_sessions = store.list_session_summaries(limit=1000)
-            
+
             if not all_sessions:
                 ctx.console.print("[yellow]No sessions found[/]")
                 ctx.console.print("[dim]Start a conversation to create sessions[/]")
                 return
-            
+
             # Reverse to ascending order (oldest first) so recent sessions aren't cut off
             all_sessions = list(reversed(all_sessions))
             total_sessions = len(all_sessions)
             total_pages = (total_sessions + page_size - 1) // page_size
-            
+
             # Paginate
             start_idx = offset
             end_idx = min(offset + page_size, total_sessions)
             sessions = all_sessions[start_idx:end_idx]
-            
+
             if not sessions:
                 ctx.console.print(f"[yellow]Page {page} is out of range (1-{total_pages})[/]")
                 return
