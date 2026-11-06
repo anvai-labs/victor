@@ -1339,6 +1339,189 @@ A session string seen in the UI or a stack trace can be located with
 `sqlite3 <db> "SELECT ... WHERE session_id LIKE '%<prefix>%'"`
 across both databases.
 
+## Provider Model Registration (Context-Window Mis-Resolution)
+
+This runbook covers the class of failure where a **new model** (e.g. a newly
+released flagship like `glm-5.2`) causes the UI to freeze, the agent to emit
+empty responses, and the streaming executor to loop on "aggressive recovery"
+—even though the model itself advertises a very large context window.
+
+### Problem
+
+A provider profile advertises a model with a large context window (e.g. 1M
+context), but once the conversation grows past a low threshold the session
+freezes. Logs show a degenerate loop:
+
+```
+WARNING - chat_stream_helpers - Stream completed without content or tool calls
+WARNING - chat_stream_helpers - Provider payload required tool-history repair: ... removed=1 ...
+WARNING - chat_stream_executor - Model returned empty response - attempting aggressive recovery
+```
+
+### Root Cause
+
+The runtime does **not** read the advertised context window from
+`~/.victor/profiles.yaml` (that loader only maps `provider`, `model`,
+`coding_plan`, `temperature`, `max_tokens`, `description`). The effective window
+comes from `provider.context_window(model)` (the `BaseProvider` API), consumed at
+`victor/agent/services/tool_service.py:2799` (`_get_tool_context_window`).
+
+Two registration gaps cause the freeze:
+
+1. **Missing `context_window()` override.** The base class method has its own
+   lookup table (`victor/providers/base.py:1075`) that does NOT include the new
+   model. Unknown models fall back to `8192` tokens
+   (`base.py:1150` warns `Unknown model ... using default context window of 8192`).
+2. **Missing registry entry.** If the provider only ships a custom
+   `get_context_window()` (note the `get_` prefix), it is **not** consulted by
+   the tool/KV-budgeting path — the base `context_window()` wins.
+
+With the window mis-resolved to 8192:
+- `max_tool_tokens = int(8192 * 0.25) = 2048` for the tool schema budget
+  (`tool_service.py:2740`).
+- KV session-locking is disabled (`8192 >= 32000` is False,
+  `tool_service.py:2810`).
+- Context pruning/compaction is tuned to a ceiling ~125x too small, so the
+  tool-history repair path starts *removing* messages — breaking the
+  OpenAI tool-call ↔ tool-result pairing and triggering the empty-response
+  recovery loop that manifests as the freeze.
+
+### Diagnosis
+
+Confirm what the runtime actually sees (this is the authoritative check):
+
+```bash
+python -c "
+from victor.providers.zai_provider import ZAIProvider
+p = ZAIProvider(api_key='x')
+for m in ['glm-5.2','glm-5.2:coding','glm-5.1','glm-4.6']:
+    print(f'{m:16} context_window()={p.context_window(m)}')
+"
+```
+
+A healthy result shows the model's true window (e.g. `1000000`). An unhealthy
+result shows `8192` or a value far below the advertised window, plus the
+`Unknown model ... using default context window of 8192` warning.
+
+### Solutions
+
+**Preferred (config-driven, no code change):**
+
+1. **Register the model in `victor/config/provider_context_limits.yaml`.** This is
+   the single source of truth for context windows at runtime —
+   `BaseProvider.context_window()` consults it first, before any hardcoded
+   provider table. Add a fnmatch pattern under `models:` (takes precedence over
+   the provider default), or a provider block under `providers:`:
+
+   ```yaml
+   providers:
+     zai:                      # provider-level default for all GLM models
+       context_window: 200000
+       response_reserve: 8192
+       supports_extended_context: true
+
+   models:
+     "glm-5.3*":              # model-specific override (highest precedence)
+       context_window: 1000000  # Z.AI: 1M context
+       response_reserve: 131072  # 128K maximum output
+   ```
+
+   For Sandhi-backed providers, also register the model in
+   `victor/config/openai_compat_model_policy.yaml`: its context-window routes
+   take precedence in the provider's `context_window()` method, and its model
+   catalog advertises `max_output` for discovery.
+
+   `response_reserve` budgets context; it does not change the per-request
+   `max_tokens` in `~/.victor/profiles.yaml`. The Z.AI GLM-5.3 API supports
+   up to 128K output tokens, but a profile may choose a smaller operational
+   limit (for example, 32768) to control latency and usage.
+
+   Official model references used to check the additional model limits:
+   [GLM-5.2](https://docs.z.ai/guides/llm/glm-5.2) (1M context, 128K output),
+   [GLM-5.1](https://docs.z.ai/guides/llm/glm-5.1) (200K context, 128K output),
+   [GPT-5 nano](https://platform.openai.com/docs/models/gpt-5-nano)
+   (400K context, 128K output), and
+   [Gemini 2.5 Pro](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-pro)
+   (1,048,576 input tokens, 65,536 output tokens). Profiles with custom
+   gateway model IDs or locally served variants must be checked against their
+   deployed limits; do not infer those limits from the model name alone.
+   Groq's [model table](https://console.groq.com/docs/models) lists
+   `llama-3.3-70b-versatile` at 131,072 context / 32,768 maximum completion
+   and `openai/gpt-oss-120b` at 131,072 / 65,536. These are hosted limits,
+   not proof that a locally hosted model with a similar name shares them.
+
+   Resolution order at runtime:
+   1. `models:` fnmatch pattern (e.g. `glm-5.2*` matches `glm-5.2` and
+      `glm-5.2:coding`)
+   2. `providers:` block default for the provider
+   3. the provider's hardcoded `<PROVIDER>_MODELS` table (legacy fallback)
+   4. `8192` safe default
+
+2. Re-run the diagnosis snippet above — both the exact name **and** any suffix
+   variant (e.g. `glm-5.2:coding`) must resolve to the true window.
+
+> **Adding a new model is now a YAML edit.** You only need to touch provider
+> code if the model also needs non-window metadata (`max_output`,
+> `supports_thinking`, etc.) for that provider's `list_models()` / capability
+> advertising. For context-window sizing alone, use the YAML.
+
+**Fallback (code edit, for providers without a YAML entry):**
+
+3. Add an exact entry to the provider's `<PROVIDER>_MODELS` table (e.g.
+   `ZAI_MODELS` in `victor/providers/zai_provider.py`), placed so exact-match
+   wins, AND ensure `context_window()` (no `get_` prefix) is overridden to
+   delegate to it:
+
+   ```python
+   def context_window(self, model: str) -> int:
+       return self.get_context_window(model)
+   ```
+
+> Note: adding `context_window:` to `~/.victor/profiles.yaml` will **not** fix
+> this — the profile loader ignores that field. Use
+> `victor/config/provider_context_limits.yaml` (the runtime override) instead.
+
+### Prevention (Adding Any New Model)
+
+Follow this checklist whenever a new model is added (new release, new provider,
+or new suffix/variant):
+
+1. **Add a `models:` pattern to `provider_context_limits.yaml`** with the
+   correct `context_window`. This makes the window available to the runtime
+   budgeting path with no code change.
+2. **Confirm `context_window(model)` resolves correctly** by running the
+   diagnosis snippet — verify the exact name AND every suffix/variant used in
+   profiles (e.g. `:coding`, `:china`).
+3. **Check `get_provider_category()`** (`victor/config/tool_tiers.py:184`) —
+   tool-broadcasting strategy is tiered by window (`<16384`, `<131072`, ...);
+   a mis-resolved window picks the wrong strategy.
+4. **Watch the logs for the failure signature** on first real use:
+   `Unknown model ... using default context window of 8192`, or the
+   `tool-history repair ... removed=` / `attempting aggressive recovery` loop.
+   If either appears, the model is not registered for the budgeting path.
+5. **Add/extend the provider's unit test** asserting
+   `provider.context_window(model)` returns the expected value for each
+   supported model name (see `test_context_window_config_driven_override` in
+   `tests/unit/providers/test_zai_provider_ext.py` for the config-driven
+   pattern).
+
+### Related Files
+
+- `victor/config/provider_context_limits.yaml` — **runtime source of truth**
+  for context windows (config-driven; edit this to register a new model)
+- `victor/config/config_loaders.py:166` — `get_provider_limits()` YAML loader
+  (fnmatch patterns, TTL cache, hot-reload via `invalidate_config_cache()`)
+- `victor/providers/base.py:1055` — `context_window()` consults the YAML first,
+  then falls back to its hardcoded table (8192 fallback at `:1150`)
+- `victor/providers/<provider>_provider.py` — hardcoded `<PROVIDER>_MODELS`
+  registry (legacy fallback when no YAML entry exists)
+- `victor/agent/services/tool_service.py:2799,2740,2810` — runtime consumers
+- `victor/config/tool_tiers.py:184` — provider category by window size
+
+---
+
+---
+
 ## Installing Directly from GitHub
 
 Every release tag is installable straight from the public repository, with
