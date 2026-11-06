@@ -101,8 +101,11 @@ class VerbositySettings(BaseModel):
 class PromptOptimizationSettings(BaseModel):
     """Top-level prompt optimization configuration."""
 
-    # Master switch — gates ALL prompt optimization
-    enabled: bool = True
+    # Master switch — gates ALL automated prompt optimization.
+    # Default: False (on-demand only). Use /prompt-optimize slash command
+    # to trigger evolution manually. This protects KV cache from mid-session
+    # thrashing and gives users explicit control over when prompts evolve.
+    enabled: bool = False
 
     # Perf: cache the per-iteration learning-trace collection (JSONL + conversation merge)
     # for this many seconds within a task. The traces are stable across iterations of one

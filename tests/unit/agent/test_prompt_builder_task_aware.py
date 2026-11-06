@@ -452,7 +452,8 @@ class TestPromptOptimizationSettings:
         )
 
         s = PromptOptimizationSettings()
-        assert s.enabled  # Enabled by default for GEPA/MIPROv2/CoT
+        # Disabled by default — on-demand only via /prompt-optimize
+        assert not s.enabled
         assert s.default_strategies == ["gepa"]
         assert s.section_strategies == {}
 

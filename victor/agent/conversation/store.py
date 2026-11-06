@@ -1477,7 +1477,7 @@ class ConversationStore:
     @staticmethod
     def _generate_session_id() -> str:
         """Generate unique session ID."""
-        return f"session_{uuid.uuid4().hex[:12]}"
+        return f"s_{uuid.uuid4().hex[:12]}"
 
     @staticmethod
     def _generate_message_id() -> str:
