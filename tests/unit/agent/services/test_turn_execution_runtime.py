@@ -2114,3 +2114,101 @@ async def test_stategraph_verifier_rejected_before_request_or_history(monkeypatc
     request.assert_not_awaited()
     executor._chat_context.add_message.assert_not_called()
     executor._chat_context.conversation.ensure_system_prompt.assert_not_called()
+
+
+# --- Tool offer stability across budget exhaustion + stray-call guard --------
+
+
+def _stray_response() -> CompletionResponse:
+    return CompletionResponse(
+        content="",
+        tool_calls=[{"function": {"name": "rr_propose_brief", "arguments": "{}"}}],
+        stop_reason="tool_calls",
+    )
+
+
+def _text_response(text: str = "final answer") -> CompletionResponse:
+    return CompletionResponse(content=text, tool_calls=None, stop_reason="stop")
+
+
+@pytest.mark.asyncio
+async def test_execute_turn_keeps_tool_offer_when_budget_exhausted():
+    """Exhausting the tool budget must not empty the request's tool offer.
+
+    Enforcement belongs to execution (calls are skipped with a recorded
+    reason); an empty offer turns a mid-conversation tool call into a
+    protocol violation and flushes the KV-cached tool prefix.
+    """
+    executor = _make_executor()
+    executor._tool_context.tool_calls_used = 10
+    executor._tool_context.tool_budget = 10
+    select = AsyncMock(return_value=[SimpleNamespace(name="rr_read_source")])
+    executor._select_tools_for_turn = select
+    executor._apply_runtime_context_overrides = MagicMock(return_value={})
+    executor._resolve_orchestrator = MagicMock(return_value=None)
+    executor._resolve_turn_temperature = MagicMock(return_value=0.2)
+    executor._provider_call_overrides = MagicMock(return_value={})
+    executor._execute_model_turn = AsyncMock(return_value=_text_response())
+    executor._record_conversation_usage = MagicMock()
+    executor.govern_response = AsyncMock(side_effect=lambda r: r)
+
+    result = await executor.execute_turn(user_message="wrap up the task")
+
+    select.assert_awaited_once()
+    executor._execute_model_turn.assert_awaited_once()
+    assert result.content == "final answer"
+
+
+@pytest.mark.asyncio
+async def test_guard_passes_through_when_tools_offered():
+    executor = _make_executor()
+    executor._execute_model_turn = AsyncMock()
+    stray = _stray_response()
+
+    out = await executor._guard_unoffered_tool_calls(
+        stray, tools=[SimpleNamespace(name="rr_read_source")], provider_kwargs={}
+    )
+
+    assert out is stray
+    executor._execute_model_turn.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_guard_redispatches_stray_call_once_with_text_only_instruction():
+    executor = _make_executor()
+    executor._record_conversation_usage = MagicMock()
+    executor.govern_response = AsyncMock(side_effect=lambda r: r)
+
+    async def fake_model_turn(tools=None, *, extra_messages=None, **kwargs):
+        if extra_messages is not None:
+            assert tools is None
+            assert len(extra_messages) == 1
+            assert "plain text" in extra_messages[0].content
+            return _text_response("done without tools")
+        return _stray_response()
+
+    executor._execute_model_turn = AsyncMock(side_effect=fake_model_turn)
+
+    out = await executor._guard_unoffered_tool_calls(
+        _stray_response(), tools=None, provider_kwargs={"task_type": "coding"}
+    )
+
+    assert out.content == "done without tools"
+    assert not (out.tool_calls or [])
+    assert executor._execute_model_turn.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_guard_raises_on_persistent_stray_call():
+    from victor.core.errors import ProviderInvalidResponseError
+
+    executor = _make_executor()
+    executor._record_conversation_usage = MagicMock()
+    executor.govern_response = AsyncMock(side_effect=lambda r: r)
+    executor._execute_model_turn = AsyncMock(return_value=_stray_response())
+
+    with pytest.raises(ProviderInvalidResponseError, match="no-tools turn"):
+        await executor._guard_unoffered_tool_calls(
+            _stray_response(), tools=None, provider_kwargs={}
+        )
+    assert executor._execute_model_turn.await_count == 1

@@ -559,6 +559,57 @@ class TurnExecutor:
             return response.model_copy(update={"content": content})
         return response
 
+    async def _guard_unoffered_tool_calls(
+        self,
+        response: CompletionResponse,
+        *,
+        tools: Optional[List[Any]],
+        provider_kwargs: Dict[str, Any],
+    ) -> CompletionResponse:
+        """Bounded handling of tool calls made against an empty tool offer.
+
+        OpenAI-dialect models occasionally emit ``tool_calls`` on turns that
+        offered no tools — observed on finishing turns after tool-budget
+        exhaustion, where the model answers with the completion pattern the
+        conversation established (a submission tool call). Executing or
+        recording such a response would violate the request contract, so the
+        turn is re-dispatched exactly once with an explicit text-only
+        instruction appended to the call. A persistent violation raises
+        :class:`ProviderInvalidResponseError`.
+        """
+        stray = list(getattr(response, "tool_calls", None) or [])
+        if tools or not stray:
+            return response
+        logger.warning(
+            "Model returned %d tool call(s) against an empty tool offer; "
+            "re-dispatching once with a text-only instruction",
+            len(stray),
+        )
+        from victor.core.errors import ProviderInvalidResponseError
+        from victor.core.provider_messages import Message
+
+        instruction = Message(
+            role="user",
+            content=(
+                "Tool use is not available for this turn. Provide your answer "
+                "as plain text; do not request tools."
+            ),
+        )
+        retry = await self._execute_model_turn(
+            tools=None,
+            extra_messages=[instruction],
+            **dict(provider_kwargs),
+        )
+        self._record_conversation_usage(retry)
+        retry = await self.govern_response(retry)
+        if getattr(retry, "tool_calls", None):
+            raise ProviderInvalidResponseError(
+                "Model persisted in requesting tools on a no-tools turn "
+                f"({len(retry.tool_calls)} call(s)) after one text-only redispatch",
+                response_data={"stray_tool_calls": stray},
+            )
+        return retry
+
     async def prepare_runtime_topology(
         self,
         topology_plan: Any,
@@ -695,13 +746,16 @@ class TurnExecutor:
                 if deterministic_turn is not None:
                     return deterministic_turn
 
-            # Select tools (unless Q&A task)
+            # Select tools (unless Q&A task). The tool offer stays stable even
+            # when the tool budget is exhausted: the offer is a contract
+            # surface — an abruptly empty offer turns a mid-conversation tool
+            # call into a protocol violation for validating provider wrappers,
+            # and it also flushes the KV-cached tool prefix. Budget enforcement
+            # stays at execution, where exhausted calls are skipped with a
+            # recorded reason and the loop's budget_warning nudge steers the
+            # model to finish in text.
             tools = None
-            if (
-                not is_qa_task
-                and self._provider_context.provider.supports_tools()
-                and self._tool_context.tool_calls_used < effective_tool_budget
-            ):
+            if not is_qa_task and self._provider_context.provider.supports_tools():
                 tools = await self._select_tools_for_turn(user_message, intent=intent)
 
             # Prepare thinking parameter
@@ -737,6 +791,17 @@ class TurnExecutor:
             # Track tokens
             self._record_conversation_usage(response)
             response = await self.govern_response(response)
+
+            # Defense in depth for empty offers outside the Q&A path (Q&A
+            # turns deliberately tolerate tool calls — the classification is
+            # heuristic, and an insisting model gets its tools executed): a
+            # stray tool call against a no-tools turn is re-dispatched once
+            # with an explicit text-only instruction before it can reach
+            # execution or history.
+            if not is_qa_task:
+                response = await self._guard_unoffered_tool_calls(
+                    response, tools=tools, provider_kwargs=provider_kwargs
+                )
 
             # Add assistant response/tool-call envelope to conversation history.
             # OpenAI-compatible providers require every subsequent tool message
@@ -1608,12 +1673,16 @@ class TurnExecutor:
     async def _execute_model_turn(
         self,
         tools: Optional[List[Any]] = None,
+        *,
+        extra_messages: Optional[List[Any]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
         """Execute a single model turn.
 
         Args:
             tools: Optional tool definitions
+            extra_messages: Optional messages appended to the conversation for
+                this call only (never persisted to chat history)
             **kwargs: Additional provider parameters; temperature_override overrides
                 the provider-default temperature for this task type.
 
@@ -1640,8 +1709,11 @@ class TurnExecutor:
         ):
             kwargs["reasoning_effort"] = reasoning_effort
 
+        messages = self._chat_context.messages
+        if extra_messages:
+            messages = [*messages, *extra_messages]
         return await self._execution_provider.execute_turn(
-            messages=self._chat_context.messages,
+            messages=messages,
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,
