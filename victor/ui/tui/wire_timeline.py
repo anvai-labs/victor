@@ -233,17 +233,17 @@ if RichLog is not None:
             except Exception:
                 pass  # Never let scroll tracking break the UI
 
-        def write(self, line: Any) -> None:
-            """Write a line, respecting user scroll position."""
-            # Remember if we were at the end before writing
-            was_at_end = self.is_scrolled_end if hasattr(self, "is_scrolled_end") else True
-            super().write(line)
-            # If user scrolled up, don't auto-scroll to new content
-            if self._user_scrolled_up and not was_at_end:
-                try:
-                    self.scroll_to(y=self._last_scroll_y, animate=False)
-                except Exception:
-                    pass  # Never let scroll tracking break the UI
+        def write(self, *args: Any, **kwargs: Any) -> Any:
+            """Write a line, respecting user scroll position.
+
+            Delegates to RichLog.write() with the full signature, but forces
+            ``scroll_end=False`` when the user has scrolled up to review
+            earlier content.
+            """
+            # If user scrolled up, force scroll_end=False to keep position
+            if self._user_scrolled_up:
+                kwargs.setdefault("scroll_end", False)
+            return super().write(*args, **kwargs)
 
         def feed_wire(self, wire: Dict[str, Any]) -> None:
             """Render one wire-event dict (from JSONL replay or a live tail)."""
