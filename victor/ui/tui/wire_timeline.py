@@ -190,7 +190,11 @@ except Exception:  # pragma: no cover - exercised only in broken installs
 if RichLog is not None:
 
     class WireTimeline(RichLog):
-        """RichLog that renders v1 wire events with chat-surface semantics."""
+        """RichLog that renders v1 wire events with chat-surface semantics.
+
+        Supports scroll position preservation - when user scrolls up to review
+        previous content, auto-scroll is paused until they scroll back to bottom.
+        """
 
         DEFAULT_CSS = """
         WireTimeline {
@@ -205,8 +209,41 @@ if RichLog is not None:
             # RichLog's default minimum of 78 overrides its measured pane
             # width, cropping content in narrower conversation layouts.
             kwargs.setdefault("min_width", 1)
+            # Enable auto-scroll by default, but allow user to pause it
+            kwargs.setdefault("auto_scroll", True)
             super().__init__(**kwargs)
             self._state = WireTimelineState()
+            self._user_scrolled_up = False
+            # Track scroll position to detect user intent
+            self._last_scroll_y = 0
+
+        def on_scroll(self) -> None:
+            """Detect user scroll intent to pause/resume auto-scroll."""
+            try:
+                current_y = self.scroll_offset.y
+                # If user scrolled up by more than 2 lines, pause auto-scroll
+                if current_y < self._last_scroll_y - 2:
+                    self._user_scrolled_up = True
+                    self.auto_scroll = False
+                # If user scrolled back to near bottom (within 3 lines), resume
+                elif self.is_scrolled_end:
+                    self._user_scrolled_up = False
+                    self.auto_scroll = True
+                self._last_scroll_y = current_y
+            except Exception:
+                pass  # Never let scroll tracking break the UI
+
+        def write(self, line: Any) -> None:
+            """Write a line, respecting user scroll position."""
+            # Remember if we were at the end before writing
+            was_at_end = self.is_scrolled_end if hasattr(self, "is_scrolled_end") else True
+            super().write(line)
+            # If user scrolled up, don't auto-scroll to new content
+            if self._user_scrolled_up and not was_at_end:
+                try:
+                    self.scroll_to(y=self._last_scroll_y, animate=False)
+                except Exception:
+                    pass  # Never let scroll tracking break the UI
 
         def feed_wire(self, wire: Dict[str, Any]) -> None:
             """Render one wire-event dict (from JSONL replay or a live tail)."""
