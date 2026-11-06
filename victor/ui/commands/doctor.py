@@ -27,13 +27,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
-import platform
 import subprocess
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from victor.config.settings import get_project_paths
 
@@ -176,6 +175,112 @@ class DoctorChecks:
                     message=f"{package} is not installed ({description})",
                     suggestion=f"Run: pip install {package} to enable {package.split()[0]} provider",
                 )
+
+    def check_native_extensions(self) -> None:
+        """Check native extension availability and version drift vs victor-ai.
+
+        The native wheel releases in lockstep with victor-ai, but existing
+        installs never upgrade it (the ``victor-ai[native]`` extra is only a
+        floor for fresh installs). On 2026-11-06 a venv silently running
+        victor_native 0.15.0 under victor-ai 0.26.x pinned a chat session at
+        100% CPU inside a native dedup livelock that current Rust had already
+        fixed — the exact drift this check exists to surface. Classification
+        comes from ``victor.processing.native._base`` (see
+        ``evaluate_native_version`` there for the state vocabulary).
+        """
+        try:
+            from victor.processing.native import _base as native_base
+        except Exception as e:  # defensive: doctor must never crash on imports
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.WARNING,
+                message=f"native extension module could not be imported: {e}",
+                suggestion="Reinstall victor: pip install -e '.[dev]'",
+            )
+            return
+
+        if not native_base.is_native_available():
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.WARNING,
+                message=(
+                    "Rust native extensions not installed — pure Python fallbacks "
+                    "run 2-50x slower on tokenization, similarity and dedup hot paths"
+                ),
+                suggestion=(
+                    "pip install 'victor-ai[native]' (or build from source: "
+                    "cd rust && maturin develop --release)"
+                ),
+            )
+            return
+
+        status = native_base.get_native_version_status()
+        state = status.get("state")
+        native_version = status.get("native_version")
+        package_version = status.get("package_version")
+
+        if state == "stale":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.ERROR,
+                message=(
+                    f"victor_native {native_version} is older than victor-ai "
+                    f"{package_version} — a stale native wheel is in use (known "
+                    "hang/performance bug class)"
+                ),
+                suggestion=(
+                    "pip install -U 'victor-ai[native]' (or build from source: "
+                    "cd rust && maturin develop --release)"
+                ),
+            )
+        elif state == "patch-drift":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.WARNING,
+                message=(
+                    f"victor_native {native_version} vs victor-ai {package_version} "
+                    "(patch-level drift)"
+                ),
+                suggestion="pip install -U 'victor-ai[native]' to realign versions",
+            )
+        elif state == "newer":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.INFO,
+                message=(
+                    f"victor_native {native_version} is newer than victor-ai "
+                    f"{package_version} (editable/source build?) — keeping native"
+                ),
+            )
+        elif state == "skipped":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.INFO,
+                message=(
+                    f"Native extensions loaded (version {native_version}); version "
+                    "check skipped via VICTOR_NATIVE_SKIP_VERSION_CHECK"
+                ),
+            )
+        else:  # "ok", "unknown" — loaded, and either matched or unverifiable
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.SUCCESS,
+                message=f"Native extensions loaded (version {native_version})",
+            )
+
+        if native_base.numpy_accelerator_available():
+            self.add_check(
+                name="NumPy Accelerator",
+                severity=Severity.SUCCESS,
+                message="numpy available — batch similarity operations dispatch to NumPy+BLAS",
+            )
+        else:
+            self.add_check(
+                name="NumPy Accelerator",
+                severity=Severity.INFO,
+                message="numpy not installed — batch similarity dispatches to the native engine",
+                suggestion="Optional: pip install numpy for faster batch similarity",
+            )
 
     def check_api_keys(self) -> None:
         """Check for API keys in environment."""
@@ -530,6 +635,7 @@ class DoctorChecks:
         """
         self.check_python_version()
         self.check_dependencies()
+        self.check_native_extensions()
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()

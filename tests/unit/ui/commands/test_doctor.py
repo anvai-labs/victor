@@ -185,3 +185,119 @@ class TestRunDoctor:
         # Should be 0 or 1 depending on system state
         assert isinstance(exit_code, int)
         assert exit_code in [0, 1]
+
+
+class TestNativeExtensionsCheck:
+    """check_native_extensions: native wheel drift surfacing.
+
+    Regression context (2026-11-06): a venv silently ran victor_native 0.15.0
+    under victor-ai 0.26.x and pinned a chat session at 100% CPU inside a
+    native dedup livelock. These tests pin the doctor behavior that makes such
+    drift loud: stale = ERROR (exit-1 class), patch drift = WARNING.
+    """
+
+    def _run(self, monkeypatch, *, available=True, status=None, numpy=False):
+        from victor.processing.native import _base as native_base
+
+        monkeypatch.setattr(native_base, "is_native_available", lambda: available)
+        monkeypatch.setattr(native_base, "get_native_version_status", lambda: dict(status or {}))
+        monkeypatch.setattr(native_base, "numpy_accelerator_available", lambda: numpy)
+        doctor = DoctorChecks()
+        doctor.check_native_extensions()
+        return doctor.checks
+
+    def test_stale_wheel_is_error_with_remediation(self, monkeypatch):
+        checks = self._run(
+            monkeypatch,
+            status={
+                "state": "stale",
+                "native_version": "0.15.0",
+                "package_version": "0.26.2",
+            },
+        )
+        check = next(c for c in checks if c.name == "Native Extensions")
+        assert check.severity == Severity.ERROR
+        assert "0.15.0" in check.message and "0.26.2" in check.message
+        assert check.suggestion and "pip install" in check.suggestion
+
+    def test_patch_drift_is_warning(self, monkeypatch):
+        checks = self._run(
+            monkeypatch,
+            status={
+                "state": "patch-drift",
+                "native_version": "0.26.1",
+                "package_version": "0.26.2",
+            },
+        )
+        check = next(c for c in checks if c.name == "Native Extensions")
+        assert check.severity == Severity.WARNING
+
+    def test_matched_versions_are_success(self, monkeypatch):
+        checks = self._run(
+            monkeypatch,
+            status={
+                "state": "ok",
+                "native_version": "0.26.2",
+                "package_version": "0.26.2",
+            },
+        )
+        check = next(c for c in checks if c.name == "Native Extensions")
+        assert check.severity == Severity.SUCCESS
+        assert "0.26.2" in check.message
+
+    def test_unknown_state_still_reports_loaded_version(self, monkeypatch):
+        checks = self._run(
+            monkeypatch,
+            status={"state": "unknown", "native_version": "0.26.2", "package_version": None},
+        )
+        check = next(c for c in checks if c.name == "Native Extensions")
+        assert check.severity == Severity.SUCCESS
+
+    def test_newer_and_skipped_states_are_info(self, monkeypatch):
+        for state in ("newer", "skipped"):
+            checks = self._run(
+                monkeypatch,
+                status={
+                    "state": state,
+                    "native_version": "9.9.9",
+                    "package_version": "0.26.2",
+                },
+            )
+            check = next(c for c in checks if c.name == "Native Extensions")
+            assert check.severity == Severity.INFO, state
+
+    def test_native_missing_is_warning_with_install_hint(self, monkeypatch):
+        checks = self._run(monkeypatch, available=False)
+        check = next(c for c in checks if c.name == "Native Extensions")
+        assert check.severity == Severity.WARNING
+        assert "victor-ai[native]" in (check.suggestion or "")
+
+    def test_import_failure_is_warning_not_crash(self, monkeypatch):
+        import sys
+
+        import victor.processing.native as native_pkg
+
+        # ``from victor.processing.native import _base`` returns the attribute
+        # bound on the package when present, so the shim must remove both the
+        # sys.modules entry and the package attribute.
+        monkeypatch.setitem(sys.modules, "victor.processing.native._base", None)
+        monkeypatch.delattr(native_pkg, "_base", raising=False)
+        doctor = DoctorChecks()
+        doctor.check_native_extensions()  # must not raise
+        assert len(doctor.checks) == 1
+        assert doctor.checks[0].severity == Severity.WARNING
+
+    def test_numpy_dispatch_note_emitted_both_ways(self, monkeypatch):
+        for available, expected in ((True, Severity.SUCCESS), (False, Severity.INFO)):
+            checks = self._run(
+                monkeypatch,
+                status={"state": "ok", "native_version": "0.26.2", "package_version": "0.26.2"},
+                numpy=available,
+            )
+            check = next(c for c in checks if c.name == "NumPy Accelerator")
+            assert check.severity == expected
+
+    def test_run_all_checks_includes_native_extensions(self):
+        doctor = DoctorChecks()
+        names = [c.name for c in doctor.run_all_checks()]
+        assert "Native Extensions" in names
