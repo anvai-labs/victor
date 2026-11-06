@@ -27,52 +27,47 @@ duplicated `docs/user-guide/troubleshooting.md` (nav-published). Salvaged the un
 Provider Model Registration runbook into the canonical guide; deleted the legacy file;
 removed the repository-map entry. Net −798 lines.
 
-### 2. Providers guide — P1 merge
+### 2. Providers guide — DONE (2026-11-06)
 
-| File | Lines | Nav | Last touched |
-|---|---|---|---|
-| `docs/user-guide/providers.md` | 957 | yes | 2026-10-11 |
-| `docs/reference/providers/index.md` | 1026 | **no (orphan fork)** | 2026-09-08 |
+The recorded "16 unique H2s" dissolved under verification: per-provider sections
+(anthropic/google/moonshot/xai) were *renamed and expanded* in the published doc
+(Anthropic Claude, Google Gemini, Moonshot (Kimi), xAI Grok), and the capability
+matrices carried stale model names (Claude 3.5/GPT-4/Gemini 2.0) duplicating the
+published Tool Calling / Vision sections with worse data. The directory held two
+more unpublished companions (`comparison.md` 12L, `setup.md` 83L), both superseded.
 
-23 shared H2s with verbatim-identical sections ("Choosing a Provider / Decision Guide").
-The orphan fork additionally carries 16 unique H2s (per-provider sections: anthropic,
-google, moonshot, ollama; feature-support and comparison matrices). ~5 inbound links
-from `docs/user-guide/*.md` point at the orphan.
+**Executed:** salvaged the verified-live Startup Behavior note (lazy registration +
+`VICTOR_ENABLE_MLX_PROVIDER` gate, confirmed in `victor/providers/registry.py`);
+deleted `docs/reference/providers/` (3 files); repointed all inbound links.
+Lesson: heading-level "unique" counts overstate divergence — verify against renamed
+equivalents and check data freshness before salvaging tables.
 
-**Action:** merge the fork's unique per-provider sections and matrices into the
-published doc; repoint inbound links; delete the orphan.
+### 3. Configuration guide — DONE (2026-11-06)
 
-### 3. Configuration guide — P1 resolve (not a blind delete)
+The orphan's "40 unique H2s" had two explanations, both terminal: (a) its second half
+is a *project-context template* (Project Overview / Tech Stack / Git Workflow /
+Development Commands) superseded by `victor init` runtime synthesis
+(`victor/framework/init_synthesizer.py`); (b) its yaml "depth" documents **dead
+config keys** — `api_base_env`, `auto_compile`, `cache_compiled`, `compress_history`,
+`allowed_resources` exist nowhere in the code, and `fallback_providers` is a
+`ResilientProvider` SDK argument misattributed as a profiles key. Content-level token
+coverage against the two published docs confirmed everything live is already documented.
 
-| File | Lines | Nav | Last touched |
-|---|---|---|---|
-| `docs/getting-started/configuration.md` | 713 | yes | 2026-09-08 |
-| `docs/reference/configuration/index.md` | 908 | **no (orphan)** | 2026-09-08 |
-| `docs/reference/configuration-options.md` | 643 | yes | 2026-10-28 |
+**Executed:** deleted `docs/reference/configuration/index.md`; published the verified-
+alive companion as `docs/reference/api-keys.md` (all its `victor keys` commands and
+provider env vars exist in code; nav entry added); repointed all inbound links.
+Lesson: verify "unique" keys against the codebase — fossil option names are the most
+dangerous duplication, because they look like depth.
 
-28 shared H2s between the first two; the orphan has 40/55 unique H2s (priority order,
-directory structure, numbered best practices) — it is a deeper *guide*, not a stale
-copy. `configuration-options.md` shares **zero** headings with the orphan: it is the
-per-option reference table, complementary to both.
+### 4. CLI reference — DONE (2026-11-06)
 
-**Action:** de-duplicate the intro-level overlap into `getting-started/configuration.md`,
-publish the orphan's deep content under the reference section (or fold it in), and keep
-`configuration-options.md` as the option table. Decision needed on placement; content
-merge is mechanical after that.
-
-### 4. CLI reference — P2 merge
-
-| File | Lines | Nav | Last touched |
-|---|---|---|---|
-| `docs/user-guide/cli-reference.md` | 746 | yes | 2026-09-08 |
-| `docs/reference/cli-commands.md` | 701 | **yes (both published!)** | 2026-06-16 |
-
-Overlapping command coverage in different formats; the stale June doc still documents
-commands the September doc lacks (dashboard, docs, embeddings, examples, index,
-security).
-
-**Action:** merge unique command entries into `cli-reference.md`; remove the
-`reference/cli-commands.md` nav entry and file; fix inbound links.
+**Executed:** merged the six genuinely-absent commands (`dashboard`, `docs`,
+`embeddings`, `examples`, `security`, `test-provider`) plus the unique Exit Codes
+table into `docs/user-guide/cli-reference.md`; deleted `docs/reference/cli-commands.md`
+and its nav entry; repointed links (`docs/index.md`, repository map,
+`reference/quick-reference.md`). Initial "8 unique commands" included false positives
+from heading-format differences — coverage checks must run against full text, not
+heading equality.
 
 ### 5. `docs/guides/` legacy tree — P3 program
 

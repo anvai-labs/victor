@@ -189,8 +189,8 @@ nav:
       - Research: verticals/research.md
   - Reference:
       - reference/index.md
-      - CLI Commands: reference/cli-commands.md
       - Configuration Options: reference/configuration-options.md
+      - API Keys: reference/api-keys.md
       - Environment Variables: reference/environment-variables.md
   - Development:
       - development/index.md

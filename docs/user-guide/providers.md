@@ -50,7 +50,7 @@ capabilities from a validated per-provider spec rather than hard-coding them
 
 Cost tiers are indicative ($ = budget, $$$ = premium); check current provider pricing.
 This is a subset — Victor ships **25 provider adapters**. For the full list run
-`victor providers`, or see the [Provider Reference](../reference/providers/index.md) and the
+`victor providers`, or see the [provider details below](#choosing-a-provider) and the
 detailed per-provider sections below.
 
 ---
@@ -881,6 +881,14 @@ Victor implements automatic rate limiting and circuit breaker patterns:
 
 ---
 
+## Startup Behavior
+
+Victor provider implementations are registered lazily and imported on first use. This avoids eager imports for optional runtimes and reduces startup cost for `import victor` and `Agent.create()`.
+
+MLX has an extra safety gate:
+- `VICTOR_ENABLE_MLX_PROVIDER=0`: disables MLX aliases completely.
+- `VICTOR_MLX_SKIP_PREFLIGHT=1`: bypasses the MLX subprocess runtime preflight (only if your MPS/Metal setup is known good).
+
 ## Troubleshooting
 
 ### Common Issues
@@ -946,11 +954,9 @@ ollama serve
 
 ## Additional Resources
 
-- **Provider Reference**: [Full Reference Documentation](../reference/providers/index.md)
-- **Provider Comparison**: [Comparison Table](../reference/providers/comparison.md)
-- **Setup Guide**: [Detailed Setup](../reference/providers/setup.md)
+- **Startup behavior**: lazy provider registration keeps `import victor` fast; see [Startup Behavior](#startup-behavior)
 - **Tool Catalog**: [55 Tools](../reference/tools/catalog.md)
-- **Configuration**: [Profiles and Settings](../reference/configuration/index.md)
+- **Configuration**: [Profiles and Settings](../getting-started/configuration.md)
 
 ---
 

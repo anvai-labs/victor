@@ -220,6 +220,67 @@ Add to Claude Desktop `config.json`:
 
 ---
 
+### `victor docs`
+
+Open documentation.
+
+```bash
+victor docs [--local]
+```
+
+### `victor examples`
+
+Show usage examples.
+
+```bash
+victor examples [TOPIC]
+```
+
+### `victor embeddings`
+
+Manage embedding models and caches.
+
+```bash
+victor embeddings COMMAND [OPTIONS]
+```
+
+#### `victor embeddings status`
+
+Show embedding system status.
+
+#### `victor embeddings clear`
+
+Clear embedding cache.
+
+### `victor security`
+
+Security scanning and auditing.
+
+```bash
+victor security COMMAND [OPTIONS]
+```
+
+#### `victor security scan`
+
+Run security scan on codebase.
+
+#### `victor security audit`
+
+Generate security audit report.
+
+### `victor dashboard`
+
+Launch the observability dashboard.
+
+```bash
+victor dashboard [OPTIONS]
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--port` | `-p` | Dashboard port (default: 8501) |
+| `--host` | | Dashboard host |
+
 ## API Key Management
 
 ### victor keys
@@ -330,6 +391,20 @@ profiles:
 ```
 
 ---
+
+### `victor test-provider`
+
+Test provider connectivity and capabilities.
+
+```bash
+victor test-provider [OPTIONS]
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--provider` | `-p` | Provider to test |
+| `--model` | `-m` | Model to test |
+| `--verbose` | `-v` | Show detailed output |
 
 ## Model Management
 
@@ -694,6 +769,17 @@ victor vertical create security --description "Security analysis"
 | `--category, -c` | Filter by category |
 | `--tags, -t` | Filter by tags |
 | `--verbose, -v` | Show detailed info |
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Invalid arguments |
+| 130 | Interrupted (Ctrl+C) |
 
 ---
 

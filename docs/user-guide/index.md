@@ -18,7 +18,7 @@ This guide covers everything you need to use Victor effectively, from basic conv
 | **Session Management** | [Session Management](session-management.md) | Save and restore sessions |
 | **Providers** | [Provider Guide](providers.md) | 25 LLM providers setup and switching |
 | **Workflows** | [Workflows Guide](workflows.md) | YAML-based automation |
-| **Configuration** | [Configuration →](../reference/configuration/index.md) | Profiles and settings |
+| **Configuration** | [Configuration →](../getting-started/configuration.md) | Profiles and settings |
 
 ## Common Tasks
 
@@ -149,7 +149,7 @@ Configure project-specific instructions:
 - **`CLAUDE.md`**: AI assistant project instructions
 - **Auto-discovery**: Victor finds these files automatically
 
-[Learn More →](../reference/configuration/index.md#victormd)
+[Learn More →](../getting-started/configuration.md)
 
 ## Configuration
 
@@ -177,7 +177,7 @@ profiles:
     model: gpt-4
 ```
 
-[Full Configuration Guide →](../reference/configuration/index.md)
+[Full Configuration Guide →](../getting-started/configuration.md)
 
 ## Troubleshooting
 
@@ -186,9 +186,9 @@ profiles:
 - Permission errors? → [Troubleshooting →](troubleshooting.md)
 
 **Provider Issues**
-- API key errors? → [Provider Reference →](../reference/providers/index.md)
+- API key errors? → [Provider Reference →](providers.md)
 - Connection timeouts? → [Troubleshooting →](troubleshooting.md)
-- Model not found? → [Provider Reference →](../reference/providers/index.md)
+- Model not found? → [Provider Reference →](providers.md)
 
 **Performance Issues**
 - Slow responses? → [Performance Benchmarks →](../guides/BENCHMARKING.md)
@@ -374,7 +374,7 @@ See [the team quick start](../guides/MULTI_AGENT_TEAMS.md) for the public
 
 - **Session Management**: [Session Management →](session-management.md)
 - **Troubleshooting**: [Troubleshooting Guide →](troubleshooting.md)
-- **Reference**: [Provider Reference →](../reference/providers/index.md)
+- **Reference**: [Provider Reference →](providers.md)
 - **Reference**: [Tool Catalog →](../reference/tools/catalog.md)
 - **Workflows**: [Workflows Guide →](workflows.md)
 - **Guides**: [Multi-Agent Teams →](../guides/MULTI_AGENT_TEAMS.md)

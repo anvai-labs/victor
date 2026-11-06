@@ -204,15 +204,15 @@ ledger. Requirements `.txt` files are dependency inputs, not disposable prose.
 
 ### `docs/reference/`
 
-[cli commands](../reference/cli-commands.md) · [configuration options](../reference/configuration-options.md) · [embeddings](../reference/embeddings.md) · [environment variables](../reference/environment-variables.md) · [index](../reference/index.md) · [provider caching](../reference/provider-caching.md) · [providers comparison](../reference/providers-comparison.md) · [quick reference](../reference/quick-reference.md) · [settings reference](../reference/settings-reference.md) · [skills](../reference/skills.md)
+[cli commands](../user-guide/cli-reference.md) · [configuration options](../reference/configuration-options.md) · [embeddings](../reference/embeddings.md) · [environment variables](../reference/environment-variables.md) · [index](../reference/index.md) · [provider caching](../reference/provider-caching.md) · [providers comparison](../reference/providers-comparison.md) · [quick reference](../reference/quick-reference.md) · [settings reference](../reference/settings-reference.md) · [skills](../reference/skills.md)
 
 ### `docs/reference/api/`
 
 [http api](../reference/api/http-api.md) · [index](../reference/api/index.md) · [mcp server](../reference/api/mcp-server.md) · [python api](../reference/api/python-api.md)
 
-### `docs/reference/configuration/`
+### `docs/reference/` (configuration + keys)
 
-[index](../reference/configuration/index.md) · [keys](../reference/configuration/keys.md)
+[api keys](../reference/api-keys.md) · [configuration options](configuration-options.md)
 
 ### `docs/reference/providers/`
 
