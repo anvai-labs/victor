@@ -1239,6 +1239,119 @@ export VICTOR_LOG_FILE=/var/log/victor.log
 CLAUDE.md                   # AI instructions
 ```
 
+## Native Extensions & Version Drift
+
+The Rust native extensions (`victor-native` wheel) release in lockstep with
+`victor-ai`, but **existing installs never upgrade the wheel** — the
+`victor-ai[native]` extra is only a floor for fresh installs. A stale native
+binary then silently executes under newer Python code. On 2026-11-06 this
+exact drift (victor_native 0.15.0 under victor-ai 0.26.x) pinned a chat
+session at 100% CPU inside a native dedup livelock that current Rust had
+fixed months earlier.
+
+### Check: `victor doctor`
+
+```
+Native Extensions │ ✗ │ victor_native 0.15.0 is older than victor-ai 0.26.2
+                  │    │ — a stale native wheel is in use ...
+```
+
+- **Stale major.minor** → ERROR, exit code 1. Fix immediately (below).
+- **Patch drift** → WARNING. Same major.minor; realign when convenient.
+- **`newer` / `skipped` (INFO)** → source builds or an explicit
+  `VICTOR_NATIVE_SKIP_VERSION_CHECK=1`; no action needed.
+
+Victor also logs a loud warning at startup when a stale wheel is loaded —
+check `~/.victor/logs/victor.log` for `stale native wheel is in use`.
+
+### Fix a stale native wheel
+
+```bash
+# Installed from PyPI:
+pip install -U 'victor-ai[native]'
+
+# Source checkout (builds the current rust/ workspace into your venv):
+cd rust && maturin develop --release
+```
+
+Developers: `make install-dev` pins `victor-native` to the checkout's
+`VERSION` automatically (best-effort). If you build native from source, set
+`VICTOR_NATIVE_SKIP_SYNC=1` so `install-dev` does not overwrite your build
+with the published wheel.
+
+## Session Hangs or 100% CPU
+
+A wedged session usually looks like: the model finished responding, but the
+process stays at ~100% CPU and never returns to the prompt.
+
+### 1. Dump the stacks (no root required)
+
+Victor installs an in-process diagnostics handler (unless
+`VICTOR_FAULTHANDLER=0`): send SIGUSR1 and every thread's Python stack prints
+to the terminal where victor is running:
+
+```bash
+ps auxwww | grep victor        # find the pid
+kill -USR1 <pid>               # stacks appear in the victor terminal
+```
+
+The bottom frames tell you the story: a tight loop inside
+`victor_native::...` means native code (check wheel drift above); a `kevent`
+/ `select` leaf with high CPU means an event-loop flood, not a compute hang.
+
+### 2. Confirm it is actually spinning (not just busy)
+
+```bash
+ps -o pid,cputime,command -p <pid>   # note the CPU time
+sleep 5
+ps -o pid,cputime,command -p <pid>   # grew by ~5s → pinned core
+```
+
+### 3. macOS fallback without USR1 support
+
+`py-spy` needs root on macOS; the stock `sample` tool does not:
+
+```bash
+/usr/bin/sample <pid> 3 -file /tmp/sample.txt   # note: /usr/bin/sample —
+                                                # a venv may shadow `sample`
+grep -A5 "Call graph" /tmp/sample.txt
+```
+
+### 4. Known-fixed classes
+
+- **Unclosed code fence livelock** (2026-11-06): a model response ending in
+  an unterminated code fence (```) spun `split_into_blocks` forever. Fixed in
+  v0.26.2+ (PR #1700); if you see it, upgrade the native wheel first.
+- **Graph watch daemon stuck at 100% CPU**: `victor.ui.cli graph watch`
+  foreground daemons can livelock in an fsevents storm and may ignore
+  SIGTERM — use `kill -9` on the daemon pid (it is stateless; the next chat
+  session restarts it). Under investigation.
+
+### 5. Where session data lives (for bug reports)
+
+```bash
+~/.victor/logs/victor.log          # per-run log; contains session ids
+<project>/.victor/project.db       # sessions, messages, checkpoints (sqlite)
+~/.victor/victor.db                # global: RL telemetry (rl_outcome), usage
+```
+
+A session string seen in the UI or a stack trace can be located with
+`sqlite3 <db> "SELECT ... WHERE session_id LIKE '%<prefix>%'"`
+across both databases.
+
+## Installing Directly from GitHub
+
+Every release tag is installable straight from the public repository, with
+native wheels that match the tag exactly:
+
+```bash
+pip install "victor-ai[native] @ git+https://github.com/anvai-labs/victor.git@v0.26.2"
+```
+
+See [Installation → Method 5](../getting-started/installation.md#method-5-direct-from-github-oss)
+for the `@develop` channel and its native-rebuild caveat, and run
+`victor doctor` afterwards to verify the install.
+
 ---
 
 **Still stuck?** [Open an issue →](https://github.com/anvai-labs/victor/issues/new)
