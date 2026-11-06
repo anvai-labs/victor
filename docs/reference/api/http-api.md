@@ -467,7 +467,7 @@ curl http://localhost:8080/api/v1/providers
   "providers": [
     {
       "name": "anthropic",
-      "models": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],
+      "models": ["claude-sonnet-4-6-20250514", "claude-haiku-4-5-20251001"],
       "features": {
         "tool_calling": true,
         "streaming": true,
@@ -476,7 +476,7 @@ curl http://localhost:8080/api/v1/providers
     },
     {
       "name": "openai",
-      "models": ["gpt-4o", "gpt-4o-mini", "o1-preview"],
+      "models": ["gpt-5-nano", "gpt-4o", "gpt-4o-mini"],
       "features": {
         "tool_calling": true,
         "streaming": true,

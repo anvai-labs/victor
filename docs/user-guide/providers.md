@@ -85,7 +85,7 @@ victor chat --provider anthropic --model claude-sonnet-4-20250514 "Hello!"
 victor chat --provider anthropic "Design a REST API for a blog"
 
 # Switch to GPT-4 for implementation (context preserved)
-/provider openai --model gpt-4o
+/provider openai --model gpt-5-nano
 
 # Finish with local model for privacy
 /provider ollama --model qwen2.5-coder:7b
@@ -159,8 +159,8 @@ GUI-based model management with OpenAI-compatible API. Great for Windows users.
 
 **Usage**:
 ```bash
-# Set LM Studio host
-export VICTOR_LM_STUDIO_HOST=127.0.0.1:1234
+# Point the lmstudio provider at your server in ~/.victor/profiles.yaml
+# providers.lmstudio.base_url: http://127.0.0.1:1234
 
 # Use with Victor
 victor chat --provider lmstudio --model qwen2.5-coder-7b
@@ -202,7 +202,7 @@ python -m vllm.entrypoints.openai.api_server \
 
 **Usage**:
 ```bash
-export VICTOR_VLLM_HOST=127.0.0.1:8000
+# providers.vllm.base_url: http://127.0.0.1:8000  (in ~/.victor/profiles.yaml)
 victor chat --provider vllm --model Qwen/Qwen2.5-Coder-7B-Instruct
 ```
 
@@ -273,7 +273,7 @@ cd llama.cpp && make
 
 **Usage**:
 ```bash
-export VICTOR_LLAMACPP_HOST=127.0.0.1:8080
+# providers.llamacpp.base_url: http://127.0.0.1:8080  (in ~/.victor/profiles.yaml)
 victor chat --provider llama-cpp
 ```
 
@@ -298,8 +298,8 @@ Best overall for complex reasoning, coding, and long context.
 |-------|---------|----------|
 | `claude-opus-4-5-20251101` | 200K | Most capable, complex tasks |
 | `claude-sonnet-4-20250514` | 200K | Excellent balance of quality and speed |
-| `claude-3-5-sonnet-20241022` | 200K | Fast, efficient for everyday tasks |
-| `claude-3-5-haiku-20241022` | 200K | Fastest, most affordable |
+| `claude-sonnet-4-6-20250514` | 200K | Flagship, best for coding and agents |
+| `claude-haiku-4-5-20251001` | 200K | Fastest, most affordable |
 
 **Setup**:
 ```bash
@@ -334,13 +334,12 @@ Industry standard with excellent function calling and reasoning models.
 |-------|---------|----------|
 | `gpt-4o` | 128K | Multimodal, fast |
 | `gpt-4o-mini` | 128K | Cost-effective |
-| `o1-preview` | 128K | Advanced reasoning |
-| `o1-mini` | 128K | Fast reasoning |
+| `gpt-5-nano` | 400K | Cost-effective, recommended starter |
 
 **Setup**:
 ```bash
 export OPENAI_API_KEY=sk-proj-...
-victor chat --provider openai --model gpt-4o
+victor chat --provider openai --model gpt-5-nano
 ```
 
 **Features**:
@@ -360,15 +359,13 @@ Largest context windows (up to 2M tokens) and free experimental models.
 **Models**:
 | Model | Context | Best For |
 |-------|---------|----------|
-| `gemini-2.0-flash-exp` | 1M | Free, fast |
-| `gemini-2.0-flash-thinking-exp` | 1M | Reasoning (free) |
-| `gemini-1.5-pro` | 2M | Largest context |
-| `gemini-1.5-flash` | 2M | Fast, large context |
+| `gemini-2.5-pro` | 1,048,576 | Deep reasoning + coding flagship |
+| `gemini-2.5-flash` | 1,048,576 | Fast, large context, cost-effective |
 
 **Setup**:
 ```bash
 export GOOGLE_API_KEY=...
-victor chat --provider google --model gemini-2.0-flash-exp
+victor chat --provider google --model gemini-2.5-flash
 ```
 
 **Features**:
@@ -633,7 +630,7 @@ Access Claude, Llama, Mistral, and Titan models on AWS infrastructure.
 # Configure AWS credentials
 aws configure
 
-victor chat --provider bedrock --model anthropic.claude-3-5-sonnet-20241022-v2:0
+victor chat --provider bedrock --model anthropic.claude-sonnet-4-20250514-v1:0
 ```
 
 **Available Models**:
@@ -659,7 +656,7 @@ Enterprise Gemini access on Google Cloud.
 ```bash
 gcloud auth application-default login
 
-victor chat --provider vertex --model gemini-2.0-flash-exp
+victor chat --provider vertex --model gemini-2.5-flash
 ```
 
 **Features**:
@@ -800,8 +797,8 @@ Victor implements automatic rate limiting and circuit breaker patterns:
 
 | Provider | Model | Context Window |
 |----------|-------|----------------|
-| **Google** | gemini-1.5-pro | 2,000,000 |
-| **Google** | gemini-2.0-flash | 1,000,000 |
+| **Google** | gemini-2.5-pro | 1,048,576 |
+| **Google** | gemini-2.5-flash | 1,048,576 |
 | **Moonshot** | kimi-k2 | 256,000 |
 | **Anthropic** | claude-* | 200,000 |
 | **DeepSeek** | deepseek-* | 128,000 |
@@ -809,16 +806,16 @@ Victor implements automatic rate limiting and circuit breaker patterns:
 | **Groq** | llama-3.3-70b | 128,000 |
 | **Mistral** | mistral-large | 128,000 |
 | **Azure** | gpt-4o | 128,000 |
-| **Bedrock** | claude-3-5-sonnet | 200,000 |
+| **Bedrock** | claude-sonnet-4 | 200,000 |
 
 ### Vision Support
 
 | Provider | Vision Models |
 |----------|---------------|
 | **Anthropic** | All Claude 3/3.5/4 models |
-| **OpenAI** | gpt-4o, gpt-4-vision |
+| **OpenAI** | gpt-4o, gpt-5-nano |
 | **Google** | All Gemini models |
-| **Azure** | gpt-4o, gpt-4-vision |
+| **Azure** | gpt-4o |
 | **Bedrock** | Claude 3, Llama 3.2 multimodal |
 | **Ollama** | LLaVA variants only |
 
@@ -847,8 +844,8 @@ Victor implements automatic rate limiting and circuit breaker patterns:
 | **Replicate** | `REPLICATE_API_TOKEN` | Yes |
 | **Ollama** | `OLLAMA_HOST` or `OLLAMA_ENDPOINTS` | Optional |
 | **LM Studio** | `LMSTUDIO_ENDPOINTS` | Optional |
-| **vLLM** | `VICTOR_VLLM_HOST` | Optional |
-| **llama.cpp** | `VICTOR_LLAMACPP_HOST` | Optional |
+| **vLLM** | `providers.vllm.base_url` (profiles.yaml) | Optional |
+| **llama.cpp** | `providers.llamacpp.base_url` (profiles.yaml) | Optional |
 
 ---
 

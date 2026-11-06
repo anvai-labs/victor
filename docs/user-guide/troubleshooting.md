@@ -248,9 +248,10 @@ export AZURE_OPENAI_ENDPOINT=https://...
 
 # Local (optional)
 export OLLAMA_HOST=127.0.0.1:11434
-export VICTOR_LM_STUDIO_HOST=127.0.0.1:1234
-export VICTOR_VLLM_HOST=127.0.0.1:8000
-export VICTOR_LLAMACPP_HOST=127.0.0.1:8080
+# Local runtime endpoints go in ~/.victor/profiles.yaml, e.g.
+# providers.lmstudio.base_url: http://127.0.0.1:1234
+# providers.vllm.base_url:     http://127.0.0.1:8000
+# providers.llamacpp.base_url: http://127.0.0.1:8080
 ```
 
 ### Issue: Provider Not Available
@@ -511,7 +512,7 @@ curl http://127.0.0.1:8000/v1/models
 
 **3. Set host**:
 ```bash
-export VICTOR_VLLM_HOST=127.0.0.1:8000
+# providers.vllm.base_url: http://127.0.0.1:8000  (in ~/.victor/profiles.yaml)
 ```
 
 **4. Check GPU/memory**:
@@ -556,7 +557,7 @@ victor providers --current
 **3. Use smaller model**:
 ```bash
 # For simple tasks
-victor chat --model gemini-2.0-flash-exp "Quick question"
+victor chat --model gemini-2.5-flash "Quick question"
 # or
 victor chat --provider ollama --model llama3.2:3b "Quick question"
 ```
@@ -1222,7 +1223,7 @@ export GOOGLE_API_KEY=...
 
 # Local Providers
 export OLLAMA_HOST=127.0.0.1:11434
-export VICTOR_VLLM_HOST=127.0.0.1:8000
+# providers.vllm.base_url: http://127.0.0.1:8000  (in ~/.victor/profiles.yaml)
 
 # Debug
 export VICTOR_LOG_LEVEL=DEBUG

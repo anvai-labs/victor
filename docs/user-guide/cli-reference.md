@@ -12,17 +12,17 @@ Complete reference for all Victor CLI commands.
 | `victor serve` | Start HTTP API server |
 | `victor mcp` | Run as MCP server |
 | `victor keys` | Manage API keys |
-| `victor providers list` | List available providers |
+| `victor provider list` | List available providers |
 | `victor capabilities` | Inspect shared tools, teams, workflows, and recommendations |
 | `victor profiles` | Manage provider profiles |
 | `victor tools` | Manage and list tools |
 | `victor models` | Manage Ollama models |
 | `victor config` | View/edit configuration |
-| `victor rag` | RAG operations |
+| `victor graph query` | Code-graph retrieval |
 | `victor benchmark` | Run benchmarks |
 | `victor workflow` | Workflow management |
-| `victor scheduler` | Workflow scheduling |
-| `victor sessions` | Session management |
+| `victor workflow run` | Run workflows |
+| `victor session` | Session management |
 | `victor vertical` | Vertical package management |
 
 ---
@@ -104,7 +104,7 @@ Initialize Victor in the current directory. Creates `.victor/` directory with co
 victor init                         # Interactive setup
 victor init --force                 # Overwrite existing config
 victor init --provider anthropic    # Pre-configure provider
-victor init --model claude-3-5-sonnet
+victor init --model claude-sonnet-4-6-20250514
 victor init --index                 # Build codebase index
 ```
 
@@ -236,15 +236,15 @@ Show usage examples.
 victor examples [TOPIC]
 ```
 
-### `victor embeddings`
+### `victor embedding`
 
-Manage embedding models and caches.
+Manage embedding models and caches (see also `victor index embedding`).
 
 ```bash
-victor embeddings COMMAND [OPTIONS]
+victor embedding [OPTIONS]
 ```
 
-#### `victor embeddings status`
+### `victor embeddings status`
 
 Show embedding system status.
 
@@ -335,12 +335,12 @@ victor keys --set-service finnhub --keyring
 
 ## Provider Management
 
-### victor providers list
+### victor provider list
 
 List all available LLM providers.
 
 ```bash
-victor providers list
+victor provider list
 ```
 
 Displays providers with status, features, and aliases.
@@ -413,9 +413,7 @@ victor test-provider [OPTIONS]
 Manage Ollama models.
 
 ```bash
-victor models                       # List local models
-victor models list                  # Same as above
-victor models pull qwen2.5-coder:7b # Download model
+victor model list                   # List configured models
 victor models remove old-model      # Remove model
 victor models info qwen2.5-coder:7b # Show model details
 ```
@@ -496,9 +494,19 @@ victor config path                  # Show config file path
 
 ---
 
-## RAG Operations
+## Retrieval Operations
 
-### victor rag
+Victor's retrieval surface lives under the code graph and embedding index
+(RAG-style ingest/search is provided by the victor-rag vertical, not a
+top-level command):
+
+```bash
+victor graph query "authentication"   # Code-graph retrieval
+victor graph similar <symbol>         # Similar-code lookup
+victor index embedding --help         # Embedding index operations
+```
+
+## victor rag
 
 Retrieval-Augmented Generation operations.
 
@@ -801,9 +809,7 @@ These options are available for most commands:
 
 | Variable | Description |
 |----------|-------------|
-| `VICTOR_PROFILE` | Default profile name |
 | `VICTOR_PROVIDER` | Default provider |
-| `VICTOR_MODEL` | Default model |
 | `VICTOR_LOG_LEVEL` | Logging level |
 | `VICTOR_CONFIG_DIR` | Config directory override |
 | `VICTOR_AIRGAPPED` | Enable air-gapped mode |
