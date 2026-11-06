@@ -2142,7 +2142,8 @@ async def test_execute_turn_keeps_tool_offer_when_budget_exhausted():
     executor = _make_executor()
     executor._tool_context.tool_calls_used = 10
     executor._tool_context.tool_budget = 10
-    select = AsyncMock(return_value=[SimpleNamespace(name="rr_read_source")])
+    selected_tools = [SimpleNamespace(name="rr_read_source")]
+    select = AsyncMock(return_value=selected_tools)
     executor._select_tools_for_turn = select
     executor._apply_runtime_context_overrides = MagicMock(return_value={})
     executor._resolve_orchestrator = MagicMock(return_value=None)
@@ -2156,6 +2157,9 @@ async def test_execute_turn_keeps_tool_offer_when_budget_exhausted():
 
     select.assert_awaited_once()
     executor._execute_model_turn.assert_awaited_once()
+    # The selected offer must reach the model call itself — computing it
+    # without sending it is the exact regression this pins out.
+    assert executor._execute_model_turn.await_args.kwargs["tools"] is selected_tools
     assert result.content == "final answer"
 
 
@@ -2199,16 +2203,21 @@ async def test_guard_redispatches_stray_call_once_with_text_only_instruction():
 
 
 @pytest.mark.asyncio
-async def test_guard_raises_on_persistent_stray_call():
-    from victor.core.errors import ProviderInvalidResponseError
+async def test_guard_honors_persistent_stray_call_through_normal_execution():
+    """Persistent insistence is not a hard failure.
 
+    An insisting model may genuinely need the tool the supply heuristic
+    suppressed, so after one text-only redispatch the original stray
+    response flows to the normal execution path (pre-guard behavior)
+    instead of raising.
+    """
     executor = _make_executor()
     executor._record_conversation_usage = MagicMock()
     executor.govern_response = AsyncMock(side_effect=lambda r: r)
     executor._execute_model_turn = AsyncMock(return_value=_stray_response())
+    original = _stray_response()
 
-    with pytest.raises(ProviderInvalidResponseError, match="no-tools turn"):
-        await executor._guard_unoffered_tool_calls(
-            _stray_response(), tools=None, provider_kwargs={}
-        )
+    out = await executor._guard_unoffered_tool_calls(original, tools=None, provider_kwargs={})
+
+    assert out is original
     assert executor._execute_model_turn.await_count == 1
