@@ -53,6 +53,7 @@ class StatusBar(Static):
         model: Optional[str] = None,
         provider: Optional[str] = None,
         profile: Optional[str] = None,
+        cwd: Optional[str] = None,
     ) -> None:
         """Re-render the status bar from current runtime state.
 
@@ -66,6 +67,7 @@ class StatusBar(Static):
             model: Current model name.
             provider: Current provider name.
             profile: Active profile name.
+            cwd: Current working directory.
         """
         self.update(
             self._compose_line(
@@ -77,6 +79,7 @@ class StatusBar(Static):
                 model=model,
                 provider=provider,
                 profile=profile,
+                cwd=cwd,
             )
         )
 
@@ -91,8 +94,9 @@ class StatusBar(Static):
         model: Optional[str] = None,
         provider: Optional[str] = None,
         profile: Optional[str] = None,
+        cwd: Optional[str] = None,
     ) -> str:
-        """Compose a single-line status: phase · tools · queued · session.
+        """Compose a single-line status: phase · tools · queued · session · cwd.
 
         Model/provider/profile are intentionally omitted — the model appears
         in the header subtitle and the TokenUsageBar's context line. Session
@@ -108,5 +112,10 @@ class StatusBar(Static):
         if queued:
             parts.append(f"[dim]{queued} queued[/]")
         if session_id:
-            parts.append(f"[dim]session:[/] [white]{escape(session_id)}[/]")
+            parts.append(f"[dim]s:[/] [white]{escape(session_id)}[/]")
+        if cwd:
+            # Show last 2 path components for compactness
+            cwd_parts = cwd.rsplit("/", 2)
+            cwd_short = "/".join(cwd_parts) if len(cwd_parts) <= 2 else "…/" + "/".join(cwd_parts[-2:])
+            parts.append(f"[dim]cwd:[/] [white]{escape(cwd_short)}[/]")
         return " [dim]·[/] ".join(parts)

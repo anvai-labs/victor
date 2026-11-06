@@ -547,9 +547,21 @@ class VictorTUIApp(App[None]):
         model = self._safe(lambda: self._client.model)
         provider = self._safe(lambda: self._client.provider_name)
         profile = "—"
+        cwd = None
         try:
             if hasattr(self._settings, "profile") and self._settings.profile:
                 profile = self._settings.profile
+        except Exception:
+            pass
+        
+        # Get current working directory
+        try:
+            if hasattr(self._settings, "cwd") and self._settings.cwd:
+                cwd = str(self._settings.cwd)
+            elif hasattr(self._agent, "_orchestrator") and self._agent._orchestrator:
+                orch = self._agent._orchestrator
+                if hasattr(orch, "settings") and hasattr(orch.settings, "cwd"):
+                    cwd = str(orch.settings.cwd)
         except Exception:
             pass
 
@@ -562,6 +574,7 @@ class VictorTUIApp(App[None]):
             model=model,
             provider=provider,
             profile=profile,
+            cwd=cwd,
         )
         self._update_token_usage_bar()
 
