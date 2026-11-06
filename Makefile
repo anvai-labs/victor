@@ -69,6 +69,24 @@ install-dev:
 	pip install -e ".[dev,docs,build]"
 	pip install pre-commit pytest-split
 	pre-commit install || true
+	$(MAKE) install-native
+
+# Keep the compiled victor-native wheel matched to this checkout's VERSION.
+# Editable victor-ai installs never upgrade an existing victor-native wheel
+# (the [native] extra is only a floor), and a stale native binary silently
+# executes under newer Python code — the 2026-11-06 dedup livelock ran
+# victor_native 0.15.0 under victor-ai 0.26.x. Best-effort so offline/air-gapped
+# dev setups still work; `victor doctor` fails loudly on stale major.minor
+# drift either way. Rust contributors building from source
+# (cd rust && maturin develop --release) set VICTOR_NATIVE_SKIP_SYNC=1 to keep
+# their local build.
+install-native:
+ifeq ($(VICTOR_NATIVE_SKIP_SYNC),1)
+	@echo "victor-native sync skipped (VICTOR_NATIVE_SKIP_SYNC=1)"
+else
+	pip install 'victor-native==$(shell cat VERSION)' \
+		|| echo "WARNING: could not sync victor-native==$(shell cat VERSION) (offline?); victor doctor will flag drift"
+endif
 
 # First-party verticals folded into the monorepo under verticals/. Installed as
 # their own editable packages (they register via the victor.plugins entry point).

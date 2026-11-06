@@ -32,7 +32,7 @@ Refactored the decision service tier system to be provider-agnostic. Instead of 
 **Example Provider Mapping**:
 ```python
 "anthropic": {
-    "edge": "claude-3-5-haiku-20241022",
+    "edge": "claude-haiku-4-5-20251001",
     "balanced": "claude-sonnet-4-20250514",
     "performance": "claude-opus-4-5-20251101",
 },
@@ -71,8 +71,8 @@ _create_service(tier) →
   - `claude-opus-4-5*` with reasoning capability
   - `gpt-4o-mini*` with high tool reliability
   - `o3-*` with reasoning capability
-  - `gemini-2.0*` with thinking mode
-  - `gemini-1.5-flash-8b*`
+  - `gemini-2.5*` with thinking mode
+  - `gemini-2.5-flash*`
 - Enhanced model metadata for tier-appropriate models
 
 ### Phase 4: Configuration Validation (victor/config/decision_settings.py)

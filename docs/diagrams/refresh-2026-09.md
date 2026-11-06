@@ -127,7 +127,7 @@ are verified independently of that retained historical material.
 | `docs/guides/workflow-quickstart.md` | 41 | ASCII candidate | Workflow Structure | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
 | `docs/index.md` | 22 | Mermaid | Architecture at a Glance | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
 | `docs/reference/configuration/index.md` | 17 | ASCII candidate | Configuration Directory Structure | Retain file-tree or notation block; not a runtime topology |
-| `docs/reference/configuration/keys.md` | 21 | ASCII candidate | Overview | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
+| `docs/reference/api-keys.md` | 21 | ASCII candidate | Overview | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
 | `docs/reference/providers-comparison.md` | 21 | Mermaid | Decision Tree | Refresh Mermaid or replace duplicate topology with a canonical diagram link |
 | `docs/reference/quick-reference.md` | 177 | ASCII candidate | Linux / macOS | Retain file-tree or notation block; not a runtime topology |
 | `docs/reference/quick-reference.md` | 190 | ASCII candidate | Windows | Retain file-tree or notation block; not a runtime topology |

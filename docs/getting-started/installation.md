@@ -206,7 +206,49 @@ services:
     tty: true
 ```
 
-### Method 5: Development Installation
+### Method 5: Direct from GitHub (OSS)
+
+Every release is installable straight from the public repository — no PyPI
+publishing lag, and full control over the exact commit:
+
+**Pinned to a release tag (recommended):**
+
+```bash
+# uv (isolated tool environment, managed Python)
+uv tool install "victor-ai[native] @ git+https://github.com/anvai-labs/victor.git@v0.26.2"
+
+# pip inside a virtual environment
+python3 -m venv .venv && source .venv/bin/activate
+pip install "victor-ai[native] @ git+https://github.com/anvai-labs/victor.git@v0.26.2"
+
+victor --version
+victor doctor
+```
+
+Tag refs are version-coherent: the tag's `VERSION` matches the
+`victor-native` wheel published for that release, so `victor doctor` reports
+matched native extensions.
+
+**Bleeding edge (`@develop`):**
+
+```bash
+pip install "victor-ai[native] @ git+https://github.com/anvai-labs/victor.git@develop"
+```
+
+`develop` carries unreleased Python code at the same `VERSION` as the last
+release, so the `[native]` extra resolves to that release's compiled wheel.
+That is safe for Python-only changes; if the change set touches `rust/`,
+rebuild the extension from source to match the checkout:
+
+```bash
+git clone https://github.com/anvai-labs/victor.git
+cd victor/rust && maturin develop --release
+```
+
+Run `victor doctor` after installing — it verifies the native wheel is
+present and not stale, and reports any version drift as an error.
+
+### Method 6: Development Installation
 
 Follow the canonical [development setup guide](../development/setup.md), which
 installs the in-repository contracts package before Victor. Native extension
