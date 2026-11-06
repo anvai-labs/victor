@@ -286,7 +286,7 @@ Runtime evolution of system prompt sections using execution trace analysis.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `prompt_optimization.enabled` | `false` | Master switch for all prompt optimization |
+| `prompt_optimization.enabled` | `false` | Master switch for automated prompt optimization (default: off, use `/prompt-optimize` for on-demand) |
 | `prompt_optimization.default_strategies` | `["gepa"]` | Strategies applied in order |
 | `prompt_optimization.gepa.enabled` | `true` | Enable GEPA v2 (Pareto + tiered service) |
 | `prompt_optimization.gepa.default_tier` | `balanced` | Default tier: economic/balanced/performance |
