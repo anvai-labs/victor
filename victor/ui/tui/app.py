@@ -553,7 +553,7 @@ class VictorTUIApp(App[None]):
                 profile = self._settings.profile
         except Exception:
             pass
-        
+
         # Get current working directory
         try:
             if hasattr(self._settings, "cwd") and self._settings.cwd:

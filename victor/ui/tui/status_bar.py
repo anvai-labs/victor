@@ -116,6 +116,8 @@ class StatusBar(Static):
         if cwd:
             # Show last 2 path components for compactness
             cwd_parts = cwd.rsplit("/", 2)
-            cwd_short = "/".join(cwd_parts) if len(cwd_parts) <= 2 else "…/" + "/".join(cwd_parts[-2:])
+            cwd_short = (
+                "/".join(cwd_parts) if len(cwd_parts) <= 2 else "…/" + "/".join(cwd_parts[-2:])
+            )
             parts.append(f"[dim]cwd:[/] [white]{escape(cwd_short)}[/]")
         return " [dim]·[/] ".join(parts)
