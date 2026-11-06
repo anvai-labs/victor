@@ -69,14 +69,17 @@ and its nav entry; repointed links (`docs/index.md`, repository map,
 from heading-format differences — coverage checks must run against full text, not
 heading equality.
 
-### 5. `docs/guides/` legacy tree — P3 program
+### 5. `docs/guides/` legacy tree — P3 program (RECLASSIFIED 2026-11-06)
 
-38 unpublished docs parallel to `getting-started/` and `user-guide/`. The three
-canonical-pointer stubs (`installation.md`, `quickstart.md`, `first-agent.md`, 6-10
-lines) are routing — keep. The remaining ~30 need the cluster-1 treatment one category
-at a time (workflow guides, MCP, observability, multi-agent...). Not urgent: they are
-invisible to site users, but they are drift bait — every future edit risks forking
-published content again.
+Post-execution rescan against published counterparts changes the verdict: most of
+the tree (OBSERVABILITY, MCP_INTEGRATION, BENCHMARKING, EDGE_MODEL, WORKFLOW_*
+HITL, MULTI_AGENT_*, TASK_PLANNER, development/, integration/, observability/)
+has **no published counterpart at heading level** — it is *orphaned unique
+content*, not duplication. P3 is therefore a publish-or-archive triage program
+(per doc: is it current? where does it belong?), not a dedup pass. Genuine
+remaining duplicates inside the tree: `task_completion.md` vs
+`victor/tools/README_RESEARCH_TASK_TYPE.md` (0.28 overlap) and the three
+pointer stubs (keep).
 
 ### 6. No action (verified non-duplicates)
 
