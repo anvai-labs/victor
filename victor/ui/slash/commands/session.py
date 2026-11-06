@@ -389,15 +389,43 @@ class ResumeCommand(BaseSlashCommand):
         # Otherwise, show interactive selection
         try:
             store = ConversationStore()
-            sessions = store.list_session_summaries(limit=20)
-
-            if not sessions:
+            
+            # Parse pagination flags
+            page_val = self._get_flag_value(ctx, "--page") or self._get_flag_value(ctx, "-p")
+            page = 1
+            if page_val:
+                try:
+                    page = max(1, int(page_val))
+                except ValueError:
+                    pass
+            
+            page_size = 20
+            offset = (page - 1) * page_size
+            
+            # Fetch more sessions to support pagination
+            all_sessions = store.list_session_summaries(limit=1000)
+            
+            if not all_sessions:
                 ctx.console.print("[yellow]No sessions found[/]")
                 ctx.console.print("[dim]Start a conversation to create sessions[/]")
                 return
+            
+            # Reverse to ascending order (oldest first) so recent sessions aren't cut off
+            all_sessions = list(reversed(all_sessions))
+            total_sessions = len(all_sessions)
+            total_pages = (total_sessions + page_size - 1) // page_size
+            
+            # Paginate
+            start_idx = offset
+            end_idx = min(offset + page_size, total_sessions)
+            sessions = all_sessions[start_idx:end_idx]
+            
+            if not sessions:
+                ctx.console.print(f"[yellow]Page {page} is out of range (1-{total_pages})[/]")
+                return
 
             # Display sessions with numbers
-            table = Table(title="Recent Sessions")
+            table = Table(title=f"Sessions (Page {page}/{total_pages}, {total_sessions} total)")
             table.add_column("#", style="cyan", no_wrap=True, width=4)
             table.add_column("ID", style="cyan", no_wrap=True)
             table.add_column("Title", style="white")
@@ -406,7 +434,7 @@ class ResumeCommand(BaseSlashCommand):
             table.add_column("Previews", justify="right")
             table.add_column("Date", style="dim")
 
-            for idx, session in enumerate(sessions, 1):
+            for idx, session in enumerate(sessions, start_idx + 1):
                 try:
                     date_str = session.created_at.strftime("%Y-%m-%d %H:%M")
                 except Exception:
@@ -427,7 +455,12 @@ class ResumeCommand(BaseSlashCommand):
                 )
 
             ctx.console.print(table)
-            ctx.console.print("\n[dim]Enter session number to resume (1-{})[/]", len(sessions))
+            ctx.console.print(f"\n[dim]Page {page} of {total_pages}[/]")
+            if page < total_pages:
+                ctx.console.print(f"[dim]Next page: /resume --page {page + 1}[/]")
+            if page > 1:
+                ctx.console.print(f"[dim]Previous page: /resume --page {page - 1}[/]")
+            ctx.console.print("\n[dim]Enter session number to resume (1-{})[/]", total_sessions)
             ctx.console.print("[dim]Or use: /resume <session_id>[/]")
 
         except Exception as e:
