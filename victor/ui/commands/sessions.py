@@ -390,14 +390,33 @@ def sessions_delete(
 def sessions_export(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file path"),
     pretty: bool = typer.Option(True, "--pretty/--no-pretty", help="Pretty print JSON"),
+    session_id: Optional[str] = typer.Option(
+        None, "--session-id", help="Export a single session (re-importable)"
+    ),
+    fmt: Optional[str] = typer.Option(
+        None,
+        "--format",
+        help="Target format: claude | codex | victor | json (default victor)",
+    ),
+    install: bool = typer.Option(
+        False,
+        "--install",
+        help="Write directly into the target tool's session store (claude/codex)",
+    ),
 ) -> None:
-    """Export all sessions to JSON file.
+    """Export sessions to JSON file.
+
+    Without flags: legacy all-sessions array. With --session-id: one
+    re-importable document; with --format also claude/codex transcripts.
 
     Examples:
-        victor sessions export
-        victor sessions export --output sessions.json
-        victor sessions export --no-pretty
+        victor data session export
+        victor data session export --output sessions.json
+        victor data session export --session-id s_x --format claude
     """
+    if fmt or session_id or install:
+        _export_single_session(output=output, session_id=session_id, fmt=fmt, install=install)
+        return
     try:
         all_sessions = _exportable_sessions(limit=1000)
 
@@ -426,6 +445,233 @@ def sessions_export(
     except Exception as e:
         console.print(f"[red]Error exporting sessions:[/] {e}")
         sys.exit(1)
+
+
+def _export_single_session(
+    output: Optional[Path],
+    session_id: Optional[str],
+    fmt: Optional[str],
+    install: bool = False,
+) -> None:
+    """Export one session in an interop format (CLI path of /export)."""
+    from victor.agent.conversation.interop import (
+        ConversationSession,
+        TranscriptFormat,
+        export_session,
+    )
+    from victor.agent.conversation.types import ConversationMessage
+    from datetime import datetime as _dt
+
+    backend = _get_session_backend()
+    if not session_id:
+        summaries = backend.list_session_summaries(limit=1)
+        if not summaries:
+            console.print("[red]No sessions to export[/]")
+            sys.exit(1)
+        session_id = summaries[0].session_id
+        console.print(f"[dim]No --session-id given; using most recent {session_id}[/]")
+    loaded = backend.load_session(session_id)
+    if loaded is None:
+        console.print(f"[red]Session not found:[/] {session_id}")
+        sys.exit(1)
+
+    metadata = loaded.get("metadata", {})
+    messages = []
+    for m in loaded.get("conversation", {}).get("messages", []):
+        stamp = m.get("timestamp")
+        messages.append(
+            ConversationMessage(
+                id=m.get("id"),
+                role=m.get("role", "user"),
+                content=m.get("content", ""),
+                timestamp=_dt.fromisoformat(stamp) if isinstance(stamp, str) else stamp,
+                token_count=m.get("token_count", 0),
+                tool_name=m.get("tool_name"),
+                tool_call_id=m.get("tool_call_id"),
+                tool_calls=m.get("tool_calls"),
+                metadata=m.get("metadata") or {},
+            )
+        )
+    if not messages:
+        console.print("[yellow]Session has no messages to export.[/]")
+        sys.exit(1)
+
+    key = (fmt or "victor").strip().lower()
+    try:
+        resolved = TranscriptFormat(key)
+    except ValueError:
+        console.print(f"[red]Unknown --format {key!r} (claude|codex|victor|json)[/]")
+        sys.exit(1)
+    if resolved not in (
+        TranscriptFormat.CLAUDE_CODE,
+        TranscriptFormat.CODEX_ROLLOUT,
+        TranscriptFormat.VICTOR_JSON,
+        TranscriptFormat.GENERIC_JSON,
+    ):
+        console.print(f"[red]Format {key} is import-only[/]")
+        sys.exit(1)
+
+    session = ConversationSession(
+        session_id=metadata.get("session_id", session_id),
+        title=metadata.get("title"),
+        messages=messages,
+        model=metadata.get("model"),
+        provider=metadata.get("provider"),
+    )
+    extensions = {
+        TranscriptFormat.CLAUDE_CODE: "claude.jsonl",
+        TranscriptFormat.CODEX_ROLLOUT: "codex.jsonl",
+        TranscriptFormat.VICTOR_JSON: "json",
+        TranscriptFormat.GENERIC_JSON: "json",
+    }
+    out = output or Path(f"victor-session-{session.session_id}.{extensions[resolved]}")
+    try:
+        if install:
+            from victor.agent.conversation.interop import install_session
+
+            target = "claude" if resolved is TranscriptFormat.CLAUDE_CODE else "codex"
+            out = install_session(session, target)
+            console.print(
+                f"[green]✓[/] Installed {len(messages)} message(s) into the {target} "
+                f"store: {out}"
+            )
+            console.print(
+                f"[dim]Resume there with: "
+                f"{'claude --resume <uuid>' if target == 'claude' else 'codex resume <uuid>'}[/]"
+            )
+            return
+        export_session(session, resolved, out)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Export failed:[/] {e}")
+        sys.exit(1)
+    console.print(f"[green]✓[/] Exported {len(messages)} message(s) to {out}")
+
+
+@sessions_app.command("import")
+def sessions_import(
+    path: str = typer.Argument(
+        ...,
+        help="Transcript file path, or a session address: claude:<uuid> | codex:<uuid>",
+    ),
+    fmt: Optional[str] = typer.Option(
+        None, "--format", help="claude | codex | chatgpt | victor | json (default auto)"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without saving"),
+    json_output: bool = typer.Option(False, "--json", help="Print the report as JSON"),
+    list_sessions: bool = typer.Option(
+        False, "--list", help="List importable sessions in the claude/codex stores"
+    ),
+) -> None:
+    """Import a claude/codex/chatgpt/victor transcript as a session.
+
+    A session address pulls one specific session straight out of another
+    tool's local store — no file path needed.
+
+    Examples:
+        victor data session import --list
+        victor data session import claude:<session-uuid>
+        victor data session import rollout.jsonl --format codex --dry-run
+    """
+    import json as _json
+
+    from victor.agent.conversation.interop import (
+        TranscriptFormat,
+        UnsupportedFormatError,
+        import_transcript,
+        to_persist_messages,
+    )
+
+    if list_sessions:
+        _list_importable_sessions()
+        return
+
+    from victor.agent.conversation.interop.stores import (
+        SessionAddressError,
+        resolve_import_target,
+    )
+
+    try:
+        resolved_path, _source = resolve_import_target(path)
+    except SessionAddressError as e:
+        console.print(f"[red]Cannot import:[/] {e}")
+        sys.exit(1)
+    if not resolved_path.is_file():
+        console.print(f"[red]File not found:[/] {resolved_path}")
+        sys.exit(1)
+    path = resolved_path
+
+    explicit = None
+    if fmt:
+        key = fmt.strip().lower()
+        try:
+            explicit = TranscriptFormat(key)
+        except ValueError:
+            console.print(f"[red]Unknown --format {key!r}[/]")
+            sys.exit(1)
+    try:
+        imported = import_transcript(path, fmt=explicit)
+    except UnsupportedFormatError as e:
+        console.print(f"[red]Cannot import:[/] {e}")
+        sys.exit(1)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Import failed:[/] {e}")
+        sys.exit(1)
+
+    session = imported.session
+    report = imported.report
+    if json_output:
+        console.print_json(_json.dumps(report.to_dict()))
+    else:
+        console.print(report.render_summary())
+
+    if not session.messages:
+        console.print("[yellow]No convertible messages found — nothing imported.[/]")
+        sys.exit(0)
+    if dry_run:
+        console.print("[dim]Dry run — nothing saved.[/]")
+        return
+
+    backend = _get_session_backend()
+    messages = to_persist_messages(session)
+    try:
+        backend.save_session(
+            conversation={"messages": messages},
+            model=session.model or "unknown",
+            provider=session.provider or "unknown",
+            session_id=session.session_id,
+            title=session.title,
+            tags=[f"import:{report.source_format}"],
+            project_path=str(Path.cwd()),
+        )
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Failed to save imported session:[/] {e}")
+        sys.exit(1)
+    console.print(
+        f"[green]✓[/] Imported {len(messages)} message(s) as {session.session_id} "
+        f"(resume: victor chat --sessionid {session.session_id})"
+    )
+
+
+def _list_importable_sessions() -> None:
+    """Print recent claude/codex sessions available for address import."""
+    from victor.agent.conversation.interop.stores import (
+        SessionAddressError,
+        list_store_sessions,
+    )
+
+    for source in ("claude", "codex"):
+        try:
+            entries = list_store_sessions(source, limit=10)
+        except SessionAddressError as e:
+            console.print(f"[dim]{e}[/]")
+            continue
+        console.print(f"[bold]{source}[/] — import with {source}:<session-id>")
+        if not entries:
+            console.print("  [dim]no sessions found[/]")
+        for entry in entries:
+            console.print(
+                f"  {source}:{entry.session_id}  " f"{entry.modified:%m-%d %H:%M}  {entry.title}"
+            )
 
 
 @sessions_app.command("clear")

@@ -208,6 +208,8 @@ vscode-victor/webview-ui/node_modules/
 /audit/
 docs/security/audit/
 *.jsonl
+# Committed interop test fixtures must survive the global *.jsonl ignore.
+!tests/fixtures/interop/*.jsonl
 
 # HumanEval benchmark test outputs (orphaned in root)
 /example_function.py
