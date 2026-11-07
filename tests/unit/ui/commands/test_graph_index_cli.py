@@ -107,7 +107,8 @@ async def test_yaml_java_toolchain_settings_reach_the_index_config(tmp_path):
         "    enable_precise_index: true\n"
         "    precise_index_java_home: /opt/jdk-21\n"
         "    precise_index_build_args:\n"
-        "      scip-java: [':iceberg-core:compileJava', '-x', 'test']\n",
+        "      scip-java: [':iceberg-core:compileJava', '-x', 'test']\n"
+        "    precise_index_build_root: /srv/checkout\n",
     )
 
     ok, config, _ = await _run_index(tmp_path, settings, GraphIndexStats(files_processed=1))
@@ -117,6 +118,7 @@ async def test_yaml_java_toolchain_settings_reach_the_index_config(tmp_path):
     assert config.precise_index_build_args == {
         "scip-java": [":iceberg-core:compileJava", "-x", "test"]
     }
+    assert config.precise_index_build_root == "/srv/checkout"
 
 
 async def test_defaults_without_precise_configuration(tmp_path):
@@ -134,6 +136,7 @@ async def test_defaults_without_precise_configuration(tmp_path):
     assert config.precise_index_tool == "auto"
     assert config.precise_index_java_home == ""
     assert config.precise_index_build_args == {}
+    assert config.precise_index_build_root == ""
 
 
 async def test_cli_flags_override_settings(tmp_path):

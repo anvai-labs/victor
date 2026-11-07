@@ -393,6 +393,7 @@ async def _index_async(
         precise_index_build_args=dict(
             graph_setting(settings, "precise_index_build_args", {}) or {}
         ),
+        precise_index_build_root=graph_setting(settings, "precise_index_build_root", ""),
         parse_workers=(
             parse_workers
             if parse_workers is not None

@@ -549,6 +549,9 @@ class GraphIndexingPipeline:
         )
         if build_args:
             kwargs["build_args"] = [str(arg) for arg in build_args]
+        build_root = getattr(self.config, "precise_index_build_root", "") or ""
+        if build_root:
+            kwargs["build_root"] = build_root
         return kwargs
 
     async def index_repository(

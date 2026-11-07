@@ -229,3 +229,85 @@ def test_pipeline_passes_and_cache_keys_java_toolchain_settings():
     kwargs = GraphIndexingPipeline._precise_toolchain_kwargs(holder, "scip-java")
     assert kwargs == {"java_home": "/opt/jdk-21", "build_args": [":core:compileJava"]}
     assert GraphIndexingPipeline._precise_toolchain_kwargs(holder, "scip-python") == {}
+
+
+# --- Verified build root: compile a real checkout of the indexed sources ----
+
+
+def _index_and_build_roots(tmp_path):
+    index_root = _gradle_project(tmp_path / "index", wrapper_jar=True)
+    (index_root / "src").mkdir()
+    (index_root / "src" / "A.java").write_text("class A {}\n", encoding="utf-8")
+    (index_root / ".victor").mkdir()
+    (index_root / ".victor" / "project.db").write_bytes(b"index state")
+    build_root = tmp_path / "checkout"
+    import shutil as _shutil
+
+    _shutil.copytree(index_root, build_root, ignore=_shutil.ignore_patterns(".victor"))
+    (build_root / ".git").mkdir()
+    (build_root / ".git" / "HEAD").write_text("2ebe838e\n", encoding="utf-8")
+    (build_root / "excluded-from-snapshot.bin").write_bytes(b"\x00binary")
+    return index_root, build_root
+
+
+def test_a_matching_build_root_is_what_gets_built(tmp_path, monkeypatch, toolchain):
+    index_root, build_root = _index_and_build_roots(tmp_path)
+    seen = {}
+
+    def building_dump(command, *, cwd, output_path, timeout_seconds, node_heap, env=None):
+        seen["has_git"] = (cwd / ".git" / "HEAD").is_file()
+        seen["has_extra"] = (cwd / "excluded-from-snapshot.bin").is_file()
+        seen["has_index_state"] = (cwd / ".victor").exists()
+        return output_path
+
+    monkeypatch.setattr(mod, "_run_dump", building_dump)
+    out = tmp_path / "out.scip"
+    result = JV.dump(
+        "/opt/scip-java",
+        index_root,
+        out,
+        timeout_seconds=1,
+        java_home=str(toolchain),
+        build_root=str(build_root),
+    )
+    assert result == out
+    assert seen == {"has_git": True, "has_extra": True, "has_index_state": False}
+
+
+@pytest.mark.parametrize("damage", ["changed", "missing"])
+def test_a_build_root_that_differs_from_the_index_never_builds(
+    tmp_path, monkeypatch, toolchain, captured, damage
+):
+    index_root, build_root = _index_and_build_roots(tmp_path)
+    target = build_root / "src" / "A.java"
+    if damage == "changed":
+        target.write_text("class A { int drift; }\n", encoding="utf-8")
+    else:
+        target.unlink()
+    result = JV.dump(
+        "/opt/scip-java",
+        index_root,
+        tmp_path / "out.scip",
+        timeout_seconds=1,
+        java_home=str(toolchain),
+        build_root=str(build_root),
+    )
+    assert result == DumpSkipped("build-root-mismatch:1") and captured == []
+
+
+def test_build_root_verification_ignores_index_state_and_allows_extras(tmp_path):
+    index_root, build_root = _index_and_build_roots(tmp_path)
+    assert mod._build_root_mismatches(index_root, build_root) == []
+    assert mod._build_root_mismatches(index_root, tmp_path / "absent") == ["<build root missing>"]
+
+
+def test_pipeline_passes_the_build_root_to_scip_java_only():
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+
+    holder = SimpleNamespace(
+        config=SimpleNamespace(precise_index_build_root="/srv/checkout@2ebe838e")
+    )
+    assert GraphIndexingPipeline._precise_toolchain_kwargs(holder, "scip-java") == {
+        "build_root": "/srv/checkout@2ebe838e"
+    }
+    assert GraphIndexingPipeline._precise_toolchain_kwargs(holder, "scip-python") == {}

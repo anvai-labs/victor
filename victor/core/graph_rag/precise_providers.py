@@ -651,6 +651,43 @@ class ScipClangProvider:
         return {"file": "", "path": parsed} if parsed else None
 
 
+def _build_root_mismatches(index_root: Path, build_root: Path) -> list[str]:
+    """Indexed files absent from, or different in, the build root.
+
+    Every regular file of the indexed tree (outside ``.victor``) must exist in
+    the build root with identical bytes; extra build-root files are allowed —
+    they never enter the graph, and their SCIP documents do not join.
+    """
+    import hashlib
+
+    if not build_root.is_dir():
+        return ["<build root missing>"]
+
+    def digest(path: Path) -> str:
+        sha = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                sha.update(block)
+        return sha.hexdigest()
+
+    mismatches: list[str] = []
+    for path in sorted(index_root.rglob("*")):
+        relative = path.relative_to(index_root)
+        if relative.parts and relative.parts[0] == ".victor":
+            continue
+        if path.is_symlink() or not path.is_file():
+            continue
+        candidate = build_root / relative
+        if (
+            not candidate.is_file()
+            or candidate.is_symlink()
+            or candidate.stat().st_size != path.stat().st_size
+            or digest(candidate) != digest(path)
+        ):
+            mismatches.append(relative.as_posix())
+    return mismatches
+
+
 # scip-java 0.13.x runs on these JDK majors only; anything else fails deep in
 # the build with an opaque error.
 _SCIP_JAVA_SUPPORTED_JDKS = frozenset({17, 21, 25})
@@ -738,6 +775,7 @@ class ScipJavaProvider:
         timeout_seconds: int,
         java_home: Optional[str] = None,
         build_args: Optional[list[str]] = None,
+        build_root: Optional[str] = None,
     ) -> Union[Path, DumpSkipped, None]:
         if not any((root / marker).exists() for marker in self._BUILD_MARKERS):
             logger.info(
@@ -752,7 +790,22 @@ class ScipJavaProvider:
         if java_home:
             env["JAVA_HOME"] = java_home
             env["PATH"] = os.pathsep.join([str(Path(java_home) / "bin"), env.get("PATH", "")])
-        skipped = self._preflight(root, env)
+        source = root
+        if build_root:
+            # Projects whose build reads VCS metadata compile from a real
+            # checkout; it must carry every indexed file byte-identically.
+            source = Path(build_root)
+            mismatches = _build_root_mismatches(root, source)
+            if mismatches:
+                logger.info(
+                    "precise-index: build root %s differs from the indexed tree at %d "
+                    "path(s), e.g. %s",
+                    source,
+                    len(mismatches),
+                    ", ".join(mismatches[:5]),
+                )
+                return DumpSkipped(f"build-root-mismatch:{len(mismatches)}")
+        skipped = self._preflight(source, env)
         if skipped is not None:
             logger.info("precise-index: scip-java skipped (%s)", skipped.reason)
             return skipped
@@ -763,7 +816,7 @@ class ScipJavaProvider:
         # build/ and target/ trees, and the indexed tree must stay unmodified.
         with tempfile.TemporaryDirectory(prefix="victor-scip-java-") as scratch:
             work = Path(scratch) / "tree"
-            shutil.copytree(root, work, symlinks=True, ignore=shutil.ignore_patterns(".victor"))
+            shutil.copytree(source, work, symlinks=True, ignore=shutil.ignore_patterns(".victor"))
             return _run_dump(
                 command,
                 cwd=work,

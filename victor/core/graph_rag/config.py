@@ -117,6 +117,7 @@ class GraphIndexConfig:
     # passed after ``--``; see GraphSettings for semantics.
     precise_index_java_home: str = ""
     precise_index_build_args: dict[str, list[str]] = field(default_factory=dict)
+    precise_index_build_root: str = ""
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     # CCG builder resolution: auto (plugin-first), native, plugin, builtin.
     # See search_settings.ccg_builder for semantics.
@@ -287,6 +288,7 @@ class GraphRagConfig:
             precise_index_build_args=dict(
                 graph_setting(settings, "precise_index_build_args", {}) or {}
             ),
+            precise_index_build_root=graph_setting(settings, "precise_index_build_root", ""),
         )
 
         return cls(index=index_config)

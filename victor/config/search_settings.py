@@ -58,6 +58,11 @@ class GraphSettings(BaseModel):
     # Gradle tasks and -D properties scoping the compile, e.g. the modules of
     # a monorepo whose full build is impractical). Part of the dump cache key.
     precise_index_build_args: dict[str, list[str]] = Field(default_factory=dict)
+    # A separate checkout to BUILD from (scip-java): projects whose build reads
+    # VCS metadata (git-describe versions) cannot compile a git-less index
+    # tree. Every indexed file must be byte-identical in this root, or the
+    # provider skips with ``build-root-mismatch``; extra files are allowed.
+    precise_index_build_root: str = ""
     # Parser thread-pool size. 0 = the machine's full core count (the old
     # silent 8-core cap is gone); 1 = serial. Mirrors
     # GraphIndexConfig.parse_workers — the knob for measuring the GIL
