@@ -178,6 +178,54 @@ Or use: /resume <session_id>
 └────────────────────────────────────────┘
 ```
 
+### `/import` - Import External Transcript
+
+Bring a Claude Code, Codex, ChatGPT, or victor transcript in as a session.
+The format is auto-detected; every conversion reports exactly what was
+preserved and what could not transfer (thinking blocks, encrypted items,
+truncations) — nothing is lost silently.
+
+```bash
+/import claude:<session-uuid>                              # Specific Claude session, by id
+/import codex:<session-uuid>                               # Specific Codex session, by id
+/import --list                                             # What's importable from both stores
+/import ~/.claude/projects/<slug>/<uuid>.jsonl             # By file path
+/import conversations.json                                 # ChatGPT export
+/import session.json --format claude                       # Explicit format
+/import session.json --dry-run                             # Preview only
+```
+
+Session addresses (`claude:<uuid>`, `codex:<uuid>`) pull one specific session
+straight out of that tool's local store — no file paths to hunt for. Use
+`/import --list` to see recent sessions from both stores with previews.
+
+Imported sessions get a deterministic id (`imp_<hash>`), so re-importing the
+same file updates it in place instead of duplicating. Resume with
+`/resume <id>` as usual.
+
+### `/export` - Export Session to Another Tool
+
+Export a victor session in another tool's native transcript format — the
+inverse of `/import`.
+
+```bash
+/export s_abc123 --format claude                  # Claude Code transcript file
+/export s_abc123 --format codex                   # Codex rollout file
+/export s_abc123 --format claude --install        # Write into ~/.claude/projects/
+/export s_abc123 --format victor --out s.json     # Re-importable victor JSON
+```
+
+`--install` writes the transcript directly into the target tool's session
+store (claude: `~/.claude/projects/<slug>/`, codex: `~/.codex/sessions/`)
+with a fresh session uuid — never overwriting existing files. Resume it
+there with `claude --resume <uuid>` / `codex resume <uuid>`.
+
+```bash
+# Round trip: pick up a Claude Code session where it left off, in victor
+/import ~/.claude/projects/-Users-me-myrepo/<uuid>.jsonl
+/resume imp_1a2b3c4d5e6f
+```
+
 ### `/switch` - Switch Model/Provider
 
 Switch models or providers, optionally resuming a session first.
@@ -427,6 +475,32 @@ victor sessions export --no-pretty                  # Minified JSON
 $ victor sessions export --output my_sessions.json
 
 ✓ Exported 15 session(s) to my_sessions.json
+```
+
+### `victor data session import` - Import Transcript
+
+CLI twin of `/import` — converts an external transcript into a stored
+victor session without opening the TUI.
+
+```bash
+victor data session import --list                      # what's importable
+victor data session import claude:<session-uuid>       # specific session by id
+victor data session import <path>                      # auto-detect format
+victor data session import <path> --format codex        # explicit format
+victor data session import <path> --dry-run             # preview only
+victor data session import <path> --json                # machine-readable report
+```
+
+### `victor data session export` - Single-Session Interop Export
+
+With `--session-id` (and optionally `--format`), export one session as a
+re-importable document or a claude/codex transcript; without flags, the
+legacy all-sessions array is kept for compatibility.
+
+```bash
+victor data session export --session-id s_abc123                  # victor JSON
+victor data session export --session-id s_abc123 --format claude   # Claude transcript
+victor data session export --format codex                          # most recent session
 ```
 
 ## Advanced Usage

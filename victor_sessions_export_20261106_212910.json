@@ -1,0 +1,66 @@
+[
+  {
+    "metadata": {
+      "session_id": "vic_fix_001",
+      "created_at": "2026-11-06T21:29:10.205828",
+      "updated_at": "2026-11-06T21:29:10.205829",
+      "model": "qwen-test",
+      "provider": "zai",
+      "profile": "default",
+      "message_count": 3,
+      "title": "native doc",
+      "tags": [
+        "import:victor"
+      ]
+    },
+    "conversation": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "victor question",
+          "timestamp": "2026-11-06T12:00:01+00:00",
+          "token_count": 0,
+          "priority": 50,
+          "tool_name": null,
+          "tool_call_id": null,
+          "tool_calls": null,
+          "metadata": {}
+        },
+        {
+          "role": "assistant",
+          "content": "victor answer",
+          "timestamp": "2026-11-06T12:00:03+00:00",
+          "token_count": 0,
+          "priority": 50,
+          "tool_name": null,
+          "tool_call_id": null,
+          "tool_calls": [
+            {
+              "id": "tc1",
+              "name": "bash",
+              "arguments": "{\"command\":\"ls\"}"
+            }
+          ],
+          "metadata": {}
+        },
+        {
+          "role": "tool",
+          "content": "listing",
+          "timestamp": "2026-11-06T12:00:04+00:00",
+          "token_count": 0,
+          "priority": 50,
+          "tool_name": "bash",
+          "tool_call_id": "tc1",
+          "tool_calls": null,
+          "metadata": {}
+        }
+      ],
+      "preview_messages": []
+    },
+    "conversation_state": null,
+    "tool_selection_stats": null,
+    "execution_state": null,
+    "session_ledger": null,
+    "compaction_hierarchy": null
+  }
+]

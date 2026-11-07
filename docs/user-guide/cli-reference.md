@@ -699,18 +699,19 @@ victor scheduler install            # Generate systemd service
 
 ## Session Management
 
-### victor sessions
+### victor data session
 
-Manage conversation sessions.
+Manage conversation sessions (canonical path; `victor session ...` also works
+as a hidden legacy alias).
 
 ```bash
-victor sessions list                # List sessions
-victor sessions list --all          # List all sessions
-victor sessions show session_id     # Show session details
-victor sessions search "keyword"    # Search sessions
-victor sessions delete session_id   # Delete session
-victor sessions export              # Export to JSON
-victor sessions clear               # Clear all sessions
+victor data session list                # List sessions
+victor data session list --all          # List all sessions
+victor data session show session_id     # Show session details
+victor data session search "keyword"    # Search sessions
+victor data session delete session_id   # Delete session
+victor data session export              # Export all sessions to JSON (legacy array)
+victor data session clear               # Clear all sessions
 ```
 
 **Subcommands:**
@@ -721,8 +722,17 @@ victor sessions clear               # Clear all sessions
 | `show <id>` | Show session details |
 | `search <query>` | Search sessions |
 | `delete <id>` | Delete a session |
-| `export` | Export sessions to JSON |
+| `export` | Export sessions: all (legacy array), or one via `--session-id [--format]` |
+| `import <path>` | Import a claude/codex/chatgpt/victor transcript as a session |
 | `clear` | Clear all sessions |
+
+**Interop examples:**
+
+```bash
+victor data session import ~/.claude/projects/<slug>/<uuid>.jsonl --dry-run
+victor data session import rollout.jsonl --format codex --json
+victor data session export --session-id s_abc123 --format claude
+```
 
 **Options:**
 
