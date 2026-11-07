@@ -687,3 +687,45 @@ class TestSessionsImportExportInterop:
         assert candidates, "no claude transcript written"
         entries = [json.loads(line) for line in candidates[0].read_text().splitlines()]
         assert entries[0]["message"]["role"] == "user"
+
+
+class TestSessionsHandoffCLI:
+    """victor data session handoff <claude|codex>."""
+
+    FIXTURES = Path(__file__).parents[2] / "fixtures" / "interop"
+
+    def test_handoff_requires_known_target(self, runner_with_db):
+        result = runner_with_db.invoke(sessions_app, ["handoff", "gemini"])
+        assert result.exit_code == 1
+        assert "claude or codex" in result.output
+
+    def test_handoff_claude(self, runner_with_db, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".claude" / "projects").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+        seed = runner_with_db.invoke(
+            sessions_app, ["import", str(self.FIXTURES / "victor_native.json")]
+        )
+        assert seed.exit_code == 0, seed.output
+        result = runner_with_db.invoke(
+            sessions_app, ["handoff", "claude", "--session-id", "vic_fix_001"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Installed" in result.output
+        assert "claude --resume" in result.output
+        assert len(list((home / ".claude" / "projects").rglob("*.jsonl"))) == 1
+
+    def test_handoff_codex(self, runner_with_db, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".codex" / "sessions").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+        seed = runner_with_db.invoke(
+            sessions_app, ["import", str(self.FIXTURES / "codex_minimal.jsonl")]
+        )
+        assert seed.exit_code == 0, seed.output
+        result = runner_with_db.invoke(sessions_app, ["handoff", "codex"])
+        assert result.exit_code == 0, result.output
+        assert "codex resume" in result.output
+        assert len(list((home / ".codex" / "sessions").rglob("rollout-*.jsonl"))) == 1
