@@ -847,6 +847,12 @@ def graph_index(
 ):
     """Index codebase into graph store."""
     cwd = os.path.abspath(path)
+    # Like chat/serve/dashboard: apply the logging priority chain
+    # (VICTOR_LOG_LEVEL / VICTOR_LOG_FILE / VICTOR_LOG_FILE_LEVEL / config).
+    # Without it a 15-minute index run left no log beyond its summary.
+    from victor.ui.commands.utils import setup_logging
+
+    setup_logging(command="graph-index", repo_path=cwd)
 
     start_time = time.time()
     success = run_sync(
