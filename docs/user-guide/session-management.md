@@ -144,10 +144,15 @@ Restore a previously saved session.
 ```bash
 /resume                                 # Interactive selection
 /resume 20250107_153045                 # Direct session ID
+/resume codex:<session-uuid>            # Import a codex session AND resume it
+/resume claude:<session-uuid>           # Import a claude session AND resume it
 ```
 
 **Interactive Mode**:
-Shows a numbered list of recent sessions. Enter a number to select.
+Shows a numbered list of recent sessions. Enter a number to select. The list
+also previews recent sessions from the local claude/codex stores — resume one
+directly with `/resume <source>:<uuid>` (it imports into this project on
+first resume; repeated resumes are idempotent upserts).
 
 ```
 ╔════╤═══════════╤═══════════════════════════════╤═══════════════════╤════════════╤══════════╗

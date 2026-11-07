@@ -377,6 +377,14 @@ class ResumeCommand(BaseSlashCommand):
             self._import_from_file(ctx, from_file)
             return
 
+        # Session addresses (claude:<uuid> / codex:<uuid>): import the external
+        # transcript into this project, then resume it in one step.
+        if ctx.args and str(ctx.args[0]).startswith(("claude:", "codex:")):
+            imported_id = self._import_address(ctx, ctx.args[0])
+            if imported_id:
+                self._load_session(ctx, imported_id)
+            return
+
         # Check for --project flag (cross-project session lookup). -p belongs
         # to --page below; binding it here too made /resume -p 2 load project
         # "2" instead of paging.
@@ -464,10 +472,119 @@ class ResumeCommand(BaseSlashCommand):
                 ctx.console.print(f"[dim]Previous page: /resume --page {page - 1}[/]")
             ctx.console.print("\n[dim]Enter session number to resume (1-{})[/]", total_sessions)
             ctx.console.print("[dim]Or use: /resume <session_id>[/]")
+            self._print_external_sessions(ctx, page=1)
 
         except Exception as e:
             ctx.console.print(f"[red]Failed to list sessions:[/] {e}")
             logger.exception("Error listing sessions")
+
+    def _print_external_sessions(self, ctx: CommandContext, page: int) -> None:
+        """Append importable external sessions to the resume picker (page 1 only).
+
+        Cross-tool discovery: a compact preview of recent claude/codex store
+        sessions so they can be resumed directly with /resume <source>:<uuid>.
+        """
+        if page != 1:
+            return
+        from victor.agent.conversation.interop.stores import (
+            SessionAddressError,
+            list_store_sessions,
+        )
+
+        rows = []
+        for source in ("claude", "codex"):
+            try:
+                entries = list_store_sessions(source, limit=3)
+            except SessionAddressError:
+                continue  # that tool isn't installed — stay quiet
+            rows.extend(entries)
+        if not rows:
+            return
+        table = Table(title="Also resumable from other agents (imports on resume)")
+        table.add_column("Resume with", style="cyan", no_wrap=True)
+        table.add_column("First user message", overflow="fold")
+        table.add_column("Modified", style="dim")
+        for entry in rows:
+            table.add_row(
+                f"{entry.source}:{entry.session_id}",
+                entry.title,
+                entry.modified.strftime("%m-%d %H:%M"),
+            )
+        ctx.console.print("\n")
+        ctx.console.print(table)
+        ctx.console.print(
+            "[dim]More: /import --list · these import into this project on first resume[/]"
+        )
+
+    def _import_address(self, ctx: CommandContext, address: str) -> Optional[str]:
+        """Import an external session address (claude:<uuid>/codex:<uuid>).
+
+        Returns the victor session id for immediate resume, or None after
+        printing the reason. Reuses the interop readers so re-resuming an
+        already-imported session is an idempotent upsert.
+        """
+        from victor.agent.conversation.interop import (
+            UnsupportedFormatError,
+            import_transcript,
+            to_persist_messages,
+        )
+        from victor.agent.conversation.interop.stores import (
+            SessionAddressError,
+            resolve_import_target,
+        )
+        from victor.agent.conversation.store import ConversationStore
+
+        try:
+            path, _source = resolve_import_target(address)
+        except SessionAddressError as exc:
+            ctx.console.print(f"[red]Cannot resolve {address}:[/] {exc}")
+            return None
+
+        try:
+            imported = import_transcript(path)
+        except UnsupportedFormatError as exc:
+            ctx.console.print(f"[red]Cannot import:[/] {exc}")
+            return None
+        except Exception as exc:  # noqa: BLE001 — surface parse failures cleanly
+            ctx.console.print(f"[red]Import failed:[/] {exc}")
+            logger.exception("address resume import failed")
+            return None
+
+        session = imported.session
+        if not session.messages:
+            ctx.console.print("[yellow]No convertible messages found.[/]")
+            return None
+
+        try:
+            ConversationStore().save_session(
+                conversation={"messages": to_persist_messages(session)},
+                model=session.model or "unknown",
+                provider=session.provider or "unknown",
+                session_id=session.session_id,
+                title=session.title,
+                tags=[f"import:{imported.report.source_format}"],
+                project_path=str(Path.cwd()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]Failed to save imported session:[/] {exc}")
+            logger.exception("address resume persistence failed")
+            return None
+
+        report = imported.report
+        ctx.console.print(
+            Panel(
+                f"Imported from {report.source_format}: {report.message_count} messages"
+                + (
+                    f" (lossy: {report.thinking_blocks_dropped} thinking dropped, "
+                    f"{report.encrypted_items_skipped} encrypted skipped)"
+                    if report.thinking_blocks_dropped or report.encrypted_items_skipped
+                    else ""
+                ),
+                title="External Session Imported",
+                border_style="cyan",
+            )
+        )
+        return session.session_id
 
     def _load_session(
         self, ctx: CommandContext, session_id: str, project_path: Optional[str] = None

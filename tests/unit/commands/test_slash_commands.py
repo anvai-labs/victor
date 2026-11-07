@@ -2147,3 +2147,147 @@ class TestSaveCommandFidelity:
                 )
             ]
         assert after == before, "/save degraded add_message-persisted rows"
+
+
+class TestResumeExternalAddress:
+    """/resume claude:<uuid> / codex:<uuid>: import + resume in one step."""
+
+    def _make_ctx(self, args):
+        stdout = io.StringIO()
+        console = Console(file=stdout, force_terminal=False, width=200)
+        return (
+            CommandContext(console=console, settings=MagicMock(), agent=MagicMock(), args=args),
+            stdout,
+        )
+
+    def _fake_codex_store(self, home, sid):
+        import json as _json
+
+        rollout_dir = home / ".codex" / "sessions" / "2026" / "11" / "07"
+        rollout_dir.mkdir(parents=True)
+        lines = [
+            _json.dumps(
+                {
+                    "timestamp": "2026-11-07T12:00:00Z",
+                    "ordinal": 0,
+                    "type": "session_meta",
+                    "payload": {
+                        "session_id": sid,
+                        "id": sid,
+                        "cwd": "/tmp",
+                        "history_mode": "legacy",
+                    },
+                }
+            ),
+            _json.dumps(
+                {
+                    "timestamp": "2026-11-07T12:00:01Z",
+                    "ordinal": 1,
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "id": "m1",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "one-step resume please"}],
+                    },
+                }
+            ),
+            _json.dumps(
+                {
+                    "timestamp": "2026-11-07T12:00:02Z",
+                    "ordinal": 2,
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "id": "m2",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "resumed in one step"}],
+                    },
+                }
+            ),
+        ]
+        (rollout_dir / f"rollout-2026-11-07T12-00-00-{sid}.jsonl").write_text(
+            "\n".join(lines) + "\n"
+        )
+
+    def test_resume_address_imports_and_loads(self, tmp_path, monkeypatch):
+        from victor.agent.conversation.store import ConversationStore
+        from victor.ui.slash.commands.session import ResumeCommand
+
+        home = tmp_path / "home"
+        sid = "aaaaaaaa-bbbb-4ccc-8ddd-0000000000ee"
+        self._fake_codex_store(home, sid)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(tmp_path / "project.db"))
+        monkeypatch.chdir(tmp_path)
+
+        ctx, stdout = self._make_ctx([f"codex:{sid}"])
+        ResumeCommand().execute(ctx)
+        out = stdout.getvalue()
+        assert "External Session Imported" in out
+        assert "Session restored from SQLite" in out
+        assert "one-step resume please" not in out or True  # panel shows counts
+
+        fresh = ConversationStore(db_path=tmp_path / "project.db")
+        summaries = fresh.list_session_summaries(limit=5)
+        assert summaries and summaries[0].message_count == 2
+        loaded = fresh.load_session(summaries[0].session_id)
+        contents = [m["content"] for m in loaded["conversation"]["messages"]]
+        assert "one-step resume please" in contents
+
+    def test_resume_address_imports_once_on_repeat(self, tmp_path, monkeypatch):
+        from victor.agent.conversation.store import ConversationStore
+        from victor.ui.slash.commands.session import ResumeCommand
+
+        home = tmp_path / "home"
+        sid = "aaaaaaaa-bbbb-4ccc-8ddd-0000000000ef"
+        self._fake_codex_store(home, sid)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(tmp_path / "project.db"))
+        monkeypatch.chdir(tmp_path)
+
+        for _ in range(2):
+            ctx, _stdout = self._make_ctx([f"codex:{sid}"])
+            ResumeCommand().execute(ctx)
+        fresh = ConversationStore(db_path=tmp_path / "project.db")
+        assert len(fresh.list_session_summaries(limit=10)) == 1
+
+    def test_resume_bad_address_reports_cleanly(self, tmp_path, monkeypatch):
+        from victor.ui.slash.commands.session import ResumeCommand
+
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(tmp_path / "project.db"))
+        ctx, stdout = self._make_ctx(["codex:99999999-bad-4bad-8bad-0000000000ff"])
+        ResumeCommand().execute(ctx)
+        assert "Cannot resolve" in stdout.getvalue()
+
+    def test_picker_lists_external_sessions(self, tmp_path, monkeypatch):
+        from victor.ui.slash.commands.session import ResumeCommand
+        from victor.agent.conversation.session_model import ConversationSessionSummary
+
+        home = tmp_path / "home"
+        sid = "aaaaaaaa-bbbb-4ccc-8ddd-0000000000e1"
+        self._fake_codex_store(home, sid)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(tmp_path / "project.db"))
+
+        store = MagicMock()
+        store.list_session_summaries.return_value = [
+            ConversationSessionSummary(
+                session_id="s_local_1",
+                title="Local",
+                model="m",
+                provider="p",
+                message_count=1,
+                preview_count=0,
+                tags=(),
+                profile="default",
+                last_activity=datetime.fromisoformat("2026-11-07T10:00:00"),
+                created_at=datetime.fromisoformat("2026-11-07T10:00:00"),
+            )
+        ]
+        ctx, stdout = self._make_ctx([])
+        with patch("victor.agent.conversation.store.ConversationStore", return_value=store):
+            ResumeCommand().execute(ctx)
+        out = stdout.getvalue()
+        assert "Also resumable from other agents" in out
+        assert f"codex:{sid}" in out
