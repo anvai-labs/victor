@@ -1007,12 +1007,21 @@ class TestSaveSessionPersistsMessages:
         return store.save_session(
             conversation={
                 "messages": [
-                    {"role": "user", "content": "first question", "timestamp":
-                        "2026-11-06T12:00:01"},
-                    {"role": "assistant", "content": "first answer", "timestamp":
-                        "2026-11-06T12:00:05"},
-                    {"role": "user", "content": "second question", "timestamp":
-                        "2026-11-06T12:00:09"},
+                    {
+                        "role": "user",
+                        "content": "first question",
+                        "timestamp": "2026-11-06T12:00:01",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "first answer",
+                        "timestamp": "2026-11-06T12:00:05",
+                    },
+                    {
+                        "role": "user",
+                        "content": "second question",
+                        "timestamp": "2026-11-06T12:00:09",
+                    },
                 ]
             },
             model="test-model",
@@ -1034,7 +1043,7 @@ class TestSaveSessionPersistsMessages:
         assert msgs[2]["content"] == "second question"
 
         with sqlite3.connect(temp_store.db_path) as conn:
-            count, = conn.execute(
+            (count,) = conn.execute(
                 "SELECT COUNT(*) FROM messages WHERE session_id = 's_persist_001'"
             ).fetchone()
         assert count == 3
@@ -1054,9 +1063,7 @@ class TestSaveSessionPersistsMessages:
         assert len(msgs) == 1
         assert msgs[0]["content"] == "only one"
 
-    def test_save_session_does_not_write_preview_sidecar_to_messages(
-        self, temp_store
-    ):
+    def test_save_session_does_not_write_preview_sidecar_to_messages(self, temp_store):
         """Preview messages live in the sessions.metadata sidecar only."""
         temp_store.save_session(
             conversation={
@@ -1065,8 +1072,11 @@ class TestSaveSessionPersistsMessages:
                     {"role": "assistant", "content": "reply"},
                 ],
                 "preview_messages": [
-                    {"role": "assistant", "content": "preview text",
-                     "metadata": {"preview_kind": "reflection"}},
+                    {
+                        "role": "assistant",
+                        "content": "preview text",
+                        "metadata": {"preview_kind": "reflection"},
+                    },
                 ],
             },
             model="test-model",
@@ -1075,7 +1085,7 @@ class TestSaveSessionPersistsMessages:
         )
 
         with sqlite3.connect(temp_store.db_path) as conn:
-            count, = conn.execute(
+            (count,) = conn.execute(
                 "SELECT COUNT(*) FROM messages WHERE session_id = 's_preview_001'"
             ).fetchone()
         assert count == 2  # transcript only; preview is in the sidecar
@@ -1091,9 +1101,7 @@ class TestSaveSessionPersistsMessages:
         big_tool_output = "x" * (ConversationStore._TOOL_OUTPUT_STORE_LIMIT + 5000)
         shared_metadata = {"agent_id": "ag1", "plan_id": "plan9"}
 
-        temp_store.create_session(
-            session_id="s_row_a", provider="p", model="m"
-        )
+        temp_store.create_session(session_id="s_row_a", provider="p", model="m")
         tool_calls = [{"id": "call_1", "name": "bash", "arguments": {"cmd": "ls"}}]
         temp_store.add_message(
             "s_row_a",
@@ -1152,8 +1160,7 @@ class TestSaveSessionPersistsMessages:
         # token_count and priority: add_message derives them (estimate /
         # role-based) when absent, while the dict path carries the caller's
         # values — different input defaulting, not a row-builder divergence.
-        ignored = {"id", "session_id", "timestamp", "metadata", "token_count",
-                   "priority"}
+        ignored = {"id", "session_id", "timestamp", "metadata", "token_count", "priority"}
         for key in set(a_tool) - ignored:
             assert a_tool[key] == b_tool[key], f"column {key} diverged (tool)"
         # explicit token_count survives the dict/bulk path verbatim
@@ -1249,7 +1256,7 @@ class TestSaveSessionPersistsMessages:
             project_path="/tmp/demo-project",
         )
         with sqlite3.connect(temp_store.db_path) as conn:
-            path, = conn.execute(
+            (path,) = conn.execute(
                 "SELECT project_path FROM sessions WHERE session_id = 's_proj_001'"
             ).fetchone()
         assert path == "/tmp/demo-project"

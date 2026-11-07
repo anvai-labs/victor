@@ -516,6 +516,9 @@ class ConversationStoreSession:
                         break
                     session_dict = self.store._row_to_session_dict(row)
                     results.append(session_dict)
+                    # Track FTS hits too, or the in-memory fallback below
+                    # re-adds the same session (duplicate results).
+                    found_ids.add(row["session_id"])
 
                 if len(results) < limit:
                     for session_id, session in list(self.store._sessions.items()):
