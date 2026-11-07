@@ -100,12 +100,32 @@ async def _keyword_nodes(
     query: str,
     limit: int,
 ) -> Tuple[List[Any], Optional[str]]:
-    """The store's keyword symbol matches, plus the error if the search raised."""
+    """The store's keyword symbol matches, plus the error if the search raised.
+
+    A store's default search requires every query term to match, which suits
+    symbol lookups but almost never matches a natural-language question
+    (measured: no keyword seed for any of three research questions on an
+    Apache Iceberg index). When that finds nothing for a multi-word query and
+    the store supports it, the search is repeated matching any meaningful term.
+    """
     try:
-        return list(await graph_store.search_symbols(query, limit=limit)), None
+        nodes = list(await graph_store.search_symbols(query, limit=limit))
+        if not nodes and len(query.split()) > 1 and _supports_any_term_match(graph_store):
+            nodes = list(await graph_store.search_symbols(query, limit=limit, match="any"))
+        return nodes, None
     except Exception as e:
         logger.warning(f"Keyword seed search failed: {e}")
         return [], f"keyword leg unavailable: {e}"
+
+
+def _supports_any_term_match(graph_store: Any) -> bool:
+    import inspect
+
+    try:
+        parameters = inspect.signature(graph_store.search_symbols).parameters
+    except (TypeError, ValueError):
+        return False
+    return "match" in parameters
 
 
 async def _keyword_seed_scores(
