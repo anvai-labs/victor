@@ -386,8 +386,12 @@ class ConversationStore:
         execution_state: Optional[Any] = None,
         session_ledger: Optional[Any] = None,
         compaction_hierarchy: Optional[Dict[str, Any]] = None,
+        project_path: Optional[str] = None,
     ) -> str:
         """Save session with rich metadata.
+
+        Persists the full transcript: the session row first, then an atomic
+        DELETE+INSERT replace of its message rows (idempotent re-saves).
 
         Args:
             conversation: Conversation object, dict with "messages", or list of messages.
@@ -402,6 +406,8 @@ class ConversationStore:
             execution_state: ExecutionState (or its dict).
             session_ledger: SessionLedger (or its dict).
             compaction_hierarchy: Message compaction hierarchy dict.
+            project_path: Optional project root the session belongs to
+                (defaults to None; imports should pass the current project).
 
         Returns:
             The session id.
@@ -419,7 +425,12 @@ class ConversationStore:
             execution_state=execution_state,
             session_ledger=session_ledger,
             compaction_hierarchy=compaction_hierarchy,
+            project_path=project_path,
         )
+
+    def _persist_session_messages(self, session_id: str, messages: List[Any]) -> None:
+        """Atomically replace all persisted messages of a session."""
+        self._messages._persist_session_messages(session_id, messages)
 
     def load_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         return self._sessions_mgr.load_session(session_id)
@@ -1348,7 +1359,7 @@ class ConversationStore:
                 """
                 SELECT * FROM messages
                 WHERE session_id = ?
-                ORDER BY timestamp
+                ORDER BY timestamp, rowid
                 """,
                 (session_id,),
             ).fetchall()
@@ -1462,6 +1473,9 @@ class ConversationStore:
         ):
             if key in row_keys and row[key] is not None:
                 metadata.setdefault(key, row[key])
+        # _message_to_row merges tool_calls into metadata for storage; pop it
+        # back out so the reconstructed message is callable-shape again.
+        tool_calls = metadata.pop("tool_calls", None)
         return ConversationMessage(
             id=row["id"],
             role=MessageRole(row["role"]),
@@ -1472,6 +1486,7 @@ class ConversationStore:
             tool_name=row["tool_name"],
             tool_call_id=row["tool_call_id"],
             metadata=metadata,
+            tool_calls=tool_calls,
         )
 
     @staticmethod

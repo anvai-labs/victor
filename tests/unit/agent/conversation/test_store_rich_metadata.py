@@ -993,3 +993,45 @@ class TestSessionSummaryProjection:
         assert summaries[0].title == "Untitled"
         assert temp_store.list_session_summaries(limit=0) == []
         assert [s.session_id for s in temp_store.list_session_summaries()] == ["c", "b", "a"]
+
+
+class TestSaveSessionPersistsMessages:
+    """save_session must persist the transcript, not just the session row.
+
+    Regression guard for the import bug where ``/resume --from-file`` claimed
+    "Messages: N" but a fresh process loaded zero messages.
+    """
+
+    def test_save_session_survives_cleanup_purge_empty(self, temp_store):
+        """Imported sessions are no longer 'empty' (purge fodder)."""
+        temp_store.save_session(
+            conversation={
+                "messages": [
+                    {"role": "user", "content": "keep me"},
+                    {"role": "assistant", "content": "kept"},
+                ]
+            },
+            model="real-model-42",
+            provider="p",
+            session_id="s_purge_001",
+        )
+        deleted = temp_store.cleanup_stale_sessions(max_age_days=0)
+        assert deleted.get("empty", 0) == 0
+
+        fresh = ConversationStore(db_path=temp_store.db_path)
+        assert fresh.load_session("s_purge_001") is not None
+
+    def test_save_session_sets_project_path(self, temp_store):
+        """Explicit project_path lands on the session row (imports need it)."""
+        temp_store.save_session(
+            conversation={"messages": [{"role": "user", "content": "hi"}]},
+            model="m",
+            provider="p",
+            session_id="s_proj_001",
+            project_path="/tmp/demo-project",
+        )
+        with sqlite3.connect(temp_store.db_path) as conn:
+            (path,) = conn.execute(
+                "SELECT project_path FROM sessions WHERE session_id = 's_proj_001'"
+            ).fetchone()
+        assert path == "/tmp/demo-project"

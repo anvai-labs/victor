@@ -377,8 +377,10 @@ class ResumeCommand(BaseSlashCommand):
             self._import_from_file(ctx, from_file)
             return
 
-        # Check for --project flag (cross-project session lookup)
-        project_path = self._get_flag_value(ctx, "--project") or self._get_flag_value(ctx, "-p")
+        # Check for --project flag (cross-project session lookup). -p belongs
+        # to --page below; binding it here too made /resume -p 2 load project
+        # "2" instead of paging.
+        project_path = self._get_flag_value(ctx, "--project")
 
         # If session_id provided as argument, load it directly
         if ctx.args:
@@ -654,16 +656,31 @@ class ResumeCommand(BaseSlashCommand):
                 )
                 return
 
-            # Save to current project's database
+            # Save to current project's database with full fidelity: the bulk
+            # persist path (save_session) writes message rows atomically, so
+            # carry timestamps, tool identity, and metadata through untouched.
             store = ConversationStore()
-            # Extract messages from session and save with required metadata
-            messages_dict = [{"role": msg.role, "content": msg.content} for msg in session.messages]
+            messages_dict = [
+                {
+                    "id": msg.id,
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                    "token_count": msg.token_count,
+                    "tool_name": msg.tool_name,
+                    "tool_call_id": msg.tool_call_id,
+                    "tool_calls": msg.tool_calls,
+                    "metadata": msg.metadata if msg.metadata else {},
+                }
+                for msg in session.messages
+            ]
             store.save_session(
                 conversation={"messages": messages_dict},
                 model=session.model or "unknown",
                 provider=session.provider or "unknown",
                 session_id=session.session_id,
                 title=session.title,
+                project_path=str(Path.cwd()),
             )
 
             ctx.console.print(
@@ -763,6 +780,11 @@ class ResumeCommand(BaseSlashCommand):
         # ChatGPT uses a tree structure with 'mapping'
         mapping = data.get("mapping", {})
         current_node = data.get("current_node")
+        if not current_node or current_node not in mapping:
+            # Exports sometimes omit current_node (or point at a pruned node);
+            # fall back to the deepest leaf so the longest branch survives
+            # instead of silently importing an empty session.
+            current_node = self._deepest_chatgpt_leaf(mapping)
 
         # Build message chain from tree
         messages = []
@@ -773,7 +795,10 @@ class ResumeCommand(BaseSlashCommand):
             if message and message.get("author", {}).get("role") in ["user", "assistant"]:
                 content = message.get("content", {})
                 if content.get("content_type") == "text":
-                    text = "".join(content.get("parts", []))
+                    text = "".join(
+                        part if isinstance(part, str) else str(part)
+                        for part in content.get("parts", [])
+                    )
                     messages.append(
                         ConversationMessage(
                             role=message["author"]["role"],
@@ -788,14 +813,50 @@ class ResumeCommand(BaseSlashCommand):
         title = data.get("title", "Imported from ChatGPT")
         create_time = data.get("create_time", 0)
 
+        # Prefer the model slug the conversation actually ran on when present
+        model = data.get("default_model_slug") or "gpt-4"
+
         return ConversationSession(
             session_id=f"openai_{uuid.uuid4().hex[:12]}",
             title=title,
             messages=messages,
-            model="gpt-4",  # Default, could be extracted from metadata
+            model=model,
             provider="openai",
             created_at=datetime.fromtimestamp(create_time) if create_time else datetime.now(),
         )
+
+    @staticmethod
+    def _deepest_chatgpt_leaf(mapping: dict) -> Optional[str]:
+        """Return the deepest leaf node id of a ChatGPT mapping tree."""
+        if not mapping:
+            return None
+        depth = {}
+        children: dict = {}
+        for node_id, node in mapping.items():
+            parent = node.get("parent")
+            if parent is None:
+                depth[node_id] = 0
+            else:
+                depth[node_id] = -1
+                children.setdefault(parent, []).append(node_id)
+        # BFS from roots over a children index (O(n)); the visited guard keeps
+        # corrupt/cyclic parent links from looping forever.
+        visited = set(nid for nid, d in depth.items() if d == 0)
+        queue = list(visited)
+        while queue:
+            next_queue = []
+            for nid in queue:
+                for child_id in children.get(nid, []):
+                    if child_id in visited:
+                        continue
+                    visited.add(child_id)
+                    depth[child_id] = depth[nid] + 1
+                    next_queue.append(child_id)
+            queue = next_queue
+        candidates = [nid for nid, d in depth.items() if d >= 0]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda nid: (depth[nid], nid))
 
     def _convert_anthropic_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert Anthropic Claude export format."""
