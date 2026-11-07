@@ -70,7 +70,17 @@ async def index_root(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
     await _build_index(root)
+    # An index with node embeddings has its vector-store directory.
+    _embeddings_dir(root).mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _embeddings_dir(root: Path) -> Path:
+    """Where Victor resolves the index's vector store (unit tests sandbox
+    ProjectPaths, so derive it rather than assume ``root/.victor``)."""
+    from victor.config.settings import get_project_paths
+
+    return get_project_paths(root).embeddings_dir
 
 
 # ── read-only stores ─────────────────────────────────────────────────────────
@@ -249,6 +259,86 @@ async def test_hybrid_mode_reports_why_the_vector_leg_did_not_contribute(
 
 
 @pytest.mark.asyncio
+async def test_hybrid_on_a_read_only_index_without_embeddings_creates_nothing(index_root):
+    # Opening a vector store creates its directory; a read-only index without
+    # embeddings must report an empty leg and gain no .victor/embeddings.
+    _embeddings_dir(index_root).rmdir()
+    provider = _provider(AsyncMock(return_value=[_hit("n_gamma", 0.9)]))
+    result = await _hybrid(index_root, provider)
+    seeding = result.metadata["seeding"]
+    assert seeding["semantic_leg"] == "empty"
+    assert "no embeddings at" in seeding["note"]
+    assert not _embeddings_dir(index_root).exists()
+    provider.search_similar.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_keyword_leg_is_reported_not_mistaken_for_no_matches():
+    store = MagicMock(spec=[])
+    store.search_symbols = AsyncMock(side_effect=RuntimeError("fts5 table corrupt"))
+    provider = _provider(AsyncMock(return_value=[_hit("n_gamma", 0.9)]))
+    from victor.core.graph_rag.seeding import hybrid_seeds, structural_seeds
+
+    scores, report = await hybrid_seeds(
+        store, "alpha", 3, vector_provider_factory=lambda _store: provider
+    )
+    assert report.keyword_leg == "unavailable" and report.semantic_leg == "used"
+    assert "fts5 table corrupt" in report.note and set(scores) == {"n_gamma"}
+    _, structural = await structural_seeds(store, "alpha", 3)
+    assert structural.keyword_leg == "unavailable" and "fts5 table corrupt" in structural.note
+
+    store.search_symbols = AsyncMock(return_value=[])
+    _, quiet = await hybrid_seeds(store, "alpha", 3, vector_provider_factory=lambda _s: provider)
+    assert quiet.keyword_leg == "empty" and quiet.note is None
+
+
+@pytest.mark.asyncio
+async def test_a_proxima_store_without_an_embedding_service_is_unavailable():
+    store = MagicMock(spec=[])
+    store.search_symbols = AsyncMock(return_value=[_node("n_alpha", "alpha")])
+    store.semantic_search = AsyncMock(return_value=[])
+    from victor.core.graph_rag.seeding import hybrid_seeds
+
+    with patch("victor.storage.embeddings.service.get_embedding_service", return_value=None):
+        _, report = await hybrid_seeds(store, "alpha", 3)
+    assert report.semantic_leg == "unavailable"
+    assert "no embedding service" in report.note
+    store.semantic_search.assert_not_called()
+
+
+def test_read_only_refuses_an_index_older_than_its_schema(tmp_path):
+    # Read-only cannot migrate: an old graph_node without current columns must
+    # be refused at open, not fail on every query afterwards.
+    root = tmp_path / "old"
+    (root / ".victor").mkdir(parents=True)
+    with sqlite3.connect(root / ".victor" / "project.db") as conn:
+        conn.execute(
+            "CREATE TABLE graph_node (node_id TEXT PRIMARY KEY, type TEXT, name TEXT, file TEXT)"
+        )
+        conn.execute("CREATE TABLE graph_edge (src TEXT, dst TEXT, type TEXT)")
+    before = _db_bytes(root)
+    with pytest.raises(ValueError, match="older than this Victor.*graph_node.end_line"):
+        SqliteGraphStore(project_path=root, read_only=True)
+    assert _db_bytes(root) == before
+
+
+@pytest.mark.asyncio
+async def test_graph_semantic_search_reports_hybrid_seeding(index_root):
+    from victor.tools.graph_query_tool import graph_semantic_search
+
+    flags = MagicMock()
+    flags.is_enabled.return_value = True
+    provider = _provider(AsyncMock(return_value=[_hit("n_gamma", 0.9)]))
+    with (
+        patch("victor.core.feature_flags.get_feature_flag_manager", return_value=flags),
+        patch("victor.tools.graph_query_tool._vector_provider_for", return_value=provider),
+    ):
+        out = await graph_semantic_search("alpha_parser", path=str(index_root), mode="hybrid")
+    assert out["metadata"]["seeding"]["semantic_leg"] == "used"
+    assert out["metadata"]["seeding"]["keyword_leg"] == "used"
+
+
+@pytest.mark.asyncio
 async def test_structural_mode_reports_no_vector_leg(index_root):
     store = SqliteGraphStore(project_path=index_root, read_only=True)
     config = RetrievalConfig(seed_count=3, top_k=5, mode="structural")
@@ -282,4 +372,5 @@ def test_seed_report_is_a_plain_record():
         "fused_seeds": 3,
         "semantic_leg": "used",
         "note": None,
+        "keyword_leg": "used",
     }

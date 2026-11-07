@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import functools
 import sqlite3
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -106,6 +107,18 @@ CREATE INDEX IF NOT EXISTS idx_{_MTIME_TABLE}_mtime ON {_MTIME_TABLE}(mtime);
 """
 
 SCHEMA = "PRAGMA journal_mode=WAL;\n" + _TABLE_SCHEMA
+
+
+@functools.lru_cache(maxsize=None)
+def _current_columns(table_name: str) -> frozenset:
+    """Columns the current schema creates for a table (derived, never listed)."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(_TABLE_SCHEMA)
+        return frozenset(row[1] for row in conn.execute(f"PRAGMA table_info({table_name})"))
+    finally:
+        conn.close()
+
 
 # FTS5 schema for full-text search on symbols. Statement rows are EXCLUDED
 # from the sync triggers (write-path profile, 2026-10-24): they are the vast
@@ -437,11 +450,40 @@ class SqliteGraphStore(GraphStoreProtocol):
         conn.commit()
 
     def _inspect_schema(self) -> None:
-        """Read-only counterpart of _ensure_schema: verify, never create."""
-        conn = self._connect()
-        if not self._has_table_column(conn, _NODE_TABLE, "node_id"):
+        """Read-only counterpart of _ensure_schema: verify, never create.
+
+        A read-only store cannot migrate, so an index whose graph tables lack
+        current columns is refused here rather than failing on every query.
+        """
+        try:
+            conn = self._connect()
+            node_columns = self._table_columns(conn, _NODE_TABLE)
+            edge_columns = self._table_columns(conn, _EDGE_TABLE)
+        except sqlite3.OperationalError as exc:
+            raise sqlite3.OperationalError(
+                f"Cannot open graph database read-only: {self.db_path}: {exc}. A WAL-mode "
+                "database needs its directory writable for SQLite's -wal/-shm files "
+                "even when only read."
+            ) from exc
+        if "node_id" not in node_columns:
             raise FileNotFoundError(f"No graph tables in read-only database: {self.db_path}")
-        self._edge_has_file_column = self._has_table_column(conn, _EDGE_TABLE, "file")
+        missing = sorted(
+            {f"{_NODE_TABLE}.{c}" for c in _current_columns(_NODE_TABLE) - node_columns}
+            | {
+                f"{_EDGE_TABLE}.{c}"
+                for c in _current_columns(_EDGE_TABLE) - edge_columns - {"file"}
+            }
+        )
+        if missing:
+            raise ValueError(
+                f"Graph database schema is older than this Victor and cannot be migrated "
+                f"read-only (missing {', '.join(missing)}); reindex it: {self.db_path}"
+            )
+        self._edge_has_file_column = "file" in edge_columns
+
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table_name: str) -> set:
+        return {row[1] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
 
     def _record_project_metadata(self) -> None:
         """Record graph path identity metadata in the project database."""

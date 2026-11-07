@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,9 @@ class SeedReport:
             indexed), ``unavailable`` (the vector leg raised, e.g. a query
             encoder whose profile differs from the indexed one), or
             ``not-requested`` (structural mode).
-        note: Human-readable reason when the vector leg did not contribute.
+        note: Human-readable reason when a leg did not contribute.
+        keyword_leg: ``used``, ``empty`` (no keyword match) or
+            ``unavailable`` (the store's symbol search raised).
     """
 
     mode: str
@@ -50,6 +53,7 @@ class SeedReport:
     fused_seeds: int
     semantic_leg: str
     note: Optional[str] = None
+    keyword_leg: str = "used"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -87,12 +91,42 @@ async def structural_seed_scores(
     seed_count: int,
 ) -> Dict[str, float]:
     """Keyword (FTS5) symbol seeds with rank-decayed scores; no vector leg."""
+    scores, _error = await _keyword_seed_scores(graph_store, query, seed_count)
+    return scores
+
+
+async def _keyword_nodes(
+    graph_store: Any,
+    query: str,
+    limit: int,
+) -> Tuple[List[Any], Optional[str]]:
+    """The store's keyword symbol matches, plus the error if the search raised."""
     try:
-        nodes = await graph_store.search_symbols(query, limit=seed_count)
+        return list(await graph_store.search_symbols(query, limit=limit)), None
     except Exception as e:
-        logger.warning(f"Structural seed search failed: {e}")
-        return {}
-    return {n.node_id: 1.0 / (1 + rank) for rank, n in enumerate(nodes)}
+        logger.warning(f"Keyword seed search failed: {e}")
+        return [], f"keyword leg unavailable: {e}"
+
+
+async def _keyword_seed_scores(
+    graph_store: Any,
+    query: str,
+    limit: int,
+) -> Tuple[Dict[str, float], Optional[str]]:
+    """Rank-decayed keyword seeds, plus the error if the search raised."""
+    nodes, error = await _keyword_nodes(graph_store, query, limit)
+    return {n.node_id: 1.0 / (1 + rank) for rank, n in enumerate(nodes)}, error
+
+
+def _keyword_leg(scores: Dict[str, float], error: Optional[str]) -> str:
+    if error is not None:
+        return SEMANTIC_UNAVAILABLE
+    return SEMANTIC_USED if scores else SEMANTIC_EMPTY
+
+
+def _join_notes(*notes: Optional[str]) -> Optional[str]:
+    joined = "; ".join(n for n in notes if n)
+    return joined or None
 
 
 async def structural_seeds(
@@ -101,13 +135,15 @@ async def structural_seeds(
     seed_count: int,
 ) -> Tuple[Dict[str, float], SeedReport]:
     """Structural seeds plus their report."""
-    scores = await structural_seed_scores(graph_store, query, seed_count)
+    scores, error = await _keyword_seed_scores(graph_store, query, seed_count)
     return scores, SeedReport(
         mode="structural",
         keyword_seeds=len(scores),
         semantic_seeds=0,
         fused_seeds=len(scores),
         semantic_leg=SEMANTIC_NOT_REQUESTED,
+        note=error,
+        keyword_leg=_keyword_leg(scores, error),
     )
 
 
@@ -136,15 +172,12 @@ async def hybrid_seeds(
     factory = vector_provider_factory or vector_provider_for
     limit = max(seed_count * 2, seed_count)
 
-    keyword_results: List[Dict[str, Any]] = []
-    try:
-        nodes = await graph_store.search_symbols(query, limit=limit)
-        keyword_results = [
-            {"file_path": n.node_id, "content": n.name, "score": 1.0 / (1 + rank)}
-            for rank, n in enumerate(nodes)
-        ]
-    except Exception as e:
-        logger.warning(f"Keyword seed search failed: {e}")
+    keyword_nodes, keyword_error = await _keyword_nodes(graph_store, query, limit)
+    keyword_results: List[Dict[str, Any]] = [
+        {"file_path": n.node_id, "content": n.name, "score": 1.0 / (1 + rank)}
+        for rank, n in enumerate(keyword_nodes)
+    ]
+    keyword_leg = _keyword_leg({r["file_path"]: 1.0 for r in keyword_results}, keyword_error)
 
     semantic_results: List[Dict[str, Any]] = []
     note: Optional[str] = None
@@ -155,7 +188,10 @@ async def hybrid_seeds(
             from victor.storage.embeddings.service import get_embedding_service
 
             service = get_embedding_service()
-            if service is not None:
+            if service is None:
+                failed = True
+                note = "semantic leg unavailable: no embedding service"
+            else:
                 query_vector = await service.embed_text(query)
                 nodes = await graph_store.semantic_search(list(query_vector), top_k=limit)
                 semantic_results = [
@@ -165,8 +201,13 @@ async def hybrid_seeds(
         else:
             # Default sqlite path: node embeddings persisted to the vector
             # store by the indexing pipeline, keyed by node_id metadata.
-            provider = factory(graph_store)
-            if provider is None:
+            missing = _read_only_without_embeddings(graph_store)
+            provider = None if missing else factory(graph_store)
+            if missing:
+                # Opening a vector store creates its directory; a read-only
+                # index must not gain one.
+                note = f"semantic leg empty: read-only index has no embeddings at {missing}"
+            elif provider is None:
                 failed = True
                 note = "semantic leg unavailable: no vector store provider"
             else:
@@ -197,7 +238,8 @@ async def hybrid_seeds(
             semantic_seeds=0,
             fused_seeds=len(scores),
             semantic_leg=SEMANTIC_UNAVAILABLE if failed else SEMANTIC_EMPTY,
-            note=note,
+            note=_join_notes(keyword_error, note),
+            keyword_leg=keyword_leg,
         )
 
     from victor.framework.search.hybrid import create_hybrid_search_engine
@@ -212,4 +254,22 @@ async def hybrid_seeds(
         semantic_seeds=len(semantic_results),
         fused_seeds=len(scores),
         semantic_leg=SEMANTIC_USED,
+        note=keyword_error,
+        keyword_leg=keyword_leg,
     )
+
+
+def _read_only_without_embeddings(graph_store: Any) -> Optional[str]:
+    """Embeddings path of a read-only store when that directory is absent."""
+    if not getattr(graph_store, "read_only", False):
+        return None
+    build = getattr(graph_store, "_build_embedding_config", None)
+    if build is None:
+        return None
+    try:
+        persist = build().persist_directory
+    except Exception:
+        return None
+    if persist and not Path(persist).expanduser().is_dir():
+        return str(persist)
+    return None
