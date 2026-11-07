@@ -49,6 +49,16 @@ _SOURCE_PRIORITY_MAP: dict = {
     MessageSource.COMPACTION_SUMMARY: MessagePriority.MEDIUM,
 }
 
+# Column order is owned by ConversationStoreMessages._message_to_row; the
+# single-message and bulk paths must always share this exact statement.
+_INSERT_MESSAGE_SQL = """
+                INSERT OR REPLACE INTO messages
+                (id, session_id, role, content, timestamp, token_count,
+                 priority, tool_name, tool_call_id, metadata,
+                 agent_id, parent_session_id, team_id, member_id, plan_id, plan_step_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+
 
 class ConversationStoreMessages:
     """Manages message operations, persistence, context retrieval, and pruning."""
@@ -406,13 +416,21 @@ class ConversationStoreMessages:
 
         return session.messages[-count:]
 
-    def _persist_message(self, session_id: str, message: ConversationMessage):
-        """Persist message to database."""
+    def _message_to_row(self, session_id: str, message: ConversationMessage) -> tuple:
+        """Build the 16-column ``messages`` row tuple for a message.
+
+        Single source of truth for row layout, shared by the single-message
+        path (``_persist_message``) and the bulk path
+        (``_persist_session_messages``) so both always write identical shapes.
+        """
         content = message.content
+        # ``role`` is a str-typed field that may hold a raw string or a
+        # MessageRole instance; normalize before any role-based logic.
+        role_enum = message.role_enum
         # Truncate large tool outputs for storage
         if len(content) > self.store._TOOL_OUTPUT_STORE_LIMIT and (
-            message.role in (MessageRole.TOOL_CALL, MessageRole.TOOL)
-            or (message.role == MessageRole.USER and content.startswith("<TOOL_OUTPUT"))
+            role_enum in (MessageRole.TOOL_CALL, MessageRole.TOOL)
+            or (role_enum == MessageRole.USER and content.startswith("<TOOL_OUTPUT"))
         ):
             content = (
                 content[: self.store._TOOL_OUTPUT_STORE_LIMIT]
@@ -435,36 +453,57 @@ class ConversationStoreMessages:
         plan_id = meta.get("plan_id")
         plan_step_id = meta.get("plan_step_id")
 
+        priority = message.priority
+        priority_value = priority.value if hasattr(priority, "value") else int(priority)
+
+        return (
+            message.id,
+            session_id,
+            role_enum.value,
+            content,
+            message.timestamp.isoformat(),
+            message.token_count,
+            priority_value,
+            message.tool_name,
+            message.tool_call_id,
+            json_dumps(meta),
+            agent_id,
+            parent_session_id,
+            team_id,
+            member_id,
+            plan_id,
+            plan_step_id,
+        )
+
+    def _persist_message(self, session_id: str, message: ConversationMessage):
+        """Persist message to database."""
+        row = self._message_to_row(session_id, message)
+
         def _write(conn: sqlite3.Connection) -> None:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO messages
-                (id, session_id, role, content, timestamp, token_count,
-                 priority, tool_name, tool_call_id, metadata,
-                 agent_id, parent_session_id, team_id, member_id, plan_id, plan_step_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    message.id,
-                    session_id,
-                    message.role.value,
-                    content,
-                    message.timestamp.isoformat(),
-                    message.token_count,
-                    message.priority.value,
-                    message.tool_name,
-                    message.tool_call_id,
-                    json_dumps(meta),
-                    agent_id,
-                    parent_session_id,
-                    team_id,
-                    member_id,
-                    plan_id,
-                    plan_step_id,
-                ),
-            )
+            conn.execute(_INSERT_MESSAGE_SQL, row)
 
         self.store._with_locked_write_retry(_write, operation="persist_message")
+
+    def _persist_session_messages(
+        self, session_id: str, messages: List[ConversationMessage]
+    ) -> None:
+        """Atomically replace all persisted messages of a session.
+
+        DELETE + bulk INSERT in one serialized transaction gives
+        ``save_session`` replace semantics (idempotent re-saves, imports).
+        Must run AFTER the session row is committed: ``messages.session_id``
+        has ``ON DELETE CASCADE`` and ``INSERT OR REPLACE INTO sessions``
+        performs an implicit DELETE that would wipe freshly written rows.
+        FTS stays consistent via the messages_fts INSERT/DELETE triggers.
+        """
+
+        def _write(conn: sqlite3.Connection) -> None:
+            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            rows = [self._message_to_row(session_id, m) for m in messages]
+            if rows:
+                conn.executemany(_INSERT_MESSAGE_SQL, rows)
+
+        self.store._with_locked_write_retry(_write, operation="persist_session_messages")
 
     def _update_session_activity(self, session_id: str):
         """Update session last activity timestamp."""

@@ -159,8 +159,9 @@ class ConversationStoreSession:
         execution_state: Optional[Any] = None,
         session_ledger: Optional[Any] = None,
         compaction_hierarchy: Optional[Dict[str, Any]] = None,
+        project_path: Optional[str] = None,
     ) -> str:
-        """Save session with rich metadata."""
+        """Save session with rich metadata (full transcript replace)."""
         if hasattr(conversation, "to_dict"):
             conversation_data = conversation.to_dict()
             messages = conversation_data.get("messages", [])
@@ -207,9 +208,14 @@ class ConversationStoreSession:
                 provider=provider,
                 model=model,
                 profile=profile,
+                project_path=project_path,
             )
         else:
             session.messages.clear()
+            if project_path is not None:
+                # Re-save with an explicit project (e.g. re-import) keeps the
+                # session owned by the project the user is working in.
+                session.project_path = project_path
 
         session.title = title
         session.tags = tags or []
@@ -218,6 +224,7 @@ class ConversationStoreSession:
         session.session_ledger = ledger_dict
         session.compaction_hierarchy = compaction_hierarchy
 
+        seen_ids: set = set()
         for msg in messages:
             if isinstance(msg, dict):
                 role = MessageRole(msg["role"])
@@ -226,7 +233,9 @@ class ConversationStoreSession:
                 priority = MessagePriority(msg.get("priority", 50))
                 tool_name = msg.get("tool_name")
                 tool_call_id = msg.get("tool_call_id")
+                tool_calls = msg.get("tool_calls")
                 metadata = msg.get("metadata", {})
+                msg_id = msg.get("id")
                 timestamp_str = msg.get("timestamp")
                 timestamp = (
                     datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now()
@@ -239,16 +248,26 @@ class ConversationStoreSession:
                     priority=priority,
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
+                    tool_calls=tool_calls,
                     metadata=metadata,
                     timestamp=timestamp,
                 )
+                if msg_id is not None:
+                    # Preserve imported message ids (dedup identity); leave the
+                    # uuid4 default_factory intact when absent.
+                    conversation_msg.id = msg_id
             elif isinstance(msg, ConversationMessage):
                 conversation_msg = msg
             else:
                 continue
 
-            if conversation_msg not in session.messages:
-                session.messages.append(conversation_msg)
+            # Dedup by message id (the identity key used by the messages
+            # table) — O(n) instead of full-equality scans, and stable for
+            # imported transcripts that carry their own ids.
+            if conversation_msg.id in seen_ids:
+                continue
+            seen_ids.add(conversation_msg.id)
+            session.messages.append(conversation_msg)
 
         session.preview_messages.clear()
         for preview in preview_messages:
@@ -276,6 +295,15 @@ class ConversationStoreSession:
             )
 
         self.store._persist_session(session)
+        # ORDERING CONSTRAINT: the session row must be committed before message
+        # rows are written. messages.session_id carries ON DELETE CASCADE and
+        # _persist_session's INSERT OR REPLACE performs an implicit DELETE on
+        # the sessions row — writing messages first would cascade-wipe them.
+        # The bulk write replaces the transcript atomically (DELETE + INSERT),
+        # giving save_session idempotent replace semantics for /save re-saves
+        # and file imports. Preview messages are NOT written here: they live in
+        # the sessions.metadata sidecar persisted by _persist_session above.
+        self.store._persist_session_messages(session_id, session.messages)
         logger.info(f"Saved session {session_id} with title: {title}")
         return session_id
 
@@ -291,14 +319,16 @@ class ConversationStoreSession:
 
         for msg in session.messages:
             if isinstance(msg, ConversationMessage):
+                role_value = msg.role.value if hasattr(msg.role, "value") else msg.role
                 msg_dict = {
-                    "role": msg.role.value,
+                    "role": role_value,
                     "content": msg.content,
                     "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
                     "token_count": msg.token_count,
                     "priority": msg.priority.value if msg.priority else None,
                     "tool_name": msg.tool_name,
                     "tool_call_id": msg.tool_call_id,
+                    "tool_calls": msg.tool_calls,
                     "metadata": msg.metadata if msg.metadata else {},
                 }
 
