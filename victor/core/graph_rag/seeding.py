@@ -242,7 +242,7 @@ async def hybrid_seeds(
             keyword_leg=keyword_leg,
         )
 
-    from victor.framework.search.hybrid import create_hybrid_search_engine
+    from victor.core.search.hybrid import create_hybrid_search_engine
 
     engine = create_hybrid_search_engine()
     fused = engine.combine_results(semantic_results, keyword_results, max_results=seed_count)
