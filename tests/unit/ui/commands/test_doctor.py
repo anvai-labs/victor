@@ -382,35 +382,58 @@ class TestGraphIndexingCheck:
         assert check.severity == Severity.WARNING
         assert "ruby" in check.message and "victor-ai[graph]" in check.suggestion
 
+    @staticmethod
+    def _coding_version(monkeypatch, outcome):
+        """Route the victor-coding distribution version lookup (metadata only)."""
+        import importlib.metadata as md
+
+        real = md.version
+
+        def fake(name):
+            if name != "victor-coding":
+                return real(name)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(md, "version", fake)
+
     @pytest.mark.parametrize(
-        ("error", "fragment"),
-        [(ImportError("absent"), "still reporting success"), (RuntimeError("skew"), "skew")],
+        ("outcome", "severity", "fragment"),
+        [
+            (None, Severity.WARNING, "still reporting success"),  # not installed
+            (RuntimeError("corrupt RECORD"), Severity.WARNING, "metadata unreadable"),
+            ("unknown", Severity.WARNING, "unparseable version"),
+            ("0.8.0", Severity.WARNING, "older than"),
+            ("0.14.0", Severity.SUCCESS, "enhanced analysis"),
+            ("0.16.0", Severity.SUCCESS, "enhanced analysis"),
+        ],
     )
-    def test_an_unusable_analysis_plugin_warns_and_never_crashes(
-        self, monkeypatch, error, fragment
+    def test_the_analysis_plugin_is_judged_from_metadata_and_never_crashes(
+        self, monkeypatch, outcome, severity, fragment
     ):
+        import importlib.metadata as md
+
         pytest.importorskip("victor_codegraph")
         self._forbid_downloads(monkeypatch)
-        self._imports(monkeypatch, broken={"victor_coding": error})
+        if outcome is None:
+            outcome = md.PackageNotFoundError("victor-coding")
+        self._coding_version(monkeypatch, outcome)
         doctor = DoctorChecks()
         doctor.check_graph_indexing()
         check = self._by_name(doctor)["Graph Analysis Plugin"]
-        assert check.severity == Severity.WARNING and fragment in check.message
+        assert check.severity == severity and fragment in check.message
 
-    @pytest.mark.parametrize(
-        ("installed", "severity"),
-        [("0.8.0", Severity.WARNING), ("0.14.0", Severity.SUCCESS), ("0.16.0", Severity.SUCCESS)],
-    )
-    def test_the_analysis_plugin_must_meet_the_extra_floor(self, monkeypatch, installed, severity):
+    def test_the_plugin_check_never_imports_the_vertical(self, monkeypatch):
+        """Core must not import external verticals (contract boundary)."""
         pytest.importorskip("victor_codegraph")
-        pytest.importorskip("victor_coding")
         self._forbid_downloads(monkeypatch)
-        self._imports(monkeypatch, versions={"victor-coding": installed})
+        self._imports(monkeypatch, broken={"victor_coding": AssertionError("imported a vertical")})
         doctor = DoctorChecks()
-        doctor.check_graph_indexing()
-        assert self._by_name(doctor)["Graph Analysis Plugin"].severity == severity
+        doctor.check_graph_indexing()  # must not raise
+        assert "Graph Analysis Plugin" in self._by_name(doctor)
 
-    def test_uncached_grammars_are_listed_with_a_prefetch_command(self, monkeypatch):
+    def test_uncached_grammars_follow_what_codegraph_fetches(self, monkeypatch):
         import types
 
         import victor.ui.commands.doctor as doctor_module
@@ -428,10 +451,30 @@ class TestGraphIndexingCheck:
         doctor = DoctorChecks()
         doctor.check_graph_indexing()
         check = self._by_name(doctor)["Grammar Downloads"]
+        listed = check.message.split("not yet cached:")[1]
         assert check.severity == Severity.INFO and "/cache/tslp" in check.message
-        assert "not yet cached:" in check.message and "ruby" in check.message
-        assert "java," not in check.message.split("not yet cached:")[1]
+        assert "ruby" in listed and "sql" in listed  # codegraph fetches sql
+        assert "python" not in listed  # parsed with the stdlib ast, never fetched
+        assert "java," not in listed and not listed.strip().startswith("java")
         assert "download_all()" in check.suggestion
+
+    def test_a_full_cache_reports_all_cached(self, monkeypatch):
+        import types
+
+        import victor.ui.commands.doctor as doctor_module
+
+        languages = pytest.importorskip("victor_codegraph.languages")
+        fetched = sorted(set(languages.TREE_SITTER_GRAMMAR.values()))
+        pack = types.SimpleNamespace(downloaded_languages=lambda: fetched, cache_dir=lambda: "/c")
+        real = doctor_module.import_module
+        monkeypatch.setattr(
+            doctor_module,
+            "import_module",
+            lambda name: pack if name == "tree_sitter_language_pack" else real(name),
+        )
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        assert "all indexed languages cached" in self._by_name(doctor)["Grammar Downloads"].message
 
     def test_run_all_checks_includes_graph_indexing(self, monkeypatch):
         called = []

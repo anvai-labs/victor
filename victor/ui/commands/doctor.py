@@ -343,14 +343,17 @@ class DoctorChecks:
                 message=f"grammar wheels installed for all {len(LANGUAGE_MODULES)} languages",
             )
 
+        # Installed version from distribution metadata, never by importing the
+        # vertical: core must not import external verticals (contract
+        # boundary), and reading metadata executes none of its code.
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as dist_version
+
+        from packaging.version import InvalidVersion, Version
+
         try:
-            import_module("victor_coding")
-            from importlib.metadata import version as dist_version
-
-            from packaging.version import Version
-
             installed = dist_version("victor-coding")
-        except ImportError:
+        except PackageNotFoundError:
             self.add_check(
                 name="Graph Analysis Plugin",
                 severity=Severity.WARNING,
@@ -360,35 +363,48 @@ class DoctorChecks:
                 ),
                 suggestion='pip install "victor-ai[graph]"',
             )
-        except Exception as e:  # doctor must never crash on imports
+        except Exception as e:  # doctor must never crash on metadata reads
             self.add_check(
                 name="Graph Analysis Plugin",
                 severity=Severity.WARNING,
-                message=f"victor-coding failed to load: {type(e).__name__}: {e}",
+                message=f"victor-coding metadata unreadable: {type(e).__name__}: {e}",
                 suggestion='pip install --force-reinstall "victor-ai[graph]"',
             )
         else:
-            if Version(installed) < Version(MIN_VICTOR_CODING):
+            try:
+                outdated = Version(installed) < Version(MIN_VICTOR_CODING)
+            except InvalidVersion:
                 self.add_check(
                     name="Graph Analysis Plugin",
                     severity=Severity.WARNING,
-                    message=(
-                        f"victor-coding {installed} is older than the {MIN_VICTOR_CODING} "
-                        "that victor-ai[graph] requires"
-                    ),
-                    suggestion='pip install --upgrade "victor-ai[graph]"',
+                    message=f"victor-coding reports an unparseable version: {installed!r}",
+                    suggestion='pip install --force-reinstall "victor-ai[graph]"',
                 )
             else:
-                self.add_check(
-                    name="Graph Analysis Plugin",
-                    severity=Severity.SUCCESS,
-                    message=f"victor-coding {installed} enhanced analysis available",
-                )
+                if outdated:
+                    self.add_check(
+                        name="Graph Analysis Plugin",
+                        severity=Severity.WARNING,
+                        message=(
+                            f"victor-coding {installed} is older than the {MIN_VICTOR_CODING} "
+                            "that victor-ai[graph] requires"
+                        ),
+                        suggestion='pip install --upgrade "victor-ai[graph]"',
+                    )
+                else:
+                    self.add_check(
+                        name="Graph Analysis Plugin",
+                        severity=Severity.SUCCESS,
+                        message=f"victor-coding {installed} enhanced analysis available",
+                    )
 
         try:
             pack = import_module("tree_sitter_language_pack")
+            # The grammars victor-codegraph actually fetches from the pack (it
+            # parses Python with the stdlib ast, and does fetch sql).
+            fetched = set(import_module("victor_codegraph.languages").TREE_SITTER_GRAMMAR.values())
             cached = set(pack.downloaded_languages())  # local cache listing only
-            uncached = sorted(set(LANGUAGE_MODULES) - cached)
+            uncached = sorted(fetched - cached)
             self.add_check(
                 name="Grammar Downloads",
                 severity=Severity.INFO,
