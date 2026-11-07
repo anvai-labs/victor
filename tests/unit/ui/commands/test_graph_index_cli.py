@@ -94,6 +94,31 @@ async def test_yaml_only_settings_enable_precise_index(tmp_path):
     assert config.precise_index_tool == "scip-python"
 
 
+async def test_yaml_java_toolchain_settings_reach_the_index_config(tmp_path):
+    """The scip-java JDK home and build scope configured in settings.yaml
+    must reach GraphIndexConfig through the CLI path (the CLI builds the
+    config field by field, so an unthreaded key is a silent no-op)."""
+    from victor.core.graph_rag.indexing import GraphIndexStats
+
+    settings = _settings_from_yaml(
+        tmp_path,
+        "search:\n"
+        "  graph:\n"
+        "    enable_precise_index: true\n"
+        "    precise_index_java_home: /opt/jdk-21\n"
+        "    precise_index_build_args:\n"
+        "      scip-java: [':iceberg-core:compileJava', '-x', 'test']\n",
+    )
+
+    ok, config, _ = await _run_index(tmp_path, settings, GraphIndexStats(files_processed=1))
+
+    assert ok
+    assert config.precise_index_java_home == "/opt/jdk-21"
+    assert config.precise_index_build_args == {
+        "scip-java": [":iceberg-core:compileJava", "-x", "test"]
+    }
+
+
 async def test_defaults_without_precise_configuration(tmp_path):
     """Negative: empty settings sources keep tier 3 off (opt-in default) and
     the timeout at 0 (per-provider defaults)."""
@@ -107,6 +132,8 @@ async def test_defaults_without_precise_configuration(tmp_path):
     assert config.enable_precise_index is False
     assert config.precise_index_timeout_seconds == 0
     assert config.precise_index_tool == "auto"
+    assert config.precise_index_java_home == ""
+    assert config.precise_index_build_args == {}
 
 
 async def test_cli_flags_override_settings(tmp_path):

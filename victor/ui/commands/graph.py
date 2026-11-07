@@ -389,6 +389,10 @@ async def _index_async(
         enable_precise_index=enable_precise,
         precise_index_timeout_seconds=timeout_seconds,
         precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
+        precise_index_java_home=graph_setting(settings, "precise_index_java_home", ""),
+        precise_index_build_args=dict(
+            graph_setting(settings, "precise_index_build_args", {}) or {}
+        ),
         parse_workers=(
             parse_workers
             if parse_workers is not None
