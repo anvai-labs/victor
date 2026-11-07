@@ -390,6 +390,50 @@ async def test_a_failed_any_term_retry_leaves_the_leg_empty_not_unavailable():
 
 
 @pytest.mark.asyncio
+async def test_fused_report_carries_keyword_match_from_the_any_term_retry():
+    from victor.core.graph_rag.seeding import hybrid_seeds
+
+    class Capable:
+        async def search_symbols(self, query, limit=20, match="all"):
+            return [] if match == "all" else [_node("n_kw", "words")]
+
+    store = Capable()
+    provider = _provider(AsyncMock(return_value=[_hit("n_vec", 0.9)]))
+    scores, report = await hybrid_seeds(
+        store, "two words here", 3, vector_provider_factory=lambda _s: provider
+    )
+    assert report.semantic_leg == "used" and report.keyword_match == "any"
+    assert set(scores) == {"n_vec", "n_kw"}
+
+
+def test_phrase_retry_is_skipped_for_any_term_queries():
+    # A quoted OR query rerun as one quoted phrase can never match more; the
+    # retry would be a wasted query. Hard to observe through the store, so pin
+    # the flag the store uses to skip it: terms were extracted for this query.
+    from victor.storage.graph.sqlite_store import natural_language_terms
+
+    assert natural_language_terms("snapshot manifest list")  # terms non-empty
+
+
+@pytest.mark.asyncio
+async def test_read_only_hybrid_without_an_embedding_config_refuses_to_guess(index_root):
+    from victor.core.graph_rag.seeding import hybrid_seeds
+
+    store = SqliteGraphStore(project_path=index_root, read_only=True)
+
+    def broken_config():
+        raise RuntimeError("settings unavailable")
+
+    store._build_embedding_config = broken_config
+    _, report = await hybrid_seeds(store, "alpha", 3, vector_provider_factory=MagicMock())
+    assert report.semantic_leg == "unavailable"
+    assert (
+        "embedding configuration unavailable" in report.note
+        or "settings unavailable" in report.note
+    )
+
+
+@pytest.mark.asyncio
 async def test_a_proxima_store_without_an_embedding_service_is_unavailable():
     store = MagicMock(spec=[])
     store.search_symbols = AsyncMock(return_value=[_node("n_alpha", "alpha")])

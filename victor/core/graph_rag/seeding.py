@@ -246,7 +246,12 @@ async def hybrid_seeds(
             # store by the indexing pipeline, keyed by node_id metadata.
             missing = _read_only_without_embeddings(graph_store)
             provider = None if missing else factory(graph_store)
-            if missing:
+            if missing is not None and missing.startswith("config-unavailable:"):
+                # Opening a vector store needs a config this store cannot load;
+                # guessing would create a directory outside the index.
+                failed = True
+                note = f"semantic leg unavailable:{missing.split(':', 1)[1]}"
+            elif missing is not None:
                 # Opening a vector store creates its directory; a read-only
                 # index must not gain one.
                 note = f"semantic leg empty: read-only index has no embeddings at {missing}"
@@ -313,8 +318,12 @@ def _read_only_without_embeddings(graph_store: Any) -> Optional[str]:
         return None
     try:
         persist = build().persist_directory
-    except Exception:
-        return None
+    except Exception as exc:
+        # Without its embedding config a read-only store cannot know where its
+        # vectors live; refuse to guess — a factory fallback would create a
+        # directory outside the analyzed checkout.
+        logger.debug(f"Embedding config unavailable for read-only hybrid: {exc}")
+        return f"config-unavailable: {exc}"
     if persist and not Path(persist).expanduser().is_dir():
         return str(persist)
     return None
