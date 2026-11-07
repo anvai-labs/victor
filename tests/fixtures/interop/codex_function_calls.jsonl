@@ -1,0 +1,9 @@
+{"timestamp": "2026-11-06T12:02:00.000Z", "ordinal": 0, "type": "session_meta", "payload": {"session_id": "22222222-2222-4222-8222-222222222222", "id": "22222222-2222-4222-8222-222222222222", "cwd": "/tmp/demo", "history_mode": "legacy", "originator": "codex-tui"}}
+{"timestamp": "2026-11-06T12:02:00.050Z", "ordinal": 1, "type": "response_item", "payload": {"type": "message", "id": "m0", "role": "developer", "content": [{"type": "input_text", "text": "You are a helpful agent."}]}}
+{"timestamp": "2026-11-06T12:02:00.100Z", "ordinal": 2, "type": "response_item", "payload": {"type": "message", "id": "m1", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>\n<cwd>/tmp/demo</cwd>\n</environment_context>"}]}}
+{"timestamp": "2026-11-06T12:02:00.200Z", "ordinal": 3, "type": "response_item", "payload": {"type": "message", "id": "m2", "role": "user", "content": [{"type": "input_text", "text": "List the files."}]}}
+{"timestamp": "2026-11-06T12:02:01.000Z", "ordinal": 4, "type": "response_item", "payload": {"type": "reasoning", "summary": [], "encrypted_content": "gAAAA"}}
+{"timestamp": "2026-11-06T12:02:01.100Z", "ordinal": 5, "type": "response_item", "payload": {"type": "function_call", "call_id": "fc_1", "name": "shell", "arguments": "{\"command\":\"ls\"}"}}
+{"timestamp": "2026-11-06T12:02:01.300Z", "ordinal": 6, "type": "response_item", "payload": {"type": "function_call_output", "call_id": "fc_1", "output": "file_a.py file_b.py"}}
+{"timestamp": "2026-11-06T12:02:02.000Z", "ordinal": 7, "type": "response_item", "payload": {"type": "message", "id": "m3", "role": "assistant", "content": [{"type": "output_text", "text": "Two python files."}]}}
+{"timestamp": "2026-11-06T12:03:00.000Z", "ordinal": 8, "type": "compacted", "payload": {"message": "", "encrypted_content": "gAAAA-compacted"}}
