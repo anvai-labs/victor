@@ -275,6 +275,29 @@ def _print_index_summary(stats: Any, *, list_partial: bool = False) -> None:
             console.print(f"    ... {stats.error_count - 10} additional errors")
 
 
+def _claim_index_store(root_path: Path) -> Optional[Path]:
+    """An explicit index root owns its project store.
+
+    Node paths are relative to the indexed root, so adopting an ancestor's
+    store mixes them into another project's graph (observed: a nested source
+    tree indexed into the enclosing repository's database, its embeddings
+    beside it). Every store resolver — graph, embeddings, precise artifacts —
+    honors an existing ``.victor/project.db`` at the start directory first,
+    so claiming it here makes them all agree on ``root_path``.
+
+    Returns the root whose store would otherwise have been adopted, or None.
+    """
+    from victor.core.database import resolve_project_db_root
+
+    adopted = resolve_project_db_root(root_path)
+    if adopted == root_path:
+        return None
+    store = root_path / ".victor" / "project.db"
+    store.parent.mkdir(parents=True, exist_ok=True)
+    store.touch(exist_ok=True)
+    return adopted
+
+
 async def _index_async(
     path: str,
     enable_ccg: bool,
@@ -328,6 +351,12 @@ async def _index_async(
         return False
 
     console.print(f"[dim]Indexing codebase at: {root_path}[/dim]")
+    adopted = _claim_index_store(root_path)
+    if adopted is not None:
+        console.print(
+            f"[dim]Index store claimed at {root_path / '.victor'} "
+            f"(the store at {adopted / '.victor'} belongs to another project)[/dim]"
+        )
 
     # Create graph store
     graph_store = create_graph_store("auto", root_path)
