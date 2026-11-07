@@ -251,6 +251,11 @@ def _dump_fixed_name(
     return output_path
 
 
+# Fixed project version handed to producers that would otherwise read it from
+# the ambient VCS; symbol parsing skips this token.
+_PRECISE_PROJECT_VERSION = "0"
+
+
 class ScipPythonProvider:
     """npm ``scip-python`` (Pyright) — python."""
 
@@ -275,7 +280,22 @@ class ScipPythonProvider:
         environment_json: Optional[Path] = None,
     ) -> Union[Path, DumpSkipped, None]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        argv = [tool, "index", "--project-name", "victor-harvest", "--output", str(output_path)]
+        # An explicit --project-version: scip-python otherwise derives it from
+        # the ambient git repository and crashes outside one (TypeError reading
+        # 'indexOf' of undefined) — observed on a git-less source tree, which
+        # only ever worked when it happened to sit inside an unrelated repo.
+        # The version token is skipped by symbol parsing, so a constant keeps
+        # dumps reproducible without changing joins.
+        argv = [
+            tool,
+            "index",
+            "--project-name",
+            "victor-harvest",
+            "--project-version",
+            _PRECISE_PROJECT_VERSION,
+            "--output",
+            str(output_path),
+        ]
         if environment_json is not None:
             # ADR-032 harvest constraint: skip Pyright's whole-environment
             # enumeration (the measured 2,980 s / ~130 GB-read hot spot on

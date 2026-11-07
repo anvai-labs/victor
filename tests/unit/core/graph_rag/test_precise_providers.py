@@ -734,6 +734,8 @@ def test_python_dump_argv(tmp_path, monkeypatch):
         "index",
         "--project-name",
         "victor-harvest",
+        "--project-version",
+        "0",
         "--output",
         str(tmp_path / "out.scip"),
     ]
