@@ -293,6 +293,103 @@ async def test_a_failed_keyword_leg_is_reported_not_mistaken_for_no_matches():
 
 
 @pytest.mark.asyncio
+async def test_hybrid_keyword_leg_falls_back_to_any_term_for_questions(index_root):
+    # The all-terms query for a question matches nothing; the keyword leg
+    # retries matching any meaningful term and so contributes seeds.
+    provider = _provider(AsyncMock(return_value=[]))
+    store = SqliteGraphStore(project_path=index_root, read_only=True)
+    config = RetrievalConfig(seed_count=3, top_k=5, max_hops=1, direction="both", mode="hybrid")
+    with patch("victor.core.graph_rag.seeding.vector_provider_for", return_value=provider):
+        result = await MultiHopRetriever(store, config).retrieve(
+            "which function writes beta output", config
+        )
+    await store.close()
+    seeding = result.metadata["seeding"]
+    assert seeding["keyword_leg"] == "used"
+    assert "n_beta" in result.seed_nodes
+
+
+@pytest.mark.asyncio
+async def test_any_term_retry_only_for_multi_word_queries_on_capable_stores():
+    from victor.core.graph_rag.seeding import hybrid_seeds
+
+    calls = []
+
+    class LegacyStore:  # no `match` parameter: never retried with it
+        async def search_symbols(self, query, limit=20):
+            calls.append(("legacy", query))
+            return []
+
+    class CapableStore:
+        async def search_symbols(self, query, limit=20, match="all"):
+            calls.append((match, query))
+            return []
+
+    empty = _provider(AsyncMock(return_value=[]))
+    await hybrid_seeds(LegacyStore(), "two words", 3, vector_provider_factory=lambda _s: empty)
+    await hybrid_seeds(CapableStore(), "single", 3, vector_provider_factory=lambda _s: empty)
+    await hybrid_seeds(CapableStore(), "two words", 3, vector_provider_factory=lambda _s: empty)
+    assert calls == [
+        ("legacy", "two words"),
+        ("all", "single"),
+        ("all", "two words"),
+        ("any", "two words"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_exact_keyword_hits_are_kept_and_structural_seeding_never_loosens():
+    from victor.core.graph_rag.seeding import hybrid_seeds, structural_seeds
+
+    calls = []
+    exact = [_node("n_exact", "exact")]
+
+    class CapableStore:
+        def __init__(self, exact_hits):
+            self.exact_hits = exact_hits
+
+        async def search_symbols(self, query, limit=20, match="all"):
+            calls.append(match)
+            return self.exact_hits if match == "all" else [_node("n_loose", "loose")]
+
+    empty = _provider(AsyncMock(return_value=[]))
+    scores, report = await hybrid_seeds(
+        CapableStore(exact), "two words", 3, vector_provider_factory=lambda _s: empty
+    )
+    assert calls == ["all"] and set(scores) == {"n_exact"}
+    assert report.keyword_match == "all"
+
+    calls.clear()
+    scores, report = await hybrid_seeds(
+        CapableStore([]), "two words", 3, vector_provider_factory=lambda _s: empty
+    )
+    assert calls == ["all", "any"] and set(scores) == {"n_loose"}
+    assert report.keyword_leg == "used" and report.keyword_match == "any"
+
+    calls.clear()
+    scores, report = await structural_seeds(CapableStore([]), "two words", 3)
+    assert calls == ["all"] and scores == {} and report.keyword_match == "all"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_any_term_retry_leaves_the_leg_empty_not_unavailable():
+    from victor.core.graph_rag.seeding import hybrid_seeds
+
+    class FlakyStore:
+        async def search_symbols(self, query, limit=20, match="all"):
+            if match == "any":
+                raise RuntimeError("boom")
+            return []
+
+    empty = _provider(AsyncMock(return_value=[]))
+    _, report = await hybrid_seeds(
+        FlakyStore(), "two words", 3, vector_provider_factory=lambda _s: empty
+    )
+    assert report.keyword_leg == "empty"
+    assert "keyword leg unavailable" not in (report.note or "")
+
+
+@pytest.mark.asyncio
 async def test_a_proxima_store_without_an_embedding_service_is_unavailable():
     store = MagicMock(spec=[])
     store.search_symbols = AsyncMock(return_value=[_node("n_alpha", "alpha")])
@@ -373,4 +470,5 @@ def test_seed_report_is_a_plain_record():
         "semantic_leg": "used",
         "note": None,
         "keyword_leg": "used",
+        "keyword_match": "all",
     }

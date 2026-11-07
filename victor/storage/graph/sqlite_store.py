@@ -109,6 +109,40 @@ CREATE INDEX IF NOT EXISTS idx_{_MTIME_TABLE}_mtime ON {_MTIME_TABLE}(mtime);
 SCHEMA = "PRAGMA journal_mode=WAL;\n" + _TABLE_SCHEMA
 
 
+# Words that carry no symbol meaning in a natural-language question.
+_QUERY_STOPWORDS = frozenset("""
+    about after all also and any are because been before being but can could
+    does doing each for from get gets has have how into its just like make
+    makes many more most not off once only other our out over same should some
+    such than that the their them then there these they this those through too
+    under until use used uses using very was way were what when where which
+    while who why will with within without would you your
+    """.split())
+_MAX_QUERY_TERMS = 16
+
+
+def natural_language_terms(query: str) -> List[str]:
+    """Distinct meaningful lowercase terms of a question, in order of appearance.
+
+    Tokens follow FTS5's default unicode61 tokenizer: Unicode word characters,
+    lowercased, with diacritics removed ("café" is indexed as "cafe").
+    """
+    import re
+    import unicodedata
+
+    folded = "".join(
+        c for c in unicodedata.normalize("NFKD", query.lower()) if not unicodedata.combining(c)
+    )
+    terms: List[str] = []
+    for token in re.findall(r"\w+", folded):
+        if len(token) < 3 or token in _QUERY_STOPWORDS or token in terms:
+            continue
+        terms.append(token)
+        if len(terms) == _MAX_QUERY_TERMS:
+            break
+    return terms
+
+
 @functools.lru_cache(maxsize=None)
 def _current_columns(table_name: str) -> frozenset:
     """Columns the current schema creates for a table (derived, never listed)."""
@@ -1376,8 +1410,26 @@ class SqliteGraphStore(GraphStoreProtocol):
         *,
         limit: int = 20,
         symbol_types: Optional[Iterable[str]] = None,
+        match: str = "all",
     ) -> List[GraphNode]:
-        """Full-text search across symbol names, signatures, and docstrings."""
+        """Full-text search across symbol names, signatures, and docstrings.
+
+        Args:
+            match: ``"all"`` (default) passes the query to FTS5 as written, so
+                every term must match: precise for symbol lookups, but a
+                natural-language question almost never matches at all.
+                ``"any"`` matches any meaningful term of the query (stopwords
+                and terms shorter than three characters dropped), ranked by
+                FTS5 relevance so rarer terms dominate.
+        """
+        if match not in ("all", "any"):
+            raise ValueError(f"match must be 'all' or 'any', not {match!r}")
+        terms: List[str] = []
+        if match == "any":
+            terms = natural_language_terms(query)
+            if not terms:
+                return []
+            query = " OR ".join(f'"{term}"' for term in terms)
         async with self._lock:
             conn = self._connect()
 
@@ -1392,7 +1444,9 @@ class SqliteGraphStore(GraphStoreProtocol):
                 # fallback run.
                 import re
 
-                has_special = bool(re.search(r'[:*"^()]', query))
+                # An any-term query is already a well-formed quoted OR; its
+                # phrase retry could never match what the query did not.
+                has_special = not terms and bool(re.search(r'[:*"^()]', query))
 
                 def _fts_search(match_param: str) -> Optional[List[GraphNode]]:
                     try:
@@ -1428,18 +1482,23 @@ class SqliteGraphStore(GraphStoreProtocol):
 
                 # Fallback: LIKE search — only reached when FTS5 is missing
                 # (both raw and quoted-phrase MATCH failed operationally).
-                like_pattern = f"%{query}%"
+                # An any-term search matches any term, one pattern per term.
+                patterns = [f"%{t}%" for t in terms] if terms else [f"%{query}%"]
+                where = " OR ".join(
+                    "(name LIKE ? OR signature LIKE ? OR docstring LIKE ?)" for _ in patterns
+                )
+                like_params: list[Any] = [p for pattern in patterns for p in (pattern,) * 3]
                 type_clause = ""
-                params = [like_pattern, like_pattern, like_pattern, limit]
+                params = like_params + [limit]
                 if symbol_types:
                     types = list(symbol_types)
                     type_clause = f"AND type IN ({','.join('?' for _ in types)})"
-                    params = [like_pattern, like_pattern, like_pattern] + types + [limit]
+                    params = like_params + types + [limit]
 
                 like_query = f"""
                     SELECT {self._NODE_COLS}
                     FROM {_NODE_TABLE}
-                    WHERE (name LIKE ? OR signature LIKE ? OR docstring LIKE ?)
+                    WHERE ({where})
                     {type_clause}
                     LIMIT ?
                 """
