@@ -50,6 +50,14 @@ class GraphSettings(BaseModel):
     # Provider selection hint ("auto" or a provider name); mirrors
     # GraphIndexConfig.precise_index_tool.
     precise_index_tool: str = "auto"
+    # JDK for scip-java (its JAVA_HOME). Empty = the ``java`` on PATH. scip-java
+    # 0.13 supports Java 17/21/25; any other major skips with an explicit
+    # ``unsupported-jdk:<major>`` outcome instead of a dump failure.
+    precise_index_java_home: str = ""
+    # Extra build arguments per provider, passed after ``--`` (scip-java:
+    # Gradle tasks and -D properties scoping the compile, e.g. the modules of
+    # a monorepo whose full build is impractical). Part of the dump cache key.
+    precise_index_build_args: dict[str, list[str]] = Field(default_factory=dict)
     # Parser thread-pool size. 0 = the machine's full core count (the old
     # silent 8-core cap is gone); 1 = serial. Mirrors
     # GraphIndexConfig.parse_workers — the knob for measuring the GIL

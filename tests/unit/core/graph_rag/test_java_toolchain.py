@@ -1,0 +1,231 @@
+"""scip-java toolchain preflight, scratch builds and full dump transcripts.
+
+Observed on a real monorepo index: the provider ran an unsupported JDK and a
+Gradle newer than the project's wrapper pin, compiled inside the indexed tree,
+and kept 400 characters of the failure. Each behavior below pins the fix.
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import victor.core.graph_rag.precise_providers as mod
+from victor.core.graph_rag.precise_providers import DumpSkipped, ScipJavaProvider
+
+JV = ScipJavaProvider()
+
+
+def _executable(directory: Path, name: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / name
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _gradle_project(root: Path, *, pinned: str = "8.14.6", wrapper_jar: bool = False) -> Path:
+    (root / "gradle" / "wrapper").mkdir(parents=True)
+    (root / "gradle" / "wrapper" / "gradle-wrapper.properties").write_text(
+        f"distributionUrl=https\\://services.gradle.org/distributions/gradle-{pinned}-bin.zip\n",
+        encoding="utf-8",
+    )
+    (root / "settings.gradle").write_text("rootProject.name = 'demo'\n", encoding="utf-8")
+    _executable(root, "gradlew")
+    if wrapper_jar:
+        (root / "gradle" / "wrapper" / "gradle-wrapper.jar").write_bytes(b"PK")
+    return root
+
+
+@pytest.fixture
+def toolchain(tmp_path, monkeypatch):
+    """A JDK home with a fake java; PATH holds nothing else."""
+    jdk = tmp_path / "jdk"
+    _executable(jdk / "bin", "java")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    monkeypatch.setattr(mod, "_java_major", lambda java, env: 21)
+    return jdk
+
+
+@pytest.fixture
+def captured(monkeypatch):
+    calls = []
+
+    def fake_run_dump(command, *, cwd, output_path, timeout_seconds, node_heap, env=None):
+        calls.append(SimpleNamespace(command=command, cwd=cwd, env=env, output=output_path))
+        return output_path
+
+    monkeypatch.setattr(mod, "_run_dump", fake_run_dump)
+    return calls
+
+
+def test_missing_jdk_skips_before_any_build(tmp_path, monkeypatch, captured):
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    result = JV.dump("/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1)
+    assert result == DumpSkipped("no-jdk") and captured == []
+
+
+@pytest.mark.parametrize("major", [8, 11, 23])
+def test_unsupported_jdk_majors_skip_with_the_major_named(
+    tmp_path, monkeypatch, toolchain, captured, major
+):
+    monkeypatch.setattr(mod, "_java_major", lambda java, env: major)
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    result = JV.dump(
+        "/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1, java_home=str(toolchain)
+    )
+    assert result == DumpSkipped(f"unsupported-jdk:{major}") and captured == []
+
+
+def test_java_home_leads_path_and_is_exported_to_the_build(tmp_path, toolchain, captured):
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    JV.dump(
+        "/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1, java_home=str(toolchain)
+    )
+    env = captured[0].env
+    assert env["JAVA_HOME"] == str(toolchain)
+    assert env["PATH"].split(":")[0] == str(toolchain / "bin")
+
+
+def test_a_gradle_newer_than_the_wrapper_pin_is_never_run(
+    tmp_path, monkeypatch, toolchain, captured
+):
+    gradle_bin = tmp_path / "gradle-9" / "bin"
+    _executable(gradle_bin, "gradle")
+    monkeypatch.setenv("PATH", str(gradle_bin))
+    monkeypatch.setattr(mod, "_gradle_version", lambda gradle, env: "9.3.1")
+    root = _gradle_project(tmp_path / "project", pinned="8.14.6", wrapper_jar=False)
+    result = JV.dump(
+        "/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1, java_home=str(toolchain)
+    )
+    assert result == DumpSkipped("gradle-version-mismatch:wants-8.14.6-found-9.3.1")
+    assert captured == []
+
+
+def test_a_missing_gradle_is_reported_against_the_pin(tmp_path, toolchain, captured):
+    root = _gradle_project(tmp_path / "project", pinned="8.14.6", wrapper_jar=False)
+    result = JV.dump(
+        "/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1, java_home=str(toolchain)
+    )
+    assert result == DumpSkipped("gradle-version-mismatch:wants-8.14.6-found-none")
+
+
+def test_the_pinned_gradle_on_path_proceeds(tmp_path, monkeypatch, toolchain, captured):
+    gradle_bin = tmp_path / "gradle-8" / "bin"
+    _executable(gradle_bin, "gradle")
+    monkeypatch.setenv("PATH", str(gradle_bin))
+    monkeypatch.setattr(mod, "_gradle_version", lambda gradle, env: "8.14.6")
+    root = _gradle_project(tmp_path / "project", pinned="8.14.6", wrapper_jar=False)
+    JV.dump(
+        "/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1, java_home=str(toolchain)
+    )
+    assert len(captured) == 1
+
+
+def test_a_usable_wrapper_owns_the_gradle_version(tmp_path, monkeypatch, toolchain, captured):
+    monkeypatch.setattr(
+        mod, "_gradle_version", lambda *a: pytest.fail("the wrapper pins Gradle itself")
+    )
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    JV.dump(
+        "/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1, java_home=str(toolchain)
+    )
+    assert len(captured) == 1
+
+
+def test_build_args_scope_the_compile_after_a_separator(tmp_path, toolchain, captured):
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    args = [":iceberg-core:compileJava", "-DsparkVersions=", "-x", "test"]
+    JV.dump(
+        "/opt/scip-java",
+        root,
+        tmp_path / "out.scip",
+        timeout_seconds=1,
+        java_home=str(toolchain),
+        build_args=args,
+    )
+    command = captured[0].command
+    assert command[:3] == ["/opt/scip-java", "index", f"--output={tmp_path / 'out.scip'}"]
+    assert command[command.index("--") + 1 :] == args
+
+
+def test_the_build_runs_in_a_scratch_copy_and_never_writes_the_indexed_tree(
+    tmp_path, monkeypatch, toolchain
+):
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    (root / ".victor").mkdir()
+    (root / ".victor" / "project.db").write_bytes(b"index state")
+    before = sorted(p.relative_to(root) for p in root.rglob("*"))
+    seen = {}
+
+    def building_dump(command, *, cwd, output_path, timeout_seconds, node_heap, env=None):
+        seen["cwd"] = cwd
+        seen["copied_sources"] = (cwd / "settings.gradle").is_file()
+        seen["index_state_copied"] = (cwd / ".victor").exists()
+        (cwd / ".gradle" / "9").mkdir(parents=True)
+        (cwd / "build" / "reports").mkdir(parents=True)
+        output_path.write_bytes(b"scip")
+        return output_path
+
+    monkeypatch.setattr(mod, "_run_dump", building_dump)
+    out = tmp_path / "precise" / "out.scip"
+    assert JV.dump("/opt/scip-java", root, out, timeout_seconds=1, java_home=str(toolchain)) == out
+    assert seen["cwd"] != root and seen["copied_sources"] and not seen["index_state_copied"]
+    assert sorted(p.relative_to(root) for p in root.rglob("*")) == before
+    assert not seen["cwd"].exists()  # scratch is cleaned up
+
+
+def test_dump_transcripts_are_kept_whole(tmp_path):
+    message = "x" * 3000
+    script = f"import sys; sys.stderr.write({message!r}); sys.exit(1)"
+    out = tmp_path / "precise" / "out.scip"
+    result = mod._run_dump(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        output_path=out,
+        timeout_seconds=60,
+        node_heap=False,
+    )
+    assert result is None
+    log = (out.parent / f"{Path(sys.executable).name}.dump.log").read_text(encoding="utf-8")
+    assert message in log and "returncode: 1" in log
+
+
+@pytest.mark.parametrize(
+    ("banner", "major"),
+    [
+        ('openjdk version "21.0.13" 2026-10-20 LTS', 21),
+        ('java version "1.8.0_292"', 8),
+        ('openjdk version "23.0.1-internal" 2024-10-15', 23),
+        ('openjdk version "25" 2025-09-16', 25),
+        ("not a jdk", None),
+    ],
+)
+def test_java_major_parsing(monkeypatch, banner, major):
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="", stderr=banner),
+    )
+    assert mod._java_major("java", {}) == major
+
+
+def test_wrapper_pin_parsing(tmp_path):
+    assert mod._wrapper_gradle_version(_gradle_project(tmp_path / "a", pinned="8.14.6")) == "8.14.6"
+    assert mod._wrapper_gradle_version(tmp_path / "missing") is None
+
+
+def test_pipeline_passes_and_cache_keys_java_toolchain_settings():
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+
+    config = SimpleNamespace(
+        precise_index_java_home="/opt/jdk-21",
+        precise_index_build_args={"scip-java": [":core:compileJava"], "scip-python": ["x"]},
+    )
+    holder = SimpleNamespace(config=config)
+    kwargs = GraphIndexingPipeline._precise_toolchain_kwargs(holder, "scip-java")
+    assert kwargs == {"java_home": "/opt/jdk-21", "build_args": [":core:compileJava"]}
+    assert GraphIndexingPipeline._precise_toolchain_kwargs(holder, "scip-python") == {}

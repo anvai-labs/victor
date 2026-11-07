@@ -271,6 +271,8 @@ def test_clang_dump_without_database_skips(tmp_path, monkeypatch):
 def test_java_dump_argv_and_build_marker_gate(tmp_path, monkeypatch):
     output = tmp_path / "precise" / "out.scip"
     captured = _capture_dump(monkeypatch, dump_result=output)
+    # argv/marker behavior only; the JVM toolchain preflight has its own tests.
+    monkeypatch.setattr(ScipJavaProvider, "_preflight", lambda self, root, env: None)
     # No JVM build file → a typed marker skip (NOT dump-failed) before the
     # transport.
     result = JV.dump("/usr/bin/scip-java", tmp_path, output, timeout_seconds=42)
@@ -279,7 +281,8 @@ def test_java_dump_argv_and_build_marker_gate(tmp_path, monkeypatch):
     (tmp_path / "pom.xml").write_text("<project/>", encoding="utf-8")
     assert JV.dump("/usr/bin/scip-java", tmp_path, output, timeout_seconds=42) is not None
     assert captured["command"] == ["/usr/bin/scip-java", "index", f"--output={output}"]
-    assert captured["cwd"] == tmp_path
+    # The build compiles in a scratch copy, never in the indexed tree.
+    assert captured["cwd"] != tmp_path and captured["cwd"].name == "tree"
     assert captured["node_heap"] is False
 
 
@@ -692,13 +695,14 @@ def _capture_dump(monkeypatch, dump_result=None):
 
     captured = {}
 
-    def fake_run_dump(command, *, cwd, output_path, timeout_seconds, node_heap):
+    def fake_run_dump(command, *, cwd, output_path, timeout_seconds, node_heap, env=None):
         captured.update(
             command=command,
             cwd=cwd,
             output=output_path,
             timeout=timeout_seconds,
             node_heap=node_heap,
+            env=env,
         )
         return dump_result
 

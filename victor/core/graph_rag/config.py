@@ -113,6 +113,10 @@ class GraphIndexConfig:
     # of a large monorepo takes minutes — the harvester degrades with an
     # explicit dump-timeout skip label when exceeded.
     precise_index_timeout_seconds: int = 0
+    # scip-java JDK home ("" = java on PATH) and per-provider build arguments
+    # passed after ``--``; see GraphSettings for semantics.
+    precise_index_java_home: str = ""
+    precise_index_build_args: dict[str, list[str]] = field(default_factory=dict)
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     # CCG builder resolution: auto (plugin-first), native, plugin, builtin.
     # See search_settings.ccg_builder for semantics.
@@ -279,6 +283,10 @@ class GraphRagConfig:
                 settings, "precise_index_timeout_seconds", 0
             ),
             precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
+            precise_index_java_home=graph_setting(settings, "precise_index_java_home", ""),
+            precise_index_build_args=dict(
+                graph_setting(settings, "precise_index_build_args", {}) or {}
+            ),
         )
 
         return cls(index=index_config)
