@@ -778,7 +778,7 @@ edit. A mock test is not live provider or C5 evidence.
   all applicable CI gates, including Vertical tests Py3.12. Its review does not
   qualify later edits or released-dependency/C5 acceptance.
 
-- **Session context interop (2026-11-07) — COMPLETE, both PRs merged** — the
+- **Session context interop (2026-11-07) — COMPLETE, seven PRs merged** — the
   import path behind the "metadata-only session" incident (UX-10's zero-message
   resume class) is closed at the persistence layer: `save_session` now writes
   the transcript atomically (DELETE+bulk-INSERT after the session row), fixing
@@ -789,11 +789,17 @@ edit. A mock test is not live provider or C5 evidence.
   readers/writers over the ConversationSession IR with per-conversion loss
   reports), `/import` (incl. `claude:<uuid>`/`codex:<uuid>` store addressing
   and `--list`) + `/export --format|--install`, and
-  `victor data session import/export`. Live claude recall verified
-  end-to-end through the product path; the codex live model call is
-  quota-gated (recheck after 2026-11-09) with mechanics covered by the
-  opt-in smoke suite (`INTEROP_SMOKE=1`). HTTP import/export deliberately
-  deferred to the unified-agent-service surface.
+  `victor data session import/export`. Follow-ups: opt-in live smoke suite
+  ([#1708](https://github.com/anvai-labs/victor/pull/1708),
+  `INTEROP_SMOKE=1`), `/save` no longer degrades persisted rows
+  ([#1710](https://github.com/anvai-labs/victor/pull/1710)), `/handoff
+  <claude|codex>` + CLI twin ([#1711](https://github.com/anvai-labs/victor/pull/1711)),
+  and one-step `/resume <source>:<uuid>` import+resume with external sessions
+  in the picker ([#1714](https://github.com/anvai-labs/victor/pull/1714)).
+  Live claude recall verified end-to-end through the product path; the codex
+  live model call is quota-gated (recheck after 2026-11-09) with mechanics
+  covered by the opt-in smoke suite. HTTP import/export deliberately deferred
+  to the unified-agent-service surface.
 
   **Next dependency order:** address DATA-01–04
   below, including graph/index lifecycle under CG-P2; broaden bounded read/edit/test/cancel/recovery dogfood;
