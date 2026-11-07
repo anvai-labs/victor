@@ -836,3 +836,27 @@ def sessions_resume(
             console.print(getattr(result, "content", "") or "[dim](no further output)[/]")
 
     asyncio.run(_run())
+
+
+@sessions_app.command("handoff")
+def sessions_handoff(
+    target: str = typer.Argument(..., help="claude | codex"),
+    session_id: Optional[str] = typer.Option(
+        None, "--session-id", help="Session to hand off (default: most recent)"
+    ),
+) -> None:
+    """Hand a victor session to another coding agent (export + install).
+
+    Examples:
+        victor data session handoff codex
+        victor data session handoff claude --session-id s_abc123
+    """
+    from victor.agent.conversation.interop.formats import TranscriptFormat
+
+    key = target.strip().lower()
+    if key not in ("claude", "codex"):
+        console.print("[red]Target must be claude or codex[/]")
+        sys.exit(1)
+
+    fmt = TranscriptFormat.CLAUDE_CODE if key == "claude" else TranscriptFormat.CODEX_ROLLOUT
+    _export_single_session(output=None, session_id=session_id, fmt=fmt.value, install=True)
