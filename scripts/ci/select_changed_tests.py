@@ -844,6 +844,10 @@ RELATED_TESTS = {
         "tests/unit/config/test_logging_config.py",
         "tests/unit/ui/rendering/test_log_handler.py",
     ),
+    "victor/ui/slash/commands/import_export.py": (
+        "tests/unit/commands/test_slash_import_export.py",
+        "tests/unit/agent/conversation/interop/",
+    ),
     **dict.fromkeys(
         ("victor/config/agentic_loop_settings.py", "victor/framework/agentic_loop_executor.py"),
         (

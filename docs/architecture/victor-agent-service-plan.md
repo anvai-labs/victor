@@ -778,6 +778,17 @@ edit. A mock test is not live provider or C5 evidence.
   all applicable CI gates, including Vertical tests Py3.12. Its review does not
   qualify later edits or released-dependency/C5 acceptance.
 
+- **Session context interop (2026-11-07) — fix merged, feature PR** — the
+  import path behind the "metadata-only session" incident (UX-10's zero-message
+  resume class) is closed at the persistence layer: `save_session` now writes
+  the transcript atomically (DELETE+bulk-INSERT after the session row), fixing
+  `/resume --from-file` and `/save` re-saves. Follow-up feature PR adds
+  `victor/agent/conversation/interop/` (claude ⇄ codex ⇄ victor readers/writers
+  over the ConversationSession IR with per-conversion loss reports), `/import`
+  + `/export` slash commands, `victor data session import/export --format`
+  including `--install` into the claude/codex local stores. HTTP import/export
+  deliberately deferred to the unified-agent-service surface.
+
   **Next dependency order:** address DATA-01–04
   below, including graph/index lifecycle under CG-P2; broaden bounded read/edit/test/cancel/recovery dogfood;
   complete shared API lifecycle contracts; then measure editor candidates. Existing

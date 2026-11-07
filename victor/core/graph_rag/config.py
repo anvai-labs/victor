@@ -113,6 +113,11 @@ class GraphIndexConfig:
     # of a large monorepo takes minutes — the harvester degrades with an
     # explicit dump-timeout skip label when exceeded.
     precise_index_timeout_seconds: int = 0
+    # scip-java JDK home ("" = java on PATH) and per-provider build arguments
+    # passed after ``--``; see GraphSettings for semantics.
+    precise_index_java_home: str = ""
+    precise_index_build_args: dict[str, list[str]] = field(default_factory=dict)
+    precise_index_build_root: str = ""
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     # CCG builder resolution: auto (plugin-first), native, plugin, builtin.
     # See search_settings.ccg_builder for semantics.
@@ -279,12 +284,33 @@ class GraphRagConfig:
                 settings, "precise_index_timeout_seconds", 0
             ),
             precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
+            **precise_toolchain_settings(settings),
         )
 
         return cls(index=index_config)
 
 
+def precise_toolchain_settings(settings: Any) -> dict[str, Any]:
+    """The compiler-tier toolchain fields of GraphIndexConfig, read from settings.
+
+    The single reader for every indexing entry point (graph CLI, ``victor
+    init``, background refresh, ``from_settings``). Each of them built
+    GraphIndexConfig field by field, so a setting added later was silently
+    dropped by whichever path was not updated.
+    """
+    from victor.config.settings import graph_setting
+
+    return {
+        "precise_index_java_home": graph_setting(settings, "precise_index_java_home", "") or "",
+        "precise_index_build_args": dict(
+            graph_setting(settings, "precise_index_build_args", {}) or {}
+        ),
+        "precise_index_build_root": graph_setting(settings, "precise_index_build_root", "") or "",
+    }
+
+
 __all__ = [
+    "precise_toolchain_settings",
     "SubgraphConfig",
     "GraphIndexConfig",
     "RetrievalConfig",

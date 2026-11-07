@@ -519,6 +519,20 @@ class DatabaseConsolidator:
             target_conn.close()
 
 
+def _home_boundary() -> Optional[Path]:
+    """The home directory whose ``.victor`` is global state, or None if unknown.
+
+    Deliberately ``Path.home()``, not ``get_secure_home()``: the latter logs a
+    security audit event whose manager loads settings, which resolve the
+    project root through this lookup — a re-entrant initialization deadlock.
+    A boundary check needs no audited home; an unresolvable one just skips it.
+    """
+    try:
+        return Path.home().resolve()
+    except (RuntimeError, OSError, KeyError):  # pragma: no cover - no resolvable home
+        return None
+
+
 def _find_existing_project_dir(start: Path) -> Optional[Path]:
     """Walk up from ``start`` to the nearest ancestor holding ``.victor/project.db``.
 
@@ -543,12 +557,26 @@ def _find_existing_project_dir(start: Path) -> Optional[Path]:
         existing project database is found within the bound.
     """
     temp_root = Path(tempfile.gettempdir()).resolve()
+    home = _home_boundary()
     for ancestor in (start, *start.parents):
         # Temp-root boundary before the adoption check: a ``.victor`` sitting
         # directly in the shared temp dir is never a legitimate ancestor
         # project. (start == temp root still resolves there via the caller's
         # in-place fallback, so direct use of the temp dir is unaffected.)
         if ancestor == temp_root:
+            break
+        # Home boundary, same shape: ``~/.victor`` is Victor's GLOBAL state
+        # directory, never an ancestor project. Without this a tree anywhere
+        # under the home directory lacking its own store was adopted into the
+        # global database (observed: a source tree under ~/.local/share). A
+        # home that is itself a git repository (containers, dotfiles repos) is
+        # a real project and keeps the ordinary rules.
+        if (
+            home is not None
+            and ancestor == home
+            and ancestor != start
+            and not (home / ".git").exists()
+        ):
             break
         victor_dir = ancestor / ".victor"
         if (victor_dir / "project.db").exists():

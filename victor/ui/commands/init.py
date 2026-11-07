@@ -1235,11 +1235,15 @@ def init(
                                 settings, "precise_index_timeout_seconds", 0
                             )
                             precise_tool = graph_setting(settings, "precise_index_tool", "auto")
+                            from victor.core.graph_rag.config import precise_toolchain_settings
+
+                            precise_toolchain = precise_toolchain_settings(settings)
                         except Exception:
                             scope_binding = True
                             precise_index = False
                             precise_timeout = 0
                             precise_tool = "auto"
+                            precise_toolchain = {}
                         config = GraphIndexConfig(
                             root_path=project_root,
                             enable_ccg=True,
@@ -1247,6 +1251,7 @@ def init(
                             enable_precise_index=precise_index,
                             precise_index_timeout_seconds=precise_timeout,
                             precise_index_tool=precise_tool,
+                            **precise_toolchain,
                             # Off by default because generating vectors roughly
                             # triples init time, but no longer hardcoded: without
                             # this, `GraphIndexConfig.enable_embeddings` (which

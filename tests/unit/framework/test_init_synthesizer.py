@@ -463,10 +463,21 @@ class TestInitSynthesizerEvolvableSection:
 
         assert "INIT_SYNTHESIS_RULES" in PromptOptimizerLearner.EVOLVABLE_SECTIONS
 
-    def test_init_section_uses_gepa_only(self):
-        """INIT_SYNTHESIS_RULES uses GEPA only — MIPROv2/CoT irrelevant for single-shot."""
+    def test_init_section_uses_gepa_only(self, monkeypatch):
+        """INIT_SYNTHESIS_RULES uses GEPA only — MIPROv2/CoT irrelevant for single-shot.
+
+        Prompt optimization defaults to off since #1702 (on-demand only), when no
+        section gets strategies; this pins the per-section choice once enabled.
+        """
+        from victor.config.prompt_optimization_settings import PromptOptimizationSettings
         from victor.framework.rl.learners.prompt_optimizer import (
             PromptOptimizerLearner,
+        )
+
+        monkeypatch.setattr(
+            PromptOptimizerLearner,
+            "_load_prompt_optimization_settings",
+            staticmethod(lambda: PromptOptimizationSettings(enabled=True)),
         )
 
         mock_db = MagicMock()
