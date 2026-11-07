@@ -301,3 +301,192 @@ class TestNativeExtensionsCheck:
         doctor = DoctorChecks()
         names = [c.name for c in doctor.run_all_checks()]
         assert "Native Extensions" in names
+
+
+class TestGraphIndexingCheck:
+    """check_graph_indexing reports the optional graph install without network I/O."""
+
+    @staticmethod
+    def _by_name(doctor):
+        return {check.name: check for check in doctor.checks}
+
+    @staticmethod
+    def _imports(monkeypatch, broken=None, versions=None):
+        """Route doctor imports: ``broken`` maps a module to the exception it raises."""
+        import victor.ui.commands.doctor as doctor_module
+
+        real = doctor_module.import_module
+        broken = broken or {}
+
+        def fake(name):
+            if name in broken:
+                raise broken[name]
+            return real(name)
+
+        monkeypatch.setattr(doctor_module, "import_module", fake)
+        if versions is not None:
+            monkeypatch.setattr("importlib.metadata.version", lambda name: versions[name])
+
+    @staticmethod
+    def _forbid_downloads(monkeypatch):
+        """The doctor must never reach code that makes the language pack fetch grammars."""
+        import victor.core.graph_rag.dependencies as deps
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("doctor reached a downloading code path")
+
+        monkeypatch.setattr(deps, "require_graph_dependencies", forbidden)
+        try:
+            import tree_sitter_language_pack as pack
+
+            monkeypatch.setattr(pack, "get_language", forbidden)
+            monkeypatch.setattr(pack, "download", forbidden)
+            monkeypatch.setattr(pack, "download_all", forbidden)
+        except ImportError:
+            pass
+        try:
+            import victor_codegraph
+
+            monkeypatch.setattr(victor_codegraph, "parse", forbidden)
+        except ImportError:
+            pass
+
+    def test_the_check_never_reaches_a_downloading_code_path(self, monkeypatch):
+        self._forbid_downloads(monkeypatch)
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()  # must not raise
+        assert "Graph Indexing" in self._by_name(doctor)
+
+    def test_absent_graph_install_is_informational(self, monkeypatch):
+        self._imports(monkeypatch, broken={"victor_codegraph": ImportError("absent")})
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        checks = self._by_name(doctor)
+        assert checks["Graph Indexing"].severity == Severity.INFO
+        assert "Graph Analysis Plugin" not in checks
+
+    def test_a_crashing_codegraph_import_warns_instead_of_crashing(self, monkeypatch):
+        self._imports(monkeypatch, broken={"victor_codegraph": RuntimeError("abi skew")})
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        check = self._by_name(doctor)["Graph Indexing"]
+        assert check.severity == Severity.WARNING and "abi skew" in check.message
+
+    def test_a_missing_grammar_wheel_is_named(self, monkeypatch):
+        pytest.importorskip("victor_codegraph")
+        self._forbid_downloads(monkeypatch)
+        self._imports(monkeypatch, broken={"tree_sitter_ruby": ImportError("absent")})
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        check = self._by_name(doctor)["Graph Indexing"]
+        assert check.severity == Severity.WARNING
+        assert "ruby" in check.message and "victor-ai[graph]" in check.suggestion
+
+    @staticmethod
+    def _coding_version(monkeypatch, outcome):
+        """Route the victor-coding distribution version lookup (metadata only)."""
+        import importlib.metadata as md
+
+        real = md.version
+
+        def fake(name):
+            if name != "victor-coding":
+                return real(name)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(md, "version", fake)
+
+    @pytest.mark.parametrize(
+        ("outcome", "severity", "fragment"),
+        [
+            (None, Severity.WARNING, "still reporting success"),  # not installed
+            (RuntimeError("corrupt RECORD"), Severity.WARNING, "metadata unreadable"),
+            ("unknown", Severity.WARNING, "unparseable version"),
+            ("<no-version-field>", Severity.WARNING, "unparseable version: None"),
+            ("0.8.0", Severity.WARNING, "older than"),
+            ("0.14.0", Severity.SUCCESS, "enhanced analysis"),
+            ("0.16.0", Severity.SUCCESS, "enhanced analysis"),
+        ],
+    )
+    def test_the_analysis_plugin_is_judged_from_metadata_and_never_crashes(
+        self, monkeypatch, outcome, severity, fragment
+    ):
+        import importlib.metadata as md
+
+        pytest.importorskip("victor_codegraph")
+        self._forbid_downloads(monkeypatch)
+        if outcome is None:
+            outcome = md.PackageNotFoundError("victor-coding")
+        elif outcome == "<no-version-field>":
+            outcome = None  # importlib.metadata.version() returns None for this
+        self._coding_version(monkeypatch, outcome)
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        check = self._by_name(doctor)["Graph Analysis Plugin"]
+        assert check.severity == severity and fragment in check.message
+
+    def test_the_plugin_check_never_imports_the_vertical(self, monkeypatch):
+        """Core must not import external verticals (contract boundary)."""
+        pytest.importorskip("victor_codegraph")
+        self._forbid_downloads(monkeypatch)
+        self._imports(monkeypatch, broken={"victor_coding": AssertionError("imported a vertical")})
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()  # must not raise
+        assert "Graph Analysis Plugin" in self._by_name(doctor)
+
+    def test_uncached_grammars_follow_what_codegraph_fetches(self, monkeypatch):
+        import types
+
+        import victor.ui.commands.doctor as doctor_module
+
+        pytest.importorskip("victor_codegraph")
+        pack = types.SimpleNamespace(
+            downloaded_languages=lambda: ["java", "python"], cache_dir=lambda: "/cache/tslp"
+        )
+        real = doctor_module.import_module
+        monkeypatch.setattr(
+            doctor_module,
+            "import_module",
+            lambda name: pack if name == "tree_sitter_language_pack" else real(name),
+        )
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        check = self._by_name(doctor)["Grammar Downloads"]
+        listed = check.message.split("not yet cached:")[1]
+        assert check.severity == Severity.INFO and "/cache/tslp" in check.message
+        assert "ruby" in listed and "sql" in listed  # codegraph fetches sql
+        assert "python" not in listed  # parsed with the stdlib ast, never fetched
+        assert "java," not in listed and not listed.strip().startswith("java")
+        assert "download_all()" in check.suggestion
+
+    def test_a_full_cache_reports_all_cached(self, monkeypatch):
+        import types
+
+        import victor.ui.commands.doctor as doctor_module
+
+        languages = pytest.importorskip("victor_codegraph.languages")
+        fetched = sorted(set(languages.TREE_SITTER_GRAMMAR.values()))
+        pack = types.SimpleNamespace(downloaded_languages=lambda: fetched, cache_dir=lambda: "/c")
+        real = doctor_module.import_module
+        monkeypatch.setattr(
+            doctor_module,
+            "import_module",
+            lambda name: pack if name == "tree_sitter_language_pack" else real(name),
+        )
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        assert "all indexed languages cached" in self._by_name(doctor)["Grammar Downloads"].message
+
+    def test_run_all_checks_includes_graph_indexing(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(DoctorChecks, "check_graph_indexing", lambda self: called.append(True))
+        for name in [
+            n
+            for n in dir(DoctorChecks)
+            if n.startswith("check_") and n not in ("check_graph_indexing", "check_pip_package")
+        ]:
+            monkeypatch.setattr(DoctorChecks, name, lambda self: None)
+        DoctorChecks().run_all_checks()
+        assert called == [True]

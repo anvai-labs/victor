@@ -118,6 +118,12 @@ def find_project_root(start: Optional[Path] = None) -> Path:
 
     resolved = (Path(start) if start else Path.cwd()).resolve()
     temp_root = Path(tempfile.gettempdir()).resolve()
+    # Path.home(), not get_secure_home(): the audited lookup loads settings,
+    # which resolve the project root here — a re-entrant deadlock.
+    try:
+        home_root: Optional[Path] = Path.home().resolve()
+    except (RuntimeError, OSError, KeyError):  # pragma: no cover - no resolvable home
+        home_root = None
 
     # Phase 1: Walk up looking for existing .victor/project.db or .git boundary
     project_markers = frozenset(
@@ -136,6 +142,12 @@ def find_project_root(start: Optional[Path] = None) -> Path:
 
     for ancestor in (resolved, *resolved.parents):
         if ancestor == temp_root:
+            break
+
+        # ``~/.victor`` is Victor's GLOBAL state directory, never an ancestor
+        # project (same boundary as the project database lookup) — unless the
+        # home directory is itself a git repository, which is a real project.
+        if ancestor == home_root and ancestor != resolved and not (ancestor / ".git").exists():
             break
 
         # Existing Victor state — strongest signal
