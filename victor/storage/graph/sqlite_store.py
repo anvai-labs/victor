@@ -122,24 +122,42 @@ _MAX_QUERY_TERMS = 16
 
 
 def natural_language_terms(query: str) -> List[str]:
-    """Distinct meaningful lowercase terms of a question, in order of appearance.
+    """Distinct meaningful terms of a question, in order of appearance.
 
-    Tokens follow FTS5's default unicode61 tokenizer: Unicode word characters,
-    lowercased, with diacritics removed ("café" is indexed as "cafe").
+    Tokens are FTS5's default unicode61 view of the text: Unicode word
+    characters, lowercased. Combining marks are stripped only from Latin,
+    Greek and Cyrillic letters ("café" -> "cafe"), matching unicode61's own
+    diacritic removal; other scripts are passed through untouched, because
+    compatibility folding (NFKD) corrupts them — it strips Japanese voiced
+    marks and splits Hangul syllables into jamo the tokenizer keeps together.
+    A term is kept in both its original and its folded form when they differ,
+    so a query matches an index either way.
     """
     import re
     import unicodedata
 
-    folded = "".join(
-        c for c in unicodedata.normalize("NFKD", query.lower()) if not unicodedata.combining(c)
-    )
+    foldable = re.compile("[\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff]")
+
+    def fold(text: str) -> str:
+        return "".join(
+            c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)
+        )
+
     terms: List[str] = []
-    for token in re.findall(r"\w+", folded):
-        if len(token) < 3 or token in _QUERY_STOPWORDS or token in terms:
-            continue
-        terms.append(token)
-        if len(terms) == _MAX_QUERY_TERMS:
-            break
+    for token in re.findall(r"\w+", query.lower()):
+        candidates = [token]
+        if foldable.search(token):
+            folded = fold(token)
+            if folded != token:
+                candidates.append(folded)
+        for candidate in candidates:
+            if len(candidate) < 3 or candidate in _QUERY_STOPWORDS:
+                continue
+            if candidate in terms:
+                continue
+            terms.append(candidate)
+            if len(terms) == _MAX_QUERY_TERMS:
+                return terms
     return terms
 
 
@@ -506,6 +524,10 @@ class SqliteGraphStore(GraphStoreProtocol):
             | {
                 f"{_EDGE_TABLE}.{c}"
                 for c in _current_columns(_EDGE_TABLE) - edge_columns - {"file"}
+            }
+            | {
+                f"{_MTIME_TABLE}.{c}"
+                for c in _current_columns(_MTIME_TABLE) - self._table_columns(conn, _MTIME_TABLE)
             }
         )
         if missing:
