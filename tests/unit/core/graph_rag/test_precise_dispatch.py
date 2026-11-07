@@ -185,3 +185,56 @@ async def test_cancellation_propagates_instead_of_becoming_provider_failure(
     with pytest.raises(asyncio.CancelledError):
         await _pipeline()._harvest_precise_index(tmp_path)
     assert "scip-go" not in {name for name, _, _ in calls}
+
+
+async def test_java_toolchain_reaches_the_dump_and_keys_the_cache_beside_the_tool(
+    tmp_path, monkeypatch
+):
+    """The real harvest loop hands scip-java its configured toolchain, and the
+    cache key gets the bare tool path (so an in-place indexer upgrade, seen
+    through its stat, still invalidates) plus the toolchain as separate
+    evidence."""
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag import precise_cache
+
+    calls, _ = _producers(monkeypatch)
+    dumps = {}
+    original_dump = type(next(p for p in all_providers() if p.name == "scip-java")).dump
+
+    def recording_dump(self, tool, root, output_path, *, timeout_seconds, **kwargs):
+        dumps[self.name] = kwargs
+        return original_dump(self, tool, root, output_path, timeout_seconds=timeout_seconds)
+
+    for provider in all_providers():
+        monkeypatch.setattr(type(provider), "dump", recording_dump)
+    keys = []
+    real_key = precise_cache.dump_cache_key
+
+    def recording_key(provider_name, tool_path, file_hashes, toolchain=None):
+        keys.append((provider_name, tool_path, toolchain))
+        return real_key(provider_name, tool_path, file_hashes, toolchain=toolchain)
+
+    monkeypatch.setattr(precise_cache, "dump_cache_key", recording_key)
+    pipeline = _pipeline()
+    pipeline.config = SimpleNamespace(
+        precise_index_tool="auto",
+        precise_index_timeout_seconds=0,
+        precise_index_java_home="/opt/jdk-21",
+        precise_index_build_args={"scip-java": [":core:compileJava"]},
+        precise_index_build_root="/srv/checkout",
+    )
+    pipeline._codegraph_repository = SimpleNamespace(manifest=dict.fromkeys(FILES, "h"))
+
+    await pipeline._harvest_precise_index(tmp_path)
+
+    toolchain = {
+        "java_home": "/opt/jdk-21",
+        "build_args": [":core:compileJava"],
+        "build_root": "/srv/checkout",
+    }
+    assert dumps["scip-java"] == toolchain
+    assert all(
+        not kwargs or name == "scip-python" for name, kwargs in dumps.items() if name != "scip-java"
+    )
+    assert ("scip-java", "/installed/bin/scip-java", toolchain) in keys
+    assert ("scip-ruby", "/installed/bin/bundle", None) in keys

@@ -535,6 +535,24 @@ class GraphIndexingPipeline:
             except ImportError:
                 logger.warning("CCG builder not available, skipping CCG construction")
 
+    def _precise_toolchain_kwargs(self, provider_name: str) -> dict[str, Any]:
+        """Configured JDK and build arguments for providers that accept them."""
+        if provider_name != "scip-java":
+            return {}
+        kwargs: dict[str, Any] = {}
+        java_home = getattr(self.config, "precise_index_java_home", "") or ""
+        if java_home:
+            kwargs["java_home"] = java_home
+        build_args = (getattr(self.config, "precise_index_build_args", None) or {}).get(
+            provider_name
+        )
+        if build_args:
+            kwargs["build_args"] = [str(arg) for arg in build_args]
+        build_root = getattr(self.config, "precise_index_build_root", "") or ""
+        if build_root:
+            kwargs["build_root"] = build_root
+        return kwargs
+
     async def index_repository(
         self,
         root_path: Optional[Path] = None,
@@ -1056,8 +1074,13 @@ class GraphIndexingPipeline:
                     file_hashes = precise_cache.slice_manifest_for_extensions(
                         manifest, extensions_for_provider(provider.name)
                     )
+                    toolchain_kwargs = self._precise_toolchain_kwargs(provider.name)
+                    # The JDK, build scope and build root change what the dump
+                    # contains; they key the cache beside the tool's own stat.
                     cache_key = (
-                        precise_cache.dump_cache_key(provider.name, tool, file_hashes)
+                        precise_cache.dump_cache_key(
+                            provider.name, tool, file_hashes, toolchain=toolchain_kwargs or None
+                        )
                         if manifest is not None
                         else None
                     )
@@ -1089,6 +1112,7 @@ class GraphIndexingPipeline:
                             )
                             constrained = environment_json is not None
                         dump_kwargs = {"environment_json": environment_json} if constrained else {}
+                        dump_kwargs.update(toolchain_kwargs)
                         dumped = await asyncio.to_thread(
                             provider.dump,
                             tool,
