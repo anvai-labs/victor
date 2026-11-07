@@ -835,6 +835,10 @@ RELATED_TESTS = {
         "tests/unit/agent/test_conversation_memory_async.py",
         "tests/unit/agent/services/test_session_runtime.py",
     ),
+    "victor/agent/conversation/store_messages.py": (
+        "tests/unit/agent/conversation/test_store_messages.py",
+        "tests/unit/agent/conversation/test_store_rich_metadata.py",
+    ),
     "victor/ui/commands/utils.py": (
         "tests/unit/commands/test_cli.py",
         "tests/unit/config/test_logging_config.py",
