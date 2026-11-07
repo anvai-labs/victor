@@ -423,3 +423,38 @@ async def test_own_store_keeps_a_separate_store_for_the_indexed_tree(tmp_path):
     assert (tree / ".victor" / "project.db").is_file()
     assert resolve_project_db_root(tree) == tree
     assert "claimed" in text
+
+
+def test_graph_index_applies_the_logging_priority_chain(tmp_path, monkeypatch):
+    """`victor index graph index` honors VICTOR_LOG_FILE like other commands;
+    it used to configure no logging, so a long index run wrote no log."""
+    import logging
+
+    from typer.testing import CliRunner
+
+    from victor.ui.commands import utils as command_utils
+
+    calls = []
+    real_setup = command_utils.setup_logging
+
+    def recording_setup(**kwargs):
+        calls.append(kwargs)
+        return real_setup(**kwargs)
+
+    log_file = tmp_path / "index.log"
+    monkeypatch.setenv("VICTOR_LOG_FILE", str(log_file))
+    monkeypatch.setenv("VICTOR_LOG_FILE_LEVEL", "INFO")
+    monkeypatch.setattr(command_utils, "setup_logging", recording_setup)
+
+    async def fake_index(*args, **kwargs):
+        logging.getLogger("victor.core.graph_rag.indexing").warning("index-run-marker")
+        return True
+
+    monkeypatch.setattr(graph, "_index_async", fake_index)
+    result = CliRunner().invoke(graph.graph_app, ["index", "--path", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert calls and calls[0]["command"] == "graph-index"
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    assert "index-run-marker" in log_file.read_text(encoding="utf-8")
