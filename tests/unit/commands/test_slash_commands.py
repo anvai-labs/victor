@@ -2066,3 +2066,84 @@ class TestCodebaseCommands:
         await InitCommand().execute(ctx)
 
         assert "Patterns: 2" in stdout.getvalue()
+
+
+class TestSaveCommandFidelity:
+    """/save over a live session must not degrade persisted message rows."""
+
+    def test_save_leaves_add_message_rows_untouched(self, tmp_path, monkeypatch):
+        import io
+        import sqlite3
+
+        from rich.console import Console
+        from victor.agent.conversation.store import ConversationStore
+        from victor.agent.conversation.types import MessageSource
+        from victor.agent.message_history import MessageHistory
+        from victor.ui.slash.commands.session import SaveCommand
+
+        db = tmp_path / "project.db"
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(db))
+
+        from victor.agent.conversation.types import MessageRole
+
+        # live flow: add_message rows with source metadata + token estimates
+        store = ConversationStore(db_path=db)
+        store.create_session(session_id="cmd_live_001", provider="p", model="m")
+        store.add_message(
+            "cmd_live_001",
+            MessageRole.USER,
+            "inspect the graph",
+            metadata={"source": MessageSource.USER_TYPED.value},
+        )
+        store.add_message(
+            "cmd_live_001",
+            MessageRole.ASSISTANT,
+            "graph inspected, 7 nodes",
+            metadata={"source": MessageSource.AGENT_CONTINUATION.value},
+        )
+        with sqlite3.connect(db) as conn:
+            conn.row_factory = sqlite3.Row
+            before = [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT * FROM messages WHERE session_id='cmd_live_001' ORDER BY rowid"
+                )
+            ]
+
+        # /save with a REAL MessageHistory carrying the same messages
+        history = MessageHistory()
+        history.add_user_message("inspect the graph", metadata={"source": "user_typed"})
+        history.add_assistant_message(
+            "graph inspected, 7 nodes", metadata={"source": "agent_continuation"}
+        )
+        agent = MagicMock()
+        agent.conversation = history
+        agent.active_session_id = "cmd_live_001"
+        agent.model = "m"
+        agent.provider_name = "p"
+        agent.session_ledger = None
+        agent.conversation_state = None
+        del agent.session_state_accessor  # hasattr -> False
+        agent.conversation_controller = None
+        settings = MagicMock()
+        settings.current_profile = "default"
+
+        stdout = io.StringIO()
+        ctx = CommandContext(
+            console=Console(file=stdout, force_terminal=False, width=200),
+            settings=settings,
+            agent=agent,
+            args=[],
+        )
+        SaveCommand().execute(ctx)
+        assert "Session Saved" in stdout.getvalue()
+
+        with sqlite3.connect(db) as conn:
+            conn.row_factory = sqlite3.Row
+            after = [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT * FROM messages WHERE session_id='cmd_live_001' ORDER BY rowid"
+                )
+            ]
+        assert after == before, "/save degraded add_message-persisted rows"

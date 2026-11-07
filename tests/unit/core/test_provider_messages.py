@@ -108,3 +108,36 @@ def test_vocabulary_fields_unchanged():
     assert "metadata" not in dumped
     assert dumped["role"] == "user" and dumped["content"] == "hi"
     assert message.to_dict() == dumped
+
+
+class TestMetadataNeverReachesProviderPayloads:
+    """Wire payloads stay metadata-free even when Messages carry it.
+
+    Companion to the /save fidelity fix: MessageHistory.to_dict now persists
+    metadata victor-side; these negatives pin the provider boundary.
+    """
+
+    def _message_with_metadata(self):
+        from victor.core.provider_messages import Message
+
+        return Message(
+            role="user",
+            content="payload probe",
+            metadata={"source": "user_typed", "agent_id": "ag1"},
+        )
+
+    def test_openai_compat_payload_excludes_metadata(self):
+        from victor.providers.openai_compat import build_openai_messages
+
+        payload = build_openai_messages([self._message_with_metadata()])
+        assert payload, "no messages serialized"
+        for entry in payload:
+            assert "metadata" not in entry
+            assert "agent_id" not in entry
+
+    def test_anthropic_serializer_excludes_metadata(self):
+        from victor.providers.anthropic_provider import AnthropicProvider
+
+        serialized = AnthropicProvider._serialize_message(self._message_with_metadata())
+        assert "metadata" not in serialized
+        assert "agent_id" not in serialized

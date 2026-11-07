@@ -211,6 +211,12 @@ docs/security/audit/
 # Committed interop test fixtures must survive the global *.jsonl ignore.
 !tests/fixtures/interop/*.jsonl
 
+# jscpd local-ratchet output (never commit; leaked once via add -A)
+report/
+
+# Stray session-export artifacts from CLI test runs
+victor_sessions_export_*.json
+
 # HumanEval benchmark test outputs (orphaned in root)
 /example_function.py
 /has_close_elements.py

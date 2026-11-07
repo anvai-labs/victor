@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from victor.agent.conversation.store import ConversationStore
 
+from victor.agent.conversation.store_schema import SESSION_SELECT_WITH_LOOKUPS
 from victor.agent.conversation.session_model import ConversationSession, ConversationSessionSummary
 from victor.agent.conversation.types import (
     ConversationMessage,
@@ -145,6 +146,25 @@ class ConversationStoreSession:
 
         return session
 
+    def _should_skip_message_rewrite(self, session_id: str, messages: Any) -> bool:
+        """True when a save payload is a live-history snapshot already persisted.
+
+        Conditions: every incoming message is an id-less dict (the
+        MessageHistory.to_dict shape) AND the session already holds exactly
+        that many persisted rows. Id-bearing payloads (imports) and count
+        mismatches (compaction, /load→/save) always rewrite.
+        """
+        if not isinstance(messages, list) or not messages:
+            return False
+        for msg in messages:
+            if not isinstance(msg, dict) or msg.get("id") is not None:
+                return False
+        with sqlite3.connect(self.db_path) as conn:
+            (count,) = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        return count == len(messages)
+
     def save_session(
         self,
         conversation: Any,
@@ -210,12 +230,28 @@ class ConversationStoreSession:
                 profile=profile,
                 project_path=project_path,
             )
-        else:
+        elif project_path is not None:
+            # Re-save with an explicit project (e.g. re-import) keeps the
+            # session owned by the project the user is working in.
+            session.project_path = project_path
+
+        # Live /save protection: a MessageHistory payload (dicts without ids)
+        # cannot reproduce what add_message already persisted (chat-time
+        # timestamps, ids, lineage columns) — rewriting it would DEGRADE those
+        # rows. When every persisted row is already accounted for in the
+        # incoming payload (equal count), rewrite only the session row and
+        # leave message rows untouched (previews still sync via the sidecar).
+        # Id-bearing payloads (imports, compaction rewrites) always do the
+        # full replace; a count mismatch (post-/compact, /load→/save) falls
+        # through to the enriched rewrite below. Same-count divergence without
+        # add_message does not occur in the live flow (append/clear both
+        # persist through the runtime); the legacy /load→/save of a DIFFERENT
+        # transcript with a coincidentally equal row count would keep the
+        # stored rows — accepted, and visible via unchanged timestamps.
+        skip_message_rewrite = self._should_skip_message_rewrite(session_id, messages)
+
+        if not skip_message_rewrite:
             session.messages.clear()
-            if project_path is not None:
-                # Re-save with an explicit project (e.g. re-import) keeps the
-                # session owned by the project the user is working in.
-                session.project_path = project_path
 
         session.title = title
         session.tags = tags or []
@@ -224,50 +260,59 @@ class ConversationStoreSession:
         session.session_ledger = ledger_dict
         session.compaction_hierarchy = compaction_hierarchy
 
-        seen_ids: set = set()
-        for msg in messages:
-            if isinstance(msg, dict):
-                role = MessageRole(msg["role"])
-                content = msg["content"]
-                token_count = msg.get("token_count", 0)
-                priority = MessagePriority(msg.get("priority", 50))
-                tool_name = msg.get("tool_name")
-                tool_call_id = msg.get("tool_call_id")
-                tool_calls = msg.get("tool_calls")
-                metadata = msg.get("metadata", {})
-                msg_id = msg.get("id")
-                timestamp_str = msg.get("timestamp")
-                timestamp = (
-                    datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now()
-                )
+        if not skip_message_rewrite:
+            seen_ids: set = set()
+            for msg in messages:
+                if isinstance(msg, dict):
+                    role = MessageRole(msg["role"])
+                    content = msg["content"]
+                    if "token_count" in msg:
+                        token_count = msg["token_count"]
+                    else:
+                        # Live /save payloads (MessageHistory.to_dict) carry no
+                        # token counts; estimate so accounting stays meaningful
+                        # instead of degrading every row to 0.
+                        token_count = self.store._estimate_tokens(
+                            content if isinstance(content, str) else ""
+                        )
+                    priority = MessagePriority(msg.get("priority", 50))
+                    tool_name = msg.get("tool_name")
+                    tool_call_id = msg.get("tool_call_id")
+                    tool_calls = msg.get("tool_calls")
+                    metadata = msg.get("metadata") or {}
+                    msg_id = msg.get("id")
+                    timestamp_str = msg.get("timestamp")
+                    timestamp = (
+                        datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now()
+                    )
 
-                conversation_msg = ConversationMessage(
-                    role=role,
-                    content=content,
-                    token_count=token_count,
-                    priority=priority,
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    tool_calls=tool_calls,
-                    metadata=metadata,
-                    timestamp=timestamp,
-                )
-                if msg_id is not None:
-                    # Preserve imported message ids (dedup identity); leave the
-                    # uuid4 default_factory intact when absent.
-                    conversation_msg.id = msg_id
-            elif isinstance(msg, ConversationMessage):
-                conversation_msg = msg
-            else:
-                continue
+                    conversation_msg = ConversationMessage(
+                        role=role,
+                        content=content,
+                        token_count=token_count,
+                        priority=priority,
+                        tool_name=tool_name,
+                        tool_call_id=tool_call_id,
+                        tool_calls=tool_calls,
+                        metadata=metadata,
+                        timestamp=timestamp,
+                    )
+                    if msg_id is not None:
+                        # Preserve imported message ids (dedup identity); leave
+                        # the uuid4 default_factory intact when absent.
+                        conversation_msg.id = msg_id
+                elif isinstance(msg, ConversationMessage):
+                    conversation_msg = msg
+                else:
+                    continue
 
-            # Dedup by message id (the identity key used by the messages
-            # table) — O(n) instead of full-equality scans, and stable for
-            # imported transcripts that carry their own ids.
-            if conversation_msg.id in seen_ids:
-                continue
-            seen_ids.add(conversation_msg.id)
-            session.messages.append(conversation_msg)
+                # Dedup by message id (the identity key used by the messages
+                # table) — O(n) instead of full-equality scans, and stable for
+                # imported transcripts that carry their own ids.
+                if conversation_msg.id in seen_ids:
+                    continue
+                seen_ids.add(conversation_msg.id)
+                session.messages.append(conversation_msg)
 
         session.preview_messages.clear()
         for preview in preview_messages:
@@ -295,6 +340,13 @@ class ConversationStoreSession:
             )
 
         self.store._persist_session(session)
+        if skip_message_rewrite:
+            logger.info(
+                "Saved session %s (message rows untouched: live save over an "
+                "already-persisted transcript)",
+                session_id,
+            )
+            return session_id
         # ORDERING CONSTRAINT: the session row must be committed before message
         # rows are written. messages.session_id carries ON DELETE CASCADE and
         # _persist_session's INSERT OR REPLACE performs an implicit DELETE on
@@ -571,19 +623,7 @@ class ConversationStoreSession:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            base_query = """
-                SELECT
-                    s.*,
-                    p.name AS provider_name,
-                    mf.name AS model_family_name,
-                    ms.name AS model_size_name,
-                    cs.name AS context_size_name
-                FROM sessions s
-                LEFT JOIN providers p ON s.provider_id = p.id
-                LEFT JOIN model_families mf ON s.model_family_id = mf.id
-                LEFT JOIN model_sizes ms ON s.model_size_id = ms.id
-                LEFT JOIN context_sizes cs ON s.context_size_id = cs.id
-            """
+            base_query = SESSION_SELECT_WITH_LOOKUPS
 
             if project_path:
                 rows = conn.execute(
