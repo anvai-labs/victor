@@ -82,8 +82,8 @@ async def test_unknown_match_modes_are_refused(store):
 
 
 def test_terms_follow_the_fts5_tokenizer_for_accents_and_scripts():
-    assert natural_language_terms("café latte") == ["cafe", "latte"]
-    assert natural_language_terms("größe xyz") == ["große", "xyz"]
+    assert natural_language_terms("café latte") == ["café", "cafe", "latte"]
+    assert natural_language_terms("größe xyz") == ["größe", "große", "xyz"]
     assert natural_language_terms("日本語 thing") == ["日本語", "thing"]
 
 
@@ -105,3 +105,42 @@ async def test_any_term_matches_without_fts5_through_per_term_like(store):
     single = await store.search_symbols("manifest", limit=5, match="any")
     assert [n.node_id for n in single] == ["n_parse"]
     assert isinstance(conn, sqlite3.Connection)
+
+
+def test_terms_keep_both_the_original_and_the_folded_form():
+    assert natural_language_terms("café latte") == ["café", "cafe", "latte"]
+    # Non-Latin scripts pass through untouched: no NFKD corruption.
+    assert natural_language_terms("テーブル zzz") == ["テーブル", "zzz"]
+    assert natural_language_terms("테이블 zzz") == ["테이블", "zzz"]
+    assert natural_language_terms("việt zzz") == ["việt", "zzz"]
+
+
+@pytest.mark.asyncio
+async def test_an_accented_term_matches_whether_the_index_stored_either_form(store):
+    assert [n.node_id for n in await store.search_symbols("où café", limit=5, match="any")] == [
+        "n_cafe"
+    ]
+
+
+def test_a_current_index_but_old_mtime_table_is_refused_read_only(tmp_path):
+    # graph_file_mtime.content_hash was added by a migration; a read-only open
+    # cannot migrate, so the open must refuse rather than fail later queries.
+    import sqlite3
+
+    root = tmp_path / "oldmtime"
+    (root / ".victor").mkdir(parents=True)
+    with sqlite3.connect(root / ".victor" / "project.db") as conn:
+        conn.execute(
+            "CREATE TABLE graph_node (node_id TEXT PRIMARY KEY, type TEXT, name TEXT, "
+            "file TEXT, line INTEGER, end_line INTEGER, lang TEXT, signature TEXT, "
+            "docstring TEXT, parent_id TEXT, embedding_ref TEXT, metadata TEXT, "
+            "requirement_id TEXT, scope_id TEXT, statement_type TEXT, ast_kind TEXT, "
+            "visibility TEXT)"
+        )
+        conn.execute(
+            "CREATE TABLE graph_edge (src TEXT, dst TEXT, type TEXT, weight REAL, "
+            "metadata TEXT, file TEXT)"
+        )
+        conn.execute("CREATE TABLE graph_file_mtime (file TEXT PRIMARY KEY, mtime REAL)")
+    with pytest.raises(ValueError, match="graph_file_mtime.content_hash"):
+        SqliteGraphStore(project_path=root, read_only=True)
