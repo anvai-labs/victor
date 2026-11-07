@@ -166,6 +166,57 @@ class ImportCommand(BaseSlashCommand):
 
 
 @register_command
+def _load_session_ir(ctx: CommandContext, session_id: Optional[str]):
+    """Resolve a session id to the interop IR (errors printed to console).
+
+    Shared by /export and /handoff: explicit id -> active session -> None.
+    Returns a ConversationSession or None after printing the reason.
+    """
+    from datetime import datetime as _dt
+
+    from victor.agent.conversation.interop import ConversationSession
+    from victor.agent.conversation.store import ConversationStore
+    from victor.agent.conversation.types import ConversationMessage
+
+    if not session_id:
+        ctx.console.print("[red]No session id given and no active session.[/]")
+        return None
+    loaded = ConversationStore().load_session(session_id)
+    if loaded is None:
+        ctx.console.print(f"[red]Session not found:[/] {session_id}")
+        return None
+    metadata = loaded.get("metadata", {})
+    messages = [
+        ConversationMessage(
+            id=m.get("id"),
+            role=m.get("role", "user"),
+            content=m.get("content", ""),
+            timestamp=m.get("timestamp"),
+            token_count=m.get("token_count", 0),
+            tool_name=m.get("tool_name"),
+            tool_call_id=m.get("tool_call_id"),
+            tool_calls=m.get("tool_calls"),
+            metadata=m.get("metadata") or {},
+        )
+        for m in loaded.get("conversation", {}).get("messages", [])
+    ]
+    if not messages:
+        ctx.console.print("[yellow]Session has no messages to export.[/]")
+        return None
+    # load_session returns ISO strings; ConversationMessage wants datetimes.
+    for message in messages:
+        if isinstance(message.timestamp, str):
+            message.timestamp = _dt.fromisoformat(message.timestamp)
+    return ConversationSession(
+        session_id=metadata.get("session_id", session_id),
+        title=metadata.get("title"),
+        messages=messages,
+        model=metadata.get("model"),
+        provider=metadata.get("provider"),
+    )
+
+
+@register_command
 class ExportCommand(BaseSlashCommand):
     """Export a victor session to another tool's transcript format."""
 
@@ -180,13 +231,7 @@ class ExportCommand(BaseSlashCommand):
         )
 
     def execute(self, ctx: CommandContext) -> None:
-        from victor.agent.conversation.interop import (
-            ConversationSession,
-            export_session,
-            install_session,
-        )
-        from victor.agent.conversation.store import ConversationStore
-        from victor.agent.conversation.types import ConversationMessage
+        from victor.agent.conversation.interop import export_session, install_session
 
         fmt_key = _resolve_format_flag(ctx, self)
         if fmt_key in (None, "$invalid"):
@@ -213,48 +258,9 @@ class ExportCommand(BaseSlashCommand):
 
         positional = [a for a in ctx.args if not a.startswith("--")]
         session_id = positional[0] if positional else getattr(ctx.agent, "active_session_id", None)
-        if not session_id:
-            ctx.console.print("[red]No session id given and no active session.[/]")
+        session = _load_session_ir(ctx, session_id)
+        if session is None:
             return
-
-        store = ConversationStore()
-        loaded = store.load_session(session_id)
-        if loaded is None:
-            ctx.console.print(f"[red]Session not found:[/] {session_id}")
-            return
-        metadata = loaded.get("metadata", {})
-        messages = [
-            ConversationMessage(
-                id=m.get("id"),
-                role=m.get("role", "user"),
-                content=m.get("content", ""),
-                timestamp=m.get("timestamp"),
-                token_count=m.get("token_count", 0),
-                tool_name=m.get("tool_name"),
-                tool_call_id=m.get("tool_call_id"),
-                tool_calls=m.get("tool_calls"),
-                metadata=m.get("metadata") or {},
-            )
-            for m in loaded.get("conversation", {}).get("messages", [])
-        ]
-        if not messages:
-            ctx.console.print("[yellow]Session has no messages to export.[/]")
-            return
-        # load_session returns ISO strings; ConversationMessage accepts them
-        # via the dataclass only as datetime — normalize before constructing.
-        from datetime import datetime as _dt
-
-        for message in messages:
-            if isinstance(message.timestamp, str):
-                message.timestamp = _dt.fromisoformat(message.timestamp)
-
-        session = ConversationSession(
-            session_id=metadata.get("session_id", session_id),
-            title=metadata.get("title"),
-            messages=messages,
-            model=metadata.get("model"),
-            provider=metadata.get("provider"),
-        )
 
         try:
             if install:
@@ -285,12 +291,12 @@ class ExportCommand(BaseSlashCommand):
         )
         ctx.console.print(
             Panel(
-                f"{len(messages)} messages → {out}\n{hint}",
+                f"{len(session.messages)} messages → {out}\n{hint}",
                 title="Session Exported",
                 border_style="green",
             )
         )
-        _print_role_table(ctx, messages)
+        _print_role_table(ctx, session.messages)
 
 
 def _print_store_listings(ctx: CommandContext) -> None:
@@ -350,3 +356,64 @@ def _print_role_table(ctx: CommandContext, messages) -> None:
     for role, count in sorted(counts.items()):
         table.add_row(role, str(count))
     ctx.console.print(table)
+
+
+@register_command
+class HandoffCommand(BaseSlashCommand):
+    """Hand the current (or a specific) session to another coding agent."""
+
+    @property
+    def metadata(self) -> CommandMetadata:
+        return CommandMetadata(
+            name="handoff",
+            description="Hand a session to claude or codex (export + install)",
+            usage="/handoff <claude|codex> [session_id]",
+            category="session",
+            requires_agent=False,
+        )
+
+    def execute(self, ctx: CommandContext) -> None:
+        from victor.agent.conversation.interop import install_session
+        from victor.agent.conversation.interop.report import ConversionReport
+
+        positional = [a for a in ctx.args if not a.startswith("--")]
+        target = (positional[0] if positional else "").strip().lower()
+        if target not in ("claude", "codex"):
+            ctx.console.print(
+                f"[red]Usage:[/] {self.metadata.usage}\n"
+                "[dim]Example: /handoff codex  ·  /handoff claude s_abc123[/]"
+            )
+            return
+
+        session_id = (
+            positional[1] if len(positional) > 1 else getattr(ctx.agent, "active_session_id", None)
+        )
+        session = _load_session_ir(ctx, session_id)
+        if session is None:
+            return
+
+        report = ConversionReport(
+            source_format="victor", target_format=target, session_id=session.session_id
+        )
+        try:
+            out = install_session(session, target, report)
+        except Exception as exc:  # noqa: BLE001 — surface store problems cleanly
+            ctx.console.print(f"[red]Handoff failed:[/] {exc}")
+            logger.exception("session handoff failed")
+            return
+
+        summary = report.render_summary()
+        resume_hint = (
+            "claude --resume <uuid>  (this project's directory)"
+            if target == "claude"
+            else "codex resume <uuid>"
+        )
+        ctx.console.print(
+            Panel(
+                f"Handed off {len(session.messages)} messages to {target}.\n\n"
+                f"{summary}\n\n[bold]Installed:[/] {out}\n\n"
+                f"[green]Resume there with:[/] {resume_hint}",
+                title=f"Handoff → {target}",
+                border_style="green",
+            )
+        )

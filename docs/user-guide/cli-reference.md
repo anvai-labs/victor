@@ -724,6 +724,7 @@ victor data session clear               # Clear all sessions
 | `delete <id>` | Delete a session |
 | `export` | Export sessions: all (legacy array), or one via `--session-id [--format]` |
 | `import <path>` | Import a claude/codex/chatgpt/victor transcript as a session |
+| `handoff <claude\|codex>` | Hand a session to another agent (export + install) |
 | `clear` | Clear all sessions |
 
 **Interop examples:**
