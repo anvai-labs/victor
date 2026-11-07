@@ -49,6 +49,7 @@ import os
 import sqlite3
 import time
 
+from victor.agent.conversation.store_schema import SESSION_SELECT_WITH_LOOKUPS
 from victor.core.async_utils import run_sync
 from victor.core.json_utils import json_dumps, json_loads
 import uuid
@@ -1332,20 +1333,7 @@ class ConversationStore:
 
             # JOIN with lookup tables to get enum names
             row = conn.execute(
-                """
-                SELECT
-                    s.*,
-                    p.name AS provider_name,
-                    mf.name AS model_family_name,
-                    ms.name AS model_size_name,
-                    cs.name AS context_size_name
-                FROM sessions s
-                LEFT JOIN providers p ON s.provider_id = p.id
-                LEFT JOIN model_families mf ON s.model_family_id = mf.id
-                LEFT JOIN model_sizes ms ON s.model_size_id = ms.id
-                LEFT JOIN context_sizes cs ON s.context_size_id = cs.id
-                WHERE s.session_id = ?
-                """,
+                SESSION_SELECT_WITH_LOOKUPS + " WHERE s.session_id = ?",
                 (session_id,),
             ).fetchone()
 

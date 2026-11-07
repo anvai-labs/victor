@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from victor.agent.conversation.store import ConversationStore
 
+from victor.agent.conversation.store_schema import SESSION_SELECT_WITH_LOOKUPS
 from victor.agent.conversation.session_model import ConversationSession, ConversationSessionSummary
 from victor.agent.conversation.types import (
     ConversationMessage,
@@ -622,19 +623,7 @@ class ConversationStoreSession:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            base_query = """
-                SELECT
-                    s.*,
-                    p.name AS provider_name,
-                    mf.name AS model_family_name,
-                    ms.name AS model_size_name,
-                    cs.name AS context_size_name
-                FROM sessions s
-                LEFT JOIN providers p ON s.provider_id = p.id
-                LEFT JOIN model_families mf ON s.model_family_id = mf.id
-                LEFT JOIN model_sizes ms ON s.model_size_id = ms.id
-                LEFT JOIN context_sizes cs ON s.context_size_id = cs.id
-            """
+            base_query = SESSION_SELECT_WITH_LOOKUPS
 
             if project_path:
                 rows = conn.execute(

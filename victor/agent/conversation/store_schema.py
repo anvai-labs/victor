@@ -83,6 +83,23 @@ _MESSAGES_FTS_TRIGGERS = (
     END""",
 )
 
+# Canonical session projection: session columns + joined lookup names.
+# Shared by ConversationStore._load_session and ConversationStoreSession
+# list queries so the two can never drift.
+SESSION_SELECT_WITH_LOOKUPS = """
+                SELECT
+                    s.*,
+                    p.name AS provider_name,
+                    mf.name AS model_family_name,
+                    ms.name AS model_size_name,
+                    cs.name AS context_size_name
+                FROM sessions s
+                LEFT JOIN providers p ON s.provider_id = p.id
+                LEFT JOIN model_families mf ON s.model_family_id = mf.id
+                LEFT JOIN model_sizes ms ON s.model_size_id = ms.id
+                LEFT JOIN context_sizes cs ON s.context_size_id = cs.id
+            """
+
 _MESSAGES_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY,
