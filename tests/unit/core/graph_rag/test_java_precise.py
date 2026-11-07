@@ -20,6 +20,8 @@ def _supported_toolchain(monkeypatch):
     """These tests cover argv, build markers and executable resolution; the
     JVM toolchain preflight is covered in test_java_toolchain.py."""
     monkeypatch.setattr(ScipJavaProvider, "_preflight", lambda self, root, env: None)
+
+
 PREFIX = "scip-java maven . . org/apache/iceberg/Example#"
 
 

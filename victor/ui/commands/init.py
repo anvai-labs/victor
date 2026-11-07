@@ -22,6 +22,7 @@ from victor.ui.commands.init_content import (
     ensure_architecture_patterns_section,
     ensure_quality_baseline_section,
 )
+from victor.tools.common import latest_mtime
 
 init_app = typer.Typer(name="init", help="Initialize project context and configuration.")
 console = Console()
