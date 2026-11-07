@@ -652,13 +652,18 @@ class ScipClangProvider:
 
 
 def _build_root_mismatches(index_root: Path, build_root: Path) -> list[str]:
-    """Indexed files absent from, or different in, the build root.
+    """Indexed files absent from, different in, or unreadable against the build root.
 
-    Every regular file of the indexed tree (outside ``.victor``) must exist in
-    the build root with identical bytes; extra build-root files are allowed —
-    they never enter the graph, and their SCIP documents do not join.
+    Mirrors the indexer's discovery: directories are walked without following
+    symlinks, and a file symlink is followed by ``stat()`` and kept when its
+    target is a regular file — so a symlinked indexed file is compared by the
+    content the indexer read, never skipped. Only ``.victor`` (index state)
+    and ``.git`` (VCS metadata) are left out. Extra build-root files are
+    allowed: they never enter the graph, and their SCIP documents do not join.
+    A file that cannot be read is reported as a mismatch, never raised.
     """
     import hashlib
+    from stat import S_ISREG
 
     if not build_root.is_dir():
         return ["<build root missing>"]
@@ -671,20 +676,29 @@ def _build_root_mismatches(index_root: Path, build_root: Path) -> list[str]:
         return sha.hexdigest()
 
     mismatches: list[str] = []
-    for path in sorted(index_root.rglob("*")):
-        relative = path.relative_to(index_root)
-        if relative.parts and relative.parts[0] == ".victor":
-            continue
-        if path.is_symlink() or not path.is_file():
-            continue
-        candidate = build_root / relative
-        if (
-            not candidate.is_file()
-            or candidate.is_symlink()
-            or candidate.stat().st_size != path.stat().st_size
-            or digest(candidate) != digest(path)
-        ):
-            mismatches.append(relative.as_posix())
+    for directory, dirs, filenames in os.walk(index_root):
+        dirs[:] = sorted(name for name in dirs if name not in (".victor", ".git"))
+        for name in sorted(filenames):
+            path = Path(directory) / name
+            relative = path.relative_to(index_root).as_posix()
+            try:
+                indexed = path.stat()
+            except OSError:
+                mismatches.append(f"{relative} (unreadable)")
+                continue
+            if not S_ISREG(indexed.st_mode):
+                continue
+            candidate = build_root / relative
+            try:
+                built = candidate.stat()
+                if (
+                    not S_ISREG(built.st_mode)
+                    or built.st_size != indexed.st_size
+                    or digest(candidate) != digest(path)
+                ):
+                    mismatches.append(relative)
+            except OSError:
+                mismatches.append(relative)
     return mismatches
 
 
@@ -777,23 +791,11 @@ class ScipJavaProvider:
         build_args: Optional[list[str]] = None,
         build_root: Optional[str] = None,
     ) -> Union[Path, DumpSkipped, None]:
-        if not any((root / marker).exists() for marker in self._BUILD_MARKERS):
-            logger.info(
-                "precise-index: no supported JVM build file (Maven/Gradle/Bazel) at %s; skipping",
-                root,
-            )
-            return DumpSkipped("no-jvm-build")
-        command = self._command(tool, root, output_path)
-        if command is None:
-            return None
-        env = dict(os.environ)
-        if java_home:
-            env["JAVA_HOME"] = java_home
-            env["PATH"] = os.pathsep.join([str(Path(java_home) / "bin"), env.get("PATH", "")])
         source = root
         if build_root:
-            # Projects whose build reads VCS metadata compile from a real
-            # checkout; it must carry every indexed file byte-identically.
+            # Projects whose build reads VCS metadata, or files outside the
+            # indexed tree (a parent pom, an included build), compile from a
+            # real checkout. It must carry every indexed file byte-identically.
             source = Path(build_root)
             mismatches = _build_root_mismatches(root, source)
             if mismatches:
@@ -805,6 +807,19 @@ class ScipJavaProvider:
                     ", ".join(mismatches[:5]),
                 )
                 return DumpSkipped(f"build-root-mismatch:{len(mismatches)}")
+        if not any((source / marker).exists() for marker in self._BUILD_MARKERS):
+            logger.info(
+                "precise-index: no supported JVM build file (Maven/Gradle/Bazel) at %s; skipping",
+                source,
+            )
+            return DumpSkipped("no-jvm-build")
+        command = self._command(tool, source, output_path)
+        if command is None:
+            return None
+        env = dict(os.environ)
+        if java_home:
+            env["JAVA_HOME"] = java_home
+            env["PATH"] = os.pathsep.join([str(Path(java_home) / "bin"), env.get("PATH", "")])
         skipped = self._preflight(source, env)
         if skipped is not None:
             logger.info("precise-index: scip-java skipped (%s)", skipped.reason)
@@ -812,11 +827,27 @@ class ScipJavaProvider:
         if build_args:
             command += ["--", *build_args]
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        # The build compiles in a scratch copy: Gradle/Maven write .gradle/,
-        # build/ and target/ trees, and the indexed tree must stay unmodified.
+        if build_root:
+            # A build root is a dedicated build workspace: compile in place so
+            # paths outside the module (../pom.xml, includeBuild) resolve and
+            # what was verified is exactly what builds.
+            return _run_dump(
+                command,
+                cwd=source,
+                output_path=output_path,
+                timeout_seconds=timeout_seconds,
+                node_heap=False,
+                env=env,
+            )
+        # Without one, the indexed tree is never built in: Gradle/Maven write
+        # .gradle/, build/ and target/. Compile a scratch copy instead.
         with tempfile.TemporaryDirectory(prefix="victor-scip-java-") as scratch:
             work = Path(scratch) / "tree"
-            shutil.copytree(source, work, symlinks=True, ignore=shutil.ignore_patterns(".victor"))
+            try:
+                shutil.copytree(root, work, symlinks=True, ignore=shutil.ignore_patterns(".victor"))
+            except (OSError, shutil.Error) as exc:
+                logger.info("precise-index: scratch copy of %s failed: %s", root, exc)
+                return DumpSkipped(f"scratch-copy-failed:{type(exc).__name__}")
             return _run_dump(
                 command,
                 cwd=work,
@@ -861,8 +892,17 @@ class ScipJavaProvider:
         return command
 
     def _preflight(self, root: Path, env: dict[str, str]) -> Optional[DumpSkipped]:
-        """Refuse a toolchain the project cannot build with, naming why."""
-        java = shutil.which("java", path=env.get("PATH"))
+        """Refuse a toolchain the project cannot build with, naming why.
+
+        The JDK checked is the one the build uses: scip-java's launcher,
+        Gradle and Maven all prefer ``$JAVA_HOME/bin/java`` over PATH.
+        """
+        java_home_env = env.get("JAVA_HOME")
+        java = (
+            str(Path(java_home_env) / "bin" / "java")
+            if java_home_env and (Path(java_home_env) / "bin" / "java").exists()
+            else shutil.which("java", path=env.get("PATH"))
+        )
         if java is None:
             return DumpSkipped("no-jdk")
         major = _java_major(java, env)

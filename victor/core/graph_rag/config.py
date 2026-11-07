@@ -284,17 +284,33 @@ class GraphRagConfig:
                 settings, "precise_index_timeout_seconds", 0
             ),
             precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
-            precise_index_java_home=graph_setting(settings, "precise_index_java_home", ""),
-            precise_index_build_args=dict(
-                graph_setting(settings, "precise_index_build_args", {}) or {}
-            ),
-            precise_index_build_root=graph_setting(settings, "precise_index_build_root", ""),
+            **precise_toolchain_settings(settings),
         )
 
         return cls(index=index_config)
 
 
+def precise_toolchain_settings(settings: Any) -> dict[str, Any]:
+    """The compiler-tier toolchain fields of GraphIndexConfig, read from settings.
+
+    The single reader for every indexing entry point (graph CLI, ``victor
+    init``, background refresh, ``from_settings``). Each of them built
+    GraphIndexConfig field by field, so a setting added later was silently
+    dropped by whichever path was not updated.
+    """
+    from victor.config.settings import graph_setting
+
+    return {
+        "precise_index_java_home": graph_setting(settings, "precise_index_java_home", "") or "",
+        "precise_index_build_args": dict(
+            graph_setting(settings, "precise_index_build_args", {}) or {}
+        ),
+        "precise_index_build_root": graph_setting(settings, "precise_index_build_root", "") or "",
+    }
+
+
 __all__ = [
+    "precise_toolchain_settings",
     "SubgraphConfig",
     "GraphIndexConfig",
     "RetrievalConfig",

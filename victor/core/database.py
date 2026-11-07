@@ -568,8 +568,15 @@ def _find_existing_project_dir(start: Path) -> Optional[Path]:
         # Home boundary, same shape: ``~/.victor`` is Victor's GLOBAL state
         # directory, never an ancestor project. Without this a tree anywhere
         # under the home directory lacking its own store was adopted into the
-        # global database (observed: a source tree under ~/.local/share).
-        if home is not None and ancestor == home and ancestor != start:
+        # global database (observed: a source tree under ~/.local/share). A
+        # home that is itself a git repository (containers, dotfiles repos) is
+        # a real project and keeps the ordinary rules.
+        if (
+            home is not None
+            and ancestor == home
+            and ancestor != start
+            and not (home / ".git").exists()
+        ):
             break
         victor_dir = ancestor / ".victor"
         if (victor_dir / "project.db").exists():

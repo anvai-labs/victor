@@ -663,9 +663,13 @@ class GraphManager:
             "enable_precise_index": False,
             "precise_index_timeout_seconds": 0,
             "precise_index_tool": "auto",
+            "precise_index_java_home": "",
+            "precise_index_build_args": {},
+            "precise_index_build_root": "",
         }
         try:
             from victor.config.settings import Settings, graph_flag, graph_setting
+            from victor.core.graph_rag.config import precise_toolchain_settings
 
             settings = Settings.from_sources()
             return {
@@ -675,6 +679,7 @@ class GraphManager:
                     settings, "precise_index_timeout_seconds", 0
                 ),
                 "precise_index_tool": graph_setting(settings, "precise_index_tool", "auto"),
+                **precise_toolchain_settings(settings),
             }
         except Exception as exc:
             # Never block refresh startup on settings resolution, but leave a
@@ -738,6 +743,11 @@ class GraphManager:
                         "precise_index_timeout_seconds", 0
                     ),
                     precise_index_tool=refresh_config.get("precise_index_tool", "auto"),
+                    precise_index_java_home=refresh_config.get("precise_index_java_home", ""),
+                    precise_index_build_args=dict(
+                        refresh_config.get("precise_index_build_args", {}) or {}
+                    ),
+                    precise_index_build_root=refresh_config.get("precise_index_build_root", ""),
                 )
 
                 phase2_time = datetime.now().timestamp() - phase2_start

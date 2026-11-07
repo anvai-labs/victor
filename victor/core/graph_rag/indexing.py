@@ -44,7 +44,6 @@ import asyncio
 import concurrent.futures
 import fnmatch
 import logging
-import json
 import os
 import re
 import threading
@@ -1076,15 +1075,12 @@ class GraphIndexingPipeline:
                         manifest, extensions_for_provider(provider.name)
                     )
                     toolchain_kwargs = self._precise_toolchain_kwargs(provider.name)
-                    # The JDK and build scope change what the dump contains, so
-                    # they key the artifact cache with the tool path.
-                    tool_key = (
-                        f"{tool}|{json.dumps(toolchain_kwargs, sort_keys=True)}"
-                        if toolchain_kwargs
-                        else tool
-                    )
+                    # The JDK, build scope and build root change what the dump
+                    # contains; they key the cache beside the tool's own stat.
                     cache_key = (
-                        precise_cache.dump_cache_key(provider.name, tool_key, file_hashes)
+                        precise_cache.dump_cache_key(
+                            provider.name, tool, file_hashes, toolchain=toolchain_kwargs or None
+                        )
                         if manifest is not None
                         else None
                     )

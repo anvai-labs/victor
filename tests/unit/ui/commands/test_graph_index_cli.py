@@ -44,7 +44,15 @@ def _settings_from_yaml(tmp_path, yaml_body):
 
 
 async def _run_index(
-    tmp_path, settings, stats, *, precise=None, precise_timeout=None, parse_workers=None
+    tmp_path,
+    settings,
+    stats,
+    *,
+    precise=None,
+    precise_timeout=None,
+    parse_workers=None,
+    path=None,
+    own_store=False,
 ):
     """Drive ``_index_async`` with the pipeline mocked; return the captured
     GraphIndexConfig and the rendered summary."""
@@ -61,13 +69,14 @@ async def _run_index(
         ),
     ):
         ok = await graph._index_async(
-            str(tmp_path),
+            str(path or tmp_path),
             True,
             False,
             precise=precise,
             precise_timeout=precise_timeout,
             parse_workers=parse_workers,
             settings=settings,
+            own_store=own_store,
         )
     return ok, pipeline.call_args[0][1], output.export_text()
 
@@ -369,3 +378,48 @@ async def test_parse_workers_cli_and_settings_wiring(tmp_path):
     assert ok
     assert config.parse_workers == 0
     assert "Time: parse" in rendered
+
+
+async def test_indexing_a_subtree_never_moves_the_enclosing_projects_state(tmp_path):
+    """Without --own-store the subtree's state stays with the enclosing project
+    (a claim would strand its conversations and graph); the CLI says where the
+    index goes and how to keep it separate."""
+    from victor.core.database import resolve_project_db_root
+    from victor.core.graph_rag.indexing import GraphIndexStats
+
+    outer = tmp_path / "proj"
+    (outer / ".victor").mkdir(parents=True)
+    (outer / ".victor" / "project.db").touch()
+    subtree = (outer / "src").resolve()
+    subtree.mkdir()
+    settings = _settings_from_yaml(tmp_path, "search:\n  graph:\n    enable_ccg: true\n")
+
+    ok, _, text = await _run_index(
+        tmp_path, settings, GraphIndexStats(files_processed=1), path=subtree
+    )
+
+    assert ok
+    assert not (subtree / ".victor").exists()
+    assert resolve_project_db_root(subtree) == outer.resolve()
+    assert "--own-store" in text and "inside project" in text
+
+
+async def test_own_store_keeps_a_separate_store_for_the_indexed_tree(tmp_path):
+    from victor.core.database import resolve_project_db_root
+    from victor.core.graph_rag.indexing import GraphIndexStats
+
+    outer = tmp_path / "proj"
+    (outer / ".victor").mkdir(parents=True)
+    (outer / ".victor" / "project.db").touch()
+    tree = (outer / "vendor" / "lib").resolve()
+    tree.mkdir(parents=True)
+    settings = _settings_from_yaml(tmp_path, "search:\n  graph:\n    enable_ccg: true\n")
+
+    ok, _, text = await _run_index(
+        tmp_path, settings, GraphIndexStats(files_processed=1), path=tree, own_store=True
+    )
+
+    assert ok
+    assert (tree / ".victor" / "project.db").is_file()
+    assert resolve_project_db_root(tree) == tree
+    assert "claimed" in text

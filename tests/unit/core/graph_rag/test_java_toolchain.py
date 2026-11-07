@@ -5,6 +5,7 @@ Gradle newer than the project's wrapper pin, compiled inside the indexed tree,
 and kept 400 characters of the failure. Each behavior below pins the fix.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,7 @@ def toolchain(tmp_path, monkeypatch):
     jdk = tmp_path / "jdk"
     _executable(jdk / "bin", "java")
     monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    monkeypatch.delenv("JAVA_HOME", raising=False)  # hermetic: hosts and CI often set it
     monkeypatch.setattr(mod, "_java_major", lambda java, env: 21)
     return jdk
 
@@ -63,6 +65,7 @@ def captured(monkeypatch):
 
 def test_missing_jdk_skips_before_any_build(tmp_path, monkeypatch, captured):
     monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    monkeypatch.delenv("JAVA_HOME", raising=False)
     root = _gradle_project(tmp_path / "project", wrapper_jar=True)
     result = JV.dump("/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1)
     assert result == DumpSkipped("no-jdk") and captured == []
@@ -250,14 +253,13 @@ def _index_and_build_roots(tmp_path):
     return index_root, build_root
 
 
-def test_a_matching_build_root_is_what_gets_built(tmp_path, monkeypatch, toolchain):
+def test_a_matching_build_root_builds_in_place(tmp_path, monkeypatch, toolchain):
     index_root, build_root = _index_and_build_roots(tmp_path)
     seen = {}
 
     def building_dump(command, *, cwd, output_path, timeout_seconds, node_heap, env=None):
+        seen["cwd"] = cwd
         seen["has_git"] = (cwd / ".git" / "HEAD").is_file()
-        seen["has_extra"] = (cwd / "excluded-from-snapshot.bin").is_file()
-        seen["has_index_state"] = (cwd / ".victor").exists()
         return output_path
 
     monkeypatch.setattr(mod, "_run_dump", building_dump)
@@ -271,7 +273,38 @@ def test_a_matching_build_root_is_what_gets_built(tmp_path, monkeypatch, toolcha
         build_root=str(build_root),
     )
     assert result == out
-    assert seen == {"has_git": True, "has_extra": True, "has_index_state": False}
+    assert seen == {"cwd": build_root, "has_git": True}
+
+
+def test_a_build_root_module_resolves_files_outside_the_indexed_tree(
+    tmp_path, monkeypatch, toolchain
+):
+    """A Maven module's parent pom (../pom.xml) or a Gradle includeBuild sits
+    outside the indexed tree; building the build root in place keeps it."""
+    checkout = tmp_path / "checkout"
+    module = checkout / "module-a"
+    module.mkdir(parents=True)
+    (checkout / "pom.xml").write_text("<project><modules/></project>", encoding="utf-8")
+    (module / "pom.xml").write_text("<project><parent/></project>", encoding="utf-8")
+    index_root = tmp_path / "index"
+    index_root.mkdir()
+    (index_root / "pom.xml").write_text("<project><parent/></project>", encoding="utf-8")
+    seen = {}
+
+    def building_dump(command, *, cwd, output_path, timeout_seconds, node_heap, env=None):
+        seen["parent_pom"] = (cwd.parent / "pom.xml").is_file()
+        return output_path
+
+    monkeypatch.setattr(mod, "_run_dump", building_dump)
+    JV.dump(
+        "/opt/scip-java",
+        index_root,
+        tmp_path / "out.scip",
+        timeout_seconds=1,
+        java_home=str(toolchain),
+        build_root=str(module),
+    )
+    assert seen == {"parent_pom": True}
 
 
 @pytest.mark.parametrize("damage", ["changed", "missing"])
@@ -311,3 +344,85 @@ def test_pipeline_passes_the_build_root_to_scip_java_only():
         "build_root": "/srv/checkout@2ebe838e"
     }
     assert GraphIndexingPipeline._precise_toolchain_kwargs(holder, "scip-python") == {}
+
+
+def test_a_symlinked_indexed_file_is_verified_by_its_content(tmp_path):
+    """The indexer follows file symlinks; verification must compare the bytes
+    it read, never skip the path."""
+    index_root, build_root = _index_and_build_roots(tmp_path)
+    (index_root / "ext").mkdir()
+    (index_root / "ext" / "Foo.java").write_text("class Foo { int a; }\n", encoding="utf-8")
+    (index_root / "src" / "Foo.java").symlink_to(index_root / "ext" / "Foo.java")
+    (build_root / "ext").mkdir()
+    (build_root / "ext" / "Foo.java").write_text("class Foo { int a; }\n", encoding="utf-8")
+    (build_root / "src" / "Foo.java").write_text("class Foo { EVIL }\n", encoding="utf-8")
+    assert mod._build_root_mismatches(index_root, build_root) == ["src/Foo.java"]
+
+
+def test_a_same_size_content_change_is_a_mismatch(tmp_path):
+    index_root, build_root = _index_and_build_roots(tmp_path)
+    (build_root / "src" / "A.java").write_text("class B {}\n", encoding="utf-8")  # same size
+    assert mod._build_root_mismatches(index_root, build_root) == ["src/A.java"]
+
+
+def test_identical_content_through_a_build_root_symlink_is_accepted(tmp_path):
+    index_root, build_root = _index_and_build_roots(tmp_path)
+    target = build_root / "src" / "A.java"
+    real = build_root / "real-A.java"
+    real.write_bytes(target.read_bytes())
+    target.unlink()
+    target.symlink_to(real)  # repositories legitimately carry symlinks
+    assert mod._build_root_mismatches(index_root, build_root) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX non-root")
+def test_an_unreadable_indexed_file_is_a_named_mismatch_not_an_error(tmp_path):
+    index_root, build_root = _index_and_build_roots(tmp_path)
+    locked = build_root / "src" / "A.java"
+    locked.chmod(0)
+    try:
+        assert mod._build_root_mismatches(index_root, build_root) == ["src/A.java"]
+    finally:
+        locked.chmod(0o644)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX fifo")
+def test_a_scratch_copy_failure_is_a_named_skip(tmp_path, toolchain, captured):
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    os.mkfifo(root / "pipe")
+    result = JV.dump(
+        "/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1, java_home=str(toolchain)
+    )
+    assert isinstance(result, DumpSkipped) and result.reason.startswith("scratch-copy-failed:")
+    assert captured == []
+
+
+def test_the_jdk_checked_is_the_java_home_the_build_uses(tmp_path, monkeypatch, captured):
+    """JAVA_HOME wins over PATH for scip-java's launcher, Gradle and Maven."""
+    jdk17 = tmp_path / "jdk17"
+    _executable(jdk17 / "bin", "java")
+    path_bin = tmp_path / "path-bin"
+    _executable(path_bin, "java")
+    monkeypatch.setenv("PATH", str(path_bin))
+    monkeypatch.setenv("JAVA_HOME", str(jdk17))
+    monkeypatch.setattr(mod, "_java_major", lambda java, env: 17 if "jdk17" in java else 11)
+    root = _gradle_project(tmp_path / "project", wrapper_jar=True)
+    JV.dump("/opt/scip-java", root, tmp_path / "out.scip", timeout_seconds=1)
+    assert len(captured) == 1
+
+
+def test_cache_key_keeps_the_tool_stat_and_keys_the_toolchain(tmp_path):
+    from victor.core.graph_rag.precise_cache import dump_cache_key
+
+    tool = tmp_path / "scip-java"
+    tool.write_bytes(b"v1")
+    toolchain = {"java_home": "/opt/jdk-21", "build_args": [":core:compileJava"]}
+    before = dump_cache_key("scip-java", str(tool), {"A.java": "h"}, toolchain=toolchain)
+    tool.write_bytes(b"upgraded indexer v2")
+    after_upgrade = dump_cache_key("scip-java", str(tool), {"A.java": "h"}, toolchain=toolchain)
+    assert before != after_upgrade
+    other_scope = dump_cache_key(
+        "scip-java", str(tool), {"A.java": "h"}, toolchain={**toolchain, "build_args": []}
+    )
+    assert other_scope != after_upgrade
+    assert dump_cache_key("scip-java", str(tool), {"A.java": "h"}) != after_upgrade

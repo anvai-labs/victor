@@ -145,8 +145,9 @@ def find_project_root(start: Optional[Path] = None) -> Path:
             break
 
         # ``~/.victor`` is Victor's GLOBAL state directory, never an ancestor
-        # project (same boundary as the project database lookup).
-        if ancestor == home_root and ancestor != resolved:
+        # project (same boundary as the project database lookup) — unless the
+        # home directory is itself a git repository, which is a real project.
+        if ancestor == home_root and ancestor != resolved and not (ancestor / ".git").exists():
             break
 
         # Existing Victor state — strongest signal

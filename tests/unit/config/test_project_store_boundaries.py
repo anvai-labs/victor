@@ -5,7 +5,6 @@ global ~/.victor/project.db, and a nested source tree was indexed into the
 enclosing repository's database with paths relative to the inner tree.
 """
 
-
 import pytest
 
 from victor.config.settings import find_project_root
@@ -66,3 +65,16 @@ def test_a_fresh_index_root_without_ancestors_initializes_in_place(tmp_path):
     root.mkdir()
     assert _claim_index_store(root) is None
     assert not (root / ".victor").exists()
+
+
+def test_a_home_that_is_a_git_repository_is_a_normal_project(tmp_path, monkeypatch):
+    """Containers and dotfiles repos run with HOME at a repository root; its
+    store and .git boundary must keep working for subdirectories."""
+    repo = tmp_path / "repo-home"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".victor").mkdir()
+    (repo / ".victor" / "project.db").touch()
+    (repo / "src").mkdir()
+    monkeypatch.setenv("HOME", str(repo))
+    assert _find_existing_project_dir((repo / "src").resolve()) == (repo / ".victor").resolve()
+    assert find_project_root(repo / "src") == repo.resolve()

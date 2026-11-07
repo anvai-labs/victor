@@ -309,6 +309,7 @@ async def _index_async(
     parse_workers: Optional[int] = None,
     list_partial: bool = False,
     settings: Optional[Any] = None,
+    own_store: bool = False,
 ) -> bool:
     """Index codebase into graph store asynchronously.
 
@@ -334,6 +335,7 @@ async def _index_async(
         True if successful
     """
     from victor.core.graph_rag import GraphIndexConfig, GraphIndexingPipeline
+    from victor.core.graph_rag.config import precise_toolchain_settings
     from victor.core.graph_rag.indexing import run_indexing_with_lock
 
     root_path = Path(path).resolve()
@@ -351,12 +353,27 @@ async def _index_async(
         return False
 
     console.print(f"[dim]Indexing codebase at: {root_path}[/dim]")
-    adopted = _claim_index_store(root_path)
-    if adopted is not None:
-        console.print(
-            f"[dim]Index store claimed at {root_path / '.victor'} "
-            f"(the store at {adopted / '.victor'} belongs to another project)[/dim]"
-        )
+    if own_store:
+        adopted = _claim_index_store(root_path)
+        if adopted is not None:
+            console.print(
+                f"[dim]Index store claimed at {root_path / '.victor'} "
+                f"(the store at {adopted / '.victor'} belongs to another project)[/dim]"
+            )
+    else:
+        from victor.core.database import resolve_project_db_root
+
+        owner = resolve_project_db_root(root_path)
+        if owner != root_path:
+            # Never move a subtree's state implicitly: that would strand the
+            # enclosing project's conversations and graph for every command run
+            # under PATH. Say where the index goes and how to keep it separate.
+            console.print(
+                f"[yellow]Warning:[/yellow] {root_path} is inside project {owner}; this "
+                f"index is stored in {owner / '.victor'} with paths relative to {root_path}. "
+                "Index the project root instead, or pass --own-store to keep a separate "
+                "store for this tree."
+            )
 
     # Create graph store
     graph_store = create_graph_store("auto", root_path)
@@ -389,11 +406,7 @@ async def _index_async(
         enable_precise_index=enable_precise,
         precise_index_timeout_seconds=timeout_seconds,
         precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
-        precise_index_java_home=graph_setting(settings, "precise_index_java_home", ""),
-        precise_index_build_args=dict(
-            graph_setting(settings, "precise_index_build_args", {}) or {}
-        ),
-        precise_index_build_root=graph_setting(settings, "precise_index_build_root", ""),
+        **precise_toolchain_settings(settings),
         parse_workers=(
             parse_workers
             if parse_workers is not None
@@ -818,6 +831,14 @@ def graph_index(
             "0 = all cores, 1 = serial)"
         ),
     ),
+    own_store: bool = typer.Option(
+        False,
+        "--own-store",
+        help=(
+            "Keep this index in PATH/.victor even when PATH sits inside another project "
+            "whose store would otherwise be used (e.g. a vendored or materialized tree)."
+        ),
+    ),
     list_partial: bool = typer.Option(
         False,
         "--list-partial",
@@ -838,6 +859,7 @@ def graph_index(
             precise_timeout=precise_timeout,
             parse_workers=parse_workers,
             list_partial=list_partial,
+            own_store=own_store,
         )
     )
     elapsed = time.time() - start_time
