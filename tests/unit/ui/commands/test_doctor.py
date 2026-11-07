@@ -404,6 +404,7 @@ class TestGraphIndexingCheck:
             (None, Severity.WARNING, "still reporting success"),  # not installed
             (RuntimeError("corrupt RECORD"), Severity.WARNING, "metadata unreadable"),
             ("unknown", Severity.WARNING, "unparseable version"),
+            ("<no-version-field>", Severity.WARNING, "unparseable version: None"),
             ("0.8.0", Severity.WARNING, "older than"),
             ("0.14.0", Severity.SUCCESS, "enhanced analysis"),
             ("0.16.0", Severity.SUCCESS, "enhanced analysis"),
@@ -418,6 +419,8 @@ class TestGraphIndexingCheck:
         self._forbid_downloads(monkeypatch)
         if outcome is None:
             outcome = md.PackageNotFoundError("victor-coding")
+        elif outcome == "<no-version-field>":
+            outcome = None  # importlib.metadata.version() returns None for this
         self._coding_version(monkeypatch, outcome)
         doctor = DoctorChecks()
         doctor.check_graph_indexing()

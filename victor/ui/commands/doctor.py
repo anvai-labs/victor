@@ -372,8 +372,10 @@ class DoctorChecks:
             )
         else:
             try:
+                # version() returns None when METADATA lacks a Version field
+                # (e.g. an interrupted install); Version(None) is a TypeError.
                 outdated = Version(installed) < Version(MIN_VICTOR_CODING)
-            except InvalidVersion:
+            except (InvalidVersion, TypeError):
                 self.add_check(
                     name="Graph Analysis Plugin",
                     severity=Severity.WARNING,
