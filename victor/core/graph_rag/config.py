@@ -160,8 +160,12 @@ class RetrievalConfig:
         semantic_threshold: Minimum semantic similarity for seed nodes
         enable_reranking: Whether to re-rank results after traversal
         max_context_tokens: Maximum tokens in retrieved context
-        mode: Seed strategy this retrieval ran under (semantic/structural/
-            hybrid) — part of the query-cache key so mode results don't collide
+        mode: Seed strategy, honored by MultiHopRetriever.retrieve():
+            ``semantic`` uses the store's own seed search (FTS5 keyword
+            matching on the sqlite store, despite the name); ``structural``
+            uses rank-decayed keyword seeds; ``hybrid`` fuses keyword seeds
+            with vector-similarity seeds from the indexed embeddings. Also
+            part of the query-cache key so mode results don't collide.
     """
 
     seed_count: int = 5
