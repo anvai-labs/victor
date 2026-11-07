@@ -227,6 +227,22 @@ class MultiHopRetriever:
         per hop instead of one call per node, which on an out-of-process store is
         the difference between a handful of round trips and hundreds.
 
+        ``config.mode`` selects the seed strategy:
+
+        - ``semantic`` (default): the store's own seed search
+          (``search_symbols``; FTS5 keyword matching on the sqlite store).
+        - ``structural``: keyword symbol seeds, rank-decayed.
+        - ``hybrid``: keyword seeds fused with vector-similarity seeds from the
+          indexed node embeddings (see :mod:`victor.core.graph_rag.seeding`).
+
+        ``structural`` and ``hybrid`` results carry a
+        :class:`~victor.core.graph_rag.seeding.SeedReport` in
+        ``result.metadata["seeding"]`` saying which legs contributed. They are
+        not cached, because the cache does not keep result metadata.
+
+        A store opened read-only (``graph_store.read_only``) bypasses the query
+        cache entirely: its persisted layer writes into the project database.
+
         Args:
             query: Natural language query
             config: Optional config override
@@ -236,11 +252,18 @@ class MultiHopRetriever:
         """
         cfg = config or self.config
 
+        mode = getattr(cfg, "mode", "semantic")
+        if mode in ("structural", "hybrid"):
+            return await self._retrieve_from_seed_strategy(query, cfg, mode)
+
+        use_cache = not getattr(self.graph_store, "read_only", False)
+
         # Cache handling lives here, at the public entry, so both strategies are
         # memoized identically and neither can be silently skipped.
-        cache_result = await self._try_cache(query, cfg)
-        if cache_result is not None:
-            return cache_result
+        if use_cache:
+            cache_result = await self._try_cache(query, cfg)
+            if cache_result is not None:
+                return cache_result
 
         # The batched primitive takes no direction argument and walks outward
         # only, so a non-outward request must stay on the serial path rather
@@ -254,7 +277,23 @@ class MultiHopRetriever:
         else:
             result = await self._retrieve_serial(query, cfg)
 
-        await self._save_to_cache(query, cfg, result)
+        if use_cache:
+            await self._save_to_cache(query, cfg, result)
+        return result
+
+    async def _retrieve_from_seed_strategy(
+        self,
+        query: str,
+        cfg: Any,
+        mode: str,
+    ) -> RetrievalResult:
+        """Seed with a named strategy, expand, and record what seeded it."""
+        from victor.core.graph_rag.seeding import hybrid_seeds, structural_seeds
+
+        strategy = hybrid_seeds if mode == "hybrid" else structural_seeds
+        seed_scores, report = await strategy(self.graph_store, query, cfg.seed_count)
+        result = await self.expand_from_seeds(seed_scores, query, cfg)
+        result.metadata["seeding"] = report.to_dict()
         return result
 
     async def _retrieve_serial(

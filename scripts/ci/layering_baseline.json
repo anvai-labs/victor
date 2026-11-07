@@ -1,5 +1,5 @@
 {
-  "count": 93,
+  "count": 92,
   "pairs": [
     "victor.agent -> victor.framework.decorators",
     "victor.agent.creation_strategies -> victor.framework.agent_factory",
@@ -81,7 +81,6 @@
     "victor.tools.batch_processor_tool -> victor.agent.presentation",
     "victor.tools.documentation_tool -> victor.agent.presentation",
     "victor.tools.enums -> victor.agent.presentation",
-    "victor.tools.graph_query_tool -> victor.framework.search.hybrid",
     "victor.tools.hybrid_tool_selector -> victor.agent.protocols",
     "victor.tools.keyword_tool_selector -> victor.agent.protocols",
     "victor.tools.merge_tool -> victor.agent.presentation",

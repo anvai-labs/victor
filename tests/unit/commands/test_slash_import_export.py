@@ -307,3 +307,97 @@ class TestAddressImportCommand:
         out = stdout.getvalue()
         assert f"claude:{sid}" in out
         assert "listed session" in out
+
+
+class TestHandoffCommand:
+    """/handoff <claude|codex> [session_id] — export+install sugar."""
+
+    def _seed(self, db):
+        from victor.agent.conversation.store import ConversationStore
+
+        store = ConversationStore(db_path=db)
+        store.save_session(
+            conversation={"messages": [{"role": "user", "content": "hand me off"}]},
+            model="m",
+            provider="p",
+            session_id="ho_001",
+            title="handoff test",
+        )
+
+    def test_requires_target(self):
+        from victor.ui.slash.commands.import_export import HandoffCommand
+
+        ctx, stdout = make_ctx([])
+        HandoffCommand().execute(ctx)
+        assert "Usage" in stdout.getvalue()
+
+    def test_unknown_target_rejected(self):
+        from victor.ui.slash.commands.import_export import HandoffCommand
+
+        ctx, stdout = make_ctx(["gemini"])
+        HandoffCommand().execute(ctx)
+        assert "Usage" in stdout.getvalue()
+
+    def test_handoff_claude_installs_and_hints(self, tmp_path, monkeypatch):
+        from victor.ui.slash.commands.import_export import HandoffCommand
+
+        db = tmp_path / "project.db"
+        self._seed(db)
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(db))
+
+        home = tmp_path / "home"
+        (home / ".claude" / "projects").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+
+        ctx, stdout = make_ctx(["claude", "ho_001"])
+        HandoffCommand().execute(ctx)
+        out = stdout.getvalue()
+        assert "Handoff → claude" in out
+        assert "claude --resume" in out
+        files = list((home / ".claude" / "projects").rglob("*.jsonl"))
+        assert len(files) == 1
+
+    def test_handoff_codex_installs(self, tmp_path, monkeypatch):
+        from victor.ui.slash.commands.import_export import HandoffCommand
+
+        db = tmp_path / "project.db"
+        self._seed(db)
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(db))
+
+        home = tmp_path / "home"
+        (home / ".codex" / "sessions").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+
+        agent = MagicMock()
+        agent.active_session_id = "ho_001"
+        ctx, stdout = make_ctx(["codex"], agent=agent)
+        HandoffCommand().execute(ctx)
+        assert "Handoff → codex" in stdout.getvalue()
+        assert "codex resume" in stdout.getvalue()
+        files = list((home / ".codex" / "sessions").rglob("rollout-*.jsonl"))
+        assert len(files) == 1
+
+    def test_handoff_missing_session(self, tmp_path, monkeypatch):
+        from victor.ui.slash.commands.import_export import HandoffCommand
+
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(tmp_path / "project.db"))
+        ctx, stdout = make_ctx(["claude", "nope"])
+        HandoffCommand().execute(ctx)
+        assert "not found" in stdout.getvalue()
+
+    def test_handoff_missing_store(self, tmp_path, monkeypatch):
+        from victor.ui.slash.commands.import_export import HandoffCommand
+
+        db = tmp_path / "project.db"
+        self._seed(db)
+        monkeypatch.setenv("VICTOR_CONVERSATION_DB", str(db))
+        empty_home = tmp_path / "empty-home"
+        empty_home.mkdir()
+        monkeypatch.setenv("HOME", str(empty_home))
+        monkeypatch.chdir(tmp_path)
+
+        ctx, stdout = make_ctx(["codex", "ho_001"])
+        HandoffCommand().execute(ctx)
+        assert "Handoff failed" in stdout.getvalue()

@@ -220,6 +220,20 @@ store (claude: `~/.claude/projects/<slug>/`, codex: `~/.codex/sessions/`)
 with a fresh session uuid — never overwriting existing files. Resume it
 there with `claude --resume <uuid>` / `codex resume <uuid>`.
 
+### `/handoff` - Give a Session to Another Agent
+
+The intent-shaped shortcut for export+install:
+
+```bash
+/handoff codex                # current session → the codex store
+/handoff claude               # current session → the claude store
+/handoff claude s_abc123      # a specific session
+```
+
+Prints the conversion summary (including anything lossy), the installed
+path, and the exact resume command for the target tool. CLI twin:
+`victor data session handoff <claude|codex> [--session-id <id>]`.
+
 ```bash
 # Round trip: pick up a Claude Code session where it left off, in victor
 /import ~/.claude/projects/-Users-me-myrepo/<uuid>.jsonl
