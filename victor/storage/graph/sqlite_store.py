@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import functools
 import sqlite3
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -107,6 +108,18 @@ CREATE INDEX IF NOT EXISTS idx_{_MTIME_TABLE}_mtime ON {_MTIME_TABLE}(mtime);
 
 SCHEMA = "PRAGMA journal_mode=WAL;\n" + _TABLE_SCHEMA
 
+
+@functools.lru_cache(maxsize=None)
+def _current_columns(table_name: str) -> frozenset:
+    """Columns the current schema creates for a table (derived, never listed)."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(_TABLE_SCHEMA)
+        return frozenset(row[1] for row in conn.execute(f"PRAGMA table_info({table_name})"))
+    finally:
+        conn.close()
+
+
 # FTS5 schema for full-text search on symbols. Statement rows are EXCLUDED
 # from the sync triggers (write-path profile, 2026-10-24): they are the vast
 # majority of node upserts (~97% on a full rebuild) yet carry no searchable
@@ -160,24 +173,54 @@ class SqliteGraphStore(GraphStoreProtocol):
     """Embedded SQLite graph store using consolidated project.db."""
 
     def __init__(
-        self, project_path: Optional[Path] = None, *, _staging_path: Path | None = None
+        self,
+        project_path: Optional[Path] = None,
+        *,
+        read_only: bool = False,
+        _staging_path: Path | None = None,
     ) -> None:
         """Initialize graph store.
 
         Args:
             project_path: Path to project root. If None, uses current directory.
+            read_only: Open an existing project database for queries only.
+                Nothing is created, migrated or recorded: the project database
+                manager (which migrates and sets pragmas on open) is bypassed,
+                the connection is opened with SQLite's ``mode=ro`` and
+                ``query_only``, and any write raises ``sqlite3.OperationalError``.
+                Database content never changes. A WAL-mode database whose
+                ``-wal``/``-shm`` files are absent gets them created empty:
+                SQLite readers need them for coordination, and ``immutable=1``
+                (which avoids them) returns wrong results if a writer is active.
+                Raises ``FileNotFoundError`` when no database exists.
         """
-        from victor.core.database import get_project_database
+        self._read_only = read_only
+        if read_only:
+            if _staging_path is not None:
+                raise ValueError("A staged graph cannot be opened read-only")
+            from victor.core.database import _normalize_project_database_paths
 
-        self._db = get_project_database(project_path)
-        self.db_path = _staging_path if _staging_path is not None else self._db.db_path
+            project_root, _project_dir, db_path = _normalize_project_database_paths(project_path)
+            if not db_path.is_file():
+                raise FileNotFoundError(f"No graph database to open read-only: {db_path}")
+            self._db = None
+            self.db_path = db_path
+            self._project_root = Path(project_root).resolve()
+        else:
+            from victor.core.database import get_project_database
+
+            self._db = get_project_database(project_path)
+            self.db_path = _staging_path if _staging_path is not None else self._db.db_path
+            self._project_root = Path(self._db.project_root).resolve()
         self._is_staging = _staging_path is not None
         self._sealed = False
-        self._project_root = Path(self._db.project_root).resolve()
         self._conn: sqlite3.Connection | None = None
-        self._ensure_schema()
-        if not self._is_staging:
-            self._record_project_metadata()
+        if read_only:
+            self._inspect_schema()
+        else:
+            self._ensure_schema()
+            if not self._is_staging:
+                self._record_project_metadata()
         self._lock = asyncio.Lock()
         self._write_batch_conn: sqlite3.Connection | None = None
         self._write_batch_owner: asyncio.Task[Any] | None = None
@@ -212,6 +255,16 @@ class SqliteGraphStore(GraphStoreProtocol):
         30s connect timeout, and its ``_configure_connection`` pragmas) by
         reusing the manager's configurator so the values cannot drift.
         """
+        if self._read_only:
+            conn = sqlite3.connect(
+                f"{Path(self.db_path).resolve().as_uri()}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+                timeout=30.0,
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only=ON")
+            return conn
         conn = sqlite3.connect(
             str(self.db_path),
             check_same_thread=False,
@@ -264,10 +317,18 @@ class SqliteGraphStore(GraphStoreProtocol):
             raise RuntimeError(f"Cannot {operation} during an active write batch")
 
     async def initialize(self) -> None:
-        """Ensure schema under admission; never implicitly commit an active batch."""
+        """Ensure schema under admission; never implicitly commit an active batch.
+
+        A read-only store only inspects the existing schema.
+        """
         self._reject_batch_lifecycle("initialize")
         async with self._lock:
-            await self._run_db(self._ensure_schema)
+            await self._run_db(self._inspect_schema if self._read_only else self._ensure_schema)
+
+    @property
+    def read_only(self) -> bool:
+        """True when this store was opened for queries only."""
+        return self._read_only
 
     async def _discard_connection(self, conn: sqlite3.Connection) -> None:
         """Close an admitted connection on its worker, even during cancellation."""
@@ -387,6 +448,42 @@ class SqliteGraphStore(GraphStoreProtocol):
             # FTS5 might not be available on all SQLite builds
             pass
         conn.commit()
+
+    def _inspect_schema(self) -> None:
+        """Read-only counterpart of _ensure_schema: verify, never create.
+
+        A read-only store cannot migrate, so an index whose graph tables lack
+        current columns is refused here rather than failing on every query.
+        """
+        try:
+            conn = self._connect()
+            node_columns = self._table_columns(conn, _NODE_TABLE)
+            edge_columns = self._table_columns(conn, _EDGE_TABLE)
+        except sqlite3.OperationalError as exc:
+            raise sqlite3.OperationalError(
+                f"Cannot open graph database read-only: {self.db_path}: {exc}. A WAL-mode "
+                "database needs its directory writable for SQLite's -wal/-shm files "
+                "even when only read."
+            ) from exc
+        if "node_id" not in node_columns:
+            raise FileNotFoundError(f"No graph tables in read-only database: {self.db_path}")
+        missing = sorted(
+            {f"{_NODE_TABLE}.{c}" for c in _current_columns(_NODE_TABLE) - node_columns}
+            | {
+                f"{_EDGE_TABLE}.{c}"
+                for c in _current_columns(_EDGE_TABLE) - edge_columns - {"file"}
+            }
+        )
+        if missing:
+            raise ValueError(
+                f"Graph database schema is older than this Victor and cannot be migrated "
+                f"read-only (missing {', '.join(missing)}); reindex it: {self.db_path}"
+            )
+        self._edge_has_file_column = "file" in edge_columns
+
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table_name: str) -> set:
+        return {row[1] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
 
     def _record_project_metadata(self) -> None:
         """Record graph path identity metadata in the project database."""

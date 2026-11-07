@@ -50,6 +50,7 @@ def create_graph_store(
     project_path: Optional[Path] = None,
     *,
     backend: Optional[str] = None,
+    read_only: bool = False,
 ) -> GraphStoreProtocol:
     """Create a graph store by name.
 
@@ -58,6 +59,10 @@ def create_graph_store(
             honor the per-repo ``.victor/graph_backend`` marker (default sqlite).
         project_path: Path to project root. If None, uses current directory.
         backend: Alias for name (used by victor-coding shim). Takes priority if set.
+        read_only: Open an existing index for queries only; nothing is
+            migrated or written, and database content never changes (SQLite may
+            create empty ``-wal``/``-shm`` coordination files). Only the sqlite backend supports it; other
+            backends raise ``ValueError`` rather than open read-write.
 
     Returns:
         GraphStoreProtocol implementation
@@ -65,8 +70,10 @@ def create_graph_store(
     selected_backend = str(backend if backend is not None else name or "sqlite").lower()
     if selected_backend == "auto":
         selected_backend = resolve_graph_backend(project_path)
+    if read_only and selected_backend != "sqlite":
+        raise ValueError(f"Graph store backend {selected_backend!r} has no read-only mode")
     if selected_backend == "sqlite":
-        return SqliteGraphStore(project_path=project_path)
+        return SqliteGraphStore(project_path=project_path, read_only=read_only)
     if selected_backend == "memory":
         return MemoryGraphStore()
     if selected_backend == "duckdb":
