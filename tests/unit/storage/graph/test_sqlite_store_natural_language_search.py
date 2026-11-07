@@ -31,6 +31,14 @@ async def store(tmp_path: Path):
                 docstring="Parse the snapshot manifest list.",
             ),
             GraphNode(
+                node_id="n_cafe",
+                type="function",
+                name="brew",
+                file="src/cafe.py",
+                line=1,
+                docstring="Serves a café order.",
+            ),
+            GraphNode(
                 node_id="n_other", type="function", name="unrelated", file="src/x.py", line=1
             ),
         ]
@@ -71,3 +79,29 @@ async def test_a_question_of_only_stopwords_matches_nothing(store):
 async def test_unknown_match_modes_are_refused(store):
     with pytest.raises(ValueError, match="match must be"):
         await store.search_symbols("snapshot", match="some")
+
+
+def test_terms_follow_the_fts5_tokenizer_for_accents_and_scripts():
+    assert natural_language_terms("café latte") == ["cafe", "latte"]
+    assert natural_language_terms("größe xyz") == ["große", "xyz"]
+    assert natural_language_terms("日本語 thing") == ["日本語", "thing"]
+
+
+@pytest.mark.asyncio
+async def test_accented_questions_match_the_folded_index(store):
+    found = await store.search_symbols("where is café ordering", limit=5, match="any")
+    assert [n.node_id for n in found] == ["n_cafe"]
+
+
+@pytest.mark.asyncio
+async def test_any_term_matches_without_fts5_through_per_term_like(store):
+    import sqlite3
+
+    conn = store._connect()
+    conn.execute("DROP TABLE graph_node_fts")
+    conn.commit()
+    found = await store.search_symbols("snapshot zzzunmatched", limit=5, match="any")
+    assert [n.node_id for n in found] == ["n_parse"]
+    single = await store.search_symbols("manifest", limit=5, match="any")
+    assert [n.node_id for n in single] == ["n_parse"]
+    assert isinstance(conn, sqlite3.Connection)

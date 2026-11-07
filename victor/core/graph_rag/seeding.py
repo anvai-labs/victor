@@ -45,6 +45,9 @@ class SeedReport:
         note: Human-readable reason when a leg did not contribute.
         keyword_leg: ``used``, ``empty`` (no keyword match) or
             ``unavailable`` (the store's symbol search raised).
+        keyword_match: ``all`` when keyword seeds matched every query term
+            (exact), ``any`` when they came from the any-term retry for a
+            natural-language question (loose name and docstring matches).
     """
 
     mode: str
@@ -54,6 +57,7 @@ class SeedReport:
     semantic_leg: str
     note: Optional[str] = None
     keyword_leg: str = "used"
+    keyword_match: str = "all"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -99,23 +103,40 @@ async def _keyword_nodes(
     graph_store: Any,
     query: str,
     limit: int,
-) -> Tuple[List[Any], Optional[str]]:
+    *,
+    allow_any: bool = False,
+) -> Tuple[List[Any], Optional[str], str]:
     """The store's keyword symbol matches, plus the error if the search raised.
 
     A store's default search requires every query term to match, which suits
     symbol lookups but almost never matches a natural-language question
     (measured: no keyword seed for any of three research questions on an
-    Apache Iceberg index). When that finds nothing for a multi-word query and
-    the store supports it, the search is repeated matching any meaningful term.
+    Apache Iceberg index). With ``allow_any`` (hybrid only, where vector
+    seeds outrank loose name matches), a multi-word query that finds nothing
+    is retried matching any meaningful term on stores that support it.
+    Structural seeding stays exact.
+
+    Returns:
+        (nodes, error, match) — ``match`` is ``"any"`` only when the seeds
+        came from the any-term retry.
     """
     try:
         nodes = list(await graph_store.search_symbols(query, limit=limit))
-        if not nodes and len(query.split()) > 1 and _supports_any_term_match(graph_store):
-            nodes = list(await graph_store.search_symbols(query, limit=limit, match="any"))
-        return nodes, None
     except Exception as e:
         logger.warning(f"Keyword seed search failed: {e}")
-        return [], f"keyword leg unavailable: {e}"
+        return [], f"keyword leg unavailable: {e}", "all"
+    if nodes or not allow_any or len(query.split()) < 2:
+        return nodes, None, "all"
+    if not _supports_any_term_match(graph_store):
+        return nodes, None, "all"
+    try:
+        loose = list(await graph_store.search_symbols(query, limit=limit, match="any"))
+    except Exception as e:
+        # The exact search ran and found nothing; a failed retry leaves that
+        # honest empty result rather than reporting the leg unavailable.
+        logger.warning(f"Any-term keyword retry failed: {e}")
+        return nodes, None, "all"
+    return (loose, None, "any") if loose else (nodes, None, "all")
 
 
 def _supports_any_term_match(graph_store: Any) -> bool:
@@ -134,7 +155,7 @@ async def _keyword_seed_scores(
     limit: int,
 ) -> Tuple[Dict[str, float], Optional[str]]:
     """Rank-decayed keyword seeds, plus the error if the search raised."""
-    nodes, error = await _keyword_nodes(graph_store, query, limit)
+    nodes, error, _match = await _keyword_nodes(graph_store, query, limit)
     return {n.node_id: 1.0 / (1 + rank) for rank, n in enumerate(nodes)}, error
 
 
@@ -192,7 +213,9 @@ async def hybrid_seeds(
     factory = vector_provider_factory or vector_provider_for
     limit = max(seed_count * 2, seed_count)
 
-    keyword_nodes, keyword_error = await _keyword_nodes(graph_store, query, limit)
+    keyword_nodes, keyword_error, keyword_match = await _keyword_nodes(
+        graph_store, query, limit, allow_any=True
+    )
     keyword_results: List[Dict[str, Any]] = [
         {"file_path": n.node_id, "content": n.name, "score": 1.0 / (1 + rank)}
         for rank, n in enumerate(keyword_nodes)
@@ -260,6 +283,7 @@ async def hybrid_seeds(
             semantic_leg=SEMANTIC_UNAVAILABLE if failed else SEMANTIC_EMPTY,
             note=_join_notes(keyword_error, note),
             keyword_leg=keyword_leg,
+            keyword_match=keyword_match,
         )
 
     from victor.core.search.hybrid import create_hybrid_search_engine
@@ -276,6 +300,7 @@ async def hybrid_seeds(
         semantic_leg=SEMANTIC_USED,
         note=keyword_error,
         keyword_leg=keyword_leg,
+        keyword_match=keyword_match,
     )
 
 

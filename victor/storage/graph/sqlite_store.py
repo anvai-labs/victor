@@ -122,11 +122,19 @@ _MAX_QUERY_TERMS = 16
 
 
 def natural_language_terms(query: str) -> List[str]:
-    """Distinct meaningful lowercase terms of a question, in order of appearance."""
-    import re
+    """Distinct meaningful lowercase terms of a question, in order of appearance.
 
+    Tokens follow FTS5's default unicode61 tokenizer: Unicode word characters,
+    lowercased, with diacritics removed ("café" is indexed as "cafe").
+    """
+    import re
+    import unicodedata
+
+    folded = "".join(
+        c for c in unicodedata.normalize("NFKD", query.lower()) if not unicodedata.combining(c)
+    )
     terms: List[str] = []
-    for token in re.findall(r"[A-Za-z0-9_]+", query.lower()):
+    for token in re.findall(r"\w+", folded):
         if len(token) < 3 or token in _QUERY_STOPWORDS or token in terms:
             continue
         terms.append(token)
@@ -1416,6 +1424,7 @@ class SqliteGraphStore(GraphStoreProtocol):
         """
         if match not in ("all", "any"):
             raise ValueError(f"match must be 'all' or 'any', not {match!r}")
+        terms: List[str] = []
         if match == "any":
             terms = natural_language_terms(query)
             if not terms:
@@ -1435,7 +1444,9 @@ class SqliteGraphStore(GraphStoreProtocol):
                 # fallback run.
                 import re
 
-                has_special = bool(re.search(r'[:*"^()]', query))
+                # An any-term query is already a well-formed quoted OR; its
+                # phrase retry could never match what the query did not.
+                has_special = not terms and bool(re.search(r'[:*"^()]', query))
 
                 def _fts_search(match_param: str) -> Optional[List[GraphNode]]:
                     try:
@@ -1471,18 +1482,23 @@ class SqliteGraphStore(GraphStoreProtocol):
 
                 # Fallback: LIKE search — only reached when FTS5 is missing
                 # (both raw and quoted-phrase MATCH failed operationally).
-                like_pattern = f"%{query}%"
+                # An any-term search matches any term, one pattern per term.
+                patterns = [f"%{t}%" for t in terms] if terms else [f"%{query}%"]
+                where = " OR ".join(
+                    "(name LIKE ? OR signature LIKE ? OR docstring LIKE ?)" for _ in patterns
+                )
+                like_params: list[Any] = [p for pattern in patterns for p in (pattern,) * 3]
                 type_clause = ""
-                params = [like_pattern, like_pattern, like_pattern, limit]
+                params = like_params + [limit]
                 if symbol_types:
                     types = list(symbol_types)
                     type_clause = f"AND type IN ({','.join('?' for _ in types)})"
-                    params = [like_pattern, like_pattern, like_pattern] + types + [limit]
+                    params = like_params + types + [limit]
 
                 like_query = f"""
                     SELECT {self._NODE_COLS}
                     FROM {_NODE_TABLE}
-                    WHERE (name LIKE ? OR signature LIKE ? OR docstring LIKE ?)
+                    WHERE ({where})
                     {type_clause}
                     LIMIT ?
                 """
