@@ -7,7 +7,6 @@ for 8 languages: the extra and the check's language table had drifted apart.
 import tomllib
 from pathlib import Path
 
-from packaging.markers import default_environment
 from packaging.requirements import Requirement
 
 from victor.core.graph_rag.language_parsers import LANGUAGE_MODULES
@@ -51,14 +50,19 @@ def test_graph_extra_installs_the_enhanced_analysis_plugin():
     assert "victor-coding" in {r.name.lower() for r in _extras()["graph"]}
 
 
-def test_lua_is_skipped_only_where_no_wheel_exists():
-    lua = next(r for r in _extras()["graph"] if r.name == "tree-sitter-lua")
-    base = default_environment()
-    for system, machine, expected in [
-        ("linux", "aarch64", False),
-        ("linux", "x86_64", True),
-        ("darwin", "arm64", True),
-        ("win32", "AMD64", True),
-    ]:
-        env = {**base, "sys_platform": system, "platform_machine": machine, "extra": "graph"}
-        assert lua.marker.evaluate(env) is expected, (system, machine)
+def test_graph_grammars_carry_no_platform_markers():
+    """A marker silently drops a language on some platform; every grammar here
+    ships wheels for Linux x86-64/aarch64, macOS and Windows."""
+    for requirement in _extras()["graph"]:
+        if requirement.name.lower().startswith("tree-sitter-"):
+            assert requirement.marker is None, str(requirement)
+
+
+def test_doctor_floor_matches_the_extra():
+    from packaging.version import Version
+
+    from victor.ui.commands.doctor import MIN_VICTOR_CODING
+
+    coding = next(r for r in _extras()["graph"] if r.name.lower() == "victor-coding")
+    floors = [s.version for s in coding.specifier if s.operator in (">=", "==", "~=")]
+    assert floors and Version(MIN_VICTOR_CODING) == Version(floors[0])

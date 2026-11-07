@@ -37,6 +37,10 @@ from typing import List
 
 from victor.config.settings import get_project_paths
 
+# Floor of victor-coding in the victor-ai[graph] extra; kept equal to
+# pyproject.toml by tests/unit/ci/test_graph_extra.py.
+MIN_VICTOR_CODING = "0.14.0"
+
 
 class Severity(Enum):
     """Severity level for diagnostic issues."""
@@ -284,15 +288,19 @@ class DoctorChecks:
             )
 
     def check_graph_indexing(self) -> None:
-        """Check the optional graph-indexing install the way indexing will use it.
+        """Check the optional graph-indexing install without touching the network.
 
-        Clean installs exposed three silent gaps: ``victor-ai[graph]`` lacked
-        grammars ``require_graph_dependencies()`` demands, the victor-coding
-        plugin that supplies the enhanced analysis and CCG was not installed
-        (indexing degraded ~800x in CCG nodes and still exited 0), and
-        ``tree-sitter-language-pack`` fetches grammar libraries from the
-        network at first use. Graph indexing is optional, so gaps are
-        warnings, never errors; the check never installs or downloads.
+        Clean installs exposed silent gaps: ``victor-ai[graph]`` lacked grammars
+        the graph dependency check demands, the victor-coding plugin that
+        supplies the enhanced analysis and CCG was missing (indexing degraded
+        ~800x in CCG nodes and still exited 0), and tree-sitter-language-pack
+        fetches grammar libraries from the network on first use.
+
+        This check imports only locally installed wheels. It deliberately does
+        NOT call ``require_graph_dependencies()``: its victor-codegraph probes
+        make the language pack download every grammar (~61 MB) and can hang on
+        a network that drops traffic. Uncached grammars are reported instead.
+        Optional features never ERROR; nothing is installed or downloaded.
         """
         try:
             import_module("victor_codegraph")
@@ -304,27 +312,44 @@ class DoctorChecks:
                 suggestion='pip install "victor-ai[graph]"',
             )
             return
-
-        try:
-            from victor.core.graph_rag.dependencies import require_graph_dependencies
-
-            require_graph_dependencies()
-        except Exception as e:  # defensive: doctor must never crash on probes
+        except Exception as e:  # doctor must never crash on imports
             self.add_check(
                 name="Graph Indexing",
                 severity=Severity.WARNING,
-                message=f"graph dependencies unusable: {str(e)[:300]}",
+                message=f"victor_codegraph failed to import: {type(e).__name__}: {e}",
+                suggestion='pip install --force-reinstall "victor-ai[graph]"',
+            )
+            return
+
+        from victor.core.graph_rag.language_parsers import LANGUAGE_MODULES
+
+        missing: list[str] = []
+        for language, (module, factory) in LANGUAGE_MODULES.items():
+            try:
+                getattr(import_module(module), factory)
+            except Exception:  # absent or broken wheel: both are unusable
+                missing.append(language)
+        if missing:
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.WARNING,
+                message="grammar wheels missing or unusable: " + ", ".join(sorted(missing)),
                 suggestion='pip install "victor-ai[graph]"',
             )
         else:
             self.add_check(
                 name="Graph Indexing",
                 severity=Severity.SUCCESS,
-                message="parsers and CCG grammars usable for every declared language",
+                message=f"grammar wheels installed for all {len(LANGUAGE_MODULES)} languages",
             )
 
         try:
             import_module("victor_coding")
+            from importlib.metadata import version as dist_version
+
+            from packaging.version import Version
+
+            installed = dist_version("victor-coding")
         except ImportError:
             self.add_check(
                 name="Graph Analysis Plugin",
@@ -335,25 +360,46 @@ class DoctorChecks:
                 ),
                 suggestion='pip install "victor-ai[graph]"',
             )
-        else:
+        except Exception as e:  # doctor must never crash on imports
             self.add_check(
                 name="Graph Analysis Plugin",
-                severity=Severity.SUCCESS,
-                message="victor-coding enhanced analysis available",
+                severity=Severity.WARNING,
+                message=f"victor-coding failed to load: {type(e).__name__}: {e}",
+                suggestion='pip install --force-reinstall "victor-ai[graph]"',
             )
+        else:
+            if Version(installed) < Version(MIN_VICTOR_CODING):
+                self.add_check(
+                    name="Graph Analysis Plugin",
+                    severity=Severity.WARNING,
+                    message=(
+                        f"victor-coding {installed} is older than the {MIN_VICTOR_CODING} "
+                        "that victor-ai[graph] requires"
+                    ),
+                    suggestion='pip install --upgrade "victor-ai[graph]"',
+                )
+            else:
+                self.add_check(
+                    name="Graph Analysis Plugin",
+                    severity=Severity.SUCCESS,
+                    message=f"victor-coding {installed} enhanced analysis available",
+                )
 
         try:
             pack = import_module("tree_sitter_language_pack")
-            from importlib.metadata import version as dist_version
-
-            cached = sorted(pack.downloaded_languages())
+            cached = set(pack.downloaded_languages())  # local cache listing only
+            uncached = sorted(set(LANGUAGE_MODULES) - cached)
             self.add_check(
                 name="Grammar Downloads",
                 severity=Severity.INFO,
                 message=(
-                    f"tree-sitter-language-pack {dist_version('tree-sitter-language-pack')} "
-                    f"fetches grammar libraries on first use into {pack.cache_dir()} "
-                    f"({len(cached)} cached)"
+                    f"tree-sitter-language-pack fetches grammar libraries on first use into "
+                    f"{pack.cache_dir()}; "
+                    + (
+                        f"not yet cached: {', '.join(uncached)}"
+                        if uncached
+                        else "all indexed languages cached"
+                    )
                 ),
                 suggestion=(
                     "For offline or reproducible indexing, pre-fetch: "
