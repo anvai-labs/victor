@@ -1638,6 +1638,35 @@ class TestSessionCommands:
         contents = [m.content for m in session.messages]
         assert contents == ["long branch start", "long branch reply"]
 
+    def test_import_openai_cyclic_mapping_terminates(self):
+        """Corrupt/cyclic ChatGPT mapping data cannot hang the fallback walk."""
+        from victor.ui.slash.commands.session import ResumeCommand
+
+        cyclic = {
+            "title": "cycle",
+            "current_node": None,
+            "mapping": {
+                "root": {"id": "root", "parent": None, "children": ["a"]},
+                # a <-> b parent cycle (corrupt data)
+                "a": {"id": "a", "parent": "b", "children": []},
+                "b": {"id": "b", "parent": "a", "children": []},
+                "leaf": {
+                    "id": "leaf",
+                    "parent": "root",
+                    "children": [],
+                    "message": {
+                        "author": {"role": "user"},
+                        "create_time": 1730000001,
+                        "content": {"content_type": "text", "parts": ["reachable"]},
+                    },
+                },
+            },
+        }
+        session = ResumeCommand()._detect_and_convert_format(cyclic, source_file="t.json")
+        assert session is not None
+        # only the root-reachable leaf converts; the cycle is ignored
+        assert [m.content for m in session.messages] == ["reachable"]
+
     def test_resume_page_short_flag_not_project(self):
         """-p is --page's short flag; --project must be spelled out."""
         from victor.ui.slash.commands.session import ResumeCommand

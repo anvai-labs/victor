@@ -831,18 +831,27 @@ class ResumeCommand(BaseSlashCommand):
         if not mapping:
             return None
         depth = {}
+        children: dict = {}
         for node_id, node in mapping.items():
             parent = node.get("parent")
-            depth[node_id] = 0 if parent is None else -1
-        # Nodes with a parent get depth via BFS from roots (handles any shape)
-        queue = [nid for nid, d in depth.items() if d == 0]
+            if parent is None:
+                depth[node_id] = 0
+            else:
+                depth[node_id] = -1
+                children.setdefault(parent, []).append(node_id)
+        # BFS from roots over a children index (O(n)); the visited guard keeps
+        # corrupt/cyclic parent links from looping forever.
+        visited = set(nid for nid, d in depth.items() if d == 0)
+        queue = list(visited)
         while queue:
             next_queue = []
             for nid in queue:
-                for child_id, child in mapping.items():
-                    if child.get("parent") == nid:
-                        depth[child_id] = depth[nid] + 1
-                        next_queue.append(child_id)
+                for child_id in children.get(nid, []):
+                    if child_id in visited:
+                        continue
+                    visited.add(child_id)
+                    depth[child_id] = depth[nid] + 1
+                    next_queue.append(child_id)
             queue = next_queue
         candidates = [nid for nid, d in depth.items() if d >= 0]
         if not candidates:
