@@ -424,7 +424,11 @@ class MessageHistory:
         return {
             "system_prompt": self._system_prompt,
             "system_added": self._system_added,
-            "messages": [msg.to_dict() for msg in self._messages],
+            # Message.model_dump() excludes metadata (provider wire safety),
+            # but victor-side persistence WANTS it (MessageSource attribution
+            # survives /save and the JSON /load path). Re-attach per message;
+            # provider serialization never consumes this dict.
+            "messages": [{**msg.to_dict(), "metadata": msg.metadata} for msg in self._messages],
             "preview_messages": self.preview_messages,
             "max_history": self._max_history,
         }

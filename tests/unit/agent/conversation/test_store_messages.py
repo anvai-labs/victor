@@ -267,3 +267,155 @@ class TestSaveSessionPersistsMessages:
         assert msg.tool_calls is not None
         assert msg.tool_calls[0]["name"] == "bash"
         assert "tool_calls" not in msg.metadata  # popped, not duplicated
+
+
+class TestSaveSessionLiveSaveFidelity:
+    """/save must not degrade rows that add_message already persisted.
+
+    Regression guard for the live-save path: MessageHistory.to_dict payloads
+    (id-less dicts) used to replace persisted rows with degraded copies
+    (metadata={}, token_count=0, save-time timestamps, NULL lineage).
+    """
+
+    def _persist_live_session(self, store):
+        """Simulate the live chat flow: add_message with source metadata."""
+        from victor.agent.conversation.types import MessageSource
+
+        store.create_session(session_id="live_001", provider="p", model="m")
+        store.add_message(
+            "live_001",
+            MessageRole.USER,
+            "run the analysis",
+            metadata={"source": MessageSource.USER_TYPED.value, "agent_id": "ag1"},
+        )
+        store.add_message(
+            "live_001",
+            MessageRole.ASSISTANT,
+            "analysis complete, 42 records matched",
+            metadata={"source": MessageSource.AGENT_CONTINUATION.value},
+        )
+        store.add_message(
+            "live_001",
+            MessageRole.USER,
+            "thanks",
+            metadata={"source": MessageSource.USER_TYPED.value},
+        )
+
+    def _snapshot_rows(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT * FROM messages WHERE session_id='live_001' ORDER BY rowid"
+                )
+            ]
+
+    def _history_payload(self, count, with_metadata=True):
+        """MessageHistory.to_dict-equivalent message dicts (no ids/counts)."""
+        base = [
+            {
+                "role": "user",
+                "content": "run the analysis",
+                "metadata": {"source": "user_typed", "agent_id": "ag1"},
+            },
+            {
+                "role": "assistant",
+                "content": "analysis complete, 42 records matched",
+                "metadata": {"source": "agent_continuation"},
+            },
+            {"role": "user", "content": "thanks", "metadata": {"source": "user_typed"}},
+        ]
+        msgs = base[:count]
+        if not with_metadata:
+            msgs = [{k: v for k, v in m.items() if k != "metadata"} for m in msgs]
+        return {"messages": msgs}
+
+    def test_live_save_leaves_persisted_rows_untouched(self, temp_store):
+        """Equal-count id-less save (the /save shape) rewrites nothing."""
+        self._persist_live_session(temp_store)
+        before = self._snapshot_rows(temp_store.db_path)
+        assert len(before) == 3
+
+        temp_store.save_session(
+            conversation=self._history_payload(3),
+            model="m",
+            provider="p",
+            session_id="live_001",
+            title="after live save",
+        )
+
+        after = self._snapshot_rows(temp_store.db_path)
+        assert after == before, "live /save must not rewrite persisted rows"
+        # session row still updates (title)
+        loaded = ConversationStore(db_path=temp_store.db_path).load_session("live_001")
+        assert loaded["metadata"]["title"] == "after live save"
+
+    def test_count_mismatch_rewrites_with_enrichment(self, temp_store):
+        """Post-/compact shape (fewer messages) falls through to rewrite."""
+        self._persist_live_session(temp_store)
+        temp_store.save_session(
+            conversation=self._history_payload(1),
+            model="m",
+            provider="p",
+            session_id="live_001",
+        )
+        rows = self._snapshot_rows(temp_store.db_path)
+        assert len(rows) == 1
+        # metadata from the payload survives; token_count estimated, not zero
+        assert "user_typed" in rows[0]["metadata"] or "source" in rows[0]["metadata"]
+        assert rows[0]["token_count"] > 0
+
+    def test_missing_token_count_is_estimated(self, temp_store):
+        temp_store.save_session(
+            conversation={"messages": [{"role": "user", "content": "estimate me"}]},
+            model="m",
+            provider="p",
+            session_id="est_001",
+        )
+        rows = self._snapshot_rows(temp_store.db_path)
+        assert len(rows) == 0  # different session id — query the right one
+        with sqlite3.connect(temp_store.db_path) as conn:
+            (tokens,) = conn.execute(
+                "SELECT token_count FROM messages WHERE session_id='est_001'"
+            ).fetchone()
+        assert tokens > 0
+
+    def test_explicit_token_count_still_wins(self, temp_store):
+        temp_store.save_session(
+            conversation={"messages": [{"role": "user", "content": "exact", "token_count": 4242}]},
+            model="m",
+            provider="p",
+            session_id="exact_001",
+        )
+        with sqlite3.connect(temp_store.db_path) as conn:
+            (tokens,) = conn.execute(
+                "SELECT token_count FROM messages WHERE session_id='exact_001'"
+            ).fetchone()
+        assert tokens == 4242
+
+    def test_live_save_still_syncs_preview_sidecar(self, temp_store):
+        """The skip path must not freeze previews: new sidecar entries land."""
+        self._persist_live_session(temp_store)
+        temp_store.save_session(
+            conversation={
+                "messages": self._history_payload(3)["messages"],
+                "preview_messages": [
+                    {
+                        "role": "assistant",
+                        "content": "reflection preview",
+                        "metadata": {"preview_kind": "reflection"},
+                    }
+                ],
+            },
+            model="m",
+            provider="p",
+            session_id="live_001",
+        )
+        # message rows untouched…
+        assert len(self._snapshot_rows(temp_store.db_path)) == 3
+        # …but the sidecar picked up the new preview
+        loaded = ConversationStore(db_path=temp_store.db_path).load_session("live_001")
+        previews = loaded["conversation"]["preview_messages"]
+        assert len(previews) == 1
+        assert previews[0]["content"] == "reflection preview"

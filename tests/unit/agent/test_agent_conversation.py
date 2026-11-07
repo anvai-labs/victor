@@ -294,3 +294,31 @@ class TestMessageHistory:
 
         assert messages1 is not messages2
         assert messages1 == messages2
+
+
+class TestMessageHistoryMetadataRoundTrip:
+    """to_dict/from_dict must preserve per-message metadata (source attribution)."""
+
+    def test_metadata_survives_round_trip(self):
+        from victor.agent.message_history import MessageHistory
+
+        history = MessageHistory()
+        history.add_user_message("hello", metadata={"source": "user_typed", "note": "keep me"})
+        history.add_assistant_message("hi", metadata={"source": "agent_nudge"})
+
+        data = history.to_dict()
+        assert data["messages"][0]["metadata"] == {"source": "user_typed", "note": "keep me"}
+
+        restored = MessageHistory.from_dict(data)
+        assert restored.messages[0].metadata == {"source": "user_typed", "note": "keep me"}
+        assert restored.messages[1].metadata == {"source": "agent_nudge"}
+
+    def test_metadata_none_is_serialized_and_restored(self):
+        from victor.agent.message_history import MessageHistory
+
+        history = MessageHistory()
+        history.add_user_message("no metadata")
+        data = history.to_dict()
+        assert data["messages"][0]["metadata"] is None
+        restored = MessageHistory.from_dict(data)
+        assert restored.messages[0].metadata is None
