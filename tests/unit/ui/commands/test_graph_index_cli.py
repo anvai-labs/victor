@@ -425,7 +425,37 @@ async def test_own_store_keeps_a_separate_store_for_the_indexed_tree(tmp_path):
     assert "claimed" in text
 
 
-def test_graph_index_applies_the_logging_priority_chain(tmp_path, monkeypatch):
+@pytest.fixture
+def restore_logging_state():
+    """setup_logging() reconfigures process-global logging; put it all back.
+
+    Without this the root logger kept a file handler on the test's temp log,
+    stayed at DEBUG and left ~70 logger levels pinned, which silenced INFO
+    capture in later tests.
+    """
+    import logging
+
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    levels = {
+        name: logger.level
+        for name, logger in logging.Logger.manager.loggerDict.items()
+        if isinstance(logger, logging.Logger)
+    }
+    yield
+    for handler in root.handlers:
+        if handler not in handlers:
+            handler.close()
+    root.handlers[:] = handlers
+    root.setLevel(level)
+    for name, logger in logging.Logger.manager.loggerDict.items():
+        if isinstance(logger, logging.Logger):
+            logger.setLevel(levels.get(name, logging.NOTSET))
+
+
+def test_graph_index_applies_the_logging_priority_chain(
+    tmp_path, monkeypatch, restore_logging_state
+):
     """`victor index graph index` honors VICTOR_LOG_FILE like other commands;
     it used to configure no logging, so a long index run wrote no log."""
     import logging
@@ -442,6 +472,7 @@ def test_graph_index_applies_the_logging_priority_chain(tmp_path, monkeypatch):
         return real_setup(**kwargs)
 
     log_file = tmp_path / "index.log"
+    monkeypatch.delenv("VICTOR_LOG_DISABLED", raising=False)  # hermetic vs. developer env
     monkeypatch.setenv("VICTOR_LOG_FILE", str(log_file))
     monkeypatch.setenv("VICTOR_LOG_FILE_LEVEL", "INFO")
     monkeypatch.setattr(command_utils, "setup_logging", recording_setup)
