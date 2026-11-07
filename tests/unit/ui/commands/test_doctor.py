@@ -301,3 +301,94 @@ class TestNativeExtensionsCheck:
         doctor = DoctorChecks()
         names = [c.name for c in doctor.run_all_checks()]
         assert "Native Extensions" in names
+
+
+class TestGraphIndexingCheck:
+    """check_graph_indexing reports the optional graph install as indexing uses it."""
+
+    @staticmethod
+    def _by_name(doctor):
+        return {check.name: check for check in doctor.checks}
+
+    @staticmethod
+    def _imports(monkeypatch, missing=()):
+        import victor.ui.commands.doctor as doctor_module
+
+        real = doctor_module.import_module
+
+        def fake(name):
+            if name in missing:
+                raise ImportError(name)
+            return real(name)
+
+        monkeypatch.setattr(doctor_module, "import_module", fake)
+
+    def test_absent_graph_install_is_informational(self, monkeypatch):
+        self._imports(monkeypatch, missing={"victor_codegraph"})
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        checks = self._by_name(doctor)
+        assert checks["Graph Indexing"].severity == Severity.INFO
+        assert "Graph Analysis Plugin" not in checks
+
+    def test_unusable_dependencies_warn_with_the_install_command(self, monkeypatch):
+        import victor.core.graph_rag.dependencies as deps
+
+        def broken():
+            raise RuntimeError("Graph dependencies missing or unusable: tree_sitter_ruby")
+
+        monkeypatch.setattr(deps, "require_graph_dependencies", broken)
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        check = self._by_name(doctor)["Graph Indexing"]
+        assert check.severity == Severity.WARNING
+        assert "tree_sitter_ruby" in check.message
+        assert "victor-ai[graph]" in check.suggestion
+
+    def test_missing_analysis_plugin_warns_that_success_is_misleading(self, monkeypatch):
+        import victor.core.graph_rag.dependencies as deps
+
+        monkeypatch.setattr(deps, "require_graph_dependencies", lambda: None)
+        self._imports(monkeypatch, missing={"victor_coding"})
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        checks = self._by_name(doctor)
+        assert checks["Graph Indexing"].severity == Severity.SUCCESS
+        assert checks["Graph Analysis Plugin"].severity == Severity.WARNING
+        assert "still reporting success" in checks["Graph Analysis Plugin"].message
+
+    def test_grammar_downloads_are_reported_with_a_prefetch_command(self, monkeypatch):
+        import types
+
+        import victor.core.graph_rag.dependencies as deps
+        import victor.ui.commands.doctor as doctor_module
+
+        monkeypatch.setattr(deps, "require_graph_dependencies", lambda: None)
+        pack = types.SimpleNamespace(
+            downloaded_languages=lambda: ["java", "python"], cache_dir=lambda: "/cache/tslp"
+        )
+        real = doctor_module.import_module
+        monkeypatch.setattr(
+            doctor_module,
+            "import_module",
+            lambda name: pack if name == "tree_sitter_language_pack" else real(name),
+        )
+        monkeypatch.setattr("importlib.metadata.version", lambda name: "1.25.0")
+        doctor = DoctorChecks()
+        doctor.check_graph_indexing()
+        check = self._by_name(doctor)["Grammar Downloads"]
+        assert check.severity == Severity.INFO
+        assert "/cache/tslp" in check.message and "(2 cached)" in check.message
+        assert "download_all()" in check.suggestion
+
+    def test_run_all_checks_includes_graph_indexing(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(DoctorChecks, "check_graph_indexing", lambda self: called.append(True))
+        for name in [
+            n
+            for n in dir(DoctorChecks)
+            if n.startswith("check_") and n not in ("check_graph_indexing", "check_pip_package")
+        ]:
+            monkeypatch.setattr(DoctorChecks, name, lambda self: None)
+        DoctorChecks().run_all_checks()
+        assert called == [True]

@@ -1,6 +1,41 @@
 """Explicit installation boundary for the graph CLI's structural capabilities."""
 
 from importlib import import_module
+from typing import Optional
+
+
+def declared_graph_grammars() -> Optional[frozenset[str]]:
+    """Grammar modules the installed ``victor-ai[graph]`` declares for this platform.
+
+    Read from the distribution's own Requires-Dist, so the check below
+    demands exactly what ``pip install "victor-ai[graph]"`` installs here —
+    the extra and the check cannot drift apart (they did: a clean install
+    failed the check for 8 languages). Platform markers count: a grammar
+    without a wheel on this platform is neither installed nor required.
+    None when no distribution metadata exists (an uninstalled source tree);
+    the check then requires every known grammar.
+    """
+    from importlib.metadata import PackageNotFoundError, requires
+
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    try:
+        declared = requires("victor-ai")
+    except PackageNotFoundError:
+        return None
+    modules: set[str] = set()
+    for raw in declared or []:
+        try:
+            requirement = Requirement(raw)
+        except InvalidRequirement:
+            continue
+        name = requirement.name.lower()
+        if not name.startswith("tree-sitter-") or name == "tree-sitter-language-pack":
+            continue
+        if requirement.marker is None or not requirement.marker.evaluate({"extra": "graph"}):
+            continue
+        modules.add(name.replace("-", "_"))
+    return frozenset(modules) or None
 
 
 def require_graph_dependencies() -> None:
@@ -24,7 +59,10 @@ def require_graph_dependencies() -> None:
         tree_sitter = None
         problems.append("tree_sitter")
 
+    declared = declared_graph_grammars()
     for language, (module, factory) in _TREE_SITTER_LANGUAGE_MODULES.items():
+        if declared is not None and module not in declared:
+            continue  # not installed by victor-ai[graph] on this platform
         try:
             grammar = getattr(import_module(module), factory)()
             if tree_sitter is not None:

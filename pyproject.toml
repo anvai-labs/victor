@@ -566,8 +566,17 @@ native = [
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
+# Every grammar require_graph_dependencies() demands is inlined here (no
+# victor-ai[lang-*] self-references — nested extras do not resolve reliably),
+# with the [lang-*] specifiers; tests/unit/ci/test_graph_extra.py
+# keeps them in sync. A clean `pip install victor-ai[graph]` used to fail
+# that check for 8 languages.
 graph = [
     "victor-codegraph[treesitter]==0.14.0",
+    # Enhanced tree-sitter analysis and CCG builders. Without it indexing
+    # silently degrades (measured on Apache Iceberg: 1,897 vs 1,497,243 CCG
+    # nodes) and still exits 0.
+    "victor-coding>=0.14.0,<1.0.0",
     "protobuf>=6.33.6,<8",  # Optional SCIP reader; vendored Python gencode remains compatible.
     "tree-sitter-python>=0.23",
     "tree-sitter-javascript>=0.23",
@@ -577,6 +586,16 @@ graph = [
     "tree-sitter-java>=0.23",
     "tree-sitter-c>=0.23",
     "tree-sitter-cpp>=0.23",
+    "tree-sitter-c-sharp>=0.23",
+    "tree-sitter-ruby>=0.23",
+    "tree-sitter-php>=0.24",
+    "tree-sitter-swift>=0.0.1",
+    "tree-sitter-scala>=0.23",
+    "tree-sitter-kotlin>=1.0",
+    "tree-sitter-bash>=0.23",
+    # No Linux aarch64 wheel; the dependency check follows this marker, so
+    # that platform neither builds it from source nor demands it.
+    "tree-sitter-lua>=0.2; sys_platform != 'linux' or platform_machine != 'aarch64'",
 ]
 
 coding = [

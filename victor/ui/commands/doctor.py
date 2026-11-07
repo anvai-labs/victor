@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
+from importlib import import_module
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -281,6 +282,86 @@ class DoctorChecks:
                 message="numpy not installed — batch similarity dispatches to the native engine",
                 suggestion="Optional: pip install numpy for faster batch similarity",
             )
+
+    def check_graph_indexing(self) -> None:
+        """Check the optional graph-indexing install the way indexing will use it.
+
+        Clean installs exposed three silent gaps: ``victor-ai[graph]`` lacked
+        grammars ``require_graph_dependencies()`` demands, the victor-coding
+        plugin that supplies the enhanced analysis and CCG was not installed
+        (indexing degraded ~800x in CCG nodes and still exited 0), and
+        ``tree-sitter-language-pack`` fetches grammar libraries from the
+        network at first use. Graph indexing is optional, so gaps are
+        warnings, never errors; the check never installs or downloads.
+        """
+        try:
+            import_module("victor_codegraph")
+        except ImportError:
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.INFO,
+                message="graph indexing not installed (optional)",
+                suggestion='pip install "victor-ai[graph]"',
+            )
+            return
+
+        try:
+            from victor.core.graph_rag.dependencies import require_graph_dependencies
+
+            require_graph_dependencies()
+        except Exception as e:  # defensive: doctor must never crash on probes
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.WARNING,
+                message=f"graph dependencies unusable: {str(e)[:300]}",
+                suggestion='pip install "victor-ai[graph]"',
+            )
+        else:
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.SUCCESS,
+                message="parsers and CCG grammars usable for every declared language",
+            )
+
+        try:
+            import_module("victor_coding")
+        except ImportError:
+            self.add_check(
+                name="Graph Analysis Plugin",
+                severity=Severity.WARNING,
+                message=(
+                    "victor-coding not installed: indexing falls back to basic analysis "
+                    "and builds almost no CCG, while still reporting success"
+                ),
+                suggestion='pip install "victor-ai[graph]"',
+            )
+        else:
+            self.add_check(
+                name="Graph Analysis Plugin",
+                severity=Severity.SUCCESS,
+                message="victor-coding enhanced analysis available",
+            )
+
+        try:
+            pack = import_module("tree_sitter_language_pack")
+            from importlib.metadata import version as dist_version
+
+            cached = sorted(pack.downloaded_languages())
+            self.add_check(
+                name="Grammar Downloads",
+                severity=Severity.INFO,
+                message=(
+                    f"tree-sitter-language-pack {dist_version('tree-sitter-language-pack')} "
+                    f"fetches grammar libraries on first use into {pack.cache_dir()} "
+                    f"({len(cached)} cached)"
+                ),
+                suggestion=(
+                    "For offline or reproducible indexing, pre-fetch: "
+                    "python -c 'import tree_sitter_language_pack as p; p.download_all()'"
+                ),
+            )
+        except Exception:  # pack absent or its API changed: nothing to report
+            pass
 
     def check_api_keys(self) -> None:
         """Check for API keys in environment."""
@@ -636,6 +717,7 @@ class DoctorChecks:
         self.check_python_version()
         self.check_dependencies()
         self.check_native_extensions()
+        self.check_graph_indexing()
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()
