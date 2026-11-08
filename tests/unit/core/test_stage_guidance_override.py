@@ -5,8 +5,6 @@ replacement overrides for its own stage key; MODE_CONFIGS is never
 mutated globally.
 """
 
-import pytest
-
 from victor.core.mode_controller import MODE_CONFIGS, AgentMode, OperationalModeConfig
 
 
