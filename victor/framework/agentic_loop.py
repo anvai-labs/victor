@@ -520,6 +520,7 @@ class AgenticLoopConfig:
     # default off per the flag-graduation policy; a strict no-op when disabled.
     enable_effect_gate: bool = False
     effect_gate_max_downgrades: int = 2
+    enable_criteria_gate: bool = False
     # Online per-turn auditor (EVR-6 / FEP-0008 Phase C): a continue/alarm check that downgrades a
     # degenerate COMPLETE to RETRY. Opt-in, default off; a strict no-op when disabled.
     enable_per_turn_auditor: bool = False
@@ -753,6 +754,7 @@ class AgenticLoop(TopologyPlanningMixin):
         # default off. Wraps the EVALUATE seam (record → _evaluate_core → apply) so every
         # completion strategy shares the same effect precondition; strict no-op when disabled.
         from victor.framework.effect_gate import EffectGate, EffectGateConfig
+        from victor.framework.criteria_gate import CriteriaGate, CriteriaGateConfig
 
         self.effect_gate = EffectGate(
             EffectGateConfig(
@@ -760,6 +762,13 @@ class AgenticLoop(TopologyPlanningMixin):
                 max_downgrades=self.config.effect_gate_max_downgrades,
             ),
             workspace_resolver=self._resolve_workspace,
+        )
+        # Caller-declared completion criteria gate (FEP-0043) — opt-in via
+        # enable_criteria_gate, default off. Third post-filter on the same
+        # EVALUATE seam: downgrades an ungrounded COMPLETE to RETRY while
+        # caller-declared minimums (run-context criteria) are unmet.
+        self.criteria_gate = CriteriaGate(
+            CriteriaGateConfig(enabled=self.config.enable_criteria_gate)
         )
 
         # Online per-turn auditor (EVR-6 / FEP-0008 Phase C) — opt-in via enable_per_turn_auditor,
@@ -826,6 +835,7 @@ class AgenticLoop(TopologyPlanningMixin):
         self.criteria_builder.reset()
         # Both collaborators exist even when disabled; their state belongs to this run.
         self.effect_gate.reset()
+        self.criteria_gate.reset()
         self.per_turn_auditor.reset()
 
     async def run(
@@ -3140,6 +3150,9 @@ class AgenticLoop(TopologyPlanningMixin):
         auditor = getattr(self, "per_turn_auditor", None)
         if auditor is not None:
             evaluation = auditor.apply(evaluation, action_result, state)
+        criteria_gate = getattr(self, "criteria_gate", None)
+        if criteria_gate is not None:
+            evaluation = await criteria_gate.apply(evaluation, action_result, state)
         return evaluation
 
     async def _evaluate_core(
