@@ -129,7 +129,7 @@ class OperationalModeConfig:
     # FEP-0043: stage-scoped guidance override — substring -> replacement
     # pairs applied to system_prompt_addition for this stage. Generic: any
     # consumer registers its own stage key; MODE_CONFIGS stays untouched.
-    stage_prompt_overrides: Dict[Tuple[str, str], str] = field(default_factory=dict)
+    stage_prompt_overrides: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # FEP-0043: apply stage-scoped guidance overrides (substring ->
