@@ -22,7 +22,7 @@ and deeper exploration tasks.
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 
@@ -132,6 +132,7 @@ class OperationalModeConfig:
     stage_prompt_overrides: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Normalize tool names and apply stage-scoped guidance overrides."""
         # FEP-0043: apply stage-scoped guidance overrides (substring ->
         # replacement) to system_prompt_addition. Generic: consumers register
         # their own stage overrides; MODE_CONFIGS stays untouched.
@@ -139,7 +140,6 @@ class OperationalModeConfig:
             if pattern in self.system_prompt_addition:
                 self.system_prompt_addition = self.system_prompt_addition.replace(
                     pattern, replacement)
-        """Normalize tool names to the canonical runtime surface."""
         self.allowed_tools = {
             canonicalize_core_tool_name(tool) for tool in self.allowed_tools if tool
         }
