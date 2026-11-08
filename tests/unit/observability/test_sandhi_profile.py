@@ -5,6 +5,7 @@ normalization, model→provider dialect mapping, payload translation (both
 modes + contract violations) and secret masking — complementing the
 end-to-end coverage in tests/unit/commands/test_profiles_pull.py.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -67,7 +68,9 @@ class TestTranslateGatewayProfile:
         doc = translated.document
         providers = doc.get("providers") or {}
         gateway_block = next(iter(providers.values())) if providers else {}
-        assert gateway_block.get("gateway", {}).get("url") == "https://dataserver3.singh.local:18788"
+        assert (
+            gateway_block.get("gateway", {}).get("url") == "https://dataserver3.singh.local:18788"
+        )
         assert gateway_block.get("gateway", {}).get("virtual_key") == "vk_secret_value"
 
     def test_local_mode_requires_no_credentials(self):
@@ -88,19 +91,23 @@ class TestTranslateGatewayProfile:
 
     def test_gateway_mode_without_endpoint_is_a_value_error(self):
         with pytest.raises(ValueError, match="endpoint"):
-            translate_gateway_profile({
-                "mode": "gateway",
-                "group": "g1",
-                "credentials": {"virtual_key": "vk_x"},
-            })
+            translate_gateway_profile(
+                {
+                    "mode": "gateway",
+                    "group": "g1",
+                    "credentials": {"virtual_key": "vk_x"},
+                }
+            )
 
     def test_gateway_mode_without_key_is_a_value_error(self):
         with pytest.raises(ValueError):
-            translate_gateway_profile({
-                "mode": "gateway",
-                "endpoint": "https://gw:18788",
-                "group": "g1",
-            })
+            translate_gateway_profile(
+                {
+                    "mode": "gateway",
+                    "endpoint": "https://gw:18788",
+                    "group": "g1",
+                }
+            )
 
     def test_empty_models_defaults_to_auto(self):
         translated = translate_gateway_profile({"mode": "local", "group": "g1", "models": []})
