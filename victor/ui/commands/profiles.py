@@ -568,3 +568,224 @@ def profile_set_default(
 
 # Add profiles_app to the main CLI
 # This is imported by cli.py
+
+
+# =============================================================================
+# Central gateway profile download (Phase 5b — sandhi GET /auth/profile)
+# =============================================================================
+
+# Frozen server contract (see victor/observability/sandhi_profile.py for the
+# full citation): the sandhi proxy serves GET /auth/profile authenticated with
+# a per-user `skp_` bootstrap profile token the operator mints and hands over
+# out-of-band. On success the shown-once virtual key lands ONLY in the 0600
+# central file below; it is never logged, echoed, or written anywhere else.
+# Layering afterwards: bundled < ~/.victor/profiles.d (central) <
+# ~/.victor/profiles.yaml (user) — the user file still wins key-by-key.
+
+
+def _stdin_isatty() -> bool:
+    """Whether an interactive prompt is possible (tests patch this)."""
+    import sys
+
+    return sys.stdin.isatty()
+
+
+def _read_pulled_endpoint(config_path: Path) -> Optional[str]:
+    """The endpoint recorded by a previous pull, if one exists (re-pull default)."""
+    import yaml as _yaml
+
+    central_file = config_path / "profiles.d" / "sandhi.yaml"
+    if not central_file.exists():
+        return None
+    try:
+        data = _yaml.safe_load(central_file.read_text(encoding="utf-8")) or {}
+        providers = data.get("providers") or {}
+        for settings in providers.values():
+            gateway = (settings or {}).get("gateway") or {}
+            url = str(gateway.get("url") or "").strip()
+            if url:
+                return url
+    except Exception:
+        pass
+    return None
+
+
+def _write_central_profile(config_path: Path, text: str) -> Path:
+    """Write the central profile file 0600, creating profiles.d 0700 if missing."""
+    import os
+
+    central_dir = config_path / "profiles.d"
+    if not central_dir.exists():
+        central_dir.mkdir(parents=True, mode=0o700)
+        central_dir.chmod(0o700)
+    target = central_dir / "sandhi.yaml"
+    # O_WRONLY|O_CREAT with mode 0o600: the mode is applied at create time, so
+    # the secret never touches disk under looser permissions. chmod after the
+    # fact only reaffirms it (umask can tighten 0o600, never loosen it).
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    target.chmod(0o600)
+    return target
+
+
+@profiles_app.command("pull")
+def profile_pull(
+    gateway_url: Optional[str] = typer.Option(
+        None,
+        "--gateway-url",
+        help="Sandhi proxy root (trailing /v1 is fine). Defaults to the endpoint "
+        "recorded by a previous pull, then SANDHI_GATEWAY_URL, then a prompt.",
+    ),
+    token: Optional[str] = typer.Option(
+        None,
+        "--token",
+        help="Bootstrap profile token (skp_...). Prefer the SANDHI_PROFILE_TOKEN "
+        "env var or the interactive prompt so the token stays out of shell history.",
+    ),
+    config_dir: Optional[str] = typer.Option(None, "--config-dir", "-d", help="Config directory"),
+) -> None:
+    """Pull your per-user profile from the sandhi gateway (GET /auth/profile).
+
+    Downloads the profile your operator assembled for your group and writes it
+    to ~/.victor/profiles.d/sandhi.yaml (mode 0600) as a regular victor
+    profile. Gateway mode lands the virtual key in that file's providers
+    gateway block; local mode carries no secrets — provider keys keep
+    resolving via env var > keyring > ~/.victor/api_keys.yaml, and metering
+    stays embedded (SandhiMeter). Re-run this after the operator changes the
+    central defaults.
+    """
+    import getpass
+    import os
+    from datetime import datetime, timezone
+
+    import yaml
+
+    from victor.observability.sandhi_profile import (
+        fetch_gateway_profile,
+        mask_secret,
+        normalize_gateway_root,
+        translate_gateway_profile,
+    )
+
+    config_path = _resolve_config_dir(config_dir)
+
+    # --- Resolve the gateway root: flag > previous pull > env > prompt. ---
+    root = gateway_url or _read_pulled_endpoint(config_path)
+    env_url = os.environ.get("SANDHI_GATEWAY_URL", "").strip()
+    if not root and env_url:
+        root = env_url
+    if not root:
+        if _stdin_isatty():
+            root = typer.prompt("Gateway URL (sandhi proxy root, e.g. https://gw.example)")
+        else:
+            console.print(
+                "[red]Error:[/] no gateway URL — pass --gateway-url, set SANDHI_GATEWAY_URL, "
+                "or re-run from a terminal after a previous pull recorded one."
+            )
+            raise typer.Exit(1)
+    root = normalize_gateway_root(root)
+    if not root:
+        console.print("[red]Error:[/] empty gateway URL.")
+        raise typer.Exit(1)
+
+    # --- Resolve the bootstrap token: flag > env > secure prompt. ---
+    tok = token or os.environ.get("SANDHI_PROFILE_TOKEN", "").strip()
+    if not tok:
+        if _stdin_isatty():
+            tok = getpass.getpass("Bootstrap profile token (skp_..., input hidden): ")
+        else:
+            console.print(
+                "[red]Error:[/] no profile token — pass --token, set SANDHI_PROFILE_TOKEN, "
+                "or re-run from a terminal to enter it securely."
+            )
+            raise typer.Exit(1)
+    if not tok.strip():
+        console.print("[red]Error:[/] empty profile token.")
+        raise typer.Exit(1)
+
+    # --- Fetch. The client never raises; statuses map to operator guidance. ---
+    fetch = fetch_gateway_profile(root, tok)
+    if fetch.status == 401:
+        console.print(
+            "[red]Error:[/] token rejected or revoked — ask the operator for a new "
+            "bootstrap profile token (skp_...) and re-run `victor profiles pull`."
+        )
+        raise typer.Exit(1)
+    if fetch.status == 404:
+        console.print(
+            "[red]Error:[/] no profile configured for your group — ask the operator to "
+            "set up central defaults for it, then re-run `victor profiles pull`."
+        )
+        raise typer.Exit(1)
+    if fetch.status == 503:
+        console.print(
+            "[red]Error:[/] the gateway's store is unavailable — retry shortly; if it "
+            "persists, ask the operator to check the sandhi deployment."
+        )
+        raise typer.Exit(1)
+    if fetch.status is None:
+        console.print(
+            f"[red]Error:[/] could not reach the gateway at {root} — check the URL and "
+            "your network, then re-run `victor profiles pull`."
+        )
+        raise typer.Exit(1)
+    if not fetch.ok:
+        console.print(
+            f"[red]Error:[/] gateway returned HTTP {fetch.status} — ask the operator to "
+            "check the deployment, then re-run `victor profiles pull`."
+        )
+        raise typer.Exit(1)
+
+    # --- Translate into victor's native shape and land it 0600. ---
+    try:
+        translated = translate_gateway_profile(fetch.payload or {})
+    except ValueError as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(1)
+
+    header = [
+        "# Central profile pulled from the sandhi gateway (GET /auth/profile).",
+        f"# Mode: {translated.mode}"
+        + (f" | Endpoint: {translated.endpoint}" if translated.endpoint else "")
+        + f" | Group: {translated.group or 'unknown'}",
+        f"# Pulled: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        "# Re-run `victor profiles pull` after the operator changes central defaults;",
+        "# profiles.yaml overrides this file key-by-key.",
+    ]
+    if translated.mode == "local":
+        # Local mode: no secrets in this file (profiles never carry keys).
+        # Provider keys resolve via the standing chain: env var > keyring >
+        # ~/.victor/api_keys.yaml; metering stays embedded via SandhiMeter.
+        guidance = (
+            f"# Local mode: set {translated.env_var or 'the provider API key env var'} "
+            "(env > keyring > ~/.victor/api_keys.yaml)."
+        )
+        header.append(guidance)
+        header.append("# Metering stays embedded (SandhiMeter) — nothing here reports remotely.")
+    else:
+        header.append(
+            "# The virtual key below is shown once by the gateway — this 0600 file is "
+            "its only copy."
+        )
+
+    body = yaml.safe_dump(translated.document, default_flow_style=False, sort_keys=False)
+    try:
+        target = _write_central_profile(config_path, "\n".join(header) + "\n\n" + body)
+    except OSError as exc:
+        console.print(f"[red]Error:[/] could not write {config_path / 'profiles.d'}: {exc}")
+        raise typer.Exit(1)
+
+    # --- Summary (key masked; the full vk must never reach output). ---
+    console.print(f"\n[green]✓[/] Pulled central profile → [bold]{target}[/]")
+    console.print(f"  Mode:     {translated.mode}")
+    if translated.endpoint:
+        console.print(f"  Endpoint: {translated.endpoint}")
+    console.print(f"  Group:    {translated.group or '—'}")
+    console.print(f"  Provider: {translated.provider} ({translated.model})")
+    if translated.virtual_key:
+        console.print(f"  Key:      {mask_secret(translated.virtual_key)} (stored 0600)")
+    console.print(
+        "\n[dim]Re-run [bold]victor profiles pull[/] after the operator changes central "
+        "defaults. Your profiles.yaml overrides this file key-by-key.[/]"
+    )
