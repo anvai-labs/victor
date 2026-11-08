@@ -93,6 +93,9 @@ class TopologyDecisionInput:
     confidence_hint: float = 0.5
     tool_budget: int = 10
     iteration_budget: int = 1
+    # FEP-0043: explicit caller-declared budget binds over topology clamps
+    # when set; None preserves topology-specific heuristics.
+    caller_iteration_budget: Optional[int] = None
     expected_depth: str = "medium"
     expected_breadth: str = "medium"
     privacy_sensitivity: str = "medium"

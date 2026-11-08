@@ -1198,7 +1198,13 @@ class TurnExecutor:
             else getattr(self._chat_context.settings, "chat_max_iterations", 50)
         )
         task_budget = max(task_classification.tool_budget * 2, 1)
-        iteration_budget = min(task_budget, max_iterations_setting, max_iterations)
+        # FEP-0043: an explicitly declared caller iteration budget binds over
+        # the classifier heuristic (the executor ceiling still applies), so a
+        # funded deep run reaches its budget instead of being silently halved.
+        if iter_override is not None:
+            iteration_budget = min(iter_override, max_iterations)
+        else:
+            iteration_budget = min(task_budget, max_iterations_setting, max_iterations)
 
         # Create AgenticLoop with self as turn_executor
         # Use a lightweight mock orchestrator since AgenticLoop only needs
