@@ -129,6 +129,34 @@ cascade return.
    tool admitted a proposal and closed the corpus, and that ack turn's
    request carried the full transcript past the whole-run input-byte cap,
    killing a run that held a valid admitted proposal.
+7. Guided termination (`criteria_gate.criteria_unmet_with_budget`):
+   while the caller declared completion objectives (criteria minimums or
+   a completion marker) that remain unmet AND the loop's iteration budget
+   remains, loop-terminating heuristics degrade to guidance and never
+   terminate the run early — the spin branch returns CONTINUE guidance
+   instead of FAIL (both the enhanced evaluator and the legacy
+   evaluation branch), and the adaptive plateau early-exit is suppressed.
+   The declaration IS the opt-in (no new flag); nothing declared, or
+   `_criteria_budget_exhausted` set, keeps every decision byte-identical.
+   Termination is still guaranteed: the iteration cap and the existing
+   bounded gate yields own it. Measured motivation: a consumer run
+   holding an un-submitted deliverable died twice — once to a spin FAIL
+   on 4 consecutive fully-blocked batches whose last blocked batch was
+   the completion call itself, and once to "Progress plateaued - exiting
+   loop early" at 27/64 with declared criteria unmet and 37 iterations
+   remaining.
+8. Caller-declared completion-critical tools (settings
+   `tools.completion_tools`, generic; `victor/core/completion_tools.py`):
+   a consumer names the tool(s) whose execution performs completion. The
+   tool pipeline never suppresses such a call on its spin-adjacent skip
+   paths — budget exhaustion, repeated-failing-call signature tracking,
+   semantic redundancy, and the streaming post-warning signature block —
+   so the terminal call always executes even mid-escalation, and a batch
+   containing it never counts as fully blocked. Suppressing the caller's
+   terminal call left the measured run "no way to finish": the proposal
+   call was skipped at 0ms on an exhausted budget, so no journal row was
+   ever written no matter how the model retried. Empty declaration =
+   byte-identical behavior (flag-graduation law).
 
 ## Benefits
 
@@ -212,6 +240,22 @@ cascade return.
    declaration, no-op without criteria). The same wiring records the
    `complete_on_key` marker; the gate's apply path upgrades on it with no
    new loop wiring.
+8. Guided termination: `criteria_unmet_with_budget(state)` in
+   `criteria_gate.py`; consulted by `EnhancedCompletionEvaluator
+   ._check_spin_detection` and the loop's legacy evaluation spin branch
+   (FAIL → CONTINUE guidance), and by `_check_adaptive_termination`
+   (PLATEAU suppressed). Additionally, `SpinDetectorConfig
+   .max_consecutive_all_blocked` lets a session raise the fully-blocked
+   termination threshold (the recovery thresholds
+   `recovery_blocked_*_threshold` were already settings-configurable for
+   the streaming force path).
+9. Completion-critical tools: `victor/core/completion_tools.py`
+   (`CompletionToolPolicy`, `resolve_completion_tool_names`);
+   `ToolSettings.completion_tools` → `ToolPipelineConfig
+   .completion_tool_names` via the tool builders; exemptions at the
+   pipeline's budget/internal-check/tail-skip, failed-signature, and
+   semantic-redundancy skip paths, and the streaming post-warning
+   signature block in the recovery service.
 
 ## Migration Path
 

@@ -81,6 +81,12 @@ class SpinDetectorConfig:
     repetition_threshold: int = 3
     read_only_escalation_threshold: int = READ_ONLY_ESCALATION_THRESHOLD
     read_only_tools: frozenset = field(default_factory=lambda: frozenset({"read", "ls", "grep"}))
+    # Consecutive fully-blocked batches before the detector reports TERMINATED.
+    # Default reproduces the legacy MAX_ALL_BLOCKED constant behavior; a session
+    # or vertical may raise it so heuristic refusals (consumer-side guards
+    # returning failed results) do not terminate a run that still holds a
+    # viable completion path.
+    max_consecutive_all_blocked: int = MAX_ALL_BLOCKED
 
 
 # ============================================================================
@@ -133,7 +139,7 @@ class SpinDetector:
     @property
     def state(self) -> SpinState:
         """Current spin state based on tracking counters."""
-        if self.consecutive_all_blocked >= MAX_ALL_BLOCKED:
+        if self.consecutive_all_blocked >= self.config.max_consecutive_all_blocked:
             return SpinState.TERMINATED
         if self.consecutive_no_tool_turns >= self.config.max_no_tool_turns:
             return SpinState.TERMINATED

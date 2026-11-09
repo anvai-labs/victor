@@ -119,6 +119,38 @@ def mirror_criteria_state(state: Dict[str, Any], tool_results: Any) -> Dict[str,
     return mirrored
 
 
+def criteria_unmet_with_budget(state: Any) -> bool:
+    """True when the caller declared completion objectives that remain unmet
+    while iteration budget remains.
+
+    This is the declaration-driven inverse of the gate's budget-exhausted
+    yield: loop-terminating heuristics (spin escalation, adaptive plateau
+    early-exit) consult it so a run whose caller declared objectives and
+    still has budget is guided, not terminated early. A declaration is the
+    FEP-0043 run context: ``state["criteria"]`` minimums or the
+    ``complete_on_key`` completion marker.
+
+    Nothing declared → False (default-off parity). Budget exhausted
+    (``state["_criteria_budget_exhausted"]``, set by the loop when the
+    effective iteration cap is reached) → False: the existing bounded
+    yields and the iteration cap own termination from there.
+    """
+    if not isinstance(state, Mapping):
+        return False
+    if bool(state.get("_criteria_budget_exhausted")):
+        return False
+    declared = _declared_minimums(state.get("criteria"))
+    marker = _completion_marker(state)
+    if not declared and marker is None:
+        return False
+    for name, minimum in declared.items():
+        if CriteriaGate._count_state_entries(state, name) < minimum:
+            return True
+    if marker is not None and not state.get(marker):
+        return True
+    return False
+
+
 @dataclass
 class CriteriaGateConfig:
     """Configuration for :class:`CriteriaGate`. Disabled by default (flag-graduation policy)."""
