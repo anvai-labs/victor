@@ -139,7 +139,8 @@ class OperationalModeConfig:
         for pattern, replacement in self.stage_prompt_overrides.items():
             if pattern in self.system_prompt_addition:
                 self.system_prompt_addition = self.system_prompt_addition.replace(
-                    pattern, replacement)
+                    pattern, replacement
+                )
         self.allowed_tools = {
             canonicalize_core_tool_name(tool) for tool in self.allowed_tools if tool
         }
