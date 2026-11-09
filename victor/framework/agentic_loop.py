@@ -2028,6 +2028,15 @@ class AgenticLoop(TopologyPlanningMixin):
                 action_result = act_outcome.turn_result
                 state["action_result"] = action_result
 
+                # FEP-0043: mirror criteria-declared keys from this turn's tool
+                # results into state (streaming parity with the buffered _act
+                # path) so the criteria gate counts the run's own evidence.
+                _turn_tool_results = getattr(action_result, "tool_results", None)
+                if _turn_tool_results:
+                    from victor.framework.criteria_gate import mirror_criteria_state
+
+                    mirror_criteria_state(state, _turn_tool_results)
+
                 # FEP-0023 Phase 1: record the turn onto the live SessionLedger
                 # (streaming parity with run(); populates <SESSION_STATE>). No-op
                 # unless USE_SESSION_LEDGER is enabled.
@@ -2797,6 +2806,12 @@ class AgenticLoop(TopologyPlanningMixin):
             if turn_result.tool_results:
                 for tr in turn_result.tool_results:
                     self.criteria_builder.record_tool_result(tr)
+                # FEP-0043: mirror criteria-declared keys from this turn's tool
+                # results into state so the criteria gate counts the run's own
+                # evidence. Opt-in by declaration; a no-op without criteria.
+                from victor.framework.criteria_gate import mirror_criteria_state
+
+                mirror_criteria_state(state, turn_result.tool_results)
 
             return turn_result
 

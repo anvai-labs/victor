@@ -17,9 +17,70 @@ never learns what a criterion means.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
+
+
+def _declared_minimums(criteria: Any) -> Dict[str, int]:
+    """Normalize caller criteria to ``{key: positive_int_minimum}``.
+
+    Non-positive-int minimums are silently dropped: a JSON round-trip that
+    widens ``3`` to ``3.0`` must not silently disable the gate's counterpart
+    criteria, and a zero minimum is vacuous. Shared by the gate's counting
+    and the state mirroring so both read one declaration the same way.
+    """
+    if not isinstance(criteria, Mapping):
+        return {}
+    declared: Dict[str, int] = {}
+    for name, minimum in criteria.items():
+        if isinstance(minimum, int) and not isinstance(minimum, bool) and minimum > 0:
+            declared[str(name)] = minimum
+    return declared
+
+
+def mirror_criteria_state(state: Dict[str, Any], tool_results: Any) -> Dict[str, int]:
+    """Mirror criteria-declared fields from tool results into loop state.
+
+    The gate counts state entries; this is the opt-in seam that lets a run's
+    own tool evidence populate those entries. For every key declared in
+    ``state["criteria"]``, each successful tool result carrying a same-named
+    list or dict contributes its entries to ``state[key]``: lists extend with
+    duplicates dropped (a corrected re-proposal that re-reports prior entries
+    counts them once — the floor must never be satisfied by double counting),
+    dicts merge by key. The result dict itself and, when present, its nested
+    ``result`` payload are both inspected. Values that are neither lists nor
+    dicts, failed results, and undeclared keys are ignored.
+
+    Victor stays generic: the framework never interprets what a declared key
+    collects; the consumer declares the key and shapes its tool payloads.
+    Returns ``{key: entry_count}`` for observability of what was mirrored.
+    """
+    declared = _declared_minimums(state.get("criteria"))
+    if not declared:
+        return {}
+    mirrored: Dict[str, int] = {}
+    for result in tool_results or []:
+        if not isinstance(result, dict) or not result.get("success"):
+            continue
+        payloads: List[Mapping[str, Any]] = [result]
+        nested = result.get("result")
+        if isinstance(nested, Mapping):
+            payloads.append(nested)
+        for key in declared:
+            for payload in payloads:
+                value = payload.get(key)
+                if isinstance(value, list):
+                    entries = state.setdefault(key, [])
+                    if isinstance(entries, list):
+                        entries.extend(item for item in value if item not in entries)
+                        mirrored[key] = len(entries)
+                elif isinstance(value, dict):
+                    entries = state.setdefault(key, {})
+                    if isinstance(entries, dict):
+                        entries.update(value)
+                        mirrored[key] = len(entries)
+    return mirrored
 
 
 @dataclass
@@ -64,16 +125,11 @@ class CriteriaGate:
         Non-positive-int minimums are silently skipped: a JSON round-trip
         that widens ``3`` to ``3.0`` must not silently disable the gate's
         counterpart criteria, and a zero minimum is vacuous."""
-        criteria = state.get("criteria")
-        if not isinstance(criteria, dict):
-            return []
         unmet: List[Tuple[str, int, int]] = []
-        for name, minimum in criteria.items():
-            if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum <= 0:
-                continue
-            count = self._count_state_entries(state, str(name))
+        for name, minimum in _declared_minimums(state.get("criteria")).items():
+            count = self._count_state_entries(state, name)
             if count < minimum:
-                unmet.append((str(name), count, minimum))
+                unmet.append((name, count, minimum))
         return unmet
 
     async def apply(
@@ -111,6 +167,9 @@ class CriteriaGate:
                 )
                 self.last_unmet = [name for name, _, _ in unmet]
                 return annotated
+            # All declared minimums met: clear any stale unmet record so the
+            # diagnostic reads the current evaluation, not the last downgrade.
+            self.last_unmet = []
             return evaluation
         self._downgrades += 1
         self.last_unmet = [name for name, _, _ in unmet]
@@ -124,7 +183,9 @@ class CriteriaGate:
             metrics=evaluation.metrics,
             metadata={
                 **(evaluation.metadata or {}),
-                "criteria_gate": {"downgrade": self._downgrades,
-                                  "unmet": [name for name, _, _ in unmet]},
+                "criteria_gate": {
+                    "downgrade": self._downgrades,
+                    "unmet": [name for name, _, _ in unmet],
+                },
             },
         )
