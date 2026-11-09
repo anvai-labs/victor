@@ -470,7 +470,7 @@ class TurnExecutor:
     async def execute_agentic_loop(
         self,
         user_message: str,
-        max_iterations: int = 25,
+        max_iterations: Optional[int] = None,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
         run_context: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
@@ -478,7 +478,11 @@ class TurnExecutor:
 
         Args:
             user_message: Initial user message
-            max_iterations: Maximum model turns
+            max_iterations: Maximum model turns; None (default) means the
+                caller set no explicit loop ceiling, so an explicit
+                runtime_context_overrides iteration_budget binds absolutely
+                (a legacy positional default here must not clamp a funded
+                caller budget). An explicit value still bounds the override.
             runtime_context_overrides: Scoped runtime hints to apply to turns in this loop
             run_context: Structured caller context seeded into the loop's state
                 (FEP-0043 criteria gating). Internal loop seeds win for reserved keys.
@@ -1168,7 +1172,7 @@ class TurnExecutor:
     async def _execute_via_agentic_loop(
         self,
         user_message: str,
-        max_iterations: int,
+        max_iterations: Optional[int],
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
         run_context: Optional[Dict[str, Any]] = None,
         executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO,
@@ -1204,12 +1208,17 @@ class TurnExecutor:
         )
         task_budget = max(task_classification.tool_budget * 2, 1)
         # FEP-0043: an explicitly declared caller iteration budget binds over
-        # the classifier heuristic (the executor ceiling still applies), so a
-        # funded deep run reaches its budget instead of being silently halved.
+        # the classifier heuristic, so a funded deep run reaches its budget
+        # instead of being silently halved. An EXPLICIT max_iterations
+        # parameter still bounds the override; the legacy positional default
+        # (None here) is not a caller decision and must not clamp one.
+        loop_ceiling = 25 if max_iterations is None else max_iterations
         if iter_override is not None:
-            iteration_budget = min(iter_override, max_iterations)
+            iteration_budget = (
+                min(iter_override, loop_ceiling) if max_iterations is not None else iter_override
+            )
         else:
-            iteration_budget = min(task_budget, max_iterations_setting, max_iterations)
+            iteration_budget = min(task_budget, max_iterations_setting, loop_ceiling)
 
         # Create AgenticLoop with self as turn_executor
         # Use a lightweight mock orchestrator since AgenticLoop only needs
