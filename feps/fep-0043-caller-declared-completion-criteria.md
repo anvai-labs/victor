@@ -4,7 +4,7 @@ title: "Caller-Declared Completion Criteria Gate"
 type: Standards Track
 status: Draft
 created: 2026-11-08
-modified: 2026-11-08
+modified: 2026-11-09
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -35,7 +35,13 @@ minimums (declared via `run(query, context={"criteria": {...}})`) remain
 unmet and iterations remain. Victor stays a generic framework: criteria are
 opaque caller key/values evaluated against the existing generic fulfillment
 strategy vocabulary (`min_findings`, `min_results`, ...); the framework
-never learns what a criterion means.
+never learns what a criterion means. The same gate also honors a
+caller-declared completion marker (`complete_on_key`): a successful tool
+result carrying that state key with a truthy value records the marker, and
+an enabled gate upgrades a non-COMPLETE decision to COMPLETE with a
+deterministic reason — for consumers whose tools declare completion
+directly (e.g. a proposal admission that closes a corpus) instead of by
+countable collection.
 
 The motivation is a measured consumer failure: a 32-iteration funded
 research run with a declared coverage objective of 30+ findings
@@ -101,6 +107,24 @@ cascade return.
    interprets what a declared key collects; consumers declare the key
    and shape their tool payloads. Opt-in by declaration and a no-op
    without criteria; the gate itself stays a pure decision post-filter.
+6. Caller-declared completion marker: `run(query,
+   context={"complete_on_key": "..."})` names one state key the
+   consumer's own tools emit. `mirror_criteria_state` records the marker
+   when a successful tool result carries that same-named key with a
+   truthy value of any JSON type (failed results and falsy values never
+   record it), and `CriteriaGate.apply` upgrades a non-COMPLETE decision
+   to COMPLETE with the deterministic reason "Caller completion marker
+   present (state key 'X')" plus `criteria_gate.completed_by_marker`
+   metadata. This covers consumers whose tools model completion as a
+   state transition ("the proposal is admitted; source access closes")
+   rather than a countable collection. The upgrade never fires with the
+   gate disabled, without the declaration, or while the marker is absent
+   (default-off parity, ADR-012), and it never rewrites a COMPLETE — the
+   criteria downgrade/annotate paths own those. Measured motivation: a
+   research consumer's loop always ran one more model turn after its own
+   tool admitted a proposal and closed the corpus, and that ack turn's
+   request carried the full transcript past the whole-run input-byte cap,
+   killing a run that held a valid admitted proposal.
 
 ## Benefits
 
@@ -117,6 +141,9 @@ cascade return.
   the loop instead of being silently halved by the classifier heuristic.
 - Stage-scoped guidance: consumers replace mode guidance lines for their
   own stage key without touching the global mode registry.
+- Completion-marker consumers stop at their own tool's completion
+  signal: no extra model turn after the run's work is done, so funded
+  whole-run input budgets are not spent re-sending a finished transcript.
 
 ## Drawbacks and Alternatives
 
@@ -178,7 +205,9 @@ cascade return.
 7. State mirroring wiring: the buffered `_act` seam and the streaming
    post-ACT block call `mirror_criteria_state` after tool results are
    recorded, so the gate counts the run's own evidence (opt-in by
-   declaration, no-op without criteria).
+   declaration, no-op without criteria). The same wiring records the
+   `complete_on_key` marker; the gate's apply path upgrades on it with no
+   new loop wiring.
 
 ## Migration Path
 
@@ -192,9 +221,13 @@ run-time state only, and prompt digests are pinned per job by callers.
 ## Compatibility
 
 Default-off parity per ADR-012: with the gate disabled or no criteria
-declared, every decision path is byte-identical to current behavior.
-No schema, storage, or wire changes. Consumers on older victor versions
-see advisory fulfillment exactly as today.
+or completion marker declared, every decision path is byte-identical to
+current behavior. The `complete_on_key` upgrade requires three
+independent conditions (gate enabled, declaration present, marker
+recorded from a successful tool result); any one missing keeps the
+evaluation decision untouched. No schema, storage, or wire changes.
+Consumers on older victor versions see advisory fulfillment exactly as
+today.
 
 ## References
 

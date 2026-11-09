@@ -7,6 +7,11 @@ RETRY while any declared minimum is unmet — for at most
 with the unmet minimums (best-effort retention, mirroring EffectGate's
 ``max_downgrades`` convention). The loop's budget-exhaustion marker
 (``state["_criteria_budget_exhausted"]``) also lets COMPLETE stand.
+Independently, a caller may declare ``complete_on_key``: a successful
+tool result carrying that state key with a truthy value records the
+marker, and an enabled gate upgrades a non-COMPLETE decision to COMPLETE
+with a deterministic reason — the caller's own tool evidence declares the
+run finished.
 
 Victor stays generic: criteria are opaque caller key/values evaluated
 against generic state-key entry counts (the same ``len(...)`` semantics
@@ -17,7 +22,7 @@ never learns what a criterion means.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 
@@ -39,7 +44,19 @@ def _declared_minimums(criteria: Any) -> Dict[str, int]:
     return declared
 
 
-def mirror_criteria_state(state: Dict[str, Any], tool_results: Any) -> Dict[str, int]:
+def _completion_marker(state: Mapping[str, Any]) -> Optional[str]:
+    """Normalize the caller's ``complete_on_key`` declaration to a key name.
+
+    Anything that is not a nonempty string names no state key and is silently
+    ignored, mirroring how non-positive-int criteria minimums are dropped.
+    """
+    declared = state.get("complete_on_key")
+    if isinstance(declared, str) and declared:
+        return declared
+    return None
+
+
+def mirror_criteria_state(state: Dict[str, Any], tool_results: Any) -> Dict[str, Any]:
     """Mirror criteria-declared fields from tool results into loop state.
 
     The gate counts state entries; this is the opt-in seam that lets a run's
@@ -52,14 +69,21 @@ def mirror_criteria_state(state: Dict[str, Any], tool_results: Any) -> Dict[str,
     ``result`` payload are both inspected. Values that are neither lists nor
     dicts, failed results, and undeclared keys are ignored.
 
+    When the caller declares ``state["complete_on_key"]``, a successful tool
+    result carrying that same-named key with a truthy value of any JSON type
+    records the completion marker: ``state[key] = True``. Failed results and
+    falsy values never record it.
+
     Victor stays generic: the framework never interprets what a declared key
     collects; the consumer declares the key and shapes its tool payloads.
-    Returns ``{key: entry_count}`` for observability of what was mirrored.
+    Returns ``{key: entry_count_or_marker}`` for observability of what was
+    mirrored.
     """
     declared = _declared_minimums(state.get("criteria"))
-    if not declared:
+    marker = _completion_marker(state)
+    if not declared and marker is None:
         return {}
-    mirrored: Dict[str, int] = {}
+    mirrored: Dict[str, Any] = {}
     for result in tool_results or []:
         if not isinstance(result, dict) or not result.get("success"):
             continue
@@ -80,6 +104,12 @@ def mirror_criteria_state(state: Dict[str, Any], tool_results: Any) -> Dict[str,
                     if isinstance(entries, dict):
                         entries.update(value)
                         mirrored[key] = len(entries)
+        if marker is not None:
+            for payload in payloads:
+                if payload.get(marker):
+                    state[marker] = True
+                    mirrored[marker] = True
+                    break
     return mirrored
 
 
@@ -142,9 +172,33 @@ class CriteriaGate:
         bounded by ``max_downgrades``; annotate the final decision with any
         unmet minimums so the terminal report is honest. Passes everything
         else through, and yields (COMPLETE stands) when the caller's run
-        context marks the iteration budget exhausted."""
+        context marks the iteration budget exhausted.
+
+        When the caller declared ``complete_on_key`` and the mirrored state
+        records that marker, any non-COMPLETE decision is upgraded to
+        COMPLETE with a deterministic reason: the caller's own tool evidence
+        declares the run finished, which outranks the evaluation narrative.
+        The upgrade never fires with the gate disabled, without the
+        declaration, or while the marker is absent (default-off parity), and
+        it never rewrites a COMPLETE — the criteria paths own those."""
         if not self.config.enabled:
             return evaluation
+        marker = _completion_marker(state)
+        if (
+            marker is not None
+            and state.get(marker)
+            and evaluation.decision != (EvaluationDecision.COMPLETE)
+        ):
+            return EvaluationResult(
+                decision=EvaluationDecision.COMPLETE,
+                score=evaluation.score,
+                reason=f"Caller completion marker present (state key '{marker}')",
+                metrics=evaluation.metrics,
+                metadata={
+                    **(evaluation.metadata or {}),
+                    "criteria_gate": {"completed_by_marker": marker},
+                },
+            )
         if evaluation.decision != EvaluationDecision.COMPLETE:
             return evaluation
         unmet = self.unmet_criteria(state)
