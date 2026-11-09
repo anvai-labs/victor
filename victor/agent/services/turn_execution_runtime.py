@@ -1207,15 +1207,12 @@ class TurnExecutor:
             else getattr(self._chat_context.settings, "chat_max_iterations", 50)
         )
         task_budget = max(task_classification.tool_budget * 2, 1)
-        # FEP-0043: an explicitly declared caller iteration budget binds over
-        # the classifier heuristic, so a funded deep run reaches its budget
-        # instead of being silently halved. An EXPLICIT max_iterations
-        # parameter still bounds the override; the legacy positional default
-        # (None here) is not a caller decision and must not clamp one.
+        # Explicit caller budget binds; an EXPLICIT loop ceiling still bounds
+        # it (min), the legacy positional default does not (FEP-0043).
         loop_ceiling = 25 if max_iterations is None else max_iterations
         if iter_override is not None:
             iteration_budget = (
-                min(iter_override, loop_ceiling) if max_iterations is not None else iter_override
+                iter_override if max_iterations is None else min(iter_override, loop_ceiling)
             )
         else:
             iteration_budget = min(task_budget, max_iterations_setting, loop_ceiling)
