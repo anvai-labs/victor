@@ -67,7 +67,7 @@ stream=True path → _prepare_stream never reads overrides/run_context.
 (3) Topology REPLACES instead of merging (stream_ctx.runtime_context_overrides
 = dict(topology_overrides)). (4) FEP-0043 (#1721/#1724/#1725) is
 BUFFERED-ONLY: StreamingChatContext has no criteria field, streaming config
-omits enable_criteria_gate, loop.run_streaming gets no context kwarg.
+omits enable_criteria_gate, run_streaming accepts a context parameter but is called without one (chat_stream_executor.py:1619).
 (5) _execute_agentic_loop signature sniffing silently drops both kwargs on
 legacy executors. Proposed: CallerRunContext dataclass threaded as ONE arg
 through run/stream → loop; streaming merges topology ONTO it (shared merge
