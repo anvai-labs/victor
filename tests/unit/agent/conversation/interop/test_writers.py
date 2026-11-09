@@ -125,6 +125,15 @@ class TestCodexWriter:
         assert payload["session_id"] == payload["id"] == payload["parent_thread_id"]
         assert payload["cwd"]
 
+    def test_session_meta_provider_is_resumable_builtin(self, tmp_path):
+        out = tmp_path / "rollout.jsonl"
+        export_session(make_session(), TranscriptFormat.CODEX_ROLLOUT, out)
+        payload = json.loads(out.read_text().splitlines()[0])["payload"]
+        # codex refuses to resume a rollout whose provider is not configured
+        # ("modelProviderNotConfigured"); a placeholder like "imported" broke it.
+        assert payload["model_provider"] == "openai"
+        assert payload["model_provider"] != "imported"
+
     def test_messages_and_function_calls(self, tmp_path):
         out = tmp_path / "rollout.jsonl"
         export_session(make_session(), TranscriptFormat.CODEX_ROLLOUT, out)

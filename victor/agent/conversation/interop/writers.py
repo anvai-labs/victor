@@ -37,6 +37,8 @@ from victor.agent.conversation.types import ConversationMessage
 
 _InstallTarget = Literal["claude", "codex"]
 _COLLISION_RETRIES = 5
+# Built-in codex model provider id that every codex install can resume under.
+_CODEX_RESUMABLE_PROVIDER = "openai"
 
 
 def _role(message: ConversationMessage) -> str:
@@ -332,7 +334,10 @@ def write_codex_rollout(
             "cli_version": "interop",
             "source": "victor-interop",
             "thread_source": "user",
-            "model_provider": "imported",
+            # codex resolves this against its configured providers on resume and
+            # refuses unknown ids ("modelProviderNotConfigured", codex 0.166), so
+            # it must be a built-in id; "openai" is always configured.
+            "model_provider": _CODEX_RESUMABLE_PROVIDER,
             "history_mode": "legacy",
         },
     )
