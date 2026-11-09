@@ -61,6 +61,7 @@ from victor.agent.output_aggregator import (
     AggregationState,
 )
 from victor.core.errors import ErrorInfo, ErrorCategory, ErrorSeverity
+from victor.core.budget_observability import record_budget_refusal
 from victor.core.completion_tools import CompletionToolPolicy
 from victor.agent.synthesis_checkpoint import (
     CompositeSynthesisCheckpoint,
@@ -2146,6 +2147,13 @@ class ToolPipeline:
             if isinstance(tool_call, dict)
             else ""
         ) or "unknown"
+        record_budget_refusal(
+            "pipeline",
+            self.config.tool_budget,
+            self._calls_used,
+            tool_name=tool_name,
+            outcome_kind="budget_exhausted",
+        )
         return _build_skip_result(
             tool_name=tool_name,
             arguments={},
@@ -2449,6 +2457,7 @@ class ToolPipeline:
         # already-exhausted session budget didn't itself exhaust anything,
         # so it must not report budget_exhausted=True.
         if unique_calls_iter and self._calls_used >= self.config.tool_budget:
+            record_budget_refusal("pipeline", self.config.tool_budget, self._calls_used)
             result.budget_exhausted = True
 
         # Add skipped results for duplicates (reuse first occurrence's result)
@@ -2994,6 +3003,13 @@ class ToolPipeline:
             self._calls_used >= self.config.tool_budget
             and not self._completion_tools.is_completion_critical(tool_name)
         ):
+            record_budget_refusal(
+                "pipeline",
+                self.config.tool_budget,
+                self._calls_used,
+                tool_name=tool_name,
+                outcome_kind="budget_exhausted",
+            )
             return _build_skip_result(
                 tool_name=tool_name,
                 arguments=normalized_args,

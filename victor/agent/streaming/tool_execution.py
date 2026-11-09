@@ -78,6 +78,7 @@ from victor.agent.services.protocols.streaming_runtime import (
 from victor.agent.streaming.context import StreamingChatContext
 from victor.agent.services.turn_execution_runtime import TurnDisposition
 from victor.core.provider_messages import StreamChunk
+from victor.core.budget_observability import record_budget_refusal
 from victor.tools.core_tool_aliases import canonicalize_core_tool_name
 from victor.tools.decorators import resolve_tool_name
 
@@ -381,6 +382,13 @@ class ToolExecutionHandler:
                         outcome_kind="budget_exhausted",
                         block_source="tool_budget",
                     )
+            record_budget_refusal(
+                "streaming",
+                tool_budget,
+                tool_calls_used,
+                outcome_kind="budget_exhausted",
+                extra={"queued": len(tool_calls) if tool_calls else 0},
+            )
             logger.warning(
                 "Tool budget exhausted before executing %s queued tool call(s); "
                 "turn budget=%s used=%s",
