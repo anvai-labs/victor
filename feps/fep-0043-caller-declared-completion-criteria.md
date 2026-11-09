@@ -89,9 +89,20 @@ cascade return.
 
 ## Drawbacks and Alternatives
 
-- False blocks: a legitimately finished task can be held to RETRY until
-  iterations exhaust. Mitigations: the gate yields (COMPLETE stands) at
-  budget exhaustion; criteria minimums are caller-chosen; default-off.
+- False blocks: a legitimately finished task can be held to RETRY.
+  Bounded: the gate downgrades at most ``max_downgrades`` (default 2,
+  AgenticLoopConfig-threaded) times, after which COMPLETE stands
+  annotated with the unmet minimums (best-effort retention); it also
+  yields COMPLETE when the run context marks the iteration budget
+  exhausted. Criteria minimums are caller-chosen; default-off.
+- Accepted consequence: with an explicit caller iteration_budget in the
+  run context, the PARALLEL_EXPLORATION clamp-2 heuristic is bypassed for
+  ALL such runs (chat_stream_helpers always populates iteration_budget
+  from stream settings), not only for callers that declare criteria. The
+  un-clamp is the FEP's stated intent — a caller-funded budget binds over
+  topology heuristics; if "explicit" ever needs to distinguish
+  prompt-declared budgets from settings-derived ones, a separate marker
+  key in the run context is the follow-up.
 - Accepted consequence: with an explicit caller iteration_budget in the
   run context, the PARALLEL_EXPLORATION clamp-2 heuristic is bypassed for
   ALL such runs (chat_stream_helpers always populates iteration_budget
@@ -124,6 +135,13 @@ cascade return.
    classifier heuristic; executor ceiling stays).
 4. `stage_prompt_overrides` on `OperationalModeConfig` with a generic
    registration/consumption API.
+5. Enablement: the gate is framework-level (`AgenticLoopConfig
+  .enable_criteria_gate`, default off). Production chat/buffered executors
+  thread it in a follow-up; direct AgenticLoop callers (reporeel's
+  research worker) can enable it immediately via `UnifiedAgentConfig
+  .extra`. `criteria_gate_max_downgrades` is threaded from
+  `AgenticLoopConfig` alongside the flag (int-coerced/clamped >= 0 at
+  use, mirroring EffectGate).
 
 ## Compatibility
 

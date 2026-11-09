@@ -521,6 +521,7 @@ class AgenticLoopConfig:
     enable_effect_gate: bool = False
     effect_gate_max_downgrades: int = 2
     enable_criteria_gate: bool = False
+    criteria_gate_max_downgrades: int = 2
     # Online per-turn auditor (EVR-6 / FEP-0008 Phase C): a continue/alarm check that downgrades a
     # degenerate COMPLETE to RETRY. Opt-in, default off; a strict no-op when disabled.
     enable_per_turn_auditor: bool = False
@@ -768,7 +769,10 @@ class AgenticLoop(TopologyPlanningMixin):
         # EVALUATE seam: downgrades an ungrounded COMPLETE to RETRY while
         # caller-declared minimums (run-context criteria) are unmet.
         self.criteria_gate = CriteriaGate(
-            CriteriaGateConfig(enabled=self.config.enable_criteria_gate)
+            CriteriaGateConfig(
+                enabled=self.config.enable_criteria_gate,
+                max_downgrades=max(0, int(self.config.criteria_gate_max_downgrades)),
+            )
         )
 
         # Online per-turn auditor (EVR-6 / FEP-0008 Phase C) — opt-in via enable_per_turn_auditor,
