@@ -3405,7 +3405,25 @@ class AgenticLoop(TopologyPlanningMixin):
             # Use shared SpinDetector for consistent detection
             spin_state = self.spin_detector.state
             if spin_state == SpinState.TERMINATED:
+                # FEP-0043 guided termination: while the caller declared
+                # completion objectives that remain unmet and iteration budget
+                # remains, spin results degrade to CONTINUE guidance instead of
+                # terminating the run (the iteration cap still bounds it).
+                from victor.framework.criteria_gate import criteria_unmet_with_budget
+
+                guided = criteria_unmet_with_budget(state)
                 if self.spin_detector.consecutive_all_blocked > 0:
+                    if guided:
+                        return EvaluationResult(
+                            decision=EvaluationDecision.CONTINUE,
+                            score=0.2,
+                            reason=(
+                                f"Spin detected: {self.spin_detector.consecutive_all_blocked} "
+                                "consecutive fully-blocked tool batches; caller-declared "
+                                "completion criteria are unmet with iteration budget "
+                                "remaining — continuing with guidance instead of failing"
+                            ),
+                        )
                     return EvaluationResult(
                         decision=EvaluationDecision.FAIL,
                         score=0.1,
@@ -3419,12 +3437,36 @@ class AgenticLoop(TopologyPlanningMixin):
                 repetition_count = getattr(self.spin_detector, "_repetition_count", 0)
                 threshold = getattr(self.spin_detector, "REPETITION_THRESHOLD", 3)
                 if repetition_count >= threshold - 1:
+                    if guided:
+                        return EvaluationResult(
+                            decision=EvaluationDecision.CONTINUE,
+                            score=0.2,
+                            reason=(
+                                f"Repetitive loop detected: the model repeated the same tool "
+                                f"calls for {repetition_count} consecutive turns; "
+                                "caller-declared completion criteria are unmet with "
+                                "iteration budget remaining — continuing with guidance "
+                                "instead of failing"
+                            ),
+                        )
                     return EvaluationResult(
                         decision=EvaluationDecision.FAIL,
                         score=0.1,
                         reason=(
                             f"Repetitive loop detected: the model repeated the same tool "
                             f"calls for {repetition_count} consecutive turns"
+                        ),
+                    )
+
+                if guided:
+                    return EvaluationResult(
+                        decision=EvaluationDecision.CONTINUE,
+                        score=0.2,
+                        reason=(
+                            f"Agent stuck: {self.spin_detector.consecutive_no_tool_turns} "
+                            "turns without tool calls; caller-declared completion criteria "
+                            "are unmet with iteration budget remaining — continuing with "
+                            "guidance instead of failing"
                         ),
                     )
 
@@ -3808,6 +3850,8 @@ class AgenticLoop(TopologyPlanningMixin):
             None otherwise
         """
         scores = self._progress_scores
+        from victor.framework.criteria_gate import criteria_unmet_with_budget
+
         task_type = str((state or {}).get("task_type") or "").lower()
         read_heavy_task = task_type in {
             "search",
@@ -3848,7 +3892,18 @@ class AgenticLoop(TopologyPlanningMixin):
             recent = scores[-self.plateau_window :]
             improvement = max(recent) - min(recent)
             if improvement < self.plateau_tolerance:
-                return AdaptiveTerminationDecision.PLATEAU
+                # FEP-0043 guided termination: while the caller declared
+                # completion objectives that remain unmet and iteration budget
+                # remains, a plateau degrades to guidance-by-continuation and
+                # never terminates the run early (the iteration cap still
+                # bounds the loop). No declaration — byte-identical behavior.
+                if criteria_unmet_with_budget(state or {}):
+                    logger.info(
+                        "Adaptive plateau suppressed: caller-declared completion criteria "
+                        "are unmet with iteration budget remaining"
+                    )
+                else:
+                    return AdaptiveTerminationDecision.PLATEAU
 
         # Check near-completion: score > 0.7 and still improving
         if len(scores) >= 2 and scores[-1] >= 0.7:

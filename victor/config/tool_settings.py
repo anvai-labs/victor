@@ -14,6 +14,17 @@ from victor.config.orchestrator_constants import BUDGET_LIMITS
 class ToolSettings(BaseModel):
     """Tool execution, selection, and retry configuration."""
 
+    completion_tools: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Caller-declared completion-critical tool names. A declared tool "
+            "is never suppressed by loop safeguards (budget-exhaustion skips, "
+            "repeated-failing-call and semantic-dedup skips, post-warning "
+            "signature blocks): its call always executes so the caller's run "
+            "can finish. Generic — the framework never interprets what a "
+            "declared tool does. Default empty = unchanged behavior."
+        ),
+    )
     tool_call_budget: int = Field(default_factory=lambda: BUDGET_LIMITS.max_session_budget)
     tool_call_budget_warning_threshold: int = Field(
         default_factory=lambda: int(

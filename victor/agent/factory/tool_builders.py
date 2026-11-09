@@ -273,6 +273,9 @@ class ToolBuildersMixin:
         cross_turn_enabled = self._tool_setting("cross_turn_dedup_enabled", True)
         cross_turn_ttl = float(self._tool_setting("cross_turn_dedup_ttl", 300))
 
+        # Caller-declared completion-critical tools (generic; empty by default)
+        completion_tools = tuple(self._tool_setting("completion_tools", ()) or ())
+
         pipeline = ToolPipeline(
             tool_registry=tools,
             tool_executor=tool_executor,
@@ -287,6 +290,7 @@ class ToolBuildersMixin:
                 per_tool_timeout_seconds=self._tool_setting("per_tool_timeout_seconds", 60.0),
                 parallel_tool_execution=self._tool_setting("parallel_tool_execution", False),
                 max_concurrent_tools=self._tool_setting("max_concurrent_tools", 5),
+                completion_tool_names=completion_tools,
             ),
             tool_cache=tool_cache,
             argument_normalizer=argument_normalizer,
