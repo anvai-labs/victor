@@ -218,6 +218,8 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         constraints = kwargs.pop("constraints", None)
         vertical = kwargs.pop("vertical", None)
         runtime_context_overrides = kwargs.pop("runtime_context_overrides", None)
+        # FEP-0043: structured caller context for the loop's state seeding.
+        run_context = kwargs.pop("run_context", None)
 
         if not preserve_turn_state:
             self._prepare_new_turn()
@@ -225,6 +227,8 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         if stream:
             if runtime_context_overrides is not None:
                 kwargs["runtime_context_overrides"] = runtime_context_overrides
+            if run_context is not None:
+                kwargs["run_context"] = run_context
             chunks = []
             async for chunk in self._stream_chat_exclusive(
                 user_message,
@@ -269,6 +273,7 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                         executor,
                         user_message,
                         runtime_context_overrides=runtime_context_overrides,
+                        run_context=run_context,
                     )
                 execution_success = self._response_execution_success(response)
             except asyncio.CancelledError as exc:
@@ -312,11 +317,9 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         user_message: str,
         *,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        run_context: Optional[Dict[str, Any]] = None,
     ) -> "CompletionResponse":
         """Invoke the bound turn executor with scoped runtime overrides when supported."""
-        if not runtime_context_overrides:
-            return await executor.execute_agentic_loop(user_message)
-
         execute = executor.execute_agentic_loop
         try:
             signature = inspect.signature(execute)
@@ -325,16 +328,29 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
 
         if signature is not None:
             parameters = signature.parameters
-            accepts_overrides = "runtime_context_overrides" in parameters or any(
+            accepts_var_keyword = any(
                 param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
             )
-            if not accepts_overrides:
-                return await execute(user_message)
+        else:
+            parameters = None
+            accepts_var_keyword = False
 
-        return await execute(
-            user_message,
-            runtime_context_overrides=runtime_context_overrides,
+        def _accepts(name: str) -> bool:
+            return parameters is None or name in parameters or accepts_var_keyword
+
+        forward_overrides = bool(runtime_context_overrides) and _accepts(
+            "runtime_context_overrides"
         )
+        forward_run_context = run_context is not None and _accepts("run_context")
+        if not forward_overrides and not forward_run_context:
+            return await execute(user_message)
+
+        kwargs: Dict[str, Any] = {}
+        if forward_overrides:
+            kwargs["runtime_context_overrides"] = runtime_context_overrides
+        if forward_run_context:
+            kwargs["run_context"] = run_context
+        return await execute(user_message, **kwargs)
 
     async def stream_chat(self, user_message: str, **kwargs) -> AsyncIterator["StreamChunk"]:
         """Stream one exclusive turn through the bound canonical runtime."""

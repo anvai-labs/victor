@@ -516,6 +516,28 @@ class TestChatServiceDictBasedContext(BaseChatServiceTest):
             "runtime_context_overrides": runtime_context_overrides,
         }
 
+    @pytest.mark.asyncio
+    async def test_chat_passes_run_context_to_bound_executor(self):
+        """FEP-0043: the structured caller run context survives the chat seam
+        and reaches the bound executor alongside the flattened prompt text."""
+        service = self._create_test_service()
+        response = CompletionResponse(content="done", role="assistant", stop_reason="stop")
+        observed = {}
+
+        class _TurnExecutor:
+            async def execute_agentic_loop(self, user_message, run_context=None):
+                observed["user_message"] = user_message
+                observed["run_context"] = run_context
+                return response
+
+        service.bind_runtime_components(turn_executor=_TurnExecutor())
+        run_context = {"criteria": {"findings": 4}}
+
+        result = await service.chat("hello", run_context=run_context)
+
+        assert result is response
+        assert observed == {"user_message": "hello", "run_context": run_context}
+
     def test_add_tool_result_supports_dict_based_context_protocol(self):
         service = self._create_test_service()
         result = mock.MagicMock(output="tool output", error=None)

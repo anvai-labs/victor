@@ -77,6 +77,17 @@ cascade return.
    optional `stage_prompt_overrides` so a consumer can replace mode
    guidance lines (e.g. the BUILD-mode "STOP excessive reading" line)
    for its own stage key without mutating `MODE_CONFIGS` globally.
+5. Generic state mirroring (`criteria_gate.mirror_criteria_state`): the
+   gate counts state entries; this seam lets a run's own tool evidence
+   populate them. At the ACT/record seam (buffered `_act` and the
+   streaming post-ACT block), for every criteria-declared key, each
+   successful tool result carrying a same-named list contributes its
+   unique entries (a corrected re-proposal that re-reports prior
+   entries counts once — a floor must never be met by double
+   counting) and a same-named dict merges by key. The framework never
+   interprets what a declared key collects; consumers declare the key
+   and shape their tool payloads. Opt-in by declaration and a no-op
+   without criteria; the gate itself stays a pure decision post-filter.
 
 ## Benefits
 
@@ -134,6 +145,20 @@ cascade return.
   .extra`. `criteria_gate_max_downgrades` is threaded from
   `AgenticLoopConfig` alongside the flag (int-coerced/clamped >= 0 at
   use, mirroring EffectGate).
+6. SDK run-context forwarding: the buffered message seam
+   (`execute_message` -> `ChatService.chat` -> `execute_agentic_loop`)
+   forwards the structured caller `context` as `run_context` alongside
+   the flattened prompt text, with compatibility-aware keyword guards so
+   runtimes predating the keyword are untouched. The loop's context
+   merge places internal seeds last, so reserved keys (task
+   classification, budgets, overrides) can never be clobbered by caller
+   keys. Streaming (`Agent.stream` -> `stream_message_events`) forwards
+   the flattened text only today; structured streaming forwarding is a
+   documented follow-up — buffered is the path consumers gate on.
+7. State mirroring wiring: the buffered `_act` seam and the streaming
+   post-ACT block call `mirror_criteria_state` after tool results are
+   recorded, so the gate counts the run's own evidence (opt-in by
+   declaration, no-op without criteria).
 
 ## Compatibility
 
