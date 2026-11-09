@@ -2137,10 +2137,15 @@ class AgenticLoop(TopologyPlanningMixin):
             "query": query,
             "conversation_history": conversation_history,
             **(context or {}),
+            # FEP-0043: the criteria gate yields on the final funded
+            # iteration (best-effort retention over forced RETRY).
+            "_criteria_budget_exhausted": False,
         }
 
         for i in range(1, self.max_iterations + 1):
             iteration = LoopIteration(iteration=i, stage=LoopStage.PERCEIVE)
+            # FEP-0043: refresh the criteria budget marker per iteration.
+            state["_criteria_budget_exhausted"] = i >= self.max_iterations
 
             # PERCEIVE
             perception = await self._analyze_turn(query, context, conversation_history)

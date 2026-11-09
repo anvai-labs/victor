@@ -103,14 +103,6 @@ cascade return.
   topology heuristics; if "explicit" ever needs to distinguish
   prompt-declared budgets from settings-derived ones, a separate marker
   key in the run context is the follow-up.
-- Accepted consequence: with an explicit caller iteration_budget in the
-  run context, the PARALLEL_EXPLORATION clamp-2 heuristic is bypassed for
-  ALL such runs (chat_stream_helpers always populates iteration_budget
-  from stream settings), not only for callers that declare criteria. The
-  un-clamp is the FEP's stated intent — a caller-funded budget binds over
-  topology heuristics; if "explicit" ever needs to distinguish
-  prompt-declared budgets from settings-derived ones, a separate marker
-  key in the run context is the follow-up.
 - Rejected alternative: extending `ModeCompletionConfig
   .check_early_exit` — it governs early exit only and cannot block
   COMPLETE from the ~10 completion-cascade return points.
