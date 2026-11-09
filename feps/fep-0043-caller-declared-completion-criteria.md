@@ -37,6 +37,19 @@ opaque caller key/values evaluated against the existing generic fulfillment
 strategy vocabulary (`min_findings`, `min_results`, ...); the framework
 never learns what a criterion means.
 
+The motivation is a measured consumer failure: a 32-iteration funded
+research run with a declared coverage objective of 30+ findings
+self-completed at iteration 12 with 13 findings — the fulfillment
+evaluation was advisory (early-exit only, never blocking COMPLETE), the
+task classifier and topology selector silently clamped the funded
+iteration budget, and the model's own completion narrative satisfied the
+generic cascade. The caller had no first-class way to declare "this
+objective is a floor, not a suggestion". This FEP provides three generic
+mechanisms: the binding criteria gate, budget-clamp surfacing (an
+explicit caller iteration budget binds over the task-classifier
+heuristic), and stage-scoped guidance overrides — each opt-in,
+default-off, and usable by any agentic consumer.
+
 ## Motivation
 
 A consumer funded a 32-iteration research run with a declared coverage
@@ -97,6 +110,13 @@ cascade return.
 - Generic: criteria are opaque caller key/values against the existing
   fulfillment vocabulary — no domain leakage into the framework.
 - Default-off parity (ADR-012): identical behavior when disabled.
+- Bounded: the gate downgrades at most `max_downgrades` times before
+  COMPLETE stands annotated, preventing unbounded RETRY cycles and
+  plateau-detector false FAILs on funded deep runs.
+- Budget-clamp surfacing: an explicit caller iteration budget reaches
+  the loop instead of being silently halved by the classifier heuristic.
+- Stage-scoped guidance: consumers replace mode guidance lines for their
+  own stage key without touching the global mode registry.
 
 ## Drawbacks and Alternatives
 
@@ -159,6 +179,15 @@ cascade return.
    post-ACT block call `mirror_criteria_state` after tool results are
    recorded, so the gate counts the run's own evidence (opt-in by
    declaration, no-op without criteria).
+
+## Migration Path
+
+None required. The gate is opt-in (`enable_criteria_gate`, default
+off), criteria are declared per-run via the context, and every default-
+off decision path is byte-identical to current behavior. Consumers on
+older victor versions see advisory fulfillment exactly as today.
+Retained artifacts and replay contracts are unaffected: the gate reads
+run-time state only, and prompt digests are pinned per job by callers.
 
 ## Compatibility
 
