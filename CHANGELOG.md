@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-09
+
+### Added
+
+- **FEP-0043**: Caller-declared completion criteria gate — callers can specify
+  what "done" looks like (stop-on-close marker, iteration budget) and the
+  topology honours it. The caller iteration budget binds over the legacy loop
+  default when explicitly declared.
+- **config/ui**: Central gateway profiles — Victor profiles pull from the
+  gateway's curated catalogue with layered defaults (system → user → project).
+- **resume**: `/resume <source>:<uuid>` imports and resumes a session from an
+  external agent (claude/codex) in one step.
+- **graph_rag**: Public hybrid retrieval with a seeding report; read-only
+  graph stores for safe multi-tenant queries. Natural-language keyword search
+  matches hybrid keyword leg correctly.
+- **handoff**: `/handoff` command + CLI twin for cross-agent handoff with
+  bidirectional session context interop.
+- **distribution**: Doctor native-drift check, install sync, GitHub-direct
+  channel. `victor-ai[graph]` satisfies its own dependency check and reports
+  graph readiness.
+- **rl**: Default prompt optimization to on-demand only (no longer eager).
+
+### Fixed
+
+- **save**: `/save` no longer degrades already-persisted message rows.
+- **agent**: Tool offer stays stable across budget exhaustion; stray no-tools
+  calls guarded.
+- **session**: Import persistence P0 fix + resume-list/importer repairs.
+- **graph**: Logging priority chain applied in `victor index graph index`.
+- **precise/graph**: Honest JVM toolchain, verified build root, store
+  ownership.
+- **native**: Dedup livelock on unclosed fence + native version drift guard.
+
+### Changed
+
+- **deps**: sandhi-gateway pinned to 0.15.0 (central gateway profiles support).
+
 ## [0.26.2] - 2026-11-05
 
 ### Fixed
