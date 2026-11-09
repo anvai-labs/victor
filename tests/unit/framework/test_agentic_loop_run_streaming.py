@@ -310,6 +310,63 @@ def test_effect_retry_guidance_never_expands_scope(stop):
         assert added[0][1]["internal_prompt_kind"] == "effect_gate_nudge"
 
 
+@pytest.mark.parametrize("stop", [False, True])
+def test_criteria_retry_downgrade_injects_guidance_nudge(stop):
+    """A criteria-gate downgrade must reach the model as guidance.
+
+    Regression: the gate rewrote COMPLETE to RETRY with a reason that reached
+    neither the log nor the conversation, so the model kept repeating the same
+    final answer without ever learning its completion had been refused for
+    unmet caller-declared criteria.
+    """
+    added = []
+    loop = _nudge_loop(
+        SimpleNamespace(
+            add_message=lambda role, message, metadata: added.append((message, metadata))
+        )
+    )
+    loop._inject_decide_nudges(
+        EvaluationResult(
+            EvaluationDecision.RETRY,
+            0.4,
+            metadata={
+                "criteria_gate": {"downgrade": 1, "unmet": ["findings"]},
+            },
+        ),
+        TurnDecision(stop=stop, nudge_message="generic guidance must not compete"),
+    )
+    if stop:
+        assert added == []
+    else:
+        assert len(added) == 1
+        assert "findings" in added[0][0]
+        assert "within the original request" in added[0][0]
+        assert added[0][1]["interactive_history"] is False
+        assert added[0][1]["internal_prompt_kind"] == "criteria_gate_nudge"
+
+
+def test_criteria_retry_downgrade_nudge_lists_every_unmet_key():
+    added = []
+    loop = _nudge_loop(
+        SimpleNamespace(
+            add_message=lambda role, message, metadata: added.append((message, metadata))
+        )
+    )
+    loop._inject_decide_nudges(
+        EvaluationResult(
+            EvaluationDecision.RETRY,
+            0.4,
+            metadata={
+                "criteria_gate": {"downgrade": 2, "unmet": ["findings", "goals"]},
+            },
+        ),
+        TurnDecision(nudge_message="generic guidance must not compete"),
+    )
+    assert len(added) == 1
+    assert "findings" in added[0][0]
+    assert "goals" in added[0][0]
+
+
 def _terminal_loop(total_tool_calls=0):
     loop = AgenticLoop.__new__(AgenticLoop)
     loop.spin_detector = SimpleNamespace(total_tool_calls=total_tool_calls)
