@@ -119,6 +119,10 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_CONTEXT_OVERRIDES_STATE_KEY = "runtime_context_overrides"
 LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY = "topology_overrides"
+# Budget keys a caller (or the first derived plan) declared in
+# runtime_context_overrides bind for the whole run: later derived plans may
+# add keys but never replace these (see _merge_runtime_context_overrides).
+CALLER_BOUND_OVERRIDE_KEYS = ("tool_budget", "iteration_budget")
 
 # =============================================================================
 # Enums for Agentic Loop Decisions
@@ -1696,6 +1700,28 @@ class AgenticLoop(TopologyPlanningMixin):
                     "effect_gate_nudge", source=MessageSource.AGENT_NUDGE
                 ),
             )
+        elif isinstance(evaluation.metadata.get("criteria_gate"), dict) and evaluation.metadata[
+            "criteria_gate"
+        ].get("downgrade"):
+            # A criteria-gate retry must tell the model its completion claim was
+            # refused and why: a silent COMPLETE->RETRY rewrite reads to the
+            # model as a bare continuation, so it repeats the same final answer
+            # instead of working toward the caller's declared objectives.
+            gate_meta = evaluation.metadata["criteria_gate"]
+            unmet = ", ".join(str(name) for name in gate_meta.get("unmet") or [])
+            unmet_clause = f" ({unmet})" if unmet else ""
+            chat_ctx.add_message(
+                "user",
+                (
+                    "Your completion claim was not accepted: the caller-declared "
+                    f"completion criteria are still unmet{unmet_clause}. Continue using "
+                    "permitted tools within the original request toward those declared "
+                    "objectives, or state plainly what remains unmet."
+                ),
+                metadata=build_internal_history_metadata(
+                    "criteria_gate_nudge", source=MessageSource.AGENT_NUDGE
+                ),
+            )
         elif decision.nudge_message:
             kind = "budget_nudge" if decision.nudge_kind == "budget_warning" else "nudge"
             chat_ctx.add_message(
@@ -2207,9 +2233,28 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any],
         overrides: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Merge new overrides into existing generic runtime override state."""
+        """Merge new overrides into existing generic runtime override state.
+
+        Budget keys already present in state bind for the whole run: derived
+        plans re-emit the budgets they were handed (topology planning grounds
+        its decision from the loop-build service snapshot), and letting those
+        echoes win silently lowered a caller's funded
+        ``runtime_context_overrides`` budget — a 134-call override collapsed
+        to the 50-call service default and the run starved mid-flight while
+        still funded. Derived keys that are absent (formation hints, team
+        names, worktree paths) still merge normally.
+        """
         merged = dict(cls._get_runtime_context_overrides(state) or {})
-        merged.update(overrides)
+        for key, value in dict(overrides).items():
+            if key in CALLER_BOUND_OVERRIDE_KEYS and key in merged:
+                logger.debug(
+                    "Runtime override merge keeps existing %s=%s over derived %s",
+                    key,
+                    merged[key],
+                    value,
+                )
+                continue
+            merged[key] = value
         return merged
 
     @staticmethod

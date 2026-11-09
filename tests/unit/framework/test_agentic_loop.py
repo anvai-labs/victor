@@ -788,6 +788,111 @@ class TestAgenticLoop:
         assert feedback_payload["completion_score"] == pytest.approx(0.92)
         emit_mock.assert_awaited_once()
 
+    async def test_run_caller_budget_overrides_bind_over_topology_budget_echo(self, monkeypatch):
+        """A caller-declared runtime_context_overrides budget binds over the
+        topology plan's echo of the handed-in service budget.
+
+        Regression: the grounded plan re-emitted ``state["tool_budget"]`` (the
+        service snapshot seeded at loop build) and the merge let that echo
+        replace the caller's funded ``tool_budget``, so a run was silently
+        lowered to the service default and exhausted mid-run while its
+        declared budget still had calls remaining.
+        """
+        perception = _make_perception()
+        perception.confidence = 0.9
+        turn_executor = MagicMock()
+        turn_executor.execute_turn = AsyncMock(
+            return_value=TurnResult(
+                response=CompletionResponse(content="done", role="assistant"),
+                tool_results=[],
+                has_tool_calls=False,
+                tool_calls_count=0,
+                all_tools_blocked=False,
+                is_qa_response=False,
+            )
+        )
+        loop = self._make_loop(
+            orchestrator=MagicMock(spec=[]),
+            turn_executor=turn_executor,
+            max_iterations=64,
+            config={"disable_enhanced_completion": True},
+        )
+        agentic_loop_module = __import__(
+            "victor.framework.agentic_loop",
+            fromlist=["emit_topology_telemetry_event"],
+        )
+        monkeypatch.setattr(
+            agentic_loop_module, "emit_topology_telemetry_event", AsyncMock(return_value=True)
+        )
+        loop._analyze_turn = AsyncMock(return_value=perception)
+        loop._plan = AsyncMock(return_value={"steps": ["respond"]})
+        loop._evaluate = AsyncMock(
+            return_value=EvaluationResult(
+                decision=EvaluationDecision.COMPLETE,
+                score=0.92,
+                reason="Caller-funded run finished",
+            )
+        )
+        loop._get_topology_provider_hints = AsyncMock(return_value={})
+        loop.paradigm_router = MagicMock()
+        loop.paradigm_router.route.return_value = MagicMock(
+            skip_planning=False,
+            paradigm=SimpleNamespace(value="deep"),
+            model_tier=SimpleNamespace(value="large"),
+            max_tokens=4096,
+            confidence=0.88,
+            to_dict=MagicMock(return_value={"paradigm": "deep", "model_tier": "large"}),
+        )
+        loop.paradigm_router.build_topology_input = MagicMock(
+            return_value=TopologyDecisionInput(
+                query="Research the repository",
+                task_type="code_generation",
+                task_complexity="high",
+                # The service snapshot the loop handed to topology planning.
+                tool_budget=50,
+                iteration_budget=64,
+                available_team_formations=["parallel", "hierarchical"],
+            )
+        )
+        topology_decision = TopologyDecision(
+            action=TopologyAction.SINGLE_AGENT,
+            topology=TopologyKind.SINGLE_AGENT,
+            confidence=0.9,
+            rationale="Single funded run",
+            # The plan echoes back the service snapshot it was handed.
+            grounding_requirements=TopologyGroundingRequirements(
+                tool_budget=50,
+                iteration_budget=64,
+            ),
+        )
+        topology_plan = GroundedTopologyPlan(
+            action=TopologyAction.SINGLE_AGENT,
+            topology=TopologyKind.SINGLE_AGENT,
+            execution_mode="standard",
+            tool_budget=50,
+            iteration_budget=64,
+        )
+        loop._topology_selector.select = MagicMock(return_value=topology_decision)
+        loop._topology_grounder.ground = MagicMock(return_value=topology_plan)
+        loop.runtime_intelligence.get_topology_routing_context = MagicMock(return_value={})
+        loop.runtime_intelligence.record_topology_outcome = MagicMock()
+
+        # The loop-build seed shape from TurnExecutor._execute_via_agentic_loop:
+        # the caller's funded overrides plus the service-budget seed.
+        result = await loop.run(
+            "Research the repository",
+            context={
+                "tool_budget": 50,
+                "runtime_context_overrides": {"tool_budget": 134, "iteration_budget": 64},
+            },
+        )
+
+        assert result.success is True
+        turn_kwargs = turn_executor.execute_turn.await_args.kwargs
+        assert turn_kwargs["runtime_context_overrides"]["tool_budget"] == 134
+        assert turn_kwargs["runtime_context_overrides"]["iteration_budget"] == 64
+        assert result.final_state["runtime_context_overrides"]["tool_budget"] == 134
+
     async def test_execute_action_prefers_generic_runtime_context_overrides(self):
         turn_executor = MagicMock()
         turn_executor.execute_turn = AsyncMock(
