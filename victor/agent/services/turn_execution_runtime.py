@@ -472,6 +472,7 @@ class TurnExecutor:
         user_message: str,
         max_iterations: int = 25,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        run_context: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """Execute the full agentic loop via the canonical AgenticLoop runtime.
 
@@ -479,6 +480,8 @@ class TurnExecutor:
             user_message: Initial user message
             max_iterations: Maximum model turns
             runtime_context_overrides: Scoped runtime hints to apply to turns in this loop
+            run_context: Structured caller context seeded into the loop's state
+                (FEP-0043 criteria gating). Internal loop seeds win for reserved keys.
 
         Returns:
             CompletionResponse with complete response
@@ -515,6 +518,7 @@ class TurnExecutor:
             user_message,
             max_iterations,
             runtime_context_overrides=runtime_context_overrides,
+            run_context=run_context,
             executor=executor,
         )
 
@@ -1166,6 +1170,7 @@ class TurnExecutor:
         user_message: str,
         max_iterations: int,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        run_context: Optional[Dict[str, Any]] = None,
         executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO,
     ) -> CompletionResponse:
         """Delegate execution to AgenticLoop for enhanced evaluation.
@@ -1221,6 +1226,11 @@ class TurnExecutor:
         from victor.framework.effect_gate import resolve_effect_gate_enabled
 
         _effect_gate = resolve_effect_gate_enabled(_settings)
+        # FEP-0043 enablement: declaring non-empty criteria in the structured
+        # run context is the caller's opt-in that turns the criteria gate on
+        # for this run. Without declared criteria the gate stays off
+        # (default-off parity); no settings registry is involved.
+        _criteria_gate = bool((run_context or {}).get("criteria"))
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
@@ -1232,6 +1242,7 @@ class TurnExecutor:
                 "executor": executor,
                 "completion_strategy": _strategy,
                 "enable_effect_gate": _effect_gate,
+                "enable_criteria_gate": _criteria_gate,
             },
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
@@ -1256,6 +1267,11 @@ class TurnExecutor:
             context["runtime_context_overrides"] = dict(runtime_context_overrides)
         conversation_history = self._get_agentic_loop_conversation_history(user_message)
 
+        # FEP-0043: seed the caller's structured run context into the loop's
+        # initial state. Internal seeds merge after caller keys so reserved
+        # keys (task classification, budgets, overrides) can never be clobbered.
+        if run_context:
+            context = {**run_context, **context}
         loop_run_kwargs = {"context": context}
         if conversation_history is not None and self._agentic_loop_accepts_conversation_history(
             loop

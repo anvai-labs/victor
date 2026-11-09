@@ -520,6 +520,8 @@ class AgenticLoopConfig:
     # default off per the flag-graduation policy; a strict no-op when disabled.
     enable_effect_gate: bool = False
     effect_gate_max_downgrades: int = 2
+    enable_criteria_gate: bool = False
+    criteria_gate_max_downgrades: int = 2
     # Online per-turn auditor (EVR-6 / FEP-0008 Phase C): a continue/alarm check that downgrades a
     # degenerate COMPLETE to RETRY. Opt-in, default off; a strict no-op when disabled.
     enable_per_turn_auditor: bool = False
@@ -753,6 +755,7 @@ class AgenticLoop(TopologyPlanningMixin):
         # default off. Wraps the EVALUATE seam (record → _evaluate_core → apply) so every
         # completion strategy shares the same effect precondition; strict no-op when disabled.
         from victor.framework.effect_gate import EffectGate, EffectGateConfig
+        from victor.framework.criteria_gate import CriteriaGate, CriteriaGateConfig
 
         self.effect_gate = EffectGate(
             EffectGateConfig(
@@ -760,6 +763,16 @@ class AgenticLoop(TopologyPlanningMixin):
                 max_downgrades=self.config.effect_gate_max_downgrades,
             ),
             workspace_resolver=self._resolve_workspace,
+        )
+        # Caller-declared completion criteria gate (FEP-0043) — opt-in via
+        # enable_criteria_gate, default off. Third post-filter on the same
+        # EVALUATE seam: downgrades an ungrounded COMPLETE to RETRY while
+        # caller-declared minimums (run-context criteria) are unmet.
+        self.criteria_gate = CriteriaGate(
+            CriteriaGateConfig(
+                enabled=self.config.enable_criteria_gate,
+                max_downgrades=max(0, int(self.config.criteria_gate_max_downgrades)),
+            )
         )
 
         # Online per-turn auditor (EVR-6 / FEP-0008 Phase C) — opt-in via enable_per_turn_auditor,
@@ -826,6 +839,9 @@ class AgenticLoop(TopologyPlanningMixin):
         self.criteria_builder.reset()
         # Both collaborators exist even when disabled; their state belongs to this run.
         self.effect_gate.reset()
+        criteria_gate = getattr(self, "criteria_gate", None)
+        if criteria_gate is not None:
+            criteria_gate.reset()
         self.per_turn_auditor.reset()
 
     async def run(
@@ -872,6 +888,10 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
+        # funded iteration, so a best-effort run always terminates with an
+        # honest terminal report rather than a forced RETRY.
+        state["_criteria_budget_exhausted"] = False
         nudge_intent: Optional[ActionIntent] = None
 
         try:
@@ -911,6 +931,9 @@ class AgenticLoop(TopologyPlanningMixin):
 
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
+                # FEP-0043: the criteria gate yields on the final funded
+                # iteration (best-effort retention over forced RETRY).
+                state["_criteria_budget_exhausted"] = i >= effective_max
                 # Spin guards: cooperative deadline + between-iteration
                 # perception backstop. Raises LoopSpinError → caught below → FAIL.
                 # Default total_timeout=None = off (no behavior change).
@@ -1942,12 +1965,19 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
+        # funded iteration, so a best-effort run always terminates with an
+        # honest terminal report rather than a forced RETRY.
+        state["_criteria_budget_exhausted"] = False
         nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
         try:
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
+                # FEP-0043: the criteria gate yields on the final funded
+                # iteration (best-effort retention over forced RETRY).
+                state["_criteria_budget_exhausted"] = i >= effective_max
                 _loop_guards.enforce(
                     effective_max=effective_max,
                     backstop_factor=self.config.perception_backstop_factor,
@@ -1997,6 +2027,15 @@ class AgenticLoop(TopologyPlanningMixin):
                         yield chunk
                 action_result = act_outcome.turn_result
                 state["action_result"] = action_result
+
+                # FEP-0043: mirror criteria-declared keys from this turn's tool
+                # results into state (streaming parity with the buffered _act
+                # path) so the criteria gate counts the run's own evidence.
+                _turn_tool_results = getattr(action_result, "tool_results", None)
+                if _turn_tool_results:
+                    from victor.framework.criteria_gate import mirror_criteria_state
+
+                    mirror_criteria_state(state, _turn_tool_results)
 
                 # FEP-0023 Phase 1: record the turn onto the live SessionLedger
                 # (streaming parity with run(); populates <SESSION_STATE>). No-op
@@ -2107,10 +2146,15 @@ class AgenticLoop(TopologyPlanningMixin):
             "query": query,
             "conversation_history": conversation_history,
             **(context or {}),
+            # FEP-0043: the criteria gate yields on the final funded
+            # iteration (best-effort retention over forced RETRY).
+            "_criteria_budget_exhausted": False,
         }
 
         for i in range(1, self.max_iterations + 1):
             iteration = LoopIteration(iteration=i, stage=LoopStage.PERCEIVE)
+            # FEP-0043: refresh the criteria budget marker per iteration.
+            state["_criteria_budget_exhausted"] = i >= self.max_iterations
 
             # PERCEIVE
             perception = await self._analyze_turn(query, context, conversation_history)
@@ -2762,6 +2806,12 @@ class AgenticLoop(TopologyPlanningMixin):
             if turn_result.tool_results:
                 for tr in turn_result.tool_results:
                     self.criteria_builder.record_tool_result(tr)
+                # FEP-0043: mirror criteria-declared keys from this turn's tool
+                # results into state so the criteria gate counts the run's own
+                # evidence. Opt-in by declaration; a no-op without criteria.
+                from victor.framework.criteria_gate import mirror_criteria_state
+
+                mirror_criteria_state(state, turn_result.tool_results)
 
             return turn_result
 
@@ -3140,6 +3190,9 @@ class AgenticLoop(TopologyPlanningMixin):
         auditor = getattr(self, "per_turn_auditor", None)
         if auditor is not None:
             evaluation = auditor.apply(evaluation, action_result, state)
+        criteria_gate = getattr(self, "criteria_gate", None)
+        if criteria_gate is not None:
+            evaluation = await criteria_gate.apply(evaluation, action_result, state)
         return evaluation
 
     async def _evaluate_core(
