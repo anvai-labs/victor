@@ -1226,6 +1226,11 @@ class TurnExecutor:
         from victor.framework.effect_gate import resolve_effect_gate_enabled
 
         _effect_gate = resolve_effect_gate_enabled(_settings)
+        # FEP-0043 enablement: declaring non-empty criteria in the structured
+        # run context is the caller's opt-in that turns the criteria gate on
+        # for this run. Without declared criteria the gate stays off
+        # (default-off parity); no settings registry is involved.
+        _criteria_gate = bool((run_context or {}).get("criteria"))
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
@@ -1237,6 +1242,7 @@ class TurnExecutor:
                 "executor": executor,
                 "completion_strategy": _strategy,
                 "enable_effect_gate": _effect_gate,
+                "enable_criteria_gate": _criteria_gate,
             },
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),

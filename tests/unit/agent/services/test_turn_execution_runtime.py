@@ -2277,3 +2277,105 @@ async def test_execute_agentic_loop_seeds_run_context_into_loop_state():
     # Caller keys never clobber reserved internal seeds; the merge places the
     # loop's own context dict last, so a colliding caller key loses.
     assert "query" not in captured
+
+
+def _loop_result(content: str = "done"):
+    return LoopResult(
+        success=True,
+        final_state={},
+        total_duration=0.0,
+        iterations=[
+            LoopIteration(
+                iteration=1,
+                stage=LoopStage.ACT,
+                action_result=TurnResult(
+                    response=CompletionResponse(content=content, role="assistant", tool_calls=[]),
+                    tool_results=[],
+                    has_tool_calls=False,
+                    tool_calls_count=0,
+                ),
+            )
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_enables_criteria_gate_when_criteria_declared():
+    """FEP-0043 enablement on the production loop build: declaring non-empty
+    criteria in the structured run context is the caller's opt-in that turns
+    the criteria gate on for this run."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured_config = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured_config.update(kwargs.get("config") or {})
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            max_iterations=5,
+            run_context={"criteria": {"findings": 4}},
+        )
+
+    assert captured_config.get("enable_criteria_gate") is True
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_criteria_gate_stays_off_without_criteria():
+    """No declared criteria -> the gate stays disabled (default-off parity)."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured_config = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured_config.update(kwargs.get("config") or {})
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop("hello", max_iterations=5)
+
+    assert not captured_config.get("enable_criteria_gate")
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_empty_criteria_declaration_stays_off():
+    """An empty criteria mapping is not an opt-in: nothing to enforce."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured_config = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured_config.update(kwargs.get("config") or {})
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            max_iterations=5,
+            run_context={"criteria": {}},
+        )
+
+    assert not captured_config.get("enable_criteria_gate")
