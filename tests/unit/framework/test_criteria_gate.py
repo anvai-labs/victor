@@ -535,3 +535,76 @@ async def test_buffered_run_marker_closes_the_loop_without_a_further_turn():
     assert result.success is True
     assert result.final_state["corpus_closed"] is True
     assert loop.criteria_gate.last_unmet == []
+
+
+def test_mirror_reads_raw_output_from_published_tool_result_entries():
+    """Production publication stringifies the nested payload (preview_output);
+    the mirror must still see consumer dict payloads through the retained
+    raw_output channel, or criteria/marker mirroring is test-only."""
+    from victor.framework.criteria_gate import mirror_criteria_state
+
+    state = {"complete_on_key": "corpus_closed"}
+    published = {
+        "name": "consumer_tool",
+        "success": True,
+        "args": {},
+        "result": "{'corpus_closed': True, 'status': 'draft_proposal_received'}",
+        "raw_output": {"corpus_closed": True, "status": "draft_proposal_received"},
+    }
+    mirrored = mirror_criteria_state(state, [published])
+    assert state["corpus_closed"] is True
+    assert mirrored == {"corpus_closed": True}
+
+
+def test_published_tool_results_reach_the_mirror_end_to_end():
+    """The real publication seam keeps dict outputs visible to criteria
+    mirroring: publish a dict-output tool call, then mirror and upgrade."""
+    from types import SimpleNamespace as NS
+
+    from victor.agent.services.tool_service import process_tool_results_with_context
+    from victor.agent.tool_pipeline import ToolCallResult
+    from victor.framework.criteria_gate import (
+        CriteriaGate,
+        CriteriaGateConfig,
+        mirror_criteria_state,
+    )
+
+    call = ToolCallResult(
+        tool_name="consumer_tool",
+        arguments={},
+        success=True,
+        result={"corpus_closed": True, "status": "draft_proposal_received"},
+        tool_call_id="1",
+    )
+    ctx = NS(
+        executed_tools=[],
+        observed_files=set(),
+        stream_context=None,
+        record_tool_execution=None,
+        conversation_state=None,
+        unified_tracker=None,
+        continuation_prompts=0,
+        asking_input_prompts=0,
+        usage_logger=None,
+        task_type="code_generation",
+        format_tool_output=None,
+        failed_tool_signatures=set(),
+        add_message=lambda *args, **kwargs: True,
+        require_persistence=False,
+        tool_call_id_map={},
+    )
+    published = process_tool_results_with_context(NS(results=[call]), ctx)
+    assert published[0]["success"] is True
+    state = {"complete_on_key": "corpus_closed"}
+    mirror_criteria_state(state, published)
+    assert state["corpus_closed"] is True
+    gate = CriteriaGate(CriteriaGateConfig(enabled=True))
+    gated = asyncio.run(
+        gate.apply(
+            EvaluationResult(decision=EvaluationDecision.RETRY, score=0.5, reason="r"),
+            {"disposition": None},
+            state,
+        )
+    )
+    assert gated.decision == EvaluationDecision.COMPLETE
+    assert gated.metadata["criteria_gate"]["completed_by_marker"] == "corpus_closed"

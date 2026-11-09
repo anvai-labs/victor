@@ -103,10 +103,14 @@ cascade return.
    successful tool result carrying a same-named list contributes its
    unique entries (a corrected re-proposal that re-reports prior
    entries counts once — a floor must never be met by double
-   counting) and a same-named dict merges by key. The framework never
-   interprets what a declared key collects; consumers declare the key
-   and shape their tool payloads. Opt-in by declaration and a no-op
-   without criteria; the gate itself stays a pure decision post-filter.
+   counting) and a same-named dict merges by key. Tool-result publication
+   stringifies the nested result payload for the model, so it retains the
+   raw dict output on the published entry (`raw_output`) and mirroring
+   inspects both — without this the mirroring contract is unobservable on
+   the real execution path. The framework never interprets what a
+   declared key collects; consumers declare the key and shape their tool
+   payloads. Opt-in by declaration and a no-op without criteria; the gate
+   itself stays a pure decision post-filter.
 6. Caller-declared completion marker: `run(query,
    context={"complete_on_key": "..."})` names one state key the
    consumer's own tools emit. `mirror_criteria_state` records the marker

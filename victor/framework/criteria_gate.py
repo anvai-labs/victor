@@ -91,6 +91,12 @@ def mirror_criteria_state(state: Dict[str, Any], tool_results: Any) -> Dict[str,
         nested = result.get("result")
         if isinstance(nested, Mapping):
             payloads.append(nested)
+        raw = result.get("raw_output")
+        if isinstance(raw, Mapping) and raw is not nested:
+            # Production publication stringifies the nested ``result`` payload
+            # for the model, so consumer dict payloads survive for mirroring
+            # only through the retained raw reference.
+            payloads.append(raw)
         for key in declared:
             for payload in payloads:
                 value = payload.get(key)
