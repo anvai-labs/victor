@@ -2379,3 +2379,61 @@ async def test_execute_agentic_loop_empty_criteria_declaration_stays_off():
         )
 
     assert not captured_config.get("enable_criteria_gate")
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_explicit_iteration_budget_binds_over_default_ceiling():
+    """An explicit caller iteration_budget is the caller's declared ceiling:
+    it must not be clamped to execute_agentic_loop's default max_iterations=25
+    (measured failure: a funded 32-call research run ran on 25)."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured["max_iterations"] = kwargs.get("max_iterations")
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            runtime_context_overrides={"iteration_budget": 32},
+        )
+
+    assert captured["max_iterations"] == 32
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_explicit_loop_ceiling_still_bounds_override():
+    """When a caller explicitly passes max_iterations, the explicit parameter
+    still bounds the override (min semantics preserved for explicit ceilings)."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured["max_iterations"] = kwargs.get("max_iterations")
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            max_iterations=10,
+            runtime_context_overrides={"iteration_budget": 32},
+        )
+
+    assert captured["max_iterations"] == 10
