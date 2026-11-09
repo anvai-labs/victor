@@ -85,9 +85,37 @@ def test_gate_never_fails_or_escalates():
 
 
 def test_budget_exhausted_complete_stands():
-    """Anti-spin hard rule: the gate downgrades COMPLETE to RETRY (never FAIL),
-    so a funded run always terminates with its best effort."""
+    """FEP-0043 promise: when the run context marks the iteration budget
+    exhausted, COMPLETE stands (best-effort retention over forced RETRY)."""
+    loop, gate = make_loop(enabled=True)
+    state = {"criteria": {"results": 5}, "results": ["a", "b"],
+             "_criteria_budget_exhausted": True}
+    gated = run_apply(gate, state)
+    assert gated.decision == EvaluationDecision.COMPLETE
+    assert gated.metadata["criteria_gate"]["unmet"] == ["results"]
+
+
+def test_downgrades_bounded_by_max_downgrades():
+    """After max_downgrades forced RETRYs, COMPLETE stands annotated with
+    the unmet minimums (EffectGate max_downgrades convention)."""
+    loop, gate = make_loop(enabled=True)
+    gate.config.max_downgrades = 1
+    state = {"criteria": {"results": 5}, "results": ["a", "b"]}
+    first = run_apply(gate, state)
+    assert first.decision == EvaluationDecision.RETRY
+    assert first.metadata["criteria_gate"]["downgrade"] == 1
+    second = run_apply(gate, state)
+    assert second.decision == EvaluationDecision.COMPLETE
+    assert second.metadata["criteria_gate"]["downgrades_exhausted"] is True
+
+
+def test_metrics_and_metadata_preserved_on_downgrade():
     loop, gate = make_loop(enabled=True)
     state = {"criteria": {"results": 5}, "results": ["a", "b"]}
-    gated = run_apply(gate, state)
-    assert gated.decision == EvaluationDecision.RETRY
+    evaluation = EvaluationResult(decision=EvaluationDecision.COMPLETE, score=0.9,
+        reason="r", metrics={"fulfillment_score": 0.8},
+        metadata={"successful_tool_progress": True})
+    gated = asyncio.run(gate.apply(evaluation, {"disposition": None}, state))
+    assert gated.metrics == {"fulfillment_score": 0.8}
+    assert gated.metadata.get("successful_tool_progress") is True
+    assert gated.metadata["criteria_gate"]["downgrade"] == 1

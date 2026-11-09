@@ -835,7 +835,9 @@ class AgenticLoop(TopologyPlanningMixin):
         self.criteria_builder.reset()
         # Both collaborators exist even when disabled; their state belongs to this run.
         self.effect_gate.reset()
-        self.criteria_gate.reset()
+        criteria_gate = getattr(self, "criteria_gate", None)
+        if criteria_gate is not None:
+            criteria_gate.reset()
         self.per_turn_auditor.reset()
 
     async def run(
@@ -882,6 +884,10 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
+        # funded iteration, so a best-effort run always terminates with an
+        # honest terminal report rather than a forced RETRY.
+        state["_criteria_budget_exhausted"] = False
         nudge_intent: Optional[ActionIntent] = None
 
         try:
@@ -921,6 +927,9 @@ class AgenticLoop(TopologyPlanningMixin):
 
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
+                # FEP-0043: the criteria gate yields on the final funded
+                # iteration (best-effort retention over forced RETRY).
+                state["_criteria_budget_exhausted"] = i >= effective_max
                 # Spin guards: cooperative deadline + between-iteration
                 # perception backstop. Raises LoopSpinError → caught below → FAIL.
                 # Default total_timeout=None = off (no behavior change).
@@ -1952,12 +1961,19 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
+        # funded iteration, so a best-effort run always terminates with an
+        # honest terminal report rather than a forced RETRY.
+        state["_criteria_budget_exhausted"] = False
         nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
         try:
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
+                # FEP-0043: the criteria gate yields on the final funded
+                # iteration (best-effort retention over forced RETRY).
+                state["_criteria_budget_exhausted"] = i >= effective_max
                 _loop_guards.enforce(
                     effective_max=effective_max,
                     backstop_factor=self.config.perception_backstop_factor,
