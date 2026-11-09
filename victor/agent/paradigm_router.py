@@ -393,6 +393,13 @@ class ParadigmRouter:
             confidence_hint=decision.confidence,
             tool_budget=decision.tool_budget,
             iteration_budget=int(execution_context.get("iteration_budget", 1)),
+            # FEP-0043: propagate the explicit caller budget so topology
+            # grounding preserves it over clamp heuristics.
+            caller_iteration_budget=(
+                int(execution_context["iteration_budget"])
+                if execution_context.get("iteration_budget") is not None
+                else None
+            ),
             expected_depth=self._expected_depth_from_paradigm(decision.paradigm),
             expected_breadth=self._expected_breadth(task_type, query, execution_context),
             privacy_sensitivity=str(execution_context.get("privacy_sensitivity", "medium")),

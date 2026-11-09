@@ -185,7 +185,7 @@ class EnhancedCompletionEvaluator:
 
         # === PRIORITY 1: Spin Detection (always check) ===
         if spin_detector is not None:
-            spin_result = self._check_spin_detection(spin_detector, action_result)
+            spin_result = self._check_spin_detection(spin_detector, action_result, state)
             if spin_result is not None:
                 return spin_result
 
@@ -363,14 +363,26 @@ class EnhancedCompletionEvaluator:
             logger.warning(f"Enhanced evaluation failed: {e}, falling back to legacy")
             return None
 
-    def _check_spin_detection(self, spin_detector: Any, action_result: Any = None) -> Optional[Any]:
+    def _check_spin_detection(
+        self,
+        spin_detector: Any,
+        action_result: Any = None,
+        state: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Any]:
         """Check for spin detection (agent stuck).
 
         Returns EvaluationResult if spin detected, None otherwise.
         When consecutive_no_tool_turns triggered, yields COMPLETE instead of FAIL
         if the model already provided a substantial response — that means it finished
         analysis and is delivering its answer, not that it is stuck.
+
+        FEP-0043 guided termination: while the caller declared completion
+        objectives that remain unmet and iteration budget remains, a spin
+        result degrades to CONTINUE guidance instead of terminating the run
+        (the iteration cap still bounds the loop). No declaration — every
+        decision is byte-identical to before.
         """
+        from victor.framework.criteria_gate import criteria_unmet_with_budget
         from victor.framework.evaluation_nodes import EvaluationResult
         from victor.framework.agentic_loop import SpinState
 
@@ -380,8 +392,20 @@ class EnhancedCompletionEvaluator:
         spin_state = spin_detector.state
 
         if spin_state == SpinState.TERMINATED:
+            guided = criteria_unmet_with_budget(state) if state else False
             if hasattr(spin_detector, "consecutive_all_blocked"):
                 if spin_detector.consecutive_all_blocked > 0:
+                    if guided:
+                        return EvaluationResult(
+                            decision=EvaluationDecision.CONTINUE,
+                            score=0.2,
+                            reason=(
+                                f"Spin detected: {spin_detector.consecutive_all_blocked} "
+                                "consecutive fully-blocked tool batches; caller-declared "
+                                "completion criteria are unmet with iteration budget "
+                                "remaining — continuing with guidance instead of failing"
+                            ),
+                        )
                     return EvaluationResult(
                         decision=EvaluationDecision.FAIL,
                         score=0.1,
@@ -423,6 +447,18 @@ class EnhancedCompletionEvaluator:
                         reason=(
                             f"Model generated {len(response_text)}-char knowledge "
                             f"response without tools — knowledge generation task complete"
+                        ),
+                    )
+
+                if guided:
+                    return EvaluationResult(
+                        decision=EvaluationDecision.CONTINUE,
+                        score=0.2,
+                        reason=(
+                            f"Agent stuck: {spin_detector.consecutive_no_tool_turns} "
+                            "turns without tool calls; caller-declared completion "
+                            "criteria are unmet with iteration budget remaining — "
+                            "continuing with guidance instead of failing"
                         ),
                     )
 

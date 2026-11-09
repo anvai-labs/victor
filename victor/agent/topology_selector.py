@@ -433,11 +433,18 @@ class TopologySelector:
             )
 
         if action == TopologyAction.PARALLEL_EXPLORATION:
+            # FEP-0043: an explicitly declared caller iteration budget binds
+            # over the clamp-2 heuristic (deep funded runs use it); without
+            # the override the clamp-2 default is preserved.
+            declared = getattr(decision_input, "caller_iteration_budget", None)
+            iteration_budget = (
+                declared if declared is not None else min(decision_input.iteration_budget, 2)
+            )
             return TopologyGroundingRequirements(
                 provider=provider,
                 max_workers=self._parallel_worker_count(decision_input),
                 tool_budget=decision_input.tool_budget,
-                iteration_budget=min(decision_input.iteration_budget, 2),
+                iteration_budget=iteration_budget,
                 metadata={"topology": "parallel_exploration"},
             )
 

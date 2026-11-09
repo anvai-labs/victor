@@ -669,3 +669,67 @@ class TestTopologySelector:
         assert decision.grounding_requirements.metadata[
             "experiment_memory_selection_policy_bias"
         ] == (-0.8)
+
+
+def _make_decision_input(iteration_budget=32, caller_iteration_budget=None):
+    from collections import namedtuple
+
+    DI = namedtuple(
+        "TopologyDecisionInput",
+        [
+            "query",
+            "task_type",
+            "task_complexity",
+            "confidence_hint",
+            "tool_budget",
+            "iteration_budget",
+            "expected_depth",
+            "expected_breadth",
+            "privacy_sensitivity",
+            "bandwidth_pressure",
+            "latency_sensitivity",
+            "token_cost_pressure",
+            "caller_iteration_budget",
+        ],
+    )
+    return DI(
+        query="test",
+        task_type="default",
+        task_complexity="medium",
+        confidence_hint=0.5,
+        tool_budget=10,
+        iteration_budget=iteration_budget,
+        expected_depth="medium",
+        expected_breadth="medium",
+        privacy_sensitivity="medium",
+        bandwidth_pressure="medium",
+        latency_sensitivity="medium",
+        token_cost_pressure="medium",
+        caller_iteration_budget=caller_iteration_budget,
+    )
+
+
+def test_parallel_exploration_preserves_declared_caller_budget():
+    """FEP-0043: an explicitly declared caller iteration budget binds over
+    the clamp-2 heuristic for PARALLEL_EXPLORATION (deep funded runs)."""
+    selector = TopologySelector()
+    decision_input = _make_decision_input(iteration_budget=32, caller_iteration_budget=32)
+    requirements = selector._build_grounding(
+        decision_input=decision_input,
+        action=TopologyAction.PARALLEL_EXPLORATION,
+        provider="test",
+        formation=None,
+    )
+    assert requirements.iteration_budget == 32
+
+
+def test_parallel_exploration_default_clamp_unchanged_without_override():
+    selector = TopologySelector()
+    decision_input = _make_decision_input(iteration_budget=32)
+    requirements = selector._build_grounding(
+        decision_input=decision_input,
+        action=TopologyAction.PARALLEL_EXPLORATION,
+        provider="test",
+        formation=None,
+    )
+    assert requirements.iteration_budget == 2, "clamp-2 default preserved"

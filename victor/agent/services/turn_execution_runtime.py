@@ -470,15 +470,22 @@ class TurnExecutor:
     async def execute_agentic_loop(
         self,
         user_message: str,
-        max_iterations: int = 25,
+        max_iterations: Optional[int] = None,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        run_context: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """Execute the full agentic loop via the canonical AgenticLoop runtime.
 
         Args:
             user_message: Initial user message
-            max_iterations: Maximum model turns
+            max_iterations: Maximum model turns; None (default) means the
+                caller set no explicit loop ceiling, so an explicit
+                runtime_context_overrides iteration_budget binds absolutely
+                (a legacy positional default here must not clamp a funded
+                caller budget). An explicit value still bounds the override.
             runtime_context_overrides: Scoped runtime hints to apply to turns in this loop
+            run_context: Structured caller context seeded into the loop's state
+                (FEP-0043 criteria gating). Internal loop seeds win for reserved keys.
 
         Returns:
             CompletionResponse with complete response
@@ -515,6 +522,7 @@ class TurnExecutor:
             user_message,
             max_iterations,
             runtime_context_overrides=runtime_context_overrides,
+            run_context=run_context,
             executor=executor,
         )
 
@@ -1164,8 +1172,9 @@ class TurnExecutor:
     async def _execute_via_agentic_loop(
         self,
         user_message: str,
-        max_iterations: int,
+        max_iterations: Optional[int],
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        run_context: Optional[Dict[str, Any]] = None,
         executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO,
     ) -> CompletionResponse:
         """Delegate execution to AgenticLoop for enhanced evaluation.
@@ -1198,7 +1207,15 @@ class TurnExecutor:
             else getattr(self._chat_context.settings, "chat_max_iterations", 50)
         )
         task_budget = max(task_classification.tool_budget * 2, 1)
-        iteration_budget = min(task_budget, max_iterations_setting, max_iterations)
+        # Explicit caller budget binds; an EXPLICIT loop ceiling still bounds
+        # it (min), the legacy positional default does not (FEP-0043).
+        loop_ceiling = 25 if max_iterations is None else max_iterations
+        if iter_override is not None:
+            iteration_budget = (
+                iter_override if max_iterations is None else min(iter_override, loop_ceiling)
+            )
+        else:
+            iteration_budget = min(task_budget, max_iterations_setting, loop_ceiling)
 
         # Create AgenticLoop with self as turn_executor
         # Use a lightweight mock orchestrator since AgenticLoop only needs
@@ -1215,6 +1232,11 @@ class TurnExecutor:
         from victor.framework.effect_gate import resolve_effect_gate_enabled
 
         _effect_gate = resolve_effect_gate_enabled(_settings)
+        # FEP-0043 enablement: declaring non-empty criteria in the structured
+        # run context is the caller's opt-in that turns the criteria gate on
+        # for this run. Without declared criteria the gate stays off
+        # (default-off parity); no settings registry is involved.
+        _criteria_gate = bool((run_context or {}).get("criteria"))
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
@@ -1226,6 +1248,7 @@ class TurnExecutor:
                 "executor": executor,
                 "completion_strategy": _strategy,
                 "enable_effect_gate": _effect_gate,
+                "enable_criteria_gate": _criteria_gate,
             },
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
@@ -1250,6 +1273,11 @@ class TurnExecutor:
             context["runtime_context_overrides"] = dict(runtime_context_overrides)
         conversation_history = self._get_agentic_loop_conversation_history(user_message)
 
+        # FEP-0043: seed the caller's structured run context into the loop's
+        # initial state. Internal seeds merge after caller keys so reserved
+        # keys (task classification, budgets, overrides) can never be clobbered.
+        if run_context:
+            context = {**run_context, **context}
         loop_run_kwargs = {"context": context}
         if conversation_history is not None and self._agentic_loop_accepts_conversation_history(
             loop

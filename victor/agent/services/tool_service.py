@@ -473,6 +473,12 @@ def process_tool_results_with_context(
                         "args": normalized_args,
                         "result": preview_output,
                         "full_result": full_output,
+                        # FEP-0043: the formatted result/full_result are strings, so
+                        # consumer dict payloads (criteria keys, completion markers)
+                        # survive for state mirroring only through this retained
+                        # reference. Never sent to the model; bounded by the same
+                        # output the pipeline already holds.
+                        "raw_output": output if isinstance(output, dict) else None,
                         # Compact structured hits (path/symbol) for downstream novelty +
                         # fulfillment accounting — the formatted result/full_result are strings,
                         # so the raw search hits are only recoverable here from `output`.

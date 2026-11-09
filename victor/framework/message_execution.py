@@ -310,6 +310,7 @@ async def _invoke_chat(
     stream: bool = False,
     forward_stream_option: bool = False,
     runtime_context_overrides: Optional[Mapping[str, Any]] = None,
+    run_context: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     """Invoke the runtime chat entrypoint with compatibility-aware kwargs."""
     chat_callable = runtime.chat
@@ -319,6 +320,12 @@ async def _invoke_chat(
         chat_callable, "runtime_context_overrides"
     ):
         kwargs["runtime_context_overrides"] = dict(runtime_context_overrides)
+
+    if run_context and _supports_keyword_argument(chat_callable, "run_context"):
+        # FEP-0043: forward the structured caller context alongside the
+        # flattened prompt text so the loop's state can seed it (criteria
+        # gating). Runtimes that predate the keyword are untouched.
+        kwargs["run_context"] = dict(run_context)
 
     if forward_stream_option and _supports_keyword_argument(chat_callable, "stream"):
         kwargs["stream"] = stream
@@ -359,6 +366,7 @@ async def execute_message(
                 stream=stream,
                 forward_stream_option=forward_stream_option,
                 runtime_context_overrides=runtime_context_overrides,
+                run_context=context,
             ),
             default_model=getattr(orchestrator, "model", "unknown"),
         )
