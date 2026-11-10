@@ -818,3 +818,74 @@ async def test_recovery_status_cannot_complete_but_next_answer_can():
     assert len(turns) == 2
     assert chunks[-1].metadata["agentic_loop_success"] is True
     assert chunks[-1].metadata["agentic_loop_iterations"] == 2
+
+
+async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget_yields():
+    """FEP-0043 streaming parity: the criteria gate is ACTIVE on the shared
+    EVALUATE seam during run_streaming — an ungrounded COMPLETE with unmet
+    caller minimums downgrades to RETRY, and the budget-exhausted terminal
+    COMPLETE stands (same contract as the buffered run)."""
+    from types import SimpleNamespace as NS
+    from unittest.mock import AsyncMock, MagicMock
+
+    from victor.agent.action_authorizer import ActionIntent
+    from victor.agent.services.turn_execution_runtime import TurnResult
+    from victor.framework.perception_integration import Perception
+    from victor.framework.task.protocols import TaskComplexity
+
+    class Port:
+        async def stream_turn_act(self, *, query, state, perception, plan, turn_index, outcome):
+            yield StreamChunk(content="thin")
+            outcome.turn_result = TurnResult(
+                response=MagicMock(content="thin"),
+                tool_results=[{"tool_name": "t", "args": {}, "success": True, "findings": ["f1"]}],
+                has_tool_calls=True,
+                tool_calls_count=1,
+            )
+
+    executor = NS(execute_turn=AsyncMock())
+    loop = AgenticLoop(
+        orchestrator=MagicMock(spec=[]),
+        turn_executor=executor,
+        max_iterations=2,
+        enable_adaptive_iterations=False,
+        enable_fulfillment_check=False,
+        streaming_act_port=Port(),
+        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+    )
+    loop._analyze_turn = AsyncMock(
+        return_value=Perception(
+            intent=ActionIntent.WRITE_ALLOWED,
+            complexity=TaskComplexity.MEDIUM,
+            task_analysis=MagicMock(task_type="code_generation"),
+            confidence=0.8,
+        )
+    )
+    loop._plan = AsyncMock(return_value={})
+    decisions = []
+    real_gate_apply = loop.criteria_gate.apply
+
+    async def spying_apply(evaluation, action_result, state):
+        gated = await real_gate_apply(evaluation, action_result, state)
+        decisions.append((gated.decision, dict(gated.metadata)))
+        return gated
+
+    loop.criteria_gate.apply = spying_apply
+    loop._evaluate_core = AsyncMock(
+        return_value=EvaluationResult(
+            decision=EvaluationDecision.COMPLETE, score=0.9, reason="done"
+        )
+    )
+
+    chunks = [c async for c in loop.run_streaming("collect", context={"criteria": {"findings": 5}})]
+
+    # Iteration 1: downgrade 1/2; iteration 2 (budget exhausted): COMPLETE stands.
+    assert [d[0] for d in decisions] == [EvaluationDecision.RETRY, EvaluationDecision.COMPLETE]
+    assert decisions[0][1]["criteria_gate"]["downgrade"] == 1
+    assert decisions[1][1]["criteria_gate"]["budget_exhausted"] is True
+    # The caller's declared criteria seeded the streaming loop state (the
+    # final budget-exhausted COMPLETE stands annotated — last_unmet retains
+    # the floor, mirroring the buffered best-effort contract).
+    assert loop.criteria_gate.last_unmet == ["findings"]
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata["agentic_loop_success"] is True

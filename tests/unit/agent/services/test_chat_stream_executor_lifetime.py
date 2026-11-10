@@ -471,3 +471,83 @@ async def test_unified_executor_stops_before_next_dispatch_after_cancellation(
         user_satisfied=False,
         completed=False,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "criteria,overrides,expect_gate,expect_context",
+    [
+        ({"findings": 5}, {"tool_budget": 134}, True, True),
+        (None, None, False, False),
+    ],
+)
+async def test_unified_executor_resolves_criteria_gate_and_seeds_run_context(
+    monkeypatch, criteria, overrides, expect_gate, expect_context
+):
+    """FEP-0043 streaming parity: run_unified enables the criteria gate from
+    declared criteria (buffered resolution rule) and seeds run_streaming's
+    state with the caller run context (reserved override keys last). Without
+    any caller context, run_streaming is called context-less (byte-identical)."""
+    from victor.agent.services.chat_stream_executor import StreamingChatExecutor
+
+    captured = {}
+
+    class Loop:
+        def __init__(self, **kwargs):
+            captured["loop_kwargs"] = kwargs
+
+        async def run_streaming(self, *args, **kwargs):
+            captured["run_kwargs"] = dict(kwargs)
+            yield StreamChunk(
+                content="done", is_final=True, metadata={"agentic_loop_success": True}
+            )
+
+    owner = SimpleNamespace(_message_policy_gate=None, settings=None, turn_executor=None)
+    lifecycle_runtime = SimpleNamespace(
+        is_cancelled=lambda: False,
+        finish=lambda: None,
+    )
+    executor = StreamingChatExecutor(
+        SimpleNamespace(
+            _orchestrator=owner,
+            services=SimpleNamespace(
+                governance=ChatGovernance(),
+                stream_lifecycle=ChatStreamLifecycle(lifecycle_runtime),
+            ),
+        )
+    )
+    monkeypatch.setattr(executor, "_get_conversation_history", lambda *args: [])
+    monkeypatch.setattr(
+        StreamingActAdapter,
+        "prepare",
+        AsyncMock(return_value=SimpleNamespace(session=SimpleNamespace(stream_ctx=None))),
+    )
+    monkeypatch.setattr(
+        "victor.framework.agentic_loop.AgenticLoop", lambda **kwargs: Loop(**kwargs)
+    )
+    monkeypatch.setattr(
+        "victor.agent.services.judge_calibration_gate.resolve_completion_strategy",
+        lambda *args: "enhanced",
+    )
+    monkeypatch.setattr("victor.framework.effect_gate.resolve_effect_gate_enabled", lambda _: False)
+    monkeypatch.setattr(
+        "victor.framework.per_turn_auditor.resolve_per_turn_auditor_enabled", lambda _: False
+    )
+
+    kwargs = {}
+    if criteria is not None:
+        kwargs["run_context"] = {"criteria": criteria}
+    if overrides is not None:
+        kwargs["runtime_context_overrides"] = overrides
+    async for _ in executor.run_unified("q", **kwargs):
+        pass
+
+    config = captured["loop_kwargs"]["config"]
+    assert config["enable_criteria_gate"] is expect_gate
+
+    loop_context = captured["run_kwargs"].get("context")
+    if expect_context:
+        assert loop_context["criteria"] == criteria
+        assert loop_context["runtime_context_overrides"] == overrides
+    else:
+        assert loop_context is None

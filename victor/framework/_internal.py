@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
+from unittest.mock import Mock
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -528,11 +530,35 @@ async def _merge_orchestrator_and_members(
                     await task
 
 
+def _supports_keyword_argument(callable_obj: Any, argument: str) -> bool:
+    """Return whether a callable accepts a given keyword or arbitrary kwargs.
+
+    Shared by the buffered (``chat``) and streaming (``stream_chat``) runtime
+    seams so legacy runtimes that predate a keyword drop it silently instead
+    of raising TypeError.
+    """
+    if isinstance(callable_obj, Mock):
+        return True
+
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return False
+
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+
+    return argument in signature.parameters
+
+
 async def stream_with_events(
     orchestrator: Any,
     prompt: str,
     *,
     response_prompt: Optional[str] = None,
+    runtime_context_overrides: Optional[Dict[str, Any]] = None,
+    run_context: Optional[Dict[str, Any]] = None,
 ) -> AsyncIterator[AgentExecutionEvent]:
     """Stream orchestrator response as framework AgentExecutionEvents.
 
@@ -545,10 +571,18 @@ async def stream_with_events(
     :func:`_merge_orchestrator_and_members`. With no team running, the sink stays empty and
     the emitted event sequence is byte-identical to the single-agent path.
 
+    FEP-0043 streaming parity: ``runtime_context_overrides`` (scoped caller
+    runtime hints) and ``run_context`` (the structured caller context, e.g.
+    declared completion criteria) are forwarded to the runtime's
+    ``stream_chat`` when it accepts them; legacy runtimes drop both silently
+    (signature sniffing, same compatibility guard as the buffered ``chat``).
+
     Args:
         orchestrator: AgentOrchestrator instance
         prompt: Prompt sent to the runtime
         response_prompt: Original user prompt for output normalization
+        runtime_context_overrides: Optional scoped runtime hints for this turn
+        run_context: Optional structured caller context seeded into loop state
 
     Yields:
         AgentExecutionEvent objects representing agent actions
@@ -565,8 +599,18 @@ async def stream_with_events(
     yield stream_start_event()
 
     try:
+        # FEP-0043 streaming parity: sniff before forwarding so legacy
+        # stream_chat(message-only) runtimes drop the new kwargs silently.
+        stream_kwargs: Dict[str, Any] = {}
+        if runtime_context_overrides and _supports_keyword_argument(
+            orchestrator.stream_chat, "runtime_context_overrides"
+        ):
+            stream_kwargs["runtime_context_overrides"] = dict(runtime_context_overrides)
+        if run_context and _supports_keyword_argument(orchestrator.stream_chat, "run_context"):
+            stream_kwargs["run_context"] = dict(run_context)
+
         async for tag, item in _merge_orchestrator_and_members(
-            orchestrator.stream_chat(prompt), sink
+            orchestrator.stream_chat(prompt, **stream_kwargs), sink
         ):
             if tag == "member":
                 member_ev: MemberEvent = item
