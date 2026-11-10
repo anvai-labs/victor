@@ -134,9 +134,7 @@ class StaticEmbeddingCollection:
 
         # In-memory data
         self._items: Dict[str, CollectionItem] = {}
-        # String annotation: an attribute-target annotation is evaluated at
-        # runtime, and ``np`` is still None until first vector math.
-        self._embeddings: "Optional[np.ndarray]" = None
+        self._embeddings: Optional[np.ndarray] = None
         self._item_ids: List[str] = []  # Maps index to item ID
         self._items_hash: Optional[str] = None
         self._initialization_lock = asyncio.Lock()
@@ -190,6 +188,10 @@ class StaticEmbeddingCollection:
         Returns:
             True if loaded successfully, False otherwise
         """
+        # Embedding validation needs numpy; without it a valid cache would fail
+        # with AttributeError inside load_validated_data and be deleted as a
+        # "load error" before the record/ID-list checks ever run.
+        _ensure_numpy()
 
         def _check_version(cache_data: Dict[str, Any]) -> CacheValidation:
             # 1. Check cache version (breaking changes to format)

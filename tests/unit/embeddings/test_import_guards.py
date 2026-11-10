@@ -123,6 +123,18 @@ _BLOCK_NUMPY = """
         return real_import(name, globals, locals, fromlist, level)
 
     builtins.__import__ = guarded
+
+    import importlib.abc
+    import sys
+
+    class _RefuseNumpy(importlib.abc.MetaPathFinder):
+        # Also covers importlib.import_module(), which bypasses __import__.
+        def find_spec(self, name, path=None, target=None):
+            if name.split(".")[0] in {"numpy", "sentence_transformers"}:
+                raise ModuleNotFoundError(f"No module named {name!r} (blocked)")
+            return None
+
+    sys.meta_path.insert(0, _RefuseNumpy())
 """
 
 

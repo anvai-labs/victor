@@ -442,7 +442,7 @@ jobs:
         run: |
           .venv-bare/bin/victor --version
           .venv-bare/bin/victor --help > /dev/null
-          .venv-bare/bin/python - <<'PY'
+          .venv-bare/bin/python -I - <<'PY'
           from importlib.resources import files
 
           from victor.processing.native import batch_cosine_similarity
@@ -465,8 +465,10 @@ jobs:
         # --version/--help never build an agent; 0.27.0 shipped with every
         # `victor chat` failing "No module named 'numpy'" because agent
         # creation constructed the IntentClassifier's numpy-backed collections.
+        # -I: isolated mode keeps the checkout's ./victor off sys.path so the
+        # installed wheel (not the source tree) is what gets exercised.
         run: |
-          .venv-bare/bin/python - <<'PY'
+          .venv-bare/bin/python -I - <<'PY'
           import asyncio
 
           from victor.framework import Agent
