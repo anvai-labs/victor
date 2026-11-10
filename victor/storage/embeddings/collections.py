@@ -113,8 +113,13 @@ class StaticEmbeddingCollection:
             name: Collection name (used for cache file naming)
             cache_dir: Directory for cache files (default: ~/.victor/embeddings/)
             embedding_service: Shared embedding service (uses singleton if not provided)
+
+        Construction never imports numpy: agent creation builds these collections
+        unconditionally (via IntentClassifier), and a bare ``pip install victor-ai``
+        ships no numpy. numpy is imported on first vector math instead
+        (initialization, cache load, search), where the embedding model it serves
+        is required anyway.
         """
-        _ensure_numpy()
         from victor.config.settings import get_project_paths
 
         self.name = name
@@ -129,7 +134,9 @@ class StaticEmbeddingCollection:
 
         # In-memory data
         self._items: Dict[str, CollectionItem] = {}
-        self._embeddings: Optional[np.ndarray] = None
+        # String annotation: an attribute-target annotation is evaluated at
+        # runtime, and ``np`` is still None until first vector math.
+        self._embeddings: "Optional[np.ndarray]" = None
         self._item_ids: List[str] = []  # Maps index to item ID
         self._items_hash: Optional[str] = None
         self._initialization_lock = asyncio.Lock()
@@ -334,6 +341,7 @@ class StaticEmbeddingCollection:
         Args:
             items: List of collection items
         """
+        _ensure_numpy()
         async with self._initialization_lock:
             if not items:
                 dimension = self.embedding_service.dimension
@@ -369,6 +377,7 @@ class StaticEmbeddingCollection:
         """
         if self._initialization_lock.locked():
             raise RuntimeError("Cannot initialize synchronously during asynchronous initialization")
+        _ensure_numpy()
         if not items:
             logger.debug(f"Collection '{self.name}': initialized with empty items")
             dimension = self.embedding_service.dimension
@@ -406,6 +415,7 @@ class StaticEmbeddingCollection:
         self, query_embedding, query, top_k, threshold, use_weighted_similarity
     ):
         """Shared similarity computation for sync/async search."""
+        _ensure_numpy()
         if use_weighted_similarity:
             corpus_texts = [self._items[pid].text for pid in self._item_ids]
             similarities = EmbeddingService.weighted_cosine_similarity(

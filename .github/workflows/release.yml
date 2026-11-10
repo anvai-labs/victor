@@ -461,6 +461,30 @@ jobs:
           print("BARE_INSTALL_OK")
           PY
 
+      - name: Prove agent creation works without numpy
+        # --version/--help never build an agent; 0.27.0 shipped with every
+        # `victor chat` failing "No module named 'numpy'" because agent
+        # creation constructed the IntentClassifier's numpy-backed collections.
+        run: |
+          .venv-bare/bin/python - <<'PY'
+          import asyncio
+
+          from victor.framework import Agent
+
+
+          async def main() -> None:
+              # Construction must need neither numpy nor a reachable provider.
+              agent = await Agent.create(provider="ollama", model="bare-smoke")
+              assert agent is not None
+              close = getattr(agent, "close", None)
+              if close is not None:
+                  await close()
+              print("BARE_AGENT_OK")
+
+
+          asyncio.run(main())
+          PY
+
       - name: Distribution metrics gates (size / CLI timings / numpy absent)
         run: |
           # Timing budgets are runner-realistic (shared runners are ~2x slower
