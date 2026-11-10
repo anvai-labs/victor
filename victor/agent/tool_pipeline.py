@@ -62,6 +62,7 @@ from victor.agent.output_aggregator import (
 )
 from victor.core.errors import ErrorInfo, ErrorCategory, ErrorSeverity
 from victor.core.budget_observability import record_budget_refusal
+from victor.core.tool_budget_ledger import ToolBudgetLedger
 from victor.core.completion_tools import CompletionToolPolicy
 from victor.agent.synthesis_checkpoint import (
     CompositeSynthesisCheckpoint,
@@ -160,6 +161,16 @@ class ToolPipelineConfig:
     # failing call, semantic redundancy): its call executes so the caller's
     # run can finish. Default empty = every skip path behaves as before.
     completion_tool_names: Tuple[str, ...] = ()
+
+    # Output-aggregator truncation ceiling, DECOUPLED from tool_budget (audit
+    # Cluster 1: the same config value doubling as max_results meant a budget
+    # raise silently changed output truncation). None resolves to the
+    # configured tool_budget at construction for exact legacy parity.
+    max_results: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.max_results is None:
+            self.max_results = self.tool_budget
 
 
 # Tools that are safe to cache (read-only, deterministic for same arguments)
@@ -674,7 +685,7 @@ class ToolPipeline:
         self._synthesis_checkpoint: Optional[CompositeSynthesisCheckpoint] = None
         if self.config.enable_output_aggregation:
             self._output_aggregator = OutputAggregator(
-                max_results=self.config.tool_budget,
+                max_results=self.config.max_results,
                 stale_threshold_seconds=60.0,
             )
         if self.config.enable_synthesis_checkpoints:
@@ -684,6 +695,10 @@ class ToolPipeline:
 
         # State tracking
         self._calls_used = 0
+        # Run-scoped budget ledger (victor.core.tool_budget_ledger). None =
+        # legacy config.tool_budget/_calls_used accounting; bound, every
+        # admission seam reads ceiling/used through it.
+        self._budget_ledger: Optional[ToolBudgetLedger] = None
         # In-memory failed signatures for session-only tracking (backward compatible)
         # When signature_store is provided, it's used for persistent cross-session tracking
         self._failed_signatures: Set[tuple] = set()
@@ -751,34 +766,72 @@ class ToolPipeline:
 
     @property
     def calls_used(self) -> int:
-        """Number of tool calls used."""
+        """Number of tool calls used (ledger-backed when a ledger is bound)."""
+        if self._budget_ledger is not None:
+            return self._budget_ledger.used
         return self._calls_used
 
     @property
     def calls_remaining(self) -> int:
         """Number of tool calls remaining in budget."""
-        return max(0, self.config.tool_budget - self._calls_used)
+        return max(0, self.tool_budget - self.calls_used)
 
     @property
     def tool_budget(self) -> int:
         """Configured maximum tool budget for the current turn."""
+        if self._budget_ledger is not None:
+            return self._budget_ledger.ceiling
         return self.config.tool_budget
+
+    @property
+    def budget_ledger(self) -> Optional[ToolBudgetLedger]:
+        """The run-scoped budget ledger when one is bound; None otherwise."""
+        return self._budget_ledger
 
     @property
     def executed_tools(self) -> List[str]:
         """List of executed tool names."""
         return list(self._executed_tools)
 
+    def fund_budget(self, ceiling: int) -> ToolBudgetLedger:
+        """Fund the run-scoped ledger: create on first funding, retarget after.
+
+        First funding starts usage at zero, so prior session usage recorded in
+        the legacy cumulative ``_calls_used`` counter is NOT subtracted from
+        the funded ceiling (the measured 134-funded run refused at ~55-60
+        calls). Later fundings retarget without resetting the run's usage.
+        """
+        if ceiling < 0:
+            raise ValueError(f"Tool budget must be non-negative: {ceiling}")
+        ledger = self._budget_ledger
+        if ledger is None:
+            ledger = ToolBudgetLedger(max(0, int(ceiling)), scope="run")
+            self._budget_ledger = ledger
+        else:
+            ledger.retarget(int(ceiling))
+        return ledger
+
     def set_tool_budget(self, budget: int) -> None:
-        """Update the configured tool budget limit."""
+        """Update the active tool budget limit.
+
+        Ledger-bound this retargets the run's funded ceiling WITHOUT resetting
+        usage (re-funding across a funded run); unbound it keeps the legacy
+        config mutation. Either way the output-aggregator truncation ceiling
+        (``config.max_results``) is deliberately untouched: the audit's
+        coupling surprise — a budget raise silently changing output
+        truncation — is killed.
+        """
         if budget < 0:
             raise ValueError(f"Tool budget must be non-negative: {budget}")
-        self.config.tool_budget = budget
-        if self._output_aggregator is not None and hasattr(self._output_aggregator, "_max_results"):
-            self._output_aggregator._max_results = budget
+        if self._budget_ledger is not None:
+            self._budget_ledger.retarget(budget)
+        else:
+            self.config.tool_budget = budget
 
     def start_new_turn(self) -> None:
         """Reset per-turn budget counters while preserving caches and learned state."""
+        if self._budget_ledger is not None:
+            self._budget_ledger.reset()
         self._calls_used = 0
         self.last_batch_all_skipped = False
         self.last_batch_effectively_blocked = False
@@ -787,11 +840,15 @@ class ToolPipeline:
         """Record externally executed tool usage against the shared turn budget."""
         if amount < 0:
             raise ValueError(f"Cannot consume negative tool budget: {amount}")
+        if self._budget_ledger is not None:
+            self._budget_ledger.consume(amount)
         self._calls_used += amount
 
     def reset(self) -> None:
         """Reset pipeline state for new conversation."""
         self._calls_used = 0
+        # A new conversation must not inherit a prior run's funding.
+        self._budget_ledger = None
         self._failed_signatures.clear()
         self._executed_tools.clear()
         self._recent_code_navigation_hints.clear()
@@ -2149,8 +2206,8 @@ class ToolPipeline:
         ) or "unknown"
         record_budget_refusal(
             "pipeline",
-            self.config.tool_budget,
-            self._calls_used,
+            self.tool_budget,
+            self.calls_used,
             tool_name=tool_name,
             outcome_kind="budget_exhausted",
         )
@@ -2212,7 +2269,7 @@ class ToolPipeline:
         self._last_dispatch_used_parallelism = False
         self._last_dispatch_speedup = 1.0
 
-        remaining_budget = max(0, self.config.tool_budget - self._calls_used)
+        remaining_budget = max(0, self.tool_budget - self.calls_used)
 
         def _may_dispatch(admitted_count: int) -> bool:
             # The very first call this dispatch attempts ALWAYS gets to
@@ -2456,8 +2513,8 @@ class ToolPipeline:
         # empty (or fully pre-deduplicated-away) batch on an
         # already-exhausted session budget didn't itself exhaust anything,
         # so it must not report budget_exhausted=True.
-        if unique_calls_iter and self._calls_used >= self.config.tool_budget:
-            record_budget_refusal("pipeline", self.config.tool_budget, self._calls_used)
+        if unique_calls_iter and self.calls_used >= self.tool_budget:
+            record_budget_refusal("pipeline", self.tool_budget, self.calls_used)
             result.budget_exhausted = True
 
         # Add skipped results for duplicates (reuse first occurrence's result)
@@ -2863,7 +2920,9 @@ class ToolPipeline:
             mark_unknown_tool_outcome(exec_result.error_info)
             exec_result.error = exec_result.error_info.to_user_message()
 
-        # Update state
+        # Update state (ledger-backed when a run ledger is bound)
+        if self._budget_ledger is not None:
+            self._budget_ledger.consume()
         self._calls_used += 1
         self._executed_tools.append(call.tool_name)
 
@@ -3000,13 +3059,13 @@ class ToolPipeline:
 
         # Check budget
         if (
-            self._calls_used >= self.config.tool_budget
+            self.calls_used >= self.tool_budget
             and not self._completion_tools.is_completion_critical(tool_name)
         ):
             record_budget_refusal(
                 "pipeline",
-                self.config.tool_budget,
-                self._calls_used,
+                self.tool_budget,
+                self.calls_used,
                 tool_name=tool_name,
                 outcome_kind="budget_exhausted",
             )
@@ -3858,8 +3917,8 @@ class ToolPipeline:
             Dictionary with analytics data
         """
         return {
-            "total_calls": self._calls_used,
-            "budget": self.config.tool_budget,
+            "total_calls": self.calls_used,
+            "budget": self.tool_budget,
             "remaining": self.calls_remaining,
             "tools": dict(self._tool_stats),
         }

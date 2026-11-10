@@ -53,7 +53,7 @@ from victor.agent.services.runtime_overrides import (
     OverrideRestorationError,
     apply_overrides,
     attribute_change,
-    budget_changes,
+    extend_budget_funding,
     restore_overrides,
     mark_override_failed,
     override_failed,
@@ -808,10 +808,11 @@ class ChatStreamHelperMixin:
             )
         ]
         tool_budget = self._coerce_stream_int_override(overrides.get("tool_budget"))
+        undo_funding = None
         if tool_budget is not None:
-            changes.extend(budget_changes(orch, None, tool_budget))
+            undo_funding = extend_budget_funding(changes, orch, None, tool_budget)
         try:
-            return apply_overrides(changes)
+            return apply_overrides(changes, extra_undo=undo_funding)
         except OverrideRestorationError:
             mark_override_failed(self)
             mark_override_failed(orch)
