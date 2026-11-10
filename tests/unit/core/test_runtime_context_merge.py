@@ -18,7 +18,7 @@ One precedence rule for both paths: derived plans may add keys but never
 replace caller-bound budget keys (seam-duplication audit Cluster 4)."""
 
 from victor.framework.agentic_loop import AgenticLoop
-from victor.framework.loop.runtime_context import (
+from victor.core.runtime_context import (
     CALLER_BOUND_OVERRIDE_KEYS,
     collect_runtime_context_overrides,
     merge_runtime_context_overrides,

@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Agentic-loop support modules (guards, runtime-context merge, telemetry) kept out of the hotspot."""
+"""Agentic-loop support modules (guards, telemetry) kept out of the hotspot."""

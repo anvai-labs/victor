@@ -41,7 +41,7 @@ from victor.core.task.direct_response import classify_direct_response_prompt
 from victor.agent.request_scope_heuristics import (
     is_ambiguous_write_followup_request,
 )
-from victor.framework.loop.runtime_context import merge_runtime_context_overrides
+from victor.core.runtime_context import merge_runtime_context_overrides
 from victor.framework.topology_runtime import prepare_topology_runtime_contract
 from victor.core.task.protocols import TaskComplexity
 from victor.core.provider_messages import StreamChunk
