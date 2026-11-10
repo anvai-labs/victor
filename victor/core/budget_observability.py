@@ -8,6 +8,9 @@ structured log line carrying the (owner, ceiling, used) triad read from
 that owner's own accounting at refusal time, so budget divergence is
 diagnosable from logs alone.
 
+Deployment note: capture these triads by enabling INFO for the
+``victor.budget`` logger - default WARNING root configs drop them.
+
 Pure observability: recording a refusal never changes refusal behavior,
 strings, or outcome kinds. Lines are INFO (these are informational
 refusals, not errors) on the ``victor.budget`` logger with a stable
