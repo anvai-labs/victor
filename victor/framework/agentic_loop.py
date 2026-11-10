@@ -117,12 +117,12 @@ _AgenticLoopGraphExecutor = None
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_CONTEXT_OVERRIDES_STATE_KEY = "runtime_context_overrides"
-LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY = "topology_overrides"
-# Budget keys a caller (or the first derived plan) declared in
-# runtime_context_overrides bind for the whole run: later derived plans may
-# add keys but never replace these (see _merge_runtime_context_overrides).
-CALLER_BOUND_OVERRIDE_KEYS = ("tool_budget", "iteration_budget")
+from victor.core.runtime_context import (
+    LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY,
+    RUNTIME_CONTEXT_OVERRIDES_STATE_KEY,
+    collect_runtime_context_overrides,
+    merge_runtime_context_overrides,
+)
 
 # =============================================================================
 # Enums for Agentic Loop Decisions
@@ -2218,14 +2218,7 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Return merged generic runtime overrides with legacy topology fallback."""
-        merged: Dict[str, Any] = {}
-        legacy_overrides = state.get(LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY)
-        if isinstance(legacy_overrides, dict):
-            merged.update(legacy_overrides)
-        runtime_overrides = state.get(RUNTIME_CONTEXT_OVERRIDES_STATE_KEY)
-        if isinstance(runtime_overrides, dict):
-            merged.update(runtime_overrides)
-        return merged or None
+        return collect_runtime_context_overrides(state)
 
     @classmethod
     def _merge_runtime_context_overrides(
@@ -2235,27 +2228,14 @@ class AgenticLoop(TopologyPlanningMixin):
     ) -> Dict[str, Any]:
         """Merge new overrides into existing generic runtime override state.
 
-        Budget keys already present in state bind for the whole run: derived
-        plans re-emit the budgets they were handed (topology planning grounds
-        its decision from the loop-build service snapshot), and letting those
-        echoes win silently lowered a caller's funded
-        ``runtime_context_overrides`` budget — a 134-call override collapsed
-        to the 50-call service default and the run starved mid-flight while
-        still funded. Derived keys that are absent (formation hints, team
-        names, worktree paths) still merge normally.
+        Delegates to the shared merge helper so the streaming topology merge
+        and this buffered state merge follow one precedence rule: caller-bound
+        budget keys (tool_budget, iteration_budget) bind for the whole run,
+        derived keys merge normally (FEP-0043 streaming parity).
         """
-        merged = dict(cls._get_runtime_context_overrides(state) or {})
-        for key, value in dict(overrides).items():
-            if key in CALLER_BOUND_OVERRIDE_KEYS and key in merged:
-                logger.debug(
-                    "Runtime override merge keeps existing %s=%s over derived %s",
-                    key,
-                    merged[key],
-                    value,
-                )
-                continue
-            merged[key] = value
-        return merged
+        return merge_runtime_context_overrides(
+            cls._get_runtime_context_overrides(state) or {}, overrides
+        )
 
     @staticmethod
     def _set_runtime_context_overrides(
