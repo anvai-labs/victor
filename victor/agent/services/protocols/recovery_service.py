@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import (
     Any,
+    Callable,
     Dict,
     List,
     Optional,
@@ -314,8 +315,13 @@ class RecoveryServiceProtocol(Protocol):
         self,
         ctx: Any,
         all_blocked: bool,
+        guided_check: Optional[Callable[[], bool]] = None,
     ) -> Any:
-        """Check whether blocked-tool thresholds require recovery action."""
+        """Check whether blocked-tool thresholds require recovery action.
+
+        ``guided_check`` is the optional TerminationAuthority
+        guided-suppression predicate (consolidation PR 5).
+        """
         ...
 
     def check_force_action(

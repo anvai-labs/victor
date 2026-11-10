@@ -380,11 +380,13 @@ class EnhancedCompletionEvaluator:
         objectives that remain unmet and iteration budget remains, a spin
         result degrades to CONTINUE guidance instead of terminating the run
         (the iteration cap still bounds the loop). No declaration — every
-        decision is byte-identical to before.
+        decision is byte-identical to before. Consolidation PR 5: the
+        guided→CONTINUE / else→FAIL composition lives in
+        TerminationAuthority.spin_decision.
         """
-        from victor.framework.criteria_gate import criteria_unmet_with_budget
         from victor.framework.evaluation_nodes import EvaluationResult
         from victor.framework.agentic_loop import SpinState
+        from victor.framework.termination_authority import TerminationAuthority
 
         if not hasattr(spin_detector, "state"):
             return None
@@ -392,27 +394,13 @@ class EnhancedCompletionEvaluator:
         spin_state = spin_detector.state
 
         if spin_state == SpinState.TERMINATED:
-            guided = criteria_unmet_with_budget(state) if state else False
+            authority = TerminationAuthority.for_state(state)
             if hasattr(spin_detector, "consecutive_all_blocked"):
                 if spin_detector.consecutive_all_blocked > 0:
-                    if guided:
-                        return EvaluationResult(
-                            decision=EvaluationDecision.CONTINUE,
-                            score=0.2,
-                            reason=(
-                                f"Spin detected: {spin_detector.consecutive_all_blocked} "
-                                "consecutive fully-blocked tool batches; caller-declared "
-                                "completion criteria are unmet with iteration budget "
-                                "remaining — continuing with guidance instead of failing"
-                            ),
+                    return self._spin_authority_result(
+                        authority.spin_decision(
+                            consecutive_all_blocked=spin_detector.consecutive_all_blocked
                         )
-                    return EvaluationResult(
-                        decision=EvaluationDecision.FAIL,
-                        score=0.1,
-                        reason=(
-                            f"Spin detected: {spin_detector.consecutive_all_blocked} "
-                            "consecutive fully-blocked tool batches"
-                        ),
                     )
 
             if hasattr(spin_detector, "consecutive_no_tool_turns"):
@@ -450,28 +438,28 @@ class EnhancedCompletionEvaluator:
                         ),
                     )
 
-                if guided:
-                    return EvaluationResult(
-                        decision=EvaluationDecision.CONTINUE,
-                        score=0.2,
-                        reason=(
-                            f"Agent stuck: {spin_detector.consecutive_no_tool_turns} "
-                            "turns without tool calls; caller-declared completion "
-                            "criteria are unmet with iteration budget remaining — "
-                            "continuing with guidance instead of failing"
-                        ),
+                return self._spin_authority_result(
+                    authority.spin_decision(
+                        consecutive_no_tool_turns=spin_detector.consecutive_no_tool_turns
                     )
-
-                return EvaluationResult(
-                    decision=EvaluationDecision.FAIL,
-                    score=0.2,
-                    reason=(
-                        f"Agent stuck: {spin_detector.consecutive_no_tool_turns} "
-                        "turns without tool calls"
-                    ),
                 )
 
         return None
+
+    @staticmethod
+    def _spin_authority_result(spin_decision: Any) -> Any:
+        """Map a TerminationAuthority spin decision onto an EvaluationResult."""
+        from victor.framework.evaluation_nodes import EvaluationResult
+
+        return EvaluationResult(
+            decision=(
+                EvaluationDecision.CONTINUE
+                if spin_decision.action == "guide"
+                else EvaluationDecision.FAIL
+            ),
+            score=spin_decision.score,
+            reason=spin_decision.reason,
+        )
 
     def _is_intent_only_response(self, response_text: str) -> bool:
         """True when the response is pure future-intent narration.

@@ -24,7 +24,16 @@ definitions.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    runtime_checkable,
+)
 
 from victor.core.constants import DEFAULT_VERTICAL
 
@@ -229,8 +238,17 @@ class StreamingRecoveryRuntimeProtocol(Protocol):
         """Check if session is making progress."""
         ...
 
-    def check_blocked_threshold(self, ctx: Any, all_blocked: bool) -> Optional[Tuple[Any, bool]]:
-        """Check if too many tools have been blocked."""
+    def check_blocked_threshold(
+        self,
+        ctx: Any,
+        all_blocked: bool,
+        guided_check: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Tuple[Any, bool]]:
+        """Check if too many tools have been blocked.
+
+        ``guided_check`` is the optional TerminationAuthority
+        guided-suppression predicate (consolidation PR 5).
+        """
         ...
 
     def check_force_action(self, ctx: Any) -> Tuple[bool, Optional[str]]:
