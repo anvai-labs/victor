@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 
 from victor.core.async_utils import aclosing_if_supported
+from victor.core.caller_run_context import CallerRunContext
 from victor.agent.services.tool_selection_runtime import (
     hydrate_demand_tools,
 )
@@ -1561,8 +1562,13 @@ class StreamingChatExecutor:
 
         # FEP-0043 streaming parity: read the caller's structured run context
         # (declared criteria, completion marker) and scoped runtime overrides
-        # from the forwarded stream kwargs. These stay forwarding-only here —
-        # budget funding consumption remains the budget-owner's concern.
+        # from the forwarded stream kwargs. Consolidation PR 4: the structured
+        # CallerRunContext object (built once at Agent.stream) drives the loop
+        # config and budget overrides when present; the raw dict path stays
+        # byte-identical to before. Budget funding consumption remains the
+        # budget-owner's concern.
+        _caller_ctx = kwargs.get("caller_run_context")
+        _caller_ctx = _caller_ctx if isinstance(_caller_ctx, CallerRunContext) else None
         caller_run_context = kwargs.get("run_context")
         caller_run_context = caller_run_context if isinstance(caller_run_context, dict) else {}
         caller_overrides = kwargs.get("runtime_context_overrides")
@@ -1602,16 +1608,17 @@ class StreamingChatExecutor:
             from victor.agent.edge_turn_judge import build_edge_turn_judge
 
             _turn_judge = build_edge_turn_judge()
-        loop = AgenticLoop(
-            orchestrator=None,
-            turn_executor=_te,
-            runtime_intelligence=self._get_runtime_intelligence(),
-            max_iterations=getattr(stream_ctx, "max_total_iterations", 10),
-            enable_fulfillment_check=True,
-            enable_adaptive_iterations=True,
-            exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
-            streaming_act_port=adapter,
-            config={
+        if _caller_ctx is not None:
+            # Structured path: loop config from the object; the criteria gate
+            # resolution (FEP-0043) and completion-tool names travel inside it.
+            _loop_config = _caller_ctx.to_loop_config(
+                executor=executor,
+                completion_strategy=_strategy,
+                enable_effect_gate=_effect_gate,
+                enable_per_turn_auditor=_auditor,
+            )
+        else:
+            _loop_config = {
                 "executor": executor,
                 "completion_strategy": _strategy,
                 "enable_effect_gate": _effect_gate,
@@ -1621,7 +1628,17 @@ class StreamingChatExecutor:
                 # exactly as the buffered path resolves it. Without declared
                 # criteria the gate stays off (default-off parity).
                 "enable_criteria_gate": bool(caller_run_context.get("criteria")),
-            },
+            }
+        loop = AgenticLoop(
+            orchestrator=None,
+            turn_executor=_te,
+            runtime_intelligence=self._get_runtime_intelligence(),
+            max_iterations=getattr(stream_ctx, "max_total_iterations", 10),
+            enable_fulfillment_check=True,
+            enable_adaptive_iterations=True,
+            exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
+            streaming_act_port=adapter,
+            config=_loop_config,
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(_te, "_verifier", None),
             max_verify_retries=getattr(_te, "_max_verify_retries", 0),
@@ -1633,8 +1650,18 @@ class StreamingChatExecutor:
         # the scoped runtime overrides. Internal seeds merge after caller keys
         # so reserved keys can never be clobbered (buffered contract). With no
         # caller context this passes context=None — byte-identical to before.
-        loop_context: Dict[str, Any] = dict(caller_run_context)
-        if caller_overrides:
+        loop_context: Dict[str, Any] = dict(
+            _caller_ctx.to_run_context() if _caller_ctx is not None else caller_run_context
+        )
+        if _caller_ctx is not None:
+            from victor.core.runtime_context import merge_runtime_context_overrides
+
+            _overrides_map = merge_runtime_context_overrides(
+                _caller_ctx.to_runtime_overrides(), caller_overrides
+            )
+            if _overrides_map:
+                loop_context["runtime_context_overrides"] = _overrides_map
+        elif caller_overrides:
             loop_context["runtime_context_overrides"] = dict(caller_overrides)
 
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)

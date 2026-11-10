@@ -559,6 +559,7 @@ async def stream_with_events(
     response_prompt: Optional[str] = None,
     runtime_context_overrides: Optional[Dict[str, Any]] = None,
     run_context: Optional[Dict[str, Any]] = None,
+    caller_run_context: Optional[Any] = None,
 ) -> AsyncIterator[AgentExecutionEvent]:
     """Stream orchestrator response as framework AgentExecutionEvents.
 
@@ -608,6 +609,12 @@ async def stream_with_events(
             stream_kwargs["runtime_context_overrides"] = dict(runtime_context_overrides)
         if run_context and _supports_keyword_argument(orchestrator.stream_chat, "run_context"):
             stream_kwargs["run_context"] = dict(run_context)
+        # Consolidation PR 4: the structured CallerRunContext object follows
+        # the same sniffing guard so legacy runtimes drop it silently.
+        if caller_run_context is not None and _supports_keyword_argument(
+            orchestrator.stream_chat, "caller_run_context"
+        ):
+            stream_kwargs["caller_run_context"] = caller_run_context
 
         async for tag, item in _merge_orchestrator_and_members(
             orchestrator.stream_chat(prompt, **stream_kwargs), sink

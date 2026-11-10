@@ -277,6 +277,24 @@ cascade return.
    semantic-redundancy skip paths, and the streaming post-warning
    signature block in the recovery service.
 
+## Structured CallerRunContext (consolidation PR 4)
+
+The declarations above (criteria, `complete_on_key`, completion-critical
+tools) plus the scoped runtime overrides now travel as ONE structured
+object, `victor/core/caller_run_context.py::CallerRunContext`
+(seam-duplication audit, Cluster 2). `Agent.run`/`Agent.stream` construct
+it once from `(runtime_context_overrides, context, settings)` and thread it
+to the loop build sites; the buffered and streaming sites take their loop
+config from `to_loop_config()` (criteria-gate resolution and
+completion-tool names included) and their funding from
+`to_runtime_overrides()` merged through the shared
+`merge_runtime_context_overrides` helper — replacing the two hand-built
+config dicts and the per-site budget-key extraction this FEP previously
+required. Raw context/override kwargs keep flowing with the same
+signature-sniffing guards for legacy runtimes, and with nothing declared
+every produced config dict and decision is byte-identical to the
+pre-consolidation path.
+
 ## Migration Path
 
 None required. The gate is opt-in (`enable_criteria_gate`, default

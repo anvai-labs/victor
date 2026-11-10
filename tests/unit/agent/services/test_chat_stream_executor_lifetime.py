@@ -551,3 +551,84 @@ async def test_unified_executor_resolves_criteria_gate_and_seeds_run_context(
         assert loop_context["runtime_context_overrides"] == overrides
     else:
         assert loop_context is None
+
+
+@pytest.mark.asyncio
+async def test_unified_executor_consumes_caller_run_context_object(monkeypatch):
+    """Consolidation PR 4: run_unified consumes the structured
+    CallerRunContext object — the loop config is built from
+    ``to_loop_config`` (criteria gate, completion-critical tools) and the
+    budget overrides flow through ``to_runtime_overrides`` into the seeded
+    loop state; the raw dict forwarding stays intact."""
+    from types import SimpleNamespace
+
+    from victor.agent.services.chat_stream_executor import StreamingChatExecutor
+    from victor.core.caller_run_context import CallerRunContext
+
+    captured = {}
+
+    class Loop:
+        def __init__(self, **kwargs):
+            captured["loop_kwargs"] = kwargs
+
+        async def run_streaming(self, *args, **kwargs):
+            captured["run_kwargs"] = dict(kwargs)
+            yield StreamChunk(
+                content="done", is_final=True, metadata={"agentic_loop_success": True}
+            )
+
+    owner = SimpleNamespace(_message_policy_gate=None, settings=None, turn_executor=None)
+    lifecycle_runtime = SimpleNamespace(
+        is_cancelled=lambda: False,
+        finish=lambda: None,
+    )
+    executor = StreamingChatExecutor(
+        SimpleNamespace(
+            _orchestrator=owner,
+            services=SimpleNamespace(
+                governance=ChatGovernance(),
+                stream_lifecycle=ChatStreamLifecycle(lifecycle_runtime),
+            ),
+        )
+    )
+    monkeypatch.setattr(executor, "_get_conversation_history", lambda *args: [])
+    monkeypatch.setattr(
+        StreamingActAdapter,
+        "prepare",
+        AsyncMock(return_value=SimpleNamespace(session=SimpleNamespace(stream_ctx=None))),
+    )
+    monkeypatch.setattr(
+        "victor.framework.agentic_loop.AgenticLoop", lambda **kwargs: Loop(**kwargs)
+    )
+    monkeypatch.setattr(
+        "victor.agent.services.judge_calibration_gate.resolve_completion_strategy",
+        lambda *args: "enhanced",
+    )
+    monkeypatch.setattr("victor.framework.effect_gate.resolve_effect_gate_enabled", lambda _: False)
+    monkeypatch.setattr(
+        "victor.framework.per_turn_auditor.resolve_per_turn_auditor_enabled", lambda _: False
+    )
+
+    caller_ctx = CallerRunContext.from_overrides_and_context(
+        {"tool_budget": 134, "iteration_budget": 64},
+        {
+            "criteria": {"findings": 30},
+            "complete_on_key": "corpus_closed",
+            "completion_tool_names": ("admit_proposal",),
+        },
+        None,
+    )
+    async for _ in executor.run_unified("q", caller_run_context=caller_ctx):
+        pass
+
+    config = captured["loop_kwargs"]["config"]
+    assert config["enable_criteria_gate"] is True
+    assert config["completion_tool_names"] == ("admit_proposal",)
+
+    loop_context = captured["run_kwargs"].get("context")
+    assert loop_context["criteria"] == {"findings": 30}
+    assert loop_context["complete_on_key"] == "corpus_closed"
+    assert loop_context["runtime_context_overrides"] == {
+        "tool_budget": 134,
+        "iteration_budget": 64,
+    }

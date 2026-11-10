@@ -244,12 +244,44 @@ async def test_agent_run_delegates_to_shared_message_executor() -> None:
         result = await agent.run("Reply with exactly READY", context={"file": "auth.py"})
 
     assert result is expected
-    mock_execute.assert_awaited_once_with(
-        orchestrator=orchestrator,
-        execution_context=None,
-        user_message="Reply with exactly READY",
-        context={"file": "auth.py"},
-    )
+    executed_kwargs = mock_execute.await_args.kwargs
+    # Consolidation PR 4: Agent.run always builds the structured
+    # CallerRunContext from (overrides, context, settings).
+    assert executed_kwargs["caller_run_context"].extra == {"file": "auth.py"}
+    executed_kwargs.pop("caller_run_context")
+    assert executed_kwargs == {
+        "orchestrator": orchestrator,
+        "execution_context": None,
+        "user_message": "Reply with exactly READY",
+        "context": {"file": "auth.py"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_run_builds_caller_run_context_from_kwargs() -> None:
+    """Consolidation PR 4: Agent.run/Agent.stream construct the structured
+    CallerRunContext from (runtime_context_overrides, context, settings)."""
+    from types import SimpleNamespace
+
+    orchestrator = _make_orchestrator()
+    orchestrator.settings = SimpleNamespace()
+    agent = Agent(orchestrator)
+    expected = TaskResult(content="READY", success=True)
+    agent_module = importlib.import_module("victor.framework.agent")
+
+    overrides = {"tool_budget": 134, "iteration_budget": 64}
+    context = {"criteria": {"findings": 30}, "complete_on_key": "corpus_closed"}
+
+    with patch.object(
+        agent_module, "execute_message", new=AsyncMock(return_value=expected)
+    ) as mock_execute:
+        await agent.run("funded research", context=context, runtime_context_overrides=overrides)
+
+    ctx = mock_execute.await_args.kwargs["caller_run_context"]
+    assert ctx.tool_budget == 134
+    assert ctx.iteration_budget == 64
+    assert ctx.criteria == {"findings": 30}
+    assert ctx.complete_on_key == "corpus_closed"
 
 
 @pytest.mark.asyncio
@@ -455,3 +487,107 @@ async def test_iter_runtime_stream_events_forwards_overrides_and_run_context() -
     assert len(events) == 1
     assert captured["kwargs"]["runtime_context_overrides"] == {"iteration_budget": 32}
     assert captured["kwargs"]["run_context"] == {"criteria": {"findings": 4}}
+
+
+@pytest.mark.asyncio
+async def test_execute_message_forwards_caller_run_context_object_when_supported() -> None:
+    """Consolidation PR 4: execute_message passes the structured
+    CallerRunContext object through to runtimes that accept it."""
+    from victor.core.caller_run_context import CallerRunContext
+    from victor.framework.message_execution import execute_message
+
+    orchestrator = _make_orchestrator()
+    response = CompletionResponse(
+        content="done",
+        role="assistant",
+        tool_calls=[],
+        stop_reason="stop",
+        usage=None,
+        model="test-model",
+    )
+    chat_service = SimpleNamespace(chat=AsyncMock(return_value=response))
+    execution_context = SimpleNamespace(services=SimpleNamespace(chat=chat_service))
+    caller_ctx = CallerRunContext.from_overrides_and_context(
+        {"tool_budget": 134}, {"criteria": {"findings": 30}}, None
+    )
+
+    await execute_message(
+        orchestrator=orchestrator,
+        execution_context=execution_context,
+        user_message="research",
+        context={"criteria": {"findings": 30}},
+        runtime_context_overrides={"tool_budget": 134},
+        caller_run_context=caller_ctx,
+    )
+
+    kwargs = chat_service.chat.await_args.kwargs
+    assert kwargs["caller_run_context"] is caller_ctx
+
+
+@pytest.mark.asyncio
+async def test_execute_message_drops_caller_run_context_object_on_legacy_runtime() -> None:
+    """Legacy chat(message-only) runtimes silently drop the object (signature
+    sniffing); no TypeError is raised."""
+    from victor.core.caller_run_context import CallerRunContext
+    from victor.framework.message_execution import execute_message
+
+    orchestrator = _make_orchestrator()
+    response = CompletionResponse(
+        content="done",
+        role="assistant",
+        tool_calls=[],
+        stop_reason="stop",
+        usage=None,
+        model="test-model",
+    )
+
+    class LegacyChatService:
+        async def chat(self, message):
+            return response
+
+    execution_context = SimpleNamespace(services=SimpleNamespace(chat=LegacyChatService()))
+    caller_ctx = CallerRunContext.from_overrides_and_context(
+        {"tool_budget": 134}, {"criteria": {"findings": 30}}, None
+    )
+
+    result = await execute_message(
+        orchestrator=orchestrator,
+        execution_context=execution_context,
+        user_message="research",
+        caller_run_context=caller_ctx,
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_stream_message_events_forwards_caller_run_context_object() -> None:
+    """The structured object reaches stream_with_events alongside the raw
+    kwargs when the caller supplied it."""
+    from victor.core.caller_run_context import CallerRunContext
+    from victor.framework.message_execution import stream_message_events
+
+    captured = {}
+
+    async def fake_stream_with_events(runtime_obj, prompt, **kwargs):
+        captured["kwargs"] = dict(kwargs)
+        yield AgentExecutionEvent(type=EventType.STREAM_END, success=True)
+
+    chat_service = SimpleNamespace(stream_chat=MagicMock())
+    execution_context = SimpleNamespace(services=SimpleNamespace(chat=chat_service))
+    caller_ctx = CallerRunContext.from_overrides_and_context(
+        {"iteration_budget": 32}, {"criteria": {"findings": 4}}, None
+    )
+
+    with patch("victor.framework._internal.stream_with_events", fake_stream_with_events):
+        async for _ in stream_message_events(
+            orchestrator=MagicMock(),
+            execution_context=execution_context,
+            user_message="research",
+            runtime_context_overrides={"iteration_budget": 32},
+            caller_run_context=caller_ctx,
+        ):
+            pass
+
+    assert captured["kwargs"]["caller_run_context"] is caller_ctx
+    assert captured["kwargs"]["runtime_context_overrides"] == {"iteration_budget": 32}
