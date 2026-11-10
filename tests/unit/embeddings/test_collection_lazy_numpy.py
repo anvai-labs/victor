@@ -51,7 +51,7 @@ def test_valid_cache_loads_from_fresh_module_state(tmp_path, monkeypatch):
     np.testing.assert_array_equal(reader._embeddings, writer._embeddings)
 
 
-def test_corrupt_embeddings_still_rejected_from_fresh_module_state(tmp_path, monkeypatch):
+def test_corrupt_embeddings_still_rejected_from_fresh_module_state(tmp_path, monkeypatch, caplog):
     from victor.core.data_cache import write_cache_data
 
     collection = StaticEmbeddingCollection(
@@ -70,8 +70,12 @@ def test_corrupt_embeddings_still_rejected_from_fresh_module_state(tmp_path, mon
     )
     monkeypatch.setattr(collections_module, "np", None)
 
-    assert collection._load_from_cache("hash") is False
+    with caplog.at_level(logging.DEBUG):
+        assert collection._load_from_cache("hash") is False
     assert collection._embeddings is None
+    # Rejected by the NaN integrity check itself, not by np being None.
+    assert "corrupted embeddings" in caplog.text
+    assert "has no attribute" not in caplog.text
 
 
 def test_skill_matcher_init_failure_is_consumed_and_logged(caplog):
