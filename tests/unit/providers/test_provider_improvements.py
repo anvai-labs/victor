@@ -81,7 +81,8 @@ class TestConversationStore:
         """Test session creation."""
         session = manager.create_session(project_path="/test/project")
 
-        assert session.session_id.startswith("session_")
+        # #1702 shortened the generated id prefix from "session_" to "s_".
+        assert session.session_id.startswith("s_")
         assert session.project_path == "/test/project"
         assert session.current_tokens == 0
         assert len(session.messages) == 0
