@@ -2437,3 +2437,53 @@ async def test_execute_agentic_loop_explicit_loop_ceiling_still_bounds_override(
         )
 
     assert captured["max_iterations"] == 10
+
+
+@pytest.mark.asyncio
+async def test_runtime_context_tool_budget_override_reaches_every_budget_owner():
+    """A caller runtime_context_overrides tool budget must reach ALL budget
+    owners, never be silently lowered by one of them.
+
+    Each per-turn apply feeds four owners (FEP-0043 budget seam): the
+    orchestrator snapshot, the task coordinator, the ToolService budget
+    runtime, and the pipeline config. Any owner that ignored or clamped the
+    override starved the run while the others looked funded.
+    """
+    from victor.agent.services.tool_budget_runtime import BudgetManager
+    from victor.agent.services.tool_service import ToolService, ToolServiceConfig
+
+    service = ToolService(
+        config=ToolServiceConfig(default_tool_budget=50),
+        tool_selector=MagicMock(),
+        tool_executor=MagicMock(),
+        tool_registrar=MagicMock(),
+    )
+    pipeline = SimpleNamespace(config=SimpleNamespace(tool_budget=50))
+    service.bind_runtime_components(tool_pipeline=pipeline)
+    assert service.budget == 50
+
+    orchestrator = SimpleNamespace(
+        tool_budget=50,
+        task_coordinator=SimpleNamespace(tool_budget=50),
+        _tool_service=service,
+        _tool_pipeline=pipeline,
+    )
+    executor = _make_executor()
+    executor._orchestrator = orchestrator
+    executor._chat_context._orchestrator = orchestrator
+
+    snapshot = executor._apply_runtime_context_overrides({"tool_budget": 134})
+
+    try:
+        assert orchestrator.tool_budget == 134
+        assert orchestrator.task_coordinator.tool_budget == 134
+        assert service.budget == 134
+        assert pipeline.config.tool_budget == 134
+    finally:
+        executor._restore_runtime_context_overrides(snapshot)
+
+    # Restoration returns every owner to its pre-turn value.
+    assert orchestrator.tool_budget == 50
+    assert orchestrator.task_coordinator.tool_budget == 50
+    assert service.budget == 50
+    assert pipeline.config.tool_budget == 50

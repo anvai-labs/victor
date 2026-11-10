@@ -44,6 +44,7 @@ from typing import (
 
 from victor.agent.services.tool_batch_executor import execute_tool_call_batch
 from victor.agent.services.tool_budget_runtime import BudgetManager, ToolBudgetRuntime
+from victor.core.budget_observability import record_budget_refusal
 from victor.agent.services.tool_access_policy import ToolAccessPolicy
 from victor.agent.services.tool_error_display import print_tool_error_once
 from victor.agent.services.tool_usage_stats import ToolUsageStats
@@ -943,6 +944,13 @@ class ToolService:
         # Check budget
         if self.is_budget_exhausted():
             self._logger.warning("Tool budget exhausted")
+            record_budget_refusal(
+                "tool_service",
+                self.budget,
+                self.budget_used,
+                tool_name=tool_name,
+                outcome_kind="budget_exhausted",
+            )
             raise ToolBudgetExceededError(
                 f"Tool budget exhausted ({self.budget_used} / {self.budget})"
             )

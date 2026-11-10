@@ -45,6 +45,10 @@ from victor.core.loop_thresholds import (
 )
 from victor.core.provider_messages import StreamChunk
 from victor.core.errors import ProviderPolicyError
+from victor.core.completion_tools import (
+    CompletionToolPolicy,
+    resolve_completion_tool_names,
+)
 from dataclasses import dataclass
 
 
@@ -1059,12 +1063,27 @@ class RecoveryService:
         ctx: Any,
         tool_calls: List[Dict[str, Any]],
     ) -> Any:
-        """Filter tool calls that are blocked by runtime safeguards."""
+        """Filter tool calls that are blocked by runtime safeguards.
+
+        Caller-declared completion-critical tools (settings
+        ``tools.completion_tools``) are exempt from the post-warning
+        signature block: suppressing the caller's terminal call leaves its
+        run no way to finish (victor.core.completion_tools).
+        """
         if self._streaming_handler is not None and self._unified_tracker is not None:
+            block_checker = self._unified_tracker.is_blocked_after_warning
+            completion_names = resolve_completion_tool_names(self._settings)
+            if completion_names:
+                policy = CompletionToolPolicy(completion_names)
+                raw_checker = block_checker
+
+                def block_checker(tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
+                    return policy.exempt_block_reason(tool_name, raw_checker(tool_name, arguments))
+
             return self._streaming_handler.filter_blocked_tool_calls(
                 ctx.streaming_context,
                 tool_calls,
-                self._unified_tracker.is_blocked_after_warning,
+                block_checker,
             )
 
         if self._recovery_coordinator is not None:

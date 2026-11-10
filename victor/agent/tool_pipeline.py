@@ -61,6 +61,8 @@ from victor.agent.output_aggregator import (
     AggregationState,
 )
 from victor.core.errors import ErrorInfo, ErrorCategory, ErrorSeverity
+from victor.core.budget_observability import record_budget_refusal
+from victor.core.completion_tools import CompletionToolPolicy
 from victor.agent.synthesis_checkpoint import (
     CompositeSynthesisCheckpoint,
     get_checkpoint_for_complexity,
@@ -151,6 +153,13 @@ class ToolPipelineConfig:
     navigation_hint_max_uses: int = 3
     navigation_hint_ttl_seconds: float = 600.0
     navigation_hint_loop_threshold: int = 3
+
+    # Caller-declared completion-critical tool names (generic; see
+    # victor.core.completion_tools). A declared tool is never suppressed by
+    # the pipeline's spin-adjacent skip paths (budget exhaustion, repeated
+    # failing call, semantic redundancy): its call executes so the caller's
+    # run can finish. Default empty = every skip path behaves as before.
+    completion_tool_names: Tuple[str, ...] = ()
 
 
 # Tools that are safe to cache (read-only, deterministic for same arguments)
@@ -640,6 +649,7 @@ class ToolPipeline:
         self.tools = tool_registry
         self.executor = tool_executor
         self.config = config or ToolPipelineConfig()
+        self._completion_tools = CompletionToolPolicy(self.config.completion_tool_names)
         self.tool_cache = tool_cache
         self.normalizer = argument_normalizer or ArgumentNormalizer()
         self.signature_store = signature_store
@@ -2109,6 +2119,18 @@ class ToolPipeline:
         name = self._normalize_valid_tool_name(tool_call.get("name", ""))
         return bool(name) and name in eligible_tools
 
+    def _is_completion_critical_call(self, tool_call: Any) -> bool:
+        """True iff ``tool_call`` names a caller-declared completion-critical tool.
+
+        Such a call must reach execution (or its own result path) even when
+        the batch's budget-admission logic would tail-skip it: suppressing
+        the caller's terminal call leaves its run no way to finish.
+        """
+        if not self._completion_tools.enabled or not isinstance(tool_call, dict):
+            return False
+        name = self._normalize_valid_tool_name(tool_call.get("name", ""))
+        return bool(name) and self._completion_tools.is_completion_critical(name)
+
     def _budget_exhausted_skip(self, tool_call: Any) -> ToolCallResult:
         """Build the tail-skip result for a call never dispatched because
         the batch's admitted-call count already met the remaining budget.
@@ -2125,6 +2147,13 @@ class ToolPipeline:
             if isinstance(tool_call, dict)
             else ""
         ) or "unknown"
+        record_budget_refusal(
+            "pipeline",
+            self.config.tool_budget,
+            self._calls_used,
+            tool_name=tool_name,
+            outcome_kind="budget_exhausted",
+        )
         return _build_skip_result(
             tool_name=tool_name,
             arguments={},
@@ -2203,7 +2232,10 @@ class ToolPipeline:
         if not self.config.parallel_tool_execution:
             admitted = 0
             for idx, tool_call in enumerate(unique_calls_iter):
-                if not _may_dispatch(admitted):
+                # Caller-declared completion-critical calls are never
+                # tail-skipped: their execution is how the caller's run
+                # finishes (victor.core.completion_tools).
+                if not _may_dispatch(admitted) and not self._is_completion_critical_call(tool_call):
                     results[idx] = self._budget_exhausted_skip(tool_call)
                     continue
                 results[idx] = await self._compute_one_call_result(tool_call, context)
@@ -2233,7 +2265,9 @@ class ToolPipeline:
         parallel_calls_run = 0
         parallel_rounds = 0
         while i < n:
-            if not _may_dispatch(admitted):
+            if not _may_dispatch(admitted) and not self._is_completion_critical_call(
+                unique_calls_iter[i]
+            ):
                 results[i] = self._budget_exhausted_skip(unique_calls_iter[i])
                 i += 1
                 continue
@@ -2423,6 +2457,7 @@ class ToolPipeline:
         # already-exhausted session budget didn't itself exhaust anything,
         # so it must not report budget_exhausted=True.
         if unique_calls_iter and self._calls_used >= self.config.tool_budget:
+            record_budget_refusal("pipeline", self.config.tool_budget, self._calls_used)
             result.budget_exhausted = True
 
         # Add skipped results for duplicates (reuse first occurrence's result)
@@ -2964,7 +2999,17 @@ class ToolPipeline:
             # handles escalation prompting before reaching the pipeline.
 
         # Check budget
-        if self._calls_used >= self.config.tool_budget:
+        if (
+            self._calls_used >= self.config.tool_budget
+            and not self._completion_tools.is_completion_critical(tool_name)
+        ):
+            record_budget_refusal(
+                "pipeline",
+                self.config.tool_budget,
+                self._calls_used,
+                tool_name=tool_name,
+                outcome_kind="budget_exhausted",
+            )
             return _build_skip_result(
                 tool_name=tool_name,
                 arguments=normalized_args,
@@ -3203,6 +3248,12 @@ class ToolPipeline:
 
     def _skip_repeated_or_redundant(self, call: "_ToolCallState") -> Optional[ToolCallResult]:
         """Skip a call that already failed with these arguments or is redundant."""
+        # Caller-declared completion-critical calls are never skipped here:
+        # a retried terminal call is how the caller's run finishes, so the
+        # failed-signature and semantic-dedup guards must not suppress it
+        # (victor.core.completion_tools).
+        if self._completion_tools.is_completion_critical(call.tool_name):
+            return None
         # Check for repeated failures
         if self.config.enable_failed_signature_tracking:
             signature = self._get_call_signature(call.tool_name, call.normalized_args)
