@@ -118,7 +118,6 @@ _AgenticLoopGraphExecutor = None
 logger = logging.getLogger(__name__)
 
 from victor.core.runtime_context import (
-    CALLER_BOUND_OVERRIDE_KEYS,
     LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY,
     RUNTIME_CONTEXT_OVERRIDES_STATE_KEY,
     collect_runtime_context_overrides,
