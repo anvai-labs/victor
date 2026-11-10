@@ -26,6 +26,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   channel. `victor-ai[graph]` satisfies its own dependency check and reports
   graph readiness.
 - **rl**: Default prompt optimization to on-demand only (no longer eager).
+- **budget**: Structured refusal triad recorded at budget enforcement sites
+  (#1730).
 
 ### Fixed
 
@@ -37,10 +39,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **precise/graph**: Honest JVM toolchain, verified build root, store
   ownership.
 - **native**: Dedup livelock on unclosed fence + native version drift guard.
+- **FEP-0043**: Guided termination and completion-tool exemptions for declared
+  criteria (#1725); caller budget overrides bind over topology echoes, and
+  criteria downgrades are surfaced (#1728).
+- **interop**: Exported codex rollouts declare a resumable `model_provider`
+  (`openai`), so `codex resume` accepts handed-off sessions (#1729).
 
 ### Changed
 
-- **deps**: sandhi-gateway pinned to 0.15.0 (central gateway profiles support).
+- **deps**: sandhi-gateway pinned to 0.16.2 (central gateway profiles support,
+  ADR-0015 per-provider upstream budgets with the tracked back-leg settlement
+  fix; 0.16.1 was never published).
 
 ## [0.26.2] - 2026-11-05
 
