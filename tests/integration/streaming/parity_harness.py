@@ -204,8 +204,8 @@ def build_streaming_orchestrator(
     (``orch.stream_chat`` -> ``ServiceStreamingRuntime`` -> ``StreamingChatExecutor.run_unified`` ->
     ``AgenticLoop.run_streaming``). The
     ordered list of executed tool names is recorded on ``orch._parity_tool_log`` for the
-    transcript. Semantic selection is bypassed (``_select_tools`` returns the scripted tools)
-    so behavior is deterministic and offline. Tools named in ``failing_tool_names`` return an
+    transcript. Semantic selection is disabled in settings and the scripted model is declared
+    tool-capable, so both paths run the real (deterministic, offline) selection. Tools named in ``failing_tool_names`` return an
     unsuccessful result, exercising the loop's tool-failure recovery.
     """
     tool_names = tool_names or []
@@ -237,23 +237,21 @@ def build_streaming_orchestrator(
         orch._tool_service = tool_svc
     tool_svc.is_tool_enabled = lambda name: name in enabled
 
-    tool_defs = [
-        ToolDefinition(name=t.name, description=t.description, parameters=t.parameters)
-        for t in tools
-    ]
-    orch._select_tools = lambda *args, **kwargs: list(tool_defs)
-    # The buffered turn executor selects through its own adapter, not
-    # ``orch._select_tools``; bypass it identically so both paths offer the scripted
-    # tools. Without this, buffered turns went out with an EMPTY offer and the
-    # stray-call guard (#1703) intercepted the scripted tool calls — a harness gap,
-    # not a product divergence (real models are offered the selected tools).
-    turn_executor = getattr(orch, "turn_executor", None)
-    if turn_executor is not None:
+    # Both paths must run REAL tool selection so parity compares like with like.
+    # The scripted model is not in the tool-capability catalog, so declare it
+    # tool-capable on THIS orchestrator's matrix only (the single source both the
+    # buffered TurnToolSelectionAdapter and the streaming planning path consult).
+    # Earlier, a dead ``orch._select_tools`` stub (no such method) left both paths
+    # with an empty offer, so the suite never exercised a real offer on either.
+    capabilities = orch.tool_capabilities
+    real_is_supported = capabilities.is_tool_call_supported
 
-        async def _scripted_turn_tools(*_args: Any, **_kwargs: Any) -> List[ToolDefinition]:
-            return list(tool_defs)
+    def _scripted_is_supported(provider: str, model: str) -> bool:
+        if provider == "scripted" and model == "scripted":
+            return True
+        return real_is_supported(provider, model)
 
-        turn_executor._select_tools_for_turn = _scripted_turn_tools
+    capabilities.is_tool_call_supported = _scripted_is_supported
 
     orch.unified_tracker.set_max_iterations(max_iterations, user_override=True)
     orch._parity_tool_log = recorder
@@ -484,7 +482,9 @@ SCENARIOS: List[Scenario] = [
     Scenario(
         id="E2",
         label="edge: tool failure → loop recovers and answers",
-        message="Read the file.",
+        # Must NOT be classified "skip" by the tool-supply heuristic, so the
+        # recovery path runs against a real tool offer on both paths.
+        message="Read missing.py and report what it contains.",
         turns=[
             _read_turn("read", path="missing.py"),
             TurnScript(content="Recovered after the tool failure."),
@@ -492,6 +492,21 @@ SCENARIOS: List[Scenario] = [
         tools=["read"],
         failing_tools=["read"],
         expect_content_contains="recovered",
+        expect_tools=["read"],
+    ),
+    Scenario(
+        id="X1",
+        label="edge: tool call against an EMPTY offer executes identically on both paths",
+        # Classified "skip" by the tool-supply heuristic, so neither path offers
+        # tools; the model calls one anyway. Both paths must execute it — a
+        # buffered-only text-only re-dispatch (#1703) once made buffered drop it.
+        message="Read the file.",
+        turns=[
+            _read_turn("read", path="notes.txt"),
+            TurnScript(content="The notes say hello."),
+        ],
+        tools=["read"],
+        expect_content_contains="notes say hello",
         expect_tools=["read"],
     ),
     Scenario(

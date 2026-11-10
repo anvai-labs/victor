@@ -64,7 +64,6 @@ def test_resolve_orchestrator_falls_back_to_chat_context_owner():
     assert executor._resolve_orchestrator() is fallback_owner
 
 
-@pytest.mark.asyncio
 async def test_check_turn_boundary_compaction_delegates_to_the_buffered_check():
     """The public streaming capability runs the exact buffered boundary check."""
     from unittest.mock import AsyncMock
@@ -79,6 +78,7 @@ async def test_check_turn_boundary_compaction_delegates_to_the_buffered_check():
     runtime._check_context_compaction.assert_awaited_once_with("task", classification)
 
 
+@pytest.mark.asyncio
 async def test_check_context_compaction_prefers_lifecycle_service():
     executor = _make_executor()
     lifecycle = SimpleNamespace(
@@ -2130,7 +2130,7 @@ async def test_stategraph_verifier_rejected_before_request_or_history(monkeypatc
     executor._chat_context.conversation.ensure_system_prompt.assert_not_called()
 
 
-# --- Tool offer stability across budget exhaustion + stray-call guard --------
+# --- Tool offer stability across budget exhaustion + empty-offer parity -------
 
 
 def _stray_response() -> CompletionResponse:
@@ -2178,63 +2178,38 @@ async def test_execute_turn_keeps_tool_offer_when_budget_exhausted():
 
 
 @pytest.mark.asyncio
-async def test_guard_passes_through_when_tools_offered():
-    executor = _make_executor()
-    executor._execute_model_turn = AsyncMock()
-    stray = _stray_response()
+async def test_execute_turn_stray_call_against_empty_offer_is_not_redispatched():
+    """chat()/stream() parity (FEP-0007): a tool call made against an empty offer
+    flows to normal execution with ONE model call, as on the streaming ACT.
 
-    out = await executor._guard_unoffered_tool_calls(
-        stray, tools=[SimpleNamespace(name="rr_read_source")], provider_kwargs={}
-    )
-
-    assert out is stray
-    executor._execute_model_turn.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_guard_redispatches_stray_call_once_with_text_only_instruction():
-    executor = _make_executor()
-    executor._record_conversation_usage = MagicMock()
-    executor.govern_response = AsyncMock(side_effect=lambda r: r)
-
-    async def fake_model_turn(tools=None, *, extra_messages=None, **kwargs):
-        if extra_messages is not None:
-            assert tools is None
-            assert len(extra_messages) == 1
-            assert "plain text" in extra_messages[0].content
-            return _text_response("done without tools")
-        return _stray_response()
-
-    executor._execute_model_turn = AsyncMock(side_effect=fake_model_turn)
-
-    out = await executor._guard_unoffered_tool_calls(
-        _stray_response(), tools=None, provider_kwargs={"task_type": "coding"}
-    )
-
-    assert out.content == "done without tools"
-    assert not (out.tool_calls or [])
-    assert executor._execute_model_turn.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_guard_honors_persistent_stray_call_through_normal_execution():
-    """Persistent insistence is not a hard failure.
-
-    An insisting model may genuinely need the tool the supply heuristic
-    suppressed, so after one text-only redispatch the original stray
-    response flows to the normal execution path (pre-guard behavior)
-    instead of raising.
+    A buffered-only text-only re-dispatch (#1703) made buffered drop the call
+    while streaming executed it; any such guard must exist on both paths.
     """
     executor = _make_executor()
+    executor._tool_context.tool_calls_used = 0
+    executor._tool_context.tool_budget = 10
+    executor._maybe_execute_deterministic_tool_turn = AsyncMock(return_value=None)
+    executor._select_tools_for_turn = AsyncMock(return_value=None)
+    executor._apply_runtime_context_overrides = MagicMock(return_value={})
+    executor._resolve_orchestrator = MagicMock(return_value=None)
+    executor._resolve_turn_temperature = MagicMock(return_value=0.2)
+    executor._provider_call_overrides = MagicMock(return_value={})
+    stray = _stray_response()
+    executor._execute_model_turn = AsyncMock(return_value=stray)
     executor._record_conversation_usage = MagicMock()
     executor.govern_response = AsyncMock(side_effect=lambda r: r)
-    executor._execute_model_turn = AsyncMock(return_value=_stray_response())
-    original = _stray_response()
 
-    out = await executor._guard_unoffered_tool_calls(original, tools=None, provider_kwargs={})
+    executor._tool_context.execute_tool_calls = AsyncMock(return_value=[])
 
-    assert out is original
-    assert executor._execute_model_turn.await_count == 1
+    await executor.execute_turn(user_message="wrap up the task")
+
+    # One model call, no text-only re-dispatch, and the call is executed.
+    executor._execute_model_turn.assert_awaited_once()
+    assert executor._execute_model_turn.await_args.kwargs.get("extra_messages") is None
+    executor._tool_context.execute_tool_calls.assert_awaited_once()
+    executed = executor._tool_context.execute_tool_calls.await_args.args[0]
+    names = [call.get("name") or call.get("function", {}).get("name") for call in executed]
+    assert names == ["rr_propose_brief"]
 
 
 @pytest.mark.asyncio
