@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-10
+
+### Added
+
+- **FEP-0043**: Caller-declared completion criteria gate — callers can specify
+  what "done" looks like (stop-on-close marker, iteration budget) and the
+  topology honours it. The caller iteration budget binds over the legacy loop
+  default when explicitly declared.
+- **config/ui**: Central gateway profiles — Victor profiles pull from the
+  gateway's curated catalogue with layered defaults (system → user → project).
+- **resume**: `/resume <source>:<uuid>` imports and resumes a session from an
+  external agent (claude/codex) in one step.
+- **graph_rag**: Public hybrid retrieval with a seeding report; read-only
+  graph stores for safe multi-tenant queries. The hybrid keyword leg now
+  matches natural-language questions (#1713, #1717).
+- **handoff**: `/handoff` command + CLI twin for cross-agent handoff with
+  bidirectional session context interop.
+- **distribution**: Doctor native-drift check, install sync, GitHub-direct
+  channel. `victor-ai[graph]` satisfies its own dependency check and reports
+  graph readiness.
+- **rl**: Default prompt optimization to on-demand only (no longer eager);
+  Qwen3.7-plus 512k context window (#1702).
+- **budget**: Structured refusal triad recorded at budget enforcement sites
+  (#1730).
+
+### Fixed
+
+- **save**: `/save` no longer degrades already-persisted message rows.
+- **agent**: Tool offer stays stable across budget exhaustion (#1703). A tool
+  call made against an empty offer executes identically on `chat()` and
+  `stream()`; #1703's buffered-only text-only re-dispatch was removed for
+  FEP-0007 parity, and the parity harness now runs real tool selection on
+  both paths (#1733).
+- **session**: Import persistence P0 fix + resume-list/importer repairs.
+- **graph**: Logging priority chain applied in `victor index graph index`.
+- **precise/graph**: Honest JVM toolchain, verified build root, store
+  ownership.
+- **native**: Dedup livelock on unclosed fence + native version drift guard.
+- **FEP-0043**: Guided termination and completion-tool exemptions for declared
+  criteria (#1725); caller budget overrides bind over topology echoes, and
+  criteria downgrades are surfaced (#1728).
+- **interop**: Exported codex rollouts declare a resumable `model_provider`
+  (`openai`), so `codex resume` accepts handed-off sessions (#1729).
+
+### Changed
+
+- **session**: Generated `ConversationStore` session ids use the shorter `s_`
+  prefix (was `session_`) (#1702).
+- **deps**: sandhi-gateway pinned to 0.16.2 (central gateway profiles support,
+  ADR-0015 per-provider upstream budgets with the tracked back-leg settlement
+  fix; 0.16.1 was never published).
+
 ## [0.26.2] - 2026-11-05
 
 ### Fixed

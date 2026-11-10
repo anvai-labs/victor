@@ -11,8 +11,8 @@ Complete reference for all environment variables recognized by Victor.
 | Variable | Provider | Description |
 |----------|----------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic | Claude models (claude-opus-4, claude-sonnet-4) |
-| `OPENAI_API_KEY` | OpenAI | GPT models (gpt-4o, gpt-4-turbo) |
-| `GOOGLE_API_KEY` | Google | Gemini models (gemini-2.0-flash, gemini-1.5-pro) |
+| `OPENAI_API_KEY` | OpenAI | GPT models (gpt-5-nano, gpt-4o) |
+| `GOOGLE_API_KEY` | Google | Gemini models (gemini-2.5-pro, gemini-2.5-flash) |
 | `XAI_API_KEY` | xAI | Grok models (grok-2, grok-beta) |
 | `MOONSHOT_API_KEY` | Moonshot AI | Kimi K2 models |
 | `DEEPSEEK_API_KEY` | DeepSeek | DeepSeek models (deepseek-chat, deepseek-reasoner) |
@@ -188,8 +188,6 @@ export LMSTUDIO_BASE_URLS="http://192.168.1.20:1234,http://127.0.0.1:1234"
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VICTOR_CODE_EXECUTOR_MEM` | `512m` | Memory limit for code execution |
-| `VICTOR_CODE_EXECUTOR_CPU_SHARES` | `256` | CPU shares for code execution |
 | `VICTOR_CODE_EXEC_START_TIMEOUT` | `5.0` | Seconds allowed for the Docker connect probe on first sandbox use (a closed Docker Desktop otherwise hangs 60s) |
 
 The sandbox container is created on first use, removed when its session

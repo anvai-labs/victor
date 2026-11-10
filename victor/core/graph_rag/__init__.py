@@ -53,6 +53,7 @@ from victor.core.graph_rag.config import (
 )
 from victor.core.graph_rag.indexing import GraphIndexingPipeline, GraphIndexStats
 from victor.core.graph_rag.retrieval import MultiHopRetriever
+from victor.core.graph_rag.seeding import SeedReport, hybrid_seeds, structural_seeds
 from victor.core.graph_rag.generation import GraphAwarePromptBuilder
 from victor.core.graph_rag.query_cache import (
     GraphQueryCache,
@@ -111,6 +112,9 @@ __all__ = [
     "GraphIndexStats",
     # Retrieval
     "MultiHopRetriever",
+    "SeedReport",
+    "hybrid_seeds",
+    "structural_seeds",
     # Generation
     "GraphAwarePromptBuilder",
     # Query Cache (PH4-005)

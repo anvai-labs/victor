@@ -72,25 +72,12 @@ Failed Tests:
 
 ### Enable/Disable Rich Formatting
 
-#### Environment Variable
-```bash
-# Disable Rich formatting
-export VICTOR_USE_RICH_FORMATTING=false
-
-# Enable Rich formatting (default)
-export VICTOR_USE_RICH_FORMATTING=true
-```
-
-#### Settings File
+#### Configuration
 ```yaml
-# config/settings.yml
-tool_settings:
-  rich_formatting_enabled: true  # Master switch
-  rich_formatting_tools:          # Tool whitelist
-    - test
-    - code_search
-    - git
-    # ... (35 tools total)
+# ~/.victor/config.yaml — feature flag (see docs/architecture/feature-flags.md
+# for the canonical flag inventory)
+feature_flags:
+  use_rich_formatting: true    # false disables Rich formatting
 ```
 
 ### Performance Tuning
@@ -257,14 +244,8 @@ print(f"Cache size: {stats['size']}/{stats['max_size']}")
 ```
 
 ### Disable for Testing
-```bash
-# Temporarily disable
-export VICTOR_USE_RICH_FORMATTING=false
-victor chat
-
-# Re-enable
-export VICTOR_USE_RICH_FORMATTING=true
-```
+Set the flag off in `~/.victor/config.yaml` (`feature_flags: {use_rich_formatting: false}`)
+and run `victor chat`; remove the override to re-enable.
 
 ## Advanced Usage
 
@@ -392,13 +373,9 @@ print(result.content)  # Rich formatted output
 - **Examples**: See `/tests/unit/tools/formatters/` for usage examples
 
 ### Rollback
-If you encounter issues, disable Rich formatting instantly:
-
-```bash
-export VICTOR_USE_RICH_FORMATTING=false
-```
-
-No code changes required - instant fallback to plain text.
+If you encounter issues, flip the feature flag in `~/.victor/config.yaml`
+(`feature_flags: {use_rich_formatting: false}`) — no code changes required,
+instant fallback to plain text.
 
 ## Summary
 

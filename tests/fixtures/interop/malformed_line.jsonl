@@ -1,0 +1,3 @@
+{"parentUuid": null, "isSidechain": false, "isMeta": false, "userType": "external", "cwd": "/tmp/demo", "sessionId": "aaaabbbb-0000-0000-0000-000000000001", "version": "2.0", "type": "user", "message": {"role": "user", "content": "What is 2+2?"}, "uuid": "33b7d387-87a0-40f0-bdc4-3820fe35ce1a", "timestamp": "2026-11-06T12:00:01Z"}
+{broken json
+{"parentUuid": null, "isSidechain": false, "isMeta": false, "userType": "external", "cwd": "/tmp/demo", "sessionId": "aaaabbbb-0000-0000-0000-000000000001", "version": "2.0", "type": "user", "message": {"role": "user", "content": "What is 2+2?"}, "uuid": "33b7d387-87a0-40f0-bdc4-3820fe35ce1a", "timestamp": "2026-11-06T12:00:01Z"}

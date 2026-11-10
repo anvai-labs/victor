@@ -132,6 +132,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
         (
             "victor/agent/factory/runtime_builders.py",
             {
+                "tests/unit/agent/factory/test_runtime_builders.py",
                 "tests/unit/agent/services/test_chat_runtime_services.py",
                 "tests/unit/agent/runtime/test_component_assembler.py",
                 "tests/unit/agent/test_response_completer.py",
@@ -306,6 +307,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/storage/graph/test_sqlite_store_edge_file_tracking.py",
                 "tests/unit/storage/graph/test_sqlite_store_edge_integrity.py",
                 "tests/unit/storage/graph/test_sqlite_store_embedding_cleanup.py",
+                "tests/unit/storage/graph/test_sqlite_store_natural_language_search.py",
                 "tests/unit/storage/graph/test_sqlite_store_parent_integrity.py",
             },
         ),
@@ -390,6 +392,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
             "victor/framework/agent_factory.py",
             [
                 "tests/unit/framework/test_skill_registry_wiring.py",
+                "tests/unit/framework/test_agent_factory.py",
                 "tests/unit/agent/test_runtime_provider_hardcodes.py",
             ],
         ),

@@ -118,6 +118,12 @@ def find_project_root(start: Optional[Path] = None) -> Path:
 
     resolved = (Path(start) if start else Path.cwd()).resolve()
     temp_root = Path(tempfile.gettempdir()).resolve()
+    # Path.home(), not get_secure_home(): the audited lookup loads settings,
+    # which resolve the project root here — a re-entrant deadlock.
+    try:
+        home_root: Optional[Path] = Path.home().resolve()
+    except (RuntimeError, OSError, KeyError):  # pragma: no cover - no resolvable home
+        home_root = None
 
     # Phase 1: Walk up looking for existing .victor/project.db or .git boundary
     project_markers = frozenset(
@@ -136,6 +142,12 @@ def find_project_root(start: Optional[Path] = None) -> Path:
 
     for ancestor in (resolved, *resolved.parents):
         if ancestor == temp_root:
+            break
+
+        # ``~/.victor`` is Victor's GLOBAL state directory, never an ancestor
+        # project (same boundary as the project database lookup) — unless the
+        # home directory is itself a git repository, which is a real project.
+        if ancestor == home_root and ancestor != resolved and not (ancestor / ".git").exists():
             break
 
         # Existing Victor state — strongest signal
@@ -2114,7 +2126,9 @@ class Settings(BaseSettings):
         2. Environment variables (VICTOR_*)
         3. .env file
         4. ~/.victor/settings.yaml
-        5. ~/.victor/profiles.yaml (specific profile)
+        5. ~/.victor/profiles.yaml (specific profile; the central drop dir
+           ~/.victor/profiles.d/*.yaml — written by `victor profiles pull` —
+           supplies the profile when the user file doesn't define the name)
         6. Default values
 
         Args:
@@ -2142,19 +2156,25 @@ class Settings(BaseSettings):
 
         # Layer 5: Load profiles.yaml if exists
         profiles_path = config_dir / "profiles.yaml"
+        profile_config = None
         if profiles_path.exists():
             try:
                 with open(profiles_path) as f:
                     profiles_data = yaml.safe_load(f) or {}
-
-                # Extract profile if specified
-                if profile_name and profile_name in profiles_data.get("profiles", {}):
-                    profile_config = profiles_data["profiles"][profile_name]
-                    # Accept flat keys — LEGACY_ENV_MAPPINGS routes them to nested groups
-                    for key, value in profile_config.items():
-                        settings_dict[key] = value
+                if profile_name:
+                    profile_config = profiles_data.get("profiles", {}).get(profile_name)
             except Exception as e:
                 logger.warning("Failed to load profiles.yaml: %s", e)
+        if profile_name and profile_config is None:
+            # Central drop dir (~/.victor/profiles.d, written by `victor profiles
+            # pull`) is the fallback when the user file doesn't define the name —
+            # user profiles.yaml wins, central entries stay visible.
+            central = cls._merge_central_section(cls._central_config_layers(config_dir), "profiles")
+            profile_config = central.get(profile_name)
+        if isinstance(profile_config, dict):
+            # Accept flat keys — LEGACY_ENV_MAPPINGS routes them to nested groups
+            for key, value in profile_config.items():
+                settings_dict[key] = value
 
         # Layer 4: Load settings.yaml if exists
         settings_path = config_dir / "settings.yaml"
@@ -2354,15 +2374,67 @@ class Settings(BaseSettings):
         return {str(name): dict(config or {}) for name, config in raw.items()}
 
     @classmethod
+    def _central_config_layers(cls, config_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+        """Parse the central profile drop dir ``~/.victor/profiles.d/*.yaml``.
+
+        Central files are written by ``victor profiles pull`` (the sandhi
+        gateway-profile download, ``GET /auth/profile`` with a per-user
+        ``skp_`` bootstrap token — shown-once virtual key persisted only in
+        the 0600 file) and share profiles.yaml's document shape so they
+        layer naturally. Precedence is bundled < central < user —
+        ``profiles.yaml`` still wins key-by-key. Lazy and failure-tolerant:
+        a missing dir is a no-op, and a malformed file is warned about and
+        skipped (same policy as an invalid profile in the user file).
+        """
+        central_dir = (config_dir or cls.get_config_dir()) / "profiles.d"
+        if not central_dir.is_dir():
+            return []
+        layers: List[Dict[str, Any]] = []
+        for path in sorted(central_dir.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.warning("Skipping malformed central profile file %s: %s", path, exc)
+                continue
+            layers.append(data if isinstance(data, dict) else {})
+        return layers
+
+    @staticmethod
+    def _merge_central_section(
+        layers: List[Dict[str, Any]], section: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """Merge one section (``profiles`` / ``providers``) across central layers.
+
+        Files merge in sorted-filename order; within a section, entries merge
+        key-by-key and a later file wins — mirroring the per-profile merge
+        used between the bundled and user layers.
+        """
+        merged: Dict[str, Dict[str, Any]] = {}
+        for layer in layers:
+            entries = layer.get(section)
+            if not isinstance(entries, dict):
+                continue
+            for name, config in entries.items():
+                if not isinstance(config, dict):
+                    continue
+                entry = dict(merged.get(str(name)) or {})
+                entry.update(config)
+                merged[str(name)] = entry
+        return merged
+
+    @classmethod
     def load_profiles(cls) -> Dict[str, ProfileConfig]:
-        """Load profiles, layering the user file over bundled defaults.
+        """Load profiles, layering central + user files over bundled defaults.
 
         The package ships ``victor/config/profiles.default.yaml``. On first run
         (no ``~/.victor/profiles.yaml``) it is seeded there so the CLI works
-        out of the box and stays user-editable. At load time bundled defaults
-        act as the base layer: a user profile with the same name overrides it
-        key-by-key, and bundled profiles added by package upgrades appear
-        automatically without touching the user's file.
+        out of the box and stays user-editable. At load time layers merge
+        key-by-key per profile name: bundled defaults act as the base layer,
+        the central drop dir (``~/.victor/profiles.d/*.yaml``, written by
+        ``victor profiles pull`` — the sandhi gateway-profile download) is the
+        middle layer, and the user file overrides both. Bundled profiles added
+        by package upgrades appear automatically without touching the user's
+        file, and a user override of a centrally-pulled profile still wins.
 
         Returns:
             Dictionary of profile configurations
@@ -2403,6 +2475,8 @@ class Settings(BaseSettings):
             except Exception as exc:
                 logger.warning("Failed to parse bundled default profiles: %s", exc)
 
+        central_raw = cls._merge_central_section(cls._central_config_layers(), "profiles")
+
         try:
             user_raw = (
                 cls._parse_profiles_yaml(profiles_file.read_text(encoding="utf-8"))
@@ -2414,8 +2488,12 @@ class Settings(BaseSettings):
             return {}
 
         profiles: Dict[str, ProfileConfig] = {}
-        for name in {**bundled_raw, **user_raw}:
-            merged = {**bundled_raw.get(name, {}), **user_raw.get(name, {})}
+        for name in {**bundled_raw, **central_raw, **user_raw}:
+            merged = {
+                **bundled_raw.get(name, {}),
+                **central_raw.get(name, {}),
+                **user_raw.get(name, {}),
+            }
             try:
                 profiles[name] = ProfileConfig(**merged)
             except Exception as exc:
@@ -2426,33 +2504,48 @@ class Settings(BaseSettings):
     def load_provider_config(cls, provider: str) -> Optional[ProviderConfig]:
         """Load provider-specific configuration.
 
+        Layers the user ``profiles.yaml`` ``providers`` section over the central
+        drop dir (``~/.victor/profiles.d`` — written by ``victor profiles pull``,
+        which lands the sandhi gateway block here), the user winning key-by-key,
+        so ``get_provider_settings`` resolves a centrally-pulled gateway exactly
+        like a hand-edited one.
+
         Args:
             provider: Provider name
 
         Returns:
             ProviderConfig or None
         """
+        central_provider = cls._merge_central_section(
+            cls._central_config_layers(), "providers"
+        ).get(provider)
+
         profiles_file = cls.get_config_dir() / "profiles.yaml"
+        user_provider: Optional[Dict[str, Any]] = None
+        if profiles_file.exists():
+            try:
+                with open(profiles_file, "r") as f:
+                    data = yaml.safe_load(f)
+                user_provider = (data or {}).get("providers", {}).get(provider)
+            except Exception as e:
+                print(f"Warning: Failed to load provider config for {provider}: {e}")
+                return None
 
-        if not profiles_file.exists():
-            return None
+        provider_data: Dict[str, Any] = dict(central_provider) if central_provider else {}
+        if isinstance(user_provider, dict):
+            provider_data.update(user_provider)
+        if provider_data:
+            # Expand environment variables
+            for key, value in provider_data.items():
+                if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+                    env_var = value[2:-1]
+                    provider_data[key] = os.getenv(env_var)
 
-        try:
-            with open(profiles_file, "r") as f:
-                data = yaml.safe_load(f)
-
-            provider_data = data.get("providers", {}).get(provider, {})
-            if provider_data:
-                # Expand environment variables
-                for key, value in provider_data.items():
-                    if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
-                        env_var = value[2:-1]
-                        provider_data[key] = os.getenv(env_var)
-
+            try:
                 return ProviderConfig(**provider_data)
-
-        except Exception as e:
-            print(f"Warning: Failed to load provider config for {provider}: {e}")
+            except Exception as e:
+                print(f"Warning: Failed to load provider config for {provider}: {e}")
+                return None
 
         return None
 

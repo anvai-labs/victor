@@ -29,7 +29,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +40,16 @@ def dump_cache_key(
     provider_name: str,
     tool_path: str,
     file_hashes: dict[str, str],
+    toolchain: Optional[dict[str, Any]] = None,
 ) -> str:
     """The cache key for one provider's artifact.
 
     ``file_hashes`` is the per-language slice of the codegraph manifest
-    (path → content_hash). Sorted for order-independence.
+    (path → content_hash). Sorted for order-independence. ``toolchain``
+    carries settings that change what a dump contains (JDK home, build
+    scope, build root); it is keyed separately so the tool's own stat — the
+    evidence that an in-place indexer upgrade invalidates the cache — stays
+    in the key.
     """
 
     tool = Path(tool_path)
@@ -59,6 +64,7 @@ def dump_cache_key(
         "tool_path": str(tool),
         "tool_stat": tool_stat,
         "files": sorted(file_hashes.items()),
+        **({"toolchain": toolchain} if toolchain else {}),
     }
     raw = json.dumps(evidence, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

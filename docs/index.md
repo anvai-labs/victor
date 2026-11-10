@@ -154,7 +154,7 @@ flowchart TB
 | [Configuration Options](reference/configuration-options.md) | Detailed config options |
 | [Environment Variables](reference/environment-variables.md) | All env vars |
 | [Provider Comparison](reference/providers-comparison.md) | Feature matrix for 25 providers |
-| [CLI Commands](reference/cli-commands.md) | CLI command reference |
+| [CLI Commands](user-guide/cli-reference.md) | CLI command reference |
 | [Skills](reference/skills.md) | Skill registry and YAML definitions |
 | [Embeddings](reference/embeddings.md) | Embedding backends and configuration |
 

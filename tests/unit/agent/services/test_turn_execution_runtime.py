@@ -64,6 +64,20 @@ def test_resolve_orchestrator_falls_back_to_chat_context_owner():
     assert executor._resolve_orchestrator() is fallback_owner
 
 
+async def test_check_turn_boundary_compaction_delegates_to_the_buffered_check():
+    """The public streaming capability runs the exact buffered boundary check."""
+    from unittest.mock import AsyncMock
+
+    from victor.agent.services.turn_execution_runtime import TurnExecutor
+
+    runtime = SimpleNamespace(_check_context_compaction=AsyncMock())
+    classification = object()
+
+    await TurnExecutor.check_turn_boundary_compaction(runtime, "task", classification)
+
+    runtime._check_context_compaction.assert_awaited_once_with("task", classification)
+
+
 @pytest.mark.asyncio
 async def test_check_context_compaction_prefers_lifecycle_service():
     executor = _make_executor()
@@ -2114,3 +2128,350 @@ async def test_stategraph_verifier_rejected_before_request_or_history(monkeypatc
     request.assert_not_awaited()
     executor._chat_context.add_message.assert_not_called()
     executor._chat_context.conversation.ensure_system_prompt.assert_not_called()
+
+
+# --- Tool offer stability across budget exhaustion + empty-offer parity -------
+
+
+def _stray_response() -> CompletionResponse:
+    return CompletionResponse(
+        content="",
+        tool_calls=[{"function": {"name": "rr_propose_brief", "arguments": "{}"}}],
+        stop_reason="tool_calls",
+    )
+
+
+def _text_response(text: str = "final answer") -> CompletionResponse:
+    return CompletionResponse(content=text, tool_calls=None, stop_reason="stop")
+
+
+@pytest.mark.asyncio
+async def test_execute_turn_keeps_tool_offer_when_budget_exhausted():
+    """Exhausting the tool budget must not empty the request's tool offer.
+
+    Enforcement belongs to execution (calls are skipped with a recorded
+    reason); an empty offer turns a mid-conversation tool call into a
+    protocol violation and flushes the KV-cached tool prefix.
+    """
+    executor = _make_executor()
+    executor._tool_context.tool_calls_used = 10
+    executor._tool_context.tool_budget = 10
+    selected_tools = [SimpleNamespace(name="rr_read_source")]
+    select = AsyncMock(return_value=selected_tools)
+    executor._select_tools_for_turn = select
+    executor._apply_runtime_context_overrides = MagicMock(return_value={})
+    executor._resolve_orchestrator = MagicMock(return_value=None)
+    executor._resolve_turn_temperature = MagicMock(return_value=0.2)
+    executor._provider_call_overrides = MagicMock(return_value={})
+    executor._execute_model_turn = AsyncMock(return_value=_text_response())
+    executor._record_conversation_usage = MagicMock()
+    executor.govern_response = AsyncMock(side_effect=lambda r: r)
+
+    result = await executor.execute_turn(user_message="wrap up the task")
+
+    select.assert_awaited_once()
+    executor._execute_model_turn.assert_awaited_once()
+    # The selected offer must reach the model call itself — computing it
+    # without sending it is the exact regression this pins out.
+    assert executor._execute_model_turn.await_args.kwargs["tools"] is selected_tools
+    assert result.content == "final answer"
+
+
+@pytest.mark.asyncio
+async def test_execute_turn_stray_call_against_empty_offer_is_not_redispatched():
+    """chat()/stream() parity (FEP-0007): a tool call made against an empty offer
+    flows to normal execution with ONE model call, as on the streaming ACT.
+
+    A buffered-only text-only re-dispatch (#1703) made buffered drop the call
+    while streaming executed it; any such guard must exist on both paths.
+    """
+    executor = _make_executor()
+    executor._tool_context.tool_calls_used = 0
+    executor._tool_context.tool_budget = 10
+    executor._maybe_execute_deterministic_tool_turn = AsyncMock(return_value=None)
+    executor._select_tools_for_turn = AsyncMock(return_value=None)
+    executor._apply_runtime_context_overrides = MagicMock(return_value={})
+    executor._resolve_orchestrator = MagicMock(return_value=None)
+    executor._resolve_turn_temperature = MagicMock(return_value=0.2)
+    executor._provider_call_overrides = MagicMock(return_value={})
+    stray = _stray_response()
+    executor._execute_model_turn = AsyncMock(return_value=stray)
+    executor._record_conversation_usage = MagicMock()
+    executor.govern_response = AsyncMock(side_effect=lambda r: r)
+
+    executor._tool_context.execute_tool_calls = AsyncMock(return_value=[])
+
+    await executor.execute_turn(user_message="wrap up the task")
+
+    # One model call, no text-only re-dispatch, and the call is executed.
+    executor._execute_model_turn.assert_awaited_once()
+    assert executor._execute_model_turn.await_args.kwargs.get("extra_messages") is None
+    executor._tool_context.execute_tool_calls.assert_awaited_once()
+    executed = executor._tool_context.execute_tool_calls.await_args.args[0]
+    names = [call.get("name") or call.get("function", {}).get("name") for call in executed]
+    assert names == ["rr_propose_brief"]
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_seeds_run_context_into_loop_state():
+    """FEP-0043: the structured caller run context lands in the loop's initial
+    state (alongside internal seeds, which win for reserved keys) so criteria
+    gating sees caller declarations made through the SDK surface."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    run_context = {"criteria": {"findings": 4}}
+    captured = {}
+
+    async def _loop_run(query: str, context=None, conversation_history=None):
+        captured.update(context or {})
+        return LoopResult(
+            success=True,
+            final_state={},
+            total_duration=0.0,
+            iterations=[
+                LoopIteration(
+                    iteration=1,
+                    stage=LoopStage.ACT,
+                    action_result=TurnResult(
+                        response=CompletionResponse(
+                            content="done",
+                            role="assistant",
+                            tool_calls=[],
+                        ),
+                        tool_results=[],
+                        has_tool_calls=False,
+                        tool_calls_count=0,
+                    ),
+                )
+            ],
+        )
+
+    loop_instance.run = AsyncMock(side_effect=_loop_run)
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", return_value=loop_instance):
+        response = await executor.execute_agentic_loop(
+            "hello",
+            max_iterations=5,
+            run_context=run_context,
+        )
+
+    assert response.content == "done"
+    assert captured["criteria"] == {"findings": 4}
+    # Caller keys never clobber reserved internal seeds; the merge places the
+    # loop's own context dict last, so a colliding caller key loses.
+    assert "query" not in captured
+
+
+def _loop_result(content: str = "done"):
+    return LoopResult(
+        success=True,
+        final_state={},
+        total_duration=0.0,
+        iterations=[
+            LoopIteration(
+                iteration=1,
+                stage=LoopStage.ACT,
+                action_result=TurnResult(
+                    response=CompletionResponse(content=content, role="assistant", tool_calls=[]),
+                    tool_results=[],
+                    has_tool_calls=False,
+                    tool_calls_count=0,
+                ),
+            )
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_enables_criteria_gate_when_criteria_declared():
+    """FEP-0043 enablement on the production loop build: declaring non-empty
+    criteria in the structured run context is the caller's opt-in that turns
+    the criteria gate on for this run."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured_config = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured_config.update(kwargs.get("config") or {})
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            max_iterations=5,
+            run_context={"criteria": {"findings": 4}},
+        )
+
+    assert captured_config.get("enable_criteria_gate") is True
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_criteria_gate_stays_off_without_criteria():
+    """No declared criteria -> the gate stays disabled (default-off parity)."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured_config = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured_config.update(kwargs.get("config") or {})
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop("hello", max_iterations=5)
+
+    assert not captured_config.get("enable_criteria_gate")
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_empty_criteria_declaration_stays_off():
+    """An empty criteria mapping is not an opt-in: nothing to enforce."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured_config = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured_config.update(kwargs.get("config") or {})
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            max_iterations=5,
+            run_context={"criteria": {}},
+        )
+
+    assert not captured_config.get("enable_criteria_gate")
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_explicit_iteration_budget_binds_over_default_ceiling():
+    """An explicit caller iteration_budget is the caller's declared ceiling:
+    it must not be clamped to execute_agentic_loop's default max_iterations=25
+    (measured failure: a funded 32-call research run ran on 25)."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured["max_iterations"] = kwargs.get("max_iterations")
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            runtime_context_overrides={"iteration_budget": 32},
+        )
+
+    assert captured["max_iterations"] == 32
+
+
+@pytest.mark.asyncio
+async def test_execute_agentic_loop_explicit_loop_ceiling_still_bounds_override():
+    """When a caller explicitly passes max_iterations, the explicit parameter
+    still bounds the override (min semantics preserved for explicit ceilings)."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(return_value=_loop_result())
+    captured = {}
+
+    def _loop_factory(*args, **kwargs):
+        captured["max_iterations"] = kwargs.get("max_iterations")
+        return loop_instance
+
+    with patch("victor.framework.agentic_loop.AgenticLoop", side_effect=_loop_factory):
+        await executor.execute_agentic_loop(
+            "hello",
+            max_iterations=10,
+            runtime_context_overrides={"iteration_budget": 32},
+        )
+
+    assert captured["max_iterations"] == 10
+
+
+@pytest.mark.asyncio
+async def test_runtime_context_tool_budget_override_reaches_every_budget_owner():
+    """A caller runtime_context_overrides tool budget must reach ALL budget
+    owners, never be silently lowered by one of them.
+
+    Each per-turn apply feeds four owners (FEP-0043 budget seam): the
+    orchestrator snapshot, the task coordinator, the ToolService budget
+    runtime, and the pipeline config. Any owner that ignored or clamped the
+    override starved the run while the others looked funded.
+    """
+    from victor.agent.services.tool_service import ToolService, ToolServiceConfig
+
+    service = ToolService(
+        config=ToolServiceConfig(default_tool_budget=50),
+        tool_selector=MagicMock(),
+        tool_executor=MagicMock(),
+        tool_registrar=MagicMock(),
+    )
+    pipeline = SimpleNamespace(config=SimpleNamespace(tool_budget=50))
+    service.bind_runtime_components(tool_pipeline=pipeline)
+    assert service.budget == 50
+
+    orchestrator = SimpleNamespace(
+        tool_budget=50,
+        task_coordinator=SimpleNamespace(tool_budget=50),
+        _tool_service=service,
+        _tool_pipeline=pipeline,
+    )
+    executor = _make_executor()
+    executor._orchestrator = orchestrator
+    executor._chat_context._orchestrator = orchestrator
+
+    snapshot = executor._apply_runtime_context_overrides({"tool_budget": 134})
+
+    try:
+        assert orchestrator.tool_budget == 134
+        assert orchestrator.task_coordinator.tool_budget == 134
+        assert service.budget == 134
+        assert pipeline.config.tool_budget == 134
+    finally:
+        executor._restore_runtime_context_overrides(snapshot)
+
+    # Restoration returns every owner to its pre-turn value.
+    assert orchestrator.tool_budget == 50
+    assert orchestrator.task_coordinator.tool_budget == 50
+    assert service.budget == 50
+    assert pipeline.config.tool_budget == 50

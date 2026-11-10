@@ -516,6 +516,28 @@ class TestChatServiceDictBasedContext(BaseChatServiceTest):
             "runtime_context_overrides": runtime_context_overrides,
         }
 
+    @pytest.mark.asyncio
+    async def test_chat_passes_run_context_to_bound_executor(self):
+        """FEP-0043: the structured caller run context survives the chat seam
+        and reaches the bound executor alongside the flattened prompt text."""
+        service = self._create_test_service()
+        response = CompletionResponse(content="done", role="assistant", stop_reason="stop")
+        observed = {}
+
+        class _TurnExecutor:
+            async def execute_agentic_loop(self, user_message, run_context=None):
+                observed["user_message"] = user_message
+                observed["run_context"] = run_context
+                return response
+
+        service.bind_runtime_components(turn_executor=_TurnExecutor())
+        run_context = {"criteria": {"findings": 4}}
+
+        result = await service.chat("hello", run_context=run_context)
+
+        assert result is response
+        assert observed == {"user_message": "hello", "run_context": run_context}
+
     def test_add_tool_result_supports_dict_based_context_protocol(self):
         service = self._create_test_service()
         result = mock.MagicMock(output="tool output", error=None)
@@ -1897,3 +1919,139 @@ class TestOwnedPlanningFallback(BaseChatServiceTest):
             assert service._tools.turn_resets == 0
         assert (await asyncio.wait_for(task, 2)).content == "plan"
         planner.assert_awaited_once()
+
+
+class TestChatServiceCriteriaGateEndToEnd(BaseChatServiceTest):
+    """FEP-0043 chain test: the caller's structured run context must reach the
+    real agentic loop intact on the buffered path.
+
+    Replicates the SDK buffered call shape ``run(prompt,
+    runtime_context_overrides=..., context={...})`` end to end — ChatService
+    chat seam, the bound canonical turn executor, and the real AgenticLoop
+    construction — and asserts the criteria gate engages and the criteria
+    declaration lands in loop state.
+    """
+
+    def _make_turn_executor(self):
+        from types import SimpleNamespace as _Namespace
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import MagicMock as _MagicMock
+
+        from victor.agent.services.turn_execution_runtime import TurnExecutor
+        from victor.config.agentic_loop_settings import AgenticLoopSettings
+
+        chat_context = _MagicMock()
+        chat_context.settings = _MagicMock()
+        chat_context.settings.agentic_loop = AgenticLoopSettings()
+        chat_context.settings.agent.effect_gated_completion = False
+        chat_context.settings.exploration = None
+        chat_context.settings.chat_max_iterations = 8
+        chat_context.add_message = _MagicMock()
+        chat_context.conversation = _MagicMock()
+        chat_context._orchestrator = None
+
+        tool_context = _Namespace(tool_calls_used=0, tool_budget=50)
+        provider_context = _MagicMock()
+        provider_context.provider_name = "ollama"
+        provider_context.model = "test-model"
+        provider_context.task_classifier = _MagicMock(
+            classify=_MagicMock(return_value=_Namespace(tool_budget=2))
+        )
+
+        executor = TurnExecutor(
+            chat_context=chat_context,
+            tool_context=tool_context,
+            provider_context=provider_context,
+            execution_provider=_MagicMock(),
+        )
+        executor._check_context_compaction = _AsyncMock(return_value=None)
+        executor._maybe_execute_deterministic_tool_turn = _AsyncMock(return_value=None)
+        executor._select_tools_for_turn = _AsyncMock(return_value=None)
+        # The turn primitive: one model call that answers with no pending tools.
+        executor._execute_model_turn = _AsyncMock(
+            return_value=CompletionResponse(
+                content="done",
+                role="assistant",
+                tool_calls=[],
+                metadata={"forced_task_completion": True},
+            )
+        )
+        return executor
+
+    @pytest.mark.asyncio
+    async def test_run_context_reaches_real_loop_and_enables_criteria_gate(self):
+        from unittest.mock import MagicMock as _MagicMock
+        from unittest.mock import patch
+
+        from victor.agent.action_authorizer import ActionIntent
+        from victor.framework.agentic_loop import AgenticLoop
+        from victor.framework.perception_integration import Perception
+        from victor.framework.task.protocols import TaskComplexity
+
+        captured = {}
+
+        perception = Perception(
+            intent=ActionIntent.WRITE_ALLOWED,
+            complexity=TaskComplexity.MEDIUM,
+            task_analysis=_MagicMock(task_type="code_generation"),
+            confidence=0.8,
+        )
+
+        class _RecordingLoop(AgenticLoop):
+            """Real loop; records build config, state, and iteration decisions."""
+
+            def __init__(self, *args, **kwargs):
+                captured["config"] = dict(kwargs.get("config") or {})
+                super().__init__(*args, **kwargs)
+
+            async def _analyze_turn(self, query, context=None, conversation_history=None):
+                return perception
+
+            async def run(self, query, **kwargs):
+                result = await super().run(query, **kwargs)
+                captured["final_state"] = result.final_state
+                captured["iterations"] = result.iterations
+                return result
+
+            async def _plan(self, query, state):
+                return {"steps": ["respond"]}
+
+        service = self._create_test_service()
+        service.bind_runtime_components(turn_executor=self._make_turn_executor())
+
+        runtime_context_overrides = {"iteration_budget": 64, "tool_budget": 134}
+        run_context = {
+            "criteria": {"findings": 30},
+            "coverage": {"findings": [30, 40]},
+            "complete_on_key": "corpus_closed",
+        }
+
+        with patch("victor.framework.agentic_loop.AgenticLoop", _RecordingLoop):
+            response = await service.chat(
+                "hello",
+                runtime_context_overrides=runtime_context_overrides,
+                run_context=run_context,
+            )
+
+        assert response.content == "done"
+        # The caller's declaration turns the gate on for this run.
+        assert captured["config"].get("enable_criteria_gate") is True
+        assert captured["config"].get("executor") is not None
+        final_state = captured["final_state"]
+        # The structured run context lands in loop state intact.
+        assert final_state["criteria"] == {"findings": 30}
+        assert final_state["complete_on_key"] == "corpus_closed"
+        merged_overrides = final_state["runtime_context_overrides"]
+        for key, value in runtime_context_overrides.items():
+            assert merged_overrides[key] == value
+        # And the gate actually engaged: the first COMPLETE the model claimed
+        # while its declared minimum was unmet was downgraded to RETRY.
+        decisions = [iteration.evaluation.decision for iteration in captured["iterations"]]
+        assert decisions, "loop produced no iterations"
+        downgraded = [
+            iteration.evaluation
+            for iteration in captured["iterations"]
+            if iteration.evaluation.metadata
+            and iteration.evaluation.metadata.get("criteria_gate", {}).get("downgrade")
+        ]
+        assert downgraded, "criteria gate never downgraded an unmet COMPLETE"

@@ -543,7 +543,7 @@ If wrong tools are being selected:
 
 - [Full Tool Catalog](../reference/tools/catalog.md) - All 34 tool modules with parameters
 - [Tool Calling Details](../reference/tools/tool-calling.md) - Provider-specific behavior
-- [Configuration Reference](../reference/configuration/index.md) - All settings
+- [Configuration Reference](../reference/configuration-options.md) - All settings
 - [Custom Tool Tutorial](../tutorials/build-custom-tool.md) - Build your own tools
 
 ---

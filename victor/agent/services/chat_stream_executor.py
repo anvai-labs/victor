@@ -1317,14 +1317,14 @@ class StreamingChatExecutor:
 
         The streaming ACT previously had NO boundary check — only the
         pre-tool-output injection check — so long tool loops never hit a
-        boundary evaluation (the 2026-11 wedged-session shape). Reuses
-        ``turn_executor._check_context_compaction`` wholesale: mid-turn
+        boundary evaluation (the 2026-11 wedged-session shape). Reuses the
+        turn executor's ``check_turn_boundary_compaction`` capability: mid-turn
         KV-prefix gating (overflow-only override) and the lifecycle →
         context-service → compactor precedence come for free. Best-effort:
         a missing turn executor or classification must never break the turn.
         """
         turn_executor = getattr(orch, "turn_executor", None)
-        check = getattr(turn_executor, "_check_context_compaction", None)
+        check = getattr(turn_executor, "check_turn_boundary_compaction", None)
         if not callable(check):
             return
         classification = getattr(stream_ctx, "task_classification", None)

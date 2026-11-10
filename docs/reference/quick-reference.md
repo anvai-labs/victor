@@ -42,7 +42,7 @@ victor scheduler --help
 ```
 
 The installed command's help lists the available flags for your version. See the
-[CLI reference](cli-commands.md), [installation](../getting-started/installation.md),
+[CLI reference](../user-guide/cli-reference.md), [installation](../getting-started/installation.md),
 and [configuration](../getting-started/configuration.md) guides.
 
 The former expanded cheatsheet is preserved in [page history](https://github.com/anvai-labs/victor/commits/develop/docs/reference/quick-reference.md).

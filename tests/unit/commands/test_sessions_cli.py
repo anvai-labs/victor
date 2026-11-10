@@ -565,3 +565,167 @@ class TestSessionsListAllFlag:
         # We can't count exact sessions in table output, but can check for specific sessions
         # Note: Table wraps titles across lines, so check for "Extra" which appears in "Extra Session X"
         assert "Extra" in result_all.stdout
+
+
+class TestSessionsImportExportInterop:
+    """victor data session import/export interop commands."""
+
+    FIXTURES = Path(__file__).parents[2] / "fixtures" / "interop"
+
+    def test_import_dry_run(self, runner_with_db):
+        result = runner_with_db.invoke(
+            sessions_app,
+            ["import", str(self.FIXTURES / "claude_minimal.jsonl"), "--dry-run"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Dry run" in result.output
+        assert "Format: claude" in result.output
+
+    def test_import_json_report(self, runner_with_db):
+        result = runner_with_db.invoke(
+            sessions_app,
+            ["import", str(self.FIXTURES / "codex_minimal.jsonl"), "--json"],
+        )
+        assert result.exit_code == 0, result.output
+        assert '"source_format": "codex"' in result.output
+        assert runner_with_db.env and "VICTOR_CONVERSATION_DB" in runner_with_db.env
+
+    def test_import_persists_across_fresh_store(self, runner_with_db, temp_db_path):
+        result = runner_with_db.invoke(
+            sessions_app,
+            ["import", str(self.FIXTURES / "claude_tools_thinking.jsonl")],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Imported 7 message(s)" in result.output
+
+        from victor.agent.conversation.store import ConversationStore
+
+        fresh = ConversationStore(db_path=temp_db_path)
+        summaries = fresh.list_session_summaries(limit=5)
+        assert summaries, "imported session missing from fresh store"
+        loaded = fresh.load_session(summaries[0].session_id)
+        roles = [m["role"] for m in loaded["conversation"]["messages"]]
+        assert "tool_call" in roles and "tool" in roles
+
+    def test_import_unknown_format_flag(self, runner_with_db):
+        result = runner_with_db.invoke(
+            sessions_app,
+            ["import", str(self.FIXTURES / "claude_minimal.jsonl"), "--format", "bogus"],
+        )
+        assert result.exit_code == 1
+        assert "Unknown --format" in result.output
+
+    def test_export_single_session_round_trips(
+        self, runner_with_db, temp_db_path, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        seed = runner_with_db.invoke(
+            sessions_app,
+            ["import", str(self.FIXTURES / "victor_native.json")],
+        )
+        assert seed.exit_code == 0, seed.output
+
+        out_file = tmp_path / "out.json"
+        exported = runner_with_db.invoke(
+            sessions_app,
+            [
+                "export",
+                "--session-id",
+                "vic_fix_001",
+                "--format",
+                "victor",
+                "--output",
+                str(out_file),
+            ],
+        )
+        assert exported.exit_code == 0, exported.output
+        doc = json.loads(out_file.read_text())
+        assert doc["session_id"] == "vic_fix_001"
+        assert [m["role"] for m in doc["messages"]] == ["user", "assistant", "tool"]
+
+        # the exported file re-imports into a fresh DB
+        other_db = tmp_path / "other.db"
+        other = CliRunner(env={"VICTOR_CONVERSATION_DB": str(other_db)})
+        again = other.invoke(sessions_app, ["import", str(out_file)])
+        assert again.exit_code == 0, again.output
+        from victor.agent.conversation.store import ConversationStore
+
+        fresh = ConversationStore(db_path=other_db)
+        loaded = fresh.load_session("vic_fix_001")
+        assert [m["role"] for m in loaded["conversation"]["messages"]] == [
+            "user",
+            "assistant",
+            "tool",
+        ]
+
+    def test_export_legacy_array_unchanged(self, runner_with_db):
+        """Bare `export` keeps the legacy all-sessions array behavior."""
+        seed = runner_with_db.invoke(
+            sessions_app,
+            ["import", str(self.FIXTURES / "victor_native.json")],
+        )
+        assert seed.exit_code == 0, seed.output
+        result = runner_with_db.invoke(sessions_app, ["export"])
+        assert result.exit_code == 0, result.output
+        assert "Exported 1 session(s)" in result.output
+
+    def test_export_format_claude(self, runner_with_db, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        seed = runner_with_db.invoke(
+            sessions_app,
+            ["import", str(self.FIXTURES / "codex_minimal.jsonl")],
+        )
+        assert seed.exit_code == 0, seed.output
+        result = runner_with_db.invoke(
+            sessions_app,
+            ["export", "--format", "claude"],
+        )
+        assert result.exit_code == 0, result.output
+        emitted = tmp_path / "victor-session-imp_9a4ae71a51b8.claude.jsonl"
+        # deterministic imp_ id; locate whatever file was written
+        candidates = list(tmp_path.glob("victor-session-*.claude.jsonl"))
+        assert candidates, "no claude transcript written"
+        entries = [json.loads(line) for line in candidates[0].read_text().splitlines()]
+        assert entries[0]["message"]["role"] == "user"
+
+
+class TestSessionsHandoffCLI:
+    """victor data session handoff <claude|codex>."""
+
+    FIXTURES = Path(__file__).parents[2] / "fixtures" / "interop"
+
+    def test_handoff_requires_known_target(self, runner_with_db):
+        result = runner_with_db.invoke(sessions_app, ["handoff", "gemini"])
+        assert result.exit_code == 1
+        assert "claude or codex" in result.output
+
+    def test_handoff_claude(self, runner_with_db, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".claude" / "projects").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+        seed = runner_with_db.invoke(
+            sessions_app, ["import", str(self.FIXTURES / "victor_native.json")]
+        )
+        assert seed.exit_code == 0, seed.output
+        result = runner_with_db.invoke(
+            sessions_app, ["handoff", "claude", "--session-id", "vic_fix_001"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Installed" in result.output
+        assert "claude --resume" in result.output
+        assert len(list((home / ".claude" / "projects").rglob("*.jsonl"))) == 1
+
+    def test_handoff_codex(self, runner_with_db, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".codex" / "sessions").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+        seed = runner_with_db.invoke(
+            sessions_app, ["import", str(self.FIXTURES / "codex_minimal.jsonl")]
+        )
+        assert seed.exit_code == 0, seed.output
+        result = runner_with_db.invoke(sessions_app, ["handoff", "codex"])
+        assert result.exit_code == 0, result.output
+        assert "codex resume" in result.output
+        assert len(list((home / ".codex" / "sessions").rglob("rollout-*.jsonl"))) == 1

@@ -119,6 +119,10 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_CONTEXT_OVERRIDES_STATE_KEY = "runtime_context_overrides"
 LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY = "topology_overrides"
+# Budget keys a caller (or the first derived plan) declared in
+# runtime_context_overrides bind for the whole run: later derived plans may
+# add keys but never replace these (see _merge_runtime_context_overrides).
+CALLER_BOUND_OVERRIDE_KEYS = ("tool_budget", "iteration_budget")
 
 # =============================================================================
 # Enums for Agentic Loop Decisions
@@ -520,6 +524,8 @@ class AgenticLoopConfig:
     # default off per the flag-graduation policy; a strict no-op when disabled.
     enable_effect_gate: bool = False
     effect_gate_max_downgrades: int = 2
+    enable_criteria_gate: bool = False
+    criteria_gate_max_downgrades: int = 2
     # Online per-turn auditor (EVR-6 / FEP-0008 Phase C): a continue/alarm check that downgrades a
     # degenerate COMPLETE to RETRY. Opt-in, default off; a strict no-op when disabled.
     enable_per_turn_auditor: bool = False
@@ -753,6 +759,7 @@ class AgenticLoop(TopologyPlanningMixin):
         # default off. Wraps the EVALUATE seam (record → _evaluate_core → apply) so every
         # completion strategy shares the same effect precondition; strict no-op when disabled.
         from victor.framework.effect_gate import EffectGate, EffectGateConfig
+        from victor.framework.criteria_gate import CriteriaGate, CriteriaGateConfig
 
         self.effect_gate = EffectGate(
             EffectGateConfig(
@@ -760,6 +767,16 @@ class AgenticLoop(TopologyPlanningMixin):
                 max_downgrades=self.config.effect_gate_max_downgrades,
             ),
             workspace_resolver=self._resolve_workspace,
+        )
+        # Caller-declared completion criteria gate (FEP-0043) — opt-in via
+        # enable_criteria_gate, default off. Third post-filter on the same
+        # EVALUATE seam: downgrades an ungrounded COMPLETE to RETRY while
+        # caller-declared minimums (run-context criteria) are unmet.
+        self.criteria_gate = CriteriaGate(
+            CriteriaGateConfig(
+                enabled=self.config.enable_criteria_gate,
+                max_downgrades=max(0, int(self.config.criteria_gate_max_downgrades)),
+            )
         )
 
         # Online per-turn auditor (EVR-6 / FEP-0008 Phase C) — opt-in via enable_per_turn_auditor,
@@ -826,6 +843,9 @@ class AgenticLoop(TopologyPlanningMixin):
         self.criteria_builder.reset()
         # Both collaborators exist even when disabled; their state belongs to this run.
         self.effect_gate.reset()
+        criteria_gate = getattr(self, "criteria_gate", None)
+        if criteria_gate is not None:
+            criteria_gate.reset()
         self.per_turn_auditor.reset()
 
     async def run(
@@ -872,6 +892,10 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
+        # funded iteration, so a best-effort run always terminates with an
+        # honest terminal report rather than a forced RETRY.
+        state["_criteria_budget_exhausted"] = False
         nudge_intent: Optional[ActionIntent] = None
 
         try:
@@ -911,6 +935,9 @@ class AgenticLoop(TopologyPlanningMixin):
 
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
+                # FEP-0043: the criteria gate yields on the final funded
+                # iteration (best-effort retention over forced RETRY).
+                state["_criteria_budget_exhausted"] = i >= effective_max
                 # Spin guards: cooperative deadline + between-iteration
                 # perception backstop. Raises LoopSpinError → caught below → FAIL.
                 # Default total_timeout=None = off (no behavior change).
@@ -1673,6 +1700,28 @@ class AgenticLoop(TopologyPlanningMixin):
                     "effect_gate_nudge", source=MessageSource.AGENT_NUDGE
                 ),
             )
+        elif isinstance(evaluation.metadata.get("criteria_gate"), dict) and evaluation.metadata[
+            "criteria_gate"
+        ].get("downgrade"):
+            # A criteria-gate retry must tell the model its completion claim was
+            # refused and why: a silent COMPLETE->RETRY rewrite reads to the
+            # model as a bare continuation, so it repeats the same final answer
+            # instead of working toward the caller's declared objectives.
+            gate_meta = evaluation.metadata["criteria_gate"]
+            unmet = ", ".join(str(name) for name in gate_meta.get("unmet") or [])
+            unmet_clause = f" ({unmet})" if unmet else ""
+            chat_ctx.add_message(
+                "user",
+                (
+                    "Your completion claim was not accepted: the caller-declared "
+                    f"completion criteria are still unmet{unmet_clause}. Continue using "
+                    "permitted tools within the original request toward those declared "
+                    "objectives, or state plainly what remains unmet."
+                ),
+                metadata=build_internal_history_metadata(
+                    "criteria_gate_nudge", source=MessageSource.AGENT_NUDGE
+                ),
+            )
         elif decision.nudge_message:
             kind = "budget_nudge" if decision.nudge_kind == "budget_warning" else "nudge"
             chat_ctx.add_message(
@@ -1942,12 +1991,19 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
+        # funded iteration, so a best-effort run always terminates with an
+        # honest terminal report rather than a forced RETRY.
+        state["_criteria_budget_exhausted"] = False
         nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
 
         try:
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
+                # FEP-0043: the criteria gate yields on the final funded
+                # iteration (best-effort retention over forced RETRY).
+                state["_criteria_budget_exhausted"] = i >= effective_max
                 _loop_guards.enforce(
                     effective_max=effective_max,
                     backstop_factor=self.config.perception_backstop_factor,
@@ -1997,6 +2053,15 @@ class AgenticLoop(TopologyPlanningMixin):
                         yield chunk
                 action_result = act_outcome.turn_result
                 state["action_result"] = action_result
+
+                # FEP-0043: mirror criteria-declared keys from this turn's tool
+                # results into state (streaming parity with the buffered _act
+                # path) so the criteria gate counts the run's own evidence.
+                _turn_tool_results = getattr(action_result, "tool_results", None)
+                if _turn_tool_results:
+                    from victor.framework.criteria_gate import mirror_criteria_state
+
+                    mirror_criteria_state(state, _turn_tool_results)
 
                 # FEP-0023 Phase 1: record the turn onto the live SessionLedger
                 # (streaming parity with run(); populates <SESSION_STATE>). No-op
@@ -2107,10 +2172,15 @@ class AgenticLoop(TopologyPlanningMixin):
             "query": query,
             "conversation_history": conversation_history,
             **(context or {}),
+            # FEP-0043: the criteria gate yields on the final funded
+            # iteration (best-effort retention over forced RETRY).
+            "_criteria_budget_exhausted": False,
         }
 
         for i in range(1, self.max_iterations + 1):
             iteration = LoopIteration(iteration=i, stage=LoopStage.PERCEIVE)
+            # FEP-0043: refresh the criteria budget marker per iteration.
+            state["_criteria_budget_exhausted"] = i >= self.max_iterations
 
             # PERCEIVE
             perception = await self._analyze_turn(query, context, conversation_history)
@@ -2163,9 +2233,28 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any],
         overrides: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Merge new overrides into existing generic runtime override state."""
+        """Merge new overrides into existing generic runtime override state.
+
+        Budget keys already present in state bind for the whole run: derived
+        plans re-emit the budgets they were handed (topology planning grounds
+        its decision from the loop-build service snapshot), and letting those
+        echoes win silently lowered a caller's funded
+        ``runtime_context_overrides`` budget — a 134-call override collapsed
+        to the 50-call service default and the run starved mid-flight while
+        still funded. Derived keys that are absent (formation hints, team
+        names, worktree paths) still merge normally.
+        """
         merged = dict(cls._get_runtime_context_overrides(state) or {})
-        merged.update(overrides)
+        for key, value in dict(overrides).items():
+            if key in CALLER_BOUND_OVERRIDE_KEYS and key in merged:
+                logger.debug(
+                    "Runtime override merge keeps existing %s=%s over derived %s",
+                    key,
+                    merged[key],
+                    value,
+                )
+                continue
+            merged[key] = value
         return merged
 
     @staticmethod
@@ -2762,6 +2851,12 @@ class AgenticLoop(TopologyPlanningMixin):
             if turn_result.tool_results:
                 for tr in turn_result.tool_results:
                     self.criteria_builder.record_tool_result(tr)
+                # FEP-0043: mirror criteria-declared keys from this turn's tool
+                # results into state so the criteria gate counts the run's own
+                # evidence. Opt-in by declaration; a no-op without criteria.
+                from victor.framework.criteria_gate import mirror_criteria_state
+
+                mirror_criteria_state(state, turn_result.tool_results)
 
             return turn_result
 
@@ -3140,6 +3235,9 @@ class AgenticLoop(TopologyPlanningMixin):
         auditor = getattr(self, "per_turn_auditor", None)
         if auditor is not None:
             evaluation = auditor.apply(evaluation, action_result, state)
+        criteria_gate = getattr(self, "criteria_gate", None)
+        if criteria_gate is not None:
+            evaluation = await criteria_gate.apply(evaluation, action_result, state)
         return evaluation
 
     async def _evaluate_core(
@@ -3352,7 +3450,25 @@ class AgenticLoop(TopologyPlanningMixin):
             # Use shared SpinDetector for consistent detection
             spin_state = self.spin_detector.state
             if spin_state == SpinState.TERMINATED:
+                # FEP-0043 guided termination: while the caller declared
+                # completion objectives that remain unmet and iteration budget
+                # remains, spin results degrade to CONTINUE guidance instead of
+                # terminating the run (the iteration cap still bounds it).
+                from victor.framework.criteria_gate import criteria_unmet_with_budget
+
+                guided = criteria_unmet_with_budget(state)
                 if self.spin_detector.consecutive_all_blocked > 0:
+                    if guided:
+                        return EvaluationResult(
+                            decision=EvaluationDecision.CONTINUE,
+                            score=0.2,
+                            reason=(
+                                f"Spin detected: {self.spin_detector.consecutive_all_blocked} "
+                                "consecutive fully-blocked tool batches; caller-declared "
+                                "completion criteria are unmet with iteration budget "
+                                "remaining — continuing with guidance instead of failing"
+                            ),
+                        )
                     return EvaluationResult(
                         decision=EvaluationDecision.FAIL,
                         score=0.1,
@@ -3366,12 +3482,36 @@ class AgenticLoop(TopologyPlanningMixin):
                 repetition_count = getattr(self.spin_detector, "_repetition_count", 0)
                 threshold = getattr(self.spin_detector, "REPETITION_THRESHOLD", 3)
                 if repetition_count >= threshold - 1:
+                    if guided:
+                        return EvaluationResult(
+                            decision=EvaluationDecision.CONTINUE,
+                            score=0.2,
+                            reason=(
+                                f"Repetitive loop detected: the model repeated the same tool "
+                                f"calls for {repetition_count} consecutive turns; "
+                                "caller-declared completion criteria are unmet with "
+                                "iteration budget remaining — continuing with guidance "
+                                "instead of failing"
+                            ),
+                        )
                     return EvaluationResult(
                         decision=EvaluationDecision.FAIL,
                         score=0.1,
                         reason=(
                             f"Repetitive loop detected: the model repeated the same tool "
                             f"calls for {repetition_count} consecutive turns"
+                        ),
+                    )
+
+                if guided:
+                    return EvaluationResult(
+                        decision=EvaluationDecision.CONTINUE,
+                        score=0.2,
+                        reason=(
+                            f"Agent stuck: {self.spin_detector.consecutive_no_tool_turns} "
+                            "turns without tool calls; caller-declared completion criteria "
+                            "are unmet with iteration budget remaining — continuing with "
+                            "guidance instead of failing"
                         ),
                     )
 
@@ -3755,6 +3895,8 @@ class AgenticLoop(TopologyPlanningMixin):
             None otherwise
         """
         scores = self._progress_scores
+        from victor.framework.criteria_gate import criteria_unmet_with_budget
+
         task_type = str((state or {}).get("task_type") or "").lower()
         read_heavy_task = task_type in {
             "search",
@@ -3795,7 +3937,18 @@ class AgenticLoop(TopologyPlanningMixin):
             recent = scores[-self.plateau_window :]
             improvement = max(recent) - min(recent)
             if improvement < self.plateau_tolerance:
-                return AdaptiveTerminationDecision.PLATEAU
+                # FEP-0043 guided termination: while the caller declared
+                # completion objectives that remain unmet and iteration budget
+                # remains, a plateau degrades to guidance-by-continuation and
+                # never terminates the run early (the iteration cap still
+                # bounds the loop). No declaration — byte-identical behavior.
+                if criteria_unmet_with_budget(state or {}):
+                    logger.info(
+                        "Adaptive plateau suppressed: caller-declared completion criteria "
+                        "are unmet with iteration budget remaining"
+                    )
+                else:
+                    return AdaptiveTerminationDecision.PLATEAU
 
         # Check near-completion: score > 0.7 and still improving
         if len(scores) >= 2 and scores[-1] >= 0.7:

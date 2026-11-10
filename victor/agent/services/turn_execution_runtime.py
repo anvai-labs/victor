@@ -470,15 +470,22 @@ class TurnExecutor:
     async def execute_agentic_loop(
         self,
         user_message: str,
-        max_iterations: int = 25,
+        max_iterations: Optional[int] = None,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        run_context: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """Execute the full agentic loop via the canonical AgenticLoop runtime.
 
         Args:
             user_message: Initial user message
-            max_iterations: Maximum model turns
+            max_iterations: Maximum model turns; None (default) means the
+                caller set no explicit loop ceiling, so an explicit
+                runtime_context_overrides iteration_budget binds absolutely
+                (a legacy positional default here must not clamp a funded
+                caller budget). An explicit value still bounds the override.
             runtime_context_overrides: Scoped runtime hints to apply to turns in this loop
+            run_context: Structured caller context seeded into the loop's state
+                (FEP-0043 criteria gating). Internal loop seeds win for reserved keys.
 
         Returns:
             CompletionResponse with complete response
@@ -515,6 +522,7 @@ class TurnExecutor:
             user_message,
             max_iterations,
             runtime_context_overrides=runtime_context_overrides,
+            run_context=run_context,
             executor=executor,
         )
 
@@ -558,6 +566,26 @@ class TurnExecutor:
         if content != (response.content or ""):
             return response.model_copy(update={"content": content})
         return response
+
+    async def _metered_model_turn(
+        self,
+        *,
+        tools: Optional[List[Any]] = None,
+        extra_messages: Optional[List[Any]] = None,
+        provider_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> CompletionResponse:
+        """One metered model turn: execute, record usage, govern.
+
+        Shared by every model call of a turn so all of them
+        meter and govern identically.
+        """
+        response = await self._execute_model_turn(
+            tools=tools,
+            extra_messages=extra_messages,
+            **dict(provider_kwargs or {}),
+        )
+        self._record_conversation_usage(response)
+        return await self.govern_response(response)
 
     async def prepare_runtime_topology(
         self,
@@ -695,13 +723,17 @@ class TurnExecutor:
                 if deterministic_turn is not None:
                     return deterministic_turn
 
-            # Select tools (unless Q&A task)
+            # Select tools (unless Q&A task). The tool offer stays stable even
+            # when the tool budget is exhausted: the offer is a contract
+            # surface — an abruptly empty offer turns a mid-conversation tool
+            # call into a protocol violation for validating provider wrappers,
+            # and it also flushes the KV-cached tool prefix. Budget enforcement
+            # stays at execution, where exhausted calls are skipped with a
+            # recorded, user-visible reason; the model sees those skip results
+            # directly (the loop's budget_warning nudge is iteration-budget
+            # gated and does not fire on early tool-budget exhaustion).
             tools = None
-            if (
-                not is_qa_task
-                and self._provider_context.provider.supports_tools()
-                and self._tool_context.tool_calls_used < effective_tool_budget
-            ):
+            if not is_qa_task and self._provider_context.provider.supports_tools():
                 tools = await self._select_tools_for_turn(user_message, intent=intent)
 
             # Prepare thinking parameter
@@ -731,12 +763,14 @@ class TurnExecutor:
                 provider_kwargs["temperature_override"] = temperature_override
             provider_kwargs.update(self._provider_call_overrides(overrides))
 
-            # Execute model turn
-            response = await self._execute_model_turn(tools=tools, **provider_kwargs)
+            # Execute model turn (metered: execute, record usage, govern)
+            response = await self._metered_model_turn(tools=tools, provider_kwargs=provider_kwargs)
 
-            # Track tokens
-            self._record_conversation_usage(response)
-            response = await self.govern_response(response)
+            # A tool call made against an empty offer (supply heuristic said
+            # "skip", or the model is not tool-capable) flows to the normal
+            # execution path, exactly as on the streaming ACT. A buffered-only
+            # text-only re-dispatch (#1703) broke chat()/stream() parity
+            # (FEP-0007); any such guard must live on both paths.
 
             # Add assistant response/tool-call envelope to conversation history.
             # OpenAI-compatible providers require every subsequent tool message
@@ -1081,8 +1115,9 @@ class TurnExecutor:
     async def _execute_via_agentic_loop(
         self,
         user_message: str,
-        max_iterations: int,
+        max_iterations: Optional[int],
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
+        run_context: Optional[Dict[str, Any]] = None,
         executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO,
     ) -> CompletionResponse:
         """Delegate execution to AgenticLoop for enhanced evaluation.
@@ -1115,7 +1150,15 @@ class TurnExecutor:
             else getattr(self._chat_context.settings, "chat_max_iterations", 50)
         )
         task_budget = max(task_classification.tool_budget * 2, 1)
-        iteration_budget = min(task_budget, max_iterations_setting, max_iterations)
+        # Explicit caller budget binds; an EXPLICIT loop ceiling still bounds
+        # it (min), the legacy positional default does not (FEP-0043).
+        loop_ceiling = 25 if max_iterations is None else max_iterations
+        if iter_override is not None:
+            iteration_budget = (
+                iter_override if max_iterations is None else min(iter_override, loop_ceiling)
+            )
+        else:
+            iteration_budget = min(task_budget, max_iterations_setting, loop_ceiling)
 
         # Create AgenticLoop with self as turn_executor
         # Use a lightweight mock orchestrator since AgenticLoop only needs
@@ -1132,6 +1175,11 @@ class TurnExecutor:
         from victor.framework.effect_gate import resolve_effect_gate_enabled
 
         _effect_gate = resolve_effect_gate_enabled(_settings)
+        # FEP-0043 enablement: declaring non-empty criteria in the structured
+        # run context is the caller's opt-in that turns the criteria gate on
+        # for this run. Without declared criteria the gate stays off
+        # (default-off parity); no settings registry is involved.
+        _criteria_gate = bool((run_context or {}).get("criteria"))
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
@@ -1143,6 +1191,7 @@ class TurnExecutor:
                 "executor": executor,
                 "completion_strategy": _strategy,
                 "enable_effect_gate": _effect_gate,
+                "enable_criteria_gate": _criteria_gate,
             },
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
@@ -1167,6 +1216,11 @@ class TurnExecutor:
             context["runtime_context_overrides"] = dict(runtime_context_overrides)
         conversation_history = self._get_agentic_loop_conversation_history(user_message)
 
+        # FEP-0043: seed the caller's structured run context into the loop's
+        # initial state. Internal seeds merge after caller keys so reserved
+        # keys (task classification, budgets, overrides) can never be clobbered.
+        if run_context:
+            context = {**run_context, **context}
         loop_run_kwargs = {"context": context}
         if conversation_history is not None and self._agentic_loop_accepts_conversation_history(
             loop
@@ -1608,12 +1662,16 @@ class TurnExecutor:
     async def _execute_model_turn(
         self,
         tools: Optional[List[Any]] = None,
+        *,
+        extra_messages: Optional[List[Any]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
         """Execute a single model turn.
 
         Args:
             tools: Optional tool definitions
+            extra_messages: Optional messages appended to the conversation for
+                this call only (never persisted to chat history)
             **kwargs: Additional provider parameters; temperature_override overrides
                 the provider-default temperature for this task type.
 
@@ -1640,8 +1698,11 @@ class TurnExecutor:
         ):
             kwargs["reasoning_effort"] = reasoning_effort
 
+        messages = self._chat_context.messages
+        if extra_messages:
+            messages = [*messages, *extra_messages]
         return await self._execution_provider.execute_turn(
-            messages=self._chat_context.messages,
+            messages=messages,
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,
@@ -1759,6 +1820,19 @@ class TurnExecutor:
                         )
                 except Exception:
                     pass  # Never break the hot path over metrics
+
+    async def check_turn_boundary_compaction(
+        self,
+        user_message: str,
+        task_classification: Any,
+    ) -> None:
+        """Public turn-boundary compaction capability for the streaming path.
+
+        Streaming ACT reuses the buffered path's boundary check (KV-prefix
+        gating and lifecycle precedence included) through this explicit
+        capability instead of probing the private method.
+        """
+        await self._check_context_compaction(user_message, task_classification)
 
     async def _check_context_compaction(
         self,

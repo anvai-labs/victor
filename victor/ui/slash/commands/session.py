@@ -377,8 +377,18 @@ class ResumeCommand(BaseSlashCommand):
             self._import_from_file(ctx, from_file)
             return
 
-        # Check for --project flag (cross-project session lookup)
-        project_path = self._get_flag_value(ctx, "--project") or self._get_flag_value(ctx, "-p")
+        # Session addresses (claude:<uuid> / codex:<uuid>): import the external
+        # transcript into this project, then resume it in one step.
+        if ctx.args and str(ctx.args[0]).startswith(("claude:", "codex:")):
+            imported_id = self._import_address(ctx, ctx.args[0])
+            if imported_id:
+                self._load_session(ctx, imported_id)
+            return
+
+        # Check for --project flag (cross-project session lookup). -p belongs
+        # to --page below; binding it here too made /resume -p 2 load project
+        # "2" instead of paging.
+        project_path = self._get_flag_value(ctx, "--project")
 
         # If session_id provided as argument, load it directly
         if ctx.args:
@@ -389,15 +399,43 @@ class ResumeCommand(BaseSlashCommand):
         # Otherwise, show interactive selection
         try:
             store = ConversationStore()
-            sessions = store.list_session_summaries(limit=20)
 
-            if not sessions:
+            # Parse pagination flags
+            page_val = self._get_flag_value(ctx, "--page") or self._get_flag_value(ctx, "-p")
+            page = 1
+            if page_val:
+                try:
+                    page = max(1, int(page_val))
+                except ValueError:
+                    pass
+
+            page_size = 20
+            offset = (page - 1) * page_size
+
+            # Fetch more sessions to support pagination
+            all_sessions = store.list_session_summaries(limit=1000)
+
+            if not all_sessions:
                 ctx.console.print("[yellow]No sessions found[/]")
                 ctx.console.print("[dim]Start a conversation to create sessions[/]")
                 return
 
+            # Reverse to ascending order (oldest first) so recent sessions aren't cut off
+            all_sessions = list(reversed(all_sessions))
+            total_sessions = len(all_sessions)
+            total_pages = (total_sessions + page_size - 1) // page_size
+
+            # Paginate
+            start_idx = offset
+            end_idx = min(offset + page_size, total_sessions)
+            sessions = all_sessions[start_idx:end_idx]
+
+            if not sessions:
+                ctx.console.print(f"[yellow]Page {page} is out of range (1-{total_pages})[/]")
+                return
+
             # Display sessions with numbers
-            table = Table(title="Recent Sessions")
+            table = Table(title=f"Sessions (Page {page}/{total_pages}, {total_sessions} total)")
             table.add_column("#", style="cyan", no_wrap=True, width=4)
             table.add_column("ID", style="cyan", no_wrap=True)
             table.add_column("Title", style="white")
@@ -406,7 +444,7 @@ class ResumeCommand(BaseSlashCommand):
             table.add_column("Previews", justify="right")
             table.add_column("Date", style="dim")
 
-            for idx, session in enumerate(sessions, 1):
+            for idx, session in enumerate(sessions, start_idx + 1):
                 try:
                     date_str = session.created_at.strftime("%Y-%m-%d %H:%M")
                 except Exception:
@@ -427,12 +465,126 @@ class ResumeCommand(BaseSlashCommand):
                 )
 
             ctx.console.print(table)
-            ctx.console.print("\n[dim]Enter session number to resume (1-{})[/]", len(sessions))
+            ctx.console.print(f"\n[dim]Page {page} of {total_pages}[/]")
+            if page < total_pages:
+                ctx.console.print(f"[dim]Next page: /resume --page {page + 1}[/]")
+            if page > 1:
+                ctx.console.print(f"[dim]Previous page: /resume --page {page - 1}[/]")
+            ctx.console.print("\n[dim]Enter session number to resume (1-{})[/]", total_sessions)
             ctx.console.print("[dim]Or use: /resume <session_id>[/]")
+            self._print_external_sessions(ctx, page=1)
 
         except Exception as e:
             ctx.console.print(f"[red]Failed to list sessions:[/] {e}")
             logger.exception("Error listing sessions")
+
+    def _print_external_sessions(self, ctx: CommandContext, page: int) -> None:
+        """Append importable external sessions to the resume picker (page 1 only).
+
+        Cross-tool discovery: a compact preview of recent claude/codex store
+        sessions so they can be resumed directly with /resume <source>:<uuid>.
+        """
+        if page != 1:
+            return
+        from victor.agent.conversation.interop.stores import (
+            SessionAddressError,
+            list_store_sessions,
+        )
+
+        rows = []
+        for source in ("claude", "codex"):
+            try:
+                entries = list_store_sessions(source, limit=3)
+            except SessionAddressError:
+                continue  # that tool isn't installed — stay quiet
+            rows.extend(entries)
+        if not rows:
+            return
+        table = Table(title="Also resumable from other agents (imports on resume)")
+        table.add_column("Resume with", style="cyan", no_wrap=True)
+        table.add_column("First user message", overflow="fold")
+        table.add_column("Modified", style="dim")
+        for entry in rows:
+            table.add_row(
+                f"{entry.source}:{entry.session_id}",
+                entry.title,
+                entry.modified.strftime("%m-%d %H:%M"),
+            )
+        ctx.console.print("\n")
+        ctx.console.print(table)
+        ctx.console.print(
+            "[dim]More: /import --list · these import into this project on first resume[/]"
+        )
+
+    def _import_address(self, ctx: CommandContext, address: str) -> Optional[str]:
+        """Import an external session address (claude:<uuid>/codex:<uuid>).
+
+        Returns the victor session id for immediate resume, or None after
+        printing the reason. Reuses the interop readers so re-resuming an
+        already-imported session is an idempotent upsert.
+        """
+        from victor.agent.conversation.interop import (
+            UnsupportedFormatError,
+            import_transcript,
+            to_persist_messages,
+        )
+        from victor.agent.conversation.interop.stores import (
+            SessionAddressError,
+            resolve_import_target,
+        )
+        from victor.agent.conversation.store import ConversationStore
+
+        try:
+            path, _source = resolve_import_target(address)
+        except SessionAddressError as exc:
+            ctx.console.print(f"[red]Cannot resolve {address}:[/] {exc}")
+            return None
+
+        try:
+            imported = import_transcript(path)
+        except UnsupportedFormatError as exc:
+            ctx.console.print(f"[red]Cannot import:[/] {exc}")
+            return None
+        except Exception as exc:  # noqa: BLE001 — surface parse failures cleanly
+            ctx.console.print(f"[red]Import failed:[/] {exc}")
+            logger.exception("address resume import failed")
+            return None
+
+        session = imported.session
+        if not session.messages:
+            ctx.console.print("[yellow]No convertible messages found.[/]")
+            return None
+
+        try:
+            ConversationStore().save_session(
+                conversation={"messages": to_persist_messages(session)},
+                model=session.model or "unknown",
+                provider=session.provider or "unknown",
+                session_id=session.session_id,
+                title=session.title,
+                tags=[f"import:{imported.report.source_format}"],
+                project_path=str(Path.cwd()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]Failed to save imported session:[/] {exc}")
+            logger.exception("address resume persistence failed")
+            return None
+
+        report = imported.report
+        ctx.console.print(
+            Panel(
+                f"Imported from {report.source_format}: {report.message_count} messages"
+                + (
+                    f" (lossy: {report.thinking_blocks_dropped} thinking dropped, "
+                    f"{report.encrypted_items_skipped} encrypted skipped)"
+                    if report.thinking_blocks_dropped or report.encrypted_items_skipped
+                    else ""
+                ),
+                title="External Session Imported",
+                border_style="cyan",
+            )
+        )
+        return session.session_id
 
     def _load_session(
         self, ctx: CommandContext, session_id: str, project_path: Optional[str] = None
@@ -621,16 +773,31 @@ class ResumeCommand(BaseSlashCommand):
                 )
                 return
 
-            # Save to current project's database
+            # Save to current project's database with full fidelity: the bulk
+            # persist path (save_session) writes message rows atomically, so
+            # carry timestamps, tool identity, and metadata through untouched.
             store = ConversationStore()
-            # Extract messages from session and save with required metadata
-            messages_dict = [{"role": msg.role, "content": msg.content} for msg in session.messages]
+            messages_dict = [
+                {
+                    "id": msg.id,
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                    "token_count": msg.token_count,
+                    "tool_name": msg.tool_name,
+                    "tool_call_id": msg.tool_call_id,
+                    "tool_calls": msg.tool_calls,
+                    "metadata": msg.metadata if msg.metadata else {},
+                }
+                for msg in session.messages
+            ]
             store.save_session(
                 conversation={"messages": messages_dict},
                 model=session.model or "unknown",
                 provider=session.provider or "unknown",
                 session_id=session.session_id,
                 title=session.title,
+                project_path=str(Path.cwd()),
             )
 
             ctx.console.print(
@@ -730,6 +897,11 @@ class ResumeCommand(BaseSlashCommand):
         # ChatGPT uses a tree structure with 'mapping'
         mapping = data.get("mapping", {})
         current_node = data.get("current_node")
+        if not current_node or current_node not in mapping:
+            # Exports sometimes omit current_node (or point at a pruned node);
+            # fall back to the deepest leaf so the longest branch survives
+            # instead of silently importing an empty session.
+            current_node = self._deepest_chatgpt_leaf(mapping)
 
         # Build message chain from tree
         messages = []
@@ -740,7 +912,10 @@ class ResumeCommand(BaseSlashCommand):
             if message and message.get("author", {}).get("role") in ["user", "assistant"]:
                 content = message.get("content", {})
                 if content.get("content_type") == "text":
-                    text = "".join(content.get("parts", []))
+                    text = "".join(
+                        part if isinstance(part, str) else str(part)
+                        for part in content.get("parts", [])
+                    )
                     messages.append(
                         ConversationMessage(
                             role=message["author"]["role"],
@@ -755,14 +930,50 @@ class ResumeCommand(BaseSlashCommand):
         title = data.get("title", "Imported from ChatGPT")
         create_time = data.get("create_time", 0)
 
+        # Prefer the model slug the conversation actually ran on when present
+        model = data.get("default_model_slug") or "gpt-4"
+
         return ConversationSession(
             session_id=f"openai_{uuid.uuid4().hex[:12]}",
             title=title,
             messages=messages,
-            model="gpt-4",  # Default, could be extracted from metadata
+            model=model,
             provider="openai",
             created_at=datetime.fromtimestamp(create_time) if create_time else datetime.now(),
         )
+
+    @staticmethod
+    def _deepest_chatgpt_leaf(mapping: dict) -> Optional[str]:
+        """Return the deepest leaf node id of a ChatGPT mapping tree."""
+        if not mapping:
+            return None
+        depth = {}
+        children: dict = {}
+        for node_id, node in mapping.items():
+            parent = node.get("parent")
+            if parent is None:
+                depth[node_id] = 0
+            else:
+                depth[node_id] = -1
+                children.setdefault(parent, []).append(node_id)
+        # BFS from roots over a children index (O(n)); the visited guard keeps
+        # corrupt/cyclic parent links from looping forever.
+        visited = set(nid for nid, d in depth.items() if d == 0)
+        queue = list(visited)
+        while queue:
+            next_queue = []
+            for nid in queue:
+                for child_id in children.get(nid, []):
+                    if child_id in visited:
+                        continue
+                    visited.add(child_id)
+                    depth[child_id] = depth[nid] + 1
+                    next_queue.append(child_id)
+            queue = next_queue
+        candidates = [nid for nid, d in depth.items() if d >= 0]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda nid: (depth[nid], nid))
 
     def _convert_anthropic_format(self, data: dict, source_file: str) -> ConversationSession:
         """Convert Anthropic Claude export format."""

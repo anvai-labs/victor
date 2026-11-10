@@ -307,6 +307,9 @@ class TestGraphManager:
                     enable_precise_index=True,
                     precise_index_timeout_seconds=3600,
                     precise_index_tool="scip-python",
+                    precise_index_java_home="/opt/jdk-21",
+                    precise_index_build_args={"scip-java": [":core:compileJava"]},
+                    precise_index_build_root="/srv/checkout",
                 )
             )
         )
@@ -317,6 +320,9 @@ class TestGraphManager:
             "enable_precise_index": True,
             "precise_index_timeout_seconds": 3600,
             "precise_index_tool": "scip-python",
+            "precise_index_java_home": "/opt/jdk-21",
+            "precise_index_build_args": {"scip-java": [":core:compileJava"]},
+            "precise_index_build_root": "/srv/checkout",
         }
 
     def test_precise_refresh_settings_fall_back_to_defaults_on_error(self, monkeypatch):
@@ -332,6 +338,9 @@ class TestGraphManager:
             "enable_precise_index": False,
             "precise_index_timeout_seconds": 0,
             "precise_index_tool": "auto",
+            "precise_index_java_home": "",
+            "precise_index_build_args": {},
+            "precise_index_build_root": "",
         }
 
     @pytest.mark.asyncio

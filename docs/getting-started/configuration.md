@@ -128,9 +128,10 @@ Override default hosts for local providers:
 
 ```bash
 export OLLAMA_HOST=127.0.0.1:11434      # Ollama (default)
-export VICTOR_LM_STUDIO_HOST=127.0.0.1:1234   # LM Studio
-export VICTOR_VLLM_HOST=127.0.0.1:8000        # vLLM
-export VICTOR_LLAMACPP_HOST=127.0.0.1:8080    # llama.cpp
+# Local runtime endpoints (in ~/.victor/profiles.yaml):
+# providers.lmstudio.base_url: http://127.0.0.1:1234
+# providers.vllm.base_url:     http://127.0.0.1:8000
+# providers.llamacpp.base_url: http://127.0.0.1:8080
 ```
 
 ### Victor Settings
@@ -139,10 +140,11 @@ Configure Victor behavior:
 
 ```bash
 export VICTOR_CONFIG_DIR=~/.victor       # Config directory
-export VICTOR_PROFILE=development        # Default profile
+# Profiles are selected with the --profile flag (victor chat --profile development)
+# or by setting the default profile in ~/.victor/profiles.yaml
 export VICTOR_LOG_LEVEL=INFO             # Log level (DEBUG, INFO, WARNING, ERROR)
 export VICTOR_LOG_FILE=/var/log/victor.log  # Log file path
-export VICTOR_CACHE_ENABLED=true         # Enable caching
+export VICTOR_CACHE=true                 # Enable caching
 export VICTOR_TIMEOUT=30                 # Provider timeout (seconds)
 ```
 
@@ -156,7 +158,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-proj-..."
 
 # Victor defaults
-export VICTOR_PROFILE="development"
+victor chat --profile development
 export VICTOR_LOG_LEVEL="INFO"
 
 # Optional: aliases
@@ -209,7 +211,7 @@ default_profile: default
 victor --profile claude chat "Hello"
 
 # Or set default profile
-export VICTOR_PROFILE=claude
+victor chat --profile claude
 victor chat "Hello"
 
 # List profiles
@@ -232,7 +234,7 @@ victor config profiles
 
 ### System Prompt Policy Controls
 
-Operators can now tune the fallback system prompt directly from `~/.victor/profiles.yaml` (or via `VICTOR_PROMPT_POLICY_*` environment variables) without editing code. Key fields:
+Operators can tune the fallback system prompt directly from `~/.victor/config.yaml` (under the `prompt_policy:` section) without editing code. Key fields:
 
 | Field | Description |
 |-------|-------------|
@@ -247,28 +249,18 @@ Operators can now tune the fallback system prompt directly from `~/.victor/profi
 Example profile snippet:
 
 ```yaml
-profiles:
-  regulated:
-    provider: anthropic
-    model: claude-sonnet-4-20250514
-    prompt_policy_identity: |
-      You are Victor acting under the Regulated Banking SOP.
-    prompt_policy_guidelines: |
-      - Cite every data source.
-      - Escalate if compliance steps are unclear.
-    prompt_policy_protected_sections:
-      - identity
-      - guidelines
-      - runbook
-    prompt_policy_max_section_chars: 12000
-```
-
-To apply the same settings via environment variables:
-
-```bash
-export VICTOR_PROMPT_POLICY_IDENTITY="You are Victor running our regulated SOP."
-export VICTOR_PROMPT_POLICY_MAX_SECTION_CHARS=12000
-export VICTOR_PROMPT_POLICY_ENFORCE_IDENTITY=false  # Optional toggle
+# ~/.victor/config.yaml
+prompt_policy:
+  prompt_policy_identity: |
+    You are Victor acting under the Regulated Banking SOP.
+  prompt_policy_guidelines: |
+    - Cite every data source.
+    - Escalate if compliance steps are unclear.
+  prompt_policy_protected_sections:
+    - identity
+    - guidelines
+    - runbook
+  prompt_policy_max_section_chars: 12000
 ```
 
 ### Advanced Profile Examples

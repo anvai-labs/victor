@@ -311,3 +311,34 @@ def test_build_task_result_metadata_propagates_agentic_loop_iterations():
         SimpleNamespace(usage={}, model="m", stop_reason="stop", metadata={}),
     )
     assert md2["agentic_loop_iterations"] == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_message_forwards_run_context_when_supported() -> None:
+    """FEP-0043: the structured caller context reaches the loop seam alongside
+    the flattened prompt text, so state-seeded criteria gate the run."""
+    from victor.framework.message_execution import execute_message
+
+    orchestrator = _make_orchestrator()
+    response = CompletionResponse(
+        content="done",
+        role="assistant",
+        tool_calls=[],
+        stop_reason="stop",
+        usage=None,
+        model="test-model",
+    )
+    chat_service = SimpleNamespace(chat=AsyncMock(return_value=response))
+    execution_context = SimpleNamespace(services=SimpleNamespace(chat=chat_service))
+    run_context = {"criteria": {"findings": 4}, "coverage": {"findings": [4, 8]}}
+
+    await execute_message(
+        orchestrator=orchestrator,
+        execution_context=execution_context,
+        user_message="research",
+        context=run_context,
+    )
+
+    assert chat_service.chat.await_count == 1
+    kwargs = chat_service.chat.await_args.kwargs
+    assert kwargs["run_context"] == run_context

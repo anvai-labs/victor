@@ -60,12 +60,13 @@ class PromptInput(Input):
         The clipboard read shells out to a platform tool, so it runs in a worker
         thread to avoid blocking the event loop.
         """
+        # Mark BEFORE the await so that any bracketed-paste event dispatched
+        # while we wait for the clipboard subprocess is recognised as duplicate.
+        self._last_action_paste_time = time.monotonic()
         text = await asyncio.to_thread(read_clipboard)
         if not text:
             text = self.app.clipboard  # text copied earlier inside the app
         self._replace_selection(text)
-        # Mark that we just handled a paste, so _on_paste can skip duplicates
-        self._last_action_paste_time = time.monotonic()
 
     def _on_paste(self, event: events.Paste) -> None:
         """Insert the full bracketed-paste payload (Textual keeps only line one).

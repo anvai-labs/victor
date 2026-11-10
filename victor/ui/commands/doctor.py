@@ -27,15 +27,19 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
-import platform
+from importlib import import_module
 import subprocess
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from victor.config.settings import get_project_paths
+
+# Floor of victor-coding in the victor-ai[graph] extra; kept equal to
+# pyproject.toml by tests/unit/ci/test_graph_extra.py.
+MIN_VICTOR_CODING = "0.14.0"
 
 
 class Severity(Enum):
@@ -176,6 +180,252 @@ class DoctorChecks:
                     message=f"{package} is not installed ({description})",
                     suggestion=f"Run: pip install {package} to enable {package.split()[0]} provider",
                 )
+
+    def check_native_extensions(self) -> None:
+        """Check native extension availability and version drift vs victor-ai.
+
+        The native wheel releases in lockstep with victor-ai, but existing
+        installs never upgrade it (the ``victor-ai[native]`` extra is only a
+        floor for fresh installs). On 2026-11-06 a venv silently running
+        victor_native 0.15.0 under victor-ai 0.26.x pinned a chat session at
+        100% CPU inside a native dedup livelock that current Rust had already
+        fixed — the exact drift this check exists to surface. Classification
+        comes from ``victor.processing.native._base`` (see
+        ``evaluate_native_version`` there for the state vocabulary).
+        """
+        try:
+            from victor.processing.native import _base as native_base
+        except Exception as e:  # defensive: doctor must never crash on imports
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.WARNING,
+                message=f"native extension module could not be imported: {e}",
+                suggestion="Reinstall victor: pip install -e '.[dev]'",
+            )
+            return
+
+        if not native_base.is_native_available():
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.WARNING,
+                message=(
+                    "Rust native extensions not installed — pure Python fallbacks "
+                    "run 2-50x slower on tokenization, similarity and dedup hot paths"
+                ),
+                suggestion=(
+                    "pip install 'victor-ai[native]' (or build from source: "
+                    "cd rust && maturin develop --release)"
+                ),
+            )
+            return
+
+        status = native_base.get_native_version_status()
+        state = status.get("state")
+        native_version = status.get("native_version")
+        package_version = status.get("package_version")
+
+        if state == "stale":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.ERROR,
+                message=(
+                    f"victor_native {native_version} is older than victor-ai "
+                    f"{package_version} — a stale native wheel is in use (known "
+                    "hang/performance bug class)"
+                ),
+                suggestion=(
+                    "pip install -U 'victor-ai[native]' (or build from source: "
+                    "cd rust && maturin develop --release)"
+                ),
+            )
+        elif state == "patch-drift":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.WARNING,
+                message=(
+                    f"victor_native {native_version} vs victor-ai {package_version} "
+                    "(patch-level drift)"
+                ),
+                suggestion="pip install -U 'victor-ai[native]' to realign versions",
+            )
+        elif state == "newer":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.INFO,
+                message=(
+                    f"victor_native {native_version} is newer than victor-ai "
+                    f"{package_version} (editable/source build?) — keeping native"
+                ),
+            )
+        elif state == "skipped":
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.INFO,
+                message=(
+                    f"Native extensions loaded (version {native_version}); version "
+                    "check skipped via VICTOR_NATIVE_SKIP_VERSION_CHECK"
+                ),
+            )
+        else:  # "ok", "unknown" — loaded, and either matched or unverifiable
+            self.add_check(
+                name="Native Extensions",
+                severity=Severity.SUCCESS,
+                message=f"Native extensions loaded (version {native_version})",
+            )
+
+        if native_base.numpy_accelerator_available():
+            self.add_check(
+                name="NumPy Accelerator",
+                severity=Severity.SUCCESS,
+                message="numpy available — batch similarity operations dispatch to NumPy+BLAS",
+            )
+        else:
+            self.add_check(
+                name="NumPy Accelerator",
+                severity=Severity.INFO,
+                message="numpy not installed — batch similarity dispatches to the native engine",
+                suggestion="Optional: pip install numpy for faster batch similarity",
+            )
+
+    def check_graph_indexing(self) -> None:
+        """Check the optional graph-indexing install without touching the network.
+
+        Clean installs exposed silent gaps: ``victor-ai[graph]`` lacked grammars
+        the graph dependency check demands, the victor-coding plugin that
+        supplies the enhanced analysis and CCG was missing (indexing degraded
+        ~800x in CCG nodes and still exited 0), and tree-sitter-language-pack
+        fetches grammar libraries from the network on first use.
+
+        This check imports only locally installed wheels. It deliberately does
+        NOT call ``require_graph_dependencies()``: its victor-codegraph probes
+        make the language pack download every grammar (~61 MB) and can hang on
+        a network that drops traffic. Uncached grammars are reported instead.
+        Optional features never ERROR; nothing is installed or downloaded.
+        """
+        try:
+            import_module("victor_codegraph")
+        except ImportError:
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.INFO,
+                message="graph indexing not installed (optional)",
+                suggestion='pip install "victor-ai[graph]"',
+            )
+            return
+        except Exception as e:  # doctor must never crash on imports
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.WARNING,
+                message=f"victor_codegraph failed to import: {type(e).__name__}: {e}",
+                suggestion='pip install --force-reinstall "victor-ai[graph]"',
+            )
+            return
+
+        from victor.core.graph_rag.language_parsers import LANGUAGE_MODULES
+
+        missing: list[str] = []
+        for language, (module, factory) in LANGUAGE_MODULES.items():
+            try:
+                getattr(import_module(module), factory)
+            except Exception:  # absent or broken wheel: both are unusable
+                missing.append(language)
+        if missing:
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.WARNING,
+                message="grammar wheels missing or unusable: " + ", ".join(sorted(missing)),
+                suggestion='pip install "victor-ai[graph]"',
+            )
+        else:
+            self.add_check(
+                name="Graph Indexing",
+                severity=Severity.SUCCESS,
+                message=f"grammar wheels installed for all {len(LANGUAGE_MODULES)} languages",
+            )
+
+        # Installed version from distribution metadata, never by importing the
+        # vertical: core must not import external verticals (contract
+        # boundary), and reading metadata executes none of its code.
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as dist_version
+
+        from packaging.version import InvalidVersion, Version
+
+        try:
+            installed = dist_version("victor-coding")
+        except PackageNotFoundError:
+            self.add_check(
+                name="Graph Analysis Plugin",
+                severity=Severity.WARNING,
+                message=(
+                    "victor-coding not installed: indexing falls back to basic analysis "
+                    "and builds almost no CCG, while still reporting success"
+                ),
+                suggestion='pip install "victor-ai[graph]"',
+            )
+        except Exception as e:  # doctor must never crash on metadata reads
+            self.add_check(
+                name="Graph Analysis Plugin",
+                severity=Severity.WARNING,
+                message=f"victor-coding metadata unreadable: {type(e).__name__}: {e}",
+                suggestion='pip install --force-reinstall "victor-ai[graph]"',
+            )
+        else:
+            try:
+                # version() returns None when METADATA lacks a Version field
+                # (e.g. an interrupted install); Version(None) is a TypeError.
+                outdated = Version(installed) < Version(MIN_VICTOR_CODING)
+            except (InvalidVersion, TypeError):
+                self.add_check(
+                    name="Graph Analysis Plugin",
+                    severity=Severity.WARNING,
+                    message=f"victor-coding reports an unparseable version: {installed!r}",
+                    suggestion='pip install --force-reinstall "victor-ai[graph]"',
+                )
+            else:
+                if outdated:
+                    self.add_check(
+                        name="Graph Analysis Plugin",
+                        severity=Severity.WARNING,
+                        message=(
+                            f"victor-coding {installed} is older than the {MIN_VICTOR_CODING} "
+                            "that victor-ai[graph] requires"
+                        ),
+                        suggestion='pip install --upgrade "victor-ai[graph]"',
+                    )
+                else:
+                    self.add_check(
+                        name="Graph Analysis Plugin",
+                        severity=Severity.SUCCESS,
+                        message=f"victor-coding {installed} enhanced analysis available",
+                    )
+
+        try:
+            pack = import_module("tree_sitter_language_pack")
+            # The grammars victor-codegraph actually fetches from the pack (it
+            # parses Python with the stdlib ast, and does fetch sql).
+            fetched = set(import_module("victor_codegraph.languages").TREE_SITTER_GRAMMAR.values())
+            cached = set(pack.downloaded_languages())  # local cache listing only
+            uncached = sorted(fetched - cached)
+            self.add_check(
+                name="Grammar Downloads",
+                severity=Severity.INFO,
+                message=(
+                    f"tree-sitter-language-pack fetches grammar libraries on first use into "
+                    f"{pack.cache_dir()}; "
+                    + (
+                        f"not yet cached: {', '.join(uncached)}"
+                        if uncached
+                        else "all indexed languages cached"
+                    )
+                ),
+                suggestion=(
+                    "For offline or reproducible indexing, pre-fetch: "
+                    "python -c 'import tree_sitter_language_pack as p; p.download_all()'"
+                ),
+            )
+        except Exception:  # pack absent or its API changed: nothing to report
+            pass
 
     def check_api_keys(self) -> None:
         """Check for API keys in environment."""
@@ -530,6 +780,8 @@ class DoctorChecks:
         """
         self.check_python_version()
         self.check_dependencies()
+        self.check_native_extensions()
+        self.check_graph_indexing()
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()

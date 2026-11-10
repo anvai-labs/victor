@@ -6,10 +6,7 @@ Comprehensive reference for all configurable settings. Settings are loaded from 
 
 | Setting | Default | Env Var | CLI Flag |
 |---------|---------|---------|----------|
-| `default_provider` | `ollama` | `VICTOR_DEFAULT_PROVIDER` | `--provider` |
-| `default_model` | `qwen3-coder:30b` | `VICTOR_DEFAULT_MODEL` | `--model` |
-| `default_temperature` | `0.7` | `VICTOR_DEFAULT_TEMPERATURE` | — |
-| `default_max_tokens` | `4096` | `VICTOR_DEFAULT_MAX_TOKENS` | — |
+| provider/model defaults | via `~/.victor/profiles.yaml` profiles (`default` profile) | — | `--profile`, `--model` |
 | `tool_call_budget` | `2000` | — | `--tool-budget` |
 | `enable_planning` | `false` | — | `--planning/--no-planning` |
 | `skill_auto_select_enabled` | `true` | — | `--auto-skill/--no-auto-skill` |
@@ -224,13 +221,11 @@ profiles:
 
 ### Usage
 
-```bash
-# Enable/disable via environment variable
-export VICTOR_ENABLE_TOOL_DEDUPLICATION=true
-export VICTOR_DEDUPLICATION_NAMING_ENFORCEMENT=true
+Tool deduplication is always on (native fast path with a pure-Python fallback;
+there is no toggle). Check the active set:
 
-# Check deduplication status
-victor tools list  # Shows deduplicated tool set
+```bash
+victor tools list  # Shows the deduplicated tool set
 ```
 
 ### Adaptive Selection by Model Size
@@ -291,7 +286,7 @@ Runtime evolution of system prompt sections using execution trace analysis.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `prompt_optimization.enabled` | `false` | Master switch for all prompt optimization |
+| `prompt_optimization.enabled` | `false` | Master switch for automated prompt optimization (default: off, use `/prompt-optimize` for on-demand) |
 | `prompt_optimization.default_strategies` | `["gepa"]` | Strategies applied in order |
 | `prompt_optimization.gepa.enabled` | `true` | Enable GEPA v2 (Pareto + tiered service) |
 | `prompt_optimization.gepa.default_tier` | `balanced` | Default tier: economic/balanced/performance |
@@ -422,10 +417,6 @@ All settings modules live in `victor/config/*_settings.py`.
 Victor reads these environment variables (prefix `VICTOR_` for most):
 
 ```bash
-# Provider
-VICTOR_DEFAULT_PROVIDER=anthropic
-VICTOR_DEFAULT_MODEL=claude-sonnet-4-20250514
-
 # API keys
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...

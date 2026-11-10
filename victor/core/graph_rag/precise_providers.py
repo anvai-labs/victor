@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Protocol, Union
@@ -82,10 +83,16 @@ def _run_dump(
     output_path: Path,
     timeout_seconds: int,
     node_heap: bool,
+    env: Optional[dict[str, str]] = None,
 ) -> Optional[Path]:
-    """Shared SUBPROCESS transport: bounded, captured, never raises."""
+    """Shared SUBPROCESS transport: bounded, captured, never raises.
 
-    env = dict(os.environ)
+    The full transcript is retained beside the dump as ``<tool>.dump.log``
+    on success and failure alike; a 400-character stderr excerpt left JVM
+    build failures undiagnosable.
+    """
+
+    env = dict(os.environ) if env is None else dict(env)
     if node_heap:
         env.setdefault("NODE_OPTIONS", NODE_HEAP_OPTIONS)
     try:
@@ -108,14 +115,31 @@ def _run_dump(
     except OSError as exc:
         logger.warning("precise-index dump failed (%s): %s", type(exc).__name__, exc)
         return None
+    log_path = _write_dump_log(command, cwd, output_path, result)
     if result.returncode != 0 or not output_path.exists():
         logger.warning(
-            "precise-index dump exited %d: %s",
+            "precise-index dump exited %d (full log: %s): %s",
             result.returncode,
+            log_path,
             (result.stderr or "").strip()[:400],
         )
         return None
     return output_path
+
+
+def _write_dump_log(command, cwd, output_path, result) -> Optional[Path]:
+    """Persist a dump's complete transcript; best-effort, never raises."""
+    log_path = output_path.parent / f"{Path(command[0]).name}.dump.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(
+            f"command: {' '.join(command)}\ncwd: {cwd}\nreturncode: {result.returncode}\n"
+            f"--- stdout ---\n{result.stdout or ''}\n--- stderr ---\n{result.stderr or ''}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        return None
+    return log_path
 
 
 def _split_descriptor(symbol: str, prefix: str, tokens_before_path: int) -> Optional[str]:
@@ -227,6 +251,11 @@ def _dump_fixed_name(
     return output_path
 
 
+# Fixed project version handed to producers that would otherwise read it from
+# the ambient VCS; symbol parsing skips this token.
+_PRECISE_PROJECT_VERSION = "0"
+
+
 class ScipPythonProvider:
     """npm ``scip-python`` (Pyright) — python."""
 
@@ -251,7 +280,22 @@ class ScipPythonProvider:
         environment_json: Optional[Path] = None,
     ) -> Union[Path, DumpSkipped, None]:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        argv = [tool, "index", "--project-name", "victor-harvest", "--output", str(output_path)]
+        # An explicit --project-version: scip-python otherwise derives it from
+        # the ambient git repository and crashes outside one (TypeError reading
+        # 'indexOf' of undefined) — observed on a git-less source tree, which
+        # only ever worked when it happened to sit inside an unrelated repo.
+        # The version token is skipped by symbol parsing, so a constant keeps
+        # dumps reproducible without changing joins.
+        argv = [
+            tool,
+            "index",
+            "--project-name",
+            "victor-harvest",
+            "--project-version",
+            _PRECISE_PROJECT_VERSION,
+            "--output",
+            str(output_path),
+        ]
         if environment_json is not None:
             # ADR-032 harvest constraint: skip Pyright's whole-environment
             # enumeration (the measured 2,980 s / ~130 GB-read hot spot on
@@ -607,6 +651,104 @@ class ScipClangProvider:
         return {"file": "", "path": parsed} if parsed else None
 
 
+def _build_root_mismatches(index_root: Path, build_root: Path) -> list[str]:
+    """Indexed files absent from, different in, or unreadable against the build root.
+
+    Mirrors the indexer's discovery: directories are walked without following
+    symlinks, and a file symlink is followed by ``stat()`` and kept when its
+    target is a regular file — so a symlinked indexed file is compared by the
+    content the indexer read, never skipped. Only ``.victor`` (index state)
+    and ``.git`` (VCS metadata) are left out. Extra build-root files are
+    allowed: they never enter the graph, and their SCIP documents do not join.
+    A file that cannot be read is reported as a mismatch, never raised.
+    """
+    import hashlib
+    from stat import S_ISREG
+
+    if not build_root.is_dir():
+        return ["<build root missing>"]
+
+    def digest(path: Path) -> str:
+        sha = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                sha.update(block)
+        return sha.hexdigest()
+
+    mismatches: list[str] = []
+    for directory, dirs, filenames in os.walk(index_root):
+        dirs[:] = sorted(name for name in dirs if name not in (".victor", ".git"))
+        for name in sorted(filenames):
+            path = Path(directory) / name
+            relative = path.relative_to(index_root).as_posix()
+            try:
+                indexed = path.stat()
+            except OSError:
+                mismatches.append(f"{relative} (unreadable)")
+                continue
+            if not S_ISREG(indexed.st_mode):
+                continue
+            candidate = build_root / relative
+            try:
+                built = candidate.stat()
+                if (
+                    not S_ISREG(built.st_mode)
+                    or built.st_size != indexed.st_size
+                    or digest(candidate) != digest(path)
+                ):
+                    mismatches.append(relative)
+            except OSError:
+                mismatches.append(relative)
+    return mismatches
+
+
+# scip-java 0.13.x runs on these JDK majors only; anything else fails deep in
+# the build with an opaque error.
+_SCIP_JAVA_SUPPORTED_JDKS = frozenset({17, 21, 25})
+
+
+def _java_major(java: str, env: dict[str, str]) -> Optional[int]:
+    """Major version of a JDK's ``java``; ``1.8`` style maps to 8."""
+    try:
+        result = subprocess.run(  # noqa: S603 - fixed argv
+            [java, "-version"], capture_output=True, text=True, timeout=60, env=env, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r'version "(\d+)(?:\.(\d+))?', (result.stderr or "") + (result.stdout or ""))
+    if match is None:
+        return None
+    major = int(match.group(1))
+    return int(match.group(2)) if major == 1 and match.group(2) else major
+
+
+def _wrapper_gradle_version(root: Path) -> Optional[str]:
+    """Gradle version the project pins through its wrapper, if any."""
+    props = root / "gradle" / "wrapper" / "gradle-wrapper.properties"
+    try:
+        text = props.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    match = re.search(r"gradle-(\d[\w.\-]*?)-(?:bin|all)\.zip", text)
+    return match.group(1) if match else None
+
+
+def _gradle_version(gradle: str, env: dict[str, str]) -> Optional[str]:
+    try:
+        result = subprocess.run(  # noqa: S603 - fixed argv
+            [gradle, "--version", "--no-daemon"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=env,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r"^Gradle (\S+)", result.stdout or "", re.MULTILINE)
+    return match.group(1) if match else None
+
+
 class ScipJavaProvider:
     """``scip-java`` — Java on Gradle/Maven, or explicitly configured Bazel.
 
@@ -645,47 +787,142 @@ class ScipJavaProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
+        java_home: Optional[str] = None,
+        build_args: Optional[list[str]] = None,
+        build_root: Optional[str] = None,
     ) -> Union[Path, DumpSkipped, None]:
-        if not any((root / marker).exists() for marker in self._BUILD_MARKERS):
+        source = root
+        if build_root:
+            # Projects whose build reads VCS metadata, or files outside the
+            # indexed tree (a parent pom, an included build), compile from a
+            # real checkout. It must carry every indexed file byte-identically.
+            source = Path(build_root)
+            mismatches = _build_root_mismatches(root, source)
+            if mismatches:
+                logger.info(
+                    "precise-index: build root %s differs from the indexed tree at %d "
+                    "path(s), e.g. %s",
+                    source,
+                    len(mismatches),
+                    ", ".join(mismatches[:5]),
+                )
+                return DumpSkipped(f"build-root-mismatch:{len(mismatches)}")
+        if not any((source / marker).exists() for marker in self._BUILD_MARKERS):
             logger.info(
                 "precise-index: no supported JVM build file (Maven/Gradle/Bazel) at %s; skipping",
-                root,
+                source,
             )
             return DumpSkipped("no-jvm-build")
+        command = self._command(tool, source, output_path)
+        if command is None:
+            return None
+        env = dict(os.environ)
+        if java_home:
+            env["JAVA_HOME"] = java_home
+            env["PATH"] = os.pathsep.join([str(Path(java_home) / "bin"), env.get("PATH", "")])
+        skipped = self._preflight(source, env)
+        if skipped is not None:
+            logger.info("precise-index: scip-java skipped (%s)", skipped.reason)
+            return skipped
+        if build_args:
+            command += ["--", *build_args]
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        if build_root:
+            # A build root is a dedicated build workspace: compile in place so
+            # paths outside the module (../pom.xml, includeBuild) resolve and
+            # what was verified is exactly what builds.
+            return _run_dump(
+                command,
+                cwd=source,
+                output_path=output_path,
+                timeout_seconds=timeout_seconds,
+                node_heap=False,
+                env=env,
+            )
+        # Without one, the indexed tree is never built in: Gradle/Maven write
+        # .gradle/, build/ and target/. Compile a scratch copy instead.
+        with tempfile.TemporaryDirectory(prefix="victor-scip-java-") as scratch:
+            work = Path(scratch) / "tree"
+            try:
+                shutil.copytree(root, work, symlinks=True, ignore=shutil.ignore_patterns(".victor"))
+            except (OSError, shutil.Error) as exc:
+                logger.info("precise-index: scratch copy of %s failed: %s", root, exc)
+                return DumpSkipped(f"scratch-copy-failed:{type(exc).__name__}")
+            return _run_dump(
+                command,
+                cwd=work,
+                output_path=output_path,
+                timeout_seconds=timeout_seconds,
+                node_heap=False,
+                env=env,
+            )
+
+    def _command(self, tool: str, root: Path, output_path: Path) -> Optional[list[str]]:
+        """The indexer argv, with executables resolved against the project root.
+
+        Resolution happens before the scratch copy so a project-relative
+        executable names the project's file, never the copy's.
+        """
         command = [tool, "index", f"--output={output_path}"]
+        executable = Path(tool)
+        if not executable.is_absolute() and executable.parent != Path("."):
+            # Relative argv containing a slash is project-relative.
+            executable = root / executable
+            command[0] = str(executable)
         if any((root / marker).exists() for marker in self._BAZEL_BUILD_MARKERS):
             # Modern Bazel roots can have MODULE.bazel without WORKSPACE.
             # Supply its required aspect input even in mixed-build roots; the
             # indexer's Gradle/Maven integrations ignore this Bazel-only option.
-            executable = Path(tool)
             if not executable.is_absolute():
-                # Relative argv containing a slash is resolved by subprocess
-                # against cwd=root. Bare executable names instead search PATH.
-                if executable.parent == Path("."):
-                    # PATH entries themselves may be relative. Lookup must use
-                    # the child's cwd, not the index client's current directory.
-                    search_path = os.pathsep.join(
-                        str((root / entry).resolve()) if not Path(entry).is_absolute() else entry
-                        for entry in os.get_exec_path()
-                    )
-                    discovered = shutil.which(tool, path=search_path)
-                    if discovered is None:
-                        logger.info("precise-index: JVM executable not found in build PATH")
-                        return None
-                    executable = Path(discovered)
-                else:
-                    executable = root / executable
+                # Bare names search PATH. PATH entries themselves may be
+                # relative; lookup uses the project root, not the index
+                # client's current directory.
+                search_path = os.pathsep.join(
+                    str((root / entry).resolve()) if not Path(entry).is_absolute() else entry
+                    for entry in os.get_exec_path()
+                )
+                discovered = shutil.which(tool, path=search_path)
+                if discovered is None:
+                    logger.info("precise-index: JVM executable not found in build PATH")
+                    return None
+                executable = Path(discovered)
             executable = executable.resolve()
             command[0] = str(executable)
             command.append(f"--bazel-scip-java-binary={executable}")
-        return _run_dump(
-            command,
-            cwd=root,
-            output_path=output_path,
-            timeout_seconds=timeout_seconds,
-            node_heap=False,
+        return command
+
+    def _preflight(self, root: Path, env: dict[str, str]) -> Optional[DumpSkipped]:
+        """Refuse a toolchain the project cannot build with, naming why.
+
+        The JDK checked is the one the build uses: scip-java's launcher,
+        Gradle and Maven all prefer ``$JAVA_HOME/bin/java`` over PATH.
+        """
+        java_home_env = env.get("JAVA_HOME")
+        java = (
+            str(Path(java_home_env) / "bin" / "java")
+            if java_home_env and (Path(java_home_env) / "bin" / "java").exists()
+            else shutil.which("java", path=env.get("PATH"))
         )
+        if java is None:
+            return DumpSkipped("no-jdk")
+        major = _java_major(java, env)
+        if major not in _SCIP_JAVA_SUPPORTED_JDKS:
+            return DumpSkipped(f"unsupported-jdk:{major if major is not None else 'unknown'}")
+        pinned = _wrapper_gradle_version(root)
+        wrapper_ready = (root / "gradlew").exists() and (
+            root / "gradle" / "wrapper" / "gradle-wrapper.jar"
+        ).exists()
+        if pinned is not None and not wrapper_ready:
+            # Without its wrapper jar the build falls back to the gradle on
+            # PATH; a different version rejects or misreads the project
+            # (Gradle 9 refuses directory-less subprojects Gradle 8 accepts).
+            gradle = shutil.which("gradle", path=env.get("PATH"))
+            found = _gradle_version(gradle, env) if gradle else None
+            if found != pinned:
+                return DumpSkipped(
+                    f"gradle-version-mismatch:wants-{pinned}-found-{found or 'none'}"
+                )
+        return None
 
     @staticmethod
     def _callable_name(segment: str) -> Optional[str]:

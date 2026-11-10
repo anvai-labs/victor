@@ -21,6 +21,7 @@ shared by all submodules in victor.processing.native.
 from __future__ import annotations
 
 import logging
+import os
 from types import ModuleType
 from typing import Optional
 
@@ -134,3 +135,106 @@ def get_native_version() -> Optional[str]:
         if version is not None:
             return str(version)
     return None
+
+
+def _major_minor(version: object) -> Optional[tuple[int, int]]:
+    """Return (major, minor) for a dotted version string, or None if unparseable."""
+    if not isinstance(version, str):
+        return None
+    parts = version.split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        return (int(parts[0]), int(parts[1]))
+    except ValueError:
+        return None
+
+
+def evaluate_native_version(
+    native_version: object, package_version: object, *, skip_check: bool = False
+) -> str:
+    """Classify a loaded native extension against the installed victor-ai version.
+
+    The native wheel releases in lockstep with victor-ai (same version line).
+    A stale ``victor_native`` wheel silently executing under newer Python code
+    is a recurring distribution hazard: on 2026-11-06 a venv carrying
+    victor_native 0.15.0 under victor-ai 0.26.x pinned a chat session at 100%
+    CPU inside a native dedup livelock that current Rust had already fixed.
+
+    Returns one of: ``"ok"`` (identical versions), ``"patch-drift"`` (same
+    major.minor, different patch), ``"stale"`` (native older), ``"newer"``
+    (native newer), or ``"unknown"`` (either version missing/unparseable).
+    The native extension stays enabled in every case: several modules import
+    ``victor_native`` directly, so a partial disable here would split behavior
+    across code paths. Import-time logging below surfaces ``"stale"`` loudly
+    so drift is seen instead of silently riding an old binary.
+
+    Args:
+        native_version: Version reported by the loaded ``victor_native``.
+        package_version: Installed ``victor-ai`` version (may be None).
+        skip_check: Escape hatch for debugging (VICTOR_NATIVE_SKIP_VERSION_CHECK).
+    """
+    if skip_check:
+        return "skipped"
+    native_mm = _major_minor(native_version)
+    package_mm = _major_minor(package_version)
+    if native_mm is None or package_mm is None:
+        return "unknown"
+    if native_mm == package_mm:
+        return "ok" if native_version == package_version else "patch-drift"
+    return "stale" if native_mm < package_mm else "newer"
+
+
+def _installed_package_version() -> Optional[str]:
+    """Best-effort installed victor-ai version, without importing victor."""
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            return version("victor-ai")
+        except PackageNotFoundError:
+            return None
+    except Exception:  # pragma: no cover - defensive: metadata itself broken
+        return None
+
+
+def get_native_version_status() -> dict:
+    """Return the recorded native-vs-package version comparison.
+
+    Keys: ``state`` (``ok`` | ``patch-drift`` | ``stale`` | ``newer`` |
+    ``unknown`` | ``skipped``), ``native_version``, ``package_version``.
+    Intended for diagnostics surfaced by a future ``victor doctor`` command.
+    """
+    return dict(_NATIVE_VERSION_STATUS)
+
+
+# Import-time drift check. Recorded for get_native_version_status(); logged so
+# a stale native wheel is impossible to miss (see evaluate_native_version).
+_NATIVE_VERSION_STATUS: dict = {"state": "unchecked"}
+if _NATIVE_AVAILABLE:
+    _pkg_version = _installed_package_version()
+    _NATIVE_VERSION_STATUS = {
+        "state": evaluate_native_version(
+            get_native_version(),
+            _pkg_version,
+            skip_check=os.environ.get("VICTOR_NATIVE_SKIP_VERSION_CHECK") == "1",
+        ),
+        "native_version": get_native_version(),
+        "package_version": _pkg_version,
+    }
+    if _NATIVE_VERSION_STATUS["state"] == "stale":
+        logger.warning(
+            "victor_native %s is older than victor-ai %s — a stale native wheel is "
+            "in use. Upgrade it: pip install -U 'victor-ai[native]' "
+            "(or build from source: cd rust && maturin develop --release). "
+            "Set VICTOR_NATIVE_SKIP_VERSION_CHECK=1 to silence this warning.",
+            _NATIVE_VERSION_STATUS["native_version"],
+            _pkg_version,
+        )
+    elif _NATIVE_VERSION_STATUS["state"] == "newer":
+        logger.info(
+            "victor_native %s is newer than victor-ai %s (editable/source build?); "
+            "keeping native extensions",
+            _NATIVE_VERSION_STATUS["native_version"],
+            _pkg_version,
+        )
