@@ -65,6 +65,20 @@ def test_resolve_orchestrator_falls_back_to_chat_context_owner():
 
 
 @pytest.mark.asyncio
+async def test_check_turn_boundary_compaction_delegates_to_the_buffered_check():
+    """The public streaming capability runs the exact buffered boundary check."""
+    from unittest.mock import AsyncMock
+
+    from victor.agent.services.turn_execution_runtime import TurnExecutor
+
+    runtime = SimpleNamespace(_check_context_compaction=AsyncMock())
+    classification = object()
+
+    await TurnExecutor.check_turn_boundary_compaction(runtime, "task", classification)
+
+    runtime._check_context_compaction.assert_awaited_once_with("task", classification)
+
+
 async def test_check_context_compaction_prefers_lifecycle_service():
     executor = _make_executor()
     lifecycle = SimpleNamespace(
@@ -2449,7 +2463,6 @@ async def test_runtime_context_tool_budget_override_reaches_every_budget_owner()
     runtime, and the pipeline config. Any owner that ignored or clamped the
     override starved the run while the others looked funded.
     """
-    from victor.agent.services.tool_budget_runtime import BudgetManager
     from victor.agent.services.tool_service import ToolService, ToolServiceConfig
 
     service = ToolService(

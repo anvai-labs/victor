@@ -242,6 +242,18 @@ def build_streaming_orchestrator(
         for t in tools
     ]
     orch._select_tools = lambda *args, **kwargs: list(tool_defs)
+    # The buffered turn executor selects through its own adapter, not
+    # ``orch._select_tools``; bypass it identically so both paths offer the scripted
+    # tools. Without this, buffered turns went out with an EMPTY offer and the
+    # stray-call guard (#1703) intercepted the scripted tool calls — a harness gap,
+    # not a product divergence (real models are offered the selected tools).
+    turn_executor = getattr(orch, "turn_executor", None)
+    if turn_executor is not None:
+
+        async def _scripted_turn_tools(*_args: Any, **_kwargs: Any) -> List[ToolDefinition]:
+            return list(tool_defs)
+
+        turn_executor._select_tools_for_turn = _scripted_turn_tools
 
     orch.unified_tracker.set_max_iterations(max_iterations, user_override=True)
     orch._parity_tool_log = recorder

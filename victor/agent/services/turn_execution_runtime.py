@@ -1878,6 +1878,19 @@ class TurnExecutor:
                 except Exception:
                     pass  # Never break the hot path over metrics
 
+    async def check_turn_boundary_compaction(
+        self,
+        user_message: str,
+        task_classification: Any,
+    ) -> None:
+        """Public turn-boundary compaction capability for the streaming path.
+
+        Streaming ACT reuses the buffered path's boundary check (KV-prefix
+        gating and lifecycle precedence included) through this explicit
+        capability instead of probing the private method.
+        """
+        await self._check_context_compaction(user_message, task_classification)
+
     async def _check_context_compaction(
         self,
         user_message: str,
