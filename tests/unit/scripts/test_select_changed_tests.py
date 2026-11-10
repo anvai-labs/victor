@@ -307,6 +307,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/storage/graph/test_sqlite_store_edge_file_tracking.py",
                 "tests/unit/storage/graph/test_sqlite_store_edge_integrity.py",
                 "tests/unit/storage/graph/test_sqlite_store_embedding_cleanup.py",
+                "tests/unit/storage/graph/test_sqlite_store_natural_language_search.py",
                 "tests/unit/storage/graph/test_sqlite_store_parent_integrity.py",
             },
         ),

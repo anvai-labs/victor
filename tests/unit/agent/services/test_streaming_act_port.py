@@ -486,7 +486,7 @@ async def test_execute_turn_streaming_runs_boundary_checks_at_both_boundaries():
     conversation = _RecordingConversation()
     ex.services.conversation = conversation
     boundary = AsyncMock()
-    orch = SimpleNamespace(turn_executor=SimpleNamespace(_check_context_compaction=boundary))
+    orch = SimpleNamespace(turn_executor=SimpleNamespace(check_turn_boundary_compaction=boundary))
     ctx = _boundary_stream_ctx(classification=SimpleNamespace(complexity=None))
 
     await _run_tool_turn(ex, orch, ctx)
@@ -502,7 +502,7 @@ async def test_execute_turn_streaming_skips_boundary_check_without_classificatio
     ex = _executor()
     ex.services.conversation = _RecordingConversation()
     boundary = AsyncMock()
-    orch = SimpleNamespace(turn_executor=SimpleNamespace(_check_context_compaction=boundary))
+    orch = SimpleNamespace(turn_executor=SimpleNamespace(check_turn_boundary_compaction=boundary))
     ctx = _boundary_stream_ctx(classification=None)
 
     await _run_tool_turn(ex, orch, ctx)
@@ -518,13 +518,28 @@ async def test_execute_turn_streaming_boundary_check_failure_never_breaks_turn()
     ex = _executor()
     ex.services.conversation = _RecordingConversation()
     boundary = AsyncMock(side_effect=RuntimeError("probe"))
-    orch = SimpleNamespace(turn_executor=SimpleNamespace(_check_context_compaction=boundary))
+    orch = SimpleNamespace(turn_executor=SimpleNamespace(check_turn_boundary_compaction=boundary))
     ctx = _boundary_stream_ctx(classification=SimpleNamespace(complexity=None))
 
     chunks, result = await _run_tool_turn(ex, orch, ctx)
 
     assert boundary.await_count == 2  # both hooks attempted despite raising
     assert result.turn_result is not None or result.tool_exec_result is not None
+
+
+async def test_execute_turn_streaming_never_probes_the_private_compaction_method():
+    """The boundary check goes through the public capability only (boundary ratchet)."""
+    from unittest.mock import AsyncMock
+
+    ex = _executor()
+    ex.services.conversation = _RecordingConversation()
+    private = AsyncMock()
+    orch = SimpleNamespace(turn_executor=SimpleNamespace(_check_context_compaction=private))
+    ctx = _boundary_stream_ctx(classification=SimpleNamespace(complexity=None))
+
+    await _run_tool_turn(ex, orch, ctx)
+
+    assert private.await_count == 0
 
 
 async def test_execute_turn_streaming_no_turn_executor_is_noop():

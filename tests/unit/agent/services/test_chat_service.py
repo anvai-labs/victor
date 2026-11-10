@@ -1980,8 +1980,6 @@ class TestChatServiceCriteriaGateEndToEnd(BaseChatServiceTest):
 
     @pytest.mark.asyncio
     async def test_run_context_reaches_real_loop_and_enables_criteria_gate(self):
-        from types import SimpleNamespace as _Namespace
-        from unittest.mock import AsyncMock as _AsyncMock
         from unittest.mock import MagicMock as _MagicMock
         from unittest.mock import patch
 
