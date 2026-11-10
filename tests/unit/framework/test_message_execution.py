@@ -342,3 +342,116 @@ async def test_execute_message_forwards_run_context_when_supported() -> None:
     assert chat_service.chat.await_count == 1
     kwargs = chat_service.chat.await_args.kwargs
     assert kwargs["run_context"] == run_context
+
+
+@pytest.mark.asyncio
+async def test_stream_message_events_forwards_overrides_and_run_context_when_supported() -> None:
+    """FEP-0043 streaming parity: Agent.stream's context and scoped runtime
+    overrides reach the chat-stream seam alongside the flattened prompt."""
+    from victor.framework.message_execution import stream_message_events
+
+    captured = {}
+
+    async def fake_stream_with_events(runtime_obj, prompt, **kwargs):
+        captured["runtime"] = runtime_obj
+        captured["prompt"] = prompt
+        captured["kwargs"] = dict(kwargs)
+        yield AgentExecutionEvent(type=EventType.STREAM_END, success=True)
+
+    chat_service = SimpleNamespace(stream_chat=MagicMock())
+    execution_context = SimpleNamespace(services=SimpleNamespace(chat=chat_service))
+    run_context = {"criteria": {"findings": 4}}
+    overrides = {"iteration_budget": 32}
+
+    events = []
+    with patch("victor.framework._internal.stream_with_events", fake_stream_with_events):
+        async for event in stream_message_events(
+            orchestrator=MagicMock(),
+            execution_context=execution_context,
+            user_message="research",
+            context=run_context,
+            runtime_context_overrides=overrides,
+        ):
+            events.append(event)
+
+    assert len(events) == 1
+    assert captured["kwargs"]["run_context"] == run_context
+    assert captured["kwargs"]["runtime_context_overrides"] == overrides
+    assert captured["kwargs"]["response_prompt"] == "research"
+
+
+@pytest.mark.asyncio
+async def test_stream_with_events_sniffs_stream_chat_signature() -> None:
+    """Legacy stream_chat(message-only) runtimes silently drop the new kwargs;
+    keyword-aware runtimes receive them (same compatibility guard as chat())."""
+    from victor.framework._internal import stream_with_events
+    from victor.providers.base import StreamChunk
+
+    modern_captured = {}
+    legacy_captured = {}
+
+    class ModernRuntime:
+        async def stream_chat(self, message, **kwargs):
+            modern_captured.update(kwargs)
+            yield StreamChunk(content="ok", is_final=True, metadata={"agentic_loop_success": True})
+
+    class LegacyRuntime:
+        async def stream_chat(self, message):
+            legacy_captured["message"] = message
+            yield StreamChunk(content="ok", is_final=True, metadata={"agentic_loop_success": True})
+
+    overrides = {"iteration_budget": 32}
+    run_context = {"criteria": {"findings": 4}}
+
+    events = [
+        event
+        async for event in stream_with_events(
+            ModernRuntime(),
+            "q",
+            runtime_context_overrides=overrides,
+            run_context=run_context,
+        )
+    ]
+    assert events[-1].success is True
+    assert modern_captured["runtime_context_overrides"] == overrides
+    assert modern_captured["run_context"] == run_context
+
+    events = [
+        event
+        async for event in stream_with_events(
+            LegacyRuntime(),
+            "q",
+            runtime_context_overrides=overrides,
+            run_context=run_context,
+        )
+    ]
+    assert events[-1].success is True
+    assert legacy_captured == {"message": "q"}
+
+
+@pytest.mark.asyncio
+async def test_iter_runtime_stream_events_forwards_overrides_and_run_context() -> None:
+    from victor.framework.message_execution import iter_runtime_stream_events
+
+    captured = {}
+
+    async def fake_stream_with_events(runtime_obj, prompt, **kwargs):
+        captured["kwargs"] = dict(kwargs)
+        yield AgentExecutionEvent(type=EventType.CONTENT, content="pong")
+
+    runtime = SimpleNamespace(stream_chat=MagicMock())
+
+    with patch("victor.framework._internal.stream_with_events", fake_stream_with_events):
+        events = [
+            event
+            async for event in iter_runtime_stream_events(
+                runtime,
+                "ping",
+                runtime_context_overrides={"iteration_budget": 32},
+                run_context={"criteria": {"findings": 4}},
+            )
+        ]
+
+    assert len(events) == 1
+    assert captured["kwargs"]["runtime_context_overrides"] == {"iteration_budget": 32}
+    assert captured["kwargs"]["run_context"] == {"criteria": {"findings": 4}}

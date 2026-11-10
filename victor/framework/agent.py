@@ -646,6 +646,7 @@ class Agent:
         prompt: str,
         *,
         context: Optional[Dict[str, Any]] = None,
+        runtime_context_overrides: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[AgentExecutionEvent]:
         """Stream events as the agent processes a task.
 
@@ -654,7 +655,12 @@ class Agent:
 
         Args:
             prompt: What the agent should do
-            context: Optional context dict
+            context: Optional context dict (files, variables, declared
+                completion criteria); forwarded as the structured run context
+                exactly like buffered ``run()`` (FEP-0043)
+            runtime_context_overrides: Optional scoped runtime hints for this
+                turn (funding, prompt overlays); forwarded to the streaming
+                runtime when it accepts them (FEP-0043 streaming parity)
 
         Yields:
             AgentExecutionEvent objects representing agent actions
@@ -673,11 +679,16 @@ class Agent:
         # Track state for observers
         old_stage = self._state.stage
 
+        stream_kwargs: Dict[str, Any] = {}
+        if runtime_context_overrides is not None:
+            stream_kwargs["runtime_context_overrides"] = runtime_context_overrides
+
         async for event in stream_message_events(
             orchestrator=self._orchestrator,
             execution_context=self.execution_context,
             user_message=prompt,
             context=context,
+            **stream_kwargs,
         ):
             old_stage = self._notify_state_observers_if_changed(old_stage)
             yield event
