@@ -41,6 +41,7 @@ from victor.core.task.direct_response import classify_direct_response_prompt
 from victor.agent.request_scope_heuristics import (
     is_ambiguous_write_followup_request,
 )
+from victor.core.runtime_context import merge_runtime_context_overrides
 from victor.framework.topology_runtime import prepare_topology_runtime_contract
 from victor.core.task.protocols import TaskComplexity
 from victor.core.provider_messages import StreamChunk
@@ -460,6 +461,20 @@ class ChatStreamHelperMixin:
             ),
         )
 
+        # FEP-0043 streaming parity: carry the caller's scoped runtime
+        # overrides and structured run context (declared criteria, completion
+        # marker) onto the streaming context. The generic overrides surface
+        # seeds from the caller keys so the topology merge below can bind over
+        # derived echoes instead of replacing them; with no caller kwargs this
+        # is byte-identical to before.
+        caller_overrides = kwargs.get("runtime_context_overrides")
+        if isinstance(caller_overrides, dict) and caller_overrides:
+            ctx.caller_runtime_context_overrides = dict(caller_overrides)
+            ctx.runtime_context_overrides = dict(caller_overrides)
+        caller_run_context = kwargs.get("run_context")
+        if isinstance(caller_run_context, dict) and caller_run_context:
+            ctx.caller_run_context = dict(caller_run_context)
+
         ctx.stream_metrics = stream_metrics
         ctx.start_time = start_time
         ctx.estimated_content_tokens = estimated_content_tokens
@@ -659,7 +674,12 @@ class ChatStreamHelperMixin:
             stream_ctx.topology_plan["team_name"] = prepared_runtime.team_plan.team_name
             stream_ctx.topology_plan["team_display_name"] = prepared_runtime.team_plan.display_name
             stream_ctx.topology_plan["member_count"] = prepared_runtime.team_plan.member_count
-        stream_ctx.runtime_context_overrides = dict(topology_overrides)
+        # FEP-0043 streaming parity: merge the derived topology overrides ONTO
+        # the caller's (caller-bound budget keys win) instead of replacing
+        # them — same precedence rule as the buffered loop's state merge.
+        stream_ctx.runtime_context_overrides = merge_runtime_context_overrides(
+            stream_ctx.runtime_context_overrides, topology_overrides
+        )
         stream_ctx.provider_kwargs = self._stream_provider_call_overrides(topology_overrides)
 
         if topology_plan.tool_budget is not None:

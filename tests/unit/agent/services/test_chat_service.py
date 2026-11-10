@@ -2055,3 +2055,69 @@ class TestChatServiceCriteriaGateEndToEnd(BaseChatServiceTest):
             and iteration.evaluation.metadata.get("criteria_gate", {}).get("downgrade")
         ]
         assert downgraded, "criteria gate never downgraded an unmet COMPLETE"
+
+    async def test_caller_run_context_object_enables_gate_and_binds_budget(self):
+        """Consolidation PR 4: the structured CallerRunContext object threaded
+        from Agent.run reaches the same real loop and produces the same
+        outcomes as the raw kwargs shape — criteria gate on, caller iteration
+        budget bound over the default ceiling, overrides seeded into state."""
+        from unittest.mock import MagicMock as _MagicMock
+        from unittest.mock import patch
+
+        from victor.agent.action_authorizer import ActionIntent
+        from victor.core.caller_run_context import CallerRunContext
+        from victor.framework.agentic_loop import AgenticLoop
+        from victor.framework.perception_integration import Perception
+        from victor.framework.task.protocols import TaskComplexity
+
+        captured = {}
+
+        perception = Perception(
+            intent=ActionIntent.WRITE_ALLOWED,
+            complexity=TaskComplexity.MEDIUM,
+            task_analysis=_MagicMock(task_type="code_generation"),
+            confidence=0.8,
+        )
+
+        class _RecordingLoop(AgenticLoop):
+            def __init__(self, *args, **kwargs):
+                captured["config"] = dict(kwargs.get("config") or {})
+                captured["max_iterations"] = kwargs.get("max_iterations")
+                super().__init__(*args, **kwargs)
+
+            async def _analyze_turn(self, query, context=None, conversation_history=None):
+                return perception
+
+            async def run(self, query, **kwargs):
+                result = await super().run(query, **kwargs)
+                captured["final_state"] = result.final_state
+                return result
+
+            async def _plan(self, query, state):
+                return {"steps": ["respond"]}
+
+        service = self._create_test_service()
+        service.bind_runtime_components(turn_executor=self._make_turn_executor())
+
+        caller_ctx = CallerRunContext.from_overrides_and_context(
+            {"iteration_budget": 64, "tool_budget": 134},
+            {
+                "criteria": {"findings": 30},
+                "complete_on_key": "corpus_closed",
+            },
+            None,
+        )
+
+        with patch("victor.framework.agentic_loop.AgenticLoop", _RecordingLoop):
+            response = await service.chat("hello", caller_run_context=caller_ctx)
+
+        assert response.content == "done"
+        assert captured["config"].get("enable_criteria_gate") is True
+        # The caller's funded iteration budget binds over the default ceiling.
+        assert captured["max_iterations"] == 64
+        final_state = captured["final_state"]
+        assert final_state["criteria"] == {"findings": 30}
+        assert final_state["complete_on_key"] == "corpus_closed"
+        merged_overrides = final_state["runtime_context_overrides"]
+        assert merged_overrides["tool_budget"] == 134
+        assert merged_overrides["iteration_budget"] == 64

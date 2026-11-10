@@ -15,12 +15,13 @@ from __future__ import annotations
 import logging
 
 from victor.core.async_utils import aclosing_if_supported
+from victor.core.caller_run_context import CallerRunContext
 from victor.agent.services.tool_selection_runtime import (
     hydrate_demand_tools,
 )
 import re
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, List, Optional, Protocol
+from typing import Any, AsyncIterator, Dict, List, Optional, Protocol
 
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
@@ -1559,6 +1560,20 @@ class StreamingChatExecutor:
                 return
             user_message = req.content
 
+        # FEP-0043 streaming parity: read the caller's structured run context
+        # (declared criteria, completion marker) and scoped runtime overrides
+        # from the forwarded stream kwargs. Consolidation PR 4: the structured
+        # CallerRunContext object (built once at Agent.stream) drives the loop
+        # config and budget overrides when present; the raw dict path stays
+        # byte-identical to before. Budget funding consumption remains the
+        # budget-owner's concern.
+        _caller_ctx = kwargs.get("caller_run_context")
+        _caller_ctx = _caller_ctx if isinstance(_caller_ctx, CallerRunContext) else None
+        caller_run_context = kwargs.get("run_context")
+        caller_run_context = caller_run_context if isinstance(caller_run_context, dict) else {}
+        caller_overrides = kwargs.get("runtime_context_overrides")
+        caller_overrides = caller_overrides if isinstance(caller_overrides, dict) else {}
+
         # Per-run setup (stream context, goals, recovery) captured as a session + ACT adapter.
         adapter = await StreamingActAdapter.prepare(self, user_message, **kwargs)
         stream_ctx = adapter.session.stream_ctx
@@ -1593,6 +1608,27 @@ class StreamingChatExecutor:
             from victor.agent.edge_turn_judge import build_edge_turn_judge
 
             _turn_judge = build_edge_turn_judge()
+        if _caller_ctx is not None:
+            # Structured path: loop config from the object; the criteria gate
+            # resolution (FEP-0043) and completion-tool names travel inside it.
+            _loop_config = _caller_ctx.to_loop_config(
+                executor=executor,
+                completion_strategy=_strategy,
+                enable_effect_gate=_effect_gate,
+                enable_per_turn_auditor=_auditor,
+            )
+        else:
+            _loop_config = {
+                "executor": executor,
+                "completion_strategy": _strategy,
+                "enable_effect_gate": _effect_gate,
+                "enable_per_turn_auditor": _auditor,
+                # FEP-0043 streaming parity: declaring non-empty criteria in
+                # the structured run context is the caller's opt-in, resolved
+                # exactly as the buffered path resolves it. Without declared
+                # criteria the gate stays off (default-off parity).
+                "enable_criteria_gate": bool(caller_run_context.get("criteria")),
+            }
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
@@ -1602,21 +1638,39 @@ class StreamingChatExecutor:
             enable_adaptive_iterations=True,
             exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
             streaming_act_port=adapter,
-            config={
-                "executor": executor,
-                "completion_strategy": _strategy,
-                "enable_effect_gate": _effect_gate,
-                "enable_per_turn_auditor": _auditor,
-            },
+            config=_loop_config,
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(_te, "_verifier", None),
             max_verify_retries=getattr(_te, "_max_verify_retries", 0),
             per_turn_judge=_turn_judge,
         )
 
+        # FEP-0043 streaming parity: seed the streaming loop's state with the
+        # caller's structured run context (criteria, completion marker) plus
+        # the scoped runtime overrides. Internal seeds merge after caller keys
+        # so reserved keys can never be clobbered (buffered contract). With no
+        # caller context this passes context=None — byte-identical to before.
+        loop_context: Dict[str, Any] = dict(
+            _caller_ctx.to_run_context() if _caller_ctx is not None else caller_run_context
+        )
+        if _caller_ctx is not None:
+            from victor.core.runtime_context import merge_runtime_context_overrides
+
+            _overrides_map = merge_runtime_context_overrides(
+                _caller_ctx.to_runtime_overrides(), caller_overrides
+            )
+            if _overrides_map:
+                loop_context["runtime_context_overrides"] = _overrides_map
+        elif caller_overrides:
+            loop_context["runtime_context_overrides"] = dict(caller_overrides)
+
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)
         async with aclosing_if_supported(
-            loop.run_streaming(user_message, conversation_history=conversation_history)
+            loop.run_streaming(
+                user_message,
+                context=loop_context or None,
+                conversation_history=conversation_history,
+            )
         ) as stream:
             iterator = aiter(stream)
             cancelled = False

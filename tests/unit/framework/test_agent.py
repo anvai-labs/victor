@@ -2442,3 +2442,54 @@ class TestModuleExports:
         from victor.framework.agent import ChatSession
 
         assert ChatSession is not None
+
+
+@pytest.mark.asyncio
+async def test_stream_forwards_runtime_context_overrides_and_run_context(mock_orchestrator):
+    """FEP-0043 streaming parity: Agent.stream accepts and forwards the same
+    caller funding/criteria kwargs the buffered run() path accepts."""
+    from victor.framework.agent import Agent
+    from victor.framework.events import AgentExecutionEvent, EventType
+
+    captured = {}
+
+    async def mock_stream_message_events(**kwargs):
+        captured.update(kwargs)
+        yield AgentExecutionEvent(type=EventType.STREAM_END, success=True)
+
+    agent = Agent(mock_orchestrator)
+
+    overrides = {"iteration_budget": 32, "tool_budget": 134}
+    context = {"criteria": {"findings": 30}}
+
+    with patch("victor.framework.agent.stream_message_events", mock_stream_message_events):
+        events = []
+        async for event in agent.stream(
+            "research deeply", context=context, runtime_context_overrides=overrides
+        ):
+            events.append(event)
+
+    assert events[-1].type is EventType.STREAM_END
+    assert captured["runtime_context_overrides"] == overrides
+    assert captured["context"] == context
+    assert captured["user_message"] == "research deeply"
+
+
+@pytest.mark.asyncio
+async def test_stream_without_overrides_does_not_forward_the_kwarg(mock_orchestrator):
+    from victor.framework.agent import Agent
+    from victor.framework.events import AgentExecutionEvent, EventType
+
+    captured = {}
+
+    async def mock_stream_message_events(**kwargs):
+        captured.update(kwargs)
+        yield AgentExecutionEvent(type=EventType.STREAM_END, success=True)
+
+    agent = Agent(mock_orchestrator)
+
+    with patch("victor.framework.agent.stream_message_events", mock_stream_message_events):
+        async for _ in agent.stream("plain"):
+            pass
+
+    assert "runtime_context_overrides" not in captured
