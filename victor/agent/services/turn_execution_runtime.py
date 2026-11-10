@@ -168,9 +168,10 @@ from victor.agent.services.runtime_overrides import (
     OverrideRestorationError,
     apply_overrides,
     attribute_change,
-    budget_changes,
+    extend_budget_funding,
     restore_overrides,
 )
+from victor.core.tool_budget_ledger import resolved_budget_view
 
 logger = logging.getLogger(__name__)
 
@@ -699,9 +700,9 @@ class TurnExecutor:
             except Exception:  # correlation is non-critical
                 pass
 
-            effective_tool_budget = self._coerce_int_override(overrides.get("tool_budget"))
-            if effective_tool_budget is None:
-                effective_tool_budget = self._tool_context.tool_budget
+            effective_tool_budget, ledger_used = resolved_budget_view(
+                _orch, self._tool_context, overrides.get("tool_budget")
+            )
 
             # Deterministic read-only plan steps do not need a model turn to
             # choose the obvious tool. Callers that explicitly want the model
@@ -711,11 +712,7 @@ class TurnExecutor:
             # success on a single iteration even though the caller asked for
             # written output that only the model can produce.
             fast_path_disabled = bool(overrides.get("disable_deterministic_fast_path"))
-            if (
-                not fast_path_disabled
-                and not is_qa_task
-                and self._tool_context.tool_calls_used < effective_tool_budget
-            ):
+            if not fast_path_disabled and not is_qa_task and ledger_used < effective_tool_budget:
                 deterministic_turn = await self._maybe_execute_deterministic_tool_turn(
                     user_message,
                     task_classification=task_classification,
@@ -1760,10 +1757,13 @@ class TurnExecutor:
                 )
             )
         tool_budget = self._coerce_int_override(overrides.get("tool_budget"))
+        undo_funding = None
         if tool_budget is not None:
-            changes.extend(budget_changes(orchestrator, self._tool_context, tool_budget))
+            undo_funding = extend_budget_funding(
+                changes, orchestrator, self._tool_context, tool_budget
+            )
         try:
-            return apply_overrides(changes)
+            return apply_overrides(changes, extra_undo=undo_funding)
         except OverrideRestorationError:
             self._runtime_override_error = True
             if orchestrator is not None:
