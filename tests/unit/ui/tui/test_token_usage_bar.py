@@ -107,11 +107,13 @@ def test_token_usage_bar_all_fields() -> None:
 
 
 def test_token_usage_bar_separator() -> None:
-    """Test that fields are separated by dots."""
+    """Fields within a line are separated by dots. The session-total line only
+    appears with a caller-supplied session figure (the bar never accumulates)."""
     bar = TokenUsageBar()
-    bar.set_usage(total_tokens=1000, cost_usd=0.01)
+    bar.set_usage(total_tokens=1000, cost_usd=0.01, session_cost_usd=0.02)
     content = str(bar.render())
     assert "  ·  " in content
+    assert "last turn $0.0100  ·  session total $0.0200" in content
 
 
 def test_token_usage_bar_boundary_values() -> None:
@@ -194,3 +196,30 @@ async def test_line3_visible_when_mounted() -> None:
             f"panel box {bar.region.height} lines cannot show 3 content lines "
             "plus the border (the clipping regression)"
         )
+
+
+def test_session_cost_never_self_accumulates() -> None:
+    """set_usage runs once per stream event; accumulating here would multiply
+    the last turn's cost across the whole turn (audit B4). The bar is
+    display-only: without a caller-supplied session figure the total stays 0."""
+    bar = TokenUsageBar()
+    for _ in range(1000):
+        bar.set_usage(cost_usd=0.0012)
+    assert bar._session_cost_usd == 0.0
+
+
+def test_session_cost_strictly_caller_supplied() -> None:
+    """An authoritative session figure is adopted verbatim, not added to."""
+    bar = TokenUsageBar()
+    bar.set_usage(cost_usd=0.0012, session_cost_usd=0.05)
+    assert bar._session_cost_usd == 0.05
+    bar.set_usage(cost_usd=0.0012, session_cost_usd=0.06)
+    assert bar._session_cost_usd == 0.06
+
+
+def test_cache_hit_rate_is_fraction_scale() -> None:
+    """Canonical scale is fraction 0..1; the renderer multiplies by 100."""
+    bar = TokenUsageBar()
+    bar.set_usage(prompt_tokens=1000, cached_tokens=900, cache_hit_rate=0.9)
+    content = str(bar.render())
+    assert "hit 90%" in content
