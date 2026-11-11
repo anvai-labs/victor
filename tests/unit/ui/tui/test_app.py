@@ -479,6 +479,8 @@ async def test_session_cost_accumulates_once_per_turn_not_per_event() -> None:
             app._update_token_usage_bar()
         await pilot.pause()
         assert bar._session_cost_usd == 0.0024
+
+
 # ── cancellation hygiene: modal + generator lifecycle (audit B6 + B8) ──
 
 
