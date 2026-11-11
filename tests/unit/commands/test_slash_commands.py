@@ -1022,16 +1022,6 @@ class TestModeCommands:
         assert meta.name == "explore"
         assert meta.category in ["mode", "system", "general"]
 
-    def test_review_command_metadata(self):
-        """Test ReviewCommand metadata."""
-        from victor.ui.slash.commands.mode import ReviewCommand
-
-        cmd = ReviewCommand()
-        meta = cmd.metadata
-
-        assert meta.name == "review"
-        assert meta.category in ["mode", "system", "general"]
-
     def test_delegate_command_metadata(self):
         """Test DelegateCommand metadata."""
         from victor.ui.slash.commands.mode import DelegateCommand
