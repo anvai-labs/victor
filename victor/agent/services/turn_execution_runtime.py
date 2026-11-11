@@ -55,6 +55,8 @@ from dataclasses import dataclass, field, replace
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.services import post_loop_recovery
+from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+from victor.providers.usage_accounting import accumulate_usage
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
@@ -2023,8 +2025,11 @@ class TurnExecutor:
             tools=text_call_tools(self._resolve_orchestrator(), messages),
         )
 
+        recovery_usage: Dict[str, int] = {}
         for provider_response in completion_result.provider_responses:
             self._record_conversation_usage(provider_response)
+            if provider_response.usage:
+                accumulate_usage(recovery_usage, provider_response.usage)
 
         content = completion_result.content
         if not content:
@@ -2045,6 +2050,10 @@ class TurnExecutor:
                 tool_calls=None,
             )
         )
+        if recovery_usage:
+            # Metadata, not ``usage``: the calls are already accounted at the
+            # invocation boundary; streaming folds this into its per-stream totals.
+            response.metadata = {**(response.metadata or {}), RECOVERY_USAGE_KEY: recovery_usage}
         self._chat_context.add_message(
             "assistant",
             response.content,
