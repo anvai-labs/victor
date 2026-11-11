@@ -224,7 +224,7 @@ class LifecycleManager:
         return results
 
     async def shutdown(self) -> None:
-        """Release owned cache handles even when asynchronous shutdown is cancelled."""
+        """Drain telemetry and release caches even when asynchronous shutdown is cancelled."""
         primary_error: BaseException | None = None
         try:
             await self._shutdown_services()
@@ -232,6 +232,15 @@ class LifecycleManager:
             primary_error = error
             raise
         finally:
+            # close()/shutdown() are also application exit paths. Do not rely on
+            # callers invoking graceful_shutdown() first: the final tool results
+            # may still be in the usage logger's buffer when a turn is interrupted.
+            try:
+                close_usage = getattr(self._usage_logger, "close", None)
+                if callable(close_usage):
+                    close_usage()
+            except Exception as error:
+                logger.warning("Failed to close usage logger during shutdown: %s", error)
             try:
                 self.close_tool_cache()
             except Exception as cleanup_error:

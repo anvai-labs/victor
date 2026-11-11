@@ -1101,7 +1101,18 @@ class CompactCommand(BaseSlashCommand):
             except ValueError:
                 pass
 
-        keep_recent = min(keep_recent, len(conversation.messages) // 2)
+        if keep_recent < 1:
+            # --keep 0 would slice messages[-0:] — the WHOLE conversation —
+            # and negatives slice from the head, silently keeping the wrong
+            # end. Both made /compact claim success while compacting nothing
+            # (or the wrong half). Reject instead.
+            ctx.console.print(
+                "[yellow]--keep must be >= 1: it is the number of recent "
+                "messages to preserve.[/]"
+            )
+            return
+
+        keep_recent = max(1, min(keep_recent, len(conversation.messages) // 2))
         messages = conversation.messages
 
         if use_smart:
