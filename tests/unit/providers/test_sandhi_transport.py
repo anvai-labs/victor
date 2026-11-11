@@ -634,6 +634,100 @@ Q8DdskD5L69EkmDFx9mfIFg=
         assert diagnosis is not None
         assert "not trusted by this machine's trust store" in diagnosis
 
+    def test_remediation_hint_matches_running_platform(self, monkeypatch):
+        # The remediation must name the import command for the machine Victor
+        # runs on. A hardcoded macOS command on an Ubuntu WSL host sends the
+        # operator down a dead end.
+        expected = {
+            "Darwin": "security add-trusted-cert",
+            "Linux": "update-ca-certificates",
+            "Windows": "certutil -addstore",
+        }
+        for system, command in expected.items():
+            monkeypatch.setattr(st.platform, "system", lambda s=system: s)
+            hint = st._tls_trust_remediation()
+            assert command in hint, f"{system} hint missing its command: {hint}"
+            for other in set(expected.values()) - {command}:
+                assert other not in hint, f"{system} hint leaks {other}: {hint}"
+
+    def test_remediation_hint_falls_back_for_unknown_platform(self, monkeypatch):
+        monkeypatch.setattr(st.platform, "system", lambda: "SunOS")
+        hint = st._tls_trust_remediation()
+        assert "trust store" in hint
+        assert "macOS" not in hint and "update-ca-certificates" not in hint
+
+    def test_untrusted_cert_diagnosis_names_running_platform_command(self, monkeypatch):
+        # End-to-end through the real probe: on a Linux host the diagnosis must
+        # surface the Linux import command, never the macOS one.
+        import datetime
+        import socket as socket_mod
+        import ssl as ssl_mod
+        import threading
+        from tempfile import NamedTemporaryFile
+
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        monkeypatch.setattr(st.platform, "system", lambda: "Linux")
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "tls-hint-localhost")])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=1))
+            .not_valid_after(now + datetime.timedelta(hours=1))
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName("localhost")]),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256())
+        )
+        cert_file = NamedTemporaryFile(mode="wb", suffix=".pem", delete=False)
+        key_file = NamedTemporaryFile(mode="wb", suffix=".pem", delete=False)
+        cert_file.write(cert.public_bytes(serialization.Encoding.PEM))
+        key_file.write(
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption(),
+            )
+        )
+        cert_file.close()
+        key_file.close()
+
+        context = ssl_mod.SSLContext(ssl_mod.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert_file.name, key_file.name)
+        server = socket_mod.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+
+        def serve_once():
+            conn, _ = server.accept()
+            try:
+                tls = context.wrap_socket(conn, server_side=True)
+                tls.recv(1024)
+                tls.close()
+            except ssl_mod.SSLError:
+                pass
+            finally:
+                server.close()
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+        diagnosis = st._diagnose_endpoint_tls(f"https://localhost:{port}/v1")
+        thread.join(timeout=5)
+        assert diagnosis is not None
+        assert "update-ca-certificates" in diagnosis
+        assert "add-trusted-cert" not in diagnosis
+
     def test_probe_returns_none_for_trusted_handshake(self):
         # Runtime-generated SAN=IP certificate: the probe must complete a REAL
         # handshake (the server records the verified client socket) and then
