@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+# Response-metadata key carrying the summed provider usage of a recovery
+# synthesis (already accounted at the invocation boundary); the streaming
+# consumer folds it into the stream's own usage totals.
+RECOVERY_USAGE_KEY = "recovery_usage"
+
 
 def recovery_allowed(
     *, spin_guard_stopped: bool, action_result: object, last_decision: Any

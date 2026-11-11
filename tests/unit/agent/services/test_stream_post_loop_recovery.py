@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 from victor.agent.services import chat_stream_executor as cse
+from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
 from victor.framework.agentic_loop import POST_LOOP_RECOVERY_KEY
 from victor.providers.base import CompletionResponse, StreamChunk
 
@@ -30,8 +31,12 @@ class _Executor:
     def __init__(self):
         self.services = SimpleNamespace(stream_lifecycle=_Lifecycle(), delivery=_Delivery())
 
-    async def _deliver_post_loop_recovery(self, turn_executor, chunk, _stream_ctx=None):
-        return await cse._deliver_post_loop_recovery(self.services, turn_executor, chunk)
+    async def _deliver_post_loop_recovery(
+        self, turn_executor, chunk, _stream_ctx=None, *, usage_totals=None
+    ):
+        return await cse._deliver_post_loop_recovery(
+            self.services, turn_executor, chunk, usage_totals=usage_totals
+        )
 
 
 def _executor():
@@ -39,8 +44,11 @@ def _executor():
 
 
 class _TurnExecutor:
-    def __init__(self, content="<think>x</think>Recovered answer.", delay=0.0, on_start=None):
+    def __init__(
+        self, content="<think>x</think>Recovered answer.", delay=0.0, on_start=None, usage=None
+    ):
         self.content, self.delay, self.on_start = content, delay, on_start
+        self.usage = usage
         self.reasons, self.finished = [], False
 
     async def synthesize_from_tool_evidence(self, *, recovery_reason=None):
@@ -49,7 +57,8 @@ class _TurnExecutor:
             self.on_start()
         await asyncio.sleep(self.delay)
         self.finished = True
-        return SimpleNamespace(response=CompletionResponse(content=self.content))
+        metadata = {RECOVERY_USAGE_KEY: self.usage} if self.usage else {}
+        return SimpleNamespace(response=CompletionResponse(content=self.content, metadata=metadata))
 
 
 def _terminal(request):
@@ -169,3 +178,53 @@ async def test_outer_cancellation_cancels_and_reaps_the_synthesis():
     with pytest.raises(asyncio.CancelledError):
         await outer
     assert turn_executor.finished is False
+
+
+_SPENT = {
+    "prompt_tokens": 22,
+    "completion_tokens": 6,
+    "total_tokens": 28,
+    "billable_completion_tokens": 6,
+}
+
+
+def _totals():
+    return {"prompt_tokens": 100, "completion_tokens": 40, "total_tokens": 140}
+
+
+async def test_recovery_usage_is_folded_into_the_stream_totals():
+    executor, totals = _executor(), _totals()
+
+    chunk = await executor._deliver_post_loop_recovery(
+        _TurnExecutor(usage=_SPENT),
+        _terminal({"kind": "synthesize", "reason": "r"}),
+        usage_totals=totals,
+    )
+
+    assert chunk.content == "Recovered answer."
+    assert totals["prompt_tokens"] == 122
+    assert totals["completion_tokens"] == 46
+    assert totals["total_tokens"] == 168
+
+
+async def test_recovery_usage_counts_even_when_no_text_survives():
+    executor, totals = _executor(), _totals()
+
+    chunk = await executor._deliver_post_loop_recovery(
+        _TurnExecutor(content="<think>x</think>", usage=_SPENT),
+        _terminal({"kind": "synthesize", "reason": "r"}),
+        usage_totals=totals,
+    )
+
+    assert chunk is None
+    assert totals["total_tokens"] == 168  # the calls were spent regardless
+
+
+async def test_no_usage_metadata_leaves_the_stream_totals_unchanged():
+    executor, totals = _executor(), _totals()
+
+    await executor._deliver_post_loop_recovery(
+        _TurnExecutor(), _terminal({"kind": "synthesize", "reason": "r"}), usage_totals=totals
+    )
+
+    assert totals == _totals()
