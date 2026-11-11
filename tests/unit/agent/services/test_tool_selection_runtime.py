@@ -613,3 +613,116 @@ async def test_qa_gate_read_core_mode_returns_read_tools():
     # list); declaration order is not preserved.
     assert names == ["code_search", "ls", "read"]
     assert all(t.schema_level == "stub" for t in result)
+
+
+# --- sticky offer: a tool history never gets an empty offer ------------------------
+
+
+def _skip_host(messages):
+    """Host whose Q&A gate says "skip"; pruning is off so supply = full registry."""
+    provider = MagicMock()
+    provider.supports_tools.return_value = True
+    names = ["read", "shell", "write"]
+    registry = MagicMock()
+    registry.list_tools.return_value = [_FakeTool(n) for n in names]
+    registry.get.side_effect = lambda name: _FakeTool(name) if name in names else None
+    registry._schema_cache_version = 0
+    return SimpleNamespace(
+        provider=provider,
+        messages=messages,
+        _model_supports_tool_calls=MagicMock(return_value=True),
+        _tool_skip_mode=MagicMock(return_value="skip"),
+        _should_skip_tools_for_turn=MagicMock(return_value=True),
+        tool_selector=SimpleNamespace(tools=registry, _enabled_tools=None),
+        settings=None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "history",
+    [
+        pytest.param(
+            [
+                {"role": "user", "content": "Read the file."},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "c1", "name": "read", "arguments": {}}],
+                },
+                {"role": "tool", "content": "...", "tool_call_id": "c1", "name": "read"},
+            ],
+            id="dict-history-this-turn",
+        ),
+        pytest.param(
+            [SimpleNamespace(role="tool", content="x", tool_calls=None)],
+            id="tool-result-only",
+        ),
+        pytest.param(
+            [
+                SimpleNamespace(role="assistant", content="", tool_calls=[{"name": "shell"}]),
+                SimpleNamespace(role="user", content="thanks!", tool_calls=None),
+            ],
+            id="earlier-turn-then-greeting",
+        ),
+    ],
+)
+async def test_skip_gate_keeps_supply_once_history_has_tool_calls(history):
+    """Anthropic-shaped validators reject tool_use/tool_result history with no tools
+    defined; the skip gate must not empty the offer once tools have been used."""
+    runtime = ToolSelectionRuntime(OrchestratorProtocolAdapter(_skip_host(history)))
+
+    result = await runtime.select_tools_for_turn("hi", goals=None)
+
+    assert result, "empty offer sent alongside tool-call history"
+    assert [tool.name for tool in result] == ["read", "shell", "write"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "history",
+    [
+        pytest.param([], id="empty"),
+        pytest.param(None, id="none"),
+        pytest.param(
+            [
+                _Message("user", "hi"),
+                SimpleNamespace(role="assistant", content="hello!", tool_calls=[]),
+            ],
+            id="text-only",
+        ),
+        pytest.param(object(), id="unreadable"),
+    ],
+)
+async def test_skip_gate_still_skips_without_tool_history(history):
+    runtime = ToolSelectionRuntime(OrchestratorProtocolAdapter(_skip_host(history)))
+
+    assert await runtime.select_tools_for_turn("hi", goals=None) is None
+
+
+class _ReachedFullSelection(Exception):
+    pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_history", [True, False])
+async def test_read_core_downgrade_is_sticky_only_with_tool_history(tool_history):
+    """With pruning ON, a borderline Q&A turn normally gets the read-core stub set;
+    once the history carries tool calls it must reach the normal (full) selection."""
+    history = [SimpleNamespace(role="tool", content="x", tool_calls=None)] if tool_history else []
+    host = _skip_host(history)
+    host._tool_skip_mode = MagicMock(return_value="read_core")
+    host._tool_service = SimpleNamespace(_config=SimpleNamespace(tool_selection_enabled=True))
+    host.tool_selector.select_tools = AsyncMock(side_effect=_ReachedFullSelection)
+    host.conversation = SimpleNamespace(message_count=MagicMock(return_value=len(history)))
+    host.use_semantic_selection = False
+    host.observed_files = []
+    runtime = ToolSelectionRuntime(OrchestratorProtocolAdapter(host))
+
+    if tool_history:
+        with pytest.raises(_ReachedFullSelection):
+            await runtime.select_tools_for_turn("what does this do?", goals=None)
+    else:
+        result = await runtime.select_tools_for_turn("what does this do?", goals=None)
+        assert [tool.name for tool in result] == ["read"]  # read-core ∩ registry
+        host.tool_selector.select_tools.assert_not_awaited()

@@ -79,6 +79,8 @@ class ScriptedProvider(BaseProvider):
         super().__init__(api_key=None)
         self._turns = turns
         self.turn_index = 0
+        # Tools offered on each provider call, in order (the supply the loop chose).
+        self.offer_sizes: List[int] = []
 
     @property
     def name(self) -> str:
@@ -109,6 +111,7 @@ class ScriptedProvider(BaseProvider):
         """
         turn = self._turns[min(self.turn_index, len(self._turns) - 1)]
         self.turn_index += 1
+        self.offer_sizes.append(len(tools or []))
         has_tools = bool(turn.tool_calls)
         return CompletionResponse(
             content=turn.content or "",
@@ -129,6 +132,7 @@ class ScriptedProvider(BaseProvider):
     ) -> AsyncIterator[StreamChunk]:
         turn = self._turns[min(self.turn_index, len(self._turns) - 1)]
         self.turn_index += 1
+        self.offer_sizes.append(len(tools or []))
         has_tools = bool(turn.tool_calls)
         yield StreamChunk(
             content=turn.content,
@@ -275,6 +279,8 @@ class StreamTranscript:
     tool_calls: List[str] = field(default_factory=list)
     errored: bool = False
     error: Optional[str] = None
+    # Per-call offered tool counts, filled by the parity runner from ScriptedProvider.
+    offer_sizes: List[int] = field(default_factory=list)
 
 
 async def capture_transcript(orch: AgentOrchestrator, message: str) -> StreamTranscript:
@@ -508,6 +514,24 @@ SCENARIOS: List[Scenario] = [
         tools=["read"],
         expect_content_contains="notes say hello",
         expect_tools=["read"],
+    ),
+    Scenario(
+        id="Q1",
+        label="edge: Q&A turn that narrates and calls a tool answers after the tool runs",
+        # Q&A-classified message; the first call narrates *and* calls a tool. The
+        # narration must not be accepted as the final answer (is_qa_response must
+        # exclude tool-calling turns on both paths).
+        message="Where is the parser defined?",
+        turns=[
+            TurnScript(
+                content="Let me search.",
+                tool_calls=[{"name": "code_search", "arguments": {"query": "parser"}}],
+            ),
+            TurnScript(content="The parser lives in parser.py."),
+        ],
+        tools=["code_search"],
+        expect_content_contains="lives in parser.py",
+        expect_tools=["code_search"],
     ),
     Scenario(
         id="E4",
