@@ -22,7 +22,8 @@ from victor.agent.services.tool_selection_runtime import (
 )
 import re
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, List, Optional, Protocol
+import asyncio
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Protocol
 
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
@@ -41,6 +42,7 @@ from victor.core.completion_markers import (
     strip_active_completion_markers,
 )
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
+from victor.core.errors import ProviderPolicyError
 from victor.core.provider_messages import CompletionResponse, StreamChunk
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.streaming.tool_execution import ToolExecutionResult
@@ -1698,9 +1700,87 @@ class StreamingChatExecutor:
                 if self.services.stream_lifecycle.is_cancelled():
                     cancelled = True
                     break
+                if getattr(chunk, "is_final", False) and chunk.metadata:
+                    recovered = await _deliver_post_loop_recovery(self.services, _te, chunk)
+                    if recovered is not None:
+                        yield recovered
+                    if self.services.stream_lifecycle.is_cancelled():
+                        cancelled = True
+                        break
                 yield chunk
         if cancelled:
             yield _cancelled_stream_chunk(self.services, stream_ctx)
+
+
+async def _deliver_post_loop_recovery(
+    services: ChatRuntimeServices, turn_executor: Any, chunk: StreamChunk
+) -> Optional[StreamChunk]:
+    """Run a terminal outcome's post-loop recovery request (FEP-0007 parity).
+
+    ``run_streaming`` applies the buffered epilogue's rule
+    (``TurnExecutor.post_loop_recovery_kind``) and records the request on the
+    terminal chunk; it is consumed here so the synthesis honors cancellation and
+    its text is sanitized and delivered like every streamed emit. The synthesis
+    records the answer in history (as on buffered); a cancel during the call
+    abandons it before anything is recorded or shown, and a failed call keeps the
+    run's verdict. Returns the content chunk to emit before the terminal chunk.
+    """
+    from victor.framework.agentic_loop import POST_LOOP_RECOVERY_KEY
+
+    request = chunk.metadata.pop(POST_LOOP_RECOVERY_KEY, None)
+    synthesize = getattr(turn_executor, "synthesize_from_tool_evidence", None)
+    if not isinstance(request, dict) or not callable(synthesize):
+        return None
+    if services.stream_lifecycle.is_cancelled():
+        return None
+    reason = request.get("reason")
+    try:
+        recovered = await _await_unless_cancelled(
+            services, lambda: synthesize(recovery_reason=reason)
+        )
+    except ProviderPolicyError:
+        raise  # policy denials surface on every path (the completer re-raises them too)
+    except Exception as exc:
+        # Presentation-only: a failed recovery must not cost the run its verdict.
+        logger.warning("Post-loop recovery failed; forwarding the verdict: %s", exc)
+        return None
+    content = getattr(getattr(recovered, "response", None), "content", None)
+    if not content:
+        return None
+    chunk.metadata["agentic_loop_synthesis"] = True
+    if reason:
+        chunk.metadata["agentic_loop_synthesis_reason"] = reason
+    sanitized = services.delivery.sanitize(content)
+    if not sanitized:
+        return None
+    return services.delivery.content_chunk(sanitized)
+
+
+async def _await_unless_cancelled(
+    services: ChatRuntimeServices,
+    start: Callable[[], Awaitable[Any]],
+    *,
+    poll_seconds: float = 0.05,
+) -> Any:
+    """Await ``start()`` but abandon it (returning None) once the stream is cancelled.
+
+    Cancellation is a polled flag; a non-streamed provider call would otherwise
+    hold a user cancel for its whole duration.
+    """
+    task = asyncio.ensure_future(start())
+    try:
+        while True:
+            done, _pending = await asyncio.wait({task}, timeout=poll_seconds)
+            if done:
+                return task.result()
+            if services.stream_lifecycle.is_cancelled():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                return None
+    except BaseException:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
 
 
 def create_streaming_chat_executor(
