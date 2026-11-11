@@ -30,6 +30,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _log_skill_matcher_init_outcome(task: "asyncio.Future[None]") -> None:
+    """Retrieve a background skill-matcher init result so failures are logged, not leaked."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.info("Skill auto-selection unavailable: %s", exc)
+
+
 class InitializationError(VictorError):
     """Structured error from agent initialization with user guidance.
 
@@ -465,6 +474,11 @@ class AgentFactory:
                 await matcher.initialize(registry)
 
             init_task = asyncio.ensure_future(_initialize())
+            # Consume the outcome: initialization legitimately fails on a bare
+            # install (no numpy / sentence-transformers) and consumers already
+            # degrade on ``matcher.initialized``; an unread exception would
+            # surface as asyncio's "Task exception was never retrieved" ERROR.
+            init_task.add_done_callback(_log_skill_matcher_init_outcome)
             # Keep a strong reference so the task cannot be garbage-collected
             # mid-flight; surfaced for tests/shutdown ordering.
             self._skill_matcher_init_task = init_task
