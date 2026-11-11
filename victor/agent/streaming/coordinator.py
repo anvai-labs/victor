@@ -331,12 +331,15 @@ class IterationCoordinator:
         self,
         ctx: StreamingChatContext,
         all_blocked: bool,
+        guided_check: Optional[Callable[[], bool]] = None,
     ) -> Optional[IterationResult]:
         """Check if blocked tool attempts exceed thresholds.
 
         Args:
             ctx: The streaming context.
             all_blocked: Whether all tool calls were blocked.
+            guided_check: Optional TerminationAuthority guided-suppression
+                predicate (consolidation PR 5); forwarded to the handler.
 
         Returns:
             IterationResult if force completion triggered.
@@ -346,6 +349,7 @@ class IterationCoordinator:
             all_blocked,
             consecutive_limit=self._config.consecutive_blocked_limit,
             total_limit=self._config.total_blocked_limit,
+            guided_check=guided_check,
         )
 
     def handle_empty_response(

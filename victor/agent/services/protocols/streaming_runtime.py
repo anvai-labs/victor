@@ -29,6 +29,7 @@ from victor.agent.services.chat_runtime_services import ChatRuntimeServices
 
 from typing import (
     Any,
+    Callable,
     Dict,
     List,
     Optional,
@@ -136,8 +137,13 @@ class ToolExecutionRecoveryRuntimeProtocol(Protocol):
         self,
         recovery_ctx: Any,
         all_blocked: bool,
+        guided_check: Optional[Callable[[], bool]] = None,
     ) -> Optional[tuple[StreamChunk, bool]]:
-        """Check whether blocked-tool thresholds require early handling."""
+        """Check whether blocked-tool thresholds require early handling.
+
+        ``guided_check`` is the optional TerminationAuthority
+        guided-suppression predicate (consolidation PR 5).
+        """
         ...
 
 

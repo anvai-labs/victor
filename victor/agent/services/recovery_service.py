@@ -1094,8 +1094,15 @@ class RecoveryService:
         self,
         ctx: Any,
         all_blocked: bool,
+        guided_check: Optional[Callable[[], bool]] = None,
     ) -> Any:
-        """Check whether blocked-tool thresholds require recovery action."""
+        """Check whether blocked-tool thresholds require recovery action.
+
+        ``guided_check`` (consolidation PR 5) is the TerminationAuthority
+        guided-suppression predicate; when it answers True the
+        consecutive-limit force completion is suppressed (the total-limit
+        backstop stays ungated so termination is still guaranteed).
+        """
         if self._streaming_handler is not None and self._settings is not None:
             consecutive_limit = getattr(
                 self._settings,
@@ -1112,6 +1119,7 @@ class RecoveryService:
                 all_blocked,
                 consecutive_limit,
                 total_limit,
+                guided_check=guided_check,
             )
             if result:
                 warning_icon = self._icon("warning")
@@ -1126,7 +1134,9 @@ class RecoveryService:
             return None
 
         if self._recovery_coordinator is not None:
-            return self._recovery_coordinator.check_blocked_threshold(ctx, all_blocked)
+            return self._recovery_coordinator.check_blocked_threshold(
+                ctx, all_blocked, guided_check=guided_check
+            )
         return None
 
     def check_force_action(

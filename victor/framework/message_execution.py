@@ -15,12 +15,10 @@ continues to own the actual orchestration work.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import inspect
-from typing import Any, AsyncIterator, Mapping, Optional
-from unittest.mock import Mock
+from typing import Any, AsyncIterator, Dict, Mapping, Optional
 
 from victor.core.errors import CancellationError
-from victor.framework._internal import format_context_message
+from victor.framework._internal import _supports_keyword_argument, format_context_message
 from victor.framework.task import DirectResponseOutputState, TaskResult
 from victor.providers.base import CompletionResponse
 from victor.runtime.chat_runtime import resolve_chat_runtime as _resolve_chat_runtime
@@ -286,23 +284,6 @@ def _build_task_result_metadata(
     return metadata
 
 
-def _supports_keyword_argument(callable_obj: Any, argument: str) -> bool:
-    """Return whether a callable accepts a given keyword or arbitrary kwargs."""
-    if isinstance(callable_obj, Mock):
-        return True
-
-    try:
-        signature = inspect.signature(callable_obj)
-    except (TypeError, ValueError):
-        return False
-
-    for parameter in signature.parameters.values():
-        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
-            return True
-
-    return argument in signature.parameters
-
-
 async def _invoke_chat(
     runtime: Any,
     message: str,
@@ -311,10 +292,19 @@ async def _invoke_chat(
     forward_stream_option: bool = False,
     runtime_context_overrides: Optional[Mapping[str, Any]] = None,
     run_context: Optional[Mapping[str, Any]] = None,
+    caller_run_context: Optional[Any] = None,
 ) -> Any:
     """Invoke the runtime chat entrypoint with compatibility-aware kwargs."""
     chat_callable = runtime.chat
     kwargs = {}
+
+    # Consolidation PR 4: forward the structured CallerRunContext object to
+    # runtimes that accept it; legacy runtimes drop it silently. The legacy
+    # dict kwargs below keep forwarding for the same compatibility reason.
+    if caller_run_context is not None and _supports_keyword_argument(
+        chat_callable, "caller_run_context"
+    ):
+        kwargs["caller_run_context"] = caller_run_context
 
     if runtime_context_overrides and _supports_keyword_argument(
         chat_callable, "runtime_context_overrides"
@@ -342,6 +332,7 @@ async def execute_message(
     stream: bool = False,
     forward_stream_option: bool = False,
     runtime_context_overrides: Optional[Mapping[str, Any]] = None,
+    caller_run_context: Optional[Any] = None,
 ) -> TaskResult:
     """Execute a single message turn via the canonical service-backed runtime.
 
@@ -367,6 +358,7 @@ async def execute_message(
                 forward_stream_option=forward_stream_option,
                 runtime_context_overrides=runtime_context_overrides,
                 run_context=context,
+                caller_run_context=caller_run_context,
             ),
             default_model=getattr(orchestrator, "model", "unknown"),
         )
@@ -410,6 +402,8 @@ async def stream_message_events(
     execution_context: Any = None,
     user_message: str,
     context: Optional[Mapping[str, Any]] = None,
+    runtime_context_overrides: Optional[Mapping[str, Any]] = None,
+    caller_run_context: Optional[Any] = None,
 ) -> AsyncIterator[Any]:
     """Yield framework stream events for a single message turn.
 
@@ -418,6 +412,11 @@ async def stream_message_events(
     ``record_pause_from_approval_async``) and an ``AWAITING_APPROVAL`` event carrying the resume ``run_id`` +
     ``approval_request`` is yielded before the stream ends, so streaming callers (TUI, SSE) can render
     a paused lane and resume. Disarmed, this is byte-identical to before.
+
+    FEP-0043 streaming parity: ``context`` is forwarded as the structured
+    ``run_context`` (buffered ``execute_message`` contract) and
+    ``runtime_context_overrides`` as the scoped runtime hints; both reach the
+    chat-stream seam only when the runtime accepts them.
     """
     from victor.framework._internal import stream_with_events
     from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
@@ -433,6 +432,9 @@ async def stream_message_events(
             chat_runtime,
             prepared.runtime_message,
             response_prompt=prepared.response_message,
+            runtime_context_overrides=runtime_context_overrides,
+            run_context=context,
+            caller_run_context=caller_run_context,
         ):
             yield event
     except ApprovalPause as pause:
@@ -446,16 +448,42 @@ async def stream_message_events(
 async def iter_runtime_stream_events(
     runtime: Any,
     message: str,
+    *,
+    runtime_context_overrides: Optional[Mapping[str, Any]] = None,
+    run_context: Optional[Mapping[str, Any]] = None,
+    caller_run_context: Optional[Any] = None,
 ) -> AsyncIterator[Any]:
-    """Yield framework stream events from either a chat runtime or agent wrapper."""
+    """Yield framework stream events from either a chat runtime or agent wrapper.
+
+    FEP-0043 streaming parity: the caller overrides/context are forwarded when
+    the underlying runtime accepts them; legacy runtimes drop both silently
+    (signature sniffing).
+    """
     from victor.framework._internal import stream_with_events
 
     if hasattr(runtime, "stream_chat"):
-        async for event in stream_with_events(runtime, message, response_prompt=message):
+        async for event in stream_with_events(
+            runtime,
+            message,
+            response_prompt=message,
+            runtime_context_overrides=runtime_context_overrides,
+            run_context=run_context,
+            caller_run_context=caller_run_context,
+        ):
             yield event
         return
 
-    async for event in runtime.stream(message):
+    stream_callable = runtime.stream
+    forward: Dict[str, Any] = {}
+    if runtime_context_overrides and _supports_keyword_argument(
+        stream_callable, "runtime_context_overrides"
+    ):
+        forward["runtime_context_overrides"] = dict(runtime_context_overrides)
+    if caller_run_context is not None and _supports_keyword_argument(
+        stream_callable, "caller_run_context"
+    ):
+        forward["caller_run_context"] = caller_run_context
+    async for event in stream_callable(message, **forward):
         yield event
 
 

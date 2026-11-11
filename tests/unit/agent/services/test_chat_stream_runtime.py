@@ -1116,3 +1116,193 @@ async def test_service_streaming_runtime_folds_when_no_turns_anchored():
     _ = [item async for item in runtime.stream_chat("hello")]
 
     orch._conversation_controller.record_actual_usage.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_create_stream_context_carries_caller_overrides_and_run_context():
+    """FEP-0043 streaming parity: caller runtime overrides and the structured
+    run context land on StreamingChatContext; without them the context stays
+    byte-identical (empty defaults)."""
+    orch = _make_orchestrator_stub()
+    orch.settings = SimpleNamespace(
+        recovery_blocked_consecutive_threshold=7,
+        enable_topology_routing=False,
+    )
+    orch._classify_task_keywords.return_value = {}
+    orch._tool_planner = SimpleNamespace(infer_goals_from_message=lambda _: [])
+    orch.tool_budget = 200
+    orch.tool_calls_used = 0
+    orch._task_completion_detector = None
+
+    runtime = ServiceStreamingRuntime(orch)
+    runtime._prepare_stream = AsyncMock(
+        return_value=(
+            SimpleNamespace(),
+            0.0,
+            0.0,
+            {},
+            30,
+            10,
+            0,
+            False,
+            SimpleNamespace(value="default"),
+            None,
+            None,
+        )
+    )
+
+    ctx = await runtime._create_stream_context(
+        "hello",
+        runtime_context_overrides={"iteration_budget": 64, "tool_budget": 134},
+        run_context={"criteria": {"findings": 30}, "complete_on_key": "admitted"},
+    )
+
+    assert ctx.caller_runtime_context_overrides == {"iteration_budget": 64, "tool_budget": 134}
+    assert ctx.caller_run_context == {
+        "criteria": {"findings": 30},
+        "complete_on_key": "admitted",
+    }
+    # The generic overrides surface seeds from the caller keys so downstream
+    # consumers (and the topology merge) see them before derivation.
+    assert ctx.runtime_context_overrides == {"iteration_budget": 64, "tool_budget": 134}
+
+    plain_ctx = await runtime._create_stream_context("hello")
+    assert plain_ctx.caller_runtime_context_overrides == {}
+    assert plain_ctx.caller_run_context == {}
+    assert plain_ctx.runtime_context_overrides == {}
+
+
+@pytest.mark.asyncio
+async def test_topology_merge_preserves_caller_bound_keys_and_adds_derived(
+    monkeypatch,
+):
+    """Topology overrides merge ONTO the caller's overrides (caller keys win
+    for the caller-bound budget keys, same precedence as the buffered bind);
+    derived keys the caller did not declare still merge in."""
+    orch = _make_orchestrator_stub()
+    orch.settings = SimpleNamespace(
+        recovery_blocked_consecutive_threshold=7,
+        enable_topology_routing=True,
+    )
+    orch._classify_task_keywords.return_value = {
+        "coarse_task_type": "analysis",
+        "is_analysis_task": True,
+    }
+    orch._tool_planner = SimpleNamespace(infer_goals_from_message=lambda _: ["inspect"])
+    orch.tool_budget = 200
+    orch.tool_calls_used = 0
+    orch._task_completion_detector = None
+    orch.messages = []
+    orch.model = "test-model"
+    orch.provider = SimpleNamespace()
+    orch.task_coordinator = SimpleNamespace(tool_budget=200)
+    orch._runtime_intelligence = SimpleNamespace(
+        get_structured_routing_policy=MagicMock(return_value=None)
+    )
+    orch._tool_service = SimpleNamespace(
+        get_tool_budget=lambda: 200,
+        set_tool_budget=MagicMock(),
+    )
+    orch._tool_pipeline = SimpleNamespace(config=SimpleNamespace(tool_budget=200))
+
+    runtime = ServiceStreamingRuntime(orch)
+    runtime._prepare_stream = AsyncMock(
+        return_value=(
+            SimpleNamespace(),
+            0.0,
+            0.0,
+            {},
+            30,
+            10,
+            0,
+            False,
+            SimpleNamespace(value="analysis"),
+            SimpleNamespace(complexity=TaskComplexity.COMPLEX, task_type="design"),
+            6,
+        )
+    )
+    runtime._get_stream_topology_provider_hints = AsyncMock(return_value={})
+    runtime._paradigm_router = SimpleNamespace(
+        build_topology_input=MagicMock(
+            return_value=TopologyDecisionInput(
+                query="hello",
+                task_type="design",
+                task_complexity="high",
+                tool_budget=6,
+                iteration_budget=3,
+                available_team_formations=["parallel", "hierarchical"],
+            )
+        )
+    )
+    runtime._topology_selector = SimpleNamespace(
+        select=MagicMock(
+            return_value=TopologyDecision(
+                action=TopologyAction.TEAM_PLAN,
+                topology=TopologyKind.TEAM,
+                confidence=0.8,
+                rationale="Deep task favors a team plan.",
+                grounding_requirements=TopologyGroundingRequirements(
+                    provider="smart-router",
+                    formation="parallel",
+                    max_workers=3,
+                    tool_budget=4,
+                    iteration_budget=2,
+                ),
+                provider="smart-router",
+                formation="parallel",
+            )
+        )
+    )
+    runtime._topology_grounder = SimpleNamespace(
+        ground=MagicMock(
+            return_value=GroundedTopologyPlan(
+                action=TopologyAction.TEAM_PLAN,
+                topology=TopologyKind.TEAM,
+                execution_mode="team_execution",
+                provider="smart-router",
+                formation="parallel",
+                max_workers=3,
+                tool_budget=4,
+                iteration_budget=2,
+            )
+        )
+    )
+
+    helpers_module = importlib.import_module("victor.agent.services.chat_stream_helpers")
+    emit_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(helpers_module, "emit_topology_telemetry_event", emit_mock)
+
+    caller_overrides = {
+        "tool_budget": 134,
+        "iteration_budget": 64,
+        "caller_marker": "keep-me",
+    }
+    with patch(
+        "victor.framework.topology_runtime.resolve_configured_team",
+        return_value=ResolvedTeamExecutionPlan(
+            team_name="feature_team",
+            display_name="Feature Team",
+            formation=TeamFormation.PARALLEL,
+            member_count=2,
+            total_tool_budget=4,
+            max_iterations=20,
+            max_workers=3,
+        ),
+    ):
+        ctx = await runtime._create_stream_context(
+            "hello", runtime_context_overrides=caller_overrides
+        )
+
+    merged = ctx.runtime_context_overrides
+    # Caller-bound budget keys survive the derived echo (134 does not collapse
+    # to the topology-derived 4).
+    assert merged["tool_budget"] == 134
+    assert merged["iteration_budget"] == 64
+    # Caller keys the derivation does not know about are preserved.
+    assert merged["caller_marker"] == "keep-me"
+    # Derived keys the caller did not declare still merge in.
+    assert merged["formation_hint"] == "parallel"
+    assert merged["team_name"] == "feature_team"
+    # The caller's original declaration stays intact for audit/funding reads.
+    assert ctx.caller_runtime_context_overrides == caller_overrides
+    emit_mock.assert_awaited_once()

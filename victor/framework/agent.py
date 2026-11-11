@@ -42,6 +42,7 @@ from victor.agent.config import (
     FrameworkCompatibleAgentConfig,
     normalize_agent_config,
 )
+from victor.core.caller_run_context import CallerRunContext
 from victor.core.errors import AgentError, ProviderError
 from victor.framework.events import AgentExecutionEvent
 from victor.framework.message_execution import execute_message, stream_message_events
@@ -638,6 +639,17 @@ class Agent:
         }
         if runtime_context_overrides is not None:
             execution_kwargs["runtime_context_overrides"] = runtime_context_overrides
+        if runtime_context_overrides is not None or context is not None:
+            # Consolidation PR 4: one structured CallerRunContext built here
+            # carries the caller's funding/completion declarations to the
+            # loop build sites; the raw kwargs keep flowing for legacy
+            # runtimes (signature sniffing drops the object there). Context-less
+            # runs forward nothing new (byte-identical kwargs).
+            execution_kwargs["caller_run_context"] = CallerRunContext.from_overrides_and_context(
+                runtime_context_overrides,
+                context,
+                getattr(self._orchestrator, "settings", None),
+            )
 
         return await execute_message(**execution_kwargs)
 
@@ -646,6 +658,7 @@ class Agent:
         prompt: str,
         *,
         context: Optional[Dict[str, Any]] = None,
+        runtime_context_overrides: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[AgentExecutionEvent]:
         """Stream events as the agent processes a task.
 
@@ -654,7 +667,12 @@ class Agent:
 
         Args:
             prompt: What the agent should do
-            context: Optional context dict
+            context: Optional context dict (files, variables, declared
+                completion criteria); forwarded as the structured run context
+                exactly like buffered ``run()`` (FEP-0043)
+            runtime_context_overrides: Optional scoped runtime hints for this
+                turn (funding, prompt overlays); forwarded to the streaming
+                runtime when it accepts them (FEP-0043 streaming parity)
 
         Yields:
             AgentExecutionEvent objects representing agent actions
@@ -673,11 +691,23 @@ class Agent:
         # Track state for observers
         old_stage = self._state.stage
 
+        stream_kwargs: Dict[str, Any] = {}
+        if runtime_context_overrides is not None:
+            stream_kwargs["runtime_context_overrides"] = runtime_context_overrides
+        if runtime_context_overrides is not None or context is not None:
+            # Consolidation PR 4: same single structured construction as run().
+            stream_kwargs["caller_run_context"] = CallerRunContext.from_overrides_and_context(
+                runtime_context_overrides,
+                context,
+                getattr(self._orchestrator, "settings", None),
+            )
+
         async for event in stream_message_events(
             orchestrator=self._orchestrator,
             execution_context=self.execution_context,
             user_message=prompt,
             context=context,
+            **stream_kwargs,
         ):
             old_stage = self._notify_state_observers_if_changed(old_stage)
             yield event
