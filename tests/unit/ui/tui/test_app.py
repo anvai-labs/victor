@@ -388,6 +388,47 @@ async def test_ready_enables_submit_and_uses_bootstrapped_agent() -> None:
         assert app._agent is not None  # agent adopted from the bootstrap result
 
 
+async def test_bootstrap_rebinds_agent_into_slash_handler() -> None:
+    # The handler is constructed during on_mount against the then-None agent
+    # (shell-first bootstrap). Without a rebind, every agent-requiring slash
+    # command reports "requires an active session" forever (audit B1).
+    boot = FakeBootstrap()
+    app = VictorTUIApp(client=FakeClient(), agent=None, settings=None, bootstrap=boot)
+    async with app.run_test() as pilot:
+        assert app._slash is not None  # type: ignore[attr-defined]
+        assert app._slash.agent is None  # type: ignore[attr-defined]
+        boot.release.set()
+        await _settle(app)
+        assert app._slash.agent is app._agent  # type: ignore[attr-defined]
+
+
+async def test_slash_command_requires_session_before_bootstrap_completes() -> None:
+    # Negative control for the rebind: pre-bootstrap, agent-bound commands
+    # must degrade to the "requires an active session" message, not crash.
+    boot = FakeBootstrap()
+    app = VictorTUIApp(client=FakeClient(), agent=None, settings=None, bootstrap=boot)
+    async with app.run_test() as pilot:
+        await app._dispatch_slash("/model")  # type: ignore[attr-defined]
+        await pilot.pause()
+        convo = app.query_one("#conversation")
+        text = "\n".join(line.text for line in convo.lines)  # type: ignore[attr-defined]
+        assert "requires an active session" in text
+
+
+async def test_dispatch_slash_tolerates_bare_separator_input() -> None:
+    # "/ " passed len(text) > 1 but split() is [] -> IndexError killed the
+    # slash worker silently (audit B2). It must dispatch as a no-op instead.
+    app = _make_app()
+    async with app.run_test() as pilot:
+        # Before the fix this raised IndexError out of the worker.
+        await app._dispatch_slash("/ ")  # type: ignore[attr-defined]
+        await app._dispatch_slash("/")  # type: ignore[attr-defined]
+        await pilot.pause()
+        convo = app.query_one("#conversation")
+        text = "\n".join(line.text for line in convo.lines)  # type: ignore[attr-defined]
+        assert "requires an active session" not in text
+
+
 async def test_bootstrap_failure_shows_error_and_exits() -> None:
     boot = FakeBootstrap(fail_with=RuntimeError("provider api key missing"))
     app = VictorTUIApp(client=FakeClient(), agent=None, settings=None, bootstrap=boot)
