@@ -459,3 +459,82 @@ async def test_sidebar_uses_current_context_and_never_cumulative_usage():
     # Aggregate turn cost is not a valid estimate of the current request.
     client.get_session_metrics.return_value = {}
     assert await app._compute_context_usage() == (None, 10000, None)
+
+
+# ── cancellation hygiene: modal + generator lifecycle (audit B6 + B8) ──
+
+
+class ApprovalBlockingClient(FakeClient):
+    """Stream that asks for approval and never yields content on its own."""
+
+    async def stream(self, message: str) -> AsyncIterator[FakeEvent]:
+        request = ApprovalRequest(
+            id="blocked-1",
+            title="run_command",
+            description="",
+            context={"tool_name": "run_command"},
+            timeout_seconds=30,
+        )
+        assert self.approval_handler is not None
+        await self.approval_handler(request)
+        yield FakeEvent("content", content="never reached")
+
+
+async def test_interrupt_dismisses_pending_approval_modal() -> None:
+    # ESC during a turn blocked on the approval modal: the worker is cancelled,
+    # the modal's awaiting handler gets CancelledError, and the modal must pop
+    # immediately — not keep stealing keys until its own timeout (audit B6).
+    app = VictorTUIApp(client=ApprovalBlockingClient(), agent=FakeAgent(), settings=None)
+    async with app.run_test() as pilot:
+        await _submit(pilot, app, "do a thing")
+        deadline = asyncio.get_running_loop().time() + 5
+        from victor.ui.tui.approval_modal import ApprovalScreen as AS
+
+        while not isinstance(app.screen, AS):
+            await pilot.pause()
+            assert asyncio.get_running_loop().time() < deadline, "modal never appeared"
+        app.action_interrupt()
+        try:  # the turn worker is intentionally cancelled
+            await app.workers.wait_for_complete()
+        except Exception:  # noqa: BLE001 - WorkerCancelled is the expected path
+            pass
+        await pilot.pause()
+        assert not isinstance(app.screen, AS)
+        convo = app.query_one("#conversation")
+        text = "\n".join(line.text for line in convo.lines)  # type: ignore[attr-defined]
+        assert "⏹ interrupted" in text
+
+
+class ClosingAwareClient(FakeClient):
+    """Records when its stream generator is closed (aclosing verification)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    async def stream(self, message: str) -> AsyncIterator[FakeEvent]:
+        try:
+            yield FakeEvent("content", content="partial ")
+            yield FakeEvent("content", content="output")
+        except GeneratorExit:
+            self.closed = True
+            raise
+
+
+async def test_early_exit_closes_the_stream_generator() -> None:
+    # aclosing parity with the Chainlit surface: an interrupt (or any early
+    # exit from the turn loop) must close the generator chain deterministically
+    # instead of waiting for GC finalization.
+    from contextlib import aclosing
+
+    client = ClosingAwareClient()
+    app = _make_app(client)
+    async with app.run_test() as pilot:
+        async with aclosing(app._stream_actions("hello")) as actions:
+            count = 0
+            async for _action in actions:
+                count += 1
+                if count == 1:
+                    break  # early exit mid-stream
+        await pilot.pause()
+        assert client.closed
