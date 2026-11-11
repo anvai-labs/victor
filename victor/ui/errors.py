@@ -201,4 +201,3 @@ def exit_with_error(
     """
     print_error(message, details=details)
     sys.exit(code)
-

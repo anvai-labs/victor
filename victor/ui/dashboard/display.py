@@ -44,6 +44,7 @@ from victor.ui.dashboard.data import (
 
 from victor.ui.console import get_console
 
+
 class MetricsDashboard:
     """Terminal-based metrics dashboard.
 
