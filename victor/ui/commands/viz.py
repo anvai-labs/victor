@@ -22,13 +22,14 @@ from pathlib import Path
 import typer
 
 from victor.core.async_utils import run_sync
+from victor.ui.console import get_console
 
 viz_app = typer.Typer(name="viz", help="Interactive code-graph visualization (ADR-033).")
 
 try:
     from rich.console import Console
 
-    console = Console()
+    console = get_console()
 except ImportError:  # pragma: no cover - rich is a hard dep; defensive only
     console = None
 

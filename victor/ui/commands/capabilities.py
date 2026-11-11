@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
+from victor.ui.console import get_console
 
 from victor.ui.json_utils import create_json_option, print_json_data
 
@@ -30,7 +31,7 @@ capabilities_app = typer.Typer(
     help="Discover Victor's capabilities: tools, verticals, personas, teams, and more.",
 )
 
-console = Console()
+console = get_console()
 
 
 @dataclass

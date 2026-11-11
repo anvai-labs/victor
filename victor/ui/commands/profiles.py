@@ -30,6 +30,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.syntax import Syntax
+from victor.ui.console import get_console
 import yaml
 
 from victor.config.profiles import (
@@ -45,7 +46,7 @@ from victor.config.profiles import (
 from victor.config.settings import get_project_paths
 
 profiles_app = typer.Typer(name="profiles", help="Manage configuration profiles.")
-console = Console()
+console = get_console()
 
 
 # =============================================================================

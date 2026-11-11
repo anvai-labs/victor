@@ -3,13 +3,14 @@ import os
 import time
 
 from rich.console import Console
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.config.settings import load_settings
 from victor.ui.commands.utils import preload_semantic_index
 
 index_app = typer.Typer(name="index", help="Build semantic code search index for the codebase.")
-console = Console()
+console = get_console()
 
 
 async def _build_index_async(cwd: str, settings, force: bool) -> bool:

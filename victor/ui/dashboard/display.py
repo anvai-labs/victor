@@ -42,6 +42,8 @@ from victor.ui.dashboard.data import (
 )
 
 
+from victor.ui.console import get_console
+
 class MetricsDashboard:
     """Terminal-based metrics dashboard.
 
@@ -79,7 +81,7 @@ class MetricsDashboard:
             )
 
         self._provider = provider or get_dashboard_provider()
-        self._console = console or Console()
+        self._console = console or get_console()
 
     def run(
         self,

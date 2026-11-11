@@ -33,8 +33,10 @@ from typing import Optional
 from rich.console import Console
 from rich.markup import escape
 
-# Global console instance for output
-_default_console = Console()
+# Global console instance for output (the shared themed seam — victor/ui/console.py)
+from victor.ui.console import get_console
+
+_default_console = get_console()
 
 
 def format_error(
@@ -200,6 +202,3 @@ def exit_with_error(
     print_error(message, details=details)
     sys.exit(code)
 
-
-# Internal default console
-_default_console = Console()

@@ -20,6 +20,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.core.verticals.registry_manager import (
     PackageSpec,
@@ -33,7 +34,7 @@ vertical_app = typer.Typer(
     help="Manage verticals (DEPRECATED: use 'victor plugin' instead)",
     deprecated=True,
 )
-console = Console()
+console = get_console()
 
 _DEPRECATION_MSG = (
     "[yellow]Warning:[/] 'victor vertical' is deprecated and will be removed in v0.8.0. "

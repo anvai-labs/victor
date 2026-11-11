@@ -38,9 +38,10 @@ from typing import Any, Callable, Optional, TypeVar
 
 import typer
 from rich.console import Console
+from victor.ui.console import get_console
 
 # Default console for JSON output
-_default_console = Console()
+_default_console = get_console()
 
 
 def create_json_option(

@@ -25,12 +25,13 @@ import typer
 from rich.console import Console
 from rich.syntax import Syntax
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.agent.conversation.store import ConversationStore
 from victor.ui.json_utils import create_json_option, print_json_data
 
 sessions_app = typer.Typer(name="session", help="Manage conversation sessions.")
-console = Console()
+console = get_console()
 
 
 def _get_session_backend() -> ConversationStore:

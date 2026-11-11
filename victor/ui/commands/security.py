@@ -3,6 +3,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Confirm
+from victor.ui.console import get_console
 from pathlib import Path
 import os
 from typing import Optional
@@ -24,7 +25,7 @@ from victor.config.secure_paths import (
 from victor.config.api_keys import is_keyring_available, get_configured_providers
 
 security_app = typer.Typer(name="security", help="Security status and plugin trust management.")
-console = Console()
+console = get_console()
 
 
 @security_app.callback(invoke_without_command=True)

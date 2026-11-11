@@ -69,6 +69,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.config.settings import get_project_paths
 
@@ -77,7 +78,7 @@ scheduler_app = typer.Typer(
     help="Manage the workflow scheduler service.",
 )
 
-console = Console()
+console = get_console()
 
 
 def _get_default_pid_file() -> Path:

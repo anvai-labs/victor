@@ -40,6 +40,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.json import JSON
+from victor.ui.console import get_console
 
 from victor.experiments import (
     ExperimentTracker,
@@ -58,7 +59,7 @@ experiment_app = typer.Typer(
     name="experiment",
     help="Manage experiments for tracking workflow runs.",
 )
-console = Console()
+console = get_console()
 
 
 def _format_timestamp(ts: Optional[str]) -> str:
