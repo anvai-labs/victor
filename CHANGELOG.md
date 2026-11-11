@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-11-10
+
+Maintenance release: a single hotfix on top of 0.27.0.
+
+### Fixed
+
+- **embeddings**: bare installs (`pip install victor-ai` with no extras, and
+  the Homebrew formula) could not create an agent — every `victor chat` failed
+  with `No module named 'numpy'`. Agent creation builds the IntentClassifier,
+  whose `StaticEmbeddingCollection` imported numpy at construction; numpy is
+  now imported on first vector math, and the cache loader guards itself. The
+  background skill-matcher initialization outcome is consumed, so a bare
+  install no longer logs asyncio "Task exception was never retrieved"
+  (#1738).
+
+### CI
+
+- **release**: the bare-install smoke now proves agent creation without numpy
+  (`Agent.create`), and both smoke heredocs run with `python -I` so the
+  installed wheel, not the checkout, is exercised (#1738).
+
 ## [0.27.0] - 2026-11-10
 
 ### Added
