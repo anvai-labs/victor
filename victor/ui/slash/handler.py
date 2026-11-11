@@ -24,6 +24,7 @@ This module provides the main SlashCommandHandler class that:
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
@@ -110,6 +111,24 @@ class SlashCommandHandler:
     def registry(self) -> CommandRegistry:
         """Access the command registry."""
         return self._registry
+
+    async def execute_captured(self, text: str) -> str:
+        """Execute a command against a fresh capture console; return its output.
+
+        Per-invocation buffers replace the shared seek/truncate StringIO: two
+        overlapping dispatches could truncate the shared buffer mid-render and
+        bleed one command's output into the other (audit B9). Callers that
+        dispatch concurrently must serialize (the TUI holds an asyncio lock) so
+        the temporary console swap below cannot race.
+        """
+        buffer = io.StringIO()
+        outer_console = self.console
+        self.console = Console(file=buffer, force_terminal=False, width=100)
+        try:
+            await self.execute(text)
+        finally:
+            self.console = outer_console
+        return buffer.getvalue().strip()
 
     def is_command(self, text: str) -> bool:
         """Check if text is a slash command."""
