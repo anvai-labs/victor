@@ -145,10 +145,17 @@ class VictorTUIApp(App[None]):
         # Last-turn cost figures for the footer.
         self._last_tokens: Optional[int] = None
         self._last_cost: Optional[float] = None
+        # Canonical last-turn report (full cache/hit-rate fidelity for the bar)
+        # and the session cost accumulator — updated once per turn in
+        # _apply_last_turn_cost, never per stream event.
+        self._last_report: Optional[dict] = None
+        self._session_cost_usd: float = 0.0
 
         # Detailed token usage tracking.
         self._token_usage = TokenUsage()
         self._context_pct: Optional[float] = None
+        self._context_used_tokens: Optional[int] = None
+        self._context_limit_tokens: Optional[int] = None
 
         # A capturing console so shared slash commands can render into the log.
         self._capture_buffer = io.StringIO()
@@ -537,9 +544,12 @@ class VictorTUIApp(App[None]):
             )
         self._last_tokens = int(tokens) if tokens else None
 
-        # Extract cost
+        # Extract cost. Accumulation lives HERE (once per turn) — never in the
+        # usage bar, which refreshes on every stream event.
         cost = report.get("total_cost_usd")
         self._last_cost = float(cost) if isinstance(cost, (int, float)) else None
+        if self._last_cost is not None:
+            self._session_cost_usd += self._last_cost
 
         # Keep the canonical report so the usage bar can render full fidelity
         # (cache read/write, hit rate, request count, reasoning split).
@@ -599,19 +609,17 @@ class VictorTUIApp(App[None]):
             bar = self.query_one("#token-usage-bar", TokenUsageBar)
         except Exception:  # noqa: BLE001
             return
-        report = getattr(self, "_last_report", None) or {}
+        report = self._last_report or {}
         context_used: Optional[int] = None
         context_limit: Optional[int] = None
         try:
             window = self._client.context_window()
             if window and window > 0:
                 context_limit = int(window)
-                cached_limit = getattr(self, "_context_limit_tokens", None)
-                if isinstance(cached_limit, int) and cached_limit > 0:
-                    context_limit = cached_limit
-                metrics = getattr(self, "_context_used_tokens", None)
-                if isinstance(metrics, int) and metrics >= 0:
-                    context_used = metrics
+                if isinstance(self._context_limit_tokens, int) and self._context_limit_tokens > 0:
+                    context_limit = self._context_limit_tokens
+                if isinstance(self._context_used_tokens, int) and self._context_used_tokens >= 0:
+                    context_used = self._context_used_tokens
         except Exception:  # noqa: BLE001
             context_limit = None
         bar.set_usage(
@@ -629,7 +637,11 @@ class VictorTUIApp(App[None]):
             cache_hit_rate=report.get("cache_hit_rate"),
             total_tokens=self._last_tokens,
             cost_usd=self._last_cost,
-            session_cost_usd=report.get("session_cost_usd"),
+            # Authoritative session figure wins; fall back to the once-per-turn
+            # accumulator so pre-session_cost_usd transports still show a total.
+            session_cost_usd=(
+                report.get("session_cost_usd") or (round(self._session_cost_usd, 6) or None)
+            ),
             model=self._model_label(),
         )
 

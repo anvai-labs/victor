@@ -1176,6 +1176,9 @@ class ConversationStore:
         Returns token usage, cost estimates, cache hit rate, and reasoning
         token usage from the sessions table.
 
+        ``cache_hit_rate`` is a fraction in 0..1 (the canonical scale shared
+        with the metrics service and the presenters), NOT a percentage.
+
         Args:
             session_id: Session to query
 
@@ -1206,7 +1209,9 @@ class ConversationStore:
                 cost_usd_micros = row["cost_usd_micros"] or 0
 
                 total_tokens = prompt_tokens + completion_tokens
-                cache_hit_rate = (cached_tokens / prompt_tokens * 100) if prompt_tokens > 0 else 0.0
+                # Fraction 0..1 — same scale as metrics_service producers and
+                # the `{:.0%}` / `* 100` consumers; never a percentage here.
+                cache_hit_rate = (cached_tokens / prompt_tokens) if prompt_tokens > 0 else 0.0
 
                 return {
                     "prompt_tokens": prompt_tokens,
@@ -1281,7 +1286,7 @@ class ConversationStore:
                     "total_cost_usd_micros": row["total_cost_usd_micros"] or 0,
                     "total_cost_usd": (row["total_cost_usd_micros"] or 0) / 1_000_000,
                     "cache_hit_rate": (
-                        round(total_cached / total_prompt * 100, 2) if total_prompt > 0 else 0.0
+                        round(total_cached / total_prompt, 4) if total_prompt > 0 else 0.0
                     ),
                 }
         except Exception as e:
