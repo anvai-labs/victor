@@ -32,9 +32,12 @@ class StatusCommand(BaseSlashCommand):
     @property
     def metadata(self) -> CommandMetadata:
         return CommandMetadata(
-            name="status",
+            # Renamed from /status: the session-status command (system.py)
+            # was winning the alphabetical-discovery collision, dead-commanding
+            # this one while help still advertised it (audit B3).
+            name="plan-status",
             description="Show plan execution status",
-            usage="/status",
+            usage="/plan-status",
             category="planning",
             requires_agent=True,
         )
@@ -152,4 +155,6 @@ class StatusCommand(BaseSlashCommand):
 
             if len(blocked_steps) > 3:
                 ctx.console.print(f"  ... and [dim]{len(blocked_steps) - 3}[/] more blocked steps")
-            ctx.console.print("\n[dim]Blocked steps require approval. Use /resume to resume.[/]")
+            ctx.console.print(
+                "\n[dim]Blocked steps require approval. Use /plan-resume to resume.[/]"
+            )

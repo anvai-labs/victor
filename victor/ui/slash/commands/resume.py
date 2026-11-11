@@ -18,11 +18,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from rich.panel import Panel
 
-from victor.agent.planning.base import ExecutionPlan, StepStatus
 from victor.ui.slash.protocol import BaseSlashCommand, CommandContext, CommandMetadata
+
+if TYPE_CHECKING:
+    # Runtime imports are lazy inside the methods (module-import weight).
+    from victor.agent.planning.base import ExecutionPlan, StepStatus
 from victor.ui.slash.registry import register_command
 
 logger = logging.getLogger(__name__)
@@ -35,9 +39,12 @@ class ResumeCommand(BaseSlashCommand):
     @property
     def metadata(self) -> CommandMetadata:
         return CommandMetadata(
-            name="resume",
+            # Renamed from /resume: the session-resume command (session.py)
+            # was winning the alphabetical-discovery collision, dead-commanding
+            # this one (audit B3).
+            name="plan-resume",
             description="Resume executing the current plan",
-            usage="/resume [step_number]",
+            usage="/plan-resume [step_number]",
             category="planning",
             requires_agent=True,
         )
@@ -51,6 +58,8 @@ class ResumeCommand(BaseSlashCommand):
         if not conversation_controller:
             ctx.console.print("[yellow]No conversation controller available.[/]")
             return
+
+        from victor.agent.planning.base import ExecutionPlan, StepStatus
 
         current_plan: ExecutionPlan = getattr(conversation_controller, "current_plan", None)
         if not current_plan:
@@ -106,6 +115,8 @@ class ResumeCommand(BaseSlashCommand):
         start_from: int | None = None,
     ):
         """Execute plan asynchronously."""
+        from victor.agent.planning.base import StepStatus
+
         try:
             # Get autonomous planner from agent
             orchestrator = getattr(ctx.agent, "orchestrator", None) or ctx.agent
@@ -166,8 +177,10 @@ class ResumeCommand(BaseSlashCommand):
             logger.error(f"Plan execution failed: {e}", exc_info=True)
             ctx.console.print(f"[red]Plan execution failed:[/] {e}")
 
-    def _on_progress(self, ctx: CommandContext, step, status: StepStatus):
+    def _on_progress(self, ctx: CommandContext, step, status: "StepStatus"):
         """Progress callback for plan execution."""
+        from victor.agent.planning.base import StepStatus
+
         if status == StepStatus.IN_PROGRESS:
             ctx.console.print(f"[dim]→ Executing:[/] {step.description[:60]}...")
         elif status == StepStatus.COMPLETED:
