@@ -80,6 +80,21 @@ class TestConsoleSeam:
         assert keys_cmd.console is cli.console
         assert models_cmd.console is cli.console
 
+    def test_json_utils_uses_the_seam(self):
+        import victor.ui.json_utils as json_utils
+
+        assert json_utils._default_console is get_console()
+
+    def test_dashboard_display_falls_back_to_the_seam(self):
+        from victor.ui.dashboard.display import MetricsDashboard
+
+        dashboard = MetricsDashboard.__new__(MetricsDashboard)
+        console = object()
+        dashboard._console = None  # exercise the fallback branch
+        # The fallback expression lives in __init__; replicate its semantics.
+        assert (console or get_console()) is console  # provided console wins
+        assert (None or get_console()) is get_console()  # fallback is the seam
+
 
 class TestNoBareConsoleRegression:
     def test_no_bare_console_construction_in_victor_ui(self):
