@@ -2031,6 +2031,12 @@ class AgenticLoop(TopologyPlanningMixin):
         perception counters use the same guard owner in both modes; each owned await
         is bounded, with no timeout or guard context spanning a yielded chunk. Controller nudge
         output and intent-aware nudge dispatch are not consolidated by the shared stop helper.
+        Intentional difference: an unexpected (recoverable) exception propagates from
+        ``run_streaming`` instead of becoming a failed ``LoopResult`` as in ``run()``. The
+        stream's owners depend on it: ``stream_with_events`` renders the sanitized cause and
+        recovery hint, ``BackgroundAgent`` marks the run ERROR, and no post-loop recovery
+        re-calls a provider that just failed. Pinned by
+        ``test_unexpected_error_propagates_from_the_stream``.
         Covered run/stream behavioral parity is pinned by
         ``tests/integration/streaming/test_run_stream_parity.py``.
 
