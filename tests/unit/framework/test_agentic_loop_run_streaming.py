@@ -1061,3 +1061,33 @@ def test_post_loop_recovery_kind_table(allowed, success, response, evidence, exp
         )
         == expected
     )
+
+
+# --- intentional run()/run_streaming() difference: unexpected errors fail fast ---
+
+
+async def test_unexpected_error_propagates_from_the_stream():
+    """A recoverable exception escapes run_streaming (run() returns a failed LoopResult).
+
+    Deliberate: stream_with_events renders the sanitized cause + recovery hint,
+    BackgroundAgent marks the run ERROR on the raise, and no post-loop recovery
+    re-calls a provider that just failed. Converting it (buffered parity) was
+    reviewed and rejected; see the run_streaming docstring.
+    """
+    from victor.core.errors import ProviderConnectionError
+
+    class _Port:
+        async def stream_turn_act(self, *, turn_index, outcome, **kwargs):
+            if turn_index == 2:
+                raise ProviderConnectionError("connection refused")
+            yield StreamChunk(content="")
+            outcome.turn_result = _tool_turn()
+
+    loop = _loop(_Port(), evaluations=[_CONTINUE], turn_executor=_RuleExecutor())
+    seen = []
+    with pytest.raises(ProviderConnectionError, match="connection refused"):
+        async for chunk in loop.run_streaming("q"):
+            seen.append(chunk)
+
+    # No terminal verdict chunk and no recovery request are fabricated on the way out.
+    assert not any(c.is_final for c in seen)
