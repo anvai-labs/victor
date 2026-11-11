@@ -12,14 +12,14 @@ Capabilities (all in-process, so no external attach is required):
 * ``SIGUSR1`` → dump every thread's Python stack to stderr on demand. Diagnose a
   hang with ``kill -USR1 <pid>``; the stacks print straight to the session's
   terminal, pinpointing the exact frame the process is stuck in.
-* ``VICTOR_FAULTHANDLER_TIMEOUT=<seconds>`` (optional) — also auto-dump if the
-  main thread is unresponsive for that long, repeating, to catch hangs with no
-  manual signalling.
+* ``VICTOR_FAULTHANDLER_TIMEOUT=<seconds>`` (optional) — also auto-dump at that
+  interval, repeating, to catch hangs with no manual signalling. This is a
+  wall-clock timer; it also fires during healthy idle sessions.
 
 Gated by ``VICTOR_FAULTHANDLER`` (default ``"1"``; set to ``"0"`` to disable).
-Registering a handler for ``SIGUSR1`` is strictly an improvement: the default
-disposition of ``SIGUSR1`` is to *terminate* the process, so turning it into a
-stack dump never removes existing behaviour.
+The ``SIGUSR1`` dump does not chain to the previous handler: the default
+disposition terminates the process, which would destroy the session being
+diagnosed immediately after printing its first dump.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def install_fault_diagnostics(stream: Optional[TextIO] = None) -> bool:
     sigusr1 = getattr(signal, "SIGUSR1", None)
     if sigusr1 is not None:
         try:
-            faulthandler.register(sigusr1, file=out, all_threads=True, chain=True)
+            faulthandler.register(sigusr1, file=out, all_threads=True, chain=False)
             installed_any = True
         except (RuntimeError, ValueError, OSError):
             pass
