@@ -1800,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "victor_native"
-version = "0.27.0"
+version = "0.27.1"
 dependencies = [
  "ahash",
  "aho-corasick",
