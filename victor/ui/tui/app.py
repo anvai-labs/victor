@@ -217,6 +217,11 @@ class VictorTUIApp(App[None]):
         self._bootstrap_result = result
         if result is not None:
             self._agent = result
+            # The handler was built during on_mount against the then-None
+            # agent (shell-first bootstrap); rebind it or every agent-bound
+            # slash command reports "requires an active session" forever.
+            if self._slash is not None:
+                self._slash.set_agent(result)
         self._session_ready = True
         self.query_one("#conversation", ConversationLog).write(
             f"[green]✓ ready in {time.monotonic() - started:.1f}s[/]"
@@ -366,7 +371,8 @@ class VictorTUIApp(App[None]):
     # ── slash commands ────────────────────────────────────────────
 
     async def _dispatch_slash(self, text: str) -> None:
-        name = text[1:].split()[0].lower() if len(text) > 1 else ""
+        parts = text[1:].split()
+        name = parts[0].lower() if parts else ""
         if name in ("help", "?", "commands"):
             self.push_screen(HelpScreen())
             return
