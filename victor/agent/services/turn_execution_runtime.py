@@ -722,8 +722,15 @@ class TurnExecutor:
             # violation for validating provider wrappers and flushes the
             # KV-cached tool prefix. Enforcement stays at execution, where
             # exhausted calls are skipped with a recorded, visible reason.
+            # Sticky offer: a Q&A turn whose history already carries tool calls
+            # still goes through selection (same rule as the streaming ACT).
+            from victor.agent.services.tool_selection_runtime import history_has_tool_calls
+
+            needs_offer = not is_qa_task or history_has_tool_calls(
+                getattr(self._chat_context, "messages", None)
+            )
             tools = None
-            if not is_qa_task and self._provider_context.provider.supports_tools():
+            if needs_offer and self._provider_context.provider.supports_tools():
                 tools = await self._select_tools_for_turn(user_message, intent=intent)
 
             # Prepare thinking parameter
@@ -882,7 +889,10 @@ class TurnExecutor:
                 has_tool_calls=bool(response.tool_calls),
                 tool_calls_count=len(response.tool_calls) if response.tool_calls else 0,
                 all_tools_blocked=all_blocked,
-                is_qa_response=is_qa_task and bool(response.content),
+                # A Q&A turn that also calls tools is not a final answer: its
+                # narration ("Let me check.") must not complete the loop before
+                # the tool result is answered. Same rule as the streaming ACT.
+                is_qa_response=is_qa_task and bool(response.content) and not response.tool_calls,
             )
         finally:
             self._restore_runtime_context_overrides(runtime_snapshot)

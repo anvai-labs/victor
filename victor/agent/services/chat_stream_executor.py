@@ -17,6 +17,7 @@ import logging
 from victor.core.async_utils import aclosing_if_supported
 from victor.core.caller_run_context import CallerRunContext
 from victor.agent.services.tool_selection_runtime import (
+    history_has_tool_calls,
     hydrate_demand_tools,
 )
 import re
@@ -932,7 +933,11 @@ class StreamingChatExecutor:
         # misses that first registration never reaches this session's schema.
         hydrate_demand_tools(orch, getattr(stream_ctx, "context_msg", "") or "")
 
-        if getattr(stream_ctx, "is_qa_task", False):
+        # Sticky offer: a Q&A turn whose history already carries tool calls still
+        # gets the normal supply (same rule as the buffered turn executor).
+        if getattr(stream_ctx, "is_qa_task", False) and not history_has_tool_calls(
+            getattr(orch, "messages", None)
+        ):
             tools = None
         elif orch.get_session_tools() is not None:
             tools = orch.get_session_tools()
@@ -1307,7 +1312,11 @@ class StreamingChatExecutor:
             tool_results=tool_results,
             has_tool_calls=bool(tool_calls),
             tool_calls_count=len(tool_calls) if tool_calls else 0,
-            is_qa_response=bool(getattr(stream_ctx, "is_qa_task", False)),
+            # Same rule as the buffered executor: a Q&A turn that calls tools (or
+            # says nothing) is not a final answer.
+            is_qa_response=bool(getattr(stream_ctx, "is_qa_task", False))
+            and bool(full_content)
+            and not tool_calls,
             disposition=disposition,
         )
 

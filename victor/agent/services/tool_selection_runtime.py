@@ -56,6 +56,34 @@ def _emit_tool_supply_trace(trace: ToolSupplyTrace) -> None:
         logger.debug("tool-supply trace emit failed", exc_info=True)
 
 
+def history_has_tool_calls(messages: Any) -> bool:
+    """True when the conversation already carries assistant tool calls or tool results.
+
+    The sticky-offer rule for the tool-*selection* gates: once this holds, the
+    Q&A gates of both loops and the selection skip/read-core downgrades keep the
+    normal supply instead of an empty or narrowed offer (validating wrappers such
+    as Anthropic's reject tool_use/tool_result history without tool definitions).
+    One rule for chat() and stream() (FEP-0007). Out of scope: calls that bypass
+    selection with ``tools=None`` (synthesis/forced-final/limit summaries).
+
+    Accepts provider ``Message`` objects or plain dicts; any unreadable history
+    is treated as tool-free (the pre-existing behavior).
+    """
+    try:
+        for message in messages or ():
+            if isinstance(message, dict):
+                role = message.get("role")
+                tool_calls = message.get("tool_calls")
+            else:
+                role = getattr(message, "role", None)
+                tool_calls = getattr(message, "tool_calls", None)
+            if role == "tool" or (role == "assistant" and tool_calls):
+                return True
+    except Exception:
+        logger.debug("tool-history scan failed", exc_info=True)
+    return False
+
+
 def hydrate_demand_tools(host: Any, text: str) -> None:
     """Register mention-wired demand tools (FEP-0034 Stage 1: DemandHydrate).
 
@@ -263,6 +291,16 @@ class ToolSelectionRuntime:
             skip_mode = (
                 "skip" if runtime._should_skip_tools_for_turn(user_message_anchor) else "tools"
             )
+        if skip_mode in ("skip", "read_core") and history_has_tool_calls(
+            getattr(runtime, "messages", None)
+        ):
+            # Sticky offer: once the history carries tool calls/results, an empty
+            # offer is a protocol violation for validating wrappers (Anthropic:
+            # tool_use/tool_result blocks require tool definitions) and flushes the
+            # KV-cached tool prefix. Fall through to the normal supply instead; the
+            # model still answers in text if no tool is needed. Shared by chat()
+            # and stream(), so both paths stay at parity (FEP-0007).
+            skip_mode = "tools"
         if skip_mode == "skip":
             _emit_tool_supply_trace(trace.mark_skipped("qa_greeting"))
             return None

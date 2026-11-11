@@ -255,7 +255,9 @@ def test_build_streaming_turn_result_maps_fields(is_qa):
         tool_exec_result=None,
     )
     assert turn.content == "hi"
-    assert turn.is_qa_response is is_qa
+    # A tool-calling turn is never a final Q&A answer (its narration must not
+    # complete the loop before the tool result is answered).
+    assert turn.is_qa_response is False
     assert turn.has_tool_calls is True
     assert turn.tool_calls_count == 1
     assert turn.tool_results == []
@@ -550,3 +552,25 @@ async def test_execute_turn_streaming_no_turn_executor_is_noop():
 
     chunks, result = await _run_tool_turn(ex, orch, ctx)
     assert result is not None  # turn completed normally
+
+
+@pytest.mark.parametrize(
+    ("is_qa", "content", "tool_calls", "expected"),
+    [
+        (True, "42", None, True),
+        (True, "Let me check.", [{"name": "read", "arguments": {}}], False),
+        (True, "", None, False),
+        (False, "42", None, False),
+    ],
+)
+def test_streaming_qa_response_requires_text_and_no_tool_calls(
+    is_qa, content, tool_calls, expected
+):
+    """Same rule as the buffered executor (FEP-0007 parity)."""
+    turn = StreamingChatExecutor._build_streaming_turn_result(
+        SimpleNamespace(is_qa_task=is_qa),
+        full_content=content,
+        tool_calls=tool_calls,
+        tool_exec_result=None,
+    )
+    assert turn.is_qa_response is expected
