@@ -43,6 +43,8 @@ from victor.core.completion_markers import (
 )
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.core.errors import ProviderPolicyError
+from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+from victor.providers.usage_accounting import accumulate_usage
 from victor.core.provider_messages import CompletionResponse, StreamChunk
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.streaming.tool_execution import ToolExecutionResult
@@ -1701,7 +1703,12 @@ class StreamingChatExecutor:
                     cancelled = True
                     break
                 if getattr(chunk, "is_final", False) and chunk.metadata:
-                    recovered = await _deliver_post_loop_recovery(self.services, _te, chunk)
+                    recovered = await _deliver_post_loop_recovery(
+                        self.services,
+                        _te,
+                        chunk,
+                        usage_totals=getattr(stream_ctx, "cumulative_usage", None),
+                    )
                     if recovered is not None:
                         yield recovered
                     if self.services.stream_lifecycle.is_cancelled():
@@ -1713,7 +1720,11 @@ class StreamingChatExecutor:
 
 
 async def _deliver_post_loop_recovery(
-    services: ChatRuntimeServices, turn_executor: Any, chunk: StreamChunk
+    services: ChatRuntimeServices,
+    turn_executor: Any,
+    chunk: StreamChunk,
+    *,
+    usage_totals: Optional[Dict[str, int]] = None,
 ) -> Optional[StreamChunk]:
     """Run a terminal outcome's post-loop recovery request (FEP-0007 parity).
 
@@ -1744,7 +1755,13 @@ async def _deliver_post_loop_recovery(
         # Presentation-only: a failed recovery must not cost the run its verdict.
         logger.warning("Post-loop recovery failed; forwarding the verdict: %s", exc)
         return None
-    content = getattr(getattr(recovered, "response", None), "content", None)
+    response = getattr(recovered, "response", None)
+    spent = (getattr(response, "metadata", None) or {}).get(RECOVERY_USAGE_KEY)
+    if usage_totals is not None and isinstance(spent, dict):
+        # The stream's own totals (summary + task report) include the recovery calls,
+        # as they include every metered stream call; spent even if no text survives.
+        accumulate_usage(usage_totals, spent)
+    content = getattr(response, "content", None)
     if not content:
         return None
     chunk.metadata["agentic_loop_synthesis"] = True

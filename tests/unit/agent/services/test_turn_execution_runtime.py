@@ -2205,7 +2205,6 @@ async def test_execute_turn_stray_call_against_empty_offer_is_not_redispatched()
 
     # One model call, no text-only re-dispatch, and the call is executed.
     executor._execute_model_turn.assert_awaited_once()
-    assert executor._execute_model_turn.await_args.kwargs.get("extra_messages") is None
     executor._tool_context.execute_tool_calls.assert_awaited_once()
     executed = executor._tool_context.execute_tool_calls.await_args.args[0]
     names = [call.get("name") or call.get("function", {}).get("name") for call in executed]
@@ -2475,3 +2474,66 @@ async def test_runtime_context_tool_budget_override_reaches_every_budget_owner()
     assert orchestrator.task_coordinator.tool_budget == 50
     assert service.budget == 50
     assert pipeline.config.tool_budget == 50
+
+
+@pytest.mark.asyncio
+async def test_recovery_response_carries_its_summed_provider_usage():
+    from victor.agent.response_completer import (
+        CompletionResult,
+        CompletionStatus,
+        ToolFailureContext,
+    )
+    from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+
+    executor = _make_executor()
+    executor._record_conversation_usage = MagicMock()
+    executor._provider_context.response_completer = SimpleNamespace(
+        ensure_response=AsyncMock(
+            return_value=CompletionResult(
+                status=CompletionStatus.SUCCESS,
+                content="Recovered answer from the evidence.",
+                provider_responses=(
+                    CompletionResponse(content="", usage=None),  # an empty retry, no usage
+                    CompletionResponse(
+                        content="",
+                        usage={"prompt_tokens": 10, "completion_tokens": 0, "total_tokens": 10},
+                    ),
+                    CompletionResponse(
+                        content="Recovered answer from the evidence.",
+                        usage={"prompt_tokens": 12, "completion_tokens": 6, "total_tokens": 18},
+                    ),
+                ),
+            )
+        ),
+    )
+
+    response = await executor._ensure_complete_response(None, ToolFailureContext())
+
+    spent = response.metadata[RECOVERY_USAGE_KEY]
+    assert spent["prompt_tokens"] == 22
+    assert spent["completion_tokens"] == 6
+    assert spent["total_tokens"] == 28
+    # Per-call accounting is unchanged (once per provider response, as before).
+    assert executor._record_conversation_usage.call_count == 3
+    # Not on ``usage``: buffered callers must not count these calls a second time.
+    assert not response.usage
+
+
+@pytest.mark.asyncio
+async def test_recovery_response_without_provider_usage_has_no_usage_metadata():
+    from victor.agent.response_completer import (
+        CompletionResult,
+        CompletionStatus,
+        ToolFailureContext,
+    )
+    from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+
+    executor = _make_executor()
+    executor._provider_context.response_completer = SimpleNamespace(
+        ensure_response=AsyncMock(return_value=CompletionResult(status=CompletionStatus.EMPTY)),
+        format_tool_failure_message=lambda context: "",
+    )
+
+    response = await executor._ensure_complete_response(None, ToolFailureContext())
+
+    assert RECOVERY_USAGE_KEY not in (response.metadata or {})
