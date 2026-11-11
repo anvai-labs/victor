@@ -1267,19 +1267,19 @@ class TurnExecutor:
             action_result if not recovery_allowed else (last.action_result if last else None)
         )
         response = getattr(response_source, "response", None)
-        if response is not None:
-            if (
-                recovery_allowed
-                and not loop_success
-                and not response.content
-                and self._loop_has_successful_tool_evidence(loop_result)
-            ):
-                # Recover presentation without changing the verifier's verdict.
-                synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
-                response = synthesized.response
-        elif recovery_allowed:
+        recovery = self.post_loop_recovery_kind(
+            recovery_allowed=recovery_allowed,
+            success=loop_success,
+            response=response,
+            has_tool_evidence=self._loop_has_successful_tool_evidence(loop_result),
+        )
+        if recovery == "synthesize":
+            # Recover presentation without changing the verifier's verdict.
+            synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
+            response = synthesized.response
+        elif recovery == "complete":
             response = await self._ensure_complete_response(None, ToolFailureContext())
-        else:
+        elif response is None:
             # No generated fallback after terminal admission denial. The failed
             # metadata explains the stop without inventing ungoverned assistant text.
             response = CompletionResponse(content="", role="assistant")
@@ -1292,20 +1292,58 @@ class TurnExecutor:
         response.metadata = metadata
         return response
 
-    @staticmethod
-    def _allows_post_loop_recovery(loop_result: LoopResult, action_result: object) -> bool:
+    @classmethod
+    def _allows_post_loop_recovery(cls, loop_result: LoopResult, action_result: object) -> bool:
         """Honor structured terminal stops without reclassifying ordinary failed verification."""
+        last_evaluation = loop_result.iterations[-1].evaluation if loop_result.iterations else None
+        return cls.post_loop_recovery_allowed(
+            spin_guard_stopped=loop_result.metadata.get("terminated_by") == "loop_spin_guard",
+            action_result=action_result,
+            last_decision=getattr(last_evaluation, "decision", None),
+        )
+
+    @staticmethod
+    def post_loop_recovery_allowed(
+        *, spin_guard_stopped: bool, action_result: object, last_decision: Any
+    ) -> bool:
+        """Whether a finished loop may recover its presentation (shared by run()/run_streaming()).
+
+        Structured terminal stops are honored: the spin guard, a turn disposition
+        that stops the run (e.g. admission denial) and an ESCALATE verdict.
+        """
         from victor.framework.evaluation_nodes import EvaluationDecision
 
-        if loop_result.metadata.get("terminated_by") == "loop_spin_guard":
+        if spin_guard_stopped:
             return False
         if isinstance(action_result, TurnResult) and action_result.disposition.stops_run:
             return False
-        if loop_result.iterations:
-            evaluation = loop_result.iterations[-1].evaluation
-            if evaluation and evaluation.decision in (EvaluationDecision.ESCALATE, "escalate"):
-                return False
+        if last_decision in (EvaluationDecision.ESCALATE, "escalate"):
+            return False
         return True
+
+    @staticmethod
+    def post_loop_recovery_kind(
+        *,
+        recovery_allowed: bool,
+        success: bool,
+        response: Optional[CompletionResponse],
+        has_tool_evidence: bool,
+    ) -> Optional[str]:
+        """Which presentation recovery a finished loop needs, if any (FEP-0007 parity).
+
+        One rule for the buffered ``run()`` epilogue and ``run_streaming()``:
+        ``"complete"`` when the last recorded turn produced no response at all;
+        ``"synthesize"`` when a failed run's last turn has no text but earlier
+        tools succeeded (answer from that evidence); otherwise ``None``. Recovery
+        never changes the run verdict.
+        """
+        if not recovery_allowed:
+            return None
+        if response is None:
+            return "complete"
+        if not success and not response.content and has_tool_evidence:
+            return "synthesize"
+        return None
 
     async def synthesize_from_tool_evidence(
         self,
@@ -1326,20 +1364,25 @@ class TurnExecutor:
             tool_calls_count=0,
         )
 
-    @staticmethod
-    def _loop_has_successful_tool_evidence(loop_result: Any) -> bool:
+    @classmethod
+    def _loop_has_successful_tool_evidence(cls, loop_result: Any) -> bool:
         """Return True when a loop gathered successful tool output before stopping."""
-        for iteration in getattr(loop_result, "iterations", []) or []:
-            action_result = getattr(iteration, "action_result", None)
-            if action_result is None:
-                continue
-            successful_tool_count = getattr(action_result, "successful_tool_count", 0)
-            if successful_tool_count:
-                return True
-            for result in getattr(action_result, "tool_results", []) or []:
-                if isinstance(result, dict) and result.get("success"):
-                    return True
-        return False
+        return any(
+            cls.turn_has_successful_tool_evidence(getattr(iteration, "action_result", None))
+            for iteration in getattr(loop_result, "iterations", []) or []
+        )
+
+    @staticmethod
+    def turn_has_successful_tool_evidence(action_result: Any) -> bool:
+        """Return True when one turn produced successful tool output."""
+        if action_result is None:
+            return False
+        if getattr(action_result, "successful_tool_count", 0):
+            return True
+        return any(
+            isinstance(result, dict) and result.get("success")
+            for result in getattr(action_result, "tool_results", []) or []
+        )
 
     # =====================================================================
     # Parallel Exploration

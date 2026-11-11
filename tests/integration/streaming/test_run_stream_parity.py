@@ -60,7 +60,17 @@ async def _run_both(scenario):
     streaming = await capture_transcript(streaming_orch, scenario.message)
     buffered.offer_sizes = list(buffered_provider.offer_sizes)
     streaming.offer_sizes = list(streaming_provider.offer_sizes)
+    buffered.assistant_texts = _assistant_texts(buffered_orch)
+    streaming.assistant_texts = _assistant_texts(streaming_orch)
     return buffered, streaming
+
+
+def _assistant_texts(orch):
+    return [
+        m.content
+        for m in getattr(orch, "messages", None) or []
+        if getattr(m, "role", None) == "assistant" and getattr(m, "content", None)
+    ]
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s.id for s in SCENARIOS])
@@ -94,13 +104,10 @@ async def test_run_stream_parity(scenario):
 # Offer divergences that predate the per-call offer check. Each entry must still
 # diverge; fixing one fails the test below until the entry is removed.
 # Pinned exactly so a *different* divergence cannot hide behind the entry.
-_KNOWN_OFFER_DIVERGENCE = {
-    # Call-count divergence only: buffered's post-loop synthesis makes three extra
-    # text-forcing calls that streaming does not (follow-up: one synthesis rule on
-    # both loops). Their offers are no longer empty (was [8, 8, 8, 0, 0, 0]): they
-    # keep the stable offer on tool history (text_call_tools).
-    "U1": ([8, 8, 8, 8, 8, 8], [8, 8, 8]),
-}
+# Empty since U1 converged: buffered's post-loop recovery made three text-forcing
+# calls streaming did not ([8, 8, 8, 8, 8, 8] vs [8, 8, 8]); both loops now share
+# TurnExecutor.post_loop_recovery_kind.
+_KNOWN_OFFER_DIVERGENCE: dict = {}
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s.id for s in SCENARIOS])
@@ -419,3 +426,23 @@ async def test_qa_turn_after_tool_turn_keeps_offer_and_answers_after_tools(mode)
         provider.offer_sizes[2] > 0
     ), f"{mode}: empty offer on tool history {provider.offer_sizes}"
     assert all(size > 0 for size in provider.offer_sizes[2:]), provider.offer_sizes
+
+
+async def test_failed_run_recovers_the_same_answer_on_both_loops():
+    """U1: a failed run whose last turn has no text recovers its answer on both loops.
+
+    The buffered epilogue synthesized from tool evidence; streaming ended with no text.
+    Both now apply one rule (``post_loop_recovery_kind``): same calls, same answer,
+    recorded exactly once in history. The scripted model keeps calling tools, so the
+    completer falls back to its canned text; a real model answers from the evidence.
+    """
+    scenario = next(s for s in SCENARIOS if s.id == "U1")
+    buffered, streaming = await _run_both(scenario)
+
+    assert buffered.offer_sizes == streaming.offer_sizes
+    assert buffered.content.strip()
+    assert streaming.content.strip() == buffered.content.strip()
+    for loop, transcript in (("buffered", buffered), ("streaming", streaming)):
+        assert (
+            transcript.assistant_texts.count(buffered.content.strip()) == 1
+        ), f"{loop} recorded the recovered answer {transcript.assistant_texts}"
