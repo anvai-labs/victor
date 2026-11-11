@@ -154,6 +154,10 @@ class VictorTUIApp(App[None]):
         self._capture_buffer = io.StringIO()
         self._capture_console = Console(file=self._capture_buffer, force_terminal=False, width=100)
         self._slash: Any = None
+        # Serializes slash dispatches: each runs against its own capture
+        # console (execute_captured), so concurrent commands can neither
+        # interleave output nor truncate a shared buffer mid-render.
+        self._slash_lock = asyncio.Lock()
 
     # ── layout ────────────────────────────────────────────────────
 
@@ -418,14 +422,14 @@ class VictorTUIApp(App[None]):
         if self._slash is None:
             convo.write("[dim]command handler unavailable in this session[/]")
             return
-        self._capture_buffer.seek(0)
-        self._capture_buffer.truncate(0)
-        try:
-            await self._slash.execute(text)
-        except Exception as exc:  # noqa: BLE001
-            convo.write(f"[red]⚠ {escape(str(exc))}[/]")
-            return
-        output = self._capture_buffer.getvalue().strip()
+        # One lock, per-command buffers: overlapping dispatches render fully
+        # and in dispatch order instead of racing a shared StringIO.
+        async with self._slash_lock:
+            try:
+                output = await self._slash.execute_captured(text)
+            except Exception as exc:  # noqa: BLE001
+                convo.write(f"[red]⚠ {escape(str(exc))}[/]")
+                return
         if output:
             for line in output.splitlines():
                 convo.write(escape(line))

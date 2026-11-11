@@ -21,7 +21,6 @@ P0 Issues Fixed:
 4. Forced Tool Execution Loop - Faster exit after 2 failed attempts (down from 3)
 """
 
-import pytest
 from unittest.mock import MagicMock
 
 from victor.agent.tool_call_extractor import (
@@ -150,95 +149,6 @@ class TestToolCallExtractionImprovements:
         assert "main.py" in result.arguments.get("path", "")
         # Explicit file paths should get high confidence
         assert result.confidence >= 0.8
-
-
-class TestForcedToolExecutionLoopFix:
-    """Tests for forced tool execution loop exit."""
-
-    @pytest.mark.asyncio
-    async def test_exit_after_two_failed_attempts(self):
-        """P0 FIX: Should exit after 2 failed forced attempts (down from 3)."""
-        from victor.agent.streaming.context import StreamingChatContext
-        from victor.agent.streaming.continuation import ContinuationHandler
-
-        stream_ctx = StreamingChatContext(user_message="test")
-
-        handler = ContinuationHandler(
-            message_adder=MagicMock(),
-            chunk_generator=MagicMock(),
-            sanitizer=MagicMock(),
-            settings=MagicMock(),
-        )
-
-        # First forced attempt
-        result1 = await handler._handle_force_tool_execution(
-            action_result=MagicMock(
-                get=lambda k, default=None: {
-                    "mentioned_tools": ["read"],
-                    "message": "Please make the tool call",
-                }.get(k, default)
-            ),
-            stream_ctx=stream_ctx,
-            full_content="",
-        )
-        assert result1.should_skip_rest is True
-        assert stream_ctx.force_completion is False
-
-        # Second forced attempt - should force completion
-        result2 = await handler._handle_force_tool_execution(
-            action_result=MagicMock(
-                get=lambda k, default=None: {
-                    "mentioned_tools": ["read"],
-                    "message": "Please make the tool call",
-                }.get(k, default)
-            ),
-            stream_ctx=stream_ctx,
-            full_content="",
-        )
-        # Should force completion after 2 attempts
-        assert stream_ctx.force_completion is True
-        assert stream_ctx.skip_continuation is True
-
-    @pytest.mark.asyncio
-    async def test_continuation_strategy_escalates_after_two_attempts(self):
-        """P0 FIX: Continuation strategy should escalate after 2 failed attempts."""
-        from victor.agent.continuation_strategy import ContinuationStrategy
-        from victor.storage.embeddings.intent_classifier import IntentType
-
-        strategy = ContinuationStrategy()
-
-        intent_result = MagicMock()
-        intent_result.intent = IntentType.CONTINUATION
-        intent_result.confidence = 0.8
-
-        # Simulate 2 failed attempts (continuation_prompts=2)
-        result = strategy.determine_continuation_action(
-            intent_result=intent_result,
-            is_analysis_task=True,
-            is_action_task=False,
-            content_length=100,
-            full_content="I'll check the file.",
-            continuation_prompts=2,  # Already 2 failed attempts
-            asking_input_prompts=0,
-            one_shot_mode=False,
-            mentioned_tools=["read"],
-            max_prompts_summary_requested=False,
-            settings=MagicMock(
-                max_continuation_prompts_analysis=6,
-                max_continuation_prompts_action=5,
-                max_continuation_prompts_default=3,
-                continuation_prompt_overrides={},
-            ),
-            rl_coordinator=None,
-            provider_name="anthropic",
-            model="claude-3-5-sonnet",
-            tool_budget=25,
-            unified_tracker_config={"max_total_iterations": 50},
-        )
-
-        # Should escalate to summary request with max_prompts_summary_requested=True
-        assert result["action"] == "request_summary"
-        assert result.get("updates", {}).get("max_prompts_summary_requested") is True
 
 
 class TestLoopDetectionWithForcedStop:

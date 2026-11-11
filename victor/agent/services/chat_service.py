@@ -136,7 +136,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         self._turn_executor: Optional[Any] = None
         self._planning_handler: Optional[Callable[[str], Any]] = None
         self._stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None
-        self._context_limit_handler: Optional[Callable[..., Any]] = None
         self._turn_runtime: Optional[ChatTurnRuntime] = None
         self._context_accepts_keyword_messages: Optional[bool] = None
         self._turn_lock = asyncio.Lock()
@@ -166,7 +165,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         turn_executor: Optional[Any] = None,
         planning_handler: Optional[Callable[[str], Any]] = None,
         stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None,
-        context_limit_handler: Optional[Callable[..., Any]] = None,
         turn_runtime: Optional[ChatTurnRuntime] = None,
         stream_turn_lock: Optional[asyncio.Lock] = None,
     ) -> None:
@@ -177,8 +175,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             self._planning_handler = planning_handler
         if stream_chat_handler is not None:
             self._stream_chat_handler = stream_chat_handler
-        if context_limit_handler is not None:
-            self._context_limit_handler = context_limit_handler
         if turn_runtime is not None:
             self._turn_runtime = turn_runtime
         if stream_turn_lock is not None:
@@ -541,12 +537,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             user_message,
             runtime_context_overrides=self._planning_overrides,
         )
-
-    async def handle_context_and_iteration_limits(self, *args, **kwargs) -> Any:
-        """Delegate context/iteration limit handling to the bound runtime helper."""
-        if self._context_limit_handler is None:
-            return False, None
-        return await self._context_limit_handler(*args, **kwargs)
 
     def reset_conversation(self) -> None:
         """Reset the conversation history and state.
