@@ -9,7 +9,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 import logging
 import re
-from typing import Any, Optional, TypedDict
+from enum import Enum
+from typing import Any, Dict, Optional, Tuple, TypedDict
 
 from rich.console import Console
 from rich.panel import Panel
@@ -602,40 +603,75 @@ def render_content_badge(console: Console, content_type: str, icon: str = "") ->
     console.print(f"{prefix} {label}")
 
 
-def render_status_message(console: Console, message: str) -> None:
-    """Render a compact status line with lightweight semantic styling."""
+class Severity(str, Enum):
+    """Structured severity for status lines — replaces substring sniffing.
+
+    The old classifier keyed off prose ("warning"/"failed" in the text,
+    ⚠ prefix), so a provider message mentioning "failed" in passing rendered
+    yellow while actual errors glued to "❌" and passed through the sniffer
+    rendered dim (audit P3/P5). Callers pass Severity explicitly; the string
+    classifier remains only as a legacy shim.
+    """
+
+    INFO = "info"
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
+    THINKING = "thinking"
+
+
+# (icon, body_style) per severity; second entry is the high-contrast variant.
+_SEVERITY_STYLES: Dict[Severity, Tuple[str, str, str, str]] = {
+    Severity.INFO: ("•", "dim", "•", "bold"),
+    Severity.SUCCESS: ("✓", "green", "✓", "bold green"),
+    Severity.WARNING: ("!", "yellow", "!", "bold yellow"),
+    Severity.ERROR: ("✗", "red", "✗", "bold red"),
+    Severity.THINKING: ("◌", "dim italic", "◌", "bold cyan"),
+}
+
+
+def classify_severity(message: str) -> Severity:
+    """Legacy string classification for callers that only have prose.
+
+    Recognizes the historical smuggled markers (⚠, ❌, ✗ prefixes and the
+    "warning"/"failed" substrings) plus "thinking". New code should pass
+    Severity explicitly instead of relying on this.
+    """
+    normalized = message.strip()
+    lowered = normalized.lower()
+    if normalized.startswith(("❌", "✗")):
+        return Severity.ERROR
+    if normalized.startswith("⚠") or "warning" in lowered or "failed" in lowered:
+        return Severity.WARNING
+    if "thinking" in lowered:
+        return Severity.THINKING
+    return Severity.INFO
+
+
+def render_severity(console: Console, severity: Severity, message: str) -> None:
+    """Render a compact status line with structured severity styling."""
     from victor.config.theme_settings import get_theme_settings
 
     theme_settings = get_theme_settings()
+    icon, body_style, hc_icon, hc_body = _SEVERITY_STYLES[severity]
+    if theme_settings.high_contrast:
+        icon, body_style = hc_icon, hc_body
 
     normalized = message.strip()
-    lowered = normalized.lower()
+    if severity is Severity.WARNING:
+        normalized = normalized.removeprefix("⚠️").removeprefix("⚠").strip()
+    normalized = normalized.removeprefix("❌").strip()
 
-    # Use high contrast styling if enabled
-    if theme_settings.high_contrast:
-        if normalized.startswith("⚠") or "warning" in lowered or "failed" in lowered:
-            prefix = "[bold yellow]![/]"
-            body_style = "bold yellow"
-            normalized = normalized.removeprefix("⚠️").removeprefix("⚠").strip()
-        elif "thinking" in lowered:
-            prefix = "[bold cyan]◌[/]"
-            body_style = "bold cyan"
-        else:
-            prefix = "[bold blue]•[/]"
-            body_style = "bold"
-    else:
-        if normalized.startswith("⚠") or "warning" in lowered or "failed" in lowered:
-            prefix = "[yellow]![/]"
-            body_style = "yellow"
-            normalized = normalized.removeprefix("⚠️").removeprefix("⚠").strip()
-        elif "thinking" in lowered:
-            prefix = "[cyan]◌[/]"
-            body_style = "dim italic"
-        else:
-            prefix = "[blue]•[/]"
-            body_style = "dim"
+    console.print(f"[{body_style}]{icon}[/] [{body_style}]{normalized}[/]")
 
-    console.print(f"{prefix} [{body_style}]{normalized}[/]")
+
+def render_status_message(console: Console, message: str) -> None:
+    """Render a compact status line, classifying severity from the string.
+
+    Migration shim over :func:`render_severity` + :func:`classify_severity`;
+    callers should move to passing Severity explicitly.
+    """
+    render_severity(console, classify_severity(message), message)
 
 
 def render_tool_preview(
