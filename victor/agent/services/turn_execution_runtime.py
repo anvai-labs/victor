@@ -577,7 +577,6 @@ class TurnExecutor:
         self,
         *,
         tools: Optional[List[Any]] = None,
-        extra_messages: Optional[List[Any]] = None,
         provider_kwargs: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """One metered model turn: execute, record usage, govern.
@@ -587,7 +586,6 @@ class TurnExecutor:
         """
         response = await self._execute_model_turn(
             tools=tools,
-            extra_messages=extra_messages,
             **dict(provider_kwargs or {}),
         )
         self._record_conversation_usage(response)
@@ -1667,16 +1665,12 @@ class TurnExecutor:
     async def _execute_model_turn(
         self,
         tools: Optional[List[Any]] = None,
-        *,
-        extra_messages: Optional[List[Any]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
         """Execute a single model turn.
 
         Args:
             tools: Optional tool definitions
-            extra_messages: Optional messages appended to the conversation for
-                this call only (never persisted to chat history)
             **kwargs: Additional provider parameters; temperature_override overrides
                 the provider-default temperature for this task type.
 
@@ -1703,11 +1697,8 @@ class TurnExecutor:
         ):
             kwargs["reasoning_effort"] = reasoning_effort
 
-        messages = self._chat_context.messages
-        if extra_messages:
-            messages = [*messages, *extra_messages]
         return await self._execution_provider.execute_turn(
-            messages=messages,
+            messages=self._chat_context.messages,
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,

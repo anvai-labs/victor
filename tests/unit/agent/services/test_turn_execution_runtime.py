@@ -2205,7 +2205,6 @@ async def test_execute_turn_stray_call_against_empty_offer_is_not_redispatched()
 
     # One model call, no text-only re-dispatch, and the call is executed.
     executor._execute_model_turn.assert_awaited_once()
-    assert executor._execute_model_turn.await_args.kwargs.get("extra_messages") is None
     executor._tool_context.execute_tool_calls.assert_awaited_once()
     executed = executor._tool_context.execute_tool_calls.await_args.args[0]
     names = [call.get("name") or call.get("function", {}).get("name") for call in executed]
