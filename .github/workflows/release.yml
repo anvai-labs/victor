@@ -442,7 +442,7 @@ jobs:
         run: |
           .venv-bare/bin/victor --version
           .venv-bare/bin/victor --help > /dev/null
-          .venv-bare/bin/python - <<'PY'
+          .venv-bare/bin/python -I - <<'PY'
           from importlib.resources import files
 
           from victor.processing.native import batch_cosine_similarity
@@ -459,6 +459,32 @@ jobs:
           label, conf = model.predict("stage_detection", "run the parser tests")
           assert conf >= 0.0
           print("BARE_INSTALL_OK")
+          PY
+
+      - name: Prove agent creation works without numpy
+        # --version/--help never build an agent; 0.27.0 shipped with every
+        # `victor chat` failing "No module named 'numpy'" because agent
+        # creation constructed the IntentClassifier's numpy-backed collections.
+        # -I: isolated mode keeps the checkout's ./victor off sys.path so the
+        # installed wheel (not the source tree) is what gets exercised.
+        run: |
+          .venv-bare/bin/python -I - <<'PY'
+          import asyncio
+
+          from victor.framework import Agent
+
+
+          async def main() -> None:
+              # Construction must need neither numpy nor a reachable provider.
+              agent = await Agent.create(provider="ollama", model="bare-smoke")
+              assert agent is not None
+              close = getattr(agent, "close", None)
+              if close is not None:
+                  await close()
+              print("BARE_AGENT_OK")
+
+
+          asyncio.run(main())
           PY
 
       - name: Distribution metrics gates (size / CLI timings / numpy absent)
