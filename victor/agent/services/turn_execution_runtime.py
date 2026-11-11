@@ -55,6 +55,8 @@ from dataclasses import dataclass, field, replace
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.services import post_loop_recovery
+from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+from victor.providers.usage_accounting import accumulate_usage
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
@@ -575,7 +577,6 @@ class TurnExecutor:
         self,
         *,
         tools: Optional[List[Any]] = None,
-        extra_messages: Optional[List[Any]] = None,
         provider_kwargs: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """One metered model turn: execute, record usage, govern.
@@ -585,7 +586,6 @@ class TurnExecutor:
         """
         response = await self._execute_model_turn(
             tools=tools,
-            extra_messages=extra_messages,
             **dict(provider_kwargs or {}),
         )
         self._record_conversation_usage(response)
@@ -1665,16 +1665,12 @@ class TurnExecutor:
     async def _execute_model_turn(
         self,
         tools: Optional[List[Any]] = None,
-        *,
-        extra_messages: Optional[List[Any]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
         """Execute a single model turn.
 
         Args:
             tools: Optional tool definitions
-            extra_messages: Optional messages appended to the conversation for
-                this call only (never persisted to chat history)
             **kwargs: Additional provider parameters; temperature_override overrides
                 the provider-default temperature for this task type.
 
@@ -1701,11 +1697,8 @@ class TurnExecutor:
         ):
             kwargs["reasoning_effort"] = reasoning_effort
 
-        messages = self._chat_context.messages
-        if extra_messages:
-            messages = [*messages, *extra_messages]
         return await self._execution_provider.execute_turn(
-            messages=messages,
+            messages=self._chat_context.messages,
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,
@@ -2023,8 +2016,11 @@ class TurnExecutor:
             tools=text_call_tools(self._resolve_orchestrator(), messages),
         )
 
+        recovery_usage: Dict[str, int] = {}
         for provider_response in completion_result.provider_responses:
             self._record_conversation_usage(provider_response)
+            if provider_response.usage:
+                accumulate_usage(recovery_usage, provider_response.usage)
 
         content = completion_result.content
         if not content:
@@ -2045,6 +2041,10 @@ class TurnExecutor:
                 tool_calls=None,
             )
         )
+        if recovery_usage:
+            # Metadata, not ``usage``: the calls are already accounted at the
+            # invocation boundary; streaming folds this into its per-stream totals.
+            response.metadata = {**(response.metadata or {}), RECOVERY_USAGE_KEY: recovery_usage}
         self._chat_context.add_message(
             "assistant",
             response.content,

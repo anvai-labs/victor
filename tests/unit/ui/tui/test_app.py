@@ -461,6 +461,26 @@ async def test_sidebar_uses_current_context_and_never_cumulative_usage():
     assert await app._compute_context_usage() == (None, 10000, None)
 
 
+async def test_session_cost_accumulates_once_per_turn_not_per_event() -> None:
+    # _apply_last_turn_cost is the ONLY session-cost accumulator (runs once per
+    # turn); the usage-bar refresh runs on every stream event and must never
+    # compound the total (audit B4).
+    client = FakeClient()  # get_last_turn_cost -> total_cost_usd 0.0012
+    client.context_window = lambda: 10000
+    app = _make_app(client)
+    async with app.run_test() as pilot:
+        app._apply_last_turn_cost()
+        app._apply_last_turn_cost()
+        assert app._session_cost_usd == 0.0024  # type: ignore[attr-defined]
+        from victor.ui.tui.token_usage_bar import TokenUsageBar
+
+        bar = app.query_one("#token-usage-bar", TokenUsageBar)
+        for _ in range(50):  # simulate a heavy stream of refresh events
+            app._update_token_usage_bar()
+        await pilot.pause()
+        assert bar._session_cost_usd == 0.0024
+
+
 # ── cancellation hygiene: modal + generator lifecycle (audit B6 + B8) ──
 
 
