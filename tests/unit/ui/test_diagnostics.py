@@ -57,23 +57,37 @@ def test_stream_without_fileno_is_skipped_gracefully():
 
 @pytest.mark.skipif(not hasattr(__import__("signal"), "SIGUSR1"), reason="SIGUSR1 unavailable")
 def test_sigusr1_dumps_stack_in_subprocess():
-    """End-to-end: a registered SIGUSR1 actually dumps a Python traceback.
+    """Repeated stack requests must dump all threads and keep the process alive.
 
     Run in a subprocess so the signal handler / stack dump never disturbs the
     pytest process, and so we exercise the real faulthandler path.
     """
     script = textwrap.dedent("""
-        import os, signal, sys, time, threading
+        import os, signal, sys, threading
         from victor.ui import diagnostics
 
         assert diagnostics.install_fault_diagnostics(stream=sys.stderr) is True
+        ready = threading.Event()
+        stop = threading.Event()
+
+        def _blocked_worker_marker():
+            ready.set()
+            stop.wait()
+
+        worker = threading.Thread(target=_blocked_worker_marker, daemon=True)
+        worker.start()
+        assert ready.wait(timeout=5)
 
         def _spin_marker_frame():
             # A uniquely named frame we can assert appears in the dump.
             os.kill(os.getpid(), signal.SIGUSR1)
-            time.sleep(0.05)
 
         _spin_marker_frame()
+        _spin_marker_frame()
+        stop.set()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        print("survived both stack requests", flush=True)
         """)
     proc = subprocess.run(
         [sys.executable, "-c", script],
@@ -81,6 +95,8 @@ def test_sigusr1_dumps_stack_in_subprocess():
         text=True,
         timeout=30,
     )
-    # faulthandler writes the dump to stderr; the marker frame must be named.
-    assert "_spin_marker_frame" in proc.stderr
-    assert "Current thread" in proc.stderr or "Thread" in proc.stderr
+    assert proc.returncode == 0, proc.stderr
+    assert "survived both stack requests" in proc.stdout
+    # Both the caller and the blocked worker must appear in each dump.
+    assert proc.stderr.count("_spin_marker_frame") == 2
+    assert proc.stderr.count("_blocked_worker_marker") == 2
