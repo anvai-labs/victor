@@ -234,7 +234,8 @@ class TestProtocolCompleteness:
         )
 
         assert hasattr(ChatRuntimeHelperAccessProtocol, "_get_planning_chat_runtime")
-        assert hasattr(ChatRuntimeHelperAccessProtocol, "_get_context_limit_runtime")
+        # The context-limit runtime had no live caller and was removed.
+        assert not hasattr(ChatRuntimeHelperAccessProtocol, "_get_context_limit_runtime")
 
     def test_provider_context_declares_provider_members(self):
         from victor.agent.services.protocols.chat_runtime import ProviderContextProtocol

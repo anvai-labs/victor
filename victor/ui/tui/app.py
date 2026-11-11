@@ -27,6 +27,7 @@ import asyncio
 import io
 import os
 import time
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any, Optional
 
@@ -153,6 +154,10 @@ class VictorTUIApp(App[None]):
         self._capture_buffer = io.StringIO()
         self._capture_console = Console(file=self._capture_buffer, force_terminal=False, width=100)
         self._slash: Any = None
+        # Serializes slash dispatches: each runs against its own capture
+        # console (execute_captured), so concurrent commands can neither
+        # interleave output nor truncate a shared buffer mid-render.
+        self._slash_lock = asyncio.Lock()
 
     # ── layout ────────────────────────────────────────────────────
 
@@ -217,6 +222,11 @@ class VictorTUIApp(App[None]):
         self._bootstrap_result = result
         if result is not None:
             self._agent = result
+            # The handler was built during on_mount against the then-None
+            # agent (shell-first bootstrap); rebind it or every agent-bound
+            # slash command reports "requires an active session" forever.
+            if self._slash is not None:
+                self._slash.set_agent(result)
         self._session_ready = True
         self.query_one("#conversation", ConversationLog).write(
             f"[green]✓ ready in {time.monotonic() - started:.1f}s[/]"
@@ -298,17 +308,21 @@ class VictorTUIApp(App[None]):
         self._phase.begin_turn()
         self._update_status()
         try:
-            guarded = with_stall_watchdog(
-                self._stream_actions(message),
-                _WATCHDOG_TIMEOUT,
-                self._on_stall,
-                self._on_resume,
-            )
-            async for action in guarded:
-                self._phase.update(action)
-                convo.feed_action(action)
-                self._maybe_capture_diff(action)
-                self._update_status()
+            # aclosing parity with the Chainlit surface: on interrupt the
+            # generator chain must close deterministically, not at GC time.
+            async with aclosing(
+                with_stall_watchdog(
+                    self._stream_actions(message),
+                    _WATCHDOG_TIMEOUT,
+                    self._on_stall,
+                    self._on_resume,
+                )
+            ) as guarded:
+                async for action in guarded:
+                    self._phase.update(action)
+                    convo.feed_action(action)
+                    self._maybe_capture_diff(action)
+                    self._update_status()
         except asyncio.CancelledError:
             convo.write("[yellow]⏹ interrupted[/]")
             raise
@@ -366,7 +380,8 @@ class VictorTUIApp(App[None]):
     # ── slash commands ────────────────────────────────────────────
 
     async def _dispatch_slash(self, text: str) -> None:
-        name = text[1:].split()[0].lower() if len(text) > 1 else ""
+        parts = text[1:].split()
+        name = parts[0].lower() if parts else ""
         if name in ("help", "?", "commands"):
             self.push_screen(HelpScreen())
             return
@@ -407,14 +422,14 @@ class VictorTUIApp(App[None]):
         if self._slash is None:
             convo.write("[dim]command handler unavailable in this session[/]")
             return
-        self._capture_buffer.seek(0)
-        self._capture_buffer.truncate(0)
-        try:
-            await self._slash.execute(text)
-        except Exception as exc:  # noqa: BLE001
-            convo.write(f"[red]⚠ {escape(str(exc))}[/]")
-            return
-        output = self._capture_buffer.getvalue().strip()
+        # One lock, per-command buffers: overlapping dispatches render fully
+        # and in dispatch order instead of racing a shared StringIO.
+        async with self._slash_lock:
+            try:
+                output = await self._slash.execute_captured(text)
+            except Exception as exc:  # noqa: BLE001
+                convo.write(f"[red]⚠ {escape(str(exc))}[/]")
+                return
         if output:
             for line in output.splitlines():
                 convo.write(escape(line))

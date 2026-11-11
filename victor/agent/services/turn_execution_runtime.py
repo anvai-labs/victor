@@ -54,6 +54,7 @@ from dataclasses import dataclass, field, replace
 
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
+from victor.agent.services import post_loop_recovery
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
@@ -1267,19 +1268,19 @@ class TurnExecutor:
             action_result if not recovery_allowed else (last.action_result if last else None)
         )
         response = getattr(response_source, "response", None)
-        if response is not None:
-            if (
-                recovery_allowed
-                and not loop_success
-                and not response.content
-                and self._loop_has_successful_tool_evidence(loop_result)
-            ):
-                # Recover presentation without changing the verifier's verdict.
-                synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
-                response = synthesized.response
-        elif recovery_allowed:
+        recovery = self.post_loop_recovery_kind(
+            recovery_allowed=recovery_allowed,
+            success=loop_success,
+            response=response,
+            has_tool_evidence=self._loop_has_successful_tool_evidence(loop_result),
+        )
+        if recovery == "synthesize":
+            # Recover presentation without changing the verifier's verdict.
+            synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
+            response = synthesized.response
+        elif recovery == "complete":
             response = await self._ensure_complete_response(None, ToolFailureContext())
-        else:
+        elif response is None:
             # No generated fallback after terminal admission denial. The failed
             # metadata explains the stop without inventing ungoverned assistant text.
             response = CompletionResponse(content="", role="assistant")
@@ -1292,20 +1293,19 @@ class TurnExecutor:
         response.metadata = metadata
         return response
 
-    @staticmethod
-    def _allows_post_loop_recovery(loop_result: LoopResult, action_result: object) -> bool:
+    @classmethod
+    def _allows_post_loop_recovery(cls, loop_result: LoopResult, action_result: object) -> bool:
         """Honor structured terminal stops without reclassifying ordinary failed verification."""
-        from victor.framework.evaluation_nodes import EvaluationDecision
+        last_evaluation = loop_result.iterations[-1].evaluation if loop_result.iterations else None
+        return cls.post_loop_recovery_allowed(
+            spin_guard_stopped=loop_result.metadata.get("terminated_by") == "loop_spin_guard",
+            action_result=action_result,
+            last_decision=getattr(last_evaluation, "decision", None),
+        )
 
-        if loop_result.metadata.get("terminated_by") == "loop_spin_guard":
-            return False
-        if isinstance(action_result, TurnResult) and action_result.disposition.stops_run:
-            return False
-        if loop_result.iterations:
-            evaluation = loop_result.iterations[-1].evaluation
-            if evaluation and evaluation.decision in (EvaluationDecision.ESCALATE, "escalate"):
-                return False
-        return True
+    # The shared post-loop recovery rule (buffered epilogue + run_streaming).
+    post_loop_recovery_allowed = staticmethod(post_loop_recovery.recovery_allowed)
+    post_loop_recovery_kind = staticmethod(post_loop_recovery.recovery_kind)
 
     async def synthesize_from_tool_evidence(
         self,
@@ -1329,17 +1329,9 @@ class TurnExecutor:
     @staticmethod
     def _loop_has_successful_tool_evidence(loop_result: Any) -> bool:
         """Return True when a loop gathered successful tool output before stopping."""
-        for iteration in getattr(loop_result, "iterations", []) or []:
-            action_result = getattr(iteration, "action_result", None)
-            if action_result is None:
-                continue
-            successful_tool_count = getattr(action_result, "successful_tool_count", 0)
-            if successful_tool_count:
-                return True
-            for result in getattr(action_result, "tool_results", []) or []:
-                if isinstance(result, dict) and result.get("success"):
-                    return True
-        return False
+        return post_loop_recovery.loop_has_tool_evidence(loop_result)
+
+    turn_has_successful_tool_evidence = staticmethod(post_loop_recovery.turn_has_tool_evidence)
 
     # =====================================================================
     # Parallel Exploration

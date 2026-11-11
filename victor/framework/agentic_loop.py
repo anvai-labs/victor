@@ -117,6 +117,10 @@ _AgenticLoopGraphExecutor = None
 
 logger = logging.getLogger(__name__)
 
+# Terminal-outcome metadata key carrying a post-loop recovery request from
+# run_streaming() to its consumer (StreamingChatExecutor.run_unified).
+POST_LOOP_RECOVERY_KEY = "agentic_loop_recovery"
+
 from victor.core.runtime_context import (
     LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY,
     RUNTIME_CONTEXT_OVERRIDES_STATE_KEY,
@@ -1929,16 +1933,76 @@ class AgenticLoop(TopologyPlanningMixin):
 
     @staticmethod
     def _terminal_stream_outcome(
-        *, success: bool, iterations: int, error: str | None = None
+        *,
+        success: bool,
+        iterations: int,
+        error: str | None = None,
+        recovery: Optional[Dict[str, Any]] = None,
     ) -> StreamChunk:
-        """Publish the buffered response's run verdict contract without repeating content."""
+        """Publish the buffered response's run verdict contract without repeating content.
+
+        ``recovery`` (see ``_post_loop_recovery_request``) asks the streaming consumer
+        to synthesize the answer before it forwards this chunk.
+        """
         metadata: Dict[str, Any] = {
             "agentic_loop_success": success,
             "agentic_loop_iterations": iterations,
         }
         if error:
             metadata["agentic_loop_error"] = error
+        if recovery:
+            metadata[POST_LOOP_RECOVERY_KEY] = recovery
         return StreamChunk(is_final=True, metadata=metadata)
+
+    def _turn_has_tool_evidence(self, action_result: Any) -> bool:
+        """Whether a streamed turn produced successful tool output (turn-executor rule)."""
+        check = getattr(self.turn_executor, "turn_has_successful_tool_evidence", None)
+        return bool(check(action_result)) if callable(check) else False
+
+    def _post_loop_recovery_request(
+        self,
+        *,
+        success: bool,
+        action_result: Any,
+        evaluation: Optional[EvaluationResult],
+        has_tool_evidence: bool,
+        content_streamed: bool,
+        reason: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Streaming half of the post-loop presentation recovery (FEP-0007 parity).
+
+        The buffered ``run()`` caller recovers a failed run's empty answer from tool
+        evidence (``TurnExecutor.post_loop_recovery_kind``); streaming used to end such
+        runs with no text at all. The loop applies the same rule and records the
+        request on the terminal outcome; the streaming consumer runs the synthesis,
+        where cancellation and the display pipeline live. The verdict is unchanged.
+
+        Streaming-only condition: a run that already streamed visible text is not
+        recovered (the user saw an answer; buffered shows only the last response).
+        Spin-guard stops never reach here (the LoopSpinError exit), the same as the
+        buffered ``terminated_by == "loop_spin_guard"`` exemption.
+        """
+        if content_streamed:
+            return None
+        executor = self.turn_executor
+        allowed_fn = getattr(executor, "post_loop_recovery_allowed", None)
+        kind_fn = getattr(executor, "post_loop_recovery_kind", None)
+        if not (callable(allowed_fn) and callable(kind_fn)):
+            return None
+        allowed = allowed_fn(
+            spin_guard_stopped=False,
+            action_result=action_result,
+            last_decision=getattr(evaluation, "decision", None),
+        )
+        kind = kind_fn(
+            recovery_allowed=allowed,
+            success=success,
+            response=getattr(action_result, "response", None),
+            has_tool_evidence=has_tool_evidence,
+        )
+        if kind not in ("synthesize", "complete"):
+            return None
+        return {"kind": kind, "reason": reason}
 
     async def run_streaming(
         self,
@@ -2008,6 +2072,9 @@ class AgenticLoop(TopologyPlanningMixin):
         _termination_authority.reset_budget_marker(state)
         nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
+        action_result: Any = None
+        has_tool_evidence = False  # any turn produced successful tool output (recovery input)
+        content_streamed = False  # any turn's model text was streamed (recovery input)
 
         try:
             for i in range(1, effective_max + 1):
@@ -2064,7 +2131,13 @@ class AgenticLoop(TopologyPlanningMixin):
                             break
                         yield chunk
                 action_result = act_outcome.turn_result
+                # Model text only: ACT also streams status lines ("[tool] ...") as content,
+                # which must not count as an answer the user already saw.
+                content_streamed = content_streamed or bool(
+                    getattr(getattr(action_result, "response", None), "content", None)
+                )
                 state["action_result"] = action_result
+                has_tool_evidence = has_tool_evidence or self._turn_has_tool_evidence(action_result)
 
                 # FEP-0043: mirror criteria-declared keys from this turn's tool
                 # results into state (streaming parity with the buffered _act
@@ -2121,10 +2194,19 @@ class AgenticLoop(TopologyPlanningMixin):
                     self._emit_prompt_reward_outcome(evaluation, state)
                     success = evaluation.decision == EvaluationDecision.COMPLETE
                     _loop_guards.enforce()
+                    error = None if success else evaluation.reason or "Agentic loop failed"
                     yield self._terminal_stream_outcome(
                         success=success,
                         iterations=i,
-                        error=None if success else evaluation.reason or "Agentic loop failed",
+                        error=error,
+                        recovery=self._post_loop_recovery_request(
+                            success=success,
+                            action_result=action_result,
+                            evaluation=evaluation,
+                            has_tool_evidence=has_tool_evidence,
+                            content_streamed=content_streamed,
+                            reason=error,
+                        ),
                     )
                     return
                 self._inject_decide_nudges(evaluation, turn_decision)
@@ -2132,10 +2214,20 @@ class AgenticLoop(TopologyPlanningMixin):
             # Loop exhausted without a terminal decision — attribute the final turn's
             # evaluation too (FEP-0017 streaming parity; mirrors run()'s epilogue).
             self._emit_prompt_reward_outcome(evaluation, state)
+            exhausted = f"Maximum iterations ({effective_max}) reached without completion"
             yield self._terminal_stream_outcome(
                 success=False,
                 iterations=max(0, effective_max),
-                error=f"Maximum iterations ({effective_max}) reached without completion",
+                error=exhausted,
+                recovery=self._post_loop_recovery_request(
+                    success=False,
+                    action_result=action_result,
+                    evaluation=evaluation,
+                    has_tool_evidence=has_tool_evidence,
+                    content_streamed=content_streamed,
+                    # Buffered recovers with the last evaluation's reason.
+                    reason=(evaluation.reason if evaluation else None) or exhausted,
+                ),
             )
 
         except LoopSpinError as exc:

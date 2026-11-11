@@ -308,7 +308,6 @@ class AgentOrchestrator(
                 ),
                 planning_handler=self._get_planning_chat_runtime().run,
                 stream_chat_handler=chat_stream_adapter.stream_chat_under_turn_lock,
-                context_limit_handler=self._get_context_limit_runtime().handle_limits,
                 turn_runtime=bind_chat_turn_runtime(self),
                 stream_turn_lock=chat_stream_adapter.services.stream_turn_lock,
             )
@@ -1298,16 +1297,6 @@ class AgentOrchestrator(
 
             runtime = PlanningChatRuntime(self)
             self._planning_chat_runtime = runtime
-        return runtime
-
-    def _get_context_limit_runtime(self) -> Any:
-        """Get the canonical service-owned context/iteration limit runtime helper."""
-        runtime = getattr(self, "_context_limit_runtime", None)
-        if runtime is None:
-            from victor.agent.services.context_limit_runtime import ContextLimitRuntime
-
-            runtime = ContextLimitRuntime(self)
-            self._context_limit_runtime = runtime
         return runtime
 
     def _get_chat_stream_adapter(self) -> Any:
