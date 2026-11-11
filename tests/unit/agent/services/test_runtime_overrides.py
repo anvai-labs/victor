@@ -9,7 +9,6 @@ from types import SimpleNamespace
 
 from victor.agent.services.runtime_overrides import (
     apply_overrides,
-    budget_changes,
     extend_budget_funding,
 )
 

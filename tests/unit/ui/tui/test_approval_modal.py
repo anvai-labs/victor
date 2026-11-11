@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from textual.app import App
 
-from victor.framework.hitl import ApprovalRequest, ApprovalStatus
+from victor.framework.hitl import ApprovalRequest
 from victor.ui.tui.approval_modal import ApprovalScreen, make_tui_approval_handler
 
 

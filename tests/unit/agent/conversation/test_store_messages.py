@@ -419,3 +419,48 @@ class TestSaveSessionLiveSaveFidelity:
         previews = loaded["conversation"]["preview_messages"]
         assert len(previews) == 1
         assert previews[0]["content"] == "reflection preview"
+
+
+class TestCacheHitRateScale:
+    """`cache_hit_rate` is a fraction 0..1 everywhere — the canonical scale of
+    the metrics-service producers, the `{:.0%}` presenters, and the TUI bar.
+    The store used to emit a percentage under the same key (audit B5): any
+    consumer wiring the store's value into a fraction-expecting renderer showed
+    "9000% cached". Both producers are pinned here."""
+
+    def test_session_stats_hit_rate_is_fraction(self, temp_store):
+        self._seed(temp_store, "s_hit_001")
+        stats = temp_store.get_session_token_stats("s_hit_001")
+        assert stats is not None
+        assert stats["cache_hit_rate"] == pytest.approx(0.9)
+
+    def test_aggregate_hit_rate_is_fraction(self, temp_store):
+        self._seed(temp_store, "s_hit_002")
+        usage = temp_store.get_total_token_usage()
+        assert usage["cache_hit_rate"] == pytest.approx(0.9)
+
+    def test_hit_rate_zero_when_no_prompt_tokens(self, temp_store):
+        temp_store.save_session(
+            conversation={"messages": []},
+            model="test-model",
+            provider="test-provider",
+            session_id="s_hit_003",
+        )
+        stats = temp_store.get_session_token_stats("s_hit_003")
+        assert stats is not None
+        assert stats["cache_hit_rate"] == 0.0
+
+    @staticmethod
+    def _seed(store, session_id):
+        store.save_session(
+            conversation={"messages": [{"role": "user", "content": "hi"}]},
+            model="test-model",
+            provider="test-provider",
+            session_id=session_id,
+        )
+        store.update_session_token_usage(
+            session_id,
+            prompt_tokens=1000,
+            completion_tokens=100,
+            cached_tokens=900,
+        )
