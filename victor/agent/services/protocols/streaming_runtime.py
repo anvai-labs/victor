@@ -154,7 +154,6 @@ class StreamingExecutionRuntimeProtocol(Protocol):
     services: "ChatRuntimeServices"
     _orchestrator: Any
     _intent_classification_handler: Any
-    _continuation_handler: Any
     _tool_execution_handler: Any
 
     async def _create_stream_context(self, user_message: str, **kwargs: Any) -> Any:
