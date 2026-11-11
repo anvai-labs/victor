@@ -400,16 +400,6 @@ class TestProtocolImplementation:
             async def chat_with_planning(self, user_message: str, use_planning=None):
                 return await self.chat(user_message, use_planning=use_planning)
 
-            async def handle_context_and_iteration_limits(
-                self,
-                user_message,
-                max_total_iterations,
-                max_context,
-                total_iterations,
-                last_quality_score,
-            ):
-                return False, None
-
             def reset_conversation(self) -> None:
                 self.reset_count += 1
 
@@ -979,16 +969,6 @@ class TestProtocolCompliance:
             async def chat_with_planning(self, user_message, use_planning=None):
                 return await self.chat(user_message, use_planning=use_planning)
 
-            async def handle_context_and_iteration_limits(
-                self,
-                user_message,
-                max_total_iterations,
-                max_context,
-                total_iterations,
-                last_quality_score,
-            ):
-                return False, None
-
             def reset_conversation(self):
                 pass
 
@@ -1107,16 +1087,6 @@ class TestProtocolTypeChecking:
             async def chat_with_planning(self, user_message, use_planning=None):
                 pass
 
-            async def handle_context_and_iteration_limits(
-                self,
-                user_message,
-                max_total_iterations,
-                max_context,
-                total_iterations,
-                last_quality_score,
-            ):
-                return False, None
-
             def reset_conversation(self):
                 pass
 
@@ -1133,6 +1103,7 @@ class TestProtocolTypeChecking:
         assert hasattr(ChatServiceProtocol, "chat")
         assert hasattr(ChatServiceProtocol, "stream_chat")
         assert hasattr(ChatServiceProtocol, "chat_with_planning")
-        assert hasattr(ChatServiceProtocol, "handle_context_and_iteration_limits")
+        # Dead context/iteration limit surface removed (no caller in either loop).
+        assert not hasattr(ChatServiceProtocol, "handle_context_and_iteration_limits")
         assert hasattr(ChatServiceProtocol, "reset_conversation")
         assert hasattr(ChatServiceProtocol, "is_healthy")

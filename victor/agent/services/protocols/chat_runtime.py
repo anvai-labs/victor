@@ -58,14 +58,10 @@ class ExecutionMode(Enum):
 
 @runtime_checkable
 class ChatRuntimeHelperAccessProtocol(Protocol):
-    """Canonical helper getter surface for planning and context-limit runtimes."""
+    """Canonical helper getter surface for the planning runtime."""
 
     def _get_planning_chat_runtime(self) -> Any:
         """Return the canonical planning runtime helper."""
-        ...
-
-    def _get_context_limit_runtime(self) -> Any:
-        """Return the canonical context-limit runtime helper."""
         ...
 
 
