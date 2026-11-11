@@ -27,6 +27,7 @@ import asyncio
 import io
 import os
 import time
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any, Optional
 
@@ -303,17 +304,21 @@ class VictorTUIApp(App[None]):
         self._phase.begin_turn()
         self._update_status()
         try:
-            guarded = with_stall_watchdog(
-                self._stream_actions(message),
-                _WATCHDOG_TIMEOUT,
-                self._on_stall,
-                self._on_resume,
-            )
-            async for action in guarded:
-                self._phase.update(action)
-                convo.feed_action(action)
-                self._maybe_capture_diff(action)
-                self._update_status()
+            # aclosing parity with the Chainlit surface: on interrupt the
+            # generator chain must close deterministically, not at GC time.
+            async with aclosing(
+                with_stall_watchdog(
+                    self._stream_actions(message),
+                    _WATCHDOG_TIMEOUT,
+                    self._on_stall,
+                    self._on_resume,
+                )
+            ) as guarded:
+                async for action in guarded:
+                    self._phase.update(action)
+                    convo.feed_action(action)
+                    self._maybe_capture_diff(action)
+                    self._update_status()
         except asyncio.CancelledError:
             convo.write("[yellow]⏹ interrupted[/]")
             raise
