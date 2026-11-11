@@ -134,10 +134,6 @@ class OrchestratorProtocolAdapter:
         """Return the canonical planning runtime helper from the orchestrator host."""
         return self._get_required_runtime_helper("_get_planning_chat_runtime")
 
-    def _get_context_limit_runtime(self) -> Any:
-        """Return the canonical context-limit runtime helper from the orchestrator host."""
-        return self._get_required_runtime_helper("_get_context_limit_runtime")
-
     def _require_runtime_helper_handler(self, getter_name: str, handler_name: str) -> Any:
         """Return a canonical runtime helper method or raise a clear compatibility error."""
         runtime = self._get_required_runtime_helper(getter_name)

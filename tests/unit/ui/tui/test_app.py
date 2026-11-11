@@ -538,3 +538,69 @@ async def test_early_exit_closes_the_stream_generator() -> None:
                     break  # early exit mid-stream
         await pilot.pause()
         assert client.closed
+
+
+# ── slash dispatch serialization (audit B9) ───────────────────────────
+
+
+async def test_overlapping_slash_dispatches_render_fully_and_in_order() -> None:
+    # Two rapid dispatches used to share one seek/truncate StringIO: the
+    # second could wipe the first's output mid-render. Each now renders
+    # against its own console under a lock, so both outputs land, whole.
+    app = _make_app()
+    seen: List[str] = []
+
+    async def fake_captured(self, text: str) -> str:
+        seen.append(f"start:{text}")
+        await asyncio.sleep(0.01)
+        seen.append(f"end:{text}")
+        return f"out:{text}"
+
+    from unittest.mock import patch
+
+    async with app.run_test() as pilot:
+        with patch.object(type(app._slash), "execute_captured", fake_captured):  # type: ignore[attr-defined]
+            await asyncio.gather(
+                app._run_captured_slash("/cost"),
+                app._run_captured_slash("/tools"),
+            )
+        await pilot.pause()
+
+        # No interleaving: each command's start/end pair is contiguous.
+        assert seen == ["start:/cost", "end:/cost", "start:/tools", "end:/tools"] or seen == [
+            "start:/tools",
+            "end:/tools",
+            "start:/cost",
+            "end:/cost",
+        ]
+        convo = app.query_one("#conversation")
+        text = "\n".join(line.text for line in convo.lines)  # type: ignore[attr-defined]
+        assert "out:/cost" in text and "out:/tools" in text
+
+
+async def test_execute_captured_restores_handler_console() -> None:
+    from victor.ui.slash.handler import SlashCommandHandler
+    from victor.ui.slash.protocol import CommandMetadata
+    from victor.ui.slash.registry import CommandRegistry
+
+    class Echo:
+        @property
+        def metadata(self) -> CommandMetadata:
+            return CommandMetadata(name="echo", description="", usage="/echo", category="test")
+
+        async def execute(self, ctx) -> None:
+            ctx.console.print("captured-line")
+
+    registry = CommandRegistry()
+    registry.register(Echo())
+    outer_console = object()
+    handler = SlashCommandHandler.__new__(SlashCommandHandler)
+    handler.console = outer_console  # type: ignore[assignment]
+    handler.agent = None
+    handler.settings = None
+    handler._registry = registry
+    handler.exit_callback = None
+
+    output = await handler.execute_captured("/echo")
+    assert output == "captured-line"
+    assert handler.console is outer_console  # type: ignore[comparison-overlap]
