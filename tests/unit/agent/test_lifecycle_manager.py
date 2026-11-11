@@ -15,6 +15,7 @@
 """Tests for LifecycleManager."""
 
 import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -611,3 +612,52 @@ async def test_parent_cancellation_still_releases_cache(cleanup_fails):
     if cleanup_fails:
         assert "cache cleanup failed" in " ".join(error.value.__notes__)
         assert manager._tool_cache is cache
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_shutdown_persists_buffered_tool_results(tmp_path, cancelled):
+    from victor.observability.analytics.enhanced_logger import EnhancedUsageLogger
+
+    path = tmp_path / "usage.jsonl"
+    usage = EnhancedUsageLogger(path, buffered=True, flush_interval=3600)
+    usage.log_event("tool_result", {"tool_name": "edit", "success": True})
+    assert path.read_text() == ""
+
+    manager = LifecycleManager(MagicMock())
+    manager.set_usage_logger(usage)
+    manager._shutdown_services = AsyncMock(
+        side_effect=asyncio.CancelledError() if cancelled else None
+    )
+    if cancelled:
+        with pytest.raises(asyncio.CancelledError):
+            await manager.shutdown()
+    else:
+        await manager.shutdown()
+
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(events) == 1
+    assert events[0]["event_type"] == "tool_result"
+    assert events[0]["data"] == {"tool_name": "edit", "success": True}
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_usage_logger_failure_does_not_skip_cache_cleanup(cancelled, caplog):
+    manager = LifecycleManager(MagicMock())
+    usage = MagicMock()
+    usage.close.side_effect = OSError("log unavailable")
+    manager.set_usage_logger(usage)
+    cache = MagicMock()
+    manager.set_tool_cache(cache)
+    manager._shutdown_services = AsyncMock(
+        side_effect=asyncio.CancelledError() if cancelled else None
+    )
+
+    if cancelled:
+        with pytest.raises(asyncio.CancelledError):
+            await manager.shutdown()
+    else:
+        await manager.shutdown()
+
+    usage.close.assert_called_once()
+    cache.close.assert_called_once()
+    assert "usage logger" in caplog.text.lower()
