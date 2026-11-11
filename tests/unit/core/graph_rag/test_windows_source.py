@@ -349,12 +349,20 @@ class TestWindowsHandles:
             ).run()
         )
         try:
+            # Poll for CONTENT, not existence: on Windows the file can be
+            # visible before write_text flushes, and read_text() then returns
+            # "" -> int("") ValueError (observed on the 3.14 runner). The
+            # writer emits the pid in one write_text call, so any complete
+            # read is digits.
             for _ in range(200):
                 if pidfile.exists():
-                    break
+                    pid_text = pidfile.read_text().strip()
+                    if pid_text.isdigit():
+                        break
                 await asyncio.sleep(0.02)
-            assert pidfile.exists()
-            descendant = psutil.Process(int(pidfile.read_text()))
+            else:
+                pytest.fail("descendant pid was never written completely")
+            descendant = psutil.Process(int(pid_text))
         finally:
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
