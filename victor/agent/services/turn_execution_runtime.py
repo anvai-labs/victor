@@ -2016,13 +2016,19 @@ class TurnExecutor:
         if final_response is not None and final_response.content:
             return await self.govern_response(final_response)
 
-        # Use response completer to generate a response
+        # Use response completer to generate a response. On tool history the
+        # text-forcing calls keep the stable offer (the sticky-offer rule of
+        # tool selection, applied to calls that bypass selection).
+        from victor.agent.services.tool_selection_runtime import text_call_tools
+
+        messages = self._chat_context.messages
         completion_result = await self._provider_context.response_completer.ensure_response(
-            messages=self._chat_context.messages,
+            messages=messages,
             model=self._provider_context.model,
             temperature=self._provider_context.temperature,
             max_tokens=self._provider_context.max_tokens,
             failure_context=(failure_context if failure_context.failed_tools else None),
+            tools=text_call_tools(self._resolve_orchestrator(), messages),
         )
 
         for provider_response in completion_result.provider_responses:

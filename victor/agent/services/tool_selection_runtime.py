@@ -13,7 +13,7 @@ import logging
 from victor.config.tool_selection_access import (
     is_tool_selection_enabled,
 )
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, List, NamedTuple, Optional
 
 from victor.agent.tool_selection.history_projection import _selector_history_projection
 from victor.tools.tool_supply_trace import TOOL_SUPPLY_TOPIC, ToolSupplyTrace
@@ -63,8 +63,9 @@ def history_has_tool_calls(messages: Any) -> bool:
     Q&A gates of both loops and the selection skip/read-core downgrades keep the
     normal supply instead of an empty or narrowed offer (validating wrappers such
     as Anthropic's reject tool_use/tool_result history without tool definitions).
-    One rule for chat() and stream() (FEP-0007). Out of scope: calls that bypass
-    selection with ``tools=None`` (synthesis/forced-final/limit summaries).
+    One rule for chat() and stream() (FEP-0007). Calls that bypass selection
+    (the buffered completer's synthesis/empty-response recovery) apply the same
+    rule through :func:`text_call_tools`.
 
     Accepts provider ``Message`` objects or plain dicts; any unreadable history
     is treated as tool-free (the pre-existing behavior).
@@ -82,6 +83,54 @@ def history_has_tool_calls(messages: Any) -> bool:
     except Exception:
         logger.debug("tool-history scan failed", exc_info=True)
     return False
+
+
+# Appended to text-forcing calls that still carry a tool offer: the offer keeps
+# the request protocol-valid, this keeps the reply in text.
+TEXT_ONLY_INSTRUCTION = "Respond with your final answer in plain text now. Do not call any tools."
+
+
+def text_call_tools(host: Any, messages: Any) -> Optional[List[Any]]:
+    """Tool offer for a call that must answer in text (post-loop synthesis, recovery).
+
+    Such calls used to send ``tools=None``. On a tool-free history that stays
+    the answer (``None``). Once the history carries tool calls/results, an empty
+    offer is the same protocol violation the sticky-offer rule removes from
+    selection (Anthropic rejects tool_use/tool_result blocks without tool
+    definitions) and it drops the KV-cached tool prefix. Return the stable
+    supply instead: the curated set when the session curated one, otherwise the
+    full enabled registry. That is byte-identical to the buffered turn offer with
+    pruning off (the default); with ``VICTOR_TOOL_SELECTION=1`` normal turns send
+    a narrowed set, so the call stays protocol-valid but may miss the cache.
+
+    ``tool_choice`` is not portable across adapters (OpenAI-compatible bodies pin
+    it to ``"auto"``), so callers keep the reply textual with
+    :data:`TEXT_ONLY_INSTRUCTION` and ignore any tool calls the model emits.
+    Returns ``None`` when the host cannot offer tools or anything fails, which is
+    the pre-existing behavior.
+    """
+    if not history_has_tool_calls(messages):
+        return None
+    try:
+        provider = getattr(host, "provider", None)
+        if provider is None or not provider.supports_tools():
+            return None
+        model_supports = getattr(host, "_model_supports_tool_calls", None)
+        if callable(model_supports) and not model_supports():
+            return None
+        from victor.agent.tool_selection.stable_definitions import (
+            stable_all_definitions,
+            stable_curated_definitions,
+        )
+
+        selector = getattr(host, "tool_selector", None)
+        curated = getattr(selector, "_enabled_tools", None)
+        if isinstance(curated, (set, frozenset, list)) and curated:
+            return stable_curated_definitions(selector) or None
+        return stable_all_definitions(selector) or None
+    except Exception:
+        logger.debug("text-call tool offer failed; sending none", exc_info=True)
+        return None
 
 
 def hydrate_demand_tools(host: Any, text: str) -> None:

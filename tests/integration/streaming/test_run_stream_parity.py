@@ -95,11 +95,11 @@ async def test_run_stream_parity(scenario):
 # diverge; fixing one fails the test below until the entry is removed.
 # Pinned exactly so a *different* divergence cannot hide behind the entry.
 _KNOWN_OFFER_DIVERGENCE = {
-    # Protocol violation, not just parity: buffered's spin-guard synthesis calls go
-    # out with tools=None on tool history (response_completer), which Anthropic-shaped
-    # validators reject. Follow-up: route synthesis/forced-final/limit-summary calls
-    # through the stable offer (streaming continuation.py has the same class of call).
-    "U1": ([8, 8, 8, 0, 0, 0], [8, 8, 8]),
+    # Call-count divergence only: buffered's post-loop synthesis makes three extra
+    # text-forcing calls that streaming does not (follow-up: one synthesis rule on
+    # both loops). Their offers are no longer empty (was [8, 8, 8, 0, 0, 0]): they
+    # keep the stable offer on tool history (text_call_tools).
+    "U1": ([8, 8, 8, 8, 8, 8], [8, 8, 8]),
 }
 
 
@@ -112,6 +112,16 @@ async def test_run_stream_offer_parity(scenario):
     turn are never sent an empty offer (X1/M1/C1 start Q&A/skip-classified at 0).
     """
     buffered, streaming = await _run_both(scenario)
+    if scenario.expect_tools:
+        # A call made after tools ran must carry a non-empty offer, on both loops and
+        # for pinned divergences too (the protocol rule is not a parity exemption).
+        for loop, sizes in (
+            ("buffered", buffered.offer_sizes),
+            ("streaming", streaming.offer_sizes),
+        ):
+            assert all(
+                size > 0 for size in sizes[1:]
+            ), f"{scenario.id}: {loop} sent an empty offer after tool history {sizes}"
     if scenario.id in _KNOWN_OFFER_DIVERGENCE:
         assert (buffered.offer_sizes, streaming.offer_sizes) == tuple(
             _KNOWN_OFFER_DIVERGENCE[scenario.id]
@@ -124,11 +134,6 @@ async def test_run_stream_offer_parity(scenario):
         f"{scenario.id}: buffered offers {buffered.offer_sizes} != "
         f"streaming offers {streaming.offer_sizes}"
     )
-    if scenario.expect_tools:
-        # A call made after tools ran must carry a non-empty offer.
-        assert all(
-            size > 0 for size in buffered.offer_sizes[1:]
-        ), f"{scenario.id}: empty offer after tool history {buffered.offer_sizes}"
 
 
 async def test_parity_battery_is_non_empty():
