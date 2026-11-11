@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from victor.providers.base import StreamChunk
     from victor.agent.services.chat_stream_executor import StreamingChatExecutor
     from victor.agent.streaming.intent_classification import IntentClassificationHandler
-    from victor.agent.streaming.continuation import ContinuationHandler
     from victor.agent.streaming.tool_execution import ToolExecutionHandler
 
 from victor.agent.services.chat_runtime_services import ChatRuntimeServices
@@ -112,7 +111,6 @@ class ServiceStreamingRuntime(ChatStreamHelperMixin):
         )
         self._orchestrator = orchestrator
         self._intent_classification_handler: Optional["IntentClassificationHandler"] = None
-        self._continuation_handler: Optional["ContinuationHandler"] = None
         self._tool_execution_handler: Optional["ToolExecutionHandler"] = None
         self._streaming_executor: Optional["StreamingChatExecutor"] = None
         self._runtime_bindings: Optional[StreamingRuntimeBindings] = None

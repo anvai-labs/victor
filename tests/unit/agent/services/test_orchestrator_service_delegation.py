@@ -279,8 +279,6 @@ class TestAdapterProtocolConformance:
         )
 
         stream_chunk = StreamChunk(content="stream", is_final=True)
-        context_limit_helper = MagicMock()
-        context_limit_helper.handle_limits = AsyncMock(return_value=(True, stream_chunk))
         orchestrator = MagicMock()
 
         async def _stream_chat(user_message: str, **kwargs):
@@ -289,23 +287,11 @@ class TestAdapterProtocolConformance:
             yield stream_chunk
 
         orchestrator.stream_chat = _stream_chat
-        orchestrator._get_context_limit_runtime = MagicMock(return_value=context_limit_helper)
 
         adapter = OrchestratorProtocolAdapter(orchestrator)
         chunks = [chunk async for chunk in adapter.stream_chat("hello", mode="compat")]
 
         assert chunks == [stream_chunk]
-        assert adapter._get_context_limit_runtime() is context_limit_helper
-        orchestrator._get_context_limit_runtime.assert_called_once_with()
-        handled, result_chunk = await context_limit_helper.handle_limits(
-            "hello",
-            5,
-            1000,
-            1,
-            0.8,
-        )
-        assert handled is True
-        assert result_chunk is stream_chunk
 
     @pytest.mark.asyncio
     async def test_orchestrator_protocol_adapter_exposes_service_chat_runtime_handlers(
@@ -321,32 +307,17 @@ class TestAdapterProtocolConformance:
         response = CompletionResponse(content="planned", role="assistant")
         planning_helper = MagicMock()
         planning_helper.run = AsyncMock(return_value=response)
-        context_limit_helper = MagicMock()
-        context_limit_helper.handle_limits = AsyncMock(return_value=(False, None))
         orchestrator = MagicMock()
         orchestrator._get_planning_chat_runtime = MagicMock(return_value=planning_helper)
-        orchestrator._get_context_limit_runtime = MagicMock(return_value=context_limit_helper)
 
         adapter = OrchestratorProtocolAdapter(orchestrator)
         assert isinstance(adapter, ChatRuntimeHelperAccessProtocol)
         assert adapter._get_planning_chat_runtime() is planning_helper
-        assert adapter._get_context_limit_runtime() is context_limit_helper
         planning_response = await planning_helper.run("plan this")
-        handled, chunk = await context_limit_helper.handle_limits("plan this", 5, 1000, 1, 0.8)
 
         assert planning_response is response
-        assert handled is False
-        assert chunk is None
         orchestrator._get_planning_chat_runtime.assert_called_once_with()
         planning_helper.run.assert_awaited_once_with("plan this")
-        orchestrator._get_context_limit_runtime.assert_called_once_with()
-        context_limit_helper.handle_limits.assert_awaited_once_with(
-            "plan this",
-            5,
-            1000,
-            1,
-            0.8,
-        )
 
     @pytest.mark.asyncio
     async def test_orchestrator_protocol_adapter_service_runtime_handlers_require_canonical_helpers(
@@ -363,9 +334,8 @@ class TestAdapterProtocolConformance:
         with pytest.raises(AttributeError, match="_get_planning_chat_runtime"):
             adapter._get_planning_chat_runtime()
 
-        with pytest.raises(AttributeError, match="_get_context_limit_runtime"):
-            adapter._get_context_limit_runtime()
-
+        # The context-limit runtime had no live caller and was removed.
+        assert "_get_context_limit_runtime" not in type(adapter).__dict__
         assert "_run_planning_chat_runtime" not in type(adapter).__dict__
         assert "_handle_context_and_iteration_limits_runtime" not in type(adapter).__dict__
 
@@ -407,43 +377,20 @@ class TestAdapterProtocolConformance:
         stream_chunk = StreamChunk(content="service", is_final=True)
         planning_helper = MagicMock()
         planning_helper.run = AsyncMock(return_value=response)
-        context_limit_helper = MagicMock()
-        context_limit_helper.handle_limits = AsyncMock(return_value=(True, stream_chunk))
 
         orchestrator = MagicMock()
         orchestrator._chat_service = None
         orchestrator._get_planning_chat_runtime = MagicMock(return_value=planning_helper)
-        orchestrator._get_context_limit_runtime = MagicMock(return_value=context_limit_helper)
         orchestrator._run_planning_chat_runtime = AsyncMock(
             side_effect=AssertionError("legacy planning wrapper should not be used")
-        )
-        orchestrator._handle_context_and_iteration_limits_runtime = AsyncMock(
-            side_effect=AssertionError("legacy context-limit wrapper should not be used")
         )
 
         adapter = OrchestratorProtocolAdapter(orchestrator)
         planning_response = await adapter._get_planning_chat_runtime().run("plan this")
-        handled, chunk = await adapter._get_context_limit_runtime().handle_limits(
-            "plan this",
-            5,
-            1000,
-            1,
-            0.8,
-        )
 
         assert planning_response is response
-        assert handled is True
-        assert chunk is stream_chunk
         orchestrator._get_planning_chat_runtime.assert_called_once_with()
         planning_helper.run.assert_awaited_once_with("plan this")
-        orchestrator._get_context_limit_runtime.assert_called_once_with()
-        context_limit_helper.handle_limits.assert_awaited_once_with(
-            "plan this",
-            5,
-            1000,
-            1,
-            0.8,
-        )
 
     def test_orchestrator_tool_strategy_event_prefers_metrics_service(self):
         orchestrator = object.__new__(AgentOrchestrator)
@@ -606,9 +553,7 @@ class TestChatServiceBootstrapLaziness:
             kwargs["stream_turn_lock"]
             is obj._factory.create_streaming_chat_adapter.return_value.services.stream_turn_lock
         )
-        assert callable(kwargs["context_limit_handler"])
-        assert kwargs["context_limit_handler"].__self__ is obj._context_limit_runtime
-        assert kwargs["context_limit_handler"].__self__._runtime is obj
+        assert "context_limit_handler" not in kwargs
         from victor.agent.services.chat_turn_runtime import ChatTurnRuntime
 
         assert isinstance(kwargs["turn_runtime"], ChatTurnRuntime)
@@ -713,14 +658,10 @@ class TestChatServiceBootstrapLaziness:
 
             kwargs = chat_service.bind_runtime_components.call_args.kwargs
             planning_handler = kwargs["planning_handler"]
-            context_limit_handler = kwargs["context_limit_handler"]
 
             response = await planning_handler("plan this")
-            handled, chunk = await context_limit_handler("plan this", 5, 1000, 1, 0.8)
 
         assert response is planning_response
-        assert handled is False
-        assert chunk is None
         planning_instance.chat_with_planning.assert_awaited_once_with(
             "plan this",
             task_analysis="task-analysis",
@@ -1181,21 +1122,11 @@ class TestChatServiceBootstrapLaziness:
             planned_tools=None,
         )
 
-    def test_get_context_limit_runtime_prefers_cached_helper_and_orchestrator_host(
-        self,
-    ):
+    def test_agent_orchestrator_has_no_context_limit_runtime(self):
+        # Removed: ChatService.handle_context_and_iteration_limits had no caller.
         from victor.agent.orchestrator import AgentOrchestrator
-        from victor.agent.services.context_limit_runtime import ContextLimitRuntime
 
-        obj = object.__new__(AgentOrchestrator)
-        obj._protocol_adapter = MagicMock(name="protocol_adapter")
-
-        first = obj._get_context_limit_runtime()
-        second = obj._get_context_limit_runtime()
-
-        assert isinstance(first, ContextLimitRuntime)
-        assert first is second
-        assert first._runtime is obj
+        assert "_get_context_limit_runtime" not in AgentOrchestrator.__dict__
 
     @pytest.mark.asyncio
     async def test_planning_handler_skips_duplicate_turn_recording_after_direct_chat_fallback(

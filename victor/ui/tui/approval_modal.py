@@ -93,7 +93,7 @@ class ApprovalScreen(ModalScreen[ApprovalStatus]):
 
     def on_mount(self) -> None:
         # Fail-safe: reject if the user does not respond in time.
-        self.set_timer(float(self._request.timeout_seconds), self._on_timeout)
+        self._timeout_timer = self.set_timer(float(self._request.timeout_seconds), self._on_timeout)
 
     def _render_preview(self) -> str:
         tool, args = _extract_tool(self._request.context)
@@ -128,6 +128,20 @@ class ApprovalScreen(ModalScreen[ApprovalStatus]):
         self._decided = True
         self.dismiss(status)
 
+    def force_dismiss(self) -> None:
+        """Pop the modal without a decision.
+
+        Called when the awaiting turn is cancelled (ESC interrupt): without
+        this the modal stays pushed and keeps stealing keys until its own
+        timeout timer fires — up to the full request timeout (audit B6).
+        """
+        timer = getattr(self, "_timeout_timer", None)
+        if timer is not None:
+            timer.stop()
+        if not self._decided:
+            self._decided = True
+            self.dismiss(None)
+
 
 def make_tui_approval_handler(app: Any) -> Any:
     """Return an async approval handler that prompts via an :class:`ApprovalScreen`.
@@ -146,8 +160,15 @@ def make_tui_approval_handler(app: Any) -> Any:
             if not future.done():
                 future.set_result(result)
 
-        app.push_screen(ApprovalScreen(request), _resolve)
-        status = await future
+        screen = ApprovalScreen(request)
+        app.push_screen(screen, _resolve)
+        try:
+            status = await future
+        except asyncio.CancelledError:
+            # The turn was interrupted while blocked on the modal: pop it now
+            # instead of leaving the terminal modal-locked until the timeout.
+            screen.force_dismiss()
+            raise
         return (status or ApprovalStatus.REJECTED), None, _RESPONDER
 
     return handler
