@@ -866,6 +866,24 @@ RELATED_TESTS = {
         "tests/unit/commands/test_slash_import_export.py",
         "tests/unit/agent/conversation/interop/",
     ),
+    # Slash command suites are flattened into tests/unit/commands, so the
+    # stem-mirror and rglob fallbacks cannot find them by source path.
+    "victor/ui/slash/commands/resume.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+    ),
+    "victor/ui/slash/commands/status.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+    ),
+    "victor/ui/slash/commands/mode.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+    ),
+    "victor/ui/slash/registry.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+    ),
     **dict.fromkeys(
         ("victor/config/agentic_loop_settings.py", "victor/framework/agentic_loop_executor.py"),
         (
