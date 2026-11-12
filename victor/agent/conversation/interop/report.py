@@ -39,6 +39,16 @@ class ConversionReport:
     model: Optional[str] = None
     time_span: Optional[str] = None
     session_id: Optional[str] = None
+    context_bytes: Optional[int] = None
+    context_byte_limit: Optional[int] = None
+
+    @property
+    def context_over_budget(self) -> bool:
+        return (
+            self.context_bytes is not None
+            and self.context_byte_limit is not None
+            and self.context_bytes > self.context_byte_limit
+        )
 
     def count_role(self, role: str) -> None:
         self.role_counts[role] = self.role_counts.get(role, 0) + 1
@@ -70,6 +80,8 @@ class ConversionReport:
             "model": self.model,
             "time_span": self.time_span,
             "session_id": self.session_id,
+            "context_bytes": self.context_bytes,
+            "context_byte_limit": self.context_byte_limit,
         }
 
     def render_summary(self) -> str:
@@ -94,6 +106,7 @@ class ConversionReport:
             lines.append("Lossy: " + "; ".join(losses))
         if self.time_span:
             lines.append(f"Span: {self.time_span}")
+        lines.extend(f"Warning: {warning}" for warning in self.warnings)
         return "\n".join(lines)
 
 

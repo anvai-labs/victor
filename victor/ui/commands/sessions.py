@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import typer
-from rich.console import Console
 from rich.syntax import Syntax
 from rich.table import Table
 from victor.ui.console import get_console
@@ -404,6 +403,11 @@ def sessions_export(
         "--install",
         help="Write directly into the target tool's session store (claude/codex)",
     ),
+    context_file: Optional[Path] = typer.Option(
+        None,
+        "--context-file",
+        help="Explicit historical handoff instead of full history (codex only)",
+    ),
 ) -> None:
     """Export sessions to JSON file.
 
@@ -415,8 +419,14 @@ def sessions_export(
         victor data session export --output sessions.json
         victor data session export --session-id s_x --format claude
     """
-    if fmt or session_id or install:
-        _export_single_session(output=output, session_id=session_id, fmt=fmt, install=install)
+    if fmt or session_id or install or context_file:
+        _export_single_session(
+            output=output,
+            session_id=session_id,
+            fmt=fmt,
+            install=install,
+            context_file=context_file,
+        )
         return
     try:
         all_sessions = _exportable_sessions(limit=1000)
@@ -453,6 +463,7 @@ def _export_single_session(
     session_id: Optional[str],
     fmt: Optional[str],
     install: bool = False,
+    context_file: Optional[Path] = None,
 ) -> None:
     """Export one session in an interop format (CLI path of /export)."""
     from victor.agent.conversation.interop import (
@@ -461,6 +472,7 @@ def _export_single_session(
         export_session,
     )
     from victor.agent.conversation.types import ConversationMessage
+    from victor.agent.conversation.interop.report import ConversionReport
     from datetime import datetime as _dt
 
     backend = _get_session_backend()
@@ -519,6 +531,13 @@ def _export_single_session(
         model=metadata.get("model"),
         provider=metadata.get("provider"),
     )
+    if install and resolved not in (TranscriptFormat.CLAUDE_CODE, TranscriptFormat.CODEX_ROLLOUT):
+        console.print("[red]--install requires --format claude or codex[/]")
+        sys.exit(1)
+    report = ConversionReport(
+        source_format="victor", target_format=resolved.value, session_id=session.session_id
+    )
+    count = 1 if context_file else len(messages)
     extensions = {
         TranscriptFormat.CLAUDE_CODE: "claude.jsonl",
         TranscriptFormat.CODEX_ROLLOUT: "codex.jsonl",
@@ -531,21 +550,24 @@ def _export_single_session(
             from victor.agent.conversation.interop import install_session
 
             target = "claude" if resolved is TranscriptFormat.CLAUDE_CODE else "codex"
-            out = install_session(session, target)
+            out = install_session(session, target, report, context_file=context_file)
+            for warning in report.warnings:
+                console.print(f"Warning: {warning}", markup=False)
             console.print(
-                f"[green]✓[/] Installed {len(messages)} message(s) into the {target} "
-                f"store: {out}"
+                f"[green]✓[/] Installed {count} message(s) into the {target} " f"store: {out}"
             )
             console.print(
                 f"[dim]Resume there with: "
                 f"{'claude --resume <uuid>' if target == 'claude' else 'codex resume <uuid>'}[/]"
             )
             return
-        export_session(session, resolved, out)
+        export_session(session, resolved, out, report, context_file=context_file)
     except Exception as e:  # noqa: BLE001
         console.print(f"[red]Export failed:[/] {e}")
         sys.exit(1)
-    console.print(f"[green]✓[/] Exported {len(messages)} message(s) to {out}")
+    for warning in report.warnings:
+        console.print(f"Warning: {warning}", markup=False)
+    console.print(f"[green]✓[/] Exported {count} message(s) to {out}")
 
 
 @sessions_app.command("import")
@@ -845,6 +867,11 @@ def sessions_handoff(
     session_id: Optional[str] = typer.Option(
         None, "--session-id", help="Session to hand off (default: most recent)"
     ),
+    context_file: Optional[Path] = typer.Option(
+        None,
+        "--context-file",
+        help="Explicit historical handoff instead of full history (codex only)",
+    ),
 ) -> None:
     """Hand a victor session to another coding agent (export + install).
 
@@ -860,4 +887,6 @@ def sessions_handoff(
         sys.exit(1)
 
     fmt = TranscriptFormat.CLAUDE_CODE if key == "claude" else TranscriptFormat.CODEX_ROLLOUT
-    _export_single_session(output=None, session_id=session_id, fmt=fmt.value, install=True)
+    _export_single_session(
+        output=None, session_id=session_id, fmt=fmt.value, install=True, context_file=context_file
+    )

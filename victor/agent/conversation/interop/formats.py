@@ -78,8 +78,9 @@ def _first_jsonl_records(path: Path, max_records: int = 5) -> List[Any]:
             break
         try:
             records.append(json.loads(line))
-        except json.JSONDecodeError:
-            # A non-JSON line means this is not a JSONL format; stop.
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # The bounded prefix can end inside JSON or a UTF-8 character.
+            # Keep complete records already read for format identification.
             break
         if len(records) >= max_records:
             break

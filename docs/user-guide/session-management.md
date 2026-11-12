@@ -524,6 +524,38 @@ victor data session export --session-id s_abc123 --format claude   # Claude tran
 victor data session export --format codex                          # most recent session
 ```
 
+#### Large Codex continuations
+
+Loading a rollout does not establish that a model can continue it. Old turns
+and tool output can exceed the model's context window, including the input
+accepted by remote compaction. Codex installs (`--install` and `handoff`) reject
+serialized inference payloads above 128 KiB. This is a conservative byte guard,
+not token counting or a guarantee for every model, prompt and tool configuration.
+File-only exports still work and show a warning above that bound; existing
+conversion losses and per-message truncations remain reported.
+
+Preserve a file export, then write a UTF-8 handoff of at most 64 KiB containing
+the objective, constraints, completed work, pending work and paths to the full
+history and current project checkpoint. Supply it explicitly:
+
+```bash
+victor data session export --session-id s_abc123 --format codex --output archive.jsonl
+victor data session handoff codex --session-id s_abc123 --context-file handoff.md
+```
+
+`export --format codex --context-file handoff.md` also supports file output or
+`--install`. The slash equivalents are `/handoff codex [session_id]
+--context-file handoff.md` and `/export [session_id] --format codex --install
+--context-file handoff.md`. Quote paths containing spaces.
+
+The explicit handoff replaces the target's inference history with one historical
+context message. Victor reports the replaced source/tool-message counts and the
+handoff SHA256; the original Victor session remains unchanged. Old approvals and
+running-job claims in the handoff grant no new authorization. Victor does not
+silently trim or automatically summarize the source. After import, verify a real
+model reply and recall of a source constraint before treating continuation as
+accepted; parser acceptance alone is insufficient.
+
 ## Advanced Usage
 
 ### Conversation State Machine

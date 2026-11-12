@@ -67,6 +67,37 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **INTEROP-02 — IN_PROGRESS** (2026-11-12), owner: release co-design session;
+  branch `fix/codex-context-bound`, baseline `a12e387e5`. Fetched origin and
+  reconciled #1761/#1762/#1764: fixes promoted, Victor 0.28.0 published and
+  installed. The actual 51 MB Claude export loaded in Codex but failed its first
+  model turn and remote compaction with context-window exhaustion. A private
+  24 KB handoff completed a real `gpt-6.1-sol` reply (22,083 input tokens), with
+  original source/export preserved. This is recovery evidence, not a generic
+  exporter fix. RED: 13 focused regressions failed before repair. GREEN: bounded
+  install admission, archival warnings, explicit historical-context files and
+  native user/assistant display events; 126 owner/CLI tests passed. A 64 KiB
+  multibyte boundary exposed and repaired a truncated UTF-8 detection prefix.
+  Real source admission rejected; explicit product-path handoff rendered and
+  completed a `gpt-6.1-sol` recall turn (20,661 input tokens, no tool items),
+  preserving the original source/export. CLI import/export smoke: 2 passed,
+  1 live-Claude leg skipped. Strict MkDocs build passed. Next: finish final
+  affected tests, exact-head independent review, CI and merge. Release of this
+  source fix is separate from the existing 0.28.0 publication.
+
+- **RUN-OUTCOME-01 — READY** (2026-11-12), owner: release co-design session.
+  Released hosted smoke produced both requested files and persisted tool-result
+  records, but public `TaskResult.tool_calls` was empty. Independent source and
+  deterministic probes also confirmed failed-loop metadata becomes public
+  `success=True`. Owners: `turn_execution_runtime.py` and
+  `framework/message_execution.py`; preserve run-scoped execution facts separately
+  from pending provider calls and project the loop verdict. Do not reconstruct
+  from whole-session history or weaken repetition stops. The tiny streaming
+  smoke response triggered short-content continuation/repetition, not an
+  observed provider outage. Next after the interop checkpoint: claim a branch,
+  RED true/false/absent verdict and tool-evidence tests, then substantive live
+  completion/stream/file-tool/usage acceptance. InferFlux remains user-deferred.
+
 - **PROMOTION-025-ADVERSARIAL-02 — MERGED_MAIN_SYNCED** (2026-11-02), owner:
   promotion adversarial repair session. Completed branch `promote/adversarial-repairs`
   and `.worktrees/main-adversarial-promote` were removed. Main baseline: `8e142c2cb`;

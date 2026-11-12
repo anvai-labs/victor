@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Codex session installs reject oversized inference history before writing a
+  rollout. File exports surface context warnings; explicit `--context-file`
+  handoffs preserve the original session and report replacement losses. User
+  and assistant history events now accompany inference items for native display.
+
 ## [0.28.0] - 2026-11-11
 
 Terminal-UI remediation program (12 PRs) plus caller-budget, agent-loop and
