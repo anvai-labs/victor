@@ -127,6 +127,46 @@ def test_direct_binding_handle_is_retry_free_even_with_provider_retry_setting(mo
     assert runtime.calls[0][1]["max_retries"] == 0
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback_position", [False, True])
+async def test_owner_deadline_after_binding_entry_never_retries_or_falls_back(
+    monkeypatch, fallback_position
+):
+    import asyncio
+    from victor.providers.resilience import CircuitOpenError, ProviderRetryConfig, ResilientProvider
+
+    entered = 0
+
+    class SlowBinding(FakeTypedProvider):
+        async def complete_json(self, request_json, wire_headers_json=None):
+            nonlocal entered
+            entered += 1
+            await asyncio.sleep(30)
+
+    install_runtime(monkeypatch, SlowBinding())
+    direct = make_provider()
+    last = SimpleNamespace(name="last", chat=AsyncMock(return_value="replayed"))
+    if fallback_position:
+        primary = SimpleNamespace(
+            name="closed", chat=AsyncMock(side_effect=CircuitOpenError("closed"))
+        )
+        fallbacks = [direct, last]
+    else:
+        primary, fallbacks = direct, [last]
+    provider = ResilientProvider(
+        primary,
+        fallback_providers=fallbacks,
+        request_timeout=0.01,
+        retry_config=ProviderRetryConfig(max_retries=1, base_delay_seconds=0, jitter_factor=0),
+    )
+
+    with pytest.raises(st.ProviderTimeoutError) as raised:
+        await provider.chat([Message(role="user", content="hello")], model="deepseek-chat")
+    assert raised.value.recoverable is False
+    assert entered == 1
+    last.chat.assert_not_awaited()
+
+
 def test_resolver_always_uses_sandhi_for_admitted_provider(monkeypatch):
     install_runtime(monkeypatch)
     assert st.resolve_transport_class("deepseek", DeepSeekProvider, {}) is DeepSeekProvider

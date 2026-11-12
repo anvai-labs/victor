@@ -17,6 +17,10 @@ Prepared package version: **0.29.0**. This version is not yet released.
   portable output must be refused explicitly. Install the matching candidate
   wheel when qualifying these source branches; release and deployment remain
   separate gates. Victor Contracts and CodeGraph keep independent versions.
+- Provider invocation deadlines are terminal for retry/fallback decisions once
+  an invocation has started. Both primary and fallback deadlines retain an
+  unknown dispatch outcome; a timeout cannot authorize replay. Reported transient
+  provider rejections still use the logical-call retry policy.
 
 ## [0.28.1] - 2026-11-12
 

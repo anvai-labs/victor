@@ -12,6 +12,11 @@ owner decides whether another attempt is authorized. A binding failure never
 falls back to another transport. `output_projection_error` and `invalid_response`
 are terminal even when their HTTP status is 502. Iterator EOF without a validated
 finish is a terminal error; it cannot manufacture a successful final result.
+The resilience owner's primary and fallback invocation deadlines follow that
+same rule. Their cancellation cannot prove that the backend did not accept the
+request, so they surface a terminal timeout with an unknown dispatch outcome.
+An explicit transient provider rejection can still use the logical-call retry
+policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
 and actual token observation across embedded and accounted calls. Buffered

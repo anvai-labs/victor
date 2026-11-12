@@ -71,7 +71,7 @@ from victor.core.circuit_breaker import (
     CircuitBreakerError as CanonicalCircuitBreakerError,
 )
 from victor.core.context import bind_call_id_once, call_id
-from victor.core.errors import ProviderError, ProviderPolicyError
+from victor.core.errors import ProviderError, ProviderPolicyError, ProviderTimeoutError
 
 # Import the canonical CircuitBreaker for composition
 from victor.providers import failure_taxonomy
@@ -830,10 +830,7 @@ class ResilientProvider:
         primary_retry_events: List[Dict[str, Any]] = []
 
         async def _execute_primary():
-            return await asyncio.wait_for(
-                self.provider.chat(messages, model=model, **kwargs),
-                timeout=self.request_timeout,
-            )
+            return await self._invoke_with_deadline(self.provider, messages, model, kwargs)
 
         # Try primary provider with circuit breaker and retry
         try:
@@ -881,10 +878,7 @@ class ResilientProvider:
                 logger.info(f"Trying fallback provider: {fb_name}")
 
                 async def _execute_fallback(fb=fallback):
-                    return await asyncio.wait_for(
-                        fb.chat(messages, model=model, **kwargs),
-                        timeout=self.request_timeout,
-                    )
+                    return await self._invoke_with_deadline(fb, messages, model, kwargs)
 
                 if fb_circuit:
                     result = await fb_circuit.execute(_execute_fallback)
@@ -940,6 +934,22 @@ class ResilientProvider:
                 },
             )
         raise ProviderUnavailableError(primary_error, fallback_errors)
+
+    async def _invoke_with_deadline(
+        self, provider: Any, messages: List[Any], model: str, kwargs: Dict[str, Any]
+    ) -> Any:
+        """An owner deadline cannot prove that a started provider call was unbilled."""
+        try:
+            return await asyncio.wait_for(
+                provider.chat(messages, model=model, **kwargs), timeout=self.request_timeout
+            )
+        except TimeoutError as error:
+            raise ProviderTimeoutError(
+                "Provider invocation deadline expired; dispatch outcome is unknown",
+                provider=getattr(provider, "name", "unknown"),
+                timeout=self.request_timeout,
+                recoverable=False,
+            ) from error
 
     @staticmethod
     def _attach_provider_retry_diagnostics(

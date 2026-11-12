@@ -798,15 +798,17 @@ class TestResilientProvider:
         """One ResilientProvider.chat = one logical call (sandhi TD-0021 P4): every
         retry re-enters the inner provider under the SAME call_id binding, so the
         sandhi transport stamps one Idempotency-Key and the gateway's meter counts
-        the call once. TimeoutError is the retryable may-have-billed case."""
+        the call once. A reported transient 429 is an explicit rejection;
+        ambiguous timeouts are terminal and covered separately."""
         from victor.core.context import get_call_id
+        from victor.providers.base import ProviderRateLimitError
 
         seen: list = []
 
         async def flaky_chat(messages, *, model, **kwargs):
             seen.append(get_call_id())
             if len(seen) == 1:
-                raise asyncio.TimeoutError("simulated may-have-billed timeout")
+                raise ProviderRateLimitError("transient 429 retry later")
             return "recovered"
 
         inner = MagicMock()
