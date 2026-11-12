@@ -187,9 +187,15 @@ class EventDispatcher:
         )
 
     def surface_error(self, message: str) -> None:
-        """Record a terminal failure and deliver its reason to the renderer."""
+        """Record a terminal failure and deliver its reason to the renderer.
+
+        Severity is passed structurally: the old "❌ " string glue was ignored
+        by the substring classifier, so terminal provider errors rendered as
+        dim neutral status (audit P3)."""
+        from victor.ui.rendering.utils import Severity
+
         self.error = message
-        self.renderer.on_status(f"\u274c {self.error}")
+        self.renderer.on_status(message, Severity.ERROR)
 
     def _handle_tool_progress(
         self,
