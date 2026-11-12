@@ -79,6 +79,17 @@ class WireTimelineState:
         self._in_reasoning = False
         self._pending_args: Dict[str, Dict[str, Any]] = {}
 
+    def pop_pending_args(self, key: str) -> Dict[str, Any]:
+        """Take a tool call's recorded arguments (TOOL_START side), popping it.
+
+        Sole owner of tool-args correlation: ConversationLog previously kept a
+        parallel dict, and its TOOL_END path (flush, not advance) never popped
+        the state-side entries — a per-turn leak with silent divergence risk.
+        Unknown keys return {} (e.g. the wire path where TOOL_END carries no
+        recoverable arguments).
+        """
+        return self._pending_args.pop(key, {})
+
     def advance(self, action: RenderAction) -> List[Any]:
         if action.kind is RenderKind.TOKEN:
             self._in_reasoning = False
