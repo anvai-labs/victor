@@ -116,6 +116,17 @@ def make_provider() -> DeepSeekProvider:
     return DeepSeekProvider(api_key="k", base_url="https://api.deepseek.com/v1")
 
 
+def test_direct_binding_handle_is_retry_free_even_with_provider_retry_setting(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    provider.max_retries = 5
+
+    provider._typed_provider("deepseek-chat")
+
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0][1]["max_retries"] == 0
+
+
 def test_resolver_always_uses_sandhi_for_admitted_provider(monkeypatch):
     install_runtime(monkeypatch)
     assert st.resolve_transport_class("deepseek", DeepSeekProvider, {}) is DeepSeekProvider
@@ -312,6 +323,16 @@ async def test_stream_receipt_distinguishes_observed_finish_from_iterator_eof(
 
     install_runtime(monkeypatch, ReceiptProvider())
     provider = make_provider()
+    if not with_finish:
+        observed = []
+        with pytest.raises(st.ProviderError, match="without a validated finish") as failure:
+            async for chunk in provider.stream(
+                [Message(role="user", content="hi")], model="requested-alias"
+            ):
+                observed.append(chunk)
+        assert failure.value.recoverable is False
+        assert not any(chunk.is_final for chunk in observed)
+        return
     chunks = [
         chunk
         async for chunk in provider.stream(
@@ -331,6 +352,7 @@ async def test_stream_receipt_distinguishes_observed_finish_from_iterator_eof(
     [
         ("rate_limited", True, 429, ProviderRateLimitError),
         ("invalid_response", False, 502, st.ProviderError),
+        ("output_projection_error", False, 502, st.ProviderError),
     ],
 )
 async def test_binding_failure_is_mapped_and_never_replayed(

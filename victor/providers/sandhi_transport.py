@@ -112,7 +112,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.3.0 is required for provider transport",
+            "sandhi-gateway 0.17.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -403,7 +403,10 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     """
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return ProviderTimeoutError(
-            f"sandhi transport timed out: {exc}", provider=provider_name, timeout=timeout
+            f"sandhi transport timed out: {exc}",
+            provider=provider_name,
+            timeout=timeout,
+            recoverable=False,
         )
     typed = _typed_error_payload(str(exc))
     if typed is None:
@@ -411,9 +414,12 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
             # The typed class is authoritative: this IS a provider error even if
             # the payload failed to parse — never misfile it as a binding failure
             # (retry ownership differs).
-            return ProviderError(str(exc), provider=provider_name, raw_error=exc)
+            return ProviderError(str(exc), provider=provider_name, raw_error=exc, recoverable=False)
         return ProviderConnectionError(
-            f"sandhi binding failure: {exc}", provider=provider_name, raw_error=exc
+            f"sandhi binding failure: {exc}",
+            provider=provider_name,
+            raw_error=exc,
+            recoverable=False,
         )
     candidates = [typed]
     details = typed.get("details")
@@ -505,6 +511,9 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
             detail,
             provider=provider_name,
             status_code=status if isinstance(status, int) else None,
+            # The binding supplies no authoritative pre-dispatch proof for a
+            # timeout. Retrying could duplicate an accepted physical request.
+            recoverable=False,
         )
     if code in {"circuit_open", "transport_error"}:
         # "error sending request" wraps both real network failures and TLS
@@ -525,13 +534,21 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
                     diagnosis = None
                 if diagnosis:
                     detail = f"{detail} | TLS diagnosis: {diagnosis}"
-        return ProviderConnectionError(detail, provider=provider_name, raw_error=exc)
+        return ProviderConnectionError(
+            detail,
+            provider=provider_name,
+            raw_error=exc,
+            recoverable=code == "circuit_open" and typed.get("retryable") is True,
+        )
     return ProviderError(
         detail,
         provider=provider_name,
         # A malformed structured response is terminal, even though its HTTP
         # status is 502. Do not turn Sandhi's contract refusal into a retry hint.
-        recoverable=code != "invalid_response",
+        recoverable=(
+            typed.get("retryable") is True
+            and code not in {"invalid_response", "output_projection_error"}
+        ),
         status_code=(
             int(status) if status is not None else (400 if code == "invalid_request" else None)
         ),
@@ -639,8 +656,8 @@ def _wire_call_headers() -> Dict[str, str]:
       owner (``ResilientProvider.chat`` — default on via
       ``SmartRoutingProvider``): every Python-level retry AND fallback of one
       logical call re-enters this helper under the same binding and carries the
-      same key. Retries inside the Rust handle (``max_retries`` on the provider
-      factory) likewise see this one header value. STREAMS bind nothing (an
+      same key. Sandhi physical handles are retry-free; the logical-call owner
+      decides whether another attempt is authorized. STREAMS bind nothing (an
       async generator cannot ContextVar-bind safely — see
       ``ResilientProvider.stream``), so each stream invocation mints its own
       key and stream-setup retries count per attempt: fail-toward-counting,
@@ -1100,9 +1117,11 @@ class SandhiTypedProviderMixin:
                 "timeout_secs": self._sandhi_timeout(),
                 "stream_setup_timeout_secs": self._sandhi_stream_setup_timeout(),
                 "stream_idle_timeout_secs": self._sandhi_stream_idle_timeout(),
-                "max_retries": (
-                    0 if gateway is not None else max(0, int(getattr(self, "max_retries", 0) or 0))
-                ),
+                # One physical dispatch per binding invocation in direct and
+                # gateway mode. ResilientProvider owns logical-call retries;
+                # an ambiguous FFI/projection failure never triggers a hidden
+                # second inference inside this handle.
+                "max_retries": 0,
             }
             wire_headers = dict(getattr(self, "_wire_headers", None) or {})
             if run_id:
@@ -1332,10 +1351,16 @@ class SandhiTypedProviderMixin:
                         "— contract drift; add a handler or an explicit ignore",
                         kind,
                     )
+            if finish_reason is None:
+                raise ProviderError(
+                    "Sandhi stream ended without a validated finish event",
+                    provider=self._sandhi_slug(),
+                    recoverable=False,
+                )
             yield StreamChunk(
                 content="",
                 tool_calls=_tool_calls([calls[index] for index in sorted(calls)]),
-                stop_reason=finish_reason or "stop",
+                stop_reason=finish_reason,
                 is_final=True,
                 usage=usage,
                 metadata={

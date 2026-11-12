@@ -1,5 +1,38 @@
 # OpenAI subscription gateway: Victor / sandhi co-design
 
+## Coordinated execution-contract migration
+
+Victor **0.29.0** is prepared against `sandhi-gateway==0.17.0`. These source
+versions do not imply that packages have been published or a service upgraded.
+The user authorized a coordinated migration because Victor is the sole client;
+there is no requirement to retain a permissive Sandhi legacy mode.
+
+Both direct FFI and gateway handles set `max_retries=0`. Victor's logical-call
+owner decides whether another attempt is authorized. A binding failure never
+falls back to another transport. `output_projection_error` and `invalid_response`
+are terminal even when their HTTP status is 502. Iterator EOF without a validated
+finish is a terminal error; it cannot manufacture a successful final result.
+
+Sandhi's four admitted typed streaming source families share source validation
+and actual token observation across embedded and accounted calls. Buffered
+contract unification and the gateway accounting-default migration remain pending. Portable/native delivery
+are separate contracts: meaningful native state must survive compatible native
+delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
+are evidence; cache policy and provider price schedules remain separate concerns.
+An embedded observation is not a gateway ledger receipt.
+
+Qualify the exact Sandhi candidate wheel with this Victor source, including tools,
+cache splits, interrupted streams and refusal/no-replay paths. Keep Contracts and
+CodeGraph on their independent release lines. Publish the qualified Sandhi artifacts
+before making the matching Victor release installable from registries. Source
+review, public-hosted CI, release and deployment are distinct gates.
+
+The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
+pin. Until 0.17.0 is published, registry-only CI/install jobs cannot resolve that
+pin. Local paired qualification installs the reviewed candidate wheel explicitly;
+it is not evidence of a published dependency. Keep the consumer preparation
+unmerged until the dependency's publication/qualification gate is met.
+
 Status: implemented on the subscription-gateway branches; release promotion remains gated.
 
 ## Ownership and request path
