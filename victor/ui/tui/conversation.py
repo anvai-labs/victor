@@ -48,7 +48,6 @@ class ConversationLog(WireTimeline):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._pending_args: Dict[str, Dict[str, Any]] = {}
         self._preview = ToolPreviewRenderer()
         # Plain-text of the current turn's assistant reply, accumulated from
         # TOKEN actions so the app can copy the whole response to the clipboard
@@ -56,9 +55,12 @@ class ConversationLog(WireTimeline):
         self._response_parts: list[str] = []
 
     def begin_turn(self, user_message: str) -> None:
-        """Start a new turn: reset buffers and echo the user's message."""
+        """Start a new turn: reset buffers and echo the user's message.
+
+        Replacing the state also resets its tool-args correlation — the state
+        is the single owner (audit B10).
+        """
         self._state = WireTimelineState()
-        self._pending_args.clear()
         self._response_parts = []
         text = user_message.strip()
         if text:
@@ -74,9 +76,7 @@ class ConversationLog(WireTimeline):
         if kind is RenderKind.TOKEN and action.text:
             self._response_parts.append(action.text)
         if kind is RenderKind.TOOL_START:
-            key = action.call_id or action.tool_name or "tool"
-            args = (action.metadata or {}).get("arguments", {})
-            self._pending_args[key] = args if isinstance(args, dict) else {}
+            # Arguments correlation is owned by the state machine; no local copy.
             for line in self._state.advance(action):
                 self.write(line)
             return
@@ -100,7 +100,7 @@ class ConversationLog(WireTimeline):
     def _write_tool_result(self, action: RenderAction) -> None:
         tool = action.tool_name or "tool"
         key = action.call_id or tool
-        args = self._pending_args.pop(key, {})
+        args = self._state.pop_pending_args(key)
         label = tool_call_summary(tool, args)
         if action.elapsed:
             label = f"{label} · {format_duration(action.elapsed)}"
