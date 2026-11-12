@@ -53,6 +53,7 @@ class SandhiOpenAICompatPolicy(SandhiHttpxTransportMixin, HttpxOpenAICompatProvi
         max_retries: Optional[int] = None,
         non_interactive: Optional[bool] = None,
         text_response_mode: Literal["legacy", "structured"] = "legacy",
+        endpoint_profile: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         if text_response_mode not in ("legacy", "structured"):
@@ -61,6 +62,7 @@ class SandhiOpenAICompatPolicy(SandhiHttpxTransportMixin, HttpxOpenAICompatProvi
         # Structured mode disables legacy prose interpretation in subclasses. It
         # is not a JSON-schema guarantee or a change to model/tool capabilities.
         self.text_response_mode = text_response_mode
+        self._sandhi_endpoint_profile = endpoint_profile
         spec = get_openai_compat_provider_spec(self.CONFIG_KEY)
         self._spec = spec
         self._api_key = ""

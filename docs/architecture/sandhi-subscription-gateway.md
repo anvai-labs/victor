@@ -38,6 +38,31 @@ pin. Local paired qualification installs the reviewed candidate wheel explicitly
 it is not evidence of a published dependency. Keep the consumer preparation
 unmerged until the dependency's publication/qualification gate is met.
 
+### Explicit endpoint usage conventions
+
+OpenAI-compatible policy providers accept the constructor option
+`endpoint_profile`; other Sandhi-backed providers can carry it in their extra
+configuration. It participates in persistent handle identity and is never a model
+parameter. Per-call overrides fail before credential refresh or transport. Direct
+Z.AI Chat declares `openai_terminal_chunk_usage`; explicitly qualified custom
+endpoints can select `standard`. Compatible Messages sources can explicitly select
+`anthropic_implicit_cache`. Sandhi validates each profile against the actual wire
+family, independently of the provider label or key contents.
+
+Candidate evidence: 1,932 provider and adjacent resilience tests passed with five
+skips against the candidate wheel; full collection found 40,170 tests. Black/Ruff
+and typing for the three changed provider modules passed. This qualifies the
+implemented constructor/streaming scope, not ordinary buffered qualification or
+the complete packaging matrix.
+
+The profile describes the immediate HTTP source. Gateway mode currently forwards
+this setting too, but arbitrary backend switching remains unqualified: native
+forwarding may retain a backend's nonstandard usage convention while translated
+output uses a standard shape. Do not copy an implicit Messages backend profile to
+every gateway client or assume `standard` covers every native route. A dedicated
+second-hop counts contract and cache-intent ownership remain Sandhi migration
+gates. The retained spontaneous accounting-wait failures are a separate merge gate.
+
 Status: implemented on the subscription-gateway branches; release promotion remains gated.
 
 ## Ownership and request path

@@ -929,7 +929,13 @@ class SandhiTypedProviderMixin:
     """Shared direct consumer of Sandhi's typed FFI contract."""
 
     _sandhi_runtime: Any = None
-    _sandhi_typed_providers: Optional[Dict[Tuple[str, str, str, str, str, str], Any]] = None
+    _sandhi_typed_providers: Optional[Dict[Tuple[str, ...], Any]] = None
+
+    @staticmethod
+    def _validate_call_options(options: Dict[str, Any]) -> None:
+        if "endpoint_profile" in options:
+            raise ValueError("endpoint_profile is a constructor-only provider option")
+
     _SANDHI_WAIT_GRACE_SECS = 5.0
 
     async def close(self) -> None:
@@ -1063,6 +1069,12 @@ class SandhiTypedProviderMixin:
             self._sandhi_typed_providers = {}
         slug = self._sandhi_slug()
         protocol = str(getattr(self, "_sandhi_protocol", "") or "")
+        config = getattr(self, "extra_config", None)
+        endpoint_profile = str(
+            getattr(self, "_sandhi_endpoint_profile", None)
+            or (config.get("endpoint_profile") if isinstance(config, dict) else "")
+            or ""
+        )
         gateway = self._gateway_overrides()
         # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
         # direct-provider mode must stay byte-identical on the wire.
@@ -1110,7 +1122,16 @@ class SandhiTypedProviderMixin:
             auth_scheme = str(getattr(self, "_sandhi_auth_scheme", "") or "")
         # run_id participates in the cache key so the handle is reused within an
         # agent run but rebuilt (with a fresh x-sandhi-run-id header) per run.
-        cache_key = (slug, model, explicit_base_url, api_key, auth_scheme, protocol, run_id)
+        cache_key = (
+            slug,
+            model,
+            explicit_base_url,
+            api_key,
+            auth_scheme,
+            protocol,
+            endpoint_profile,
+            run_id,
+        )
         if cache_key not in self._sandhi_typed_providers:
             kwargs: Dict[str, Any] = {
                 "base_url": explicit_base_url or None,
@@ -1138,6 +1159,8 @@ class SandhiTypedProviderMixin:
                 kwargs["auth_scheme"] = auth_scheme
             if protocol:
                 kwargs["protocol"] = protocol
+            if endpoint_profile:
+                kwargs["endpoint_profile"] = endpoint_profile
             self._sandhi_typed_providers[cache_key] = self._sandhi_runtime.provider(
                 slug, model, api_key, **kwargs
             )
@@ -1391,6 +1414,7 @@ class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
 
     @staticmethod
     def _validate_call_options(options: Dict[str, Any]) -> None:
+        SandhiTypedProviderMixin._validate_call_options(options)
         if "text_response_mode" in options:
             raise ValueError("text_response_mode is a constructor-only provider option")
 
@@ -1504,6 +1528,7 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
+        self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         request = self._neutral_request(messages, model, temperature, max_tokens, tools, **kwargs)
         return self._completion_from_typed(await self._sandhi_complete(request), model)
@@ -1518,6 +1543,7 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
+        self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         request = self._neutral_request(messages, model, temperature, max_tokens, tools, **kwargs)
         async for chunk in self._sandhi_stream(request):
@@ -1590,6 +1616,7 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
+        self._validate_call_options(kwargs)
         await self._ensure_valid_token()
         request = self._anthropic_request(messages, model, temperature, max_tokens, tools, **kwargs)
         return self._completion_from_typed(await self._sandhi_complete(request), model)
@@ -1604,6 +1631,7 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
+        self._validate_call_options(kwargs)
         await self._ensure_valid_token()
         request = self._anthropic_request(messages, model, temperature, max_tokens, tools, **kwargs)
         async for chunk in self._sandhi_stream(request):

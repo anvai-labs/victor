@@ -127,6 +127,44 @@ def test_direct_binding_handle_is_retry_free_even_with_provider_retry_setting(mo
     assert runtime.calls[0][1]["max_retries"] == 0
 
 
+def test_endpoint_profile_is_a_handle_property_and_participates_in_handle_reuse(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    provider.extra_config["endpoint_profile"] = "standard"
+    provider._typed_provider("deepseek-chat")
+    provider._typed_provider("deepseek-chat")
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0][1]["endpoint_profile"] == "standard"
+    provider.extra_config["endpoint_profile"] = "openai_terminal_chunk_usage"
+    provider._typed_provider("deepseek-chat")
+    assert len(runtime.calls) == 2
+    assert runtime.calls[1][1]["endpoint_profile"] == "openai_terminal_chunk_usage"
+
+
+def test_zai_declares_terminal_totals_profile_for_its_direct_coding_endpoint(monkeypatch):
+    from victor.providers.zai_provider import ZAIProvider
+
+    runtime = install_runtime(monkeypatch)
+    provider = ZAIProvider(api_key="synthetic", coding_plan=True)
+    provider._typed_provider("glm-4.6")
+    assert runtime.calls[0][1]["endpoint_profile"] == "openai_terminal_chunk_usage"
+    assert runtime.calls[0][1]["base_url"] == "https://api.z.ai/api/coding/paas/v4"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_profile_cannot_be_a_model_call_option(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    with pytest.raises(ValueError, match="constructor-only"):
+        await provider.chat(
+            [Message(role="user", content="hello")],
+            model="deepseek-chat",
+            endpoint_profile="openai_terminal_chunk_usage",
+        )
+    assert not runtime.calls
+    assert not runtime.handle.requests
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fallback_position", [False, True])
 async def test_owner_deadline_after_binding_entry_never_retries_or_falls_back(
