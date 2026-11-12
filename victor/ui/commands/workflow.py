@@ -47,6 +47,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.ui.delegate_follow_up import (
@@ -60,7 +61,7 @@ workflow_app = typer.Typer(
     help="Manage and execute YAML workflows.",
 )
 
-console = Console()
+console = get_console()
 
 
 def _create_compile_only_compiler() -> Any:

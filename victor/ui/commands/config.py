@@ -1,6 +1,7 @@
 import typer
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 import yaml
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ from victor.config.settings import load_settings, get_project_paths
 from victor.config.validation import validate_configuration, format_validation_result
 
 config_app = typer.Typer(name="config", help="Validate configuration files and profiles.")
-console = Console()
+console = get_console()
 
 
 def _get_config_dir() -> Path:
@@ -210,7 +211,7 @@ def config_validate(
     - Performance optimization settings
     - Environment variables
     """
-    console = Console()
+    console = get_console()
 
     # First, run the comprehensive validation
     try:

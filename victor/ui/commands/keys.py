@@ -2,6 +2,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Confirm
+from victor.ui.console import get_console
 import platform
 import os
 import getpass
@@ -27,7 +28,7 @@ from victor.providers.registry import ProviderRegistry
 
 keys_app = typer.Typer(name="keys", help="Manage API keys for cloud providers.")
 
-console = Console()
+console = get_console()
 
 
 @keys_app.callback(invoke_without_command=True)

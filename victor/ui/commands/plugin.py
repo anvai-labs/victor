@@ -40,13 +40,14 @@ from victor.core.async_utils import run_sync
 import typer
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.ui.json_utils import create_json_option, print_json_data
 
 logger = logging.getLogger(__name__)
 
 plugin_app = typer.Typer(name="plugin", help="Manage external plugins")
-console = Console()
+console = get_console()
 
 
 def _get_manager():

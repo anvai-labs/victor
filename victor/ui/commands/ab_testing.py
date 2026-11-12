@@ -39,6 +39,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 
@@ -47,7 +48,7 @@ ab_app = typer.Typer(
     help="Manage A/B tests for workflow optimization.",
 )
 
-console = Console()
+console = get_console()
 
 
 @ab_app.command("create")

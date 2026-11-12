@@ -5,6 +5,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.prompt import Confirm
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.storage.cache.embedding_cache_manager import (
@@ -13,7 +14,7 @@ from victor.storage.cache.embedding_cache_manager import (
 )
 
 embeddings_app = typer.Typer(name="embedding", help="Manage Victor embeddings for troubleshooting.")
-console = Console()
+console = get_console()
 
 
 @embeddings_app.callback(invoke_without_command=True)

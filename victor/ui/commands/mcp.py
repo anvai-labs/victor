@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
+from victor.ui.console import get_console
 
 from victor.config.secure_paths import secure_create_file
 from victor.config.settings import get_project_paths
@@ -20,7 +21,7 @@ from victor.tools.registry import ToolRegistry
 from victor.ui.commands.utils import setup_logging
 
 mcp_app = typer.Typer(name="mcp", help="Run Victor as an MCP server, or manage MCP client config.")
-console = Console()
+console = get_console()
 logger = logging.getLogger(__name__)
 
 

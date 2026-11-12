@@ -41,6 +41,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.feps import FEPType, FEPStatus, FEPValidator, parse_fep_metadata
 from victor.feps.manager import FEPManager
@@ -50,7 +51,7 @@ fep_app = typer.Typer(
     help="Manage Framework Enhancement Proposals (FEPs).",
 )
 
-console = Console()
+console = get_console()
 
 
 def _get_feps_dir() -> Path:

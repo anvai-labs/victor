@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
+from victor.ui.console import get_console
 from pathlib import Path
 import time
 
@@ -48,7 +49,7 @@ if TYPE_CHECKING:
     from victor.config.config_loaders import LoggingConfig
 
 logger = logging.getLogger(__name__)
-console = Console()
+console = get_console()
 
 # Global reference for signal handler cleanup (use Any instead of AgentOrchestrator)
 _current_agent: Optional[Any] = None
