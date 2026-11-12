@@ -67,7 +67,22 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **RUN-OUTCOME-01-COMPAT — LOCAL_GREEN** (2026-11-12), owner: release
+- **PATCH-0281 — PROMOTION_REFRESHED** (2026-11-12), owner: release co-design
+  session; branch `release/promote-v0.28.1`, develop baseline `f9a3ecd5a`,
+  main baseline `1fa07af3b`. Fetched origin and confirmed no competing promotion.
+  Source repairs #1765/#1766 and compatibility repair #1768 merged with
+  independent exact-head review and all PR checks complete. The develop tree
+  matches reviewed compatibility checkpoint `8e850e048`.
+  AI/native metadata is 0.28.1, contracts 0.17.0 and Sandhi binding 0.16.2.
+  Local clean wheel/fallback/native and six hosted candidate checks passed.
+  The prior `057c2121e` promotion head was held for the name-identity finding;
+  its review was superseded before merge. Next: fresh exact-head review and full
+  main-target CI, merge preserving
+  ancestry, tag the exact main merge, verify published artifact digests, upgrade
+  backed-up active/project installs, and repeat installed hosted/Codex acceptance.
+  Official 0.28.1 publication and live deployment are pending. InferFlux deferred.
+
+- **RUN-OUTCOME-01-COMPAT — MERGED_DEVELOP** (2026-11-12), owner: release
   co-design session; branch `fix/run-receipt-tool-names`, baseline `2b22ba1e3`.
   Consumer review held main promotion #1767: eventless benchmark traces preserve
   public receipts verbatim, while the audit consumer reads `name`; receipts
@@ -75,9 +90,13 @@ edit. A mock test is not live provider or C5 evidence.
   result→eventless benchmark→audit chain produced `name=''` instead of `write`.
   GREEN: additive `name` alias retains the public `tool` field; 319 affected
   tests passed, 2 skipped. Provider pending calls and dispatch remain unchanged.
-  Next: clean-wheel verification and exact-head independent review, CI and merge
-  before refreshing promotion CI. The prior promotion attestation is superseded;
-  #1767 remains draft until the corrected head is qualified.
+  Rebuilt AI wheel/sdist and clean bare/native producer-to-public-result checks
+  passed without NumPy; 40,154 tests collected, docs/types/lint/hygiene passed.
+  Independent review CLEAN at `8e850e0488b4a41c3c50b9a78dcb5fd4870403f3`;
+  all 56 PR checks completed without failure. [#1768](https://github.com/anvai-labs/victor/pull/1768)
+  squash-merged as `f9a3ecd5ae4ce8f86605d07fce3a38ecf94ba505`; task worktree
+  and local branch removed. Next: qualify the refreshed promotion head. The
+  superseded head remains ineligible for merge; publication/deployment pending.
 
 - **INTEROP-02 — MERGED_DEVELOP** (2026-11-12), owner: release co-design session;
   branch `fix/codex-context-bound`, baseline `a12e387e5`. Fetched origin and
@@ -101,7 +120,7 @@ edit. A mock test is not live provider or C5 evidence.
   and local branch removed. Release of this source fix remains separate from
   existing Victor 0.28.0 publication.
 
-- **RUN-OUTCOME-01 — LOCAL_GREEN** (2026-11-12), owner: release co-design
+- **RUN-OUTCOME-01 — MERGED_DEVELOP** (2026-11-12), owner: release co-design
   session; branch `fix/run-outcome-projection`, baseline `a12e387e5`, advanced onto merged `4ad21f829`. Origin
   fetched; Victor 0.28.0 publication, install and main/develop back-sync are
   complete. Interop admission repair merged in #1765.
@@ -123,9 +142,12 @@ edit. A mock test is not live provider or C5 evidence.
   The same branch prepares AI/native 0.28.1 metadata and both changelog fixes;
   contracts stay 0.17.0. Local AI wheel/sdist and portable x86-64 native wheel
   built; clean wheel tests qualify Python fallback and native dispatch without
-  NumPy. Other platforms remain release-CI gates. Next: bind review to the
-  committed candidate, CI and merge, then protected patch promotion, publication
-  and installed hosted acceptance. Victor 0.28.1 is not yet published/deployed.
+  NumPy. Other platforms remain release-CI gates. Independent review CLEAN at
+  `b0c17ddf59c94090deee2f709480cbc518a8d827`; all 68 PR checks completed without
+  failure. [#1766](https://github.com/anvai-labs/victor/pull/1766) squash-merged
+  as `2b22ba1e33e8ca525f5698719e9784ca088912dd`; completed task worktree/local
+  branch removed. Next: protected patch promotion, publication and installed
+  hosted acceptance. Victor 0.28.1 is not yet published/deployed.
   No whole-session reconstruction, tool replay or weaker repetition stops.
   InferFlux deferred.
 
