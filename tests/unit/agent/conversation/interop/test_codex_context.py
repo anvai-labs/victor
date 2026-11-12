@@ -57,6 +57,7 @@ def test_explicit_handoff_preserves_source_and_records_losses(store, tmp_path):
     context.write_text("Historical task: use af_heart; fix agenda and dynamic diagrams.")
     report = ConversionReport()
     out = install_session(source, "codex", report, context_file=context)
+    assert report.target_format == "codex"
     restored = import_transcript(out)
     assert len(restored.session.messages) == 1
     text = restored.session.messages[0].content

@@ -571,6 +571,7 @@ def install_session(
     report = report or ConversionReport(target_format=target, session_id=session.session_id)
     if target not in ("claude", "codex"):
         raise ValueError("install target must be claude or codex")
+    report.target_format = target
     if context_file is not None:
         if target != "codex":
             raise ValueError("--context-file requires codex")
