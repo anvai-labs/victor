@@ -67,7 +67,7 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **INTEROP-02 — IN_PROGRESS** (2026-11-12), owner: release co-design session;
+- **INTEROP-02 — MERGED_DEVELOP** (2026-11-12), owner: release co-design session;
   branch `fix/codex-context-bound`, baseline `a12e387e5`. Fetched origin and
   reconciled #1761/#1762/#1764: fixes promoted, Victor 0.28.0 published and
   installed. The actual 51 MB Claude export loaded in Codex but failed its first
@@ -81,22 +81,41 @@ edit. A mock test is not live provider or C5 evidence.
   Real source admission rejected; explicit product-path handoff rendered and
   completed a `gpt-6.1-sol` recall turn (20,661 input tokens, no tool items),
   preserving the original source/export. CLI import/export smoke: 2 passed,
-  1 live-Claude leg skipped. Strict MkDocs build passed. Next: finish final
-  affected tests, exact-head independent review, CI and merge. Release of this
-  source fix is separate from the existing 0.28.0 publication.
+  1 live-Claude leg skipped. Final validation: 127 owners, 1,213 affected tests,
+  40,117 collected; Black/Ruff/MyPy/hygiene and strict MkDocs/zero built-link
+  issues passed. Independent review CLEAN at `b7b1028ef`; all 56 PR checks
+  completed without failure. [#1765](https://github.com/anvai-labs/victor/pull/1765)
+  squash-merged as `4ad21f829e2c53a162029fade0a7c397394a19af`; completed worktree
+  and local branch removed. Release of this source fix remains separate from
+  existing Victor 0.28.0 publication.
 
-- **RUN-OUTCOME-01 — READY** (2026-11-12), owner: release co-design session.
-  Released hosted smoke produced both requested files and persisted tool-result
-  records, but public `TaskResult.tool_calls` was empty. Independent source and
-  deterministic probes also confirmed failed-loop metadata becomes public
-  `success=True`. Owners: `turn_execution_runtime.py` and
-  `framework/message_execution.py`; preserve run-scoped execution facts separately
-  from pending provider calls and project the loop verdict. Do not reconstruct
-  from whole-session history or weaken repetition stops. The tiny streaming
-  smoke response triggered short-content continuation/repetition, not an
-  observed provider outage. Next after the interop checkpoint: claim a branch,
-  RED true/false/absent verdict and tool-evidence tests, then substantive live
-  completion/stream/file-tool/usage acceptance. InferFlux remains user-deferred.
+- **RUN-OUTCOME-01 — LOCAL_GREEN** (2026-11-12), owner: release co-design
+  session; branch `fix/run-outcome-projection`, baseline `a12e387e5`, advanced onto merged `4ad21f829`. Origin
+  fetched; Victor 0.28.0 publication, install and main/develop back-sync are
+  complete. Interop admission repair merged in #1765.
+  Released hosted smoke created both file artifacts and persisted tool results,
+  but public `TaskResult.tool_calls` was empty; failed loop metadata can also
+  become public `success=True`. RED: 15 regressions failed, 3 passed. Initial
+  GREEN: 233 final owner tests plus 6,209 broader framework/recovery passes
+  (31 skips); current-run receipts are detached from execution
+  arguments, provider requests remain unchanged, terminal ACT receipts appear
+  once, failed/malformed verdicts remain failed, and skipped records do not
+  claim file or shell effects. Six candidate-source hosted checks passed:
+  OpenAI/ZAI completion, stream and one file write each; public tool counts and
+  modified paths matched, usage buffers closed empty. This is candidate evidence,
+  not a released/deployed repair. Final owner/architecture/hotspot gates passed
+  438 tests on refreshed develop; 40,153 tests collected. Black/Ruff/MyPy,
+  dependency/version consistency and strict docs with zero built-link issues
+  passed. Independent review repaired malformed receipt schemas and retained
+  valid effects during partial corruption; 188 independent owner tests passed.
+  The same branch prepares AI/native 0.28.1 metadata and both changelog fixes;
+  contracts stay 0.17.0. Local AI wheel/sdist and portable x86-64 native wheel
+  built; clean wheel tests qualify Python fallback and native dispatch without
+  NumPy. Other platforms remain release-CI gates. Next: bind review to the
+  committed candidate, CI and merge, then protected patch promotion, publication
+  and installed hosted acceptance. Victor 0.28.1 is not yet published/deployed.
+  No whole-session reconstruction, tool replay or weaker repetition stops.
+  InferFlux deferred.
 
 - **PROMOTION-025-ADVERSARIAL-02 — MERGED_MAIN_SYNCED** (2026-11-02), owner:
   promotion adversarial repair session. Completed branch `promote/adversarial-repairs`

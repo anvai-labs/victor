@@ -88,6 +88,11 @@ def _coerce_completion_response(
             if isinstance(result, Mapping)
             else getattr(result, "model", default_model)
         )
+        metadata = (
+            result.get("metadata")
+            if isinstance(result, Mapping)
+            else getattr(result, "metadata", None)
+        )
 
         return CompletionResponse(
             content=content or "",
@@ -96,6 +101,7 @@ def _coerce_completion_response(
             usage=usage,
             stop_reason=stop_reason or "stop",
             model=model,
+            metadata=dict(metadata) if isinstance(metadata, Mapping) else None,
         )
 
     return CompletionResponse(
@@ -363,12 +369,44 @@ async def execute_message(
             default_model=getattr(orchestrator, "model", "unknown"),
         )
         response_content = output_state.normalize_final_response(response.content or "")
+        response_metadata = response.metadata or {}
+        success = response_metadata.get("agentic_loop_success", True) is True
+        error = (
+            None
+            if success
+            else str(
+                response_metadata.get("agentic_loop_error")
+                or "Agentic loop did not complete successfully"
+            )
+        )
+        calls = response_metadata.get("agentic_loop_tool_calls", response.tool_calls or [])
+        tool_calls = []
+        if "agentic_loop_tool_calls" in response_metadata:
+            invalid = not isinstance(calls, list)
+            for call in calls if isinstance(calls, list) else []:
+                if (
+                    not isinstance(call, dict)
+                    or not isinstance(call.get("tool"), str)
+                    or not isinstance(call.get("arguments"), Mapping)
+                ):
+                    invalid = True
+                    continue
+                fact = dict(call)
+                fact["arguments"] = dict(call["arguments"])
+                if type(fact.get("success")) is not bool:
+                    invalid = True
+                fact["success"] = fact.get("success") is True
+                tool_calls.append(fact)
+            if invalid:
+                success, error = False, "Invalid run tool-call evidence"
+        else:
+            tool_calls = [dict(call) for call in calls]
 
         return TaskResult(
             content=response_content,
-            tool_calls=response.tool_calls or [],
-            success=True,
-            error=None,
+            tool_calls=tool_calls,
+            success=success,
+            error=error,
             metadata=_build_task_result_metadata(orchestrator, response),
         )
 

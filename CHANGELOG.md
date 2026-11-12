@@ -5,12 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-11
+
 ### Fixed
 
 - Codex session installs reject oversized inference history before writing a
   rollout. File exports surface context warnings; explicit `--context-file`
   handoffs preserve the original session and report replacement losses. User
   and assistant history events now accompany inference items for native display.
+- Framework run results preserve current-run executed tool calls and failed-loop
+  verdicts, including recovered presentation. Pending provider calls remain
+  separate, malformed success metadata fails closed, and skipped tool records
+  do not claim modified/read files or executed shell commands.
 
 ## [0.28.0] - 2026-11-11
 

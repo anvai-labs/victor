@@ -111,6 +111,10 @@ class TaskResult:
     Contains the agent's response, tool calls made,
     and metadata about the execution.
 
+    Managed-loop tool records describe this run's execution receipts, including
+    failed calls. Pending provider requests are separate from execution evidence.
+    Recovered answer text does not change a failed loop's success verdict.
+
     Attributes:
         content: The agent's text response
         tool_calls: List of tool calls made during execution
@@ -152,11 +156,15 @@ class TaskResult:
         modified = []
         for call in self.tool_calls:
             tool = canonicalize_core_tool_name(call.get("tool", call.get("tool_name", "")))
-            if tool in ("write", "edit", "file_edit") and call.get("success", True):
+            if (
+                tool in ("write", "edit", "file_edit")
+                and call.get("success", True)
+                and not call.get("skipped")
+            ):
                 path = call.get("arguments", {}).get("path") or call.get("arguments", {}).get(
                     "file_path"
                 )
-                if path and path not in modified:
+                if isinstance(path, str) and path and path not in modified:
                     modified.append(path)
         return modified
 
@@ -170,11 +178,11 @@ class TaskResult:
         read = []
         for call in self.tool_calls:
             tool = canonicalize_core_tool_name(call.get("tool", call.get("tool_name", "")))
-            if tool in ("read", "ls") and call.get("success", True):
+            if tool in ("read", "ls") and call.get("success", True) and not call.get("skipped"):
                 path = call.get("arguments", {}).get("path") or call.get("arguments", {}).get(
                     "file_path"
                 )
-                if path and path not in read:
+                if isinstance(path, str) and path and path not in read:
                     read.append(path)
         return read
 
@@ -188,9 +196,9 @@ class TaskResult:
         commands = []
         for call in self.tool_calls:
             tool = call.get("tool", call.get("tool_name", ""))
-            if tool in ("shell", "bash", "run_command"):
+            if tool in ("shell", "bash", "run_command") and not call.get("skipped"):
                 cmd = call.get("arguments", {}).get("command")
-                if cmd:
+                if isinstance(cmd, str) and cmd:
                     commands.append(cmd)
         return commands
 
