@@ -38,6 +38,21 @@ class TestDetection:
         result = detect_format(fixture("claude_minimal.jsonl"))
         assert result.format is TranscriptFormat.CLAUDE_CODE
 
+    def test_claude_jsonl_with_leading_bookkeeping(self, tmp_path):
+        target = tmp_path / "claude-modern.jsonl"
+        target.write_text(
+            '{"type":"mode","sessionId":"session-123"}\n'
+            '{"type":"permission-mode","sessionId":"session-123"}\n'
+            '{"type":"atis-latch","sessionId":"session-123"}\n'
+            '{"type":"file-history-snapshot"}\n'
+            '{"type":"user","uuid":"message-123","sessionId":"session-123",'
+            '"message":{"role":"user","content":"hello"}}\n'
+        )
+
+        result = detect_format(target)
+
+        assert result.format is TranscriptFormat.CLAUDE_CODE
+
     def test_codex_rollout(self):
         result = detect_format(fixture("codex_minimal.jsonl"))
         assert result.format is TranscriptFormat.CODEX_ROLLOUT

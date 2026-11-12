@@ -206,7 +206,7 @@ def test_embedded_docs_flag_reaches_structural_scan(tmp_path):
 def test_missing_store_hint(tmp_path: Path):
     result = _invoke("--path", str(tmp_path))
     assert result.exit_code == 1
-    assert "victor graph index --embeddings" in result.output
+    assert "victor graph index --embeddings" in " ".join(result.output.split())
 
 
 def test_empty_scope_vs_missing_store_distinction(tmp_path: Path):

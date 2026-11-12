@@ -544,7 +544,7 @@ sizes or cold/warm cache conditions as if they were matched workloads.
 
 ## Retained inputs and limitations
 
-[Controlled sources and labels](../../tests/fixtures/graph_similarity/controls.json)
+[Controlled sources and labels](https://github.com/anvai-labs/victor/blob/develop/tests/fixtures/graph_similarity/controls.json)
 exercise Python/Python, Python/Rust, TypeScript/Rust and Java/C++. They are authored
 protocol controls with related templates, **not a project-held-out accuracy set**.
 The numeric-domain negatives retain identical operation shapes while changing the
@@ -552,7 +552,7 @@ allowed domain. JavaScript integer representation and checked Rust overflow are
 specified by [ECMAScript](https://tc39.es/ecma262/2023/multipage/numbers-and-dates.html#sec-number.max_safe_integer)
 and the [Rust reference](https://doc.rust-lang.org/reference/expressions/operator-expr.html#overflow).
 
-The [repository pilot](../../tests/fixtures/graph_similarity/repository-pilot.json)
+The [repository pilot](https://github.com/anvai-labs/victor/blob/develop/tests/fixtures/graph_similarity/repository-pilot.json)
 contains four Victor calibration pairs and four ProximaDB held-out pairs. Labels
 come from source inspection of the pinned commits, with restricted structural
 intent. No ProximaDB source is copied into this repository. Reproduce with explicit
@@ -570,7 +570,7 @@ verification and ANN adoption retain their own acceptance boundaries; source
 coverage and incremental/retrieval evidence belong to the
 [canonical execution ledger](graph-similarity-parity-and-roadmap.md#active-goal-execution-ledger).
 
-The [independent-project expansion](../../tests/fixtures/graph_similarity/independent-projects.json)
+The [independent-project expansion](https://github.com/anvai-labs/victor/blob/develop/tests/fixtures/graph_similarity/independent-projects.json)
 adds 24 Python/Python structural pairs from pinned
 [Requests](https://github.com/psf/requests/tree/b25c87d7cb8d6a18a37fa12442b5f883f9e41741)
 and [Flask](https://github.com/pallets/flask/tree/2c1b30d0503cfb064f1cb252e6614a06915a362a)
@@ -581,7 +581,7 @@ its restricted local operation domain; identifier, member or literal substitutio
 can preserve that pattern while HTTP verbs, callback timing, output types or
 transitive helper behavior differ. These are structural declarations, not behavior
 or source-copy labels. The immutable raw URLs and hashes are retained without
-vendoring third-party source, and [fixture instructions](../../tests/fixtures/graph_similarity/README.md)
+vendoring third-party source, and [fixture instructions](https://github.com/anvai-labs/victor/blob/develop/tests/fixtures/graph_similarity/README.md)
 describe source reconstruction and offline measurement.
 The `LookupDict` positive abstracts declaration signatures and the explicit
 default operand's literal-versus-caller origin, as its rationale records; it

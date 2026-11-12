@@ -64,7 +64,12 @@ class CommandRegistry:
         SlashCommandHandler's own auto_discover logic (e.g. the TUI
         command palette) still see a populated registry.
         """
-        if self._auto_discover_attempted or self._commands:
+        if self._auto_discover_attempted:
+            return
+        # Decorators can populate only part of the default registry before
+        # its first read. Explicitly populated custom registries stay scoped
+        # to their caller, while the default must expose all shipped commands.
+        if self._commands and self is not _global_registry:
             return
         self._auto_discover_attempted = True
         self.discover_commands()

@@ -28,10 +28,15 @@ from victor.ui.rendering.utils import (
 
 
 def _capture() -> tuple[Console, io.StringIO]:
-    # force_terminal keeps the ANSI styling so the tests can pin colors too;
-    # a plain StringIO capture strips codes entirely.
+    # Pin ANSI styling even when the runner exports NO_COLOR; a plain
+    # StringIO capture otherwise strips the color codes under test.
     buffer = io.StringIO()
-    return Console(file=buffer, force_terminal=True, width=100), buffer
+    return (
+        Console(
+            file=buffer, force_terminal=True, no_color=False, color_system="standard", width=100
+        ),
+        buffer,
+    )
 
 
 class TestStructuredSeverity:

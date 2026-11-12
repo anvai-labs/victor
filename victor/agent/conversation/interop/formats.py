@@ -87,10 +87,16 @@ def _first_jsonl_records(path: Path, max_records: int = 5) -> List[Any]:
 
 
 def _looks_like_claude(records: List[Any]) -> bool:
-    return (
-        bool(records)
-        and all(isinstance(r, dict) and "message" in r and "uuid" in r for r in records if r)
-        and any(isinstance(r, dict) and r.get("type") in ("user", "assistant") for r in records)
+    # Current Claude Code transcripts may begin with bookkeeping records such
+    # as mode, permission-mode, atis-latch, and file-history-snapshot. Detect
+    # the first actual conversation record instead of requiring every sampled
+    # record to have the message/uuid shape.
+    return any(
+        isinstance(record, dict)
+        and record.get("type") in ("user", "assistant")
+        and isinstance(record.get("message"), dict)
+        and isinstance(record.get("uuid"), str)
+        for record in records
     )
 
 

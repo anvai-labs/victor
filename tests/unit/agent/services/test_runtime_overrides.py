@@ -7,25 +7,24 @@ legacy per-turn owners exactly as before."""
 
 from types import SimpleNamespace
 
+import pytest
+
 from victor.agent.services.runtime_overrides import (
+    OverrideRestorationError,
     apply_overrides,
     extend_budget_funding,
+    restore_overrides,
 )
+from victor.agent.tool_pipeline import ToolPipeline
+from victor.core.tool_budget_ledger import ToolBudgetLedger
 
 
 class TestLedgerFunding:
     def _owners_with_ledger_pipeline(self):
-        from victor.core.tool_budget_ledger import ToolBudgetLedger
-
         ledger = ToolBudgetLedger(134)
-        pipeline = SimpleNamespace(
-            _tool_pipeline=SimpleNamespace(
-                _budget_ledger=ledger,
-                fund_budget=ledger.retarget,
-                tool_budget=ledger.ceiling,
-                calls_used=ledger.used,
-            )
-        )
+        tool_pipeline = object.__new__(ToolPipeline)
+        tool_pipeline._budget_ledger = ledger
+        pipeline = SimpleNamespace(_tool_pipeline=tool_pipeline)
         fallback = SimpleNamespace(_tool_pipeline=pipeline._tool_pipeline)
         return pipeline, fallback, ledger
 
@@ -40,14 +39,57 @@ class TestLedgerFunding:
 
     def test_undo_restores_previous_binding(self):
         pipeline, fallback, ledger = self._owners_with_ledger_pipeline()
+        ledger.consume(3)
         changes = []
-        undo = extend_budget_funding(changes, pipeline, fallback, 134)
-        assert pipeline._tool_pipeline._budget_ledger.ceiling == 134
+        undo = extend_budget_funding(changes, pipeline, fallback, 20)
+        assert pipeline._tool_pipeline._budget_ledger.ceiling == 20
         undo()
         assert (
             pipeline._tool_pipeline._budget_ledger.ceiling == 134
         ), "retarget keeps used; undo restores prior ceiling"
         assert pipeline._tool_pipeline._budget_ledger is ledger
+        assert ledger.used == 3
+
+    @pytest.mark.parametrize("previous_ceiling", [None, 10])
+    @pytest.mark.parametrize("failure_stage", ["getter", "setter", "restore"])
+    def test_failed_apply_restores_funding(self, previous_ceiling, failure_stage):
+        tool_pipeline = object.__new__(ToolPipeline)
+        previous = None if previous_ceiling is None else ToolBudgetLedger(previous_ceiling)
+        if previous is not None:
+            previous.consume(3)
+        tool_pipeline._budget_ledger = previous
+        owner = SimpleNamespace(_tool_pipeline=tool_pipeline)
+        undo = extend_budget_funding([], owner, owner, 20)
+        state = {"value": 1}
+
+        def getter():
+            if failure_stage == "getter":
+                raise RuntimeError("getter failed")
+            return state["value"]
+
+        def setter(value):
+            state["value"] = value
+            if value == 2 or failure_stage == "restore":
+                raise RuntimeError("setter failed")
+
+        error = OverrideRestorationError if failure_stage == "restore" else RuntimeError
+        with pytest.raises(error):
+            apply_overrides([("owner", getter, setter, 2)], extra_undo=undo)
+        assert tool_pipeline._budget_ledger is previous
+        if previous is not None:
+            assert previous.ceiling == 10
+            assert previous.used == 3
+        assert state["value"] == 1
+
+    def test_successful_apply_keeps_funding_after_turn_restore(self):
+        owner, fallback, ledger = self._owners_with_ledger_pipeline()
+        ledger.consume(3)
+        undo = extend_budget_funding([], owner, fallback, 20)
+        snapshot = apply_overrides([], extra_undo=undo)
+        restore_overrides(snapshot)
+        assert owner._tool_pipeline._budget_ledger is ledger
+        assert ledger.ceiling == 20
+        assert ledger.used == 3
 
     def test_ledger_absent_falls_back_to_legacy_owners(self):
         orchestrator = SimpleNamespace(tool_budget=25, _tool_pipeline=None)

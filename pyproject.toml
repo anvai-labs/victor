@@ -86,10 +86,11 @@ dependencies = [
     # typer<0.15 (e.g. 0.12.x) is incompatible with click>=8.2: click added
     # validation that rejects --flag/--no-flag secondary opts unless is_flag is
     # set, which old typer doesn't do — every boolean CLI option then fails at
-    # group-build time. Floor at a click-8.2+ aware typer; cap to satisfy
-    # huggingface-hub (typer<0.26).
+    # group-build time. Typer 0.27.3 also preserves required-argument validation
+    # with Click 8.5; older admitted versions passed None into command handlers.
+    # Keep the pair on the CLI minor line validated by the dependency locks.
     "click>=8.2,<9.0",
-    "typer>=0.15,<0.28",
+    "typer>=0.27.3,<0.28",
     "rich>=13.7",
     "prompt-toolkit>=3.0",
 

@@ -163,7 +163,7 @@ PYTHONPATH="$PWD:$PWD/victor-codegraph" python -m pytest -o addopts='' \
 
 The subsequent source-similarity audit completed the wider affected run and
 records its results, environment-specific Mermaid retry and current full
-collection in [the combined validation evidence](code-similarity-audit-2026-11-01.md#local-validation-and-continuation).
+collection in [the combined validation evidence](code-similarity-audit-2026-11-01.md#initial-validation-and-continuation).
 This initial increment subsequently merged in [#1657](https://github.com/anvai-labs/victor/pull/1657)
 after independent review and green PR CI; the execution ledger records later increments.
 The integration tests are the owner for rollback,

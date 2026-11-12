@@ -37,6 +37,7 @@ class TestCliPromptSession:
             stream=False,
             renderer_choice="rich",
             show_reasoning=True,
+            width=120,
         )
 
         rendered = "".join(text for _style, text in toolbar)
