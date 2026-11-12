@@ -126,7 +126,7 @@ both paths load the same vertical definition. See
 ## Next Steps
 
 1. **Pick your provider** — [Provider decision matrix](../user-guide/providers.md#provider-decision-matrix)
-   and [Provider setup](../reference/providers/setup.md)
+   and [Provider setup](../user-guide/providers.md#quick-start)
 2. **Explore the tools** your agent can use — [Tool Catalog](../reference/tools/catalog.md)
 3. **Go multi-step** — [StateGraph workflows](../guides/workflow-development/dsl.md)
    and [multi-agent teams](../user-guide/workflows.md)

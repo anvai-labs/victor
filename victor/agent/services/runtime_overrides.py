@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, Optional
 
-from victor.core.tool_budget_ledger import resolve_budget_pipeline
+from victor.core.tool_budget_ledger import ToolBudgetLedger, resolve_budget_pipeline
 
 _MISSING = object()
 Change = tuple[str, Callable[[], Any], Callable[[Any], None], Any]
@@ -90,7 +90,7 @@ def extend_budget_funding(
     the funding is deliberately NOT part of ``changes`` — it survives turn end
     instead of being rolled back (the per-turn budget apply/restore divergence).
     The returned closure undoes the funding, so the caller can keep the
-    transaction invariant (a failed mid-apply change leaves no funding bound);
+    transaction invariant (a failed apply restores the previous funding);
     it is None in legacy mode, where the owners already live in ``changes``.
     Without a ledger-hosting pipeline the legacy ``budget_changes`` owners are
     collected for per-turn apply/restore exactly as before.
@@ -101,12 +101,19 @@ def extend_budget_funding(
         changes.extend(budget_changes(orchestrator, fallback, budget))
         return None
     previous = getattr(pipeline, "_budget_ledger", None)
+    rollback = _make_ledger_rollback(pipeline, previous)
     fund(int(max(0, budget)))
-    return _make_ledger_rollback(pipeline, previous)
+    return rollback
 
 
-def _make_ledger_rollback(pipeline: Any, previous: Any) -> Callable[[], None]:
+def _make_ledger_rollback(
+    pipeline: Any, previous: Optional[ToolBudgetLedger]
+) -> Callable[[], None]:
+    previous_ceiling = previous.ceiling if previous is not None else 0
+
     def rollback() -> None:
+        if previous is not None:
+            previous.retarget(previous_ceiling)
         pipeline._budget_ledger = previous
 
     return rollback
@@ -115,7 +122,7 @@ def _make_ledger_rollback(pipeline: Any, previous: Any) -> Callable[[], None]:
 def apply_overrides(
     changes: list[Change], extra_undo: Optional[Callable[[], None]] = None
 ) -> dict[str, Any]:
-    """Snapshot before mutation; a failed setter triggers rollback and an error.
+    """Snapshot before mutation; a failed getter or setter triggers rollback.
 
     ``extra_undo`` runs after the change rollback when the apply fails. It
     carries side effects that deliberately live OUTSIDE ``changes`` (the
@@ -123,18 +130,21 @@ def apply_overrides(
     snapshot, or turn-end restore would roll it back) but that still must
     never half-apply across a failed transaction.
     """
-    snapshot = {name: getter() for name, getter, _, _ in changes}
+    snapshot: dict[str, Any] = {}
     undo: list[tuple[Callable[[Any], None], Any]] = []
-    snapshot["_restore_actions"] = undo
     try:
+        snapshot.update({name: getter() for name, getter, _, _ in changes})
+        snapshot["_restore_actions"] = undo
         for name, _, setter, value in changes:
             # Include a setter that mutates and then raises in the rollback.
             undo.append((setter, snapshot[name]))
             setter(value)
     except Exception:
-        restore_overrides(snapshot)
-        if extra_undo is not None:
-            extra_undo()
+        try:
+            restore_overrides(snapshot)
+        finally:
+            if extra_undo is not None:
+                extra_undo()
         raise
     return snapshot
 

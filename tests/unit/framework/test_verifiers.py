@@ -245,6 +245,22 @@ async def test_failure_is_not_hidden_by_a_conflicting_skip(tmp_path, monkeypatch
             '<testsuites tests="2" failures="1" errors="0" skipped="0"><testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="ok"/></testsuite></testsuites>',
             id="aggregate_counts",
         ),
+        pytest.param(
+            '<testsuite tests="2" failures="0" errors="0" skipped="0"><testcase name="ok"/></testsuite>',
+            id="inflated_success_count",
+        ),
+        pytest.param(
+            '<testsuite tests="3" failures="0" errors="1" skipped="0"><testcase name="bad"><error/></testcase></testsuite>',
+            id="inflated_error_count",
+        ),
+        pytest.param(
+            '<testsuite tests="1" failures="1" errors="1" skipped="0"><testcase name="call"><failure/></testcase><testcase name="other"><error/></testcase></testsuite>',
+            id="unrelated_failed_cases_undercount",
+        ),
+        pytest.param(
+            '<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="same"/><testcase name="same"/></testsuite>',
+            id="duplicate_success_undercount",
+        ),
     ],
 )
 async def test_contradictory_junit_trees_are_rejected(tmp_path, monkeypatch, report):

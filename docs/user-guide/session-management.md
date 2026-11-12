@@ -202,7 +202,9 @@ truncations) — nothing is lost silently.
 
 Session addresses (`claude:<uuid>`, `codex:<uuid>`) pull one specific session
 straight out of that tool's local store — no file paths to hunt for. Use
-`/import --list` to see recent sessions from both stores with previews.
+`/import --list` to see recent sessions from both stores with previews. Claude
+Code bookkeeping records (including mode and file-history records before the
+first message) are recognized and ignored during conversion.
 
 Imported sessions get a deterministic id (`imp_<hash>`), so re-importing the
 same file updates it in place instead of duplicating. Resume with
@@ -739,5 +741,5 @@ persistence.delete_session(session_id)
 
 See also:
 - [CLI Reference](cli-reference.md) - All slash commands
-- [Provider Switching](../reference/providers/index.md) - Switching providers
+- [Provider Switching](providers.md) - Switching providers
 - [Architecture Deep Dive](../architecture.md) - Database design

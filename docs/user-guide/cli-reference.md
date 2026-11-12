@@ -845,5 +845,5 @@ These options are available for most commands:
 
 - [CLI Mode Guide](./cli-reference.md) - Interactive prompt-toolkit CLI interface
 - [Tool Catalog](../reference/tools/catalog.md) - Available tools
-- [Provider Reference](../reference/providers/index.md) - Provider details
+- [Provider Reference](providers.md) - Provider details
 - [Workflow DSL](../guides/workflow-development/dsl.md) - Workflow syntax

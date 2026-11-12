@@ -14,6 +14,7 @@ from victor.ui.rendering.buffered import BufferedRenderer
 from victor.ui.rendering.formatter_renderer import FormatterRenderer
 from victor.ui.rendering.handler import stream_response
 from victor.ui.rendering.live_renderer import LiveDisplayRenderer
+from victor.ui.rendering.utils import Severity
 from victor.ui.theme import victor_theme
 
 

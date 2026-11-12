@@ -275,8 +275,6 @@ class TestWireTimelineWidget:
 def _action(kind, **kwargs):
     from types import SimpleNamespace
 
-    from victor.ui.chat_app.event_mapping import RenderKind
-
     return SimpleNamespace(kind=kind, text=None, metadata=kwargs.pop("metadata", {}), **kwargs)
 
 
@@ -305,7 +303,6 @@ class TestSingleOwnerPendingArgs:
         # TOOL_END went through flush() + a PRIVATE duplicate dict: the
         # state-side entry never popped (per-turn leak) and the dicts could
         # diverge. The log now consumes the state's correlation directly.
-        import asyncio
         from pathlib import Path as _Path
 
         source = (

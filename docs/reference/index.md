@@ -6,9 +6,9 @@ Complete reference documentation for Victor AI Assistant.
 
 | Reference | Description |
 |-----------|-------------|
-| [**Providers**](providers/index.md) | All 25 LLM providers with setup, models, and configuration |
+| [**Providers**](../user-guide/providers.md) | All 25 LLM providers with setup, models, and configuration |
 | [**Tools**](tools/catalog.md) | 34 tool modules organized by category |
-| [**Configuration**](configuration/index.md) | Complete configuration reference (profiles, API keys, MCP) |
+| [**Configuration**](configuration-options.md) | Complete configuration reference (profiles, API keys, MCP) |
 | [**API**](api/index.md) | HTTP API, MCP server, Python package API |
 | [**Verticals**](verticals/index.md) | 9 domain-specific assistants |
 
@@ -37,7 +37,7 @@ Complete reference for all 24 supported LLM providers.
 | Azure | Azure OpenAI | Pay-per-use | Azure portal setup |
 | And 14 more... | See full list | See full list | See full list |
 
-[**Full Provider Reference →**](providers/index.md)
+[**Full Provider Reference →**](../user-guide/providers.md)
 
 ---
 
@@ -69,9 +69,9 @@ Complete configuration for Victor's behavior and integrations.
 
 | File | Purpose | Reference |
 |------|---------|----------|
-| `profiles.yaml` | Provider and model profiles | [profiles.yaml →](configuration/index.md#profilesyaml) |
-| `config.yaml` | Global settings and options | [config.yaml →](configuration/index.md#configyaml) |
-| `mcp.yaml` | MCP server configuration | [mcp.yaml →](configuration/index.md#mcpyaml) |
+| `profiles.yaml` | Provider and model profiles | [profiles.yaml →](../getting-started/configuration.md#profiles-configuration) |
+| `config.yaml` | Global settings and options | [config.yaml →](../getting-started/configuration.md#configuration-locations) |
+| `mcp.yaml` | MCP server configuration | [mcp.yaml →](../getting-started/configuration.md#mcp-configuration) |
 | `.victor.md` | Project context and instructions | [.victor.md →](../user-guide/index.md#5-project-context) |
 | `CLAUDE.md` | AI assistant project instructions | [Repository workflow →](../development/PR_WORKFLOW.md) |
 
@@ -100,7 +100,7 @@ profiles:
     model: gpt-4
 ```
 
-[**Full Configuration Reference →**](configuration/index.md)
+[**Full Configuration Reference →**](configuration-options.md)
 
 ---
 

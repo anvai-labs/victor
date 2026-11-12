@@ -8,7 +8,7 @@ ranking integration. Weighted fusion remains disabled.
 
 ## Inputs and intended observation
 
-[Frozen authored controls](../../tests/fixtures/graph_context/manifest.json) pin
+[Frozen authored controls](https://github.com/anvai-labs/victor/blob/develop/tests/fixtures/graph_context/manifest.json) pin
 five Python files, 1,876 source bytes, 12 compared functions and eight pairs.
 The oracle has three positives, four negatives and one unknown. Labels were
 frozen before scoring, and independent source review accepted them unchanged.
@@ -88,7 +88,7 @@ exceptions/cancellation; cleanup removes entries only while their inode identity
 is still owned. Publication is currently POSIX-only and introduces no Windows
 write fallback.
 
-The [fixture instructions](../../tests/fixtures/graph_context/README.md) replay the
+The [fixture instructions](https://github.com/anvai-labs/victor/blob/develop/tests/fixtures/graph_context/README.md) replay the
 frozen index without an indexer or model download. The CI test selector maps both
 the script and every fixture change to its existing ablation owner and the shared
 `test_scip_documents.py` owner. The latter selects the graph extra's declared

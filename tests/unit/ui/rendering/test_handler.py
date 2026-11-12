@@ -9,6 +9,7 @@ from victor.core.errors import AgentError
 
 from victor.framework.events import AgentExecutionEvent, EventType
 from victor.ui.rendering.handler import stream_response
+from victor.ui.rendering.utils import Severity
 
 
 class _RecorderRenderer:
