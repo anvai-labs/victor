@@ -42,21 +42,35 @@ pytestmark = [pytest.mark.integration, pytest.mark.agents]
 
 async def _run_both(scenario):
     """Drive the buffered and streaming loops from the same script (separate provider instances)."""
+    buffered_provider = ScriptedProvider(list(scenario.turns))
+    streaming_provider = ScriptedProvider(list(scenario.turns))
     buffered_orch = build_streaming_orchestrator(
-        ScriptedProvider(list(scenario.turns)),
+        buffered_provider,
         scenario.tools,
         max_iterations=scenario.max_iterations,
         failing_tool_names=scenario.failing_tools,
     )
     streaming_orch = build_streaming_orchestrator(
-        ScriptedProvider(list(scenario.turns)),
+        streaming_provider,
         scenario.tools,
         max_iterations=scenario.max_iterations,
         failing_tool_names=scenario.failing_tools,
     )
     buffered = await capture_buffered_transcript(buffered_orch, scenario.message)
     streaming = await capture_transcript(streaming_orch, scenario.message)
+    buffered.offer_sizes = list(buffered_provider.offer_sizes)
+    streaming.offer_sizes = list(streaming_provider.offer_sizes)
+    buffered.assistant_texts = _assistant_texts(buffered_orch)
+    streaming.assistant_texts = _assistant_texts(streaming_orch)
     return buffered, streaming
+
+
+def _assistant_texts(orch):
+    return [
+        m.content
+        for m in getattr(orch, "messages", None) or []
+        if getattr(m, "role", None) == "assistant" and getattr(m, "content", None)
+    ]
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s.id for s in SCENARIOS])
@@ -85,6 +99,48 @@ async def test_run_stream_parity(scenario):
             f"{scenario.id}: expected {scenario.expect_content_contains!r} in streaming "
             f"{streaming.content!r}"
         )
+
+
+# Offer divergences that predate the per-call offer check. Each entry must still
+# diverge; fixing one fails the test below until the entry is removed.
+# Pinned exactly so a *different* divergence cannot hide behind the entry.
+# Empty since U1 converged: buffered's post-loop recovery made three text-forcing
+# calls streaming did not ([8, 8, 8, 8, 8, 8] vs [8, 8, 8]); both loops now share
+# TurnExecutor.post_loop_recovery_kind.
+_KNOWN_OFFER_DIVERGENCE: dict = {}
+
+
+@pytest.mark.parametrize("scenario", SCENARIOS, ids=[s.id for s in SCENARIOS])
+async def test_run_stream_offer_parity(scenario):
+    """Every model call sees the same tool supply on both loops (FEP-0007).
+
+    Divergent offers precede divergent actions, and a scripted model would not reveal
+    them. Also pins the sticky offer: once a call executed tools, later calls in the
+    turn are never sent an empty offer (X1/M1/C1 start Q&A/skip-classified at 0).
+    """
+    buffered, streaming = await _run_both(scenario)
+    if scenario.expect_tools:
+        # A call made after tools ran must carry a non-empty offer, on both loops and
+        # for pinned divergences too (the protocol rule is not a parity exemption).
+        for loop, sizes in (
+            ("buffered", buffered.offer_sizes),
+            ("streaming", streaming.offer_sizes),
+        ):
+            assert all(
+                size > 0 for size in sizes[1:]
+            ), f"{scenario.id}: {loop} sent an empty offer after tool history {sizes}"
+    if scenario.id in _KNOWN_OFFER_DIVERGENCE:
+        assert (buffered.offer_sizes, streaming.offer_sizes) == tuple(
+            _KNOWN_OFFER_DIVERGENCE[scenario.id]
+        ), (
+            f"{scenario.id} offers changed to {buffered.offer_sizes} / "
+            f"{streaming.offer_sizes}; if fixed, remove it from _KNOWN_OFFER_DIVERGENCE"
+        )
+        return
+    assert buffered.offer_sizes == streaming.offer_sizes, (
+        f"{scenario.id}: buffered offers {buffered.offer_sizes} != "
+        f"streaming offers {streaming.offer_sizes}"
+    )
 
 
 async def test_parity_battery_is_non_empty():
@@ -334,3 +390,59 @@ async def test_executor_admission_snapshot_survives_configuration_changes(
         assert orch.messages == before
     else:
         gate.gate_request.assert_awaited_once()
+
+
+async def _two_turns(capture, orch):
+    first = await capture(orch, "Read app.py and summarize it.")
+    second = await capture(orch, "What is 6 times 7?")
+    return first, second
+
+
+@pytest.mark.parametrize("mode", ["buffered", "streaming"])
+async def test_qa_turn_after_tool_turn_keeps_offer_and_answers_after_tools(mode):
+    """A Q&A turn in a session that already used tools: its history carries
+    tool_use/tool_result blocks, so its offer must not be empty, and a narrated
+    tool call ("Let me check.") must not be accepted as the final answer."""
+    from .parity_harness import TurnScript, _read_turn
+
+    provider = ScriptedProvider(
+        [
+            _read_turn("read", path="app.py"),
+            TurnScript(content="app.py starts the server."),
+            TurnScript(
+                content="Let me check.",
+                tool_calls=[{"name": "read", "arguments": {"path": "math.txt"}}],
+            ),
+            TurnScript(content="6 times 7 is 42."),
+        ]
+    )
+    orch = build_streaming_orchestrator(provider, ["read"], max_iterations=6)
+    capture = capture_buffered_transcript if mode == "buffered" else capture_transcript
+    first, second = await _two_turns(capture, orch)
+
+    assert not first.errored and not second.errored, (first.error, second.error)
+    assert "is 42" in second.content, f"{mode}: narration accepted as answer: {second.content!r}"
+    assert (
+        provider.offer_sizes[2] > 0
+    ), f"{mode}: empty offer on tool history {provider.offer_sizes}"
+    assert all(size > 0 for size in provider.offer_sizes[2:]), provider.offer_sizes
+
+
+async def test_failed_run_recovers_the_same_answer_on_both_loops():
+    """U1: a failed run whose last turn has no text recovers its answer on both loops.
+
+    The buffered epilogue synthesized from tool evidence; streaming ended with no text.
+    Both now apply one rule (``post_loop_recovery_kind``): same calls, same answer,
+    recorded exactly once in history. The scripted model keeps calling tools, so the
+    completer falls back to its canned text; a real model answers from the evidence.
+    """
+    scenario = next(s for s in SCENARIOS if s.id == "U1")
+    buffered, streaming = await _run_both(scenario)
+
+    assert buffered.offer_sizes == streaming.offer_sizes
+    assert buffered.content.strip()
+    assert streaming.content.strip() == buffered.content.strip()
+    for loop, transcript in (("buffered", buffered), ("streaming", streaming)):
+        assert (
+            transcript.assistant_texts.count(buffered.content.strip()) == 1
+        ), f"{loop} recorded the recovered answer {transcript.assistant_texts}"

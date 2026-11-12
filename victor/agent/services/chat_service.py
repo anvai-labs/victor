@@ -136,7 +136,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         self._turn_executor: Optional[Any] = None
         self._planning_handler: Optional[Callable[[str], Any]] = None
         self._stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None
-        self._context_limit_handler: Optional[Callable[..., Any]] = None
         self._turn_runtime: Optional[ChatTurnRuntime] = None
         self._context_accepts_keyword_messages: Optional[bool] = None
         self._turn_lock = asyncio.Lock()
@@ -166,7 +165,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         turn_executor: Optional[Any] = None,
         planning_handler: Optional[Callable[[str], Any]] = None,
         stream_chat_handler: Optional[Callable[..., AsyncIterator[Any]]] = None,
-        context_limit_handler: Optional[Callable[..., Any]] = None,
         turn_runtime: Optional[ChatTurnRuntime] = None,
         stream_turn_lock: Optional[asyncio.Lock] = None,
     ) -> None:
@@ -177,8 +175,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             self._planning_handler = planning_handler
         if stream_chat_handler is not None:
             self._stream_chat_handler = stream_chat_handler
-        if context_limit_handler is not None:
-            self._context_limit_handler = context_limit_handler
         if turn_runtime is not None:
             self._turn_runtime = turn_runtime
         if stream_turn_lock is not None:
@@ -220,6 +216,9 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         runtime_context_overrides = kwargs.pop("runtime_context_overrides", None)
         # FEP-0043: structured caller context for the loop's state seeding.
         run_context = kwargs.pop("run_context", None)
+        # Consolidation PR 4: the structured CallerRunContext object threaded
+        # from Agent.run/stream; consumed at the loop build sites.
+        caller_run_context = kwargs.pop("caller_run_context", None)
 
         if not preserve_turn_state:
             self._prepare_new_turn()
@@ -229,6 +228,8 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                 kwargs["runtime_context_overrides"] = runtime_context_overrides
             if run_context is not None:
                 kwargs["run_context"] = run_context
+            if caller_run_context is not None:
+                kwargs["caller_run_context"] = caller_run_context
             chunks = []
             async for chunk in self._stream_chat_exclusive(
                 user_message,
@@ -274,6 +275,7 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                         user_message,
                         runtime_context_overrides=runtime_context_overrides,
                         run_context=run_context,
+                        caller_run_context=caller_run_context,
                     )
                 execution_success = self._response_execution_success(response)
             except asyncio.CancelledError as exc:
@@ -318,6 +320,7 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
         *,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
         run_context: Optional[Dict[str, Any]] = None,
+        caller_run_context: Optional[Any] = None,
     ) -> "CompletionResponse":
         """Invoke the bound turn executor with scoped runtime overrides when supported."""
         execute = executor.execute_agentic_loop
@@ -342,7 +345,9 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             "runtime_context_overrides"
         )
         forward_run_context = run_context is not None and _accepts("run_context")
-        if not forward_overrides and not forward_run_context:
+        # Consolidation PR 4: the structured object rides the same guard.
+        forward_caller_ctx = caller_run_context is not None and _accepts("caller_run_context")
+        if not forward_overrides and not forward_run_context and not forward_caller_ctx:
             return await execute(user_message)
 
         kwargs: Dict[str, Any] = {}
@@ -350,6 +355,8 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             kwargs["runtime_context_overrides"] = runtime_context_overrides
         if forward_run_context:
             kwargs["run_context"] = run_context
+        if forward_caller_ctx:
+            kwargs["caller_run_context"] = caller_run_context
         return await execute(user_message, **kwargs)
 
     async def stream_chat(self, user_message: str, **kwargs) -> AsyncIterator["StreamChunk"]:
@@ -530,12 +537,6 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
             user_message,
             runtime_context_overrides=self._planning_overrides,
         )
-
-    async def handle_context_and_iteration_limits(self, *args, **kwargs) -> Any:
-        """Delegate context/iteration limit handling to the bound runtime helper."""
-        if self._context_limit_handler is None:
-            return False, None
-        return await self._context_limit_handler(*args, **kwargs)
 
     def reset_conversation(self) -> None:
         """Reset the conversation history and state.

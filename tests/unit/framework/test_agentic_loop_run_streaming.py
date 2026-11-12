@@ -818,3 +818,276 @@ async def test_recovery_status_cannot_complete_but_next_answer_can():
     assert len(turns) == 2
     assert chunks[-1].metadata["agentic_loop_success"] is True
     assert chunks[-1].metadata["agentic_loop_iterations"] == 2
+
+
+async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget_yields():
+    """FEP-0043 streaming parity: the criteria gate is ACTIVE on the shared
+    EVALUATE seam during run_streaming — an ungrounded COMPLETE with unmet
+    caller minimums downgrades to RETRY, and the budget-exhausted terminal
+    COMPLETE stands (same contract as the buffered run)."""
+    from types import SimpleNamespace as NS
+    from unittest.mock import AsyncMock, MagicMock
+
+    from victor.agent.action_authorizer import ActionIntent
+    from victor.agent.services.turn_execution_runtime import TurnResult
+    from victor.framework.perception_integration import Perception
+    from victor.framework.task.protocols import TaskComplexity
+
+    class Port:
+        async def stream_turn_act(self, *, query, state, perception, plan, turn_index, outcome):
+            yield StreamChunk(content="thin")
+            outcome.turn_result = TurnResult(
+                response=MagicMock(content="thin"),
+                tool_results=[{"tool_name": "t", "args": {}, "success": True, "findings": ["f1"]}],
+                has_tool_calls=True,
+                tool_calls_count=1,
+            )
+
+    executor = NS(execute_turn=AsyncMock())
+    loop = AgenticLoop(
+        orchestrator=MagicMock(spec=[]),
+        turn_executor=executor,
+        max_iterations=2,
+        enable_adaptive_iterations=False,
+        enable_fulfillment_check=False,
+        streaming_act_port=Port(),
+        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+    )
+    loop._analyze_turn = AsyncMock(
+        return_value=Perception(
+            intent=ActionIntent.WRITE_ALLOWED,
+            complexity=TaskComplexity.MEDIUM,
+            task_analysis=MagicMock(task_type="code_generation"),
+            confidence=0.8,
+        )
+    )
+    loop._plan = AsyncMock(return_value={})
+    decisions = []
+    real_gate_apply = loop.criteria_gate.apply
+
+    async def spying_apply(evaluation, action_result, state):
+        gated = await real_gate_apply(evaluation, action_result, state)
+        decisions.append((gated.decision, dict(gated.metadata)))
+        return gated
+
+    loop.criteria_gate.apply = spying_apply
+    loop._evaluate_core = AsyncMock(
+        return_value=EvaluationResult(
+            decision=EvaluationDecision.COMPLETE, score=0.9, reason="done"
+        )
+    )
+
+    chunks = [c async for c in loop.run_streaming("collect", context={"criteria": {"findings": 5}})]
+
+    # Iteration 1: downgrade 1/2; iteration 2 (budget exhausted): COMPLETE stands.
+    assert [d[0] for d in decisions] == [EvaluationDecision.RETRY, EvaluationDecision.COMPLETE]
+    assert decisions[0][1]["criteria_gate"]["downgrade"] == 1
+    assert decisions[1][1]["criteria_gate"]["budget_exhausted"] is True
+    # The caller's declared criteria seeded the streaming loop state (the
+    # final budget-exhausted COMPLETE stands annotated — last_unmet retains
+    # the floor, mirroring the buffered best-effort contract).
+    assert loop.criteria_gate.last_unmet == ["findings"]
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata["agentic_loop_success"] is True
+
+
+# --- post-loop presentation recovery (shared rule with the buffered run() epilogue) ---
+
+from victor.agent.services.turn_execution_runtime import (  # noqa: E402
+    TurnDisposition,
+    TurnExecutor,
+    TurnResult,
+)
+from victor.framework.agentic_loop import POST_LOOP_RECOVERY_KEY  # noqa: E402
+from victor.providers.base import CompletionResponse  # noqa: E402
+
+
+class _RuleExecutor:
+    """The real shared rule (TurnExecutor statics); synthesis belongs to the consumer."""
+
+    post_loop_recovery_allowed = staticmethod(TurnExecutor.post_loop_recovery_allowed)
+    post_loop_recovery_kind = staticmethod(TurnExecutor.post_loop_recovery_kind)
+    turn_has_successful_tool_evidence = staticmethod(TurnExecutor.turn_has_successful_tool_evidence)
+
+
+def _turn_port(results):
+    """Port whose turn i stamps ``results[i]`` (a TurnResult) and streams its content."""
+
+    class _Port:
+        async def stream_turn_act(self, *, query, state, perception, plan, turn_index, outcome):
+            result = results[turn_index - 1]
+            if result.response is not None and result.response.content:
+                yield StreamChunk(content=result.response.content)
+            outcome.turn_result = result
+
+    return _Port()
+
+
+def _tool_turn(content=""):
+    return TurnResult(
+        response=CompletionResponse(content=content),
+        tool_results=[{"name": "code_search", "success": True}],
+        has_tool_calls=True,
+        tool_calls_count=1,
+    )
+
+
+def _text_turn(content=""):
+    return TurnResult(response=CompletionResponse(content=content), tool_results=[])
+
+
+_CONTINUE = EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.2, reason="more")
+_FAIL = EvaluationResult(decision=EvaluationDecision.FAIL, score=0.1, reason="gave up")
+
+
+async def _terminal(turns, evaluations, executor=None):
+    loop = _loop(
+        _turn_port(turns),
+        evaluations=evaluations,
+        turn_executor=_RuleExecutor() if executor is None else executor,
+    )
+    chunks = [c async for c in loop.run_streaming("q")]
+    assert chunks[-1].is_final is True
+    return chunks[-1]
+
+
+async def test_failed_run_with_tool_evidence_requests_recovery_on_the_terminal_outcome():
+    final = await _terminal([_tool_turn(), _text_turn()], [_CONTINUE, _FAIL])
+
+    assert final.metadata[POST_LOOP_RECOVERY_KEY] == {"kind": "synthesize", "reason": "gave up"}
+    # The request never changes the verdict.
+    assert final.metadata["agentic_loop_success"] is False
+    assert final.metadata["agentic_loop_error"] == "gave up"
+
+
+async def test_exhausted_run_requests_recovery_with_the_last_evaluation_reason():
+    final = await _terminal([_tool_turn()] * 5, [_CONTINUE] * 5)
+
+    assert final.metadata[POST_LOOP_RECOVERY_KEY] == {"kind": "synthesize", "reason": "more"}
+
+
+@pytest.mark.parametrize(
+    "turns, evaluations",
+    [
+        # Success: the run's own answer stands.
+        (
+            [_tool_turn(), _text_turn("done")],
+            [_CONTINUE, EvaluationResult(decision=EvaluationDecision.COMPLETE, score=1.0)],
+        ),
+        # Failure that already has text on its last turn.
+        ([_tool_turn(), _text_turn("partial answer")], [_CONTINUE, _FAIL]),
+        # Earlier turn already streamed an answer; the last turn is text-less.
+        ([_tool_turn("Here is what I found."), _tool_turn()], [_CONTINUE, _FAIL]),
+        # Failure without any successful tool evidence.
+        ([_text_turn(), _text_turn()], [_CONTINUE, _FAIL]),
+        # ESCALATE is a structured stop: no generated text.
+        (
+            [_tool_turn(), _text_turn()],
+            [_CONTINUE, EvaluationResult(decision=EvaluationDecision.ESCALATE, score=0.1)],
+        ),
+    ],
+    ids=["success", "failed-with-text", "text-streamed-earlier", "no-tool-evidence", "escalate"],
+)
+async def test_no_recovery_request_outside_the_rule(turns, evaluations):
+    final = await _terminal(turns, evaluations)
+
+    assert POST_LOOP_RECOVERY_KEY not in final.metadata
+
+
+def _status_port(results):
+    """Port that streams a status line as content on every turn (like "[tool] ...")."""
+    inner = _turn_port(results)
+
+    class _Port:
+        async def stream_turn_act(self, **kwargs):
+            yield StreamChunk(content="[tool] Progress detected; extending tool budget\n")
+            async for chunk in inner.stream_turn_act(**kwargs):
+                yield chunk
+
+    return _Port()
+
+
+async def test_status_lines_are_not_mistaken_for_a_streamed_answer():
+    loop = _loop(
+        _status_port([_tool_turn(), _text_turn()]),
+        evaluations=[_CONTINUE, _FAIL],
+        turn_executor=_RuleExecutor(),
+    )
+    chunks = [c async for c in loop.run_streaming("q")]
+
+    assert chunks[-1].metadata[POST_LOOP_RECOVERY_KEY]["kind"] == "synthesize"
+
+
+async def test_run_stopping_disposition_is_not_recovered():
+    stopped = _text_turn()
+    stopped.disposition = next(d for d in TurnDisposition if d.stops_run)
+    final = await _terminal([_tool_turn(), stopped], [_CONTINUE, _FAIL])
+
+    assert POST_LOOP_RECOVERY_KEY not in final.metadata
+
+
+async def test_executor_without_the_rule_keeps_the_old_terminal_outcome():
+    final = await _terminal(
+        [_tool_turn(), _text_turn()], [_CONTINUE, _FAIL], executor=SimpleNamespace()
+    )
+
+    assert final.metadata == {
+        "agentic_loop_success": False,
+        "agentic_loop_iterations": 2,
+        "agentic_loop_error": "gave up",
+    }
+
+
+@pytest.mark.parametrize(
+    "allowed, success, response, evidence, expected",
+    [
+        (True, False, CompletionResponse(content=""), True, "synthesize"),
+        (True, False, None, False, "complete"),
+        (True, True, None, False, "complete"),
+        (True, True, CompletionResponse(content=""), True, None),
+        (True, False, CompletionResponse(content="text"), True, None),
+        (True, False, CompletionResponse(content=""), False, None),
+        (False, False, CompletionResponse(content=""), True, None),
+        (False, False, None, True, None),
+    ],
+)
+def test_post_loop_recovery_kind_table(allowed, success, response, evidence, expected):
+    assert (
+        TurnExecutor.post_loop_recovery_kind(
+            recovery_allowed=allowed,
+            success=success,
+            response=response,
+            has_tool_evidence=evidence,
+        )
+        == expected
+    )
+
+
+# --- intentional run()/run_streaming() difference: unexpected errors fail fast ---
+
+
+async def test_unexpected_error_propagates_from_the_stream():
+    """A recoverable exception escapes run_streaming (run() returns a failed LoopResult).
+
+    Deliberate: stream_with_events renders the sanitized cause + recovery hint,
+    BackgroundAgent marks the run ERROR on the raise, and no post-loop recovery
+    re-calls a provider that just failed. Converting it (buffered parity) was
+    reviewed and rejected; see the run_streaming docstring.
+    """
+    from victor.core.errors import ProviderConnectionError
+
+    class _Port:
+        async def stream_turn_act(self, *, turn_index, outcome, **kwargs):
+            if turn_index == 2:
+                raise ProviderConnectionError("connection refused")
+            yield StreamChunk(content="")
+            outcome.turn_result = _tool_turn()
+
+    loop = _loop(_Port(), evaluations=[_CONTINUE], turn_executor=_RuleExecutor())
+    seen = []
+    with pytest.raises(ProviderConnectionError, match="connection refused"):
+        async for chunk in loop.run_streaming("q"):
+            seen.append(chunk)
+
+    # No terminal verdict chunk and no recovery request are fabricated on the way out.
+    assert not any(c.is_final for c in seen)

@@ -20,6 +20,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from victor.ui.console import get_console
 
 # ✅ PROPER: Import SessionConfig and framework-owned session runner
 from victor.framework.session_config import SessionConfig
@@ -92,7 +93,7 @@ chat_app = typer.Typer(
         Session options: Use 'victor sessions' command instead.
     """,
 )
-console = Console()
+console = get_console()
 
 DEFAULT_CODING_AGENT_MODES = ("build", "plan", "review", "delegate")
 ADVANCED_CODING_AGENT_MODES = ("explore",)

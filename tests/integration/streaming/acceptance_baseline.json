@@ -1,47 +1,47 @@
 {
   "battery": {
-    "n": 14,
+    "n": 15,
     "overall": {
-      "mean": 0.7124,
-      "ci_lower": 0.6037,
-      "ci_upper": 0.821,
-      "n": 14
+      "mean": 0.7151,
+      "ci_lower": 0.6138,
+      "ci_upper": 0.8164,
+      "n": 15
     },
     "per_dimension": [
       {
         "dimension": "planning",
-        "mean": 0.5571,
-        "ci_lower": 0.5064,
-        "ci_upper": 0.6079,
-        "n": 14
+        "mean": 0.56,
+        "ci_lower": 0.5124,
+        "ci_upper": 0.6076,
+        "n": 15
       },
       {
         "dimension": "tool_grounding",
-        "mean": 0.8214,
-        "ci_lower": 0.6329,
+        "mean": 0.8333,
+        "ci_lower": 0.6558,
         "ci_upper": 1.0,
-        "n": 14
+        "n": 15
       },
       {
         "dimension": "recovery",
-        "mean": 0.4643,
-        "ci_lower": 0.3847,
-        "ci_upper": 0.5439,
-        "n": 14
+        "mean": 0.4667,
+        "ci_lower": 0.3924,
+        "ci_upper": 0.5409,
+        "n": 15
       },
       {
         "dimension": "refusal",
         "mean": 1.0,
         "ci_lower": 1.0,
         "ci_upper": 1.0,
-        "n": 14
+        "n": 15
       },
       {
         "dimension": "effect_grounding",
-        "mean": 0.6714,
-        "ci_lower": 0.5175,
-        "ci_upper": 0.8253,
-        "n": 14
+        "mean": 0.6733,
+        "ci_lower": 0.53,
+        "ci_upper": 0.8167,
+        "n": 15
       }
     ]
   },
@@ -55,10 +55,11 @@
     "W2": "54435c4761b76aa6",
     "W3": "a56f619cb1f2a6e7",
     "W4": "f567ce0e9180501c",
-    "U1": "6cad08e202392f33",
+    "U1": "85287b747d6bd2c0",
     "E1": "48ac58dd9b6d7ca9",
     "E2": "7ed5ea8aad1c926e",
     "X1": "94c2a182bb49c2df",
+    "Q1": "8ff9eced5ca37aa9",
     "E4": "23de12fe8dce8e44"
   }
 }

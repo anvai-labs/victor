@@ -212,11 +212,11 @@ ledger. Requirements `.txt` files are dependency inputs, not disposable prose.
 
 ### `docs/reference/` (configuration + keys)
 
-[api keys](../reference/api-keys.md) · [configuration options](configuration-options.md)
+[api keys](../reference/api-keys.md) · [configuration options](../reference/configuration-options.md)
 
 ### `docs/reference/providers/`
 
-[comparison](../reference/providers/comparison.md) · [index](../reference/providers/index.md) · [setup](../reference/providers/setup.md)
+[comparison](../reference/providers-comparison.md) · [index](../user-guide/providers.md) · [setup](../user-guide/providers.md#quick-start)
 
 ### `docs/reference/tools/`
 

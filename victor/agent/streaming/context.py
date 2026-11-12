@@ -169,6 +169,13 @@ class StreamingChatContext:
 
     # Topology/runtime override tracking
     runtime_context_overrides: Dict[str, Any] = field(default_factory=dict)
+    # FEP-0043 streaming parity: the caller-supplied run funding/criteria, kept
+    # separate from the derived overrides above. Topology overrides merge ONTO
+    # the caller's (caller-bound budget keys win; see the shared
+    # victor.core.runtime_context merge helper) — they never replace
+    # them the way the pre-parity assignment did.
+    caller_runtime_context_overrides: Dict[str, Any] = field(default_factory=dict)
+    caller_run_context: Dict[str, Any] = field(default_factory=dict)
     provider_kwargs: Dict[str, Any] = field(default_factory=dict)
     topology_input: Optional[Dict[str, Any]] = None
     topology_decision: Optional[Dict[str, Any]] = None

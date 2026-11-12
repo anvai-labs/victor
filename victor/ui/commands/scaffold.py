@@ -31,6 +31,7 @@ from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
+from victor.ui.console import get_console
 
 try:
     from jinja2 import (
@@ -49,7 +50,7 @@ scaffold_app = typer.Typer(
     name="vertical",
     help="Manage and scaffold vertical structures.",
 )
-console = Console()
+console = get_console()
 
 
 def get_template_dir() -> Path:

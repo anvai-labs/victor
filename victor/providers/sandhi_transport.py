@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import math
+import platform
 import re
 import socket
 import ssl
@@ -322,6 +323,29 @@ def _verify_wire_contract() -> None:
 _TLS_PROBE_DEADLINE_SECS = 4.0
 
 
+def _tls_trust_remediation() -> str:
+    """Platform-correct command for importing a CA into the system trust store.
+
+    The remediation differs per OS; a hardcoded macOS command on Linux (or
+    anywhere else) sends the operator down a dead end. `<ca.pem>` is the
+    gateway's issuing CA certificate, not the endpoint leaf.
+    """
+    system = platform.system()
+    if system == "Darwin":
+        return (
+            "macOS: sudo security add-trusted-cert -d -r trustRoot -k "
+            "/Library/Keychains/System.keychain <ca.pem>"
+        )
+    if system == "Linux":
+        return (
+            "Linux: sudo cp <ca.pem> /usr/local/share/ca-certificates/"
+            "gateway-ca.crt && sudo update-ca-certificates"
+        )
+    if system == "Windows":
+        return "Windows: certutil -addstore -f ROOT <ca.pem>"
+    return f"import the issuing CA into this {system or 'unknown'} platform's trust store"
+
+
 def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[str]:
     """Classify a transport error against an https endpoint.
 
@@ -358,11 +382,9 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
                 return (
                     "the endpoint's TLS certificate is not trusted by this "
                     "machine's trust store (private/self-signed CA). Import "
-                    "the issuing CA into the system trust store (macOS: sudo "
-                    "security add-trusted-cert -d -r trustRoot -k "
-                    "/Library/Keychains/System.keychain <ca.pem>) or serve a "
-                    "publicly-trusted certificate; the sandhi binding does "
-                    "not read SSL_CERT_FILE"
+                    f"the issuing CA into the system trust store ({_tls_trust_remediation()}) "
+                    "or serve a publicly-trusted certificate; the sandhi "
+                    "binding does not read SSL_CERT_FILE"
                 )
             except OSError:
                 return None

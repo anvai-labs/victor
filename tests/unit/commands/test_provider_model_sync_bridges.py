@@ -480,6 +480,7 @@ class TestBenchmarkSyncBridge:
         result.task_results = []
 
         with (
+            patch.dict("os.environ", {"VICTOR_FROZEN_PROMPTS": ""}),
             patch.object(benchmark_cmd, "_configure_log_level"),
             patch(
                 "victor.evaluation.benchmarks.HumanEvalRunner",

@@ -538,6 +538,7 @@ class StreamingChatHandler:
         all_blocked: bool,
         consecutive_limit: int = DEFAULT_BLOCKED_CONSECUTIVE_THRESHOLD,
         total_limit: int = DEFAULT_BLOCKED_TOTAL_THRESHOLD,
+        guided_check: Optional[Callable[[], bool]] = None,
     ) -> Optional[IterationResult]:
         """Check if blocked tool attempts have exceeded thresholds.
 
@@ -546,6 +547,15 @@ class StreamingChatHandler:
             all_blocked: Whether all tool calls in this iteration were blocked
             consecutive_limit: Threshold for consecutive blocked attempts
             total_limit: Threshold for total blocked attempts
+            guided_check: Optional TerminationAuthority guided-suppression
+                predicate (consolidation PR 5). When it answers True, the
+                consecutive-limit force completion is suppressed — the run
+                keeps going while the caller's declared completion objectives
+                remain unmet with iteration budget remaining (parity with the
+                buffered evaluation seam; full streaming unification is
+                audit PR 6). The total-limit backstop is NOT gated, so
+                termination stays guaranteed. None or False — byte-identical
+                to the ungated behavior.
 
         Returns:
             IterationResult if force completion triggered, None otherwise
@@ -553,6 +563,12 @@ class StreamingChatHandler:
         if all_blocked:
             ctx.consecutive_blocked_attempts += 1
             if ctx.consecutive_blocked_attempts >= consecutive_limit:
+                if guided_check is not None and guided_check():
+                    logger.info(
+                        "Blocked-streak force completion suppressed: caller-declared "
+                        "completion criteria are unmet with iteration budget remaining"
+                    )
+                    return None
                 logger.warning(
                     f"Model stuck after {ctx.consecutive_blocked_attempts} consecutive "
                     f"blocked attempts (limit: {consecutive_limit}) - forcing completion"

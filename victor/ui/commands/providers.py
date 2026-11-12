@@ -4,6 +4,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.providers.registry import ProviderRegistry
@@ -11,7 +12,7 @@ from victor.providers.health import ProviderHealthChecker
 from victor.ui.json_utils import create_json_option, print_json_data
 
 providers_app = typer.Typer(name="provider", help="List and manage providers.")
-console = Console()
+console = get_console()
 
 
 @providers_app.callback(invoke_without_command=True)

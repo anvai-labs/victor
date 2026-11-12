@@ -4,12 +4,13 @@ from datetime import datetime
 import typer
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.config.settings import load_settings
 
 models_app = typer.Typer(name="model", help="List and manage models.")
-console = Console()
+console = get_console()
 logger = logging.getLogger(__name__)
 
 # Supported providers for model listing

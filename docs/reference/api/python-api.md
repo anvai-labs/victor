@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
 The example requires Ollama running with the named model downloaded. See the
 [installation guide](../../getting-started/installation.md) for setup and the
-[provider reference](../providers/index.md) for other providers.
+[provider reference](../../user-guide/providers.md) for other providers.
 
 ## Run a task
 

@@ -170,11 +170,18 @@ class TestFormatterRenderer:
         )
 
     def test_on_status(self, renderer, mock_formatter):
-        """Test on_status() shows status message."""
+        """Test on_status() shows status message (severity passed through)."""
         renderer.on_status("Thinking...")
 
-        mock_formatter.status.assert_called_once_with("Thinking...")
+        mock_formatter.status.assert_called_once_with("Thinking...", None)
         mock_formatter.start_streaming.assert_called_once()
+
+    def test_on_status_passes_structured_severity(self, renderer, mock_formatter):
+        from victor.ui.rendering.utils import Severity
+
+        renderer.on_status("cache cold", Severity.WARNING)
+
+        mock_formatter.status.assert_called_once_with("cache cold", Severity.WARNING)
 
     def test_on_file_preview(self, renderer, mock_formatter, mock_console):
         """Test on_file_preview() displays syntax-highlighted content."""

@@ -218,12 +218,13 @@ cascade return.
 4. `stage_prompt_overrides` on `OperationalModeConfig` with a generic
    registration/consumption API.
 5. Enablement: the gate is framework-level (`AgenticLoopConfig
-  .enable_criteria_gate`, default off). Production chat/buffered executors
-  thread it in a follow-up; direct AgenticLoop callers (reporeel's
-  research worker) can enable it immediately via `UnifiedAgentConfig
-  .extra`. `criteria_gate_max_downgrades` is threaded from
-  `AgenticLoopConfig` alongside the flag (int-coerced/clamped >= 0 at
-  use, mirroring EffectGate).
+  .enable_criteria_gate`, default off). The production buffered
+  (`turn_execution_runtime`) and streaming (`chat_stream_executor
+  .run_unified`) executors both resolve it from declared criteria;
+  direct AgenticLoop callers (reporeel's research worker) can enable it
+  immediately via `UnifiedAgentConfig.extra`. `criteria_gate_max_downgrades`
+  is threaded from `AgenticLoopConfig` alongside the flag
+  (int-coerced/clamped >= 0 at use, mirroring EffectGate).
 6. SDK run-context forwarding: the buffered message seam
    (`execute_message` -> `ChatService.chat` -> `execute_agentic_loop`)
    forwards the structured caller `context` as `run_context` alongside
@@ -231,9 +232,28 @@ cascade return.
    runtimes predating the keyword are untouched. The loop's context
    merge places internal seeds last, so reserved keys (task
    classification, budgets, overrides) can never be clobbered by caller
-   keys. Streaming (`Agent.stream` -> `stream_message_events`) forwards
-   the flattened text only today; structured streaming forwarding is a
-   documented follow-up — buffered is the path consumers gate on.
+   keys. Streaming parity (consolidation PR 3, seam-duplication audit
+   Cluster 4): `Agent.stream(prompt, context=...,
+   runtime_context_overrides=...)` -> `stream_message_events` ->
+   `stream_with_events` forwards both kwargs to the chat-stream seam
+   with the same signature-sniffing guard (legacy `stream_chat(message)`
+   runtimes drop them silently); `ChatService`'s stream branch carries
+   them onto `StreamingChatContext` (`caller_runtime_context_overrides`,
+   `caller_run_context`); the topology plan's derived overrides MERGE
+   ONTO the caller's through the shared
+   `victor.framework.loop.runtime_context.merge_runtime_context_overrides`
+   helper (caller-bound `tool_budget`/`iteration_budget` win, the same
+   precedence as the buffered bind) instead of replacing them; and the
+   streaming `AgenticLoop` is built with `enable_criteria_gate` resolved
+   from declared criteria exactly as the buffered path resolves it, with
+   `run_streaming` seeded with the caller run context (reserved keys
+   last). Guided termination (#1725) and the criteria/completion-marker
+   gate are therefore streaming-capable: the gate, mirroring, and
+   guided-termination predicate all live on the shared
+   PERCEIVE/PLAN/ACT/EVALUATE/DECIDE seam that `run_streaming` drives.
+   Without caller overrides/context every streaming decision path is
+   byte-identical (context-less `run_streaming`, empty caller fields,
+   merge-on-empty equals the previous derived-only assignment).
 7. State mirroring wiring: the buffered `_act` seam and the streaming
    post-ACT block call `mirror_criteria_state` after tool results are
    recorded, so the gate counts the run's own evidence (opt-in by
@@ -256,6 +276,24 @@ cascade return.
    pipeline's budget/internal-check/tail-skip, failed-signature, and
    semantic-redundancy skip paths, and the streaming post-warning
    signature block in the recovery service.
+
+## Structured CallerRunContext (consolidation PR 4)
+
+The declarations above (criteria, `complete_on_key`, completion-critical
+tools) plus the scoped runtime overrides now travel as ONE structured
+object, `victor/core/caller_run_context.py::CallerRunContext`
+(seam-duplication audit, Cluster 2). `Agent.run`/`Agent.stream` construct
+it once from `(runtime_context_overrides, context, settings)` and thread it
+to the loop build sites; the buffered and streaming sites take their loop
+config from `to_loop_config()` (criteria-gate resolution and
+completion-tool names included) and their funding from
+`to_runtime_overrides()` merged through the shared
+`merge_runtime_context_overrides` helper — replacing the two hand-built
+config dicts and the per-site budget-key extraction this FEP previously
+required. Raw context/override kwargs keep flowing with the same
+signature-sniffing guards for legacy runtimes, and with nothing declared
+every produced config dict and decision is byte-identical to the
+pre-consolidation path.
 
 ## Migration Path
 

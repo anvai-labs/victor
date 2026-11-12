@@ -132,17 +132,6 @@ class ChatServiceProtocol(Protocol):
         """
         ...
 
-    async def handle_context_and_iteration_limits(
-        self,
-        user_message: str,
-        max_total_iterations: int,
-        max_context: int,
-        total_iterations: int,
-        last_quality_score: float,
-    ) -> tuple[bool, Optional["StreamChunk"]]:
-        """Handle context overflow and iteration hard limits during streaming."""
-        ...
-
     def reset_conversation(self) -> None:
         """Reset the conversation history and state.
 

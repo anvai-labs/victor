@@ -102,6 +102,7 @@ from victor.ui.commands.auth import auth_app
 # Import verification command
 from victor.ui.commands.verify import app as verify_app
 from victor.ui.cli_group import SuggestingGroup, suggest_command
+from victor.ui.console import get_console
 from victor.ui.theme import victor_theme
 
 app = typer.Typer(
@@ -111,7 +112,7 @@ app = typer.Typer(
     add_completion=False,
 )
 
-console = Console(theme=victor_theme)
+console = get_console()
 
 
 @app.command(

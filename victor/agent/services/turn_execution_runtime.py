@@ -54,6 +54,9 @@ from dataclasses import dataclass, field, replace
 
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
+from victor.agent.services import post_loop_recovery
+from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+from victor.providers.usage_accounting import accumulate_usage
 from victor.agent.response_completer import ToolFailureContext
 from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
@@ -168,9 +171,10 @@ from victor.agent.services.runtime_overrides import (
     OverrideRestorationError,
     apply_overrides,
     attribute_change,
-    budget_changes,
+    extend_budget_funding,
     restore_overrides,
 )
+from victor.core.tool_budget_ledger import resolved_budget_view
 
 logger = logging.getLogger(__name__)
 
@@ -473,6 +477,7 @@ class TurnExecutor:
         max_iterations: Optional[int] = None,
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
         run_context: Optional[Dict[str, Any]] = None,
+        caller_run_context: Optional[Any] = None,
     ) -> CompletionResponse:
         """Execute the full agentic loop via the canonical AgenticLoop runtime.
 
@@ -486,6 +491,8 @@ class TurnExecutor:
             runtime_context_overrides: Scoped runtime hints to apply to turns in this loop
             run_context: Structured caller context seeded into the loop's state
                 (FEP-0043 criteria gating). Internal loop seeds win for reserved keys.
+            caller_run_context: Structured CallerRunContext (consolidation PR 4);
+                when present it drives the loop config and budget overrides.
 
         Returns:
             CompletionResponse with complete response
@@ -505,7 +512,6 @@ class TurnExecutor:
                 )
             user_message = gate_result.content
 
-        # Ensure system prompt is included once at start of conversation
         self._chat_context.conversation.ensure_system_prompt()
         self._chat_context._system_added = True
 
@@ -515,14 +521,14 @@ class TurnExecutor:
             user_message,
             metadata={MESSAGE_SOURCE_METADATA_KEY: MessageSource.USER_TYPED.value},
         )
-        # Accepted execution history and consumed budget are evidence, not
-        # speculative state: restoring them cannot undo an external tool effect.
-        # Propagate delegated failures without erasing that evidence or replaying.
+        # Accepted history and consumed budget are evidence, not speculative
+        # state: restoring them cannot undo an external tool effect.
         response = await self._execute_via_agentic_loop(
             user_message,
             max_iterations,
             runtime_context_overrides=runtime_context_overrides,
             run_context=run_context,
+            caller_run_context=caller_run_context,
             executor=executor,
         )
 
@@ -571,7 +577,6 @@ class TurnExecutor:
         self,
         *,
         tools: Optional[List[Any]] = None,
-        extra_messages: Optional[List[Any]] = None,
         provider_kwargs: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """One metered model turn: execute, record usage, govern.
@@ -581,7 +586,6 @@ class TurnExecutor:
         """
         response = await self._execute_model_turn(
             tools=tools,
-            extra_messages=extra_messages,
             **dict(provider_kwargs or {}),
         )
         self._record_conversation_usage(response)
@@ -684,8 +688,7 @@ class TurnExecutor:
         overrides = dict(runtime_context_overrides or {})
         runtime_snapshot = self._apply_runtime_context_overrides(overrides)
         try:
-            # PHASE 16: Begin turn for stage transition batching
-            # This batches tool executions and applies Phase 1 optimizations consistently
+            # PHASE 16: begin turn (batches tool executions, applies optimizations)
             _orch = self._resolve_orchestrator()
             if _orch and hasattr(_orch, "transition_coordinator") and _orch.transition_coordinator:
                 _orch.transition_coordinator.begin_turn()
@@ -699,23 +702,15 @@ class TurnExecutor:
             except Exception:  # correlation is non-critical
                 pass
 
-            effective_tool_budget = self._coerce_int_override(overrides.get("tool_budget"))
-            if effective_tool_budget is None:
-                effective_tool_budget = self._tool_context.tool_budget
+            effective_tool_budget, ledger_used = resolved_budget_view(
+                _orch, self._tool_context, overrides.get("tool_budget")
+            )
 
-            # Deterministic read-only plan steps do not need a model turn to
-            # choose the obvious tool. Callers that explicitly want the model
-            # to drive the loop (e.g. init.md synthesis via `--agentic`) opt
-            # out via `runtime_context_overrides["disable_deterministic_fast_path"]`
-            # — the fast-path otherwise bypasses the LLM entirely and reports
-            # success on a single iteration even though the caller asked for
-            # written output that only the model can produce.
+            # Deterministic read-only plan steps skip the model turn. Callers
+            # that want the model to drive the loop (init.md via `--agentic`)
+            # opt out via runtime_context_overrides["disable_deterministic_fast_path"].
             fast_path_disabled = bool(overrides.get("disable_deterministic_fast_path"))
-            if (
-                not fast_path_disabled
-                and not is_qa_task
-                and self._tool_context.tool_calls_used < effective_tool_budget
-            ):
+            if not fast_path_disabled and not is_qa_task and ledger_used < effective_tool_budget:
                 deterministic_turn = await self._maybe_execute_deterministic_tool_turn(
                     user_message,
                     task_classification=task_classification,
@@ -723,17 +718,20 @@ class TurnExecutor:
                 if deterministic_turn is not None:
                     return deterministic_turn
 
-            # Select tools (unless Q&A task). The tool offer stays stable even
-            # when the tool budget is exhausted: the offer is a contract
-            # surface — an abruptly empty offer turns a mid-conversation tool
-            # call into a protocol violation for validating provider wrappers,
-            # and it also flushes the KV-cached tool prefix. Budget enforcement
-            # stays at execution, where exhausted calls are skipped with a
-            # recorded, user-visible reason; the model sees those skip results
-            # directly (the loop's budget_warning nudge is iteration-budget
-            # gated and does not fire on early tool-budget exhaustion).
+            # Select tools (unless Q&A task). The offer stays stable even when
+            # the budget is exhausted: an abruptly empty offer is a protocol
+            # violation for validating provider wrappers and flushes the
+            # KV-cached tool prefix. Enforcement stays at execution, where
+            # exhausted calls are skipped with a recorded, visible reason.
+            # Sticky offer: a Q&A turn whose history already carries tool calls
+            # still goes through selection (same rule as the streaming ACT).
+            from victor.agent.services.tool_selection_runtime import history_has_tool_calls
+
+            needs_offer = not is_qa_task or history_has_tool_calls(
+                getattr(self._chat_context, "messages", None)
+            )
             tools = None
-            if not is_qa_task and self._provider_context.provider.supports_tools():
+            if needs_offer and self._provider_context.provider.supports_tools():
                 tools = await self._select_tools_for_turn(user_message, intent=intent)
 
             # Prepare thinking parameter
@@ -755,9 +753,8 @@ class TurnExecutor:
             if task_classification:
                 await self._check_context_compaction(user_message, task_classification)
 
-            # Route per-turn temperature through the unified resolver (ADR-013): pass the task type
-            # so it applies profile/settings/task-hint precedence + model bounds. An explicit
-            # temperature_override (heterogeneous teams / recovery) still wins downstream.
+            # Per-turn temperature via the unified resolver (ADR-013): task type
+            # drives profile/settings/task-hint precedence; explicit overrides win downstream.
             provider_kwargs["task_type"] = task_type or self._derive_task_type(task_classification)
             if temperature_override is not None:
                 provider_kwargs["temperature_override"] = temperature_override
@@ -772,10 +769,9 @@ class TurnExecutor:
             # text-only re-dispatch (#1703) broke chat()/stream() parity
             # (FEP-0007); any such guard must live on both paths.
 
-            # Add assistant response/tool-call envelope to conversation history.
-            # OpenAI-compatible providers require every subsequent tool message
-            # to be paired with the assistant message that declared its
-            # tool_calls. Tool-only assistant turns often have empty content.
+            # Assistant envelope in history: OpenAI-compatible providers require
+            # every tool message paired with the assistant message declaring its
+            # tool_calls; tool-only turns often have empty content.
             if response.content or response.tool_calls:
                 self._chat_context.add_message(
                     "assistant",
@@ -880,8 +876,7 @@ class TurnExecutor:
                                 result["error"],
                             )
 
-            # PHASE 16: End turn for stage transition batching
-            # Processes all batched tools and applies Phase 1 optimizations
+            # PHASE 16: end turn (processes batched tools, applies optimizations)
             new_stage = None
             if _orch and hasattr(_orch, "transition_coordinator") and _orch.transition_coordinator:
                 new_stage = _orch.transition_coordinator.end_turn()
@@ -895,7 +890,10 @@ class TurnExecutor:
                 has_tool_calls=bool(response.tool_calls),
                 tool_calls_count=len(response.tool_calls) if response.tool_calls else 0,
                 all_tools_blocked=all_blocked,
-                is_qa_response=is_qa_task and bool(response.content),
+                # A Q&A turn that also calls tools is not a final answer: its
+                # narration ("Let me check.") must not complete the loop before
+                # the tool result is answered. Same rule as the streaming ACT.
+                is_qa_response=is_qa_task and bool(response.content) and not response.tool_calls,
             )
         finally:
             self._restore_runtime_context_overrides(runtime_snapshot)
@@ -1118,6 +1116,7 @@ class TurnExecutor:
         max_iterations: Optional[int],
         runtime_context_overrides: Optional[Dict[str, Any]] = None,
         run_context: Optional[Dict[str, Any]] = None,
+        caller_run_context: Optional[Any] = None,
         executor: AgenticLoopExecutor = AgenticLoopExecutor.AUTO,
     ) -> CompletionResponse:
         """Delegate execution to AgenticLoop for enhanced evaluation.
@@ -1138,12 +1137,21 @@ class TurnExecutor:
         task_classification = self._provider_context.task_classifier.classify(user_message)
         is_qa = self._is_question_only(user_message)
 
-        # Calculate iteration budget. A per-call ``iteration_budget`` override
-        # (from runtime_context_overrides) is read directly here rather than via
-        # a mutate-then-restore of the shared settings.chat_max_iterations.
-        iter_override = self._coerce_int_override(
-            (runtime_context_overrides or {}).get("iteration_budget")
-        )
+        # Consolidation PR 4: the structured CallerRunContext (built once at
+        # Agent.run) carries the budget keys; funding merges with raw overrides
+        # through the shared PR-3 helper (caller-bound keys win). Without the
+        # object the raw dict path is byte-identical to before.
+        if caller_run_context is not None:
+            from victor.core.runtime_context import merge_runtime_context_overrides
+
+            _overrides_map = merge_runtime_context_overrides(
+                caller_run_context.to_runtime_overrides(), runtime_context_overrides or {}
+            )
+        else:
+            _overrides_map = runtime_context_overrides
+        # A per-call ``iteration_budget`` override is read directly rather than
+        # via a mutate-then-restore of the shared settings.chat_max_iterations.
+        iter_override = self._coerce_int_override((_overrides_map or {}).get("iteration_budget"))
         max_iterations_setting = (
             iter_override
             if iter_override is not None
@@ -1160,9 +1168,8 @@ class TurnExecutor:
         else:
             iteration_budget = min(task_budget, max_iterations_setting, loop_ceiling)
 
-        # Create AgenticLoop with self as turn_executor
-        # Use a lightweight mock orchestrator since AgenticLoop only needs
-        # turn_executor for single-turn execution
+        # Create AgenticLoop with self as turn_executor (lightweight mock
+        # orchestrator: AgenticLoop only needs turn_executor here).
         # ADR-009 strategy + ADR-011 judge pinning: env override, settings default, then
         # downgrade rubric/hybrid unless the session (judge) model passed calibration.
         from victor.agent.services.judge_calibration_gate import resolve_completion_strategy
@@ -1175,11 +1182,21 @@ class TurnExecutor:
         from victor.framework.effect_gate import resolve_effect_gate_enabled
 
         _effect_gate = resolve_effect_gate_enabled(_settings)
-        # FEP-0043 enablement: declaring non-empty criteria in the structured
-        # run context is the caller's opt-in that turns the criteria gate on
-        # for this run. Without declared criteria the gate stays off
-        # (default-off parity); no settings registry is involved.
-        _criteria_gate = bool((run_context or {}).get("criteria"))
+        if caller_run_context is not None:
+            # Structured path: loop config from the object; the criteria gate
+            # resolution (FEP-0043) and completion-tool names travel inside it.
+            _loop_config = caller_run_context.to_loop_config(
+                executor=executor,
+                completion_strategy=_strategy,
+                enable_effect_gate=_effect_gate,
+            )
+        else:
+            _loop_config = {
+                "executor": executor,
+                "completion_strategy": _strategy,
+                "enable_effect_gate": _effect_gate,
+                "enable_criteria_gate": bool((run_context or {}).get("criteria")),
+            }
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
@@ -1187,12 +1204,7 @@ class TurnExecutor:
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
             exploration_settings=getattr(self._chat_context.settings, "exploration", None),
-            config={
-                "executor": executor,
-                "completion_strategy": _strategy,
-                "enable_effect_gate": _effect_gate,
-                "enable_criteria_gate": _criteria_gate,
-            },
+            config=_loop_config,
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
             max_verify_retries=getattr(self, "_max_verify_retries", 0),
@@ -1203,24 +1215,24 @@ class TurnExecutor:
             "_task_classification": task_classification,
             "_is_qa_task": is_qa,
         }
-        # Seed the initial tool_budget from the service so _select_topology
-        # doesn't fall back to the hardcoded default of 10.  Without this seed,
-        # sub-agents whose ToolService starts at 50 (or any value > 10) have
-        # their topology plan compute tool_budget=10 and then apply it via
-        # temporary tool-budget overrides, which collapse every sub-agent to 10
-        # tool calls regardless of the configured step budget.
+        # Seed the service tool_budget so _select_topology doesn't fall back to
+        # the hardcoded 10 default (which collapses sub-agents to 10 calls).
         _service_budget = getattr(self._tool_context, "tool_budget", None)
         if isinstance(_service_budget, int) and _service_budget > 10:
             context["tool_budget"] = _service_budget
-        if runtime_context_overrides:
-            context["runtime_context_overrides"] = dict(runtime_context_overrides)
+        if _overrides_map:
+            context["runtime_context_overrides"] = (
+                _overrides_map if caller_run_context is not None else dict(_overrides_map)
+            )
         conversation_history = self._get_agentic_loop_conversation_history(user_message)
 
-        # FEP-0043: seed the caller's structured run context into the loop's
-        # initial state. Internal seeds merge after caller keys so reserved
-        # keys (task classification, budgets, overrides) can never be clobbered.
-        if run_context:
-            context = {**run_context, **context}
+        # FEP-0043: seed the caller's structured run context into loop state;
+        # internal seeds merge last so reserved keys can never be clobbered.
+        _seed_context = run_context or (
+            caller_run_context.to_run_context() if caller_run_context is not None else None
+        )
+        if _seed_context:
+            context = {**_seed_context, **context}
         loop_run_kwargs = {"context": context}
         if conversation_history is not None and self._agentic_loop_accepts_conversation_history(
             loop
@@ -1244,8 +1256,8 @@ class TurnExecutor:
                 or "Agentic loop ended before satisfying the task"
             )
 
-        # ACT is committed to state before EVALUATE finishes and the iteration is
-        # appended. Preserve that current result if a guard interrupts evaluation.
+        # ACT commits to state before EVALUATE finishes; preserve it if a guard
+        # interrupts evaluation.
         action_result = loop_result.final_state.get("action_result")
         if action_result is None and last is not None:
             action_result = last.action_result
@@ -1256,19 +1268,19 @@ class TurnExecutor:
             action_result if not recovery_allowed else (last.action_result if last else None)
         )
         response = getattr(response_source, "response", None)
-        if response is not None:
-            if (
-                recovery_allowed
-                and not loop_success
-                and not response.content
-                and self._loop_has_successful_tool_evidence(loop_result)
-            ):
-                # Recover presentation without changing the verifier's verdict.
-                synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
-                response = synthesized.response
-        elif recovery_allowed:
+        recovery = self.post_loop_recovery_kind(
+            recovery_allowed=recovery_allowed,
+            success=loop_success,
+            response=response,
+            has_tool_evidence=self._loop_has_successful_tool_evidence(loop_result),
+        )
+        if recovery == "synthesize":
+            # Recover presentation without changing the verifier's verdict.
+            synthesized = await self.synthesize_from_tool_evidence(recovery_reason=loop_error)
+            response = synthesized.response
+        elif recovery == "complete":
             response = await self._ensure_complete_response(None, ToolFailureContext())
-        else:
+        elif response is None:
             # No generated fallback after terminal admission denial. The failed
             # metadata explains the stop without inventing ungoverned assistant text.
             response = CompletionResponse(content="", role="assistant")
@@ -1281,20 +1293,19 @@ class TurnExecutor:
         response.metadata = metadata
         return response
 
-    @staticmethod
-    def _allows_post_loop_recovery(loop_result: LoopResult, action_result: object) -> bool:
+    @classmethod
+    def _allows_post_loop_recovery(cls, loop_result: LoopResult, action_result: object) -> bool:
         """Honor structured terminal stops without reclassifying ordinary failed verification."""
-        from victor.framework.evaluation_nodes import EvaluationDecision
+        last_evaluation = loop_result.iterations[-1].evaluation if loop_result.iterations else None
+        return cls.post_loop_recovery_allowed(
+            spin_guard_stopped=loop_result.metadata.get("terminated_by") == "loop_spin_guard",
+            action_result=action_result,
+            last_decision=getattr(last_evaluation, "decision", None),
+        )
 
-        if loop_result.metadata.get("terminated_by") == "loop_spin_guard":
-            return False
-        if isinstance(action_result, TurnResult) and action_result.disposition.stops_run:
-            return False
-        if loop_result.iterations:
-            evaluation = loop_result.iterations[-1].evaluation
-            if evaluation and evaluation.decision in (EvaluationDecision.ESCALATE, "escalate"):
-                return False
-        return True
+    # The shared post-loop recovery rule (buffered epilogue + run_streaming).
+    post_loop_recovery_allowed = staticmethod(post_loop_recovery.recovery_allowed)
+    post_loop_recovery_kind = staticmethod(post_loop_recovery.recovery_kind)
 
     async def synthesize_from_tool_evidence(
         self,
@@ -1318,17 +1329,9 @@ class TurnExecutor:
     @staticmethod
     def _loop_has_successful_tool_evidence(loop_result: Any) -> bool:
         """Return True when a loop gathered successful tool output before stopping."""
-        for iteration in getattr(loop_result, "iterations", []) or []:
-            action_result = getattr(iteration, "action_result", None)
-            if action_result is None:
-                continue
-            successful_tool_count = getattr(action_result, "successful_tool_count", 0)
-            if successful_tool_count:
-                return True
-            for result in getattr(action_result, "tool_results", []) or []:
-                if isinstance(result, dict) and result.get("success"):
-                    return True
-        return False
+        return post_loop_recovery.loop_has_tool_evidence(loop_result)
+
+    turn_has_successful_tool_evidence = staticmethod(post_loop_recovery.turn_has_tool_evidence)
 
     # =====================================================================
     # Parallel Exploration
@@ -1662,16 +1665,12 @@ class TurnExecutor:
     async def _execute_model_turn(
         self,
         tools: Optional[List[Any]] = None,
-        *,
-        extra_messages: Optional[List[Any]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
         """Execute a single model turn.
 
         Args:
             tools: Optional tool definitions
-            extra_messages: Optional messages appended to the conversation for
-                this call only (never persisted to chat history)
             **kwargs: Additional provider parameters; temperature_override overrides
                 the provider-default temperature for this task type.
 
@@ -1698,11 +1697,8 @@ class TurnExecutor:
         ):
             kwargs["reasoning_effort"] = reasoning_effort
 
-        messages = self._chat_context.messages
-        if extra_messages:
-            messages = [*messages, *extra_messages]
         return await self._execution_provider.execute_turn(
-            messages=messages,
+            messages=self._chat_context.messages,
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,
@@ -1760,10 +1756,13 @@ class TurnExecutor:
                 )
             )
         tool_budget = self._coerce_int_override(overrides.get("tool_budget"))
+        undo_funding = None
         if tool_budget is not None:
-            changes.extend(budget_changes(orchestrator, self._tool_context, tool_budget))
+            undo_funding = extend_budget_funding(
+                changes, orchestrator, self._tool_context, tool_budget
+            )
         try:
-            return apply_overrides(changes)
+            return apply_overrides(changes, extra_undo=undo_funding)
         except OverrideRestorationError:
             self._runtime_override_error = True
             if orchestrator is not None:
@@ -1800,9 +1799,8 @@ class TurnExecutor:
             response: Response from model
         """
         if response.usage:
-            # Feed actual prompt_tokens back to ConversationController so that
-            # get_context_metrics() uses real counts instead of char estimation.
-            # Also persist cumulative token usage to ConversationStore (session analytics).
+            # Feed prompt_tokens back to ConversationController (real counts, not
+            # char estimation) and persist cumulative usage to the store.
             prompt_tokens = response.usage.get("prompt_tokens", 0)
             if prompt_tokens > 0:
                 try:
@@ -2003,17 +2001,26 @@ class TurnExecutor:
         if final_response is not None and final_response.content:
             return await self.govern_response(final_response)
 
-        # Use response completer to generate a response
+        # Use response completer to generate a response. On tool history the
+        # text-forcing calls keep the stable offer (the sticky-offer rule of
+        # tool selection, applied to calls that bypass selection).
+        from victor.agent.services.tool_selection_runtime import text_call_tools
+
+        messages = self._chat_context.messages
         completion_result = await self._provider_context.response_completer.ensure_response(
-            messages=self._chat_context.messages,
+            messages=messages,
             model=self._provider_context.model,
             temperature=self._provider_context.temperature,
             max_tokens=self._provider_context.max_tokens,
             failure_context=(failure_context if failure_context.failed_tools else None),
+            tools=text_call_tools(self._resolve_orchestrator(), messages),
         )
 
+        recovery_usage: Dict[str, int] = {}
         for provider_response in completion_result.provider_responses:
             self._record_conversation_usage(provider_response)
+            if provider_response.usage:
+                accumulate_usage(recovery_usage, provider_response.usage)
 
         content = completion_result.content
         if not content:
@@ -2034,6 +2041,10 @@ class TurnExecutor:
                 tool_calls=None,
             )
         )
+        if recovery_usage:
+            # Metadata, not ``usage``: the calls are already accounted at the
+            # invocation boundary; streaming folds this into its per-stream totals.
+            response.metadata = {**(response.metadata or {}), RECOVERY_USAGE_KEY: recovery_usage}
         self._chat_context.add_message(
             "assistant",
             response.content,

@@ -34,6 +34,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.config.settings import Settings, get_project_paths, graph_flag, graph_setting
 from victor.core.async_utils import run_sync
@@ -41,7 +42,7 @@ from victor.storage.graph import create_graph_store
 
 graph_app = typer.Typer(name="graph", help="Graph-based code intelligence operations.")
 watch_app = typer.Typer(help="Keep the persisted graph incrementally updated.")
-console = Console()
+console = get_console()
 graph_app.add_typer(watch_app, name="watch")
 
 

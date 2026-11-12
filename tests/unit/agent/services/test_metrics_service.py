@@ -178,7 +178,7 @@ def test_emit_tool_strategy_event_uses_provider_capability_for_metrics_labels(ca
     provider.supports_prompt_caching.return_value = True
     tools = [SimpleNamespace(name="read"), SimpleNamespace(name="git_diff")]
 
-    with caplog.at_level("DEBUG"):
+    with caplog.at_level("DEBUG", logger=AgentMetricsService.__module__):
         coordinator.emit_tool_strategy_event(
             strategy="session_lock",
             tool_count=2,

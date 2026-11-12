@@ -615,12 +615,19 @@ class ToolExecutionHandler:
                 block_source="runtime_guard",
             )
 
-        # Check blocked threshold
+        # Check blocked threshold. Consolidation PR 5: the streak force
+        # completion consults the TerminationAuthority guided-suppression
+        # predicate — with declared-unmet caller criteria and budget
+        # remaining, the streak no longer hard-terminates (the divergence
+        # the audit flagged vs the buffered evaluation seam). The
+        # total-blocked backstop stays ungated, so termination is still
+        # guaranteed. No declaration — None, byte-identical to before.
         all_blocked = blocked_count > 0 and not filtered_calls
         recovery_ctx = self._recovery_context_factory(stream_ctx)
         threshold_result = self._recovery_runtime.check_blocked_threshold(
             recovery_ctx,
             all_blocked,
+            guided_check=self._blocked_streak_guided_check(stream_ctx),
         )
         if threshold_result:
             chunk, should_clear = threshold_result
@@ -629,6 +636,24 @@ class ToolExecutionHandler:
                 filtered_calls = []
 
         return filtered_calls
+
+    @staticmethod
+    def _blocked_streak_guided_check(stream_ctx: StreamingChatContext):
+        """Build the TerminationAuthority guided-suppression predicate for the
+        blocked-streak force-completion seam, from the caller's declared run
+        context (consolidation PR 5, minimum scope: full streaming
+        unification is audit PR 6).
+
+        Returns None when the caller declared nothing — the seam keeps its
+        ungated legacy behavior (default-off parity). Evidence-aware
+        criteria counting stays a PR 6 concern: the predicate reads the
+        declaration itself, so a declared-unmet caller run context guides
+        the streak and the ungated total-blocked backstop still terminates.
+        """
+        declared = getattr(stream_ctx, "caller_run_context", None)
+        from victor.framework.termination_authority import TerminationAuthority
+
+        return TerminationAuthority.guided_suppression_check(declared)
 
     async def _execute_filtered_tool_calls(
         self,

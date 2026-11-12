@@ -5,6 +5,77 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-11
+
+Terminal-UI remediation program (12 PRs) plus caller-budget, agent-loop and
+recovery fixes. The Sandhi binding remains pinned to 0.16.2; contracts and
+CodeGraph retain their independent release versions.
+
+### Fixed
+
+- **tui**: the shell-first bootstrap never rebound the agent into the slash
+  handler, so ~20 commands (`/model`, `/save`, `/resume`, `/cost`, ...) always
+  answered "requires an active session" (#1745); `"/ "` input crashed the
+  slash worker with an IndexError (#1745).
+- **tui**: interrupting a turn blocked on the approval modal left the terminal
+  modal-locked until the modal's timeout; the modal now dismisses with the
+  cancelled turn and the stream generator closes deterministically (#1748).
+- **tui**: the session-cost accumulator moved out of the per-stream-event
+  usage bar into the once-per-turn report path, eliminating a dormant
+  self-multiplication of the displayed session total; `cache_hit_rate` is a
+  fraction 0..1 across all producers and consumers (#1746).
+- **slash**: duplicate command-name registrations were silently overwritten by
+  alphabetical module discovery — `/status`, `/resume`, `/review` each had a
+  dead shadow. Plan commands renamed to `/plan-status` and `/plan-resume`
+  (code review keeps `/review`; review mode is `/mode review`); collisions
+  now warn and are guard-tested (#1747). A partially populated default registry
+  completes lazy discovery on its first read.
+- **slash**: `/compact --keep 0` (and negatives) silently compacted nothing or
+  the wrong half; values below 1 are rejected (#1749).
+- **chat_app**: the native Stop control now cancels the child turn task
+  defensively before the session slot clears (#1750).
+- **providers**: the TLS trust-failure diagnosis recommends the
+  platform-correct CA import command (Linux/macOS/Windows) instead of a
+  hardcoded macOS command (#1744).
+- **agent**: post-loop recovery calls are counted in the stream's usage
+  totals (#1758); hang diagnostics and shutdown telemetry preserved (#1757);
+  a single post-loop recovery rule for `chat()` and `stream()` (#1743).
+- **runtime**: carry caller-declared budgets and completion criteria through one
+  run context and budget ledger. Failed override transactions restore prior
+  funding without resetting consumed usage; text-forcing completion calls retain
+  the stable tool offer.
+- **streaming**: propagate unexpected execution errors instead of presenting
+  them as successful completion.
+- **session import**: recognize modern Claude Code JSONL transcripts with
+  leading mode, permission and file-history bookkeeping records.
+- **diagnostics**: repeated SIGUSR1 requests dump all thread stacks without
+  terminating Victor. Normal and cancelled shutdown flush buffered usage events.
+- **validation**: repository scripts take precedence over unrelated installed
+  packages named `scripts`.
+- **verification**: accept pytest's valid passed-call/teardown-error reports
+  while preserving failed verification and rejecting inflated success counts.
+- **CLI dependencies**: require the validated Typer 0.27.3 baseline so Click 8.5
+  reports missing arguments instead of passing `None` into command handlers.
+
+### Changed
+
+- **ui**: one process-wide themed console (`victor.ui.console.get_console`)
+  replaces 43 bare `Console()` sites, so the capability-detected theme
+  tokens actually style command output; a grep guard forbids regressions
+  (#1752).
+- **ui**: status lines carry structured `Severity` (info/success/warning/
+  error) instead of substring sniffing — provider errors render red, not dim
+  (#1753).
+- **tui**: slash dispatches serialize behind a lock with per-command capture
+  consoles, ending shared-buffer output bleeding (#1751); tool-args
+  correlation has a single owner in the timeline state machine (#1755).
+### Documentation
+
+- Align release preparation, protected-branch promotion and deployment checks
+  with the canonical workflow. Distinguish published artifacts, installed
+  versions, gateway profiles and live provider acceptance.
+- Repair stale provider/configuration and fixture links in the published docs.
+
 ## [0.27.1] - 2026-11-10
 
 Maintenance release: a single hotfix on top of 0.27.0.

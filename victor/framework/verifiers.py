@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from dataclasses import dataclass
 import logging
 import os
@@ -135,7 +136,9 @@ def _read_pytest_report(path: Path) -> tuple[int, int]:
             declared[key] = int(value)
             aggregate[key] += declared[key]
         observed = {"failure": 0, "error": 0, "skipped": 0}
-        cases = clean = 0
+        cases = 0
+        failed_cases: Counter[tuple[str, str]] = Counter()
+        errored_cases: Counter[tuple[str, str]] = Counter()
         for case in suite:
             if case.tag == "properties":
                 _validate_junit_properties(case)
@@ -156,8 +159,11 @@ def _read_pytest_report(path: Path) -> tuple[int, int]:
                 else:
                     raise ValueError("Unexpected JUnit test case child")
             failed = bool(statuses & {"failure", "error"})
-            if not statuses:
-                clean += 1
+            identity = (case.get("classname", ""), case.attrib["name"])
+            if "failure" in statuses and "error" not in statuses:
+                failed_cases[identity] += 1
+            elif "error" in statuses and "failure" not in statuses:
+                errored_cases[identity] += 1
             if "skipped" in statuses and not failed:
                 continue
             total += 1
@@ -167,10 +173,14 @@ def _read_pytest_report(path: Path) -> tuple[int, int]:
             for key, tag in (("failures", "failure"), ("errors", "error"), ("skipped", "skipped"))
         ):
             raise ValueError("JUnit outcome counts disagree with test cases")
-        # Pytest may count multiple setup/call/teardown outcomes for one case.
-        # Any such case already fails acceptance; an all-pass suite must match
-        # its testcase count exactly, so inflated success summaries cannot pass.
-        if not cases <= declared["tests"] <= clean + sum(observed.values()):
+        # Pytest counts a passed call and teardown error twice in one testcase,
+        # but splits a failed call and teardown error into two same-ID cases
+        # counted as one test. Both forms fail acceptance. Successful suites
+        # must still match exactly, so inflated success summaries cannot pass.
+        split_failures = sum(
+            min(count, errored_cases[identity]) for identity, count in failed_cases.items()
+        )
+        if not cases - split_failures <= declared["tests"] <= cases + observed["error"]:
             raise ValueError("JUnit test count disagrees with test cases")
     if root.tag == "testsuites":
         for key, expected in aggregate.items():

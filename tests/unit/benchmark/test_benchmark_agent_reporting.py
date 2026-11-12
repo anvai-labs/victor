@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -195,7 +196,9 @@ async def test_execute_task_tracks_time_to_first_tool_call_and_edit(
     )
 
     timestamps = iter([100.0, 100.5, 101.25, 102.0])
-    monkeypatch.setattr("victor.benchmark.agent.time.time", lambda: next(timestamps))
+    monkeypatch.setattr(
+        "victor.benchmark.agent.time", SimpleNamespace(time=lambda: next(timestamps))
+    )
 
     trace = await agent.execute_task(task)
 

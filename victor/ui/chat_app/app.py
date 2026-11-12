@@ -516,6 +516,19 @@ async def _start_turn(content: str) -> None:
     try:
         await task
     except asyncio.CancelledError:
+        # Today the child is this task's _fut_waiter, so cancellation reaches
+        # it via await — pinned by test_native_stop_cancels_and_drains_the_turn.
+        # Cancel explicitly anyway: if a future Chainlit cancels a surrounding
+        # context instead of this task, a detached _run_turn would keep
+        # streaming while the session slot clears and a second turn could
+        # interleave in the same transcript.
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.debug("turn task failed while being cancelled", exc_info=True)
         await cl.Message(content="⏹ _Turn stopped._").send()
     except Exception:  # _run_turn renders its own recovery card; this is a backstop
         logger.debug("turn task raised after handling", exc_info=True)

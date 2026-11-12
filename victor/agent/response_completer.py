@@ -37,8 +37,24 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from victor.core.errors import ProviderRateLimitError, ProviderPolicyError
 from victor.providers.base import CompletionResponse, BaseProvider, Message
+from victor.agent.services.tool_selection_runtime import TEXT_ONLY_INSTRUCTION
 
 logger = logging.getLogger(__name__)
+
+
+def _instruction_message(prompt: str, tools: Optional[List[Any]]) -> Message:
+    """The appended steering message for a text-forcing completer call.
+
+    Without an offer this is the pre-existing system message. With one (tool
+    history, see ``text_call_tools``) only the prompt keeps the reply textual, and
+    it rides as a trailing *user* turn: adapters that keep a single system block
+    (Anthropic keeps the last one) would otherwise replace the session's system
+    prompt and miss the cached prefix, and strict chat templates reject a
+    mid-conversation system message.
+    """
+    if not tools:
+        return Message(role="system", content=prompt)
+    return Message(role="user", content=f"{prompt} {TEXT_ONLY_INSTRUCTION}".strip())
 
 
 class CompletionStatus(Enum):
@@ -151,6 +167,7 @@ class ResponseCompleter:
         tool_results: Optional[List[Dict[str, Any]]] = None,
         failure_context: Optional[ToolFailureContext] = None,
         current_content: str = "",
+        tools: Optional[List[Any]] = None,
     ) -> CompletionResult:
         """Ensure a complete response is generated.
 
@@ -162,6 +179,9 @@ class ResponseCompleter:
             tool_results: Results from tool execution
             failure_context: Context about any tool failures
             current_content: Content already generated
+            tools: Stable tool offer to keep on the text-forcing calls when the
+                history carries tool calls (see ``text_call_tools``). ``None``
+                keeps the tool-free request. Tool calls in the reply are ignored.
 
         Returns:
             CompletionResult with status and content
@@ -181,6 +201,7 @@ class ResponseCompleter:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 failure_context=failure_context,
+                tools=tools,
             )
 
         # Try to generate a complete response
@@ -189,6 +210,7 @@ class ResponseCompleter:
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            tools=tools,
         )
 
     async def _handle_tool_failures(
@@ -198,6 +220,7 @@ class ResponseCompleter:
         temperature: float,
         max_tokens: int,
         failure_context: ToolFailureContext,
+        tools: Optional[List[Any]] = None,
     ) -> CompletionResult:
         """Generate a helpful response when tools have failed.
 
@@ -245,7 +268,7 @@ class ResponseCompleter:
         )
 
         # Create modified messages with error prompt
-        modified_messages = list(messages) + [Message(role="system", content=error_prompt)]
+        modified_messages = list(messages) + [_instruction_message(error_prompt, tools)]
 
         # Retain each structured response so callers can account for recovery usage.
         responses: List[CompletionResponse] = []
@@ -255,7 +278,8 @@ class ResponseCompleter:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                tools=None,  # No tools - force text response
+                # Text is forced by the prompt; an offer is kept on tool history.
+                tools=tools or None,
             )
 
             if response is not None:
@@ -293,6 +317,7 @@ class ResponseCompleter:
         model: str,
         temperature: float,
         max_tokens: int,
+        tools: Optional[List[Any]] = None,
     ) -> CompletionResult:
         """Generate response with retry logic for empty responses.
 
@@ -327,13 +352,11 @@ class ResponseCompleter:
 
             # Add recovery prompt if not first attempt
             modified_messages = list(messages)
-            if attempt > 0:
-                modified_messages.append(
-                    Message(
-                        role="system",
-                        content=recovery_prompts[min(attempt - 1, len(recovery_prompts) - 1)],
-                    )
-                )
+            instruction = (
+                recovery_prompts[min(attempt - 1, len(recovery_prompts) - 1)] if attempt > 0 else ""
+            )
+            if instruction or tools:
+                modified_messages.append(_instruction_message(instruction, tools))
 
             try:
                 response = await self._complete(
@@ -341,7 +364,7 @@ class ResponseCompleter:
                     model=model,
                     temperature=current_temp,
                     max_tokens=max_tokens,
-                    tools=None,  # Force text response
+                    tools=tools or None,
                 )
 
                 if response is not None:

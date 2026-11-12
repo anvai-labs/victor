@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import inspect
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
+from victor.ui.console import get_console
 from pathlib import Path
 from typing import Any, Awaitable, Callable, List, Mapping, Optional, cast
 import yaml
@@ -25,7 +26,7 @@ from victor.ui.commands.init_content import (
 from victor.tools.common import latest_mtime
 
 init_app = typer.Typer(name="init", help="Initialize project context and configuration.")
-console = Console()
+console = get_console()
 
 INIT_CCG_LOCK_TIMEOUT_SECONDS = 5.0
 

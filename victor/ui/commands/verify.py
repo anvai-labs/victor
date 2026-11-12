@@ -28,6 +28,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.tools.verification import (
     ClaimVerifier,
@@ -41,7 +42,7 @@ from victor.tools.verification import (
 )
 
 app = typer.Typer(help="Codebase verification with semantic validation")
-console = Console()
+console = get_console()
 
 
 def _run_async(coro):

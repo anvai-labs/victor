@@ -117,12 +117,16 @@ _AgenticLoopGraphExecutor = None
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_CONTEXT_OVERRIDES_STATE_KEY = "runtime_context_overrides"
-LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY = "topology_overrides"
-# Budget keys a caller (or the first derived plan) declared in
-# runtime_context_overrides bind for the whole run: later derived plans may
-# add keys but never replace these (see _merge_runtime_context_overrides).
-CALLER_BOUND_OVERRIDE_KEYS = ("tool_budget", "iteration_budget")
+# Terminal-outcome metadata key carrying a post-loop recovery request from
+# run_streaming() to its consumer (StreamingChatExecutor.run_unified).
+POST_LOOP_RECOVERY_KEY = "agentic_loop_recovery"
+
+from victor.core.runtime_context import (
+    LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY,
+    RUNTIME_CONTEXT_OVERRIDES_STATE_KEY,
+    collect_runtime_context_overrides,
+    merge_runtime_context_overrides,
+)
 
 # =============================================================================
 # Enums for Agentic Loop Decisions
@@ -894,8 +898,13 @@ class AgenticLoop(TopologyPlanningMixin):
         effective_max = self.max_iterations
         # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
         # funded iteration, so a best-effort run always terminates with an
-        # honest terminal report rather than a forced RETRY.
-        state["_criteria_budget_exhausted"] = False
+        # honest terminal report rather than a forced RETRY. Consolidation
+        # PR 5: the marker write is folded into TerminationAuthority
+        # (reset + one observe_iteration hook per loop iteration).
+        from victor.framework.termination_authority import TerminationAuthority
+
+        _termination_authority = TerminationAuthority.for_state(state)
+        _termination_authority.reset_budget_marker(state)
         nudge_intent: Optional[ActionIntent] = None
 
         try:
@@ -936,8 +945,9 @@ class AgenticLoop(TopologyPlanningMixin):
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
                 # FEP-0043: the criteria gate yields on the final funded
-                # iteration (best-effort retention over forced RETRY).
-                state["_criteria_budget_exhausted"] = i >= effective_max
+                # iteration (best-effort retention over forced RETRY) —
+                # one TerminationAuthority hook per iteration (PR 5).
+                _termination_authority.observe_iteration(state, i, effective_max)
                 # Spin guards: cooperative deadline + between-iteration
                 # perception backstop. Raises LoopSpinError → caught below → FAIL.
                 # Default total_timeout=None = off (no behavior change).
@@ -1923,16 +1933,76 @@ class AgenticLoop(TopologyPlanningMixin):
 
     @staticmethod
     def _terminal_stream_outcome(
-        *, success: bool, iterations: int, error: str | None = None
+        *,
+        success: bool,
+        iterations: int,
+        error: str | None = None,
+        recovery: Optional[Dict[str, Any]] = None,
     ) -> StreamChunk:
-        """Publish the buffered response's run verdict contract without repeating content."""
+        """Publish the buffered response's run verdict contract without repeating content.
+
+        ``recovery`` (see ``_post_loop_recovery_request``) asks the streaming consumer
+        to synthesize the answer before it forwards this chunk.
+        """
         metadata: Dict[str, Any] = {
             "agentic_loop_success": success,
             "agentic_loop_iterations": iterations,
         }
         if error:
             metadata["agentic_loop_error"] = error
+        if recovery:
+            metadata[POST_LOOP_RECOVERY_KEY] = recovery
         return StreamChunk(is_final=True, metadata=metadata)
+
+    def _turn_has_tool_evidence(self, action_result: Any) -> bool:
+        """Whether a streamed turn produced successful tool output (turn-executor rule)."""
+        check = getattr(self.turn_executor, "turn_has_successful_tool_evidence", None)
+        return bool(check(action_result)) if callable(check) else False
+
+    def _post_loop_recovery_request(
+        self,
+        *,
+        success: bool,
+        action_result: Any,
+        evaluation: Optional[EvaluationResult],
+        has_tool_evidence: bool,
+        content_streamed: bool,
+        reason: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Streaming half of the post-loop presentation recovery (FEP-0007 parity).
+
+        The buffered ``run()`` caller recovers a failed run's empty answer from tool
+        evidence (``TurnExecutor.post_loop_recovery_kind``); streaming used to end such
+        runs with no text at all. The loop applies the same rule and records the
+        request on the terminal outcome; the streaming consumer runs the synthesis,
+        where cancellation and the display pipeline live. The verdict is unchanged.
+
+        Streaming-only condition: a run that already streamed visible text is not
+        recovered (the user saw an answer; buffered shows only the last response).
+        Spin-guard stops never reach here (the LoopSpinError exit), the same as the
+        buffered ``terminated_by == "loop_spin_guard"`` exemption.
+        """
+        if content_streamed:
+            return None
+        executor = self.turn_executor
+        allowed_fn = getattr(executor, "post_loop_recovery_allowed", None)
+        kind_fn = getattr(executor, "post_loop_recovery_kind", None)
+        if not (callable(allowed_fn) and callable(kind_fn)):
+            return None
+        allowed = allowed_fn(
+            spin_guard_stopped=False,
+            action_result=action_result,
+            last_decision=getattr(evaluation, "decision", None),
+        )
+        kind = kind_fn(
+            recovery_allowed=allowed,
+            success=success,
+            response=getattr(action_result, "response", None),
+            has_tool_evidence=has_tool_evidence,
+        )
+        if kind not in ("synthesize", "complete"):
+            return None
+        return {"kind": kind, "reason": reason}
 
     async def run_streaming(
         self,
@@ -1961,6 +2031,12 @@ class AgenticLoop(TopologyPlanningMixin):
         perception counters use the same guard owner in both modes; each owned await
         is bounded, with no timeout or guard context spanning a yielded chunk. Controller nudge
         output and intent-aware nudge dispatch are not consolidated by the shared stop helper.
+        Intentional difference: an unexpected (recoverable) exception propagates from
+        ``run_streaming`` instead of becoming a failed ``LoopResult`` as in ``run()``. The
+        stream's owners depend on it: ``stream_with_events`` renders the sanitized cause and
+        recovery hint, ``BackgroundAgent`` marks the run ERROR, and no post-loop recovery
+        re-calls a provider that just failed. Pinned by
+        ``test_unexpected_error_propagates_from_the_stream``.
         Covered run/stream behavioral parity is pinned by
         ``tests/integration/streaming/test_run_stream_parity.py``.
 
@@ -1993,17 +2069,26 @@ class AgenticLoop(TopologyPlanningMixin):
         effective_max = self.max_iterations
         # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
         # funded iteration, so a best-effort run always terminates with an
-        # honest terminal report rather than a forced RETRY.
-        state["_criteria_budget_exhausted"] = False
+        # honest terminal report rather than a forced RETRY. Consolidation
+        # PR 5: the marker write is folded into TerminationAuthority
+        # (reset + one observe_iteration hook per loop iteration).
+        from victor.framework.termination_authority import TerminationAuthority
+
+        _termination_authority = TerminationAuthority.for_state(state)
+        _termination_authority.reset_budget_marker(state)
         nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
+        action_result: Any = None
+        has_tool_evidence = False  # any turn produced successful tool output (recovery input)
+        content_streamed = False  # any turn's model text was streamed (recovery input)
 
         try:
             for i in range(1, effective_max + 1):
                 _loop_guards.note_iteration()
                 # FEP-0043: the criteria gate yields on the final funded
-                # iteration (best-effort retention over forced RETRY).
-                state["_criteria_budget_exhausted"] = i >= effective_max
+                # iteration (best-effort retention over forced RETRY) —
+                # one TerminationAuthority hook per iteration (PR 5).
+                _termination_authority.observe_iteration(state, i, effective_max)
                 _loop_guards.enforce(
                     effective_max=effective_max,
                     backstop_factor=self.config.perception_backstop_factor,
@@ -2052,7 +2137,13 @@ class AgenticLoop(TopologyPlanningMixin):
                             break
                         yield chunk
                 action_result = act_outcome.turn_result
+                # Model text only: ACT also streams status lines ("[tool] ...") as content,
+                # which must not count as an answer the user already saw.
+                content_streamed = content_streamed or bool(
+                    getattr(getattr(action_result, "response", None), "content", None)
+                )
                 state["action_result"] = action_result
+                has_tool_evidence = has_tool_evidence or self._turn_has_tool_evidence(action_result)
 
                 # FEP-0043: mirror criteria-declared keys from this turn's tool
                 # results into state (streaming parity with the buffered _act
@@ -2109,10 +2200,19 @@ class AgenticLoop(TopologyPlanningMixin):
                     self._emit_prompt_reward_outcome(evaluation, state)
                     success = evaluation.decision == EvaluationDecision.COMPLETE
                     _loop_guards.enforce()
+                    error = None if success else evaluation.reason or "Agentic loop failed"
                     yield self._terminal_stream_outcome(
                         success=success,
                         iterations=i,
-                        error=None if success else evaluation.reason or "Agentic loop failed",
+                        error=error,
+                        recovery=self._post_loop_recovery_request(
+                            success=success,
+                            action_result=action_result,
+                            evaluation=evaluation,
+                            has_tool_evidence=has_tool_evidence,
+                            content_streamed=content_streamed,
+                            reason=error,
+                        ),
                     )
                     return
                 self._inject_decide_nudges(evaluation, turn_decision)
@@ -2120,10 +2220,20 @@ class AgenticLoop(TopologyPlanningMixin):
             # Loop exhausted without a terminal decision — attribute the final turn's
             # evaluation too (FEP-0017 streaming parity; mirrors run()'s epilogue).
             self._emit_prompt_reward_outcome(evaluation, state)
+            exhausted = f"Maximum iterations ({effective_max}) reached without completion"
             yield self._terminal_stream_outcome(
                 success=False,
                 iterations=max(0, effective_max),
-                error=f"Maximum iterations ({effective_max}) reached without completion",
+                error=exhausted,
+                recovery=self._post_loop_recovery_request(
+                    success=False,
+                    action_result=action_result,
+                    evaluation=evaluation,
+                    has_tool_evidence=has_tool_evidence,
+                    content_streamed=content_streamed,
+                    # Buffered recovers with the last evaluation's reason.
+                    reason=(evaluation.reason if evaluation else None) or exhausted,
+                ),
             )
 
         except LoopSpinError as exc:
@@ -2172,15 +2282,21 @@ class AgenticLoop(TopologyPlanningMixin):
             "query": query,
             "conversation_history": conversation_history,
             **(context or {}),
-            # FEP-0043: the criteria gate yields on the final funded
-            # iteration (best-effort retention over forced RETRY).
-            "_criteria_budget_exhausted": False,
         }
+        # FEP-0043: the criteria gate yields on the final funded iteration
+        # (best-effort retention over forced RETRY). Consolidation PR 5: the
+        # marker write is folded into TerminationAuthority (reset + one
+        # observe_iteration hook per loop iteration).
+        from victor.framework.termination_authority import TerminationAuthority
+
+        _termination_authority = TerminationAuthority.for_state(state)
+        _termination_authority.reset_budget_marker(state)
 
         for i in range(1, self.max_iterations + 1):
             iteration = LoopIteration(iteration=i, stage=LoopStage.PERCEIVE)
-            # FEP-0043: refresh the criteria budget marker per iteration.
-            state["_criteria_budget_exhausted"] = i >= self.max_iterations
+            # FEP-0043: refresh the criteria budget marker per iteration —
+            # one TerminationAuthority hook per iteration (PR 5).
+            _termination_authority.observe_iteration(state, i, self.max_iterations)
 
             # PERCEIVE
             perception = await self._analyze_turn(query, context, conversation_history)
@@ -2218,14 +2334,7 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Return merged generic runtime overrides with legacy topology fallback."""
-        merged: Dict[str, Any] = {}
-        legacy_overrides = state.get(LEGACY_TOPOLOGY_OVERRIDES_STATE_KEY)
-        if isinstance(legacy_overrides, dict):
-            merged.update(legacy_overrides)
-        runtime_overrides = state.get(RUNTIME_CONTEXT_OVERRIDES_STATE_KEY)
-        if isinstance(runtime_overrides, dict):
-            merged.update(runtime_overrides)
-        return merged or None
+        return collect_runtime_context_overrides(state)
 
     @classmethod
     def _merge_runtime_context_overrides(
@@ -2235,27 +2344,14 @@ class AgenticLoop(TopologyPlanningMixin):
     ) -> Dict[str, Any]:
         """Merge new overrides into existing generic runtime override state.
 
-        Budget keys already present in state bind for the whole run: derived
-        plans re-emit the budgets they were handed (topology planning grounds
-        its decision from the loop-build service snapshot), and letting those
-        echoes win silently lowered a caller's funded
-        ``runtime_context_overrides`` budget — a 134-call override collapsed
-        to the 50-call service default and the run starved mid-flight while
-        still funded. Derived keys that are absent (formation hints, team
-        names, worktree paths) still merge normally.
+        Delegates to the shared merge helper so the streaming topology merge
+        and this buffered state merge follow one precedence rule: caller-bound
+        budget keys (tool_budget, iteration_budget) bind for the whole run,
+        derived keys merge normally (FEP-0043 streaming parity).
         """
-        merged = dict(cls._get_runtime_context_overrides(state) or {})
-        for key, value in dict(overrides).items():
-            if key in CALLER_BOUND_OVERRIDE_KEYS and key in merged:
-                logger.debug(
-                    "Runtime override merge keeps existing %s=%s over derived %s",
-                    key,
-                    merged[key],
-                    value,
-                )
-                continue
-            merged[key] = value
-        return merged
+        return merge_runtime_context_overrides(
+            cls._get_runtime_context_overrides(state) or {}, overrides
+        )
 
     @staticmethod
     def _set_runtime_context_overrides(
@@ -3450,78 +3546,30 @@ class AgenticLoop(TopologyPlanningMixin):
             # Use shared SpinDetector for consistent detection
             spin_state = self.spin_detector.state
             if spin_state == SpinState.TERMINATED:
-                # FEP-0043 guided termination: while the caller declared
-                # completion objectives that remain unmet and iteration budget
-                # remains, spin results degrade to CONTINUE guidance instead of
-                # terminating the run (the iteration cap still bounds it).
-                from victor.framework.criteria_gate import criteria_unmet_with_budget
+                # Consolidation PR 5 (seam-duplication audit Cluster 3): the
+                # guided→CONTINUE / else→FAIL composition lives in
+                # TerminationAuthority.spin_decision — while the caller
+                # declared completion objectives that remain unmet and
+                # iteration budget remains, spin results degrade to CONTINUE
+                # guidance instead of terminating the run (the iteration cap
+                # still bounds it). No declaration — byte-identical decisions.
+                from victor.framework.termination_authority import TerminationAuthority
 
-                guided = criteria_unmet_with_budget(state)
-                if self.spin_detector.consecutive_all_blocked > 0:
-                    if guided:
-                        return EvaluationResult(
-                            decision=EvaluationDecision.CONTINUE,
-                            score=0.2,
-                            reason=(
-                                f"Spin detected: {self.spin_detector.consecutive_all_blocked} "
-                                "consecutive fully-blocked tool batches; caller-declared "
-                                "completion criteria are unmet with iteration budget "
-                                "remaining — continuing with guidance instead of failing"
-                            ),
-                        )
-                    return EvaluationResult(
-                        decision=EvaluationDecision.FAIL,
-                        score=0.1,
-                        reason=(
-                            f"Spin detected: {self.spin_detector.consecutive_all_blocked} "
-                            "consecutive fully-blocked tool batches"
-                        ),
-                    )
-
-                # Check for repetition — mirrors SpinDetector.state threshold
-                repetition_count = getattr(self.spin_detector, "_repetition_count", 0)
-                threshold = getattr(self.spin_detector, "REPETITION_THRESHOLD", 3)
-                if repetition_count >= threshold - 1:
-                    if guided:
-                        return EvaluationResult(
-                            decision=EvaluationDecision.CONTINUE,
-                            score=0.2,
-                            reason=(
-                                f"Repetitive loop detected: the model repeated the same tool "
-                                f"calls for {repetition_count} consecutive turns; "
-                                "caller-declared completion criteria are unmet with "
-                                "iteration budget remaining — continuing with guidance "
-                                "instead of failing"
-                            ),
-                        )
-                    return EvaluationResult(
-                        decision=EvaluationDecision.FAIL,
-                        score=0.1,
-                        reason=(
-                            f"Repetitive loop detected: the model repeated the same tool "
-                            f"calls for {repetition_count} consecutive turns"
-                        ),
-                    )
-
-                if guided:
-                    return EvaluationResult(
-                        decision=EvaluationDecision.CONTINUE,
-                        score=0.2,
-                        reason=(
-                            f"Agent stuck: {self.spin_detector.consecutive_no_tool_turns} "
-                            "turns without tool calls; caller-declared completion criteria "
-                            "are unmet with iteration budget remaining — continuing with "
-                            "guidance instead of failing"
-                        ),
-                    )
-
+                authority = TerminationAuthority.for_state(state)
+                spin_decision = authority.spin_decision(
+                    consecutive_all_blocked=self.spin_detector.consecutive_all_blocked,
+                    repetition_count=getattr(self.spin_detector, "_repetition_count", 0),
+                    consecutive_no_tool_turns=self.spin_detector.consecutive_no_tool_turns,
+                    repetition_threshold=getattr(self.spin_detector, "REPETITION_THRESHOLD", 3),
+                )
                 return EvaluationResult(
-                    decision=EvaluationDecision.FAIL,
-                    score=0.2,
-                    reason=(
-                        f"Agent stuck: {self.spin_detector.consecutive_no_tool_turns} "
-                        "turns without tool calls"
+                    decision=(
+                        EvaluationDecision.CONTINUE
+                        if spin_decision.action == "guide"
+                        else EvaluationDecision.FAIL
                     ),
+                    score=spin_decision.score,
+                    reason=spin_decision.reason,
                 )
 
             # Model used tools = normal progress
@@ -3895,7 +3943,6 @@ class AgenticLoop(TopologyPlanningMixin):
             None otherwise
         """
         scores = self._progress_scores
-        from victor.framework.criteria_gate import criteria_unmet_with_budget
 
         task_type = str((state or {}).get("task_type") or "").lower()
         read_heavy_task = task_type in {
@@ -3932,23 +3979,27 @@ class AgenticLoop(TopologyPlanningMixin):
                     task_type or "unknown",
                 )
 
-        # Need enough history for plateau detection
-        if len(scores) >= self.plateau_window and iteration >= min_plateau_iteration:
-            recent = scores[-self.plateau_window :]
-            improvement = max(recent) - min(recent)
-            if improvement < self.plateau_tolerance:
-                # FEP-0043 guided termination: while the caller declared
-                # completion objectives that remain unmet and iteration budget
-                # remains, a plateau degrades to guidance-by-continuation and
-                # never terminates the run early (the iteration cap still
-                # bounds the loop). No declaration — byte-identical behavior.
-                if criteria_unmet_with_budget(state or {}):
-                    logger.info(
-                        "Adaptive plateau suppressed: caller-declared completion criteria "
-                        "are unmet with iteration budget remaining"
-                    )
-                else:
-                    return AdaptiveTerminationDecision.PLATEAU
+        # Need enough history for plateau detection. Consolidation PR 5
+        # (seam-duplication audit Cluster 3): the plateau detection +
+        # criteria-guided suppression composition lives in
+        # TerminationAuthority.plateau_decision — while the caller declared
+        # completion objectives that remain unmet and iteration budget
+        # remains, a plateau degrades to guidance-by-continuation and never
+        # terminates the run early (the iteration cap still bounds the
+        # loop). No declaration — byte-identical behavior.
+        from victor.framework.termination_authority import TerminationAuthority
+
+        plateau_decision = TerminationAuthority.for_state(state or {}).plateau_decision(
+            progress_scores=scores,
+            iteration=iteration,
+            plateau_window=self.plateau_window,
+            plateau_tolerance=self.plateau_tolerance,
+            min_plateau_iteration=min_plateau_iteration,
+        )
+        if plateau_decision.action == "terminate":
+            return AdaptiveTerminationDecision.PLATEAU
+        if plateau_decision.action == "guide":
+            logger.info(plateau_decision.reason)
 
         # Check near-completion: score > 0.7 and still improving
         if len(scores) >= 2 and scores[-1] >= 0.7:

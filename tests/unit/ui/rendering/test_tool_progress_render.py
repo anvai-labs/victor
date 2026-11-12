@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
-from typing import Any
+from typing import Optional, Any
 
 from rich.console import Console
 
@@ -14,6 +14,7 @@ from victor.ui.rendering.buffered import BufferedRenderer
 from victor.ui.rendering.formatter_renderer import FormatterRenderer
 from victor.ui.rendering.handler import stream_response
 from victor.ui.rendering.live_renderer import LiveDisplayRenderer
+from victor.ui.rendering.utils import Severity
 from victor.ui.theme import victor_theme
 
 
@@ -38,7 +39,7 @@ class _ProgressRecorder:
         )
 
     def on_tool_result(self, **kwargs: Any) -> None: ...
-    def on_status(self, message: str) -> None: ...
+    def on_status(self, message: str, severity: Optional["Severity"] = None) -> None: ...
     def on_file_preview(self, path: str, content: str) -> None: ...
     def on_edit_preview(self, path: str, diff: str) -> None: ...
     def on_content(self, text: str) -> None:

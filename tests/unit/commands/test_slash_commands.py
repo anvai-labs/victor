@@ -14,6 +14,7 @@
 
 """Tests for the modular slash command system (victor.ui.slash)."""
 
+import asyncio
 from datetime import datetime
 import io
 import logging
@@ -1020,16 +1021,6 @@ class TestModeCommands:
         meta = cmd.metadata
 
         assert meta.name == "explore"
-        assert meta.category in ["mode", "system", "general"]
-
-    def test_review_command_metadata(self):
-        """Test ReviewCommand metadata."""
-        from victor.ui.slash.commands.mode import ReviewCommand
-
-        cmd = ReviewCommand()
-        meta = cmd.metadata
-
-        assert meta.name == "review"
         assert meta.category in ["mode", "system", "general"]
 
     def test_delegate_command_metadata(self):
@@ -2291,3 +2282,79 @@ class TestResumeExternalAddress:
         out = stdout.getvalue()
         assert "Also resumable from other agents" in out
         assert f"codex:{sid}" in out
+
+
+class TestCompactKeepClamp:
+    """`/compact --keep` bounds: 0 sliced messages[-0:] — the WHOLE list —
+    and negatives sliced from the head, so the command reported success while
+    compacting nothing (or the wrong half). Both are rejected now (audit B11)."""
+
+    class _FakeConversation:
+        def __init__(self, n: int) -> None:
+            from types import SimpleNamespace
+
+            self.messages = [
+                SimpleNamespace(role="user" if i % 2 == 0 else "assistant", content=f"m{i}")
+                for i in range(n)
+            ]
+
+        def message_count(self) -> int:
+            return len(self.messages)
+
+        def clear(self) -> None:
+            self.messages = []
+
+        def append_message(self, msg) -> None:
+            self.messages.append(msg)
+
+    def _ctx(self, args):
+        import io as io_mod
+        from types import SimpleNamespace
+
+        from rich.console import Console
+
+        from victor.ui.slash.protocol import CommandContext
+
+        conversation = self._FakeConversation(12)
+        agent = SimpleNamespace(conversation=conversation)
+        console = Console(file=io_mod.StringIO(), force_terminal=False, width=100)
+        return (
+            CommandContext(console=console, settings=MagicMock(), agent=agent, args=args),
+            conversation,
+            console.file,
+        )
+
+    def test_keep_zero_is_rejected_not_a_silent_noop(self):
+        from victor.ui.slash.commands.session import CompactCommand
+
+        ctx, conversation, buffer = self._ctx(["--keep", "0"])
+        asyncio.run(CompactCommand().execute(ctx))
+        assert conversation.message_count() == 12  # nothing destroyed
+        assert "must be >= 1" in buffer.getvalue()
+
+    def test_keep_negative_is_rejected(self):
+        from victor.ui.slash.commands.session import CompactCommand
+
+        ctx, conversation, buffer = self._ctx(["--keep", "-3"])
+        asyncio.run(CompactCommand().execute(ctx))
+        assert conversation.message_count() == 12
+        assert "must be >= 1" in buffer.getvalue()
+
+    def test_keep_non_numeric_falls_back_to_default(self):
+        from victor.ui.slash.commands.session import CompactCommand
+
+        ctx, conversation, buffer = self._ctx(["--keep", "abc"])
+        asyncio.run(CompactCommand().execute(ctx))
+        # default keep=6 -> 12 compacts to system-adjacent recent window
+        assert conversation.message_count() < 12
+        assert "Compacted" in buffer.getvalue()
+
+    def test_keep_positive_clamps_and_preserves_recent(self):
+        from victor.ui.slash.commands.session import CompactCommand
+
+        ctx, conversation, buffer = self._ctx(["--keep", "4"])
+        asyncio.run(CompactCommand().execute(ctx))
+        # 4 recent kept (+ no leading system message in this fixture)
+        assert conversation.message_count() == 4
+        kept_contents = [m.content for m in conversation.messages]
+        assert kept_contents == ["m8", "m9", "m10", "m11"]  # the RECENT end

@@ -122,7 +122,7 @@ class MyProvider(BaseProvider):
         pass
 ```
 
-[Provider Reference →](../reference/providers/index.md)
+[Provider Reference →](../user-guide/providers.md)
 
 ### Add a Tool
 

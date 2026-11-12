@@ -41,6 +41,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
+from victor.ui.console import get_console
 
 from victor.config.profiles import (
     ProfileManager,
@@ -69,7 +70,7 @@ class OnboardingWizard:
                 The bare ``victor`` first-run path passes False because it
                 always drops into interactive chat right after onboarding.
         """
-        self.console = console or Console()
+        self.console = console or get_console()
         self.offer_chat = offer_chat
         self.config_dir = get_project_paths().global_victor_dir
 
@@ -302,7 +303,7 @@ def run_onboarding(offer_chat: bool = True) -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    console = Console()
+    console = get_console()
     try:
         wizard = OnboardingWizard(console, offer_chat=offer_chat)
         return wizard.run()

@@ -35,7 +35,14 @@ def _tools():
 
 
 @pytest.fixture(autouse=True)
-def _reset():
+def _reset(monkeypatch):
+    # These cases own a fresh live-feed projection and hook registry. Durable
+    # replay is qualified separately in test_experience_warm_start.py.
+    monkeypatch.setattr("victor.core.rl.hooks._hook_registry", None)
+    monkeypatch.setattr(
+        "victor.agent.services.tool_selection_runtime._warm_start_experience_store",
+        lambda store: None,
+    )
     _reset_e3tir_state_for_tests()
     yield
     _reset_e3tir_state_for_tests()

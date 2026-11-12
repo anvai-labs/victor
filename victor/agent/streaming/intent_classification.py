@@ -194,7 +194,7 @@ class IntentClassificationHandler:
 
         for chunk in result.chunks:
             yield chunk
-        # Process result.action_result with ContinuationHandler
+        # Act on result.action_result
     """
 
     def __init__(

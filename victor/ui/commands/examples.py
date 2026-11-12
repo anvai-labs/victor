@@ -25,12 +25,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
+from victor.ui.console import get_console
 
 examples_app = typer.Typer(
     name="examples",
     help="Discover and view Victor examples.",
 )
-console = Console()
+console = get_console()
 
 # Categories for examples based on filename patterns
 CATEGORY_PATTERNS = {

@@ -15,12 +15,15 @@ from __future__ import annotations
 import logging
 
 from victor.core.async_utils import aclosing_if_supported
+from victor.core.caller_run_context import CallerRunContext
 from victor.agent.services.tool_selection_runtime import (
+    history_has_tool_calls,
     hydrate_demand_tools,
 )
 import re
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, List, Optional, Protocol
+import asyncio
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Protocol
 
 from victor.agent.services.chat_runtime_services import (
     ChatRuntimeServices,
@@ -39,6 +42,9 @@ from victor.core.completion_markers import (
     strip_active_completion_markers,
 )
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
+from victor.core.errors import ProviderPolicyError
+from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+from victor.providers.usage_accounting import accumulate_usage
 from victor.core.provider_messages import CompletionResponse, StreamChunk
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.streaming.tool_execution import ToolExecutionResult
@@ -931,7 +937,11 @@ class StreamingChatExecutor:
         # misses that first registration never reaches this session's schema.
         hydrate_demand_tools(orch, getattr(stream_ctx, "context_msg", "") or "")
 
-        if getattr(stream_ctx, "is_qa_task", False):
+        # Sticky offer: a Q&A turn whose history already carries tool calls still
+        # gets the normal supply (same rule as the buffered turn executor).
+        if getattr(stream_ctx, "is_qa_task", False) and not history_has_tool_calls(
+            getattr(orch, "messages", None)
+        ):
             tools = None
         elif orch.get_session_tools() is not None:
             tools = orch.get_session_tools()
@@ -1306,7 +1316,11 @@ class StreamingChatExecutor:
             tool_results=tool_results,
             has_tool_calls=bool(tool_calls),
             tool_calls_count=len(tool_calls) if tool_calls else 0,
-            is_qa_response=bool(getattr(stream_ctx, "is_qa_task", False)),
+            # Same rule as the buffered executor: a Q&A turn that calls tools (or
+            # says nothing) is not a final answer.
+            is_qa_response=bool(getattr(stream_ctx, "is_qa_task", False))
+            and bool(full_content)
+            and not tool_calls,
             disposition=disposition,
         )
 
@@ -1559,6 +1573,20 @@ class StreamingChatExecutor:
                 return
             user_message = req.content
 
+        # FEP-0043 streaming parity: read the caller's structured run context
+        # (declared criteria, completion marker) and scoped runtime overrides
+        # from the forwarded stream kwargs. Consolidation PR 4: the structured
+        # CallerRunContext object (built once at Agent.stream) drives the loop
+        # config and budget overrides when present; the raw dict path stays
+        # byte-identical to before. Budget funding consumption remains the
+        # budget-owner's concern.
+        _caller_ctx = kwargs.get("caller_run_context")
+        _caller_ctx = _caller_ctx if isinstance(_caller_ctx, CallerRunContext) else None
+        caller_run_context = kwargs.get("run_context")
+        caller_run_context = caller_run_context if isinstance(caller_run_context, dict) else {}
+        caller_overrides = kwargs.get("runtime_context_overrides")
+        caller_overrides = caller_overrides if isinstance(caller_overrides, dict) else {}
+
         # Per-run setup (stream context, goals, recovery) captured as a session + ACT adapter.
         adapter = await StreamingActAdapter.prepare(self, user_message, **kwargs)
         stream_ctx = adapter.session.stream_ctx
@@ -1593,6 +1621,27 @@ class StreamingChatExecutor:
             from victor.agent.edge_turn_judge import build_edge_turn_judge
 
             _turn_judge = build_edge_turn_judge()
+        if _caller_ctx is not None:
+            # Structured path: loop config from the object; the criteria gate
+            # resolution (FEP-0043) and completion-tool names travel inside it.
+            _loop_config = _caller_ctx.to_loop_config(
+                executor=executor,
+                completion_strategy=_strategy,
+                enable_effect_gate=_effect_gate,
+                enable_per_turn_auditor=_auditor,
+            )
+        else:
+            _loop_config = {
+                "executor": executor,
+                "completion_strategy": _strategy,
+                "enable_effect_gate": _effect_gate,
+                "enable_per_turn_auditor": _auditor,
+                # FEP-0043 streaming parity: declaring non-empty criteria in
+                # the structured run context is the caller's opt-in, resolved
+                # exactly as the buffered path resolves it. Without declared
+                # criteria the gate stays off (default-off parity).
+                "enable_criteria_gate": bool(caller_run_context.get("criteria")),
+            }
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=_te,
@@ -1602,21 +1651,39 @@ class StreamingChatExecutor:
             enable_adaptive_iterations=True,
             exploration_settings=getattr(getattr(orch, "settings", None), "exploration", None),
             streaming_act_port=adapter,
-            config={
-                "executor": executor,
-                "completion_strategy": _strategy,
-                "enable_effect_gate": _effect_gate,
-                "enable_per_turn_auditor": _auditor,
-            },
+            config=_loop_config,
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(_te, "_verifier", None),
             max_verify_retries=getattr(_te, "_max_verify_retries", 0),
             per_turn_judge=_turn_judge,
         )
 
+        # FEP-0043 streaming parity: seed the streaming loop's state with the
+        # caller's structured run context (criteria, completion marker) plus
+        # the scoped runtime overrides. Internal seeds merge after caller keys
+        # so reserved keys can never be clobbered (buffered contract). With no
+        # caller context this passes context=None — byte-identical to before.
+        loop_context: Dict[str, Any] = dict(
+            _caller_ctx.to_run_context() if _caller_ctx is not None else caller_run_context
+        )
+        if _caller_ctx is not None:
+            from victor.core.runtime_context import merge_runtime_context_overrides
+
+            _overrides_map = merge_runtime_context_overrides(
+                _caller_ctx.to_runtime_overrides(), caller_overrides
+            )
+            if _overrides_map:
+                loop_context["runtime_context_overrides"] = _overrides_map
+        elif caller_overrides:
+            loop_context["runtime_context_overrides"] = dict(caller_overrides)
+
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)
         async with aclosing_if_supported(
-            loop.run_streaming(user_message, conversation_history=conversation_history)
+            loop.run_streaming(
+                user_message,
+                context=loop_context or None,
+                conversation_history=conversation_history,
+            )
         ) as stream:
             iterator = aiter(stream)
             cancelled = False
@@ -1635,9 +1702,102 @@ class StreamingChatExecutor:
                 if self.services.stream_lifecycle.is_cancelled():
                     cancelled = True
                     break
+                if getattr(chunk, "is_final", False) and chunk.metadata:
+                    recovered = await _deliver_post_loop_recovery(
+                        self.services,
+                        _te,
+                        chunk,
+                        usage_totals=getattr(stream_ctx, "cumulative_usage", None),
+                    )
+                    if recovered is not None:
+                        yield recovered
+                    if self.services.stream_lifecycle.is_cancelled():
+                        cancelled = True
+                        break
                 yield chunk
         if cancelled:
             yield _cancelled_stream_chunk(self.services, stream_ctx)
+
+
+async def _deliver_post_loop_recovery(
+    services: ChatRuntimeServices,
+    turn_executor: Any,
+    chunk: StreamChunk,
+    *,
+    usage_totals: Optional[Dict[str, int]] = None,
+) -> Optional[StreamChunk]:
+    """Run a terminal outcome's post-loop recovery request (FEP-0007 parity).
+
+    ``run_streaming`` applies the buffered epilogue's rule
+    (``TurnExecutor.post_loop_recovery_kind``) and records the request on the
+    terminal chunk; it is consumed here so the synthesis honors cancellation and
+    its text is sanitized and delivered like every streamed emit. The synthesis
+    records the answer in history (as on buffered); a cancel during the call
+    abandons it before anything is recorded or shown, and a failed call keeps the
+    run's verdict. Returns the content chunk to emit before the terminal chunk.
+    """
+    from victor.framework.agentic_loop import POST_LOOP_RECOVERY_KEY
+
+    request = chunk.metadata.pop(POST_LOOP_RECOVERY_KEY, None)
+    synthesize = getattr(turn_executor, "synthesize_from_tool_evidence", None)
+    if not isinstance(request, dict) or not callable(synthesize):
+        return None
+    if services.stream_lifecycle.is_cancelled():
+        return None
+    reason = request.get("reason")
+    try:
+        recovered = await _await_unless_cancelled(
+            services, lambda: synthesize(recovery_reason=reason)
+        )
+    except ProviderPolicyError:
+        raise  # policy denials surface on every path (the completer re-raises them too)
+    except Exception as exc:
+        # Presentation-only: a failed recovery must not cost the run its verdict.
+        logger.warning("Post-loop recovery failed; forwarding the verdict: %s", exc)
+        return None
+    response = getattr(recovered, "response", None)
+    spent = (getattr(response, "metadata", None) or {}).get(RECOVERY_USAGE_KEY)
+    if usage_totals is not None and isinstance(spent, dict):
+        # The stream's own totals (summary + task report) include the recovery calls,
+        # as they include every metered stream call; spent even if no text survives.
+        accumulate_usage(usage_totals, spent)
+    content = getattr(response, "content", None)
+    if not content:
+        return None
+    chunk.metadata["agentic_loop_synthesis"] = True
+    if reason:
+        chunk.metadata["agentic_loop_synthesis_reason"] = reason
+    sanitized = services.delivery.sanitize(content)
+    if not sanitized:
+        return None
+    return services.delivery.content_chunk(sanitized)
+
+
+async def _await_unless_cancelled(
+    services: ChatRuntimeServices,
+    start: Callable[[], Awaitable[Any]],
+    *,
+    poll_seconds: float = 0.05,
+) -> Any:
+    """Await ``start()`` but abandon it (returning None) once the stream is cancelled.
+
+    Cancellation is a polled flag; a non-streamed provider call would otherwise
+    hold a user cancel for its whole duration.
+    """
+    task = asyncio.ensure_future(start())
+    try:
+        while True:
+            done, _pending = await asyncio.wait({task}, timeout=poll_seconds)
+            if done:
+                return task.result()
+            if services.stream_lifecycle.is_cancelled():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                return None
+    except BaseException:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
 
 
 def create_streaming_chat_executor(

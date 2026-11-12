@@ -44,9 +44,9 @@ Field Definitions:
         - New tokens added to cache this turn
         - First turn typically has high W, subsequent turns have high R
 
-    hit: Cache hit rate (percentage of input tokens from cache)
+    hit: Cache hit rate (share of input tokens served from cache)
         - Higher is better (means more reuse, less cost)
-        - Formula: cache_R / prompt_tokens * 100
+        - Canonical scale: fraction 0..1 (cache_R / prompt_tokens), rendered ×100
 
     turn: Total tokens for this turn (in + out)
         - Sum of input and output tokens
@@ -147,14 +147,15 @@ class TokenUsageBar(Static):
             cache_hit_rate: Fraction of input served from cache (0..1).
             total_tokens: Last-turn total tokens (computed when omitted).
             cost_usd: Last-turn cost in USD.
-            session_cost_usd: Session cumulative cost (accumulated locally when omitted).
+            session_cost_usd: Session cumulative cost. The bar NEVER accumulates:
+            this is display-only state, and set_usage runs once per stream event,
+            so accumulating here would multiply the last turn's cost across the
+            whole turn. Callers own the accumulation (once per turn) or pass the
+            authoritative session figure.
             model: Current model label.
         """
-        # session accumulation (caller may pass authoritative totals instead)
         if session_cost_usd is not None:
             self._session_cost_usd = float(session_cost_usd)
-        elif cost_usd is not None:
-            self._session_cost_usd += float(cost_usd)
 
         line1 = self._render_line1(
             context_used_tokens, context_limit_tokens, context_used_pct, model

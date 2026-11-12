@@ -69,7 +69,8 @@ from victor.ui.rendering.utils import (
     format_duration,
     format_tool_args,
     format_tool_display_name,
-    render_status_message,
+    classify_severity,
+    render_severity,
     render_tool_preview,
 )
 from victor.ui.rendering.tool_preview import renderer as _tool_preview_renderer
@@ -137,19 +138,25 @@ class OutputFormatter:
         """Get current output mode."""
         return self.config.mode
 
-    def status(self, message: str) -> None:
+    def status(self, message: str, severity: Optional[Severity] = None) -> None:
         """Output a status message (non-content).
 
         Status messages are suppressed in quiet mode and JSON modes.
 
         Args:
             message: Status message to display
+            severity: Structured severity; classified from the string when
+                omitted (legacy callers).
         """
         if self.config.quiet:
             return
 
         if self.config.mode == OutputMode.RICH:
-            render_status_message(self._console, message)
+            render_severity(
+                self._console,
+                severity if severity is not None else classify_severity(message),
+                message,
+            )
         elif self.config.mode == OutputMode.PLAIN:
             print(f"# {message}", file=self.config.stderr)
             # Flush stderr immediately to ensure status appears before next content

@@ -267,3 +267,46 @@ class TestWireTimelineWidget:
                 assert len(timeline.lines) > 0
 
         asyncio.run(scenario())
+
+
+# ── single-owner tool-args correlation (audit B10) ────────────────────
+
+
+def _action(kind, **kwargs):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(kind=kind, text=None, metadata=kwargs.pop("metadata", {}), **kwargs)
+
+
+class TestSingleOwnerPendingArgs:
+    def test_pop_pending_args_takes_and_removes(self):
+        from victor.ui.tui.wire_timeline import WireTimelineState
+
+        state = WireTimelineState()
+        state.advance(
+            _action(
+                RenderKind.TOOL_START,
+                call_id="c1",
+                tool_name="shell",
+                metadata={"arguments": {"command": "ls"}},
+            )
+        )
+        assert state.pop_pending_args("c1") == {"command": "ls"}
+        assert state.pop_pending_args("c1") == {}  # popped exactly once
+
+    def test_unknown_call_id_returns_empty(self):
+        from victor.ui.tui.wire_timeline import WireTimelineState
+
+        assert WireTimelineState().pop_pending_args("never-started") == {}
+
+    def test_conversation_log_uses_state_owner_not_a_parallel_dict(self):
+        # TOOL_END went through flush() + a PRIVATE duplicate dict: the
+        # state-side entry never popped (per-turn leak) and the dicts could
+        # diverge. The log now consumes the state's correlation directly.
+        from pathlib import Path as _Path
+
+        source = (
+            _Path(__file__).parents[4] / "victor" / "ui" / "tui" / "conversation.py"
+        ).read_text()
+        assert "self._pending_args" not in source, "parallel args dict reintroduced"
+        assert "pop_pending_args" in source

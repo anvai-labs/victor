@@ -22,11 +22,12 @@ import typer
 import yaml
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 logger = logging.getLogger(__name__)
 
 skills_app = typer.Typer(name="skill", help="Manage and discover skills")
-console = Console()
+console = get_console()
 
 
 def _get_skills_dir() -> str:

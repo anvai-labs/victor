@@ -27,6 +27,7 @@ import asyncio
 import io
 import os
 import time
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any, Optional
 
@@ -144,15 +145,26 @@ class VictorTUIApp(App[None]):
         # Last-turn cost figures for the footer.
         self._last_tokens: Optional[int] = None
         self._last_cost: Optional[float] = None
+        # Canonical last-turn report (full cache/hit-rate fidelity for the bar)
+        # and the session cost accumulator — updated once per turn in
+        # _apply_last_turn_cost, never per stream event.
+        self._last_report: Optional[dict] = None
+        self._session_cost_usd: float = 0.0
 
         # Detailed token usage tracking.
         self._token_usage = TokenUsage()
         self._context_pct: Optional[float] = None
+        self._context_used_tokens: Optional[int] = None
+        self._context_limit_tokens: Optional[int] = None
 
         # A capturing console so shared slash commands can render into the log.
         self._capture_buffer = io.StringIO()
         self._capture_console = Console(file=self._capture_buffer, force_terminal=False, width=100)
         self._slash: Any = None
+        # Serializes slash dispatches: each runs against its own capture
+        # console (execute_captured), so concurrent commands can neither
+        # interleave output nor truncate a shared buffer mid-render.
+        self._slash_lock = asyncio.Lock()
 
     # ── layout ────────────────────────────────────────────────────
 
@@ -217,6 +229,11 @@ class VictorTUIApp(App[None]):
         self._bootstrap_result = result
         if result is not None:
             self._agent = result
+            # The handler was built during on_mount against the then-None
+            # agent (shell-first bootstrap); rebind it or every agent-bound
+            # slash command reports "requires an active session" forever.
+            if self._slash is not None:
+                self._slash.set_agent(result)
         self._session_ready = True
         self.query_one("#conversation", ConversationLog).write(
             f"[green]✓ ready in {time.monotonic() - started:.1f}s[/]"
@@ -298,17 +315,21 @@ class VictorTUIApp(App[None]):
         self._phase.begin_turn()
         self._update_status()
         try:
-            guarded = with_stall_watchdog(
-                self._stream_actions(message),
-                _WATCHDOG_TIMEOUT,
-                self._on_stall,
-                self._on_resume,
-            )
-            async for action in guarded:
-                self._phase.update(action)
-                convo.feed_action(action)
-                self._maybe_capture_diff(action)
-                self._update_status()
+            # aclosing parity with the Chainlit surface: on interrupt the
+            # generator chain must close deterministically, not at GC time.
+            async with aclosing(
+                with_stall_watchdog(
+                    self._stream_actions(message),
+                    _WATCHDOG_TIMEOUT,
+                    self._on_stall,
+                    self._on_resume,
+                )
+            ) as guarded:
+                async for action in guarded:
+                    self._phase.update(action)
+                    convo.feed_action(action)
+                    self._maybe_capture_diff(action)
+                    self._update_status()
         except asyncio.CancelledError:
             convo.write("[yellow]⏹ interrupted[/]")
             raise
@@ -366,7 +387,8 @@ class VictorTUIApp(App[None]):
     # ── slash commands ────────────────────────────────────────────
 
     async def _dispatch_slash(self, text: str) -> None:
-        name = text[1:].split()[0].lower() if len(text) > 1 else ""
+        parts = text[1:].split()
+        name = parts[0].lower() if parts else ""
         if name in ("help", "?", "commands"):
             self.push_screen(HelpScreen())
             return
@@ -407,14 +429,14 @@ class VictorTUIApp(App[None]):
         if self._slash is None:
             convo.write("[dim]command handler unavailable in this session[/]")
             return
-        self._capture_buffer.seek(0)
-        self._capture_buffer.truncate(0)
-        try:
-            await self._slash.execute(text)
-        except Exception as exc:  # noqa: BLE001
-            convo.write(f"[red]⚠ {escape(str(exc))}[/]")
-            return
-        output = self._capture_buffer.getvalue().strip()
+        # One lock, per-command buffers: overlapping dispatches render fully
+        # and in dispatch order instead of racing a shared StringIO.
+        async with self._slash_lock:
+            try:
+                output = await self._slash.execute_captured(text)
+            except Exception as exc:  # noqa: BLE001
+                convo.write(f"[red]⚠ {escape(str(exc))}[/]")
+                return
         if output:
             for line in output.splitlines():
                 convo.write(escape(line))
@@ -522,9 +544,12 @@ class VictorTUIApp(App[None]):
             )
         self._last_tokens = int(tokens) if tokens else None
 
-        # Extract cost
+        # Extract cost. Accumulation lives HERE (once per turn) — never in the
+        # usage bar, which refreshes on every stream event.
         cost = report.get("total_cost_usd")
         self._last_cost = float(cost) if isinstance(cost, (int, float)) else None
+        if self._last_cost is not None:
+            self._session_cost_usd += self._last_cost
 
         # Keep the canonical report so the usage bar can render full fidelity
         # (cache read/write, hit rate, request count, reasoning split).
@@ -584,19 +609,17 @@ class VictorTUIApp(App[None]):
             bar = self.query_one("#token-usage-bar", TokenUsageBar)
         except Exception:  # noqa: BLE001
             return
-        report = getattr(self, "_last_report", None) or {}
+        report = self._last_report or {}
         context_used: Optional[int] = None
         context_limit: Optional[int] = None
         try:
             window = self._client.context_window()
             if window and window > 0:
                 context_limit = int(window)
-                cached_limit = getattr(self, "_context_limit_tokens", None)
-                if isinstance(cached_limit, int) and cached_limit > 0:
-                    context_limit = cached_limit
-                metrics = getattr(self, "_context_used_tokens", None)
-                if isinstance(metrics, int) and metrics >= 0:
-                    context_used = metrics
+                if isinstance(self._context_limit_tokens, int) and self._context_limit_tokens > 0:
+                    context_limit = self._context_limit_tokens
+                if isinstance(self._context_used_tokens, int) and self._context_used_tokens >= 0:
+                    context_used = self._context_used_tokens
         except Exception:  # noqa: BLE001
             context_limit = None
         bar.set_usage(
@@ -614,7 +637,11 @@ class VictorTUIApp(App[None]):
             cache_hit_rate=report.get("cache_hit_rate"),
             total_tokens=self._last_tokens,
             cost_usd=self._last_cost,
-            session_cost_usd=report.get("session_cost_usd"),
+            # Authoritative session figure wins; fall back to the once-per-turn
+            # accumulator so pre-session_cost_usd transports still show a total.
+            session_cost_usd=(
+                report.get("session_cost_usd") or (round(self._session_cost_usd, 6) or None)
+            ),
             model=self._model_label(),
         )
 
