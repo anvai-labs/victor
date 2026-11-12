@@ -165,7 +165,6 @@ class ImportCommand(BaseSlashCommand):
         )
 
 
-@register_command
 def _load_session_ir(ctx: CommandContext, session_id: Optional[str]):
     """Resolve a session id to the interop IR (errors printed to console).
 
