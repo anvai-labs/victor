@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Agent mode slash commands: mode, build, plan, review, delegate, explore."""
+"""Agent mode slash commands: mode, build, plan, delegate, explore (review via /mode review)."""
 
 from __future__ import annotations
 
@@ -161,25 +161,6 @@ class ExploreCommand(BaseSlashCommand):
     def execute(self, ctx: CommandContext) -> None:
         # Delegate to mode command
         ctx.args = ["explore"]
-        ModeCommand().execute(ctx)
-
-
-@register_command
-class ReviewCommand(BaseSlashCommand):
-    """Switch to review mode for diagnostics and findings-first feedback."""
-
-    @property
-    def metadata(self) -> CommandMetadata:
-        return CommandMetadata(
-            name="review",
-            description="Switch to review mode for diagnostics and code review",
-            usage="/review",
-            category="mode",
-            requires_agent=True,
-        )
-
-    def execute(self, ctx: CommandContext) -> None:
-        ctx.args = ["review"]
         ModeCommand().execute(ctx)
 
 

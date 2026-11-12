@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from rich.console import Console
 
@@ -26,6 +26,7 @@ from victor.ui.rendering.utils import (
 )
 
 if TYPE_CHECKING:
+    from victor.ui.rendering.utils import Severity
     from victor.ui.output_formatter import OutputFormatter
 
 
@@ -175,14 +176,14 @@ class FormatterRenderer:
         self.formatter.tool_result(**formatter_kwargs)
         self.resume()
 
-    def on_status(self, message: str) -> None:
+    def on_status(self, message: str, severity: Optional["Severity"] = None) -> None:
         """Handle status message.
 
         Args:
             message: Status message to display
         """
         self.pause()
-        self.formatter.status(message)
+        self.formatter.status(message, severity)
         self.resume()
 
     def on_file_preview(self, path: str, content: str) -> None:

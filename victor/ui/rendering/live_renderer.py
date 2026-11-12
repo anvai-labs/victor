@@ -11,7 +11,7 @@ import os
 import re
 import time
 from collections import deque
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from rich import box
 from rich.console import Console, Group
@@ -41,7 +41,8 @@ from victor.ui.rendering.utils import (
     render_content_badge,
     render_edit_preview,
     render_file_preview,
-    render_status_message,
+    classify_severity,
+    render_severity,
     render_thinking_indicator,
     render_thinking_text,
     render_tool_preview,
@@ -540,14 +541,18 @@ class LiveDisplayRenderer:
             self._tool_progress_active = True
             self._render_tool_progress()
 
-    def on_status(self, message: str) -> None:
+    def on_status(self, message: str, severity: Optional["Severity"] = None) -> None:
         """Handle status message.
 
         Args:
             message: Status message to display
+            severity: Structured severity; classified from the string when
+                omitted (legacy callers).
         """
         self.pause()
-        render_status_message(self.console, message)
+        render_severity(
+            self.console, severity if severity is not None else classify_severity(message), message
+        )
         self.resume()
 
     def on_file_preview(self, path: str, content: str) -> None:

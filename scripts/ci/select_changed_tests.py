@@ -844,6 +844,10 @@ RELATED_TESTS = {
         "tests/unit/config/test_logging_config.py",
         "tests/unit/ui/rendering/test_log_handler.py",
     ),
+    "victor/ui/rendering/formatter_renderer.py": (
+        "tests/unit/ui/rendering/test_renderer_conformance.py",
+        "tests/unit/ui/rendering/test_handler.py",
+    ),
     # Mechanical console-seam migrations: these command modules have no
     # dedicated suites; the seam suite pins the shared-console property they
     # depend on.
@@ -865,6 +869,24 @@ RELATED_TESTS = {
     "victor/ui/slash/commands/import_export.py": (
         "tests/unit/commands/test_slash_import_export.py",
         "tests/unit/agent/conversation/interop/",
+    ),
+    # Slash command suites are flattened into tests/unit/commands, so the
+    # stem-mirror and rglob fallbacks cannot find them by source path.
+    "victor/ui/slash/commands/resume.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+    ),
+    "victor/ui/slash/commands/status.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+    ),
+    "victor/ui/slash/commands/mode.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+    ),
+    "victor/ui/slash/registry.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
     ),
     **dict.fromkeys(
         ("victor/config/agentic_loop_settings.py", "victor/framework/agentic_loop_executor.py"),

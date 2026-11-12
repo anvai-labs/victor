@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Optional, Any
 
 import pytest
 
@@ -17,6 +17,7 @@ class _RecorderRenderer:
         self.tool_results: list[dict[str, Any]] = []
         self.content: list[str] = []
         self.statuses: list[str] = []
+        self.severities: list["Severity"] = []
 
     def start(self) -> None:
         pass
@@ -57,8 +58,9 @@ class _RecorderRenderer:
             }
         )
 
-    def on_status(self, message: str) -> None:
+    def on_status(self, message: str, severity: Optional["Severity"] = None) -> None:
         self.statuses.append(message)
+        self.severities.append(severity)
 
     def on_file_preview(self, path: str, content: str) -> None:
         pass
@@ -179,7 +181,10 @@ def test_stream_response_surfaces_error_events(event_type) -> None:
         asyncio.run(stream_response(Source(), "hi", renderer))
     assert caught.value.recoverable is False
     assert renderer.finalize() == "Partial result"
-    assert renderer.statuses == ["❌ Run rejected"]
+    assert renderer.statuses == ["Run rejected"]  # no more ❌ string glue
+    from victor.ui.rendering.utils import Severity
+
+    assert renderer.severities == [Severity.ERROR]  # structured severity
     assert closed == [True]
 
 
