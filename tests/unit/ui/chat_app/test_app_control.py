@@ -20,6 +20,8 @@ extra (same pattern as test_app_rendering.py), extended here with Action/action_
 
 from __future__ import annotations
 
+from contextlib import suppress
+
 import asyncio
 import importlib
 import sys
@@ -130,9 +132,11 @@ class _BlockingClient:
     def __init__(self) -> None:
         self.entered = asyncio.Event()
         self.closed = False
+        self.last_content: Optional[str] = None
         self.provider_name = "ollama"
 
     async def stream(self, content: str):
+        self.last_content = content
         self.entered.set()
         await asyncio.sleep(3600)  # cancellable block
         yield  # pragma: no cover
@@ -316,3 +320,32 @@ async def test_error_recovery_renders_friendly_message_retry_and_hint(app_module
     assert err.actions[0].payload.get("content") == "boom"
     # Provider-switch hint suggests the other available provider.
     assert "anthropic" in err.content
+
+
+async def test_stop_leaves_no_detached_turn_before_slot_clears(app_module):
+    """Pin the stop contract end-to-end: after the native stop the child turn
+    task is fully settled (not streaming detached) BEFORE the session slot is
+    cleared, so a subsequent turn cannot interleave in the same transcript."""
+    module, fake_cl = app_module
+    client = _BlockingClient()
+    fake_cl.user_session.set(module._CLIENT_KEY, client)
+    start = asyncio.create_task(module._start_turn("first"))
+    await asyncio.wait_for(client.entered.wait(), 1)
+    child = fake_cl.user_session.get(module._TASK_KEY)
+    assert child is not None and not child.done()
+
+    start.cancel()
+    await asyncio.wait_for(start, 1)
+
+    # The child must be fully settled (cancelled, not detached-running).
+    assert child.done()
+    assert child.cancelled()
+    # Slot cleared -> a new turn is startable immediately.
+    assert fake_cl.user_session.get(module._TASK_KEY) is None
+    client.entered.clear()
+    second = asyncio.create_task(module._start_turn("second"))
+    await asyncio.wait_for(client.entered.wait(), 1)
+    second.cancel()
+    with suppress(asyncio.CancelledError):
+        await asyncio.wait_for(second, 1)
+    assert client.last_content == "second"
