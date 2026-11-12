@@ -45,6 +45,43 @@ _FORMAT_KEYS = {
 }
 
 
+def _export_arguments(
+    args: list[str], *, handoff: bool = False
+) -> tuple[list[str], dict[str, str]]:
+    """Consume option values before resolving optional session positionals."""
+    aliases = {"-f": "--format", "-o": "--out", "-i": "--install"}
+    valued = {"--context-file"} if handoff else {"--format", "--out", "--context-file"}
+    positionals: list[str] = []
+    options: dict[str, str] = {}
+    index = 0
+    while index < len(args):
+        token, separator, inline = args[index].partition("=")
+        token = aliases.get(token, token)
+        if token in valued:
+            index += 1
+            if separator:
+                value = inline
+            elif index < len(args) and not args[index].startswith("-"):
+                value = args[index]
+                index += 1
+            else:
+                raise ValueError(f"{token} requires a value")
+            if not value:
+                raise ValueError(f"{token} requires a value")
+            options[token] = value
+        elif token == "--install" and not handoff and not separator:
+            options[token] = "1"
+            index += 1
+        elif token.startswith("-"):
+            raise ValueError(f"Unknown option: {token}")
+        else:
+            positionals.append(args[index])
+            index += 1
+    if len(positionals) > (2 if handoff else 1):
+        raise ValueError("Too many session arguments")
+    return positionals, options
+
+
 def _resolve_format_flag(ctx: CommandContext, cmd: BaseSlashCommand) -> Optional[str]:
     raw = cmd._get_flag_value(ctx, "--format") or cmd._get_flag_value(ctx, "-f") or "auto"
     key = raw.strip().lower()
@@ -224,15 +261,22 @@ class ExportCommand(BaseSlashCommand):
         return CommandMetadata(
             name="export",
             description="Export a session to claude/codex/victor/json format",
-            usage="/export [session_id] [--format claude|codex|victor|json] [--out <path>] [--install]",
+            usage="/export [session_id] --format <format> [--out <path>] [--install] [--context-file <path>]",
             category="session",
             requires_agent=False,
         )
 
     def execute(self, ctx: CommandContext) -> None:
         from victor.agent.conversation.interop import export_session, install_session
+        from victor.agent.conversation.interop.report import ConversionReport
 
-        fmt_key = _resolve_format_flag(ctx, self)
+        try:
+            positional, options = _export_arguments(ctx.args)
+        except ValueError as exc:
+            ctx.console.print(str(exc), markup=False)
+            return
+        raw_format = options.get("--format", "auto").lower()
+        fmt_key = _FORMAT_KEYS.get(raw_format, "$invalid")
         if fmt_key in (None, "$invalid"):
             ctx.console.print("[red]--format required[/] (claude|codex|victor|json)")
             return
@@ -250,21 +294,27 @@ class ExportCommand(BaseSlashCommand):
             ctx.console.print(f"[red]Format '{fmt_key}' is import-only[/]")
             return
 
-        install = self._has_flag(ctx, "--install", "-i")
+        install = "--install" in options
         if install and fmt not in (TranscriptFormat.CLAUDE_CODE, TranscriptFormat.CODEX_ROLLOUT):
             ctx.console.print("[red]--install requires --format claude or codex[/]")
             return
 
-        positional = [a for a in ctx.args if not a.startswith("--")]
         session_id = positional[0] if positional else getattr(ctx.agent, "active_session_id", None)
         session = _load_session_ir(ctx, session_id)
         if session is None:
             return
 
+        context_file = Path(options["--context-file"]) if "--context-file" in options else None
+        count = 1 if context_file else len(session.messages)
+        report = ConversionReport(
+            source_format="victor", target_format=fmt.value, session_id=session.session_id
+        )
         try:
             if install:
                 target = "claude" if fmt is TranscriptFormat.CLAUDE_CODE else "codex"
-                out = install_session(session, target)
+                out = install_session(session, target, report, context_file=context_file)
+                for warning in report.warnings:
+                    ctx.console.print(f"Warning: {warning}", markup=False)
                 hint = _target_hint(target, out)
                 ctx.console.print(
                     Panel(
@@ -274,10 +324,10 @@ class ExportCommand(BaseSlashCommand):
                     )
                 )
                 return
-            out_raw = self._get_flag_value(ctx, "--out") or self._get_flag_value(ctx, "-o")
+            out_raw = options.get("--out")
             default_name = f"victor-session-{session.session_id}.{_extension(fmt)}"
             out = Path(out_raw).expanduser() if out_raw else Path.cwd() / default_name
-            export_session(session, fmt, out)
+            export_session(session, fmt, out, report, context_file=context_file)
         except Exception as exc:  # noqa: BLE001
             ctx.console.print(f"[red]Export failed:[/] {exc}")
             logger.exception("session export failed")
@@ -286,16 +336,20 @@ class ExportCommand(BaseSlashCommand):
         hint = (
             _target_hint("claude" if fmt is TranscriptFormat.CLAUDE_CODE else "codex", out)
             if fmt in (TranscriptFormat.CLAUDE_CODE, TranscriptFormat.CODEX_ROLLOUT)
+            and not report.context_over_budget
             else ""
         )
+        for warning in report.warnings:
+            ctx.console.print(f"Warning: {warning}", markup=False)
         ctx.console.print(
             Panel(
-                f"{len(session.messages)} messages → {out}\n{hint}",
+                f"{count} messages → {out}\n{hint}",
                 title="Session Exported",
                 border_style="green",
             )
         )
-        _print_role_table(ctx, session.messages)
+        if context_file is None:
+            _print_role_table(ctx, session.messages)
 
 
 def _print_store_listings(ctx: CommandContext) -> None:
@@ -366,7 +420,7 @@ class HandoffCommand(BaseSlashCommand):
         return CommandMetadata(
             name="handoff",
             description="Hand a session to claude or codex (export + install)",
-            usage="/handoff <claude|codex> [session_id]",
+            usage="/handoff <claude|codex> [session_id] [--context-file <path>]",
             category="session",
             requires_agent=False,
         )
@@ -375,7 +429,11 @@ class HandoffCommand(BaseSlashCommand):
         from victor.agent.conversation.interop import install_session
         from victor.agent.conversation.interop.report import ConversionReport
 
-        positional = [a for a in ctx.args if not a.startswith("--")]
+        try:
+            positional, options = _export_arguments(ctx.args, handoff=True)
+        except ValueError as exc:
+            ctx.console.print(str(exc), markup=False)
+            return
         target = (positional[0] if positional else "").strip().lower()
         if target not in ("claude", "codex"):
             ctx.console.print(
@@ -394,14 +452,17 @@ class HandoffCommand(BaseSlashCommand):
         report = ConversionReport(
             source_format="victor", target_format=target, session_id=session.session_id
         )
+        context_file = Path(options["--context-file"]) if "--context-file" in options else None
         try:
-            out = install_session(session, target, report)
+            out = install_session(session, target, report, context_file=context_file)
         except Exception as exc:  # noqa: BLE001 — surface store problems cleanly
             ctx.console.print(f"[red]Handoff failed:[/] {exc}")
             logger.exception("session handoff failed")
             return
 
-        summary = report.render_summary()
+        count = 1 if context_file else len(session.messages)
+        ctx.console.print(report.render_summary(), markup=False)
+        summary = f"Source: {len(session.messages)} messages; installed: {count}."
         resume_hint = (
             "claude --resume <uuid>  (this project's directory)"
             if target == "claude"
@@ -409,7 +470,7 @@ class HandoffCommand(BaseSlashCommand):
         )
         ctx.console.print(
             Panel(
-                f"Handed off {len(session.messages)} messages to {target}.\n\n"
+                f"Handed off {count} messages to {target}.\n\n"
                 f"{summary}\n\n[bold]Installed:[/] {out}\n\n"
                 f"[green]Resume there with:[/] {resume_hint}",
                 title=f"Handoff → {target}",

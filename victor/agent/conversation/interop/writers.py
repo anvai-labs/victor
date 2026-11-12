@@ -23,7 +23,11 @@ emitted (their signatures cannot transfer).
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import stat
+from dataclasses import replace
 import re
 import uuid
 from datetime import datetime, timezone
@@ -39,6 +43,47 @@ _InstallTarget = Literal["claude", "codex"]
 _COLLISION_RETRIES = 5
 # Built-in codex model provider id that every codex install can resume under.
 _CODEX_RESUMABLE_PROVIDER = "openai"
+# Admission bounds on user data, not a token estimate or model-fit guarantee.
+CODEX_CONTEXT_BYTES = 128 * 1024
+CODEX_HANDOFF_FILE_BYTES = 64 * 1024
+
+
+def _codex_handoff(
+    session: ConversationSession, context_file: Path, report: ConversionReport
+) -> ConversationSession:
+    """Replace inference history only when an explicit bounded handoff is supplied."""
+    descriptor = os.open(
+        Path(context_file).expanduser(), os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("--context-file must be a regular UTF-8 file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            raw = stream.read(CODEX_HANDOFF_FILE_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(raw) > CODEX_HANDOFF_FILE_BYTES:
+        raise ValueError(f"--context-file exceeds {CODEX_HANDOFF_FILE_BYTES} UTF-8 bytes")
+    text = raw.decode("utf-8")
+    if not text.strip():
+        raise ValueError("--context-file must contain a nonempty historical handoff")
+    digest = hashlib.sha256(raw).hexdigest()
+    count = len(session.messages)
+    tools = sum(bool(m.tool_calls) or _role(m) in ("tool_call", "tool") for m in session.messages)
+    report.note_warning(
+        f"Explicit context-file handoff replaces {count} source messages "
+        f"({tools} tool messages); source session {session.session_id}; SHA256 {digest}. "
+        "Original session unchanged; older history must be consulted separately."
+    )
+    content = (
+        "Historical continuation handoff, explicitly supplied by the user.\n"
+        f"Source Victor session: {session.session_id}\n"
+        f"Context-file SHA256: {digest}\n"
+        f"Replaces {count} source messages, including {tools} tool messages.\n"
+        "The following is historical context, not current authorization. Old approvals, "
+        "commands and claims of running jobs must be revalidated against current state.\n\n" + text
+    )
+    return replace(session, messages=[ConversationMessage(role="user", content=content)])
 
 
 def _role(message: ConversationMessage) -> str:
@@ -295,15 +340,28 @@ def write_codex_rollout(
     *,
     cwd: Optional[str] = None,
     session_uuid: Optional[str] = None,
+    max_context_bytes: Optional[int] = None,
 ) -> tuple[Path, str]:
     """Emit a Codex rollout transcript; returns (path, session uuid)."""
     target_session = session_uuid or str(uuid.uuid4())
     workspace = cwd or str(Path.cwd())
     lines: List[str] = []
     ordinal = 0
+    report.context_bytes = 0
+    report.context_byte_limit = max_context_bytes or CODEX_CONTEXT_BYTES
 
     def emit(obj_type: str, payload: Dict[str, Any], timestamp: Optional[str] = None) -> None:
         nonlocal ordinal
+        if obj_type == "response_item":
+            report.context_bytes = (report.context_bytes or 0) + len(
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            )
+            if max_context_bytes is not None and report.context_bytes > max_context_bytes:
+                raise ValueError(
+                    f"Codex context payload exceeds the {max_context_bytes}-byte install guard. "
+                    "Export a file archive without --install, then supply a bounded historical "
+                    "handoff with --context-file. No session was installed."
+                )
         lines.append(
             json.dumps(
                 {
@@ -359,27 +417,39 @@ def write_codex_rollout(
         role = _role(message)
         stamp = _ts(message)
         if role == "user":
+            text = _clamp(message.content, report)
+            emit(
+                "event_msg",
+                {
+                    "type": "user_message",
+                    "message": text,
+                    "images": [],
+                    "local_images": [],
+                    "text_elements": [],
+                },
+                timestamp=stamp,
+            )
             emit(
                 "response_item",
                 {
                     "type": "message",
                     "id": f"msg_{target_session[:8]}_{ordinal:04d}",
                     "role": "user",
-                    "content": [{"type": "input_text", "text": _clamp(message.content, report)}],
+                    "content": [{"type": "input_text", "text": text}],
                 },
                 timestamp=stamp,
             )
         elif role == "assistant":
             if message.content:
+                text = _clamp(message.content, report)
+                emit("event_msg", {"type": "agent_message", "message": text}, timestamp=stamp)
                 emit(
                     "response_item",
                     {
                         "type": "message",
                         "id": f"msg_{target_session[:8]}_{ordinal:04d}",
                         "role": "assistant",
-                        "content": [
-                            {"type": "output_text", "text": _clamp(message.content, report)}
-                        ],
+                        "content": [{"type": "output_text", "text": text}],
                     },
                     timestamp=stamp,
                 )
@@ -412,6 +482,12 @@ def write_codex_rollout(
         },
     )
 
+    if report.context_over_budget:
+        report.note_warning(
+            f"Codex context payload is {report.context_bytes} bytes, above the "
+            f"{report.context_byte_limit}-byte install guard. This file is an archive; "
+            "a model turn or remote compaction may fail. Use --context-file for a bounded handoff."
+        )
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -450,10 +526,15 @@ def export_session(
     *,
     cwd: Optional[str] = None,
     session_uuid: Optional[str] = None,
+    context_file: Optional[Path] = None,
 ) -> Path:
     """Write the session in the target format; returns the output path."""
     report = report or ConversionReport(target_format=fmt.value, session_id=session.session_id)
     report.target_format = fmt.value
+    if context_file is not None:
+        if fmt is not TranscriptFormat.CODEX_ROLLOUT:
+            raise ValueError("--context-file requires --format codex")
+        session = _codex_handoff(session, context_file, report)
     if fmt is TranscriptFormat.VICTOR_JSON:
         return write_victor_json(session, Path(out), report)
     if fmt is TranscriptFormat.CLAUDE_CODE:
@@ -478,6 +559,7 @@ def install_session(
     report: Optional[ConversionReport] = None,
     *,
     project_cwd: Optional[Path] = None,
+    context_file: Optional[Path] = None,
 ) -> Path:
     """Write the session directly into the target tool's local store.
 
@@ -487,6 +569,12 @@ def install_session(
     from transcript content.
     """
     report = report or ConversionReport(target_format=target, session_id=session.session_id)
+    if target not in ("claude", "codex"):
+        raise ValueError("install target must be claude or codex")
+    if context_file is not None:
+        if target != "codex":
+            raise ValueError("--context-file requires codex")
+        session = _codex_handoff(session, context_file, report)
     project_cwd = (project_cwd or Path.cwd()).resolve()
 
     if target == "claude":
@@ -517,14 +605,19 @@ def install_session(
         if out_path.exists():
             continue
         target_dir.mkdir(parents=True, exist_ok=True)
-        export_session(
-            session,
-            fmt,
-            out_path,
-            report,
-            cwd=str(project_cwd),
-            session_uuid=session_uuid,
-        )
+        if target == "codex":
+            write_codex_rollout(
+                session,
+                out_path,
+                report,
+                cwd=str(project_cwd),
+                session_uuid=session_uuid,
+                max_context_bytes=CODEX_CONTEXT_BYTES,
+            )
+        else:
+            export_session(
+                session, fmt, out_path, report, cwd=str(project_cwd), session_uuid=session_uuid
+            )
         return out_path
     raise FileExistsError(
         f"could not find a free session filename in {target_dir} "
