@@ -86,8 +86,11 @@ class OpenAIProvider(BaseProvider):
         self._gateway_audience = ""
         gateway = kwargs.get("gateway")
         if gateway is not None:
-            if not isinstance(gateway, dict):
-                raise ValueError("gateway requires a URL and virtual key")
+            from victor.providers.gateway_contract import gateway_config
+
+            gateway_config(gateway)
+            if auth_mode == "oauth":
+                self._sandhi_protocol = "responses"
             key = gateway.get("virtual_key")
             if hasattr(key, "get_secret_value"):
                 key = key.get_secret_value()
@@ -124,7 +127,7 @@ class OpenAIProvider(BaseProvider):
                 or parsed.password is not None
                 or parsed.query
                 or parsed.fragment
-                or parsed.path not in ("", "/v1")
+                or parsed.path not in ("", "/v1", "/v1beta")
                 or not (
                     parsed.scheme == "https"
                     or (

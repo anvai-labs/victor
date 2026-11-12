@@ -331,7 +331,10 @@ class ProviderLogger:
         }
 
         for key, value in config.items():
-            if key.lower() in sensitive_keys:
+            if key.lower() == "gateway":
+                # Gateway credentials are nested and may be renewable objects.
+                sanitized[key] = "***"
+            elif key.lower() in sensitive_keys:
                 if isinstance(value, str) and len(value) > 0:
                     # Show first few chars for debugging, but hide most
                     if len(value) <= 2:

@@ -90,7 +90,7 @@ class TaskExecutionReport:
     compaction_saved_tokens: int
     compaction_messages_removed: int
     tokens_per_successful_task: float
-    total_cost_usd: float
+    total_cost_usd: Optional[float]
     error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -338,11 +338,26 @@ class AgentMetricsService:
                 duration_seconds=time.monotonic() - started,
                 tool_calls=observation.tool_calls,
                 transport_attempts=observation.diagnostics.get("attempts"),
+                typed_usage=observation.diagnostics.get("typed_usage"),
+                usage_basis=observation.diagnostics.get("usage_basis", "compatibility"),
             )
             if usage is not None:
+                # The per-call owner computed the disjoint typed total; a
+                # compatibility prompt total can exclude writes or reasoning.
+                units = request.observed_units or {}
+                fresh = (
+                    int(units["tokens_in"])
+                    if units and units.get("completeness") != "unavailable"
+                    else request.prompt_tokens
+                )
+                accounted = {
+                    **usage,
+                    "total_tokens": request.total_tokens,
+                    "fresh_input_tokens": fresh,
+                }
                 if usage_totals is not None:
-                    accumulate_usage(usage_totals, usage)
-                accumulate_usage(self._cumulative_token_usage, usage)
+                    accumulate_usage(usage_totals, accounted)
+                accumulate_usage(self._cumulative_token_usage, accounted)
                 self._cumulative_token_usage["cached_tokens"] = self._cumulative_token_usage.get(
                     "cached_tokens", 0
                 ) + usage.get("cache_read_input_tokens", 0)
@@ -668,6 +683,9 @@ class AgentMetricsService:
             status: sum(request.usage_status == status for request in invocations)
             for status in ("unknown", "partial", "reported")
         }
+        merged_metadata["pricing_coverage"] = dict(
+            Counter(request.pricing_status for request in invocations)
+        )
         merged_metadata["invocation_outcomes"] = dict(
             Counter(request.outcome for request in invocations)
         )
@@ -718,7 +736,11 @@ class AgentMetricsService:
             compaction_saved_tokens=compaction_saved_tokens,
             compaction_messages_removed=compaction_messages_removed,
             tokens_per_successful_task=0.0,
-            total_cost_usd=total_cost_delta,
+            total_cost_usd=(
+                None
+                if any(request.pricing_status == "unavailable" for request in invocations)
+                else total_cost_delta
+            ),
             error=error,
             metadata=merged_metadata,
         )
@@ -757,7 +779,7 @@ class AgentMetricsService:
         # Inject session-level cumulative data for TUI display
         # The report has per-task deltas, but TUI needs session totals
         session_requests, _, session_costs = self._tracker_summary()
-        report_dict["session_cost_usd"] = float(session_costs.get("total", 0.0) or 0.0)
+        report_dict["session_cost_usd"] = session_costs.get("total", 0.0)
         report_dict["session_request_count"] = session_requests
 
         return report_dict
@@ -925,7 +947,12 @@ class AgentMetricsService:
                 or 0
             ),
             total_cost_usd=float(
-                cost_summary.get("total", getattr(self._session_cost_tracker, "total_cost", 0.0))
+                cost_summary.get(
+                    "known_estimate",
+                    cost_summary.get(
+                        "total", getattr(self._session_cost_tracker, "total_cost", 0.0)
+                    ),
+                )
                 or 0.0
             ),
             request_count=request_count,

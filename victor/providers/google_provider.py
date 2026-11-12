@@ -117,7 +117,15 @@ class GoogleProvider(BaseProvider):
         # handle. OAuth/ADC → Authorization: Bearer; API key → x-goog-api-key.
         self._sandhi_auth_scheme = "bearer" if auth_mode == "oauth" else "api_key"
 
-        if auth_mode == "oauth":
+        from victor.providers.gateway_contract import gateway_virtual_key
+
+        gateway_key = gateway_virtual_key(kwargs.get("gateway"))
+        if gateway_key is not None:
+            self._api_key = gateway_key
+            self._google_credentials = None
+            self._sandhi_auth_scheme = "bearer"
+            super().__init__(api_key=self._api_key, timeout=timeout, **kwargs)
+        elif auth_mode == "oauth":
             # OAuth mode: use Google subscription (AI Pro/Ultra) instead of API key
             from victor.providers.oauth_manager import OAuthTokenManager
 

@@ -274,6 +274,7 @@ async def test_openai_oauth_explicitly_selects_responses_and_refreshes_before_ha
     args, kwargs = runtime.calls[0]
     assert args[:3] == ("openai", "o3", "fresh-oauth")
     assert kwargs["protocol"] == "chatgpt_responses"
+    assert "peer_role" not in kwargs
     assert kwargs["base_url"] == "https://chatgpt.com/backend-api/codex"
     assert json.loads(kwargs["headers_json"])["originator"] == "victor"
     assert json.loads(kwargs["headers_json"])["ChatGPT-Account-ID"] == "workspace_123"
@@ -986,7 +987,8 @@ async def test_gateway_mode_preserves_protocol_alongside_overrides(monkeypatch):
     await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
 
     _, kwargs = runtime.calls[0]
-    assert kwargs["protocol"] == "chatgpt_responses"
+    assert kwargs["protocol"] == "responses"
+    assert kwargs["peer_role"] == "sandhi_gateway_v1"
     assert kwargs["base_url"] == "http://localhost:8600/v1"
     assert kwargs["auth_scheme"] == "bearer"
 
@@ -1023,14 +1025,12 @@ async def test_gateway_mode_missing_virtual_key_fails_closed(monkeypatch):
     install_runtime(monkeypatch)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_DEEPSEEK", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
-    provider = DeepSeekProvider(
-        api_key="real-upstream-key",
-        base_url="https://api.deepseek.com/v1",
-        gateway={"url": "http://localhost:8600"},
-    )
-
-    with pytest.raises(ProviderConnectionError, match="virtual_key"):
-        await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+    with pytest.raises(ValueError, match="virtual key"):
+        DeepSeekProvider(
+            api_key="real-upstream-key",
+            base_url="https://api.deepseek.com/v1",
+            gateway={"url": "http://localhost:8600"},
+        )
 
 
 @pytest.mark.asyncio
@@ -1229,8 +1229,9 @@ def test_extensions_absent_is_behavior_identical(monkeypatch, reasoning):
         "total_tokens": 15,
         "cache_read_input_tokens": 4,
     }
-    expected_metadata = {"reasoning_content": reasoning} if reasoning is not None else None
-    assert without_native.metadata == with_native.metadata == expected_metadata
+    assert without_native.metadata == with_native.metadata
+    assert without_native.metadata.get("reasoning_content") == reasoning
+    assert without_native.metadata["sandhi_usage"]["typed_usage"]["tokens_in"] == 6
     assert without_native.content == "hello"
     # Debug fallback: with no native body, raw_response is the typed document.
     assert without_native.raw_response["schema_version"] == "1"
@@ -1258,7 +1259,8 @@ def test_typed_reasoning_precedes_legacy_sources(
     payload = _typed_payload(extensions=extensions)
     payload["output"]["reasoning"] = typed
     response = make_provider()._completion_from_typed(payload, "deepseek-chat")
-    assert response.metadata == ({"reasoning_content": expected} if expected is not None else None)
+    assert response.metadata.get("reasoning_content") == expected
+    assert response.metadata["sandhi_usage"]["usage_basis"] == "direct_provider"
     assert response.content == "hello"
 
 
@@ -1299,10 +1301,9 @@ def test_native_only_usage_fields_surface_as_diagnostics(monkeypatch):
         "deepseek-chat",
     )
 
-    assert response.metadata["sandhi_usage"] == {
-        "cache_miss_tokens": 7,
-        "cost_in_usd_ticks": 123,
-    }
+    assert response.metadata["sandhi_usage"]["cache_miss_tokens"] == 7
+    assert response.metadata["sandhi_usage"]["cost_in_usd_ticks"] == 123
+    assert response.metadata["sandhi_usage"]["typed_usage"]["cache_creation_tokens"] == 0
 
 
 def test_native_only_extractor_ignores_junk():
@@ -1600,7 +1601,7 @@ class _Probe:
 def test_gateway_family_base_derivation(slug, root, expected):
     from victor.providers.sandhi_transport import _gateway_family_base
 
-    assert _gateway_family_base(root, slug) == expected
+    assert _gateway_family_base(root, st.client_protocol(slug)) == expected
 
 
 def test_gateway_root_normalization_strips_v1_and_v1beta():

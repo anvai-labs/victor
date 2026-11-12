@@ -1,0 +1,230 @@
+{
+  "evidence_kind": "local_integrated_explicit_gateway_peer_source_candidate",
+  "source_parent": "98143f41c51186ff810fc427a97ee7fc76236cfa",
+  "prepared_victor_version": "0.29.0",
+  "sandhi_dependency": "sandhi-gateway==0.17.0",
+  "source_files": [
+    {
+      "path": "docs/architecture/sandhi-subscription-gateway.md",
+      "sha256": "a6f0a23026cdef1a803bed4285f4971cbfdca6e4beb265177a3353982e5f019b"
+    },
+    {
+      "path": "tests/integration/providers/test_sandhi_gateway_peer_two_hop.py",
+      "sha256": "ec9e199e1027bca6f7a686cd4d94ebfbb66f1425ef43a89ba837c347ccc6d80a"
+    },
+    {
+      "path": "tests/unit/agent/test_typed_usage_pricing.py",
+      "sha256": "cabc5634a5368ab0fa4991a7b46f7b2193eb71bd6ab5ca3bb9a627e29deda8c2"
+    },
+    {
+      "path": "tests/unit/framework/test_message_execution.py",
+      "sha256": "8cb840be626ec3c89152f5e6cbc309809932760eb3312ccc90338843fc1d3c64"
+    },
+    {
+      "path": "tests/unit/providers/test_sandhi_binding_construction.py",
+      "sha256": "111af463ca8ce3ce4285a67af285209b4e8d2c4d681d1cb96033eeb1545313d3"
+    },
+    {
+      "path": "tests/unit/providers/test_sandhi_gateway_factories.py",
+      "sha256": "6c847fb17a1170f1d8682063c1169c64021155a6b5ef4626201eebf012223fbf"
+    },
+    {
+      "path": "tests/unit/providers/test_sandhi_gateway_peer.py",
+      "sha256": "c44892ab60a1b198b8f82e85d47438c9876546169096ef2b186d62b915ab7c91"
+    },
+    {
+      "path": "tests/unit/providers/test_sandhi_transport.py",
+      "sha256": "3e327ae0a6d8818c73999268870458a95843f7be54ac806dcd299e34424e5c2b"
+    },
+    {
+      "path": "tests/unit/providers/test_sandhi_transport_anthropic.py",
+      "sha256": "06be254d25bf25f1a505f43a801e3fc5ad65cf61b4e78882c94eb52e80f6de2e"
+    },
+    {
+      "path": "tests/unit/providers/test_usage_accounting.py",
+      "sha256": "ceb292618368afcacc4259eae5219ecfdaabf70d07bcc244d1d651e0995de06a"
+    },
+    {
+      "path": "tests/unit/ui/tui/test_token_usage_bar.py",
+      "sha256": "6d309ba449f6a2e10accccdd753194cef9ba6084d1e39122f416d3ac189c81aa"
+    },
+    {
+      "path": "victor/agent/metrics_collector.py",
+      "sha256": "89d5d621a750a4521169128ceb479dc86e4392ed51a15be7db30516cf3ba1fdb"
+    },
+    {
+      "path": "victor/agent/services/metrics_service.py",
+      "sha256": "1c206c9e7f420d56a8cd10ae379e4193c522ba6ad244fc2b6b762901f24b2835"
+    },
+    {
+      "path": "victor/agent/session_cost_tracker.py",
+      "sha256": "7e677234d73d0552c0b135bd2a2e2b4fc788aa5dc7a3690060260343cf62ccfb"
+    },
+    {
+      "path": "victor/agent/stream_handler.py",
+      "sha256": "16f84dcd35759d2c4795bb055abae11da840d18bff6ead6f45157bb3e389b924"
+    },
+    {
+      "path": "victor/agent/streaming/context.py",
+      "sha256": "866552dae5a338017070f2afaa96c53d0d003712b3a064cf283b1f0131338364"
+    },
+    {
+      "path": "victor/config/provider_config_registry.py",
+      "sha256": "b4439882cd6e73112393830aaabb5d19697db533f8ec5ab4969dc71f9c109b37"
+    },
+    {
+      "path": "victor/config/settings.py",
+      "sha256": "efa1ef7775c176534ad57d809f6e8b1250fa9c410505ce79a3355406c25c643f"
+    },
+    {
+      "path": "victor/framework/message_execution.py",
+      "sha256": "19f985d4bd389696ba5622ada85386369b06ac2e61463ab9df688a96323f82fb"
+    },
+    {
+      "path": "victor/providers/anthropic_provider.py",
+      "sha256": "fd8c4f42bce3ed4ab075bd5fad653309836cb5dfcefcee5a7da12f3b8a529841"
+    },
+    {
+      "path": "victor/providers/gateway_contract.py",
+      "sha256": "fb6f285c73cdbdb406186b8428fdfb4b7b42fa5414e18472977b57ee9d5563c1"
+    },
+    {
+      "path": "victor/providers/google_provider.py",
+      "sha256": "00806f5d095d47b1e98e0e5b503dc25932a5085b5148410859d55254436fc14f"
+    },
+    {
+      "path": "victor/providers/lmstudio_provider.py",
+      "sha256": "20357385516af8009256ae8bf2e9497f64ce3e5598664a898bc7c86b87f2fced"
+    },
+    {
+      "path": "victor/providers/logging.py",
+      "sha256": "f0208f658e8bc38f11b75339e819b3d6d419b9eb561bdbdca33c06d989d18609"
+    },
+    {
+      "path": "victor/providers/ollama_provider.py",
+      "sha256": "9e43bed5bd3e96f789b88b75c8c3632def1585d196042596b74ba0fe8d5d4c5d"
+    },
+    {
+      "path": "victor/providers/openai_provider.py",
+      "sha256": "c98c779218b14b77dfaa3ab6d0149b2c2354ef97d4e08459673375d324e5abe1"
+    },
+    {
+      "path": "victor/providers/sandhi_openai_compat_policy.py",
+      "sha256": "db6ef39ae08ad88e8045d4ee45c536aa4c25edc7982b37b50a7e471e1212b444"
+    },
+    {
+      "path": "victor/providers/sandhi_transport.py",
+      "sha256": "b71ded95f97773bfd1f699a62163aa5cd4942ab8b2072b172c257777f7f2274a"
+    },
+    {
+      "path": "victor/providers/usage_accounting.py",
+      "sha256": "b7c874569807d346c2196f1416bd51911fea97dce98b35e51feab58e78c1fbe2"
+    },
+    {
+      "path": "victor/ui/rendering/markdown_presenters.py",
+      "sha256": "32defffa6f2693d06982ef26c49b2513db0cc11ac2eef8835cf75abc0218bc1e"
+    },
+    {
+      "path": "victor/ui/tui/app.py",
+      "sha256": "e96417b1fd9120d1797ab63c73b5816edf66a7f449eb471c3c8c2fc566ae4451"
+    },
+    {
+      "path": "victor/ui/tui/token_usage_bar.py",
+      "sha256": "e7b0dd14641aa7b319ebb37c7bd7f80c10b48b3e6903af8e355845ae5498c8f1"
+    }
+  ],
+  "paired_sandhi": {
+    "source_parent": "f1c224e45a957e290c72f76989499b7dbb99cd3c",
+    "source_diff_sha256": "78e660ab565db7b09c36514280984f4d56860019499faa13e32d394111c948a6",
+    "binary": "/tmp/sandhi-m5y-paired-runtime/sandhi-proxy",
+    "binary_sha256": "a772a8a5b055437125bcce5f944fdc324c7ce9949cb56236456a95be03753227",
+    "wheel": "/tmp/sandhi-m5y-integrated-wheels/sandhi_gateway-0.17.0-cp311-abi3-manylinux_2_34_x86_64.whl",
+    "wheel_sha256": "2547f8407e053e831d546f917378475051a5dad2643bb2f27bfce6faf5536b3b",
+    "note": "Local development candidate copied after successful explicit cargo build. SDK suite separately retains Cargo JSON executable/source inventory provenance."
+  },
+  "validation": {
+    "expanded_tests": {
+      "passed": 2265,
+      "skipped": 5,
+      "seconds": 40.46
+    },
+    "collection": {
+      "collected": 40283,
+      "seconds": 39.54,
+      "thread_caps": {
+        "OPENBLAS_NUM_THREADS": 1,
+        "OMP_NUM_THREADS": 1,
+        "MKL_NUM_THREADS": 1
+      }
+    },
+    "mypy_modules": 14,
+    "formatted_linted_python_files": 31,
+    "mkdocs_seconds": 23.09,
+    "pricing_regressions": {
+      "old_source_failed": 8,
+      "corrected_passed": 8
+    },
+    "factory_regressions": {
+      "old_source_failed": 24,
+      "direct_controls_passed": 4,
+      "corrected_passed": 28
+    }
+  },
+  "runtime": {
+    "interpreter": "/tmp/victor-sandhi-candidate-venv/bin/python",
+    "victor_source": "/tmp/victor-sandhi-contract/victor/__init__.py",
+    "victor_installed_editable_distribution": "0.29.0",
+    "sandhi_installed_distribution": "0.17.0",
+    "qualification": "editable Victor source and local Sandhi development wheel on Linux x86_64/Python3.12; not a Victor release-wheel/native platform claim"
+  },
+  "logs": {
+    "expanded_tests": {
+      "path": "/tmp/victor-peer-integrated-expanded-final.log",
+      "sha256": "01ac3ee68b5ebb2c2faf4243a3b95ca0ba1786138714b158bce1d1802f73a87e"
+    },
+    "collection": {
+      "path": "/tmp/victor-peer-integrated-collection-final.log",
+      "sha256": "d903cb9d4fa805828e995bc250ad833a2f2cd3b3087535cb64135a491b4ab86a"
+    },
+    "black": {
+      "path": "/tmp/victor-peer-integrated-final-black.log",
+      "sha256": "f16760e8547264d312f59a590f8faa794b97265f270fd5810da56f0d7e868d9b"
+    },
+    "ruff": {
+      "path": "/tmp/victor-peer-integrated-final-ruff.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "mypy": {
+      "path": "/tmp/victor-peer-integrated-final-mypy.log",
+      "sha256": "d481051a64ce25f9bea8f1385bf248ef8c2441f772bcb6a6dc9de672e082530f"
+    },
+    "mkdocs": {
+      "path": "/tmp/victor-peer-integrated-mkdocs.log",
+      "sha256": "7e0a22e1c86086862aa82fd03b5a1c49c1659b5d7c036c379247e6c492b64757"
+    },
+    "pricing_red": {
+      "path": "/tmp/victor-peer-review-pricing-red-final.log",
+      "sha256": "25ee71608234c87c0c91068cd14169fe6654df81ba22e1b1ec9fd6ed608d2e46"
+    },
+    "pricing_green": {
+      "path": "/tmp/victor-peer-review-pricing-green.log",
+      "sha256": "a0fe6103c32e88e63a33692f1c284ca88aa55ddea5731df375d9dc427aacdffe"
+    },
+    "expanded_before_expected_shape_update": {
+      "path": "/tmp/victor-peer-pricing-expanded.log",
+      "sha256": "64a520309cb6972556eaddc1537af068ffd2660845774ff068db86b6ef0ac30f"
+    }
+  },
+  "retained_failures": [
+    "Initial root new test scaffold used nonexistent start_stream_metrics; corrected to actual init_stream_metrics before meaningful eight-case RED recording.",
+    "Expanded post-fix run:611 passed,one old exact-dictionary expectation failed because fresh_input_tokens is now retained. Expected fresh12 added; broader final2265 passed.",
+    "Author frozen venv inherited Victor0.28.1 metadata; root editable venv reports0.29.0. These are separate environments."
+  ],
+  "open_gates": [
+    "Independent exact-tip review and actual configured-secret scan after staging final source.",
+    "Sandhi final peer checkpoint public CI, accounting-default and safe upstream namespace migration.",
+    "Sandhi dependency publication/qualification before consumer push/merge/release.",
+    "Retained reliability, cache/state/subscription and supported native/wheel platform qualification.",
+    "Benchmark/conversation numeric-zero compatibility schemas remain separately qualified; no complete currency total claim."
+  ]
+}

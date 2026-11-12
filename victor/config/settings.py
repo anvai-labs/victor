@@ -21,7 +21,7 @@ import logging
 import os
 import warnings
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, Optional, TypeVar, Union, List
+from typing import Any, Callable, ClassVar, Dict, Optional, TypeVar, Union, List, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -437,8 +437,8 @@ class ProviderGatewayConfig(BaseModel):
 
     When set, the provider's Sandhi FFI handle is pointed at the Sandhi proxy and
     presents the virtual key as a bearer token, so traffic is centrally attributed
-    and budget-enforced. The provider slug is preserved so the proxy still speaks the
-    right dialect (openai-compat / anthropic / responses) and routes to the
+    and budget-enforced. An optional client protocol selects the wire dialect
+    independently of the provider label; server policy selects the
     vault-resolved upstream. Opt-in and default-off: an unset ``gateway`` leaves the
     provider in direct FFI mode (unchanged behavior).
     """
@@ -448,7 +448,7 @@ class ProviderGatewayConfig(BaseModel):
         description=(
             "Sandhi proxy ROOT, e.g. http://localhost:8600 — a trailing /v1 or "
             "/v1beta is accepted and stripped (the transport derives the "
-            "per-family prefix). May be omitted entirely when "
+            "client-dialect prefix). May be omitted entirely when "
             "SANDHI_GATEWAY_URL is set."
         ),
     )
@@ -461,6 +461,9 @@ class ProviderGatewayConfig(BaseModel):
         ),
     )
 
+    protocol: Optional[
+        Literal["chat_completions", "anthropic_messages", "responses", "gemini_generate_content"]
+    ] = None
     oidc: Optional[GatewayOidcConfig] = None
     grant: Optional[str] = None
 

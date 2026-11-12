@@ -67,15 +67,20 @@ class SandhiOpenAICompatPolicy(SandhiHttpxTransportMixin, HttpxOpenAICompatProvi
         self._spec = spec
         self._api_key = ""
 
-        resolver = UnifiedApiKeyResolver(non_interactive=non_interactive)
-        key_result = resolver.get_api_key(spec.credential_provider, explicit_key=api_key)
-        if key_result.key is None:
+        from victor.providers.gateway_contract import gateway_virtual_key
+
+        gateway_key = gateway_virtual_key(kwargs.get("gateway"))
+        key_result = None
+        if gateway_key is None:
+            resolver = UnifiedApiKeyResolver(non_interactive=non_interactive)
+            key_result = resolver.get_api_key(spec.credential_provider, explicit_key=api_key)
+        if key_result is not None and key_result.key is None:
             raise APIKeyNotFoundError(
                 provider=spec.credential_provider,
                 sources_attempted=key_result.sources_attempted,
                 non_interactive=key_result.non_interactive,
             )
-        self._api_key = key_result.key
+        self._api_key = gateway_key if gateway_key is not None else key_result.key
 
         custom_headers: Dict[str, str] = {}
         for option_name, header_name in spec.header_options.items():
@@ -99,11 +104,12 @@ class SandhiOpenAICompatPolicy(SandhiHttpxTransportMixin, HttpxOpenAICompatProvi
         )
 
         self._provider_logger = ProviderLogger(spec.slug, self.__class__.__module__)
-        self._provider_logger.log_api_key_resolution(key_result)
+        if key_result is not None:
+            self._provider_logger.log_api_key_resolution(key_result)
         self._provider_logger.log_provider_init(
             model=spec.default_model,
-            key_source=key_result.source_detail,
-            non_interactive=key_result.non_interactive,
+            key_source=key_result.source_detail if key_result is not None else "gateway",
+            non_interactive=key_result.non_interactive if key_result is not None else True,
             config={
                 "base_url": resolved_base_url,
                 "timeout": resolved_timeout,

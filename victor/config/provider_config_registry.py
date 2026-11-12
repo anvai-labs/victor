@@ -462,6 +462,7 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
             "virtual_key_value",
             "grant",
             "audience",
+            "protocol",
         )
         has_identity = any(
             (gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None))
@@ -480,7 +481,7 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     if isinstance(virtual_key, SecretStr):
         virtual_key = virtual_key.get_secret_value()
     extra = {}
-    for name in ("oidc", "grant", "credential", "audience"):
+    for name in ("oidc", "grant", "credential", "audience", "protocol"):
         value = gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None)
         if value is not None:
             extra[name] = value.model_dump() if hasattr(value, "model_dump") else value

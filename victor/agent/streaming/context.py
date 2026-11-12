@@ -210,6 +210,14 @@ class StreamingChatContext:
         """
         diag = self.provider_diagnostics
         diag["provider_calls"] = diag.get("provider_calls", 0) + 1
+        if sandhi_diag.get("usage_basis") == "gateway_client_projection":
+            diag["usage_basis"] = "gateway_client_projection"
+        units = sandhi_diag.get("typed_usage")
+        if isinstance(units, dict) and units.get("completeness") != "unavailable":
+            totals = diag.setdefault("typed_usage_totals", {})
+            for key in ("tokens_in", "tokens_out", "cache_creation_tokens", "cache_read_tokens"):
+                if key in units:
+                    totals[key] = totals.get(key, 0) + units[key]
         try:
             attempts = int(sandhi_diag.get("attempts") or 1)
         except (TypeError, ValueError):

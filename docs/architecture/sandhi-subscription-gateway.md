@@ -19,8 +19,9 @@ An explicit transient provider rejection can still use the logical-call retry
 policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
-and actual token observation across embedded and accounted calls. Buffered
-contract unification and the gateway accounting-default migration remain pending. Portable/native delivery
+and actual token observation across embedded and accounted calls. The paired candidate
+adds the same qualified buffered boundary and explicit gateway-peer contract; the
+mandatory gateway accounting-default migration remains separate. Portable/native delivery
 are separate contracts: meaningful native state must survive compatible native
 delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
 are evidence; cache policy and provider price schedules remain separate concerns.
@@ -55,13 +56,83 @@ and typing for the three changed provider modules passed. This qualifies the
 implemented constructor/streaming scope, not ordinary buffered qualification or
 the complete packaging matrix.
 
-The profile describes the immediate HTTP source. Gateway mode currently forwards
-this setting too, but arbitrary backend switching remains unqualified: native
-forwarding may retain a backend's nonstandard usage convention while translated
-output uses a standard shape. Do not copy an implicit Messages backend profile to
-every gateway client or assume `standard` covers every native route. A dedicated
-second-hop counts contract and cache-intent ownership remain Sandhi migration
-gates. The retained spontaneous accounting-wait failures are a separate merge gate.
+The profile describes a direct HTTP source. Gateway mode never forwards it. Instead,
+Victor constructs an explicit `peer_role="sandhi_gateway_v1"` handle with one client
+dialect, zero hidden retries and only the virtual credential. The gateway declares
+its actual emitted usage convention in bounded response metadata; the Sandhi peer
+validates that convention before decoding. Backend endpoint profiles, credentials,
+account headers and cache capabilities remain server owned.
+
+### Independent gateway client dialect
+
+`gateway.protocol` accepts `chat_completions`, `anthropic_messages`, `responses`, or
+`gemini_generate_content`. It overrides the provider's direct protocol hint. With no
+explicit override, Victor normalizes a subscription/Codex hint to ordinary
+`responses`; otherwise the provider family supplies the client default. Local
+Ollama/Cohere providers use portable Chat Completions ingress. The provider label
+and requested model alias do not select or authorize a backend.
+
+```yaml
+gateway:
+  url: https://gateway.example.test
+  virtual_key: <private virtual credential>
+  protocol: responses
+```
+
+The transport derives `/v1`, root Messages, or `/v1beta` from that dialect. It never
+loads or refreshes local upstream OAuth/API credentials in gateway mode. Supported
+OpenAI gateway OIDC credential refresh remains a separate gateway authentication
+path. Direct-provider auth and endpoint profiles keep their existing behavior.
+
+```mermaid
+flowchart LR
+  V[Victor: canonical messages/tools + cache intent] --> C[Explicit client dialect]
+  C --> G[Sandhi: virtual-key admission + selected backend]
+  G --> P[One cache compiler using declared capabilities]
+  P --> U[Upstream inference: one physical attempt]
+  U --> L[Source disjoint usage + durable receipt]
+  L --> W[Client wire projection + convention metadata]
+  W --> T[Victor: observed units + qualified pricing]
+```
+
+Pass `cache_intent={"mode": "auto_stable_prefix", "lifetime": "5m"}` as a call
+option to request placement. Victor forwards it once and generates no automatic
+Anthropic markers or compiled plan. Omitting intent leaves the server's declared
+default active. The server refuses unsupported lifetimes/capabilities rather than
+inventing support; a stable-prefix intent requires a system/tool prefix. Native
+options that cannot survive the selected client dialect fail explicitly before
+dispatch. Common canonical messages, tools, thinking and reasoning remain typed.
+
+### Token units and monetary qualification
+
+The selected client dialect determines Victor's compatibility `prompt_tokens`
+shape: Messages is fresh-only; other client views include cache reads. These
+compatibility prompt totals exclude cache writes. Bounded `sandhi_usage.typed_usage`
+retains disjoint fresh/read/write/output units, optional zero versus absence,
+reasoning inclusion and cache-read availability. `usage_basis` identifies a direct
+source or a `gateway_client_projection`. Neither client view is the server's
+frozen source receipt. In particular Gemini cannot carry a separate cache-write
+category, and reasoning can be folded into inclusive output during translation.
+
+The actual session metrics owner prices known direct sources using typed fresh
+input, cache read/write and reasoning folded once. A gateway label/model alias
+supplies no trusted source rate context. Gateway monetary cost is therefore
+`unavailable`: request/JSON/CSV/task reports preserve units and qualification,
+export null/blank monetary values and display “cost unavailable”. Mixed sessions
+retain only a clearly named known estimate subtotal; unknown calls do not become
+priced zero. Configured direct rates remain estimates, not gateway frozen charges.
+Framework TaskResult metadata preserves unavailable pricing explicitly. Older
+benchmark/evaluation and conversation exports retain numeric compatibility fields
+where zero means unavailable; those sums are known subtotals and cannot establish
+a complete gateway monetary total. Their schema migration is a separate follow-on.
+
+Synthetic candidate coverage includes 32 real two-hop calls (four provider labels
+× four client dialects × buffered/stream), one source POST and one server marker
+each, unsupported TTL refusal before source dispatch, and durable source receipts.
+Missing-usage terminal responses are also tested through Victor's default
+resilience: one source POST, no successful final event, no retry/fallback and no
+settlement receipt. This is local paired qualification, not vendor cache-hit,
+subscription entitlement or published-wheel evidence.
 
 Status: implemented on the subscription-gateway branches; release promotion remains gated.
 
@@ -78,7 +149,7 @@ Codex login owner --> access-only lease publisher --> OS credential vault
 A gateway configuration is a complete authentication mode in Victor. It takes
 precedence over `auth_mode=oauth`, explicit upstream keys, environment keys and
 local credential resolution. Victor neither reads nor refreshes an OpenAI grant
-in this mode. It sends ordinary Chat Completions with its virtual key to the
+in this mode. It sends the selected ordinary client dialect with its virtual key to the
 configured HTTPS or literal/localhost loopback HTTP gateway. There is no direct
 upstream fallback. Invalid/missing gateway credentials fail before discovery.
 
@@ -139,8 +210,8 @@ must distinguish pre-dispatch failure from ambiguous inference completion.
 The prepared consumer also omits `Idempotency-Key` on gateway calls, filtering
 caller-provided variants case-insensitively. Run/session/step attribution remains;
 local logical-call IDs are correlation, not replay or settlement authority.
-This removes a tracked-admission incompatibility without claiming completion of
-the gateway peer counts/cache contract or mandatory-accounting migration. Direct
+The explicit peer follow-on adds counts/cache qualification; mandatory accounting
+remains a separate server migration. Direct
 provider custom headers retain their separate behavior.
 Agent/tool side effects require their own approval and idempotency ledger.
 

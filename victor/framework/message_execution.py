@@ -236,6 +236,14 @@ def _build_task_result_metadata(
         return task_report.get(key)
 
     total_cost_usd = report_value("total_cost_usd")
+    pricing_unavailable = bool(
+        ((report_value("metadata") or {}).get("pricing_coverage") or {}).get("unavailable", 0)
+    )
+    sandhi_usage = resp_meta.get("sandhi_usage")
+    if isinstance(sandhi_usage, Mapping):
+        pricing_unavailable = pricing_unavailable or (
+            sandhi_usage.get("usage_basis") == "gateway_client_projection"
+        )
     cost_usd_micros = _coalesce_value(
         (
             _safe_int(round(_safe_float(total_cost_usd) * 1_000_000))
@@ -278,7 +286,8 @@ def _build_task_result_metadata(
                 completion_details.get("reasoning_tokens"),
             )
         ),
-        "cost_usd_micros": _safe_int(cost_usd_micros),
+        "cost_usd_micros": None if pricing_unavailable else _safe_int(cost_usd_micros),
+        **({"pricing_status": "unavailable"} if pricing_unavailable else {}),
         "tool_schema_tokens": _safe_int(report_value("tool_schema_tokens")),
         "compaction_saved_tokens": _safe_int(report_value("compaction_saved_tokens")),
         "compaction_messages_removed": _safe_int(report_value("compaction_messages_removed")),

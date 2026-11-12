@@ -77,6 +77,8 @@ class StreamMetrics:
     cache_cost: float = 0.0
     total_cost: float = 0.0
     cost_calculated: bool = False
+    pricing_unavailable: bool = False
+    fresh_input_tokens: Optional[int] = None
 
     # Wire-truth latency from sandhi's typed boundary (W3b) — preferred over
     # client wall-clock when present (absent on non-sandhi providers; carried by
@@ -89,17 +91,50 @@ class StreamMetrics:
     metadata: Dict[str, Any] = field(default_factory=dict)
     errors: List[Dict[str, Any]] = field(default_factory=list)
 
-    def record_usage(self, usage: Optional[Dict[str, Any]]) -> None:
+    def record_usage(
+        self,
+        usage: Optional[Dict[str, Any]],
+        *,
+        typed_usage: Optional[Dict[str, Any]] = None,
+        usage_basis: str = "compatibility",
+    ) -> None:
         """Record token usage from provider API response.
 
         Args:
             usage: Usage dict from provider (prompt_tokens, completion_tokens, total_tokens,
                    cache_read_input_tokens, cache_creation_input_tokens)
         """
+        if usage_basis == "gateway_client_projection":
+            self.pricing_unavailable = True
+        if not usage:
+            self.pricing_unavailable = True
         if usage:
+            typed_available = (
+                typed_usage is not None and typed_usage.get("completeness") != "unavailable"
+            )
+            fresh = usage.get("fresh_input_tokens")
+            if fresh is None:
+                fresh = (
+                    int(typed_usage["tokens_in"])
+                    if typed_available and typed_usage is not None
+                    else usage.get("prompt_tokens", 0)
+                )
+            self.fresh_input_tokens = (self.fresh_input_tokens or 0) + fresh
             self.prompt_tokens += usage.get("prompt_tokens", 0)
             self.completion_tokens += usage.get("completion_tokens", 0)
-            self.total_tokens += usage_total_tokens(usage)
+            if "fresh_input_tokens" in usage:
+                # The invocation owner already folded disjoint totals and each
+                # call's reasoning inclusion, including native-only calls.
+                self.total_tokens += usage_total_tokens(usage)
+            elif typed_available and typed_usage is not None:
+                self.total_tokens += (
+                    int(typed_usage["tokens_in"])
+                    + int(typed_usage.get("cache_read_tokens", 0))
+                    + int(typed_usage.get("cache_creation_tokens", 0))
+                    + billable_completion_tokens(usage)
+                )
+            else:
+                self.total_tokens += usage_total_tokens(usage)
 
             # Cache tokens (Anthropic-style naming)
             self.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
@@ -150,11 +185,11 @@ class StreamMetrics:
         Args:
             capabilities: ProviderMetricsCapabilities with pricing info
         """
-        if not capabilities or not capabilities.cost_enabled:
+        if self.pricing_unavailable or not capabilities or not capabilities.cost_enabled:
             return
 
         costs = capabilities.calculate_cost(
-            self.prompt_tokens,
+            self.fresh_input_tokens if self.fresh_input_tokens is not None else self.prompt_tokens,
             self.billable_completion_tokens,
             self.cache_read_tokens,
             self.cache_write_tokens,
