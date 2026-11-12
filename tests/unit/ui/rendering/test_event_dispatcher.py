@@ -14,6 +14,7 @@ import pytest
 
 from victor.framework.events import AgentExecutionEvent, EventType
 from victor.ui.rendering.event_dispatcher import EventDispatcher
+from victor.ui.rendering.utils import Severity
 
 
 class _RecorderRenderer:

@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.27.2] - 2026-11-11
+
+Maintenance release for caller-budget enforcement, streaming parity, terminal
+interaction and diagnostics. The Sandhi binding remains pinned to 0.16.2;
+contracts and CodeGraph retain their independent release versions.
+
+### Fixed
+
+- **runtime**: carry caller-declared budgets and completion criteria through one
+  run context and budget ledger. Buffered and streaming execution share
+  termination decisions and post-loop recovery, with stable tool offers on
+  text-forcing completion calls.
+- **streaming**: propagate unexpected execution errors instead of presenting
+  them as successful completion; close interrupted turn streams deterministically.
+- **TUI**: serialize slash commands, keep command output capture separate,
+  rebind the active agent, dismiss approval dialogs on interruption, reject
+  invalid `/compact --keep` values, and accumulate session costs once per turn.
+- **slash commands**: detect duplicate registrations, complete lazy discovery
+  of a partially populated default registry, and give plan workflow status/resume
+  distinct names: `/plan-status` and `/plan-resume`.
+- **session import**: recognize modern Claude Code JSONL transcripts with
+  leading mode, permission and file-history bookkeeping records.
+- **diagnostics**: repeated SIGUSR1 requests dump all thread stacks without
+  terminating Victor. Normal and cancelled shutdown flush buffered usage events.
+- **providers**: surface platform-specific TLS trust remediation guidance.
+- **validation**: repository validation scripts take precedence over unrelated
+  installed packages named `scripts`.
+- **verification**: accept pytest's valid passed-call/teardown-error reports
+  while preserving failed verification and rejecting inflated success counts.
+- **CLI dependencies**: require the validated Typer 0.27.3 baseline so Click 8.5
+  reports missing arguments instead of passing `None` into command handlers.
+
+### Documentation
+
+- Align release preparation, protected-branch promotion and deployment checks
+  with the canonical workflow. Distinguish published artifacts, installed
+  versions, gateway profiles and live provider acceptance.
+- Repair stale provider/configuration and fixture links in the published docs.
+
 ## [0.27.1] - 2026-11-10
 
 Maintenance release: a single hotfix on top of 0.27.0.

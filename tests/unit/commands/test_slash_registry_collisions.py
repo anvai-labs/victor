@@ -17,10 +17,30 @@ advertised it. Three real collisions existed: /status, /resume, /review.
 from __future__ import annotations
 
 import logging
+from unittest.mock import Mock
 
 import pytest
 
 from victor.ui.slash.registry import CommandRegistry, get_command_registry
+from victor.ui.slash.protocol import CommandMetadata
+
+
+@pytest.mark.parametrize("is_default", [True, False])
+def test_partial_registry_discovery_preserves_custom_registries(monkeypatch, is_default):
+    from victor.ui.slash import registry as registry_module
+
+    class ExistingCommand:
+        metadata = CommandMetadata(name="existing", description="", usage="/existing")
+
+    registry = CommandRegistry()
+    registry.register(ExistingCommand())
+    monkeypatch.setattr(registry_module, "_global_registry", registry if is_default else None)
+    discover = Mock()
+    monkeypatch.setattr(registry, "discover_commands", discover)
+
+    assert registry.get("existing") is not None
+    assert registry.get("existing") is not None
+    assert discover.call_count == (1 if is_default else 0)
 
 
 def _discovered_registry() -> CommandRegistry:

@@ -277,9 +277,11 @@ class TestModelCapabilityLoaderEdgeCases:
         from pathlib import Path
 
         loader = ModelCapabilityLoader()
-        with patch.object(Path, "exists", return_value=False):
+        with (
+            patch.object(Path, "exists", return_value=False),
+            patch.object(loader, "_config", None),
+        ):
             # Force reload to test missing file path
-            loader._config = None
             loader._load_config()
             # Should have default empty config
             assert loader._config is not None

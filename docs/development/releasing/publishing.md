@@ -1,410 +1,138 @@
 # Releasing Victor
 
-Guide for maintainers on creating and publishing Victor releases.
-
-## Table of Contents
-
-- [Release Process Overview](#release-process-overview)
-- [Pre-Release Checklist](#pre-release-checklist)
-- [Creating a Release](#creating-a-release)
-- [Automated Release Pipeline](#automated-release-pipeline)
-- [Manual Release Steps](#manual-release-steps)
-- [Distribution Channels](#distribution-channels)
-- [Post-Release Tasks](#post-release-tasks)
-- [Hotfix Releases](#hotfix-releases)
-- [Troubleshooting](#troubleshooting)
+The [canonical PR and release workflow](../PR_WORKFLOW.md#promote-and-release)
+owns branch protection, review, promotion and tagging. Prepare changes in a linked
+worktree, merge them into `develop`, promote `develop` to `main` through the
+complete promotion battery, then tag the verified main merge commit.
 
 ## Release Process Overview
 
-The release-train diagram separates dependency readiness from tag-triggered publication.
-Victor depends directly on Sandhi and optionally on ProximaDB; there is no automatic
-Sandhi → ProximaDB → Victor trigger. Victor AI and contracts have independent version trains.
-Use the [promotion procedure](../PR_WORKFLOW.md#promote-and-release) for branch and tag placement:
+### Independent versions
 
-```mermaid
----
-title: Independent release trains and promotion
----
-%%{init: {"theme":"base","themeVariables":{"primaryColor":"#E8EFF7","primaryTextColor":"#17324D","primaryBorderColor":"#456987","lineColor":"#456987","fontFamily":"Arial"}}}%%
-flowchart TB
-  S["sandhi-gateway release availability"]
-  P["ProximaDB release availability"]
-  READY["Verify Victor dependency pins"]
-  DEV["develop<br/>version sync and validation"]
-  PR["Promotion PR<br/>develop → main"]
-  MAIN["main promotion merge commit"]
-  TAG["vX.Y.Z tag"]
-  AI["release.yml"]
-  PY["PyPI<br/>victor-ai and native distributions"]
-  GH["GitHub Release<br/>checksums and built artifacts"]
-  DOCKER["Docker publication"]
-  SDK["Independent contracts version"]
-  SDKTAG["sdk-vX.Y.Z tag"]
-  SDKWF["release-contracts.yml"]
-  SDKPY["PyPI · victor-contracts"]
-  S -->|"required dependency"| READY
-  P -->|"optional extra dependency"| READY
-  READY -.->|"release readiness"| DEV
-  DEV -->|"open reviewed promotion"| PR
-  PR -->|"merge after promotion battery"| MAIN
-  MAIN -->|"tag release commit"| TAG
-  TAG -->|"trigger"| AI
-  AI -->|"build, verify and publish"| PY
-  AI -->|"assemble release assets"| GH
-  AI -->|"publish image"| DOCKER
-  SDK -->|"tag SDK release"| SDKTAG
-  SDKTAG -->|"trigger"| SDKWF
-  SDKWF -->|"test, build and publish"| SDKPY
-```
+`VERSION` is the Victor AI version authority. After changing it, run
+`python scripts/sync_version.py --ai` and
+`python scripts/check_version_sync.py`. The synchronizer aligns the root package
+and its exact native artifact version. Contracts, CodeGraph, first-party verticals
+and Sandhi have independent versions and publication workflows.
 
-## Pre-Release Checklist
+Victor requires the exact `sandhi-gateway` binding pinned in `pyproject.toml`.
+The separately operated Sandhi proxy is optional and has its own runtime identity.
+The optional graph extra needs its exact published CodeGraph pin before Victor's
+release can pass. Source or a GitHub release page alone does not prove required
+wheels are available on supported Python versions, operating systems and CPUs.
 
-Before creating a release, ensure:
+## Prepare and promote
 
-- [ ] All tests pass: `make test`
-- [ ] Linting passes: `make lint`
-- [ ] Documentation is updated
-- [ ] CHANGELOG.md is updated (if applicable)
-- [ ] Deprecation inventory is updated for any new or removed compatibility surfaces
-- [ ] Release notes/changelog include replacement path, target removal version/date, and shim status for every deprecation touched in the release
-- [ ] If the release changes first-party vertical packaging, the authoritative package, bundled-shim status, and earliest removal milestone are called out explicitly
-- [ ] If the release publishes or updates an extracted first-party vertical, package versions remain aligned with the Victor suite version for that release
-- [ ] Clean-environment install/discovery smoke tests pass for every extracted vertical touched by the release
-- [ ] Version in `pyproject.toml` is correct
-- [ ] All PRs for this release are merged
-- [ ] Dependencies are up to date
+1. Fetch origin and reconcile open PRs, tags and the existing batch. Preserve
+   unrelated work and create a linked worktree based on `origin/develop`.
+2. Choose an unused version: patch for fixes, minor for compatible features.
+   Update `VERSION`, synchronize AI/native metadata and update `CHANGELOG.md`.
+   Change independent package versions only when they are in the qualified scope.
+3. Run required tests, formatting, lint, configured typing, version checks,
+   packaging and `python -m pytest tests/ --collect-only -q`. Collection is not
+   execution. Complete independent adversarial review of the exact candidate and
+   record the commit-bound attestation before the first push.
+4. Open the preparation PR explicitly against `develop`. Merge after the final
+   head's required checks and review pass. Close the batch before promotion;
+   do not use hosted CI as a local edit/test loop.
 
-### Version Numbering
-
-We follow [Semantic Versioning](https://semver.org/):
-
-- **MAJOR.MINOR.PATCH** (e.g., `1.2.3`)
-- **Pre-release**: `1.0.0-alpha`, `1.0.0-beta`, `1.0.0-rc.1`
-
-| Change Type | Version Bump | Example |
-|-------------|--------------|---------|
-| Breaking changes | MAJOR | 0.1.0 → 1.0.0 |
-| New features (backward compatible) | MINOR | 0.1.0 → 0.2.0 |
-| Bug fixes | PATCH | 0.1.0 → 0.1.1 |
-| Pre-release | Suffix | 0.2.0-beta |
-
-### Extracted Vertical Release Rules
-
-When a release touches first-party extracted vertical packages:
-
-- use the canonical package identities from
-  `docs/development/vertical-package-naming-ownership-versioning-policy-2026-03-12.md`
-- treat extracted first-party vertical packages as lockstep-versioned with the
-  Victor suite for that release
-- treat bundled contrib copies as compatibility shims only once a vertical flips
-- do not remove bundled shims until the retirement policy in
-  `docs/development/bundled-vertical-shim-retirement-milestones-2026-03-12.md`
-  is satisfied
-
-Release notes should always state:
-
-- which package is authoritative
-- whether a bundled shim still exists
-- the earliest removal version/date for that shim
-- the install/upgrade command users should follow
-
-## Creating a Release
-
-### Using Make (Recommended)
+Create the promotion with an explicit base:
 
 ```bash
-# 1. Ensure you're on main branch with latest changes
-git checkout main
-git pull origin main
-
-# 2. Run tests
-make test
-make lint
-
-# 3. Create the release (updates version, commits, tags)
-make release VERSION=0.2.0
-
-# 4. Push to trigger automated release
-git push origin main
-git push origin --tags
+gh pr create --base main --head develop \
+  --title "chore: promote the prepared Victor release" \
+  --body-file /path/to/reviewed-promotion-description.txt
+gh pr checks PR_NUMBER --watch
 ```
 
-### Manual Steps
+Verify the final head and both `CI Success` and `Promotion CI Success`. The
+promotion battery includes sharded tests, integration, CLI, packaging, security
+and native qualification; feature-PR checks are insufficient. Merge the promotion
+with a **merge commit**, preserving ancestry and main's protection requirements.
+
+Fetch the merged result and verify its `VERSION` against the intended unused
+tag. Create and push that one annotated tag on the verified main merge commit,
+explicitly rather than using the current worktree's HEAD. Never move a published
+tag. Direct pushes to main and `make release` do not replace protected promotion.
+
+## Publication and artifact verification
+
+The tag starts `.github/workflows/release.yml`. Consult its current jobs and
+destinations rather than an older job inventory. It builds Python and portable
+native wheels, standalone binaries, the container, VSIX and SBOM; checks the bare
+installation and pinned graph dependency; creates checksums; and publishes
+through its gates. See the [CI gate map](../PR_WORKFLOW.md#ci-gate-map).
+
+A GitHub release appearing before all publishers finish is not completion.
+Verify every intended destination and exact downloaded package version,
+including both `victor-ai` and `victor-native`. Download release assets together
+with `checksums.txt` and run:
 
 ```bash
-# 1. Update version in pyproject.toml
-sed -i 's/version = ".*"/version = "0.2.0"/' pyproject.toml
-
-# 2. Commit the version change
-git add pyproject.toml
-git commit -m "Release v0.2.0"
-
-# 3. Create annotated tag
-git tag -a "v0.2.0" -m "Release v0.2.0"
-
-# 4. Push changes and tag
-git push origin main
-git push origin v0.2.0
+sha256sum -c checksums.txt
+# macOS: shasum -a 256 -c checksums.txt
 ```
 
-## Automated Release Pipeline
+Use the documented TestPyPI-only workflow input for an authorized rehearsal.
+It does not publish native wheels or certify production publication. Reconcile a
+failed publisher with immutable registry state before retrying. Do not replace
+gates with an unreviewed manual upload or overwrite an existing version.
 
-When a tag matching `v*` is pushed, GitHub Actions automatically:
+## Deployment and Victor–Sandhi alignment
 
-### 1. Runs Tests
-- Unit tests on Python 3.12 and 3.13
-- Linting with ruff and black
-- Type checking with mypy
+Record source/tag SHA, package/native versions, executable paths, checksums,
+configuration identity, service owner and rollback for each deployment. Inspect
+the running gateway's `/version` and executable identity independently of the
+Python binding. Compare that binding against Victor's exact pin.
 
-### 2. Builds Artifacts
+Preserve established host roles. Keep a migrated, inactive gateway inactive unless
+a topology change is requested. A new Victor release alone does not require
+restarting an already-current Sandhi gateway.
 
-**Python Package:**
-- Source distribution (`.tar.gz`)
-- Wheel (`.whl`)
+1. Resolve immutable release artifacts and verify metadata/checksums before
+   activation. Retain the previous installation and private configuration.
+2. Install into an isolated environment first, with the matching native release
+   when deployed and explicitly selected extras. From outside the source
+   checkout, run `pip check`, `victor --version`, `victor --help` and
+   `victor doctor`. Confirm imports resolve to the intended installation.
+3. Check TLS, gateway readiness, model routes and credentials without printing
+   secrets. Preserve token audiences, per-user attribution and the no-replay
+   boundary for uncertain tool effects.
+4. Refresh managed profiles with an authorized bootstrap token:
 
-**Standalone Binaries:**
-- `victor-macos-arm64.tar.gz`
-- `victor-linux-x64.tar.gz`
-- (`victor-linux-arm64.tar.gz` — pending sandhi-gateway publishing a
-  manylinux-aarch64 wheel; the pinned exact version cannot install there yet)
-- `victor-windows-x64.zip`
-
-Each artifact is smoke-tested in CI (cold/warm `--version`, `--help`, size
-tripwire) before it reaches the release.
-
-**Docker Images:**
-- `vjsingh1984/victor-ai:<version>`
-- `vjsingh1984/victor-ai:latest`
-
-### 3. Publishes to Distribution Channels
-
-- **PyPI**: Automatic via trusted publishing (OIDC, no token needed)
-- **uv**: `uv tool install --python 3.12 victor-ai` (recommended CLI path;
-  resolves straight from PyPI — no separate channel)
-- **GitHub Releases**: Creates release with artifacts and checksums
-- **Docker Hub**: Pushes images to `vjsingh1984/victor-ai`
-- **Homebrew**: Auto-updates via PyPI polling (every 6 hours)
-
-Release-engineering checklist addition: verify the uv path against the
-TestPyPI rehearsal before a stable tag
-(`uv tool install --python 3.12 --index-url https://test.pypi.org/simple/
---extra-index-url https://pypi.org/simple/ victor-ai==<version> && victor
---version`).
-
-### Required Secrets
-
-Configure these in GitHub repository settings:
-
-| Secret | Purpose |
-|--------|---------|
-| `DOCKERHUB_USERNAME` | Docker Hub username (`vjsingh1984`) |
-| `DOCKERHUB_TOKEN` | Docker Hub access token |
-
-**Notes:**
-- PyPI uses trusted publishing (OIDC, no token needed)
-- Homebrew tap uses PyPI polling (no cross-repo token needed)
-
-## Manual Release Steps
-
-If automated release fails, follow these manual steps:
-
-### Publish to PyPI
-
-```bash
-# Build packages
-pip install build twine
-python -m build
-
-# Check packages
-twine check dist/*
-
-# Upload to PyPI
-twine upload dist/*
-```
-
-### Build Binaries
-
-```bash
-# Install build dependencies
-pip install -e ./victor-contracts -e ".[build]"
-
-# Build for current platform
-python scripts/build_binary.py --onefile
-
-# Output in dist/
-ls dist/
-```
-
-### Build and Push Docker
-
-```bash
-# Build
-docker build -t vjsingh1984/victor-ai:0.2.3 .
-docker tag vjsingh1984/victor-ai:0.2.3 vjsingh1984/victor-ai:latest
-
-# Push
-docker push vjsingh1984/victor-ai:0.2.3
-docker push vjsingh1984/victor-ai:latest
-```
-
-### Create GitHub Release
-
-1. Go to [GitHub Releases](https://github.com/vijayksingh/victor/releases)
-2. Click "Draft a new release"
-3. Select the tag (e.g., `v0.2.0`)
-4. Title: "Victor v0.2.0"
-5. Description: Include changelog
-6. Upload binary artifacts
-7. Check "Pre-release" if applicable
-8. Publish
-
-## Distribution Channels
-
-### PyPI
-- **URL**: https://pypi.org/project/victor/
-- **Install**: `pip install victor`
-- **Publishing**: Automated via GitHub Actions
-
-### GitHub Releases
-- **URL**: https://github.com/vijayksingh/victor/releases
-- **Contains**: Source code, binaries, changelog
-
-### Docker Hub
-- **URL**: https://hub.docker.com/r/vjsingh1984/victor-ai
-- **Pull**: `docker pull vjsingh1984/victor-ai:latest`
-
-### Homebrew
-- **Tap**: `vjsingh1984/tap`
-- **Install**: `brew install vjsingh1984/tap/victor`
-- **Formula**: Auto-updates every 6 hours via PyPI polling
-
-## Post-Release Tasks
-
-After a successful release:
-
-1. **Verify Installation**
    ```bash
-   pip install victor==0.2.0
-   victor --version
+   victor profiles pull --gateway-url https://gateway.example
+   victor profiles list
    ```
 
-2. **Test Docker Image**
-   ```bash
-   docker pull vjsingh1984/victor-ai:0.2.3
-   docker run vjsingh1984/victor-ai:0.2.3 victor --version
-   ```
+   Use the hidden prompt or supported environment variable, keeping tokens out of
+   history/logs. Privately back up `~/.victor/profiles.d/sandhi.yaml` first.
+   `~/.victor/profiles.yaml` overrides the central drop-in key by key; inspect
+   the effective model, provider, endpoint, auth mode, context and output limits.
+   A successful pull cannot remove stale user overrides. Do not copy another
+   user's credentials between hosts.
+5. Run bounded real complete and streaming calls on each intended provider, then
+   a small tool task in a disposable directory. Verify the actual artifact,
+   final response and persisted usage. Record unavailable routes separately;
+   a hosted-provider pass does not qualify an unavailable inference service.
+6. Activate the validated environment/service with recorded rollback. Confirm
+   the active executable and repeat smoke tests through the real client path.
+   Preserve sessions, state and credential stores.
 
-3. **Update Documentation**
-   - Update version references in docs
-   - Update changelog
+See the [provider guide](../../user-guide/providers.md) and
+[Sandhi co-design boundary](https://github.com/anvai-labs/sandhi/blob/develop/docs/td/TD-0008-victor-codesign-boundary.md).
+Victor owns prompts, model/tool policy and pricing. Sandhi owns transport contracts
+and neutral usage measurement. Gateway credential storage/use follows Sandhi's
+operator model; client credential resolution follows Victor's configuration model.
 
-4. **Announce Release**
-   - GitHub Discussions
-   - Social media (if applicable)
+## Checkpoint and recovery
 
-5. **Monitor for Issues**
-   - Watch GitHub Issues for reports
-   - Check PyPI download stats
+Keep local tests, reviewed commits, merged source, published artifacts and live
+acceptance separate. Record failures and executable next steps in the existing
+workstream ledger or release evidence rather than duplicate status tables.
+Remove merged task worktrees and branches; back-sync main into develop through
+a reviewed sync PR when needed.
 
-## Hotfix Releases
-
-For critical bug fixes:
-
-```bash
-# 1. Create hotfix branch from tag
-git checkout -b hotfix/0.2.1 v0.2.0
-
-# 2. Apply fixes
-# ... make changes ...
-git commit -m "Fix critical bug"
-
-# 3. Update version
-make release VERSION=0.2.1
-
-# 4. Merge to main
-git checkout main
-git merge hotfix/0.2.1
-
-# 5. Push
-git push origin main
-git push origin --tags
-
-# 6. Clean up
-git branch -d hotfix/0.2.1
-```
-
-## Troubleshooting
-
-### PyPI Upload Fails
-
-**"Invalid distribution":**
-```bash
-# Check package
-twine check dist/*
-
-# Rebuild
-rm -rf dist/
-python -m build
-```
-
-**"Version exists":**
-- Version already published to PyPI
-- Increment version number
-
-### Docker Build Fails
-
-**"No space left on device":**
-```bash
-# Clean Docker cache
-docker system prune -af
-```
-
-**"Permission denied":**
-```bash
-# Ensure logged in
-docker login
-docker login ghcr.io
-```
-
-### Binary Build Fails
-
-**Missing dependencies:**
-```bash
-pip install -e ./victor-contracts -e ".[build]"
-```
-
-**PyInstaller errors:**
-- Check `scripts/build_binary.py` for missing hidden imports
-- Add imports to `get_hidden_imports()`
-
-### GitHub Actions Fails
-
-1. Check workflow logs in Actions tab
-2. Verify secrets are configured
-3. Check for rate limiting
-4. Re-run failed jobs
-
-### Homebrew Formula Not Updated
-
-1. Check `vjsingh1984/homebrew-tap` workflow ran successfully
-2. Formula auto-updates via PyPI polling (every 6 hours)
-3. Manually trigger: Go to Actions → "Update Formula" → Run workflow
-4. Run: `brew update && brew upgrade victor`
-
-## Release Artifacts Reference
-
-| Artifact | Location | Purpose |
-|----------|----------|---------|
-| `victor_ai-0.2.3.tar.gz` | PyPI, GitHub | Source distribution |
-| `victor_ai-0.2.3-py3-none-any.whl` | PyPI, GitHub | Python wheel |
-| `victor-macos-arm64.tar.gz` | GitHub | macOS Apple Silicon binary |
-| `victor-macos-x64.tar.gz` | GitHub | macOS Intel binary |
-| `victor-windows-x64.zip` | GitHub | Windows binary |
-| `vjsingh1984/victor-ai:0.2.3` | Docker Hub | Docker image |
-| `checksums.txt` | GitHub | SHA256 checksums |
-
-## See Also
-
-- [Installation Guide →](../../getting-started/installation.md)
-- [Development Guide →](../index.md)
-- [GitHub Actions Workflow](https://github.com/anvai-labs/victor/blob/develop/.github/workflows/release.yml)
+Hotfixes follow the same protected preparation, promotion, version and tag gates.
+Do not directly merge into main or push all local tags. A partly published
+version needs immutable-state reconciliation, not replacement artifacts.

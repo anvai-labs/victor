@@ -133,7 +133,7 @@ Customize Victor for your needs:
 After getting started:
 
 1. **[User Guide](../user-guide/index.md)** - Daily usage patterns and workflows
-2. **[Provider Reference](../reference/providers/index.md)** - All 25 providers detailed
+2. **[Provider Reference](../user-guide/providers.md)** - All 25 providers detailed
 3. **[Tool Catalog](../reference/tools/catalog.md)** - 34 tool modules
 4. **[Workflow DSL](../guides/workflow-development/dsl.md)** - YAML workflow automation
 
