@@ -20,7 +20,7 @@ setup(
             "pytest-cov>=4.1",
             "black==26.10.1",
             "ruff>=0.5",
-            "mypy==2.4.0",
+            "mypy==2.4.1",
         ],
     },
 )
