@@ -38,6 +38,60 @@ class _FakeFrameworkAgent:
 
 
 @pytest.mark.asyncio
+async def test_run_receipt_identity_survives_eventless_benchmark_and_audit() -> None:
+    from victor.agent.services.post_loop_recovery import response_metadata
+    from victor.evaluation.turn_auditor_review_pack import _tool_calls
+    from victor.framework.message_execution import execute_message
+    from victor.providers.base import CompletionResponse
+
+    action = SimpleNamespace(
+        response=CompletionResponse(
+            content="",
+            tool_calls=[{"id": "write-1", "name": "write", "arguments": {"path": "proof.txt"}}],
+        ),
+        tool_results=[
+            {
+                "name": "write",
+                "tool_call_id": "write-1",
+                "args": {"path": "proof.txt"},
+                "success": True,
+            }
+        ],
+    )
+    loop = SimpleNamespace(
+        success=True,
+        iterations=[SimpleNamespace(action_result=action)],
+        final_state={"action_result": action},
+    )
+    response = CompletionResponse(
+        content="patched", metadata=response_metadata(None, loop, iterations=1, error=None)
+    )
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=SimpleNamespace(model="test"),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    orchestrator = MagicMock()
+    orchestrator.get_last_task_report.return_value = None
+    agent = BenchmarkAgent(_FakeFrameworkAgent(result, orchestrator), BenchmarkAgentConfig())
+    trace = await agent.execute_task(
+        BenchmarkTask(
+            task_id="receipt-identity",
+            benchmark=BenchmarkType.CUSTOM,
+            description="Preserve tool identity",
+            prompt="task",
+        )
+    )
+    audited = _tool_calls({"tool_calls": trace.tool_calls})
+    assert [call.name for call in audited] == ["write"]
+    assert audited[0].arguments == {"path": "proof.txt"} and audited[0].success is True
+    assert result.files_modified == ["proof.txt"]
+    assert result.tool_calls[0]["tool"] == result.tool_calls[0]["name"] == "write"
+    assert action.response.tool_calls[0]["id"] == "write-1"
+
+
+@pytest.mark.asyncio
 async def test_execute_task_captures_task_report_metrics() -> None:
     orchestrator = MagicMock()
     orchestrator.get_last_task_report.return_value = {

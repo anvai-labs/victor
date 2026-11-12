@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.28.1] - 2026-11-11
+## [0.28.1] - 2026-11-12
 
 ### Fixed
 
@@ -17,6 +17,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   verdicts, including recovered presentation. Pending provider calls remain
   separate, malformed success metadata fails closed, and skipped tool records
   do not claim modified/read files or executed shell commands.
+- Execution receipts retain the `name` alias used by benchmark/audit consumers,
+  including traces captured without tool events.
 
 ## [0.28.0] - 2026-11-11
 
