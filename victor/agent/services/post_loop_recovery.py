@@ -122,6 +122,7 @@ def response_metadata(
             fact = {
                 "id": call_id,
                 "tool": name,
+                "name": name,
                 "arguments": snapshot,
                 "success": result.get("success") is True,
             }

@@ -67,6 +67,18 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **RUN-OUTCOME-01-COMPAT — LOCAL_GREEN** (2026-11-12), owner: release
+  co-design session; branch `fix/run-receipt-tool-names`, baseline `2b22ba1e3`.
+  Consumer review held main promotion #1767: eventless benchmark traces preserve
+  public receipts verbatim, while the audit consumer reads `name`; receipts
+  containing only `tool` lose tool identity. RED: the real receipt→framework
+  result→eventless benchmark→audit chain produced `name=''` instead of `write`.
+  GREEN: additive `name` alias retains the public `tool` field; 319 affected
+  tests passed, 2 skipped. Provider pending calls and dispatch remain unchanged.
+  Next: clean-wheel verification and exact-head independent review, CI and merge
+  before refreshing promotion CI. The prior promotion attestation is superseded;
+  #1767 remains draft until the corrected head is qualified.
+
 - **INTEROP-02 — MERGED_DEVELOP** (2026-11-12), owner: release co-design session;
   branch `fix/codex-context-bound`, baseline `a12e387e5`. Fetched origin and
   reconciled #1761/#1762/#1764: fixes promoted, Victor 0.28.0 published and
