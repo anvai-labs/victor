@@ -47,6 +47,11 @@ class CommandRegistry:
         self._aliases: Dict[str, str] = {}  # alias -> primary name
         self._categories: Dict[str, List[str]] = {}  # category -> command names
         self._auto_discover_attempted = False
+        # name -> module of the loser(s) of a duplicate-name registration.
+        # Discovery imports modules alphabetically and the later module would
+        # otherwise silently shadow the earlier one (audit B3); the ledger
+        # makes that visible to assert_no_collisions() and tests.
+        self._collisions: Dict[str, str] = {}
 
     def _ensure_discovered(self) -> None:
         """Lazily discover commands on first read (co-design review item 21).
@@ -73,8 +78,30 @@ class CommandRegistry:
         meta = command.metadata
         name = meta.name.lower()
 
-        if name in self._commands:
-            logger.debug("Command '%s' already registered, overwriting", name)
+        existing = self._commands.get(name)
+        if existing is not None:
+            same_class = (type(command).__module__, type(command).__qualname__) == (
+                type(existing).__module__,
+                type(existing).__qualname__,
+            )
+            if same_class:
+                # Discovery imports modules (decorator registers) and then
+                # re-registers every command class it finds: benign reload.
+                logger.debug(
+                    "Command '%s' already registered from %s; idempotent reload",
+                    name,
+                    type(existing).__module__,
+                )
+            else:
+                # A silent cross-class overwrite dead-commands the loser while
+                # help, palette, and completions still advertise it (audit B3).
+                self._collisions[name] = type(command).__module__
+                logger.warning(
+                    "Command '/%s' already registered (%s); overwriting with %s",
+                    name,
+                    type(existing).__module__,
+                    type(command).__module__,
+                )
 
         self._commands[name] = command
 
@@ -97,12 +124,31 @@ class CommandRegistry:
 
         Args:
             cls: Command class implementing SlashCommandProtocol.
+
+        Raises:
+            TypeError: if ``cls`` is not a class — decorator misuse used to be
+                swallowed into an error log and confused every import.
         """
-        try:
-            instance = cls()
-            self.register(instance)
-        except Exception as e:
-            logger.error(f"Failed to instantiate command class {cls.__name__}: {e}")
+        if not isinstance(cls, type):
+            raise TypeError(
+                f"register_class expects a command class, got {cls!r}; "
+                "@register_command must decorate a SlashCommandProtocol subclass"
+            )
+        instance = cls()
+        self.register(instance)
+
+    def assert_no_collisions(self) -> None:
+        """Raise if any duplicate-name registrations occurred.
+
+        Guard for tests and tooling: a collision means a command is dead while
+        still advertised. Populated by register(); empty until a duplicate
+        name (or duplicate alias mapping onto a different command) appears.
+        """
+        if self._collisions:
+            detail = ", ".join(
+                f"/{n} (shadowed by {m})" for n, m in sorted(self._collisions.items())
+            )
+            raise AssertionError(f"slash command name collisions: {detail}")
 
     def unregister(self, name: str) -> bool:
         """Unregister a command by name.
