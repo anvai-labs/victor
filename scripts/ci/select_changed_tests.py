@@ -844,6 +844,10 @@ RELATED_TESTS = {
         "tests/unit/config/test_logging_config.py",
         "tests/unit/ui/rendering/test_log_handler.py",
     ),
+    "victor/ui/rendering/formatter_renderer.py": (
+        "tests/unit/ui/rendering/test_renderer_conformance.py",
+        "tests/unit/ui/rendering/test_handler.py",
+    ),
     "victor/ui/slash/commands/import_export.py": (
         "tests/unit/commands/test_slash_import_export.py",
         "tests/unit/agent/conversation/interop/",

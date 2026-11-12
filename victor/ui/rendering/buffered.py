@@ -112,8 +112,9 @@ class BufferedRenderer:
                 }
             )
 
-    def on_status(self, message: str) -> None:
-        """Record status message."""
+    def on_status(self, message: str, severity: Optional["Severity"] = None) -> None:
+        """Record status message (severity accepted for protocol parity; the
+        buffer replays through the styled render path at flush time)."""
         self._statuses.append(message)
 
     def on_file_preview(self, path: str, content: str) -> None:

@@ -7,7 +7,7 @@ if-elif chain in handler.py.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Optional, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -88,7 +88,7 @@ class _RecorderRenderer:
             }
         )
 
-    def on_status(self, message: str) -> None:
+    def on_status(self, message: str, severity: Optional["Severity"] = None) -> None:
         self.statuses.append(message)
 
     def on_file_preview(self, path: str, content: str) -> None:
