@@ -67,17 +67,36 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PATCH-0281 — PROMOTION_PREP** (2026-11-12), owner: release co-design
-  session; branch `release/promote-v0.28.1`, develop baseline `2b22ba1e3`,
+- **PATCH-0281 — PROMOTION_REFRESHED** (2026-11-12), owner: release co-design
+  session; branch `release/promote-v0.28.1`, develop baseline `f9a3ecd5a`,
   main baseline `1fa07af3b`. Fetched origin and confirmed no competing promotion.
-  Both source repairs below merged with independent exact-head review and all
-  PR checks complete. The develop tree matches reviewed patch `b0c17ddf5`.
+  Source repairs #1765/#1766 and compatibility repair #1768 merged with
+  independent exact-head review and all PR checks complete. The develop tree
+  matches reviewed compatibility checkpoint `8e850e048`.
   AI/native metadata is 0.28.1, contracts 0.17.0 and Sandhi binding 0.16.2.
   Local clean wheel/fallback/native and six hosted candidate checks passed.
-  Next: independent promotion review and full main-target CI, merge preserving
+  The prior `057c2121e` promotion head was held for the name-identity finding;
+  its review was superseded before merge. Next: fresh exact-head review and full
+  main-target CI, merge preserving
   ancestry, tag the exact main merge, verify published artifact digests, upgrade
   backed-up active/project installs, and repeat installed hosted/Codex acceptance.
   Official 0.28.1 publication and live deployment are pending. InferFlux deferred.
+
+- **RUN-OUTCOME-01-COMPAT — MERGED_DEVELOP** (2026-11-12), owner: release
+  co-design session; branch `fix/run-receipt-tool-names`, baseline `2b22ba1e3`.
+  Consumer review held main promotion #1767: eventless benchmark traces preserve
+  public receipts verbatim, while the audit consumer reads `name`; receipts
+  containing only `tool` lose tool identity. RED: the real receipt→framework
+  result→eventless benchmark→audit chain produced `name=''` instead of `write`.
+  GREEN: additive `name` alias retains the public `tool` field; 319 affected
+  tests passed, 2 skipped. Provider pending calls and dispatch remain unchanged.
+  Rebuilt AI wheel/sdist and clean bare/native producer-to-public-result checks
+  passed without NumPy; 40,154 tests collected, docs/types/lint/hygiene passed.
+  Independent review CLEAN at `8e850e0488b4a41c3c50b9a78dcb5fd4870403f3`;
+  all 56 PR checks completed without failure. [#1768](https://github.com/anvai-labs/victor/pull/1768)
+  squash-merged as `f9a3ecd5ae4ce8f86605d07fce3a38ecf94ba505`; task worktree
+  and local branch removed. Next: qualify the refreshed promotion head. The
+  superseded head remains ineligible for merge; publication/deployment pending.
 
 - **INTEROP-02 — MERGED_DEVELOP** (2026-11-12), owner: release co-design session;
   branch `fix/codex-context-bound`, baseline `a12e387e5`. Fetched origin and
