@@ -790,13 +790,11 @@ class ResilientProvider:
     ) -> Any:
         """Execute chat with resilience features.
 
-        One invocation of this method is ONE logical call for gateway metering
-        (sandhi TD-0021 P4): the logical-call id is bound here — outermost
-        binding wins — so every retry and every fallback of this call carries
-        the same ``Idempotency-Key`` and the gateway's meter counts the call
-        once (enforcement still counts every physical settlement). Only a
-        plain coroutine gets this treatment — see ``stream`` for why an async
-        generator cannot.
+        Bind local logical-call correlation once; an outer binding wins. Direct
+        provider retries and fallbacks retain that correlation. Gateway calls do
+        not retry or fall back here and send no Idempotency-Key; durable gateway
+        execution owns its own identity. Only this coroutine binds context; see
+        ``stream`` for why an async generator cannot.
 
         Args:
             messages: List of messages
@@ -992,16 +990,11 @@ class ResilientProvider:
     ):
         """Stream chat with resilience features.
 
-        Deliberately does NOT bind the logical-call id, unlike ``chat``: this is
-        an async GENERATOR, and a ``ContextVar.set()`` in a generator frame
-        executes in the resumer's context — an early consumer break without
-        ``aclosing`` would leak the binding into the caller's context (every
-        later logical call in that task reusing a stale ``Idempotency-Key`` and
-        being dropped by the gateway's dedup = silent under-metering), and the
-        asyncgen finalizer resets the token from a different context
-        (``ValueError``). The transport therefore mints a per-invocation key on
-        the stream path; stream-setup retries are counted per attempt — the
-        fail-toward-counting direction sandhi specifies (ADR-0005 D3).
+        Deliberately does not bind logical-call context. A ContextVar.set() in
+        an async generator runs in the resumer's context, so an early break can
+        leak the binding and finalization may try to reset it in a different
+        context. Gateway streams do not retry or fall back here and send no
+        Idempotency-Key. Direct provider resilience remains independent.
 
         Note: Streaming has limited retry capability. If the stream fails
         midway, it cannot be resumed.

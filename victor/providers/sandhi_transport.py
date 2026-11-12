@@ -16,7 +16,6 @@ import platform
 import re
 import socket
 import ssl
-import uuid
 from contextlib import aclosing
 from json import JSONDecodeError
 from collections.abc import Mapping
@@ -635,59 +634,19 @@ def _gateway_family_base(root: str, slug: str) -> str:
     return root + "/v1"
 
 
+def _gateway_wire_headers(headers: Mapping[str, str]) -> Dict[str, str]:
+    """Exclude logical-meter dedup keys from the gateway execution boundary."""
+    return {name: value for name, value in headers.items() if name.lower() != "idempotency-key"}
+
+
 def _wire_call_headers() -> Dict[str, str]:
-    """Per-call gateway wire headers — the step and logical-call dimensions.
+    """Per-call gateway attribution; step changes must not change cache affinity.
 
-    Two values change faster than the transport handle, so they ride the PER-CALL
-    ``wire_headers_json`` argument of ``complete_json``/``stream_json`` (sandhi
-    >= 0.3.0), never the handle-static headers and never neutral ``metadata``:
-
-    - ``x-sandhi-step-id`` (sandhi TD-0022 D1): the agentic-loop turn id, so the
-      proxy's run cost tree is step-aware. Handle-static would rebuild the
-      transport handle (pool, circuit state) every turn — the exact cost the old
-      deferral was avoiding — and ``request["metadata"]`` maps onto
-      catalog-declared vendor affinity headers (InferFlux
-      ``x-inferflux-session-id``), where a per-turn value would change the
-      KV/prefix-cache key every turn and destroy cache reuse.
-    - ``Idempotency-Key`` (sandhi TD-0021 P4, gateway >= 0.5.0): the LOGICAL-call
-      identity, so the gateway's dedup counts one logical call once — the METER
-      counts logical calls, ENFORCEMENT still counts every physical settlement.
-      Preferred source is the ``call_id`` correlation var, bound by the retry
-      owner (``ResilientProvider.chat`` — default on via
-      ``SmartRoutingProvider``): every Python-level retry AND fallback of one
-      logical call re-enters this helper under the same binding and carries the
-      same key. Sandhi physical handles are retry-free; the logical-call owner
-      decides whether another attempt is authorized. STREAMS bind nothing (an
-      async generator cannot ContextVar-bind safely — see
-      ``ResilientProvider.stream``), so each stream invocation mints its own
-      key and stream-setup retries count per attempt: fail-toward-counting,
-      the direction sandhi specifies (ADR-0005 D3). With no retry owner bound
-      — a bare provider used directly — a fresh key is minted per invocation,
-      each invocation being its own logical call. Note the asymmetry with
-      ``x-sandhi-run-id``: a caller-set STATIC ``Idempotency-Key`` in the
-      handle headers is deliberately overridden here, because a static key
-      would dedup every call of the dedup window into one metered event.
-
-    The key is minted even when no turn is bound: dedup is transport-retry
-    protection, orthogonal to turn attribution. The call sites gate on gateway
-    mode and pass ``None`` when appropriate — direct mode evaluates the helper
-    but discards the result (contextvar reads + a cached import + at most one
-    uuid mint, negligible), so its wire bytes are unchanged by construction.
+    Run/session attribution stays on the cached handle and neutral request metadata.
+    The step id rides only the per-call wire headers. Logical call context remains
+    local correlation and never becomes an Idempotency-Key or replay authority.
     """
     headers: Dict[str, str] = {}
-    try:
-        from victor.core.context import get_call_id
-
-        call_id = str(get_call_id() or "")
-    except Exception:  # pragma: no cover - dedup must never block transport
-        call_id = ""
-    if call_id:
-        headers["Idempotency-Key"] = call_id
-    else:
-        try:
-            headers["Idempotency-Key"] = uuid.uuid4().hex
-        except Exception:  # pragma: no cover - os.urandom failure must not block transport
-            pass  # proceed without a key; the gateway meters each attempt separately
     try:
         from victor.core.context import get_turn_id
 
@@ -1145,6 +1104,8 @@ class SandhiTypedProviderMixin:
                 "max_retries": 0,
             }
             wire_headers = dict(getattr(self, "_wire_headers", None) or {})
+            if gateway is not None:
+                wire_headers = _gateway_wire_headers(wire_headers)
             if run_id:
                 # An explicit caller-set header wins; never clobber it.
                 wire_headers.setdefault("x-sandhi-run-id", run_id)
@@ -1170,12 +1131,12 @@ class SandhiTypedProviderMixin:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
         # Per-call step headers (gateway mode only — direct mode stays byte-identical).
-        call_headers = _wire_call_headers()
-        wire_headers = (
-            json.dumps(call_headers)
-            if self._gateway_overrides() is not None and call_headers
-            else None
+        call_headers = (
+            _gateway_wire_headers(_wire_call_headers())
+            if self._gateway_overrides() is not None
+            else {}
         )
+        wire_headers = json.dumps(call_headers) if call_headers else None
         try:
             value = await asyncio.wait_for(
                 provider.complete_json(json.dumps(request), wire_headers),
@@ -1289,12 +1250,12 @@ class SandhiTypedProviderMixin:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
         idle_timeout = self._sandhi_stream_idle_timeout()
-        call_headers = _wire_call_headers()
-        wire_headers = (
-            json.dumps(call_headers)
-            if self._gateway_overrides() is not None and call_headers
-            else None
+        call_headers = (
+            _gateway_wire_headers(_wire_call_headers())
+            if self._gateway_overrides() is not None
+            else {}
         )
+        wire_headers = json.dumps(call_headers) if call_headers else None
         calls: Dict[int, Dict[str, Any]] = {}
         finish_reason: Optional[str] = None
         reported_model: Optional[str] = None

@@ -795,11 +795,11 @@ class TestResilientProvider:
 
     @pytest.mark.asyncio
     async def test_retries_share_one_logical_call_id(self):
-        """One ResilientProvider.chat = one logical call (sandhi TD-0021 P4): every
-        retry re-enters the inner provider under the SAME call_id binding, so the
-        sandhi transport stamps one Idempotency-Key and the gateway's meter counts
-        the call once. A reported transient 429 is an explicit rejection;
-        ambiguous timeouts are terminal and covered separately."""
+        """Direct-provider retries retain one local call_id correlation.
+
+        A reported transient 429 is an explicit rejection; ambiguous timeouts are
+        terminal. Gateway calls do not retry or emit a dedup key.
+        """
         from victor.core.context import get_call_id
         from victor.providers.base import ProviderRateLimitError
 
@@ -942,10 +942,9 @@ class TestResilientProvider:
         """The stream path deliberately binds NOTHING (adversarial-review HIGH/MED):
         a ContextVar.set in an async-generator frame lands in the resumer's
         context, so an early consumer break without aclosing would leak the
-        binding — every later logical call in the task reusing a stale
-        Idempotency-Key and being dropped by the gateway's dedup (silent
-        under-metering) — and the asyncgen finalizer would reset the token from
-        a different context (ValueError). Pin the safe behavior: even an
+        binding into later local call correlation, and the asyncgen finalizer
+        would reset the token from a different context (ValueError). Pin the safe
+        behavior: even an
         UNDISCIPLINED early break leaves the caller's context clean."""
         import victor.core.context as ctx
 

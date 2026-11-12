@@ -136,6 +136,12 @@ subscription requests are not priced as ordinary Platform API-key requests.
 Errors must not expose tokens, cache contents or upstream response bodies.
 Subscription upstream transport retries are disabled in this route; callers
 must distinguish pre-dispatch failure from ambiguous inference completion.
+The prepared consumer also omits `Idempotency-Key` on gateway calls, filtering
+caller-provided variants case-insensitively. Run/session/step attribution remains;
+local logical-call IDs are correlation, not replay or settlement authority.
+This removes a tracked-admission incompatibility without claiming completion of
+the gateway peer counts/cache contract or mandatory-accounting migration. Direct
+provider custom headers retain their separate behavior.
 Agent/tool side effects require their own approval and idempotency ledger.
 
 ## Provisioning and client configuration
