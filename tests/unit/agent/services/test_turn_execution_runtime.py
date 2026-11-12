@@ -64,6 +64,105 @@ def test_resolve_orchestrator_falls_back_to_chat_context_owner():
     assert executor._resolve_orchestrator() is fallback_owner
 
 
+@pytest.mark.asyncio
+async def test_execute_loop_projects_only_this_runs_tool_results():
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+    arguments = {"path": "proof.txt", "nested": {"value": 1}}
+    first = TurnResult(
+        response=CompletionResponse(
+            content="", tool_calls=[{"id": "reused", "name": "write", "arguments": arguments}]
+        ),
+        tool_results=[
+            {"name": "write", "tool_call_id": "reused", "args": arguments, "success": True}
+        ],
+    )
+    failed = TurnResult(
+        response=CompletionResponse(
+            content="",
+            tool_calls=[{"id": "reused", "name": "write", "arguments": {"path": "denied.txt"}}],
+        ),
+        tool_results=[
+            {"name": "write", "tool_call_id": "reused", "success": False, "error": "denied"}
+        ],
+    )
+    final = TurnResult(response=CompletionResponse(content="finished"))
+    final.response.metadata = {"agentic_loop_error": "stale error"}
+    results = [
+        LoopResult(
+            success=True,
+            total_duration=0,
+            final_state={"action_result": final},
+            iterations=[
+                LoopIteration(iteration=i, stage=LoopStage.ACT, action_result=action)
+                for i, action in enumerate([first, failed, final], start=1)
+            ],
+        ),
+        LoopResult(
+            success=True,
+            total_duration=0,
+            final_state={"action_result": final},
+            iterations=[LoopIteration(iteration=1, stage=LoopStage.ACT, action_result=final)],
+        ),
+    ]
+    loop = SimpleNamespace(run=AsyncMock(side_effect=results))
+    with patch("victor.framework.agentic_loop.AgenticLoop", return_value=loop):
+        response = await executor.execute_agentic_loop("task", max_iterations=5)
+        records = response.metadata["agentic_loop_tool_calls"]
+        assert len(records) == 2
+        assert [r["id"] for r in records] == ["reused", "reused"]
+        assert records[0]["tool"] == "write" and records[0]["arguments"] == arguments
+        assert records[1]["arguments"] == {"path": "denied.txt"}
+        assert records[1]["success"] is False and records[1]["error"] == "denied"
+        arguments["nested"]["value"] = 2
+        assert records[0]["arguments"]["nested"]["value"] == 1
+        later = await executor.execute_agentic_loop("next task", max_iterations=5)
+        assert later.metadata["agentic_loop_tool_calls"] == []
+        assert response.tool_calls is None
+        assert "agentic_loop_error" not in response.metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recorded", [True, False])
+async def test_terminal_act_receipt_is_published_once_even_before_evaluation(recorded):
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+    action = TurnResult(
+        response=CompletionResponse(
+            content="partial",
+            tool_calls=[{"id": "call1", "name": "write", "arguments": {"path": "proposed"}}],
+        ),
+        tool_results=[
+            {"name": "write", "tool_call_id": "call1", "args": {"path": "actual"}, "success": True}
+        ],
+    )
+    iterations = (
+        [LoopIteration(iteration=1, stage=LoopStage.ACT, action_result=action)] if recorded else []
+    )
+    loop_result = LoopResult(
+        success=False,
+        total_duration=0,
+        iterations=iterations,
+        final_state={"action_result": action},
+        metadata={"terminated_by": "loop_spin_guard"},
+    )
+    loop = SimpleNamespace(run=AsyncMock(return_value=loop_result))
+    with patch("victor.framework.agentic_loop.AgenticLoop", return_value=loop):
+        response = await executor.execute_agentic_loop("task", max_iterations=5)
+    assert response.metadata["agentic_loop_success"] is False
+    assert len(response.metadata["agentic_loop_tool_calls"]) == 1
+    assert response.metadata["agentic_loop_tool_calls"][0]["arguments"] == {"path": "actual"}
+    assert response.tool_calls[0]["arguments"] == {"path": "proposed"}
+
+
 async def test_check_turn_boundary_compaction_delegates_to_the_buffered_check():
     """The public streaming capability runs the exact buffered boundary check."""
     from unittest.mock import AsyncMock

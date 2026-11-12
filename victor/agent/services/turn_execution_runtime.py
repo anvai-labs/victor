@@ -1285,12 +1285,9 @@ class TurnExecutor:
             # metadata explains the stop without inventing ungoverned assistant text.
             response = CompletionResponse(content="", role="assistant")
 
-        metadata = dict(response.metadata or {})
-        metadata["agentic_loop_success"] = loop_success
-        metadata["agentic_loop_iterations"] = loop_iterations
-        if loop_error:
-            metadata["agentic_loop_error"] = loop_error
-        response.metadata = metadata
+        response.metadata = post_loop_recovery.response_metadata(
+            response.metadata, loop_result, iterations=loop_iterations, error=loop_error
+        )
         return response
 
     @classmethod

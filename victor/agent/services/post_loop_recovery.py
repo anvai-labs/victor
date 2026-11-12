@@ -1,6 +1,6 @@
 # Copyright 2026 Vijaykumar Singh <vijay@anvaiops.com>
 # SPDX-License-Identifier: Apache-2.0
-"""Post-loop presentation recovery: one rule for ``run()`` and ``run_streaming()``.
+"""Post-loop presentation recovery and recorded outcome evidence.
 
 When an agentic run ends, its caller may recover the user-facing answer without
 changing the run's verdict. The buffered epilogue (``TurnExecutor``) and the
@@ -13,6 +13,8 @@ its turn executor.
 
 from __future__ import annotations
 
+from copy import deepcopy
+import json
 from typing import Any, Optional
 
 # Response-metadata key carrying the summed provider usage of a recovery
@@ -82,3 +84,61 @@ def loop_has_tool_evidence(loop_result: Any) -> bool:
         turn_has_tool_evidence(getattr(iteration, "action_result", None))
         for iteration in getattr(loop_result, "iterations", []) or []
     )
+
+
+def response_metadata(
+    existing: Optional[dict[str, Any]], loop_result: Any, *, iterations: int, error: Optional[str]
+) -> dict[str, Any]:
+    """Publish the verdict and detached current-run receipts, apart from pending calls."""
+    facts: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    actions = [getattr(i, "action_result", None) for i in loop_result.iterations]
+    actions.append(loop_result.final_state.get("action_result"))
+    for action in actions:
+        if action is None or id(action) in seen:
+            continue
+        seen.add(id(action))
+        requested = getattr(getattr(action, "response", None), "tool_calls", None) or []
+        for result in getattr(action, "tool_results", None) or []:
+            if not isinstance(result, dict):
+                continue
+            call_id = result.get("tool_call_id")
+            matches = [call for call in requested if call_id and call.get("id") == call_id]
+            call = matches[0] if len(matches) == 1 else {}
+            arguments = result.get("args", call.get("arguments", {}))
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except (ValueError, TypeError):
+                    arguments = {}
+            # Receipts must not expose mutable execution arguments or raw output.
+            snapshot_error = False
+            try:
+                snapshot = deepcopy(arguments) if isinstance(arguments, dict) else {}
+            except Exception:
+                # An observability snapshot cannot undo or replay a completed tool.
+                snapshot, snapshot_error = {}, True
+            name = result.get("name") or result.get("tool_name") or call.get("name") or "unknown"
+            fact = {
+                "id": call_id,
+                "tool": name,
+                "name": name,
+                "arguments": snapshot,
+                "success": result.get("success") is True,
+            }
+            if snapshot_error:
+                fact["arguments_unavailable"] = True
+            for key in ("error", "skipped", "outcome_kind", "block_source", "retryable"):
+                if key in result:
+                    fact[key] = result[key]
+            facts.append(fact)
+    metadata = dict(existing or {})
+    metadata.update(
+        agentic_loop_success=loop_result.success is True,
+        agentic_loop_iterations=iterations,
+        agentic_loop_tool_calls=facts,
+    )
+    metadata.pop("agentic_loop_error", None)
+    if error:
+        metadata["agentic_loop_error"] = error
+    return metadata

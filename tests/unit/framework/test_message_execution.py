@@ -48,6 +48,161 @@ def test_message_execution_does_not_expose_runtime_resolution_helpers() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("shape", ["response", "mapping", "object"])
+@pytest.mark.parametrize("verdict", [True, False, None, "false", 1])
+async def test_execute_message_preserves_explicit_loop_verdict(shape, verdict):
+    from victor.framework.message_execution import execute_message
+
+    metadata = {"agentic_loop_success": verdict, "agentic_loop_error": "criterion unmet"}
+    values = {"content": "Recovered presentation", "metadata": metadata}
+    response = (
+        CompletionResponse(**values)
+        if shape == "response"
+        else values if shape == "mapping" else SimpleNamespace(**values)
+    )
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=_make_orchestrator(),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    assert result.success is (verdict is True)
+    assert result.error is None if verdict is True else bool(result.error)
+    assert result.content == "Recovered presentation"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "calls",
+    [[], [{"id": "done", "tool": "write", "arguments": {"path": "proof"}, "success": True}]],
+)
+async def test_execute_message_uses_run_evidence_instead_of_pending_calls(calls):
+    from victor.framework.message_execution import execute_message
+
+    response = CompletionResponse(
+        content="done",
+        tool_calls=[{"id": "pending", "name": "write", "arguments": {"path": "never-executed"}}],
+        metadata={"agentic_loop_success": True, "agentic_loop_tool_calls": calls},
+    )
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=_make_orchestrator(),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    assert result.tool_calls == calls
+    assert result.files_modified == (["proof"] if calls else [])
+    assert response.tool_calls[0]["id"] == "pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("success", [False, None, "false", 1])
+async def test_unconfirmed_write_is_not_a_modified_file(success):
+    from victor.framework.message_execution import execute_message
+
+    response = CompletionResponse(
+        content="task resolved",
+        metadata={
+            "agentic_loop_success": True,
+            "agentic_loop_tool_calls": [
+                {"tool": "write", "arguments": {"path": "unconfirmed"}, "success": success}
+            ],
+        },
+    )
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=_make_orchestrator(),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    assert result.files_modified == []
+    assert result.tool_calls[0]["success"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        None,
+        {},
+        [None],
+        [{"tool": "write", "arguments": "bad", "success": True}],
+        [{"tool": [], "arguments": {}, "success": True}],
+    ],
+)
+async def test_malformed_execution_evidence_fails_closed(evidence):
+    from victor.framework.message_execution import execute_message
+
+    response = CompletionResponse(
+        content="claimed done",
+        metadata={"agentic_loop_success": True, "agentic_loop_tool_calls": evidence},
+    )
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=_make_orchestrator(),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    assert result.success is False and result.error
+    assert result.tool_calls == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_receipt_does_not_discard_another_confirmed_effect():
+    from victor.framework.message_execution import execute_message
+
+    response = CompletionResponse(
+        content="partial",
+        metadata={
+            "agentic_loop_success": True,
+            "agentic_loop_tool_calls": [
+                {"tool": "write", "arguments": {"path": "confirmed"}, "success": True},
+                None,
+            ],
+        },
+    )
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=_make_orchestrator(),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    assert result.success is False and result.error
+    assert result.files_modified == ["confirmed"]
+
+
+def test_effect_helpers_do_not_return_non_string_paths_or_commands():
+    result = TaskResult(
+        content="result",
+        tool_calls=[
+            {"tool": name, "arguments": {"path": ["bad"], "command": ["bad"]}, "success": True}
+            for name in ("write", "read", "bash")
+        ],
+    )
+    assert (
+        result.files_modified == [] and result.files_read == [] and result.commands_executed == []
+    )
+
+
+def test_skipped_tool_records_do_not_claim_file_or_command_effects():
+    result = TaskResult(
+        content="cached",
+        tool_calls=[
+            {
+                "tool": name,
+                "arguments": {"path": "old-file", "command": "echo old"},
+                "success": True,
+                "skipped": True,
+            }
+            for name in ("write", "read", "bash")
+        ],
+    )
+    assert (
+        result.files_modified == [] and result.files_read == [] and result.commands_executed == []
+    )
+
+
+@pytest.mark.asyncio
 async def test_execute_message_normalizes_direct_response_output() -> None:
     from victor.framework.message_execution import execute_message
 
