@@ -24,13 +24,14 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
+from victor.ui.console import get_console
 
 docs_app = typer.Typer(
     name="docs",
     help="Access Victor's documentation guides.",
 )
 
-console = Console()
+console = get_console()
 
 # Mapping of short names/aliases to documentation files
 DOCS_MAPPING = {

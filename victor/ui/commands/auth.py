@@ -54,6 +54,7 @@ class AuthStatus(str, Enum):
 
 from rich.table import Table
 from rich.text import Text
+from victor.ui.console import get_console
 
 from victor.config.accounts import (
     AccountManager,
@@ -142,7 +143,7 @@ OAUTH_PROVIDERS = ["openai", "qwen"]
 # =============================================================================
 
 auth_app = typer.Typer(name="auth", help="Manage authentication and provider accounts.")
-console = Console()
+console = get_console()
 
 
 def _get_oauth_tokens_file() -> Path:

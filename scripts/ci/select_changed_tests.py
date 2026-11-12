@@ -848,6 +848,24 @@ RELATED_TESTS = {
         "tests/unit/ui/rendering/test_renderer_conformance.py",
         "tests/unit/ui/rendering/test_handler.py",
     ),
+    # Mechanical console-seam migrations: these command modules have no
+    # dedicated suites; the seam suite pins the shared-console property they
+    # depend on.
+    **dict.fromkeys(
+        (
+            "victor/ui/commands/dashboard.py",
+            "victor/ui/commands/db.py",
+            "victor/ui/commands/examples.py",
+            "victor/ui/commands/experiments.py",
+            "victor/ui/commands/keys.py",
+            "victor/ui/commands/serve.py",
+            "victor/ui/commands/skills.py",
+            "victor/ui/commands/test_provider.py",
+            "victor/ui/dashboard/display.py",
+            "victor/ui/json_utils.py",
+        ),
+        ("tests/unit/ui/test_console_seam.py",),
+    ),
     "victor/ui/slash/commands/import_export.py": (
         "tests/unit/commands/test_slash_import_export.py",
         "tests/unit/agent/conversation/interop/",

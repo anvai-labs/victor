@@ -27,8 +27,9 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from victor.ui.console import get_console
 
-console = Console()
+console = get_console()
 
 gateway_app = typer.Typer(
     name="gateway",

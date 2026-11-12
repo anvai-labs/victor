@@ -1,6 +1,7 @@
 import typer
 import logging
 from rich.console import Console
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.config.settings import load_settings
@@ -9,7 +10,7 @@ from victor.providers.registry import ProviderRegistry
 test_provider_app = typer.Typer(
     name="test-provider", help="Test if a provider is working correctly."
 )
-console = Console()
+console = get_console()
 logger = logging.getLogger(__name__)
 
 

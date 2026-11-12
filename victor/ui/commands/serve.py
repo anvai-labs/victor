@@ -5,6 +5,7 @@ import typer
 from typing import Dict, Optional
 from rich.console import Console
 from rich.panel import Panel
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.ui.commands.utils import setup_logging
@@ -14,7 +15,7 @@ serve_app = typer.Typer(
     name="serve",
     help="Start Victor servers (API, HITL, etc.).",
 )
-console = Console()
+console = get_console()
 logger = logging.getLogger(__name__)
 
 

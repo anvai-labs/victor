@@ -20,12 +20,13 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.config.settings import get_project_paths
 from victor.ui.json_utils import create_json_option, print_json_data
 
 db_app = typer.Typer(name="db", help="Database maintenance and management.")
-console = Console()
+console = get_console()
 
 
 def _get_default_archive_dir() -> Path:

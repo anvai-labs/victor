@@ -2,12 +2,13 @@ import typer
 from typing import List, Tuple
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 from victor.config.settings import load_settings
 
 tools_app = typer.Typer(name="tool", help="Manage Victor's integrated tools.")
-console = Console()
+console = get_console()
 
 
 def _discover_tools_lightweight() -> List[Tuple[str, str, str]]:

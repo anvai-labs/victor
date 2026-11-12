@@ -26,9 +26,10 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from victor.ui.console import get_console
 
 ml_app = typer.Typer(name="ml", help="Edge-classifier ML: train, validate, mine (FEP-0012).")
-console = Console()
+console = get_console()
 
 
 def _default_artifact_path() -> Path:

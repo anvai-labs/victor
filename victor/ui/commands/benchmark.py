@@ -46,6 +46,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from victor.ui.console import get_console
 
 from victor.config.settings import get_project_paths
 from victor.config.prompt_optimization_settings import frozen_prompts_enabled
@@ -56,7 +57,7 @@ benchmark_app = typer.Typer(
     name="benchmark",
     help="Run AI coding benchmarks and compare against other frameworks.",
 )
-console = Console()
+console = get_console()
 
 # Benchmarks whose runner executes ``agent_output + test_code`` as one Python
 # file, so the agent's *source* is the artifact.

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import List
 
 from victor.config.settings import get_project_paths
+from victor.ui.console import get_console
 
 # Floor of victor-coding in the victor-ai[graph] extra; kept equal to
 # pyproject.toml by tests/unit/ci/test_graph_extra.py.
@@ -856,7 +857,7 @@ class DoctorChecks:
         from rich.console import Console
         from rich.table import Table
 
-        console = Console()
+        console = get_console()
 
         # Count by severity
         errors = sum(1 for c in self.checks if c.severity == Severity.ERROR)
@@ -930,7 +931,7 @@ def run_doctor(verbose: bool = False, fix: bool = False) -> int:
     """
     from rich.console import Console
 
-    console = Console()
+    console = get_console()
 
     doctor = DoctorChecks(verbose=verbose, fix=fix)
 

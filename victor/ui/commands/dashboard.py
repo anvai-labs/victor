@@ -29,6 +29,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from victor.ui.console import get_console
 
 from victor.core.async_utils import run_sync
 
@@ -37,7 +38,7 @@ dashboard_app = typer.Typer(
     help="Launch the observability dashboard for visualizing events and traces.",
 )
 
-console = Console()
+console = get_console()
 
 
 @dashboard_app.callback(invoke_without_command=True)
