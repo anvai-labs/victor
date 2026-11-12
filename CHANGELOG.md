@@ -5,9 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.27.2] - 2026-11-11
-
-Maintenance release for caller-budget enforcement, streaming parity, terminal
+Maintenance fixes for caller-budget enforcement, streaming parity, terminal
 interaction and diagnostics. The Sandhi binding remains pinned to 0.16.2;
 contracts and CodeGraph retain their independent release versions.
 
