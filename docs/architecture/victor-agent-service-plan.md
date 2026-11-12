@@ -67,22 +67,68 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PATCH-0281 — PROMOTION_REFRESHED** (2026-11-12), owner: release co-design
-  session; branch `release/promote-v0.28.1`, develop baseline `f9a3ecd5a`,
-  main baseline `1fa07af3b`. Fetched origin and confirmed no competing promotion.
-  Source repairs #1765/#1766 and compatibility repair #1768 merged with
-  independent exact-head review and all PR checks complete. The develop tree
-  matches reviewed compatibility checkpoint `8e850e048`.
-  AI/native metadata is 0.28.1, contracts 0.17.0 and Sandhi binding 0.16.2.
-  Local clean wheel/fallback/native and six hosted candidate checks passed.
-  The prior `057c2121e` promotion head was held for the name-identity finding;
-  its review was superseded before merge. Next: fresh exact-head review and full
-  main-target CI, merge preserving
-  ancestry, tag the exact main merge, verify published artifact digests, upgrade
-  backed-up active/project installs, and repeat installed hosted/Codex acceptance.
-  Official 0.28.1 publication and live deployment are pending. InferFlux deferred.
+- **PATCH-0281 — ACCEPTED** (2026-11-12), owner: release co-design session;
+  final handoff branch `docs/release-0281-handoff`, baseline
+  `e9a93e0abad0c6e418bfcf01099de70bc6430c44`. Source fixes #1765/#1766/#1768
+  are released and installed. Corrected promotion #1767 received CLEAN independent
+  review at `2063d331db24644325d9c9851fad9deed73e307d`; all 101 checks completed
+  without failure, including both required aggregates. It merged preserving
+  ancestry as `3d50823425ad85b404da8361f9df439ab97e11de`. The superseded
+  `057c2121e` head was held before merge for the repaired tool-name finding.
+  Annotated `v0.28.1` peels to that main merge. Release run
+  [43171496686](https://github.com/anvai-labs/victor/actions/runs/43171496686)
+  completed successfully, including all ten native platform/Python targets,
+  bare-install checks, security scan, PyPI, Docker, binaries, VSIX and SBOM.
+  [Victor 0.28.1](https://github.com/anvai-labs/victor/releases/tag/v0.28.1)
+  is public. Main→develop #1769 received CLEAN exact-head review; all 182 reported
+  contexts completed without failure before merge `e9a93e0ab`. The root checkout
+  is back on synchronized develop; the merged promotion worktree was removed.
 
-- **RUN-OUTCOME-01-COMPAT — MERGED_DEVELOP** (2026-11-12), owner: release
+  Official compatible wheels were verified against both PyPI SHA256 metadata
+  and GitHub release asset digests; seven repaired Python modules matched the
+  exact tagged source. AI wheel SHA256:
+  `4949bbf4fe700bcc0f11f7c3a5f48ee43009032773e7f6db53289ca4f9ff4e9a`.
+  CPython 3.12 manylinux2014 x86-64 native wheel SHA256:
+  `eb052a0a2482c9e6db5fd3049c669b8f074c63c8985f8b40265dc4cb0a011f3e`.
+  Only those official wheels were installed into the active Conda and project
+  environments on aiserver1 after verifying rollback backups. Both now report
+  AI/native 0.28.1, Typer 0.27.3, contracts 0.17.0 and Sandhi binding 0.16.2;
+  CLI/native checks passed. Project `pip check` is clean; Conda retains its 17
+  pre-existing conflicts, with none introduced by this upgrade.
+
+  Installed hosted acceptance passed all six OpenAI/ZAI cases: completion,
+  streaming with explicit successful terminal outcome, and one isolated file
+  write per route. Each write's exact file content, single successful public
+  receipt (`name` and `tool`) and modified path agreed. Enabled usage loggers
+  persisted user/assistant events, tool results and stream completion as
+  applicable, and closed with empty buffers. Four hosted profiles resolved to
+  the configured DS3 HTTPS gateway; two routes received these live model tests.
+  DS3 remains the authoritative Sandhi 0.16.2 gateway, verified over trusted HTTPS
+  with wire version 1 and chat minor 10. The retired aiserver1 system gateway
+  stays inactive; unrelated manual services were preserved. Sandhi co-design
+  docs #423 are merged and version-neutral; no gateway upgrade was needed.
+
+  Installed CLI acceptance imported the preserved 51 MB Claude source into an
+  isolated database, rejected the oversized direct Codex install, and installed
+  the explicit 24,012-byte historical handoff. Codex 0.167.1 rendered native
+  history and completed a real configured `gpt-6.1-sol` recall reply with 20,661
+  input tokens, no errors and zero observed tool items. Stored hashes confirmed
+  the original source/export stayed unchanged. This verifies the bounded handoff;
+  the original full export still exceeds model context and is not a usable
+  continuation. The final verified resume command and receipts remain private in
+  `.victor/analysis/claude-to-codex-d18314b1-20261112/`; release/install/hosted
+  receipts and rollback archives are under
+  `.victor/analysis/release-codesign-20261111/`.
+
+  This acceptance covers the patch release and specified live smoke gates,
+  not FEP-0039 acceptance or broader C5 delivery. The original TUI freeze was not
+  reproduced and no thread dump survived; its root cause remains unconfirmed.
+  InferFlux remains explicitly deferred. Next: finish this docs-only handoff PR,
+  remove its merged worktree/branch, and preserve unrelated dirty worktrees,
+  original stashes and untracked analysis. No further patch release is required
+  for this evidence-only update.
+
+- **RUN-OUTCOME-01-COMPAT — ACCEPTED** (2026-11-12), owner: release
   co-design session; branch `fix/run-receipt-tool-names`, baseline `2b22ba1e3`.
   Consumer review held main promotion #1767: eventless benchmark traces preserve
   public receipts verbatim, while the audit consumer reads `name`; receipts
@@ -95,10 +141,10 @@ edit. A mock test is not live provider or C5 evidence.
   Independent review CLEAN at `8e850e0488b4a41c3c50b9a78dcb5fd4870403f3`;
   all 56 PR checks completed without failure. [#1768](https://github.com/anvai-labs/victor/pull/1768)
   squash-merged as `f9a3ecd5ae4ce8f86605d07fce3a38ecf94ba505`; task worktree
-  and local branch removed. Next: qualify the refreshed promotion head. The
-  superseded head remains ineligible for merge; publication/deployment pending.
+  and local branch removed. Released and installed acceptance is recorded in
+  PATCH-0281 above; main promotion used corrected head `2063d331`.
 
-- **INTEROP-02 — MERGED_DEVELOP** (2026-11-12), owner: release co-design session;
+- **INTEROP-02 — ACCEPTED** (2026-11-12), owner: release co-design session;
   branch `fix/codex-context-bound`, baseline `a12e387e5`. Fetched origin and
   reconciled #1761/#1762/#1764: fixes promoted, Victor 0.28.0 published and
   installed. The actual 51 MB Claude export loaded in Codex but failed its first
@@ -117,10 +163,10 @@ edit. A mock test is not live provider or C5 evidence.
   issues passed. Independent review CLEAN at `b7b1028ef`; all 56 PR checks
   completed without failure. [#1765](https://github.com/anvai-labs/victor/pull/1765)
   squash-merged as `4ad21f829e2c53a162029fade0a7c397394a19af`; completed worktree
-  and local branch removed. Release of this source fix remains separate from
-  existing Victor 0.28.0 publication.
+  and local branch removed. Released and installed acceptance is recorded in
+  PATCH-0281 above, separately from the earlier 0.28.0 publication.
 
-- **RUN-OUTCOME-01 — MERGED_DEVELOP** (2026-11-12), owner: release co-design
+- **RUN-OUTCOME-01 — ACCEPTED** (2026-11-12), owner: release co-design
   session; branch `fix/run-outcome-projection`, baseline `a12e387e5`, advanced onto merged `4ad21f829`. Origin
   fetched; Victor 0.28.0 publication, install and main/develop back-sync are
   complete. Interop admission repair merged in #1765.
@@ -146,8 +192,8 @@ edit. A mock test is not live provider or C5 evidence.
   `b0c17ddf59c94090deee2f709480cbc518a8d827`; all 68 PR checks completed without
   failure. [#1766](https://github.com/anvai-labs/victor/pull/1766) squash-merged
   as `2b22ba1e33e8ca525f5698719e9784ca088912dd`; completed task worktree/local
-  branch removed. Next: protected patch promotion, publication and installed
-  hosted acceptance. Victor 0.28.1 is not yet published/deployed.
+  branch removed. Released and installed hosted acceptance is recorded in
+  PATCH-0281 above.
   No whole-session reconstruction, tool replay or weaker repetition stops.
   InferFlux deferred.
 
