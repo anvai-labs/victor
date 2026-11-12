@@ -16,7 +16,8 @@ contracts and CodeGraph retain their independent release versions.
 - **runtime**: carry caller-declared budgets and completion criteria through one
   run context and budget ledger. Buffered and streaming execution share
   termination decisions and post-loop recovery, with stable tool offers on
-  text-forcing completion calls.
+  text-forcing completion calls. Failed override transactions restore prior
+  budget funding without resetting consumed usage.
 - **streaming**: propagate unexpected execution errors instead of presenting
   them as successful completion; close interrupted turn streams deterministically.
 - **TUI**: serialize slash commands, keep command output capture separate,
