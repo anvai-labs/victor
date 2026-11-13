@@ -18,6 +18,7 @@ These tests verify the LangGraph-compatible StateGraph implementation
 including cyclic workflows, checkpointing, and typed state management.
 """
 
+import asyncio
 import logging
 import pytest
 from typing import TypedDict, Optional, List
@@ -1934,3 +1935,84 @@ class TestStateHistoryReplay:
         second_cp = history[1]
         replay = await app.replay_from(thread_id, second_cp.checkpoint_id)
         assert replay.success
+
+
+# ---------------------------------------------------------------------------
+# Bounded Send fan-out admission (SCALE-03 first slice)
+# ---------------------------------------------------------------------------
+
+
+def _make_fanout_graph(branch_count: int):
+    """Build a graph whose split node fans out `branch_count` Send branches,
+    each recording its concurrency window in a shared counter list."""
+    from victor.framework.graph import Send
+
+    in_flight = {"current": 0, "max": 0}
+    completed = []
+
+    async def split_node(state):
+        return state
+
+    def fan_out(state):
+        return [
+            Send("branch", {"index": i, "history": []}, join_at="merge")
+            for i in range(branch_count)
+        ]
+
+    async def branch(state):
+        in_flight["current"] += 1
+        in_flight["max"] = max(in_flight["max"], in_flight["current"])
+        await asyncio.sleep(0.01)
+        in_flight["current"] -= 1
+        completed.append(state["index"])
+        return {"branch_value": state["index"] * 10, "history": [f"b{state['index']}"]}
+
+    async def merge_node(state):
+        return state
+
+    def merge_states(base, branches):
+        values = [b.get("branch_value", 0) for b in branches]
+        return {"value": sum(values)}
+
+    graph = StateGraph(SimpleState)
+    graph.add_node("split", split_node)
+    graph.add_node("branch", branch)
+    graph.add_node("merge", merge_node)
+    graph.set_entry_point("split")
+    graph.add_conditional_edge("split", fan_out, {"branch": "branch", "join": "merge"})
+    graph.add_edge("merge", END)
+    graph.add_state_merger(merge_states)
+    return graph, in_flight, completed
+
+
+async def test_max_parallel_branches_bounds_in_flight_execution():
+    """A configured fan-out bound queues branches instead of launching every
+    Send concurrently; all admitted branches still complete."""
+    graph, in_flight, completed = _make_fanout_graph(8)
+    app = graph.compile(max_parallel_branches=2)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-fanout-bound")
+
+    assert in_flight["max"] <= 2, f"observed {in_flight['max']} concurrent branches"
+    assert sorted(completed) == list(range(8)), "branches must not be truncated"
+    assert result.success
+
+
+async def test_fanout_results_preserved_under_tight_bound():
+    """A large fan-out under a tight bound still merges every branch."""
+    graph, _in_flight, completed = _make_fanout_graph(64)
+    app = graph.compile(max_parallel_branches=4)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-fanout-64")
+
+    assert sorted(completed) == list(range(64))
+    assert result.success
+    assert result.state["value"] == sum(i * 10 for i in range(64))
+
+
+def test_execution_config_max_parallel_branches_default_and_validation():
+    from victor.framework.config import ExecutionConfig
+
+    assert ExecutionConfig().max_parallel_branches == 16
+    with pytest.raises(ValueError):
+        ExecutionConfig(max_parallel_branches=0)
+    with pytest.raises(ValueError):
+        ExecutionConfig(max_parallel_branches=-3)

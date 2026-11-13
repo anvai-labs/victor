@@ -521,16 +521,23 @@ class CompiledGraph(Generic[StateType]):
         Returns:
             Merged state after all branches complete
         """
+        # Fan-out admission bound (SCALE-03 first slice): at most
+        # max_parallel_branches branch executions run concurrently. Every
+        # admitted branch is queued and completes — the bound caps in-flight
+        # work, never truncates it.
+        parallel_bound = self._config.execution.max_parallel_branches
+        branch_slots = asyncio.Semaphore(parallel_bound)
 
         async def _run_branch(
             send: Send,
         ) -> tuple[str, bool, Optional[str], Dict[str, Any]]:
             branch_state = copy.deepcopy(send.state)
-            success, error, result_state = await node_executor.execute(
-                node_id=send.node,
-                state=branch_state,
-                timeout_manager=timeout_manager,
-            )
+            async with branch_slots:
+                success, error, result_state = await node_executor.execute(
+                    node_id=send.node,
+                    state=branch_state,
+                    timeout_manager=timeout_manager,
+                )
             state_dict = result_state if isinstance(result_state, dict) else dict(result_state)
             return send.node, success, error, state_dict
 
