@@ -107,6 +107,12 @@ def test_settings_gateway_skips_upstream_resolution_and_preserves_policy(provide
         {"url": "http://synthetic-upstream.invalid", "virtual_key": "synthetic"},
         {**GATEWAY, "protocol": "chatgpt_responses"},
         {"virtual_key": "synthetic"},
+        {"virtual_key": None},
+        {"oidc": None},
+        {"credential": None},
+        {"auth_mode": None},
+        {"api_key": "misplaced-credential"},
+        {"url": None},
         {**GATEWAY, "virtual_key": 123},
         {"url": GATEWAY["url"], "api_key": "misplaced-credential"},
         {**GATEWAY, "url": "https://synthetic-gateway.example.test/v1/v1"},
@@ -392,3 +398,36 @@ def test_declared_token_mode_resolves_the_documented_environment_key():
         resolve_provider_gateway(config, "openai")
     assert config["gateway"]["auth_mode"] == "tokens"
     assert config["gateway"]["virtual_key"] == "configured-env-key"
+
+
+@pytest.mark.parametrize(
+    "gateway",
+    [
+        {"virtual_key": None},
+        {"oidc": None},
+        {"credential": None},
+        {"auth_mode": None},
+        {"api_key": "misplaced-credential"},
+        {"url": None},
+    ],
+)
+def test_raw_registry_missing_gateway_url_refuses_before_account_callback(gateway):
+    callback = Mock(side_effect=AssertionError("upstream account forbidden"))
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(ValueError, match="[Gg]ateway"):
+            registry().get_settings(
+                "openai",
+                fixture_settings({}),
+                profile_overrides={"gateway": gateway},
+                account_data_factory=callback,
+            )
+    callback.assert_not_called()
+
+
+def test_intentionally_empty_gateway_block_keeps_direct_mode():
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    settings = {"gateway": {}}
+    with patch.dict("os.environ", {}, clear=True):
+        resolve_provider_gateway(settings, "openai")
+    assert settings == {}

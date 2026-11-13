@@ -461,23 +461,11 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
         # "take the env".
         url = os.environ.get("SANDHI_GATEWAY_URL", "").strip()
     if not url:
-        credential_fields = (
-            "oidc",
-            "credential",
-            "virtual_key",
-            "virtual_key_value",
-            "grant",
-            "audience",
-            "protocol",
-            "auth_mode",
-        )
-        has_identity = any(
-            (gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None))
-            is not None
-            for name in credential_fields
-        )
-        if has_identity:
-            raise ValueError("Gateway credentials and scope require an explicit gateway URL")
+        # Only an intentionally empty block means direct mode. Presence is
+        # authentication intent even when a supplied value is null/invalid or
+        # an unknown field would otherwise be discarded before validation.
+        if gateway:
+            raise ValueError("Gateway configuration requires an explicit gateway URL")
         base_settings.pop("gateway", None)
         return
     from victor.providers.gateway_contract import gateway_auth_mode, gateway_config
