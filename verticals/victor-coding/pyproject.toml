@@ -52,7 +52,7 @@ native = [
 # victor_contracts.embeddings_runtime; this pass-through extra keeps the pin
 # identical to victor-ai's proximadb extra.
 proximadb = [
-    "proximadb>=0.4.1,<0.5",
+    "proximadb>=0.4.1,<0.6",
 ]
 # Shared code->CPG chunker (ADR-014). Opt-in: when installed AND
 # VICTOR_CODING_USE_CODEGRAPH=1, CodeChunker delegates to it. Published on PyPI
@@ -62,14 +62,14 @@ codegraph = [
 ]
 dev = [
     "numpy>=1.24,<2.6",  # Synthetic embeddings in indexer tests
-    "pytest>=8.0,<9.2",  # pytest 9.2 (2026-10-27) removed Function._nodeid, which pytest-benchmark reads in fixture setup (verticals CI _nodeid AttributeErrors)
+    "pytest>=8.0,<9.3",  # pytest 9.2 (2026-10-27) removed Function._nodeid, which pytest-benchmark reads in fixture setup (verticals CI _nodeid AttributeErrors)
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.1",
     "pytest-xdist>=3.0",
     "pytest-benchmark>=5.0",
     "black==26.10.1",
     "ruff>=0.5",
-    "mypy==2.4.0",
+    "mypy==2.4.1",
 ]
 native-dev = [
     "maturin>=1.10,<2.0",  # Build Rust extensions
