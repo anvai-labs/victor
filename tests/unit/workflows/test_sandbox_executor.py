@@ -368,3 +368,36 @@ async def test_disabled_policy_keeps_node_network_config(monkeypatch):
         "--network" not in argv
         or "none" not in argv[argv.index("--network") + 1 : argv.index("--network") + 2]
     )
+
+
+async def test_network_floor_preserves_other_isolation_fields(monkeypatch):
+    """Adversarial (review finding): the floor composition must not drop
+    fields — docker_volumes and deployment survive the tightened config."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.workflows.isolation import DeploymentConfig
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(
+            sandbox_enabled=True,
+            sandbox_policy="required",
+            sandbox_network_isolation=True,
+        )
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+    deployment = DeploymentConfig(target="eks", cluster_name="c1")
+    volumes = ["/data:/data:ro"]
+    executor = SandboxedExecutor(docker_available=True)
+    composed = executor._compose_global_network_floor(
+        IsolationConfig(
+            sandbox_type="docker",
+            network_allowed=True,
+            docker_volumes=volumes,
+            deployment=deployment,
+        )
+    )
+    assert composed.network_allowed is False
+    assert composed.docker_volumes == volumes
+    assert composed.deployment is deployment

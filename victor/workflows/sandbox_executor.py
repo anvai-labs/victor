@@ -207,15 +207,11 @@ def _compose_global_network_floor(isolation: IsolationConfig) -> IsolationConfig
     except Exception:
         return isolation
     if global_network_isolation and isolation.network_allowed:
-        return IsolationConfig(
-            sandbox_type=isolation.sandbox_type,
-            network_allowed=False,
-            filesystem_readonly=isolation.filesystem_readonly,
-            environment=isolation.environment,
-            docker_image=isolation.docker_image,
-            resource_limits=isolation.resource_limits,
-            working_directory=isolation.working_directory,
-        )
+        # replace() keeps every other field (deployment, docker_volumes, ...)
+        # intact — dropping them would silently change mounts.
+        import dataclasses
+
+        return dataclasses.replace(isolation, network_allowed=False)
     return isolation
 
 
