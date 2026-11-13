@@ -547,3 +547,56 @@ This route uses Responses upstream, including when Victor supplies tools.
 TDD reproduced dropped profile values, omitted streaming defaults, missing
 GPT-6 capability recognition and unvalidated labels. Regression coverage also
 checks unsupported providers and per-request overrides (including `None`).
+
+## Resource-audience co-design: local candidate acceptance
+
+The existing `GatewayTokenFileCredential` already supports an exact resource URI
+as its audience. Its private six-field broker envelope remains unchanged:
+`access_token`, `token_type`, `expires_on`, `issuer`, `audience`, and `subject`.
+It rereads and pins that envelope per request, retires handles on token rotation,
+and refuses expired or misbound credentials without upstream fallback or replay.
+It does not validate JWT claims, acquire a login, or substitute UserInfo/ID tokens.
+
+The paired local IDM candidate uses browser login, consent and PKCE followed by
+its existing single-hop exchange to issue a resource access JWT for
+`https://sandhi.local/resource`. The originating `victor-local` client differs
+from Sandhi's confidential `sandhi-local` introspection consumer. Sandhi's additive
+`access_token_audience` selects the resource audience; its OAuth/Basic `client_id`
+keeps identifying the consumer. Issuer-side purpose, hashed issuance receipts
+and current revocation checks remain IDM's authority.
+
+The opt-in integration owner runs actual IDM and Sandhi candidates and a public
+Victor Agent read-tool loop against a synthetic Messages backend. It checks
+private-file rotation, exact issuance-hash/source-request/usage joins, conserved
+source counters, and no backend dispatch for ID/UserInfo substitution, a valid
+other-resource token, expiry, or logout. A bounded test-only recorder hashes the
+actual FFI HTTP bearer, forwards the unchanged bearer/body exactly once, and
+captures the returned Sandhi request ID.
+Those wire observations join the durable request correlation and IDM receipt;
+Python credential configuration alone is not a wire-provenance oracle. The
+synthetic backend refuses READY unless the second request contains the matching
+successful read tool result with actual fixture contents. The test does not
+replace the reader or mock introspection. Credentials remain in
+private files or memory, and evidence contains hashes and sanitized receipts.
+
+```bash
+IDM_GATEWAY_FIXTURE=/absolute/idm/tests/integration_gateway_introspection.py \
+IDM_TEST_BINARY=/absolute/frozen/idm \
+SANDHI_OIDC_TEST_BINARY=/absolute/frozen/sandhi-proxy \
+VICTOR_IDM_EVIDENCE_FILE=/private/local-demo-evidence.json \
+python -m pytest tests/integration/providers/test_sandhi_idm_gateway_session.py -q --no-cov
+```
+
+This requires the paired fixture, built binaries, Docker, and the fixture's cached
+PostgreSQL image plus cached `ubuntu:24.04`. An owned Sandhi container uses host
+networking with a private `id.localhost` mapping, loopback-only listeners, the
+host UID/GID, a read-only binary and CA, and a private writable state directory.
+Hostname and TLS verification stay enabled. Containers and the disposable IDM
+database are removed on exit. No live identity service or global DNS is changed.
+
+A local source-candidate pass is separate from independent review, merged code,
+publication and deployment. The corrective Sandhi 0.17.1 release remains a
+separate train. After publication, qualify a clean installation of its published
+wheel and update Victor's consumed pin through the normal reviewed owner; retain
+this resource-audience feature's separate server-candidate provenance. The local
+co-design does not publish Victor or establish live development-service support.
