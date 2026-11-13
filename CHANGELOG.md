@@ -9,6 +9,11 @@ Prepared package version: **0.29.0**. This version is not yet released.
 
 ### Changed
 
+- URL-only Sandhi gateway configuration selects the local starter without a
+  user-provided key. Tokens and renewable OIDC are optional explicit choices;
+  malformed supplied credentials and protected-server authentication failures
+  remain terminal. The starter uses the Sandhi 0.18 server's fixed shared
+  identity and retains its durable budgets, cache policy and accounting.
 - Pin the published corrective `sandhi-gateway==0.17.1` for the coordinated
   Sandhi execution-contract migration. Both direct and gateway Sandhi handles disable hidden retries;
   the logical-call owner decides whether another attempt is authorized.

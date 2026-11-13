@@ -433,14 +433,15 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     prefix). The virtual key is resolved from the block, else from a per-provider
     env var (``SANDHI_GATEWAY_VIRTUAL_KEY_<PROVIDER>``), else the global
     ``SANDHI_GATEWAY_VIRTUAL_KEY``. An empty block with no URL is dropped; explicit credentials or scope without
-    a URL are rejected; a URL with no resolvable key is kept as an empty
-    string so the transport can fail closed with a clear error. Explicit OIDC
-    configuration suppresses environment virtual-key fallback.
+    a URL are rejected. A URL without credentials selects starter mode; supplied
+    malformed credentials remain errors. Explicit OIDC or none mode suppresses
+    environment virtual-key fallback. The normalized block retains its resolved
+    auth_mode so omission cannot erase configured authentication intent.
     """
     gateway = base_settings.get("gateway")
     if gateway is not None and not isinstance(gateway, dict):
         if hasattr(gateway, "model_dump"):
-            gateway = gateway.model_dump(exclude_none=True)
+            gateway = gateway.model_dump(exclude_unset=True)
         else:
             raise ValueError("gateway must be a configuration mapping")
     if gateway is None:
@@ -468,6 +469,7 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
             "grant",
             "audience",
             "protocol",
+            "auth_mode",
         )
         has_identity = any(
             (gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None))
@@ -478,35 +480,44 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
             raise ValueError("Gateway credentials and scope require an explicit gateway URL")
         base_settings.pop("gateway", None)
         return
-    from victor.providers.gateway_contract import gateway_config
+    from victor.providers.gateway_contract import gateway_auth_mode, gateway_config
 
     # Validate the submitted root before stripping its optional family suffix;
     # normalization must not disguise an unsupported nested path.
-    gateway_config({"url": url})
+    gateway_config({**gateway, "url": url})
     url = _normalize_gateway_root(url)
-    if isinstance(gateway, dict):
-        virtual_key = gateway.get("virtual_key")
-    else:
-        virtual_key = getattr(gateway, "virtual_key_value", getattr(gateway, "virtual_key", None))
+    has_virtual_key = "virtual_key" in gateway
+    virtual_key = gateway.get("virtual_key")
     if isinstance(virtual_key, SecretStr):
         virtual_key = virtual_key.get_secret_value()
     if virtual_key is not None and not isinstance(virtual_key, str):
         raise ValueError("gateway virtual key must be a string")
     extra = {}
-    for name in ("oidc", "grant", "credential", "audience", "protocol"):
-        value = gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None)
-        if value is not None:
+    for name in ("oidc", "grant", "credential", "audience", "protocol", "auth_mode"):
+        if name in gateway:
+            value = gateway[name]
             extra[name] = value.model_dump() if hasattr(value, "model_dump") else value
     if provider != "openai" and ("oidc" in extra or "credential" in extra):
         raise ValueError("Renewable gateway credentials currently require the OpenAI provider")
-    virtual_key = str(virtual_key or "").strip()
-    if not virtual_key and "oidc" not in extra and "credential" not in extra:
-        virtual_key = (
-            os.environ.get(f"SANDHI_GATEWAY_VIRTUAL_KEY_{provider.upper()}")
-            or os.environ.get("SANDHI_GATEWAY_VIRTUAL_KEY")
-            or ""
-        ).strip()
-    base_settings["gateway"] = {"url": url, "virtual_key": virtual_key, **extra}
+    if (
+        not has_virtual_key
+        and "oidc" not in extra
+        and "credential" not in extra
+        and extra.get("auth_mode") != "none"
+    ):
+        for name in (
+            f"SANDHI_GATEWAY_VIRTUAL_KEY_{provider.upper()}",
+            "SANDHI_GATEWAY_VIRTUAL_KEY",
+        ):
+            if name in os.environ:
+                virtual_key = os.environ[name]
+                has_virtual_key = True
+                break
+    normalized = {"url": url, **extra}
+    if has_virtual_key:
+        normalized["virtual_key"] = virtual_key
+    normalized["auth_mode"] = gateway_auth_mode(normalized)
+    base_settings["gateway"] = normalized
 
 
 @dataclass

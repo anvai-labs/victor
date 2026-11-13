@@ -105,10 +105,10 @@ def test_settings_gateway_skips_upstream_resolution_and_preserves_policy(provide
     "gateway",
     [
         {"url": "http://synthetic-upstream.invalid", "virtual_key": "synthetic"},
-        {"url": "https://synthetic-gateway.example.test"},
         {**GATEWAY, "protocol": "chatgpt_responses"},
         {"virtual_key": "synthetic"},
         {**GATEWAY, "virtual_key": 123},
+        {"url": GATEWAY["url"], "api_key": "misplaced-credential"},
         {**GATEWAY, "url": "https://synthetic-gateway.example.test/v1/v1"},
         {**GATEWAY, "url": "https://synthetic-gateway.example.test:bad"},
         {**GATEWAY, "url": "https://synthetic-gateway.example.test:0"},
@@ -203,7 +203,8 @@ def test_named_openai_gateway_renewal_preserves_identity_without_reading_token(k
         )
     account.assert_not_called()
     read.assert_not_called()
-    assert result["gateway"]["virtual_key"] == ""
+    assert "virtual_key" not in result["gateway"]
+    assert result["gateway"]["auth_mode"] == "oidc"
     assert result["gateway"]["grant"] == "selected-grant"
     assert result["gateway"][kind] == gateway[kind]
     assert result["auth_mode"] == "oauth"
@@ -250,7 +251,17 @@ def test_registry_gateway_bypasses_lazy_account_and_direct_strategy():
     strategy.assert_not_called()
 
 
-@pytest.mark.parametrize("gateway", [{**GATEWAY, "protocol": "codex"}, "malformed"])
+@pytest.mark.parametrize(
+    "gateway",
+    [
+        {**GATEWAY, "protocol": "codex"},
+        "malformed",
+        {**GATEWAY, "virtual_key": ""},
+        {**GATEWAY, "virtual_key": None},
+        {"url": GATEWAY["url"], "oidc": None},
+        {**GATEWAY, "auth_mode": "none"},
+    ],
+)
 def test_actual_provider_file_rejects_invalid_gateway_without_direct_fallback(tmp_path, gateway):
     import yaml
 
@@ -273,13 +284,14 @@ def test_actual_provider_file_rejects_invalid_gateway_without_direct_fallback(tm
     probe.assert_not_called()
 
 
-@pytest.mark.parametrize("renewable", [False, True])
-def test_actual_provider_file_gateway_preserves_policy_before_named_account(tmp_path, renewable):
+@pytest.mark.parametrize("mode", ["tokens", "oidc", "none"])
+def test_actual_provider_file_gateway_preserves_policy_before_named_account(tmp_path, mode):
     import yaml
 
     gateway = dict(GATEWAY)
-    if renewable:
+    if mode != "tokens":
         gateway.pop("virtual_key")
+    if mode == "oidc":
         gateway["oidc"] = {
             "token_file": str(tmp_path / "absent-token.json"),
             "issuer": "https://synthetic-issuer.example.test",
@@ -314,7 +326,69 @@ def test_actual_provider_file_gateway_preserves_policy_before_named_account(tmp_
     probe.assert_not_called()
     assert all(result[name] == value for name, value in POLICY.items())
     assert result["gateway"]["protocol"] == "responses"
-    if renewable:
+    if mode == "oidc":
         assert result["gateway"]["oidc"] == gateway["oidc"]
+    elif mode == "none":
+        assert "virtual_key" not in result["gateway"]
+        assert result["gateway"]["auth_mode"] == "none"
     else:
         assert result["gateway"]["virtual_key"] == gateway["virtual_key"]
+
+
+@pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic", "google"])
+@pytest.mark.parametrize("source", ["provider", "profile", "environment"])
+def test_url_only_gateway_is_selected_without_upstream_discovery(provider, source):
+    config = dict(POLICY)
+    overrides = {}
+    env = {}
+    gateway = {"url": GATEWAY["url"]}
+    if source == "provider":
+        config["gateway"] = gateway
+    elif source == "profile":
+        overrides["gateway"] = gateway
+    else:
+        env["SANDHI_GATEWAY_URL"] = gateway["url"]
+    with (
+        patch.dict("os.environ", env, clear=True),
+        patch("victor.config.accounts.get_account_manager", side_effect=AssertionError("account")),
+        patch("victor.config.api_keys.get_api_key", side_effect=AssertionError("upstream key")),
+        patch("httpx.get", side_effect=AssertionError("upstream probe")),
+    ):
+        result = Settings.get_provider_settings(
+            fixture_settings(config), provider, overrides, account_name="unused-upstream"
+        )
+    assert result["gateway"] == {
+        "url": "https://synthetic-gateway.example.test",
+        "auth_mode": "none",
+    }
+
+
+@pytest.mark.parametrize("value", ["", " ", "invalid\nkey"])
+def test_invalid_explicit_gateway_key_cannot_fall_back_to_environment(value):
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    config = {"gateway": {"url": GATEWAY["url"], "virtual_key": value}}
+    with patch.dict("os.environ", {"SANDHI_GATEWAY_VIRTUAL_KEY": "valid-env-key"}, clear=True):
+        with pytest.raises(ValueError, match="gateway"):
+            resolve_provider_gateway(config, "openai")
+
+
+def test_explicit_noauth_does_not_import_environment_credentials():
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    config = {"gateway": {"url": GATEWAY["url"], "auth_mode": "none"}}
+    with patch.dict("os.environ", {"SANDHI_GATEWAY_VIRTUAL_KEY": "unrelated-env-key"}, clear=True):
+        resolve_provider_gateway(config, "openai")
+    assert config["gateway"]["auth_mode"] == "none"
+    assert "virtual_key" not in config["gateway"]
+
+
+def test_declared_token_mode_resolves_the_documented_environment_key():
+    from victor.config.provider_config_registry import resolve_provider_gateway
+    from victor.config.settings import ProviderGatewayConfig
+
+    config = {"gateway": ProviderGatewayConfig(url=GATEWAY["url"], auth_mode="tokens")}
+    with patch.dict("os.environ", {"SANDHI_GATEWAY_VIRTUAL_KEY": "configured-env-key"}, clear=True):
+        resolve_provider_gateway(config, "openai")
+    assert config["gateway"]["auth_mode"] == "tokens"
+    assert config["gateway"]["virtual_key"] == "configured-env-key"

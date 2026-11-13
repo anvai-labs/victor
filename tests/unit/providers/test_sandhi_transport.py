@@ -1021,16 +1021,20 @@ async def test_gateway_mode_reuses_handle_across_calls(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_gateway_mode_missing_virtual_key_fails_closed(monkeypatch):
-    install_runtime(monkeypatch)
+async def test_url_only_gateway_never_borrows_the_upstream_key(monkeypatch):
+    runtime = install_runtime(monkeypatch)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_DEEPSEEK", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
-    with pytest.raises(ValueError, match="virtual key"):
-        DeepSeekProvider(
-            api_key="real-upstream-key",
-            base_url="https://api.deepseek.com/v1",
-            gateway={"url": "http://localhost:8600"},
-        )
+    provider = DeepSeekProvider(
+        api_key="real-upstream-key",
+        base_url="https://api.deepseek.com/v1",
+        gateway={"url": "http://localhost:8600"},
+    )
+    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+    args, kwargs = runtime.calls[0]
+    assert args[2] == "not-needed"
+    assert kwargs["base_url"] == "http://localhost:8600/v1"
+    assert kwargs["max_retries"] == 0
 
 
 @pytest.mark.asyncio
@@ -1055,7 +1059,11 @@ def test_resolve_provider_gateway_normalizes_block_and_unwraps_secret():
 
     base: dict = {"gateway": {"url": "http://localhost:8600", "virtual_key": SecretStr("vk_s")}}
     resolve_provider_gateway(base, "deepseek")
-    assert base["gateway"] == {"url": "http://localhost:8600", "virtual_key": "vk_s"}
+    assert base["gateway"] == {
+        "url": "http://localhost:8600",
+        "virtual_key": "vk_s",
+        "auth_mode": "tokens",
+    }
 
 
 def test_resolve_provider_gateway_env_fallback_per_provider_then_global(monkeypatch):
@@ -1644,7 +1652,11 @@ def test_env_only_gateway_config_materializes_a_block(monkeypatch):
     monkeypatch.setenv("SANDHI_GATEWAY_VIRTUAL_KEY", "vk_env")
     settings: dict = {}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"] == {"url": "https://env-gw:8600", "virtual_key": "vk_env"}
+    assert settings["gateway"] == {
+        "url": "https://env-gw:8600",
+        "virtual_key": "vk_env",
+        "auth_mode": "tokens",
+    }
 
 
 def test_no_gateway_anywhere_leaves_settings_untouched(monkeypatch):

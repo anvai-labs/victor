@@ -21,7 +21,8 @@ GATEWAY = {
 
 
 @pytest.mark.parametrize("provider_class", CLASSES)
-async def test_async_gateway_factory_never_probes_direct_upstream(provider_class):
+@pytest.mark.parametrize("authenticated", [False, True])
+async def test_async_gateway_factory_never_probes_direct_upstream(provider_class, authenticated):
     with (
         patch.object(
             provider_class,
@@ -39,11 +40,15 @@ async def test_async_gateway_factory_never_probes_direct_upstream(provider_class
             AsyncMock(side_effect=AssertionError("direct network forbidden")),
         ) as get,
     ):
-        provider = await provider_class.create(
-            base_url="http://direct.invalid", gateway=dict(GATEWAY)
-        )
+        gateway = dict(GATEWAY)
+        if not authenticated:
+            gateway.pop("virtual_key")
+        provider = await provider_class.create(base_url="http://direct.invalid", gateway=gateway)
         try:
-            assert provider._gateway_overrides() == (GATEWAY["url"], GATEWAY["virtual_key"])
+            assert provider._gateway_overrides() == (
+                GATEWAY["url"],
+                GATEWAY["virtual_key"] if authenticated else "not-needed",
+            )
             assert provider._client_protocol() == "responses"
             assert provider._typed_provider("server-logical-alias") is not None
             select.assert_not_called()
@@ -60,7 +65,6 @@ async def test_async_gateway_factory_never_probes_direct_upstream(provider_class
         {},
         "malformed",
         {"url": "http://upstream.invalid", "virtual_key": "vk_fixture"},
-        {"url": "https://gateway.example.test"},
         {**GATEWAY, "protocol": "chatgpt_responses"},
     ],
 )

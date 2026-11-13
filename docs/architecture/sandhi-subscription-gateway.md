@@ -1,4 +1,4 @@
-# OpenAI subscription gateway: Victor / sandhi co-design
+# Sandhi gateway: local starter, tokens and optional OIDC
 
 ## Coordinated execution-contract migration
 
@@ -62,12 +62,46 @@ the complete packaging matrix.
 
 The profile describes a direct HTTP source. Gateway mode never forwards it. Instead,
 Victor constructs an explicit `peer_role="sandhi_gateway_v1"` handle with one client
-dialect, zero hidden retries and only the virtual credential. The gateway declares
+dialect, zero hidden retries and the selected gateway credential or starter marker. The gateway declares
 its actual emitted usage convention in bounded response metadata; the Sandhi peer
 validates that convention before decoding. Backend endpoint profiles, credentials,
 account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
+
+The coordinated 0.29 Victor / 0.18 Sandhi source candidates support a local
+starter with no client credential. A gateway URL deliberately selects that
+gateway before upstream account or API-key discovery:
+
+```yaml
+providers:
+  openai:
+    gateway:
+      url: http://127.0.0.1:8600
+```
+
+Alternatively set `SANDHI_GATEWAY_URL` to the local gateway and use the public
+`Agent.create(provider="openai", model="server-logical-alias")` API. Configure the
+backend and route on Sandhi first; its upstream credentials remain server-side.
+The starter uses one fixed server-owned identity and shared budget realm. Durable
+accounting, admission, cache compilation and token evidence still apply.
+
+Tokens and OIDC are optional selections. A supplied virtual key selects the
+client's token path; an OpenAI gateway `oidc` or `credential` configuration selects
+renewable credentials. Configure the matching protection on Sandhi: its server
+mode remains authoritative, and supplying a client credential does not enable
+server authentication. `gateway.auth_mode` can explicitly select `none`,
+`tokens` or `oidc`. Explicit `none` rejects configured credentials and does not
+import an ambient gateway key. A supplied empty/invalid key or malformed OIDC
+configuration is an error, and cannot turn into starter access. Protected-server
+401 responses are terminal: no retry, upstream account discovery or fallback.
+
+Users do not create a fake key. The current binding requires a non-empty bearer,
+so Victor internally sends the fixed public `Bearer not-needed` marker in starter
+mode. It carries no identity or authority; a None-mode server ignores it and
+creates its own fixed principal. A protected server refuses it. Published Sandhi
+0.17.1 does not provide the 0.18 server's default starter mode; source preparation
+and later published-wheel qualification remain separate release gates.
 
 `gateway.protocol` accepts `chat_completions`, `anthropic_messages`, `responses`, or
 `gemini_generate_content`. It overrides the provider's direct protocol hint. With no
@@ -91,7 +125,7 @@ path. Direct-provider auth and endpoint profiles keep their existing behavior.
 ```mermaid
 flowchart LR
   V[Victor: canonical messages/tools + cache intent] --> C[Explicit client dialect]
-  C --> G[Sandhi: virtual-key admission + selected backend]
+  C --> G[Sandhi: configured admission + selected backend]
   G --> P[One cache compiler using declared capabilities]
   P --> U[Upstream inference: one physical attempt]
   U --> L[Source disjoint usage + durable receipt]
