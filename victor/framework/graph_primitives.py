@@ -98,6 +98,14 @@ class ParallelBranchExecutionError(RuntimeError):
     """Raised when one or more fan-out branches fail."""
 
 
+class FanoutBudgetExceeded(ValueError):
+    """A fan-out expanded beyond the configured max_fanout_branches budget.
+
+    Raised before any branch effect: oversized expansion is rejected, not
+    truncated.
+    """
+
+
 @dataclass
 class Edge:
     """Represents an edge between nodes."""
