@@ -150,8 +150,33 @@ Respond with just the command to run."""
                 requires_approval=True,
             )
 
+        # Direct-spawn convergence (HB-02/03): the terminal launch follows
+        # the canonical required-policy decision — refuse when unenforceable,
+        # wrap the actual argv with the resolved backend when enforceable.
+        from victor.tools.sandbox import resolve_required_launch
+
         try:
-            cmd_parts = shlex.split(request.command)
+            from victor.config.settings import get_settings
+
+            sandbox_settings = getattr(get_settings(), "sandbox", None)
+        except Exception:
+            sandbox_settings = None
+        launch_decision = resolve_required_launch(sandbox_settings)
+        if launch_decision.refuse:
+            return TerminalCommandResponse(
+                command_id=cmd_id,
+                command=request.command,
+                status="failed",
+                output=launch_decision.reason,
+                exit_code=-1,
+                is_dangerous=False,
+                requires_approval=False,
+            )
+        cmd_parts = shlex.split(request.command)
+        if launch_decision.required_active:
+            cmd_parts = launch_decision.backend.wrap_argv(cmd_parts, resolved_dir)
+
+        try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd_parts,
                 stdout=asyncio.subprocess.PIPE,

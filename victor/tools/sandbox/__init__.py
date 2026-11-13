@@ -22,10 +22,12 @@ See :mod:`victor.tools.sandbox.backends`. Activated via ``settings.sandbox``
 from victor.tools.sandbox.backends import (
     BubblewrapSandbox,
     NoneSandbox,
+    RequiredLaunchDecision,
     SandboxBackend,
     SandboxRequiredUnavailableError,
     SeatbeltSandbox,
     effective_sandbox_policy,
+    resolve_required_launch,
     resolve_sandbox_backend,
 )
 
@@ -35,6 +37,8 @@ __all__ = [
     "BubblewrapSandbox",
     "SeatbeltSandbox",
     "SandboxRequiredUnavailableError",
+    "RequiredLaunchDecision",
     "effective_sandbox_policy",
+    "resolve_required_launch",
     "resolve_sandbox_backend",
 ]

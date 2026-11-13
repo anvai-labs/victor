@@ -42,6 +42,7 @@ import logging
 import platform
 import shutil
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -314,12 +315,60 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
     return backend
 
 
+@dataclass(frozen=True)
+class RequiredLaunchDecision:
+    """Resolved decision for a required-policy launch (HB-02/03, ADR-L02).
+
+    ``required_active`` is False unless the effective policy is required.
+    ``refuse`` marks a required policy that cannot be enforced (typed
+    resolver failures and generic resolver/configuration errors alike) —
+    callers must refuse before any spawn and never degrade to no sandbox.
+    """
+
+    required_active: bool = False
+    backend: Optional["SandboxBackend"] = None
+    refuse: bool = False
+    reason: str = ""
+
+
+def resolve_required_launch(sandbox_settings: Any) -> RequiredLaunchDecision:
+    """Resolve whether a required policy can reach an enforcing launch.
+
+    Consolidates the fail-closed rule shared by the canonical subprocess
+    executor, the workflow sandbox executor and direct-spawn routes: under a
+    KNOWN required policy, any resolver or configuration failure refuses
+    (never degrades); other policies return a non-active decision and keep
+    their historical semantics.
+    """
+    try:
+        policy = effective_sandbox_policy(sandbox_settings)
+    except Exception:
+        return RequiredLaunchDecision()
+    if policy != "required":
+        return RequiredLaunchDecision()
+    try:
+        backend: SandboxBackend = resolve_sandbox_backend(sandbox_settings)
+    except SandboxRequiredUnavailableError as exc:
+        return RequiredLaunchDecision(refuse=True, reason=str(exc))
+    except Exception as exc:
+        return RequiredLaunchDecision(
+            refuse=True,
+            reason=(
+                "Sandbox policy is 'required' but backend resolution failed "
+                f"({exc}); refusing execution (fail-closed)."
+            ),
+        )
+    return RequiredLaunchDecision(required_active=True, backend=backend)
+
+
 __all__ = [
     "SandboxBackend",
     "NoneSandbox",
     "BubblewrapSandbox",
     "SeatbeltSandbox",
     "SandboxRequiredUnavailableError",
+    "RequiredLaunchDecision",
     "effective_sandbox_policy",
+    "resolve_required_launch",
     "resolve_sandbox_backend",
 ]
