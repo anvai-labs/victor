@@ -226,6 +226,9 @@ class ExecutionConfig:
         max_parallel_branches: Maximum Send fan-out branches executed
             concurrently (default: 16). Additional admitted branches are
             queued, never truncated — every admitted branch still completes.
+        max_fanout_branches: Hard cap on the number of Send branches one
+            fan-out may expand to (default: None = unlimited). Oversized
+            expansion is rejected before any branch effect.
 
     Example:
         config = ExecutionConfig(max_iterations=50, timeout=300.0)
@@ -235,6 +238,7 @@ class ExecutionConfig:
     timeout: Optional[float] = None
     recursion_limit: int = 500
     max_parallel_branches: int = 16
+    max_fanout_branches: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validate execution configuration limits."""
@@ -247,6 +251,10 @@ class ExecutionConfig:
         if self.max_parallel_branches < 1:
             raise ValueError(
                 f"max_parallel_branches must be >= 1, got {self.max_parallel_branches}"
+            )
+        if self.max_fanout_branches is not None and self.max_fanout_branches < 1:
+            raise ValueError(
+                f"max_fanout_branches must be >= 1 or None, got {self.max_fanout_branches}"
             )
 
 
@@ -453,6 +461,7 @@ class GraphConfig:
                 timeout=kwargs.get("timeout"),
                 recursion_limit=kwargs.get("recursion_limit", 500),
                 max_parallel_branches=kwargs.get("max_parallel_branches", 16),
+                max_fanout_branches=kwargs.get("max_fanout_branches"),
             ),
             checkpoint=CheckpointConfig(
                 checkpointer=kwargs.get("checkpointer"),

@@ -367,6 +367,12 @@ RELATED_TESTS = {
         "tests/unit/tools/sandbox/test_backends.py",
         "tests/unit/tools/sandbox/test_executor_integration.py",
     ),
+    # Graph primitives: Send/edge dataclasses and the typed fan-out budget
+    # error are pinned by the graph execution owners (no primitives mirror).
+    "victor/framework/graph_primitives.py": (
+        "tests/unit/framework/test_graph.py",
+        "tests/unit/framework/test_graph_execution.py",
+    ),
     "victor/storage/embeddings/intent_classifier.py": (
         "tests/unit/agent/test_continuation_loop_fix.py",
         "tests/unit/architecture/test_layering_facades.py",
