@@ -223,6 +223,9 @@ class ExecutionConfig:
         max_iterations: Maximum cycles allowed (default: 125)
         timeout: Overall execution timeout in seconds (None = no limit)
         recursion_limit: Maximum recursion depth (default: 500)
+        max_parallel_branches: Maximum Send fan-out branches executed
+            concurrently (default: 16). Additional admitted branches are
+            queued, never truncated — every admitted branch still completes.
 
     Example:
         config = ExecutionConfig(max_iterations=50, timeout=300.0)
@@ -231,6 +234,7 @@ class ExecutionConfig:
     max_iterations: int = 125
     timeout: Optional[float] = None
     recursion_limit: int = 500
+    max_parallel_branches: int = 16
 
     def __post_init__(self) -> None:
         """Validate execution configuration limits."""
@@ -240,6 +244,10 @@ class ExecutionConfig:
             raise ValueError(f"timeout must be >= 0.1, got {self.timeout}")
         if self.recursion_limit < 1:
             raise ValueError(f"recursion_limit must be >= 1, got {self.recursion_limit}")
+        if self.max_parallel_branches < 1:
+            raise ValueError(
+                f"max_parallel_branches must be >= 1, got {self.max_parallel_branches}"
+            )
 
 
 @dataclass
@@ -444,6 +452,7 @@ class GraphConfig:
                 max_iterations=kwargs.get("max_iterations", 125),
                 timeout=kwargs.get("timeout"),
                 recursion_limit=kwargs.get("recursion_limit", 500),
+                max_parallel_branches=kwargs.get("max_parallel_branches", 16),
             ),
             checkpoint=CheckpointConfig(
                 checkpointer=kwargs.get("checkpointer"),
