@@ -198,3 +198,24 @@ def test_disabled_policy_keeps_terminal_launch_raw(monkeypatch, tmp_path):
 
     response = _execute(client, "echo hi")
     assert launched and launched[0][0] != "bwrap"
+
+
+def test_terminal_refuses_when_policy_unreadable(monkeypatch, tmp_path):
+    """NEXT-01: unreadable settings refuse the terminal launch (zero spawn)."""
+    import victor.config.settings as cs
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    launched: list = []
+    _trap_terminal_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    response = _execute(client, "echo hi")
+    assert launched == []
+    body = response.json()
+    assert body["status"] == "failed"
+    assert "policy" in body.get("output", "").lower()

@@ -402,3 +402,28 @@ async def test_network_floor_preserves_other_isolation_fields(monkeypatch):
     assert composed.network_allowed is False
     assert composed.docker_volumes == volumes
     assert composed.deployment is deployment
+
+
+async def test_workflow_refuses_when_policy_unreadable(monkeypatch):
+    """NEXT-01: unreadable settings refuse workflow process execution with
+    zero spawns — unknowable policy is not disabled mode."""
+    import victor.config.settings as cs
+    import victor.workflows.sandbox_executor as se
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned with unreadable policy")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _no_spawn)
+
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="process", network_allowed=True),
+    )
+    assert not result.success
+    assert "policy" in result.error.lower()

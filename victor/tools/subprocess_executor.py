@@ -63,6 +63,9 @@ class CommandErrorType(Enum):
     #: A ``required`` sandbox policy could not be enforced; the command was
     #: NOT executed (fail-closed dispatch refusal).
     SANDBOX_REQUIRED = "sandbox_required_unavailable"
+    #: The sandbox policy itself could not be established (unreadable or
+    #: malformed settings); the command was NOT executed (NEXT-01).
+    POLICY_UNAVAILABLE = "policy_unavailable"
     EXECUTION_ERROR = "execution_error"
     UNKNOWN = "unknown"
 
@@ -372,10 +375,16 @@ def _resolve_default_sandbox() -> "SandboxBackend":
         from victor.config.settings import get_settings
 
         sandbox_settings = getattr(get_settings(), "sandbox", None)
-    except Exception:
-        # Policy unreadable: required-ness is unknowable, so the historical
-        # degradation applies. A KNOWN required policy never takes this path.
-        return NoneSandbox()
+    except Exception as exc:
+        # NEXT-01: policy unreadable is not affirmative disabled mode —
+        # governed execution refuses rather than degrading open.
+        from victor.tools.sandbox import PolicyUnavailable
+
+        raise PolicyUnavailable(
+            "settings_read_failed",
+            f"Sandbox policy could not be established ({exc}); refusing "
+            "execution (fail-closed).",
+        ) from exc
 
     from victor.tools.sandbox import resolve_required_launch
 
@@ -396,14 +405,15 @@ def _sandbox_refusal_result(
     error_message: str,
     command: Union[str, List[str]],
     working_dir: Optional[Union[str, Path]] = None,
+    error_type: CommandErrorType = CommandErrorType.SANDBOX_REQUIRED,
 ) -> CommandResult:
-    """Structured required-policy dispatch refusal (no execution occurred)."""
+    """Structured sandbox-policy dispatch refusal (no execution occurred)."""
     return CommandResult(
         success=False,
         stdout="",
         stderr="",
         return_code=-1,
-        error_type=CommandErrorType.SANDBOX_REQUIRED,
+        error_type=error_type,
         error_message=error_message,
         command=command,
         working_dir=str(working_dir) if working_dir else None,
@@ -513,7 +523,10 @@ def run_command(
     # Apply OS sandbox if active (no-op when disabled; default off).
     # A required policy that cannot be enforced refuses dispatch BEFORE any
     # child process is spawned (fail-closed, zero execution).
-    from victor.tools.sandbox import SandboxRequiredUnavailableError
+    from victor.tools.sandbox import (
+        PolicyUnavailable,
+        SandboxRequiredUnavailableError,
+    )
 
     # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
     # required policy — unwrapped execution is refused.
@@ -527,6 +540,11 @@ def run_command(
 
     try:
         exec_args, exec_shell = _apply_sandbox(sandbox, args, shell, working_dir)
+    except PolicyUnavailable as exc:
+        logger.error("Refusing command execution: %s", exc)
+        return _sandbox_refusal_result(
+            str(exc), cmd_str, working_dir, CommandErrorType.POLICY_UNAVAILABLE
+        )
     except SandboxRequiredUnavailableError as exc:
         logger.error("Refusing command execution: %s", exc)
         return _sandbox_refusal_result(str(exc), cmd_str, working_dir)
@@ -847,7 +865,10 @@ async def run_command_async(
     # Apply OS sandbox if active (no-op when disabled; default off).
     # A required policy that cannot be enforced refuses dispatch BEFORE any
     # child process is spawned (fail-closed, zero execution).
-    from victor.tools.sandbox import SandboxRequiredUnavailableError
+    from victor.tools.sandbox import (
+        PolicyUnavailable,
+        SandboxRequiredUnavailableError,
+    )
 
     # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
     # required policy — unwrapped execution is refused.
@@ -861,6 +882,11 @@ async def run_command_async(
 
     try:
         backend = sandbox if sandbox is not None else _resolve_default_sandbox()
+    except PolicyUnavailable as exc:
+        logger.error("Refusing command execution: %s", exc)
+        return _sandbox_refusal_result(
+            str(exc), command, working_dir, CommandErrorType.POLICY_UNAVAILABLE
+        )
     except SandboxRequiredUnavailableError as exc:
         logger.error("Refusing command execution: %s", exc)
         return _sandbox_refusal_result(str(exc), command, working_dir)
