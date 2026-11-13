@@ -152,6 +152,11 @@ local credential resolution. Victor neither reads nor refreshes an OpenAI grant
 in this mode. It sends the selected ordinary client dialect with its virtual key to the
 configured HTTPS or literal/localhost loopback HTTP gateway. There is no direct
 upstream fallback. Invalid/missing gateway credentials fail before discovery.
+The settings entrypoint validates provider/profile/environment gateway configuration
+before consulting AccountManager or any direct-provider strategy. An unrelated
+named upstream account cannot block gateway authentication; its keys and endpoint
+are not resolved. Gateway OIDC identity/grant and explicit profile policy (including
+timeouts, token limits and client dialect) remain attached to the selected gateway.
 
 Sandhi's `openai` vault entry with `scheme=oauth` contains a strict JSON envelope:
 `access_token`, `account_id`, `expires_at` (Unix seconds). Unknown fields,

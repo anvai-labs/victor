@@ -1619,32 +1619,32 @@ def test_gateway_root_normalization_strips_v1_and_v1beta():
 def test_resolve_provider_gateway_uses_url_env_fallback(monkeypatch):
     from victor.config.provider_config_registry import resolve_provider_gateway
 
-    monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://env-gw:8600")
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_ACME", raising=False)
     settings: dict = {"gateway": {"virtual_key": "vk_x"}}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"]["url"] == "http://env-gw:8600"
+    assert settings["gateway"]["url"] == "https://env-gw:8600"
 
 
 def test_resolve_provider_gateway_canonicalizes_v1_suffix(monkeypatch):
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
-    settings: dict = {"gateway": {"url": "http://gw:8600/v1/", "virtual_key": "vk_x"}}
+    settings: dict = {"gateway": {"url": "https://gw:8600/v1/", "virtual_key": "vk_x"}}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"]["url"] == "http://gw:8600"
+    assert settings["gateway"]["url"] == "https://gw:8600"
 
 
 def test_env_only_gateway_config_materializes_a_block(monkeypatch):
     """SANDHI_GATEWAY_URL + virtual key, no per-provider YAML block at all."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
-    monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://env-gw:8600")
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
     monkeypatch.setenv("SANDHI_GATEWAY_VIRTUAL_KEY", "vk_env")
     settings: dict = {}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"] == {"url": "http://env-gw:8600", "virtual_key": "vk_env"}
+    assert settings["gateway"] == {"url": "https://env-gw:8600", "virtual_key": "vk_env"}
 
 
 def test_no_gateway_anywhere_leaves_settings_untouched(monkeypatch):

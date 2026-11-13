@@ -438,6 +438,11 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     configuration suppresses environment virtual-key fallback.
     """
     gateway = base_settings.get("gateway")
+    if gateway is not None and not isinstance(gateway, dict):
+        if hasattr(gateway, "model_dump"):
+            gateway = gateway.model_dump(exclude_none=True)
+        else:
+            raise ValueError("gateway must be a configuration mapping")
     if gateway is None:
         # No block at all: gateway mode is off unless the env supplies a URL.
         # Materialize a block from SANDHI_GATEWAY_URL so env-only configs
@@ -473,6 +478,11 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
             raise ValueError("Gateway credentials and scope require an explicit gateway URL")
         base_settings.pop("gateway", None)
         return
+    from victor.providers.gateway_contract import gateway_config
+
+    # Validate the submitted root before stripping its optional family suffix;
+    # normalization must not disguise an unsupported nested path.
+    gateway_config({"url": url})
     url = _normalize_gateway_root(url)
     if isinstance(gateway, dict):
         virtual_key = gateway.get("virtual_key")
@@ -480,6 +490,8 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
         virtual_key = getattr(gateway, "virtual_key_value", getattr(gateway, "virtual_key", None))
     if isinstance(virtual_key, SecretStr):
         virtual_key = virtual_key.get_secret_value()
+    if virtual_key is not None and not isinstance(virtual_key, str):
+        raise ValueError("gateway virtual key must be a string")
     extra = {}
     for name in ("oidc", "grant", "credential", "audience", "protocol"):
         value = gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None)
@@ -531,6 +543,8 @@ class ProviderConfigRegistry:
         settings: "Settings",
         profile_overrides: Optional[Dict[str, Any]] = None,
         account_data: Optional[Dict[str, Any]] = None,
+        *,
+        account_data_factory: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
     ) -> Dict[str, Any]:
         """Get settings for a provider.
 
@@ -545,6 +559,7 @@ class ProviderConfigRegistry:
             settings: Settings instance
             profile_overrides: Runtime overrides (e.g., coding_plan, auth_mode from CLI)
             account_data: Credential data from AccountManager (api_key, auth_mode, base_url)
+            account_data_factory: Lazy direct-mode account lookup, skipped for gateways.
 
         Returns:
             Provider settings dictionary
@@ -559,6 +574,25 @@ class ProviderConfigRegistry:
             if provider_config:
                 base_settings.update(unwrap_secrets(provider_config.model_dump(exclude_none=True)))
 
+            # A gateway is complete before any direct account, endpoint strategy,
+            # secret backend or discovery probe. Retain the profile's existing
+            # explicit-base-url gateway suppression rule.
+            gateway_settings = dict(base_settings)
+            if profile_overrides:
+                gateway_settings.update(profile_overrides)
+                if "base_url" in profile_overrides and "gateway" not in profile_overrides:
+                    gateway_settings.pop("gateway", None)
+            resolve_provider_gateway(gateway_settings, resolved)
+            if gateway_settings.get("gateway") is not None:
+                from victor.providers.gateway_contract import validate_gateway_auth
+
+                validate_gateway_auth(gateway_settings["gateway"], resolved)
+                return gateway_settings
+
+            # Settings supplies a lazy resolver so an unrelated named upstream
+            # account cannot block gateway authentication.
+            if account_data is None and account_data_factory is not None:
+                account_data = account_data_factory()
             # 2. Merge account data (credentials from config.yaml)
             if account_data:
                 # API key from AccountManager always wins (it's the credential source)
@@ -579,9 +613,9 @@ class ProviderConfigRegistry:
                 if "base_url" in profile_overrides and "gateway" not in profile_overrides:
                     base_settings.pop("gateway", None)
 
-            # 3.5 Normalize + env-resolve the per-provider Sandhi gateway block so it
-            # flows as a plain dict into the provider kwargs regardless of strategy.
-            resolve_provider_gateway(base_settings, resolved)
+            # Gateway mode was resolved once before direct credentials. Avoid
+            # re-reading environment configuration after the account callback.
+            base_settings.pop("gateway", None)
 
             # Get strategy
             strategy = self._strategies.get(resolved)

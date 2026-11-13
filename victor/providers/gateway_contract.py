@@ -15,9 +15,14 @@ def gateway_config(value: Any) -> Optional[dict]:
     url = value.get("url")
     if not isinstance(url, str) or not url.strip():
         raise ValueError("gateway requires a URL")
-    parsed = urlsplit(url.strip().rstrip("/"))
+    try:
+        parsed = urlsplit(url.strip().rstrip("/"))
+        port = parsed.port
+    except ValueError:
+        raise ValueError("gateway URL has an invalid host or port") from None
     if (
         not parsed.hostname
+        or port == 0
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query
@@ -52,6 +57,37 @@ def gateway_virtual_key(value: Any) -> Optional[str]:
     if not isinstance(key, str) or not key.strip():
         raise ValueError("gateway requires a non-empty virtual key")
     return key
+
+
+def validate_gateway_auth(value: Any, provider: str) -> None:
+    """Validate metadata without reading upstream credentials or broker tokens."""
+    config = gateway_config(value)
+    if config is None:
+        return
+    if provider != "openai":
+        gateway_virtual_key(config)
+        return
+    key = config.get("virtual_key")
+    if hasattr(key, "get_secret_value"):
+        key = key.get_secret_value()
+    oidc = config.get("oidc")
+    credential = config.get("credential")
+    if sum((bool(key), oidc is not None, credential is not None)) != 1:
+        raise ValueError("gateway requires exactly one virtual key or OIDC credential")
+    if oidc is not None:
+        from victor.core.identity.gateway import GatewayTokenFileCredential
+
+        if not isinstance(oidc, dict):
+            raise ValueError("gateway oidc must be an identity configuration")
+        # Constructor validation is metadata-only. Dispatch owns token reads.
+        GatewayTokenFileCredential(oidc)
+    elif credential is not None:
+        from victor.core.identity.protocols import TokenCredential
+
+        if not isinstance(credential, TokenCredential) or not config.get("audience"):
+            raise ValueError("gateway credential requires TokenCredential and audience")
+    elif not isinstance(key, str) or not key.strip():
+        raise ValueError("gateway requires a non-empty virtual key")
 
 
 def client_protocol(slug: str, declared: str = "", override: Optional[str] = None) -> str:
