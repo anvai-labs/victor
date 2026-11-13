@@ -2115,3 +2115,75 @@ def test_execution_config_fanout_budget_validation():
     assert ExecutionConfig(max_fanout_branches=8).max_fanout_branches == 8
     with pytest.raises(ValueError):
         ExecutionConfig(max_fanout_branches=0)
+
+
+# ---------------------------------------------------------------------------
+# R2-03/R2-04: worker failure ownership + strict count validation
+# ---------------------------------------------------------------------------
+
+
+async def test_unexpected_branch_failure_stops_admission_and_joins_workers(
+    monkeypatch,
+):
+    """R2-03: an unexpected error (deepcopy raising) must stop new admission
+    and cancel/join the other workers BEFORE the caller sees the failure —
+    no sibling may drain queued branches afterwards."""
+    import victor.framework.graph as graph_mod
+
+    graph, events, completed = _make_instrumented_fanout(12)
+    real_deepcopy = graph_mod.copy.deepcopy
+    fail_after = {"count": 3}
+
+    def _failing_deepcopy(value):
+        if isinstance(value, dict) and "index" in value:
+            fail_after["count"] -= 1
+            if fail_after["count"] < 0:
+                raise ValueError("synthetic serialization failure")
+        return real_deepcopy(value)
+
+    monkeypatch.setattr(graph_mod, "copy", SimpleNamespace(deepcopy=_failing_deepcopy))
+    app = graph.compile(max_parallel_branches=4)
+
+    with pytest.raises(ValueError, match="synthetic serialization failure"):
+        await app.invoke({"value": 0, "history": []}, thread_id="t-r2-03")
+
+    # The sibling workers must not keep draining queued branches after the
+    # caller has seen the failure: total executions stay bounded by what was
+    # in flight, and no branch runs after invoke returned.
+    drained_after = len([e for e in events if e[0] == "exec"])
+    assert drained_after <= 8, (
+        f"{drained_after} executions — siblings drained queued work after failure"
+    )
+
+
+def test_count_budgets_reject_bool_float_nan_and_inf():
+    """R2-04: count fields are positive finite integers — bool, floats and
+    NaN/inf are rejected (NaN would defeat the cap comparison)."""
+    from math import inf, nan
+
+    from victor.framework.config import ExecutionConfig
+
+    for bad in (True, False, 1.5, 2.0, nan, inf, -inf):
+        with pytest.raises(ValueError):
+            ExecutionConfig(max_parallel_branches=bad)
+        with pytest.raises(ValueError):
+            ExecutionConfig(max_fanout_branches=bad)
+    # None is intentional only for the fan-out budget.
+    assert ExecutionConfig(max_fanout_branches=None).max_fanout_branches is None
+    with pytest.raises(ValueError):
+        ExecutionConfig(max_parallel_branches=None)
+
+
+def test_count_budget_validation_holds_through_legacy_and_compile():
+    """The boundary holds through from_legacy and compile(**kwargs) too."""
+    from victor.framework.config import GraphConfig
+
+    with pytest.raises(ValueError):
+        GraphConfig.from_legacy(max_parallel_branches=True)
+    with pytest.raises(ValueError):
+        GraphConfig.from_legacy(max_fanout_branches=float("nan"))
+    graph = StateGraph(SimpleState)
+    graph.add_node("a", lambda s: s)
+    graph.set_entry_point("a")
+    with pytest.raises(ValueError):
+        graph.compile(max_fanout_branches=1.5)
