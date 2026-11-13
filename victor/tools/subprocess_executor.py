@@ -396,6 +396,24 @@ def _resolve_default_sandbox() -> "SandboxBackend":
         return NoneSandbox()  # pragma: no cover - defensive: preferred path
 
 
+def _sandbox_refusal_result(
+    error_message: str,
+    command: Union[str, List[str]],
+    working_dir: Optional[Union[str, Path]] = None,
+) -> CommandResult:
+    """Structured required-policy dispatch refusal (no execution occurred)."""
+    return CommandResult(
+        success=False,
+        stdout="",
+        stderr="",
+        return_code=-1,
+        error_type=CommandErrorType.SANDBOX_REQUIRED,
+        error_message=error_message,
+        command=command,
+        working_dir=str(working_dir) if working_dir else None,
+    )
+
+
 def _required_policy_active() -> bool:
     """Whether the effective sandbox policy is ``required`` (best effort).
 
@@ -509,31 +527,13 @@ def run_command(
             "cannot bypass enforcement (fail-closed)."
         )
         logger.error("Refusing command execution: %s", refusal)
-        return CommandResult(
-            success=False,
-            stdout="",
-            stderr="",
-            return_code=-1,
-            error_type=CommandErrorType.SANDBOX_REQUIRED,
-            error_message=refusal,
-            command=cmd_str,
-            working_dir=str(working_dir) if working_dir else None,
-        )
+        return _sandbox_refusal_result(refusal, cmd_str, working_dir)
 
     try:
         exec_args, exec_shell = _apply_sandbox(sandbox, args, shell, working_dir)
     except SandboxRequiredUnavailableError as exc:
         logger.error("Refusing command execution: %s", exc)
-        return CommandResult(
-            success=False,
-            stdout="",
-            stderr="",
-            return_code=-1,
-            error_type=CommandErrorType.SANDBOX_REQUIRED,
-            error_message=str(exc),
-            command=cmd_str,
-            working_dir=str(working_dir) if working_dir else None,
-        )
+        return _sandbox_refusal_result(str(exc), cmd_str, working_dir)
 
     try:
         result = subprocess.run(
@@ -861,31 +861,13 @@ async def run_command_async(
             "cannot bypass enforcement (fail-closed)."
         )
         logger.error("Refusing command execution: %s", refusal)
-        return CommandResult(
-            success=False,
-            stdout="",
-            stderr="",
-            return_code=-1,
-            error_type=CommandErrorType.SANDBOX_REQUIRED,
-            error_message=refusal,
-            command=command,
-            working_dir=str(working_dir) if working_dir else None,
-        )
+        return _sandbox_refusal_result(refusal, command, working_dir)
 
     try:
         backend = sandbox if sandbox is not None else _resolve_default_sandbox()
     except SandboxRequiredUnavailableError as exc:
         logger.error("Refusing command execution: %s", exc)
-        return CommandResult(
-            success=False,
-            stdout="",
-            stderr="",
-            return_code=-1,
-            error_type=CommandErrorType.SANDBOX_REQUIRED,
-            error_message=str(exc),
-            command=command,
-            working_dir=str(working_dir) if working_dir else None,
-        )
+        return _sandbox_refusal_result(str(exc), command, working_dir)
 
     try:
         run_kwargs: Dict[str, Any] = {

@@ -70,6 +70,17 @@ class _PolicyDecision:
     backend: Optional["SandboxBackend"] = None
 
 
+def _required_refusal_result(error: str) -> SandboxExecutionResult:
+    """Structured required-policy refusal; no execution was attempted."""
+    return SandboxExecutionResult(
+        success=False,
+        output="",
+        error=error,
+        exit_code=-1,
+        sandbox_type="none",
+    )
+
+
 @dataclass
 class SandboxExecutionResult:
     """Result of sandboxed execution.
@@ -297,23 +308,11 @@ class SandboxedExecutor:
         # historical behavior (including the docker -> process fallback).
         policy_decision = self._resolve_policy_decision(isolation.sandbox_type)
         if policy_decision.refuse:
-            return SandboxExecutionResult(
-                success=False,
-                output="",
-                error=policy_decision.reason,
-                exit_code=-1,
-                sandbox_type="none",
-            )
+            return _required_refusal_result(policy_decision.reason)
         if policy_decision.required_active and isolation.sandbox_type == "none":
-            return SandboxExecutionResult(
-                success=False,
-                output="",
-                error=(
-                    "Sandbox policy is 'required': sandbox_type='none' is unenforced "
-                    "execution and was refused (fail-closed)."
-                ),
-                exit_code=-1,
-                sandbox_type="none",
+            return _required_refusal_result(
+                "Sandbox policy is 'required': sandbox_type='none' is unenforced "
+                "execution and was refused (fail-closed)."
             )
 
         if isolation.sandbox_type == "docker":
@@ -322,16 +321,10 @@ class SandboxedExecutor:
                     command, isolation, working_dir, env, input_data
                 )
             elif policy_decision.required_active:
-                return SandboxExecutionResult(
-                    success=False,
-                    output="",
-                    error=(
-                        "Sandbox policy is 'required': docker isolation is unavailable "
-                        "and falling back to weaker process isolation was refused "
-                        "(fail-closed)."
-                    ),
-                    exit_code=-1,
-                    sandbox_type="none",
+                return _required_refusal_result(
+                    "Sandbox policy is 'required': docker isolation is unavailable "
+                    "and falling back to weaker process isolation was refused "
+                    "(fail-closed)."
                 )
             else:
                 logger.warning("Docker not available, falling back to process isolation")
