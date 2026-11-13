@@ -128,6 +128,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     @router.post("/workflows/execute")
     async def execute_workflow(request: Request) -> JSONResponse:
         """Execute a workflow."""
+        owner_client_id = getattr(request.state, "client_id", None)
         try:
             data = await request.json()
             template_id = data.get("template_id")
@@ -150,6 +151,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             server._workflow_executions[execution_id] = {
                 "id": execution_id,
                 "workflow_id": template_id,
+                "owner_client_id": owner_client_id,
                 "workflow_name": workflow_def.name,
                 "status": "running",
                 "parameters": parameters,
@@ -176,7 +178,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     "event": "workflow_started",
                     "data": server._workflow_executions[execution_id],
                     "timestamp": time.time(),
-                }
+                },
+                owner_client_id=owner_client_id,
             )
 
             async def run_workflow():
@@ -231,7 +234,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 ),
                                 "data": exec_state,
                                 "timestamp": time.time(),
-                            }
+                            },
+                            owner_client_id=owner_client_id,
                         )
 
                 except Exception as e:
@@ -248,7 +252,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 "event": "workflow_failed",
                                 "data": exec_state,
                                 "timestamp": time.time(),
-                            }
+                            },
+                            owner_client_id=owner_client_id,
                         )
 
             asyncio.create_task(run_workflow())
@@ -307,7 +312,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 "event": "workflow_cancelled",
                 "data": exec_state,
                 "timestamp": time.time(),
-            }
+            },
+            owner_client_id=exec_state.get("owner_client_id"),
         )
 
         return JSONResponse(

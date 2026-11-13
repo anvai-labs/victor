@@ -380,3 +380,108 @@ def test_frame_drip_cannot_extend_auth_deadline(monkeypatch, tmp_path):
             time.sleep(0.6)
             with pytest.raises(WebSocketDisconnect):
                 _receive_bounded(client, ws, timeout=5.0)
+
+
+# ---------------------------------------------------------------------------
+# Owner-scoped broadcast delivery (cross-owner denial)
+# ---------------------------------------------------------------------------
+
+
+def test_cross_owner_broadcast_is_withheld(monkeypatch, tmp_path):
+    """Two authenticated principals must not receive each other's protected
+    events: a tool approval resolved by bob must reach bob's sockets, not
+    alice's (delivery-time ownership check)."""
+    server = _create_server(
+        monkeypatch,
+        tmp_path,
+        _FakeOrchestrator(),
+        api_keys={"sk-alice": "alice", "sk-bob": "bob"},
+    )
+    approval_id = _seed_pending_approval(server, "apr-cross")
+
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws_alice:
+            with client.websocket_connect("/ws") as ws_bob:
+                ws_alice.send_json({"type": "auth", "api_key": "sk-alice"})
+                assert ws_alice.receive_json()["type"] == "auth_success"
+                ws_bob.send_json({"type": "auth", "api_key": "sk-bob"})
+                assert ws_bob.receive_json()["type"] == "auth_success"
+
+                resp = client.post(
+                    "/tools/approve",
+                    json={"approval_id": approval_id, "approved": True},
+                    headers={"Authorization": "Bearer sk-bob"},
+                )
+                assert resp.status_code == 200, resp.text
+
+                # The owning principal receives the event before its pong.
+                ws_bob.send_json({"type": "ping"})
+                first = _receive_bounded(client, ws_bob)
+                assert first["type"] == "tool_approval_resolved", first
+
+                # The other principal's first message must be its pong —
+                # no cross-owner delivery.
+                ws_alice.send_json({"type": "ping"})
+                msg = _receive_bounded(client, ws_alice)
+                assert msg["type"] == "pong", f"cross-owner socket received protected event: {msg}"
+
+
+def test_same_principal_multiple_sockets_receive_broadcast(monkeypatch, tmp_path):
+    """Multiple sockets authenticated as the SAME principal all receive that
+    principal's events (key -> client_id map, not per-socket identity)."""
+    server = _create_server(
+        monkeypatch,
+        tmp_path,
+        _FakeOrchestrator(),
+        api_keys={"sk-alice": "alice"},
+    )
+    approval_id = _seed_pending_approval(server, "apr-same")
+
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws_a:
+            with client.websocket_connect("/ws") as ws_b:
+                for ws in (ws_a, ws_b):
+                    ws.send_json({"type": "auth", "api_key": "sk-alice"})
+                    assert ws.receive_json()["type"] == "auth_success"
+
+                resp = client.post(
+                    "/tools/approve",
+                    json={"approval_id": approval_id, "approved": True},
+                    headers={"Authorization": "Bearer sk-alice"},
+                )
+                assert resp.status_code == 200, resp.text
+
+                for ws in (ws_a, ws_b):
+                    ws.send_json({"type": "ping"})
+                    first = _receive_bounded(client, ws)
+                    assert first["type"] == "tool_approval_resolved", first
+                    assert ws.receive_json()["type"] == "pong"
+
+
+def test_unbound_internal_broadcast_reaches_all_authenticated(monkeypatch, tmp_path):
+    """Broadcasts with no bound owner (internal events, e.g.
+    _broadcast_agent_event) keep reaching all authenticated sockets — the
+    bounded slice binds ownership only where a request principal exists."""
+    server = _create_server(
+        monkeypatch, tmp_path, _FakeOrchestrator(), api_keys={"sk-alice": "alice"}
+    )
+
+    with TestClient(server.app) as client:
+        with client.websocket_connect("/ws") as ws_a:
+            with client.websocket_connect("/ws") as ws_b:
+                ws_a.send_json({"type": "auth", "api_key": "sk-alice"})
+                assert ws_a.receive_json()["type"] == "auth_success"
+                ws_b.send_json({"type": "auth", "api_key": "sk-alice"})
+                assert ws_b.receive_json()["type"] == "auth_success"
+
+                client.portal.call(
+                    server._broadcast_agent_event,
+                    "task_update",
+                    {"detail": "progress"},
+                )
+
+                for ws in (ws_a, ws_b):
+                    ws.send_json({"type": "ping"})
+                    first = _receive_bounded(client, ws)
+                    assert first["type"] == "agent_event", first
+                    assert ws.receive_json()["type"] == "pong"

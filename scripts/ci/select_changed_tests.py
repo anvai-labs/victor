@@ -1002,6 +1002,16 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/websocket_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
     ),
+    # Tool/team routes: approval/cancel wiring and owner-scoped broadcast
+    # delivery are pinned by the consolidated-routes and WS auth gate suites
+    # (no per-route mirror files).
+    "victor/integrations/api/routes/tool_routes.py": (
+        "tests/unit/api/test_consolidated_routes.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
+    "victor/integrations/api/routes/team_routes.py": (
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",
         "tests/unit/protocols/test_protocol_adapters.py",

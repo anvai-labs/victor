@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -87,7 +87,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             return JSONResponse({"tools": [], "total": 0, "error": str(e)})
 
     @router.post("/tools/approve")
-    async def approve_tool(request: ToolApprovalRequest) -> JSONResponse:
+    async def approve_tool(request: ToolApprovalRequest, http_request: Request) -> JSONResponse:
         """Approve or reject a pending tool execution."""
         if request.approval_id in server._pending_tool_approvals:
             approval = server._pending_tool_approvals.pop(request.approval_id)
@@ -100,7 +100,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     "approval_id": request.approval_id,
                     "approved": request.approved,
                     "tool_name": approval.get("tool_name"),
-                }
+                },
+                owner_client_id=getattr(http_request.state, "client_id", None),
             )
 
             return JSONResponse(
@@ -132,7 +133,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         return JSONResponse({"pending": pending, "count": len(pending)})
 
     @router.post("/tools/cancel")
-    async def cancel_tool(request: ToolCancelRequest) -> JSONResponse:
+    async def cancel_tool(request: ToolCancelRequest, http_request: Request) -> JSONResponse:
         """Cancel a pending tool execution by its tool_call_id (or approval_id)."""
         target = request.tool_call_id
         match_id = None
@@ -159,7 +160,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     "approval_id": match_id,
                     "tool_call_id": target,
                     "tool_name": approval.get("tool_name"),
-                }
+                },
+                owner_client_id=getattr(http_request.state, "client_id", None),
             )
         except Exception:
             logger.debug("broadcast tool_cancelled failed", exc_info=True)
