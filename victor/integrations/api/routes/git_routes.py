@@ -51,12 +51,16 @@ def _resolve_git_launch():
     """Resolve the canonical required-launch decision for git spawns."""
     from victor.tools.sandbox import resolve_required_launch
 
+
     try:
         from victor.config.settings import get_settings
 
         sandbox_settings = getattr(get_settings(), "sandbox", None)
-    except Exception:
-        sandbox_settings = None
+    except Exception as exc:
+        # NEXT-01: unknowable policy refuses governed execution.
+        raise GitPolicyRefusal(
+            f"Sandbox policy could not be established ({exc}); refusing " "execution (fail-closed)."
+        ) from exc
     return resolve_required_launch(sandbox_settings)
 
 

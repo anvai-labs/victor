@@ -130,3 +130,25 @@ def test_git_status_raw_exec_on_disabled_policy(monkeypatch, tmp_path):
     response = client.get("/git/status")
     assert launched and launched[0][0] == "git"
     assert response.status_code == 200
+
+
+def test_git_routes_refuse_when_policy_unreadable(monkeypatch, tmp_path):
+    """NEXT-01: unreadable settings are not affirmative disabled mode — git
+    launches refuse before any spawn."""
+    import victor.config.settings as cs
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+    server = _create_server(monkeypatch, tmp_path)
+    launched: list = []
+    _trap_git_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    status = client.get("/git/status")
+    commit = client.post("/git/commit", json={"message": "probe"})
+    assert launched == [], "no spawn may be attempted with unreadable policy"
+    assert "policy" in status.json().get("error", "").lower()
+    assert commit.json().get("success") is False
+    assert "policy" in commit.json().get("error", "").lower()

@@ -305,10 +305,45 @@ def test_explicit_none_sandbox_cannot_weaken_required_policy(monkeypatch):
     assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
 
 
-def test_policy_unreadable_degrades_open_only_without_required(monkeypatch):
-    """If settings cannot be loaded the policy is unknowable — historical
-    degradation applies (documented; distinct from a known-required
-    resolution failure)."""
+def test_policy_unreadable_raises_policy_unavailable(monkeypatch):
+    """NEXT-01: inability to establish policy is not affirmative disabled
+    mode — the resolver raises a typed PolicyUnavailable refusal."""
+    import victor.config.settings as cs
+    import victor.tools.sandbox as vs
+    import victor.tools.subprocess_executor as se
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+    with pytest.raises(vs.PolicyUnavailable) as excinfo:
+        se._resolve_default_sandbox()
+    assert excinfo.value.reason == "settings_read_failed"
+
+
+def test_run_command_policy_unreadable_refuses_execution(monkeypatch):
+    """run_command with unreadable settings refuses with a structured
+    result and zero spawns (NEXT-01 fail-closed)."""
+    import subprocess
+
+    import victor.config.settings as cs
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+
+    def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned with unreadable policy")
+
+    monkeypatch.setattr(subprocess, "run", _no_spawn)
+    result = run_command("echo hi", shell=True)
+    assert result.success is False
+    assert result.error_type == CommandErrorType.POLICY_UNAVAILABLE
+    assert "policy" in result.error_message.lower()
+
+
+async def test_run_command_async_policy_unreadable_refuses_execution(monkeypatch):
     import victor.config.settings as cs
     import victor.tools.subprocess_executor as se
 
@@ -316,4 +351,11 @@ def test_policy_unreadable_degrades_open_only_without_required(monkeypatch):
         raise RuntimeError("settings unavailable")
 
     monkeypatch.setattr(cs, "get_settings", _boom)
-    assert se._resolve_default_sandbox().type_name == "none"
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned with unreadable policy")
+
+    monkeypatch.setattr(se, "run_managed_process", _no_spawn)
+    result = await run_command_async("echo hi")
+    assert result.success is False
+    assert result.error_type == CommandErrorType.POLICY_UNAVAILABLE

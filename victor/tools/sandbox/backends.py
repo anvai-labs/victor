@@ -196,6 +196,21 @@ class SeatbeltSandbox(SandboxBackend):
         return ["sandbox-exec", "-p", profile] + list(argv)
 
 
+class PolicyUnavailable(RuntimeError):
+    """The sandbox policy could not be established (settings read failure,
+    malformed configuration).
+
+    Unknowable policy is NOT affirmative disabled mode (NEXT-01): launch
+    owners must refuse governed execution instead of degrading open. An
+    explicit disabled/preferred decision remains available only after a
+    successful settings read.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 def _warn_once(message: str) -> None:
     """Emit the fail-open warning at most once per process."""
     global _warned_unavailable
@@ -367,6 +382,7 @@ __all__ = [
     "BubblewrapSandbox",
     "SeatbeltSandbox",
     "SandboxRequiredUnavailableError",
+    "PolicyUnavailable",
     "RequiredLaunchDecision",
     "effective_sandbox_policy",
     "resolve_required_launch",

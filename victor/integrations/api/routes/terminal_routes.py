@@ -159,8 +159,20 @@ Respond with just the command to run."""
             from victor.config.settings import get_settings
 
             sandbox_settings = getattr(get_settings(), "sandbox", None)
-        except Exception:
-            sandbox_settings = None
+        except Exception as exc:
+            # NEXT-01: unknowable policy refuses governed execution.
+            return TerminalCommandResponse(
+                command_id=cmd_id,
+                command=request.command,
+                status="failed",
+                output=(
+                    f"Sandbox policy could not be established ({exc}); "
+                    "refusing execution (fail-closed)."
+                ),
+                exit_code=-1,
+                is_dangerous=False,
+                requires_approval=False,
+            )
         launch_decision = resolve_required_launch(sandbox_settings)
         if launch_decision.refuse:
             return TerminalCommandResponse(

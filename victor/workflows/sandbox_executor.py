@@ -271,8 +271,15 @@ class SandboxedExecutor:
             from victor.config.settings import get_settings
 
             sandbox_settings = getattr(get_settings(), "sandbox", None)
-        except Exception:
-            return _PolicyDecision()
+        except Exception as exc:
+            # NEXT-01: unknowable policy refuses governed execution.
+            return _PolicyDecision(
+                refuse=True,
+                reason=(
+                    f"Sandbox policy could not be established ({exc}); "
+                    "refusing execution (fail-closed)."
+                ),
+            )
         try:
             policy = effective_sandbox_policy(sandbox_settings)
         except Exception:
