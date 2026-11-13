@@ -231,13 +231,13 @@ def _install_required_settings(monkeypatch) -> None:
 def test_resolver_exception_under_required_raises(monkeypatch):
     """A generic resolver exception under a required policy must surface as a
     typed refusal, never silently degrade to NoneSandbox."""
-    import victor.tools.sandbox as vs
+    import victor.tools.sandbox.backends as sb_mod
 
     _install_required_settings(monkeypatch)
-    monkeypatch.setattr(vs, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+    monkeypatch.setattr(sb_mod, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
     from victor.tools.subprocess_executor import _resolve_default_sandbox
 
-    with pytest.raises(vs.SandboxRequiredUnavailableError) as excinfo:
+    with pytest.raises(sb_mod.SandboxRequiredUnavailableError) as excinfo:
         _resolve_default_sandbox()
     assert excinfo.value.reason == "resolver_error"
 
@@ -251,10 +251,10 @@ def test_run_command_required_resolver_failure_refuses_execution(monkeypatch):
     structured refusal and never spawns (sync, shell path)."""
     import subprocess
 
-    import victor.tools.sandbox as vs
+    import victor.tools.sandbox.backends as sb_mod
 
     _install_required_settings(monkeypatch)
-    monkeypatch.setattr(vs, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+    monkeypatch.setattr(sb_mod, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
 
     def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
         raise AssertionError("child spawned despite required-policy resolver failure")
@@ -269,10 +269,10 @@ def test_run_command_required_resolver_failure_refuses_execution(monkeypatch):
 async def test_run_command_async_required_resolver_failure_refuses_execution(
     monkeypatch,
 ):
-    import victor.tools.sandbox as vs
+    import victor.tools.sandbox.backends as sb_mod
 
     _install_required_settings(monkeypatch)
-    monkeypatch.setattr(vs, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+    monkeypatch.setattr(sb_mod, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
 
     import victor.tools.subprocess_executor as se
 
