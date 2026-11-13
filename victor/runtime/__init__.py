@@ -11,6 +11,7 @@ from victor.runtime.context import (
     resolve_execution_context,
     resolve_runtime_services,
 )
+from victor.runtime.policy_snapshot import PolicySnapshotError, RunPolicySnapshot
 from victor.runtime.trace_context import TraceContext, current_trace, get_correlation_id
 
 __all__ = [
@@ -25,6 +26,8 @@ __all__ = [
     "resolve_runtime_services",
     "resolve_chat_runtime",
     "resolve_chat_service",
+    "PolicySnapshotError",
+    "RunPolicySnapshot",
     "TraceContext",
     "current_trace",
     "get_correlation_id",

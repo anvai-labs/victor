@@ -22,6 +22,7 @@ from victor.framework._internal import _supports_keyword_argument, format_contex
 from victor.framework.task import DirectResponseOutputState, TaskResult
 from victor.providers.base import CompletionResponse
 from victor.runtime.chat_runtime import resolve_chat_runtime as _resolve_chat_runtime
+from victor.runtime.policy_snapshot import PolicySnapshotError, RunPolicySnapshot
 
 
 @dataclass(frozen=True)
@@ -137,7 +138,43 @@ def _durable_pause_enabled(orchestrator: Any) -> bool:
     return bool(getattr(governance, "durable", False))
 
 
-async def _build_awaiting_task_result(orchestrator: Any, pause: Any) -> TaskResult:
+def _admit_run_policy(
+    orchestrator: Any,
+    execution_context: Any,
+) -> tuple[RunPolicySnapshot, Any]:
+    """Establish one immutable policy snapshot before model/tool work.
+
+    The returned execution context is a per-run derivative when the canonical
+    context supports it. Legacy SimpleNamespace-style test contexts are passed
+    through unchanged rather than being mutated.
+    """
+    snapshot = RunPolicySnapshot.from_settings(getattr(orchestrator, "settings", None))
+    context = execution_context
+    if context is None:
+        from victor.runtime.context import resolve_execution_context
+
+        context = resolve_execution_context(orchestrator)
+    with_policy = getattr(context, "with_run_policy", None)
+    if callable(with_policy):
+        context = with_policy(snapshot)
+    return snapshot, context
+
+
+def _run_policy_admission_failure(exc: PolicySnapshotError) -> TaskResult:
+    return TaskResult(
+        content="",
+        tool_calls=[],
+        success=False,
+        error=f"Run policy could not be established: {exc}",
+        metadata={"policy_snapshot_error": exc.reason},
+    )
+
+
+async def _build_awaiting_task_result(
+    orchestrator: Any,
+    pause: Any,
+    run_policy: RunPolicySnapshot,
+) -> TaskResult:
     """Convert an :class:`ApprovalPause` into an ``awaiting_approval`` TaskResult (FEP-0029).
 
     Persists a resumable pause before returning the
@@ -154,7 +191,10 @@ async def _build_awaiting_task_result(orchestrator: Any, pause: Any) -> TaskResu
         session_id=owner[0],
         agent_id=owner[1] or owner[2],
         created_at=time.time(),
-        metadata={"stage": _resolve_stage_value(orchestrator)},
+        metadata={
+            "stage": _resolve_stage_value(orchestrator),
+            "run_policy": run_policy.to_metadata(),
+        },
     )
     if owner != tuple(getattr(orchestrator, name, None) for name in owner_fields):
         raise PermissionError("Approval pause ownership changed during persistence")
@@ -359,11 +399,15 @@ async def execute_message(
     from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
 
     prepared = prepare_message(user_message, context)
+    try:
+        run_policy, admitted_context = _admit_run_policy(orchestrator, execution_context)
+    except PolicySnapshotError as exc:
+        return _run_policy_admission_failure(exc)
 
     _durable = _durable_pause_enabled(orchestrator)
     _token = current_durable_pause_enabled.set(True) if _durable else None
     try:
-        chat_runtime = _resolve_chat_runtime(orchestrator, execution_context)
+        chat_runtime = _resolve_chat_runtime(orchestrator, admitted_context)
         output_state = DirectResponseOutputState(prepared.response_message)
         response = _coerce_completion_response(
             await _invoke_chat(
@@ -421,7 +465,7 @@ async def execute_message(
 
     except ApprovalPause as pause:
         # FEP-0029: the turn parked on a policy ASK. Record a resumable pause and surface it.
-        return await _build_awaiting_task_result(orchestrator, pause)
+        return await _build_awaiting_task_result(orchestrator, pause, run_policy)
     except CancellationError:
         return TaskResult(
             content="",
@@ -467,10 +511,15 @@ async def stream_message_events(
     """
     from victor.framework._internal import stream_with_events
     from victor.framework.approval_pause import ApprovalPause, current_durable_pause_enabled
-    from victor.framework.events import awaiting_approval_event
+    from victor.framework.events import awaiting_approval_event, error_event
 
     prepared = prepare_message(user_message, context)
-    chat_runtime = _resolve_chat_runtime(orchestrator, execution_context)
+    try:
+        run_policy, admitted_context = _admit_run_policy(orchestrator, execution_context)
+    except PolicySnapshotError as exc:
+        yield error_event(f"Run policy could not be established: {exc}", recoverable=False)
+        return
+    chat_runtime = _resolve_chat_runtime(orchestrator, admitted_context)
 
     _durable = _durable_pause_enabled(orchestrator)
     _token = current_durable_pause_enabled.set(True) if _durable else None
@@ -485,7 +534,7 @@ async def stream_message_events(
         ):
             yield event
     except ApprovalPause as pause:
-        result = await _build_awaiting_task_result(orchestrator, pause)
+        result = await _build_awaiting_task_result(orchestrator, pause, run_policy)
         yield awaiting_approval_event(result.run_id, result.approval_request)
     finally:
         if _token is not None:

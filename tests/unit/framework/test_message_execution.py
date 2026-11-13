@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from victor.config.sandbox_settings import SandboxSettings
 from victor.framework.agent import Agent
 from victor.framework.client import VictorClient
 from victor.framework.events import AgentExecutionEvent, EventType
@@ -25,6 +26,9 @@ def _make_orchestrator() -> AgentOrchestratorMock:
     orchestrator.provider.name = "test-provider"
     orchestrator.get_stage = MagicMock(return_value=SimpleNamespace(value="INITIAL"))
     orchestrator._container = MagicMock()
+    orchestrator.settings = SimpleNamespace(
+        governance=SimpleNamespace(durable=False), sandbox=SandboxSettings()
+    )
     return orchestrator
 
 
@@ -553,7 +557,7 @@ async def test_stream_message_events_forwards_overrides_and_run_context_when_sup
     events = []
     with patch("victor.framework._internal.stream_with_events", fake_stream_with_events):
         async for event in stream_message_events(
-            orchestrator=MagicMock(),
+            orchestrator=_make_orchestrator(),
             execution_context=execution_context,
             user_message="research",
             context=run_context,
@@ -736,7 +740,7 @@ async def test_stream_message_events_forwards_caller_run_context_object() -> Non
 
     with patch("victor.framework._internal.stream_with_events", fake_stream_with_events):
         async for _ in stream_message_events(
-            orchestrator=MagicMock(),
+            orchestrator=_make_orchestrator(),
             execution_context=execution_context,
             user_message="research",
             runtime_context_overrides={"iteration_budget": 32},

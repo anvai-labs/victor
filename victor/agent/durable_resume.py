@@ -122,12 +122,28 @@ async def resume_paused_run(
         proposal,
         require_complete_batch_evidence,
     )
+    from victor.runtime.policy_snapshot import PolicySnapshotError, RunPolicySnapshot
 
     controller = getattr(orchestrator, "_conversation_controller", None)
     runtime_factory = getattr(orchestrator, "_get_tool_execution_runtime", None)
     turn_executor = getattr(orchestrator, "turn_executor", None)
     if controller is None or not callable(runtime_factory) or turn_executor is None:
         raise ResumeError("orchestrator is missing the canonical conversation/tool/turn runtime")
+    paused_metadata = getattr(paused_run, "metadata", None) or {}
+    if "run_policy" in paused_metadata:
+        try:
+            admitted_policy = RunPolicySnapshot.from_metadata(paused_metadata["run_policy"])
+            current_policy = RunPolicySnapshot.from_settings(
+                getattr(orchestrator, "settings", None)
+            )
+        except PolicySnapshotError as exc:
+            raise ResumeError(
+                f"Run-policy snapshot is invalid; no action dispatched ({exc})"
+            ) from exc
+        if current_policy != admitted_policy:
+            raise ResumeError(
+                "Run policy changed after admission; request a new approval instead of resuming"
+            )
     approved = getattr(decision, "approved", None)
     if type(approved) is not bool:
         raise ResumeError("approval decision must be a boolean")
