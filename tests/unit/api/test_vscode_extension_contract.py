@@ -183,10 +183,14 @@ def chat_http_server(request, monkeypatch, tmp_path):
             api_keys={"contract-test-key": "contract-user"},
         )
         server._victor_client = create_client()
-        server._pending_tool_approvals["smoke-pending"] = {
-            "tool_name": "test_no_effect",
-            "resolved": False,
-        }
+        # Seed via the typed API with the stored owner the smoke's client
+        # authenticates as: ownerless entries are quarantined on keyed
+        # servers (HB-01), so the fixture must model the production flow.
+        server.register_pending_approval(
+            "smoke-pending",
+            tool_name="test_no_effect",
+            owner_client_id="contract-user",
+        )
         app = server.app
     else:
         from web.server import session_store

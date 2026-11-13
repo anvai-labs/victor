@@ -1063,6 +1063,54 @@ class VictorFastAPIServer:
             channel = data.get("channel", "")
             await ws.send_json({"type": "subscribed", "channel": channel})
 
+    def _owner_authorized(self, resource_owner: Optional[str], principal: Optional[str]) -> bool:
+        """Whether ``principal`` may access a resource stored with
+        ``resource_owner`` (HB-01 / ADR-L01 semantics).
+
+        Keyless servers (explicit single-user opt-in) authorize everything.
+        On keyed servers the stored owner must exist and equal the
+        server-resolved principal: unknown ownership is quarantined, not
+        shared, and caller-supplied identity fields grant nothing.
+        """
+        if not self.api_keys:
+            return True
+        return bool(resource_owner) and resource_owner == principal
+
+    def _owned_entry(
+        self,
+        store: "Dict[str, Dict[str, Any]]",
+        resource_id: str,
+        principal: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Return the stored entry only when it exists and the principal owns
+        it (HB-01); ``None`` otherwise, so callers return an identical
+        not-found shape without confirming another owner's existence."""
+        entry = store.get(resource_id)
+        if entry is None or not self._owner_authorized(entry.get("owner_client_id"), principal):
+            return None
+        return entry
+
+    def register_pending_approval(
+        self,
+        approval_id: str,
+        tool_name: str,
+        owner_client_id: Optional[str] = None,
+        **metadata: Any,
+    ) -> None:
+        """Register a pending tool approval with its owning principal.
+
+        The stored ``owner_client_id`` drives list filtering, mutation
+        authorization and owner-scoped event delivery. Producers must set it
+        from the server-resolved principal at creation time.
+        """
+        self._pending_tool_approvals[approval_id] = {
+            "tool_name": tool_name,
+            "owner_client_id": owner_client_id,
+            "approved": False,
+            "resolved": False,
+            **metadata,
+        }
+
     async def _broadcast_ws(
         self, message: Dict[str, Any], owner_client_id: Optional[str] = None
     ) -> None:

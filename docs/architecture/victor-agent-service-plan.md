@@ -67,6 +67,40 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **VAS-05m — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+  PR (branch `feat/resource-owner-auth`), baseline `bcab05d71`. Resource
+  ownership authorized before read or mutation (HB-01, aligning with the
+  proposed ADR-L01 semantics; existing API-key principals, no Kanidm
+  prerequisite). RED reproduced the handback probe: with Alice's approval
+  stored, Bob listed it and approved it through the real routes (HTTP 200,
+  entry removed). Now: tool approvals list server-side filters by the
+  stored owner, approve/cancel authorize before mutation and return the
+  identical not-found shape without confirming another owner's existence
+  (denied calls leave state unchanged and emit no protected event — the
+  approval broadcast now addresses the STORED owner, not the requester);
+  workflow executions authorize list/read/status/cancel against the owner
+  recorded at start; background agents authorize list/get/cancel against
+  the owner recorded at start. Ownerless/legacy entries are quarantined on
+  keyed servers (invisible and unmanageable — unknown ownership is not a
+  shared-resource grant); spoofed body owner fields grant nothing; keyless
+  single-user mode keeps full access (explicit opt-in, pinned by test).
+  Ownership is stamped through the new typed `register_pending_approval`
+  creation helper (the pending-approval store had no in-repo producer;
+  real approvals flow through the FEP-0029 paused-run store, which remains
+  the authoritative durable path). Duplication ratchet kept green by
+  consolidating the ownership checks into `_owner_authorized` /
+  `_owned_entry` / `_authorized_agent_request` (ratchet at baseline).
+  Owners 60 tests GREEN (6 RED-first cross-owner cases incl. spoofed-body
+  and ownerless-quarantine); affected API/agent suites 318 passed/5
+  skipped; lint/type clean; collect 40,404 clean. Not claimed:
+  paused-run/subscription ownership scoping (VAS-06), shared
+  VictorClient/session scoping, tenant isolation. Next: green CI, then
+  merge.
+
+- **VAS-05l — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1778](https://github.com/anvai-labs/victor/pull/1778)
+  (`feat/required-policy-enforcement`), baseline `bcab05d71`; merged as squash
+  `0ed5536a7` with all checks green. Required
 - **VAS-05n — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
   PR (branch `feat/direct-spawn-gate`), baseline `0ed5536a7`. Direct-spawn
   convergence, first slice (delivery order 3): the terminal route's
@@ -92,32 +126,6 @@ edit. A mock test is not live provider or C5 evidence.
   tests GREEN (2 RED-first terminal cases); suites clean; lint/type clean;
   collect 40,409 clean; ratchet at baseline. Next: green CI, then merge;
   remaining inventory sites are separate bounded increments.
-
-- **VAS-05l — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
-  PR (branch `feat/required-enforcement`), baseline `bcab05d71`. Required
-  containment must follow the actual launch (HB-02/HB-03, aligning with the
-  proposed ADR-L02 semantics; no new policy engine). RED reproduced the two
-  handback gaps: (1) a generic resolver exception under a loaded required
-  policy returned NoneSandbox — sync, async and shell paths now refuse with
-  a typed `resolver_error` refusal and zero spawns, and a caller-supplied
-  NoneSandbox can no longer weaken an effective required policy (explicit
-  non-none backends remain the caller's choice); settings that cannot be
-  loaded keep the documented degrade-open only because required-ness is
-  unknowable in that state. (2) The workflow process branch resolved a
-  backend and discarded it: with required + available bwrap the MCP launch
-  received the raw argv. `_resolve_policy_decision` now carries the resolved
-  enforcing backend and `_execute_process` wraps the launched argv with it
-  (probe asserts the launcher prefixes the spawn); generic workflow resolver
-  failures refuse before any launch; docker under required is qualified by
-  its own availability and enforced mount/network configuration instead of
-  requiring the platform binary (bwrap neither necessary nor sufficient for
-  a container branch). All traps intercept the real spawn APIs (Popen /
-  run_managed_process), not resolver returns. Owners: 16 executor
-  integration + 12 workflow sandbox tests GREEN (7 new RED-first);
-  workflows/tools/core suites 5,132 passed; black/ruff/mypy clean; collect
-  clean. Not claimed: live containment on real containers, remaining
-  direct-spawn routes (order 3), HB-01 resource authorization (order 2),
-  HB-04 bounded admission (order 4). Next: green CI, then merge.
 
 - **VAS-05k — MERGED** (2026-11-13), owner: framework-review delivery session;
   PR [#1777](https://github.com/anvai-labs/victor/pull/1777)
@@ -3348,7 +3356,8 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
 | VAS-16a | Bounded Send fan-out admission (SCALE-03 slice) | VAS-16 | ✅ MERGED | [#1776](https://github.com/anvai-labs/victor/pull/1776) squash `fbd9765aa`, branch `feat/bound-send-fanout`, baseline `927b568ff`. RED: `ExecutionConfig.max_parallel_branches` (default 16) bounds in-flight Send branches via semaphore in `_execute_parallel`; all admitted branches queue and complete (64-branch/bound-4 preservation test). RED: 8 branches ran 8-wide before the fix. Baseline: 256 branches 2.13ms (bound 16) vs 2.23ms (bound 4); no wall-time regression. Owners + collect (40,389) clean. Remaining SCALE-03/04 surfaces open under VAS-16/10 |
 | VAS-05k | Required-policy + owner-scope convergence residuals | VAS-05j | ✅ MERGED | [#1777](https://github.com/anvai-labs/victor/pull/1777) squash `bcab05d71`, branch `feat/required-policy-convergence`, baseline `fbd9765aa`. `SandboxedExecutor` consults the canonical policy: required-unavailable refuses all branches pre-spawn (no docker->process fallback); required+backend refuses unenforced inline; preferred unchanged (RED trap-proven). Background agents owner-scoped end-to-end (`start_agent(owner_client_id=...)`, events tagged, route binds principal). `IsolationMapper.apply_settings` confirmed dormant (zero callers). Owners 9+33 pass; suites 1,692 passed; lint/type/collect clean. Direct-spawn sites (terminal/git/search routes, MCP stdio, filesystem/shell-cached helpers) still outside the gate — recorded for future bounded convergence |
-| VAS-05l | Required enforcement follows the actual launch (HB-02/HB-03) | VAS-05k | 🔍 IN REVIEW | Branch `feat/required-enforcement`, baseline `bcab05d71`. RED: required-policy resolver exception returned NoneSandbox (sync/async/shell); workflow process branch launched raw argv with bwrap available. `_resolve_default_sandbox` + workflow decision convert resolver errors to typed `resolver_error` refusals; caller NoneSandbox cannot weaken required; `_execute_process` wraps launch argv with the resolved backend (Popen-trap asserted); docker qualified on own capabilities, not bwrap. Owners 16+12 GREEN (7 RED-first); suites 5,132 passed; lint/type/collect clean. HB-01 authorization, direct-spawn routes, HB-04 bounded admission remain open in delivery order |
+| VAS-05l | Required enforcement follows the actual launch (HB-02/HB-03) | VAS-05k | ✅ MERGED | [#1778](https://github.com/anvai-labs/victor/pull/1778) squash `0ed5536a7`, branch `feat/required-policy-enforcement`, baseline `bcab05d71`. RED: required-policy resolver exception returned NoneSandbox (sync/async/shell); workflow process branch launched raw argv with bwrap available. `_resolve_default_sandbox` + workflow decision convert resolver errors to typed `resolver_error` refusals; caller NoneSandbox cannot weaken required; `_execute_process` wraps launch argv with the resolved backend (Popen-trap asserted); docker qualified on own capabilities, not bwrap. Owners 16+12 GREEN (7 RED-first); suites 5,132 passed; lint/type/collect clean. HB-01 authorization, direct-spawn routes, HB-04 bounded admission remain open in delivery order |
+| VAS-05m | Resource-owner authorization before read/mutation (HB-01) | VAS-05l | 🔍 IN REVIEW | Branch `feat/resource-owner-auth`, baseline `bcab05d71`. RED: Bob listed and approved Alice's approval via real routes (200, entry removed). Tool approvals list/approve/cancel + workflow list/read/status/cancel + agent list/get/cancel authorize against the STORED owner; denied calls keep state and emit nothing; not-found shape without existence confirmation; ownerless entries quarantined on keyed servers; spoofed body owner grants nothing; keyless unchanged. Ownership stamped via new `register_pending_approval` (store had no producer; FEP-0029 paused-run store is the durable approval path). Ratchet consolidated to baseline. Owners 60 GREEN (6 RED-first); suites 318 passed; lint/type/collect clean. Paused-run/subscription scoping (VAS-06) and shared session scoping remain open |
 | VAS-05n | Direct-spawn convergence: terminal route gate (order 3 slice) | VAS-05l | 🔍 IN REVIEW | Branch `feat/direct-spawn-gate`, baseline `0ed5536a7`. RED: terminal route launched raw argv under required+available backend; spawned under unenforceable required. Shared `resolve_required_launch` in the sandbox owner; terminal launch wraps argv or refuses; `_resolve_default_sandbox` re-expressed on the same decision. Classified inventory recorded: git/search = trusted fixed-argv control reads; MCP stdio = control plane; per-site decisions pending for the remaining fixed-binary tools. Owners 94 GREEN (2 RED-first); lint/type/collect clean; ratchet at baseline. Remaining inventory sites are follow-up increments |
 | VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0 and deployed on both hosts; tracked-mode lifecycle qualification pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Synthetic buffered TLS/OIDC source acceptance merged in Sandhi #350 with 149 unique local tests and 7 applicable CI checks. OIDC crash/restart composition and isolated released 0.12.0/deployed-policy qualification pass in #351 (64 affected tests, 3 live provider calls / 51 charged tokens); managed gateway unchanged. Strict OpenAI Chat stream-usage core qualification merged in #352 after 862 Rust tests, 18 SDK regressions and 13 applicable green CI checks; no transport activation. Bounded complete-event framing/immutable observation merged in #353 after 867 Rust tests, 18 SDK regressions and 13 applicable green CI checks. Sandhi #354 merged opt-in raw response ownership with Final usage retained through drop/timeout after clean exact-commit review, 871 Rust tests, 18 SDK regressions and all 13 applicable CI checks. Sandhi #355 merged bounded transparent streaming HTTP ownership, durable terminal/settlement, shutdown headroom and retained recovery. Sandhi #356 merges standalone streaming process/TLS/OIDC acceptance (40 affected process tests; clean exact-commit review). Sandhi 0.13.0 published through #357/#358 with all artifact targets verified; 1,712 official-wheel consumer tests and local Homebrew binary smoke pass. Consumer/formula gates completed in Victor #1285 and Tap #101; remote 0.13.0 default-mode deployment passes TLS/auth/provider/accounting checks with 248 prior usage rows preserved. Mac OIDC/default-mode 0.13.0 cutover and public HTTPS provider probes also pass with 1,071 prior rows preserved. Both Qwen tracked streams pass; ZAI tracked streaming fails NonFinalUsage (G83). Next: Sandhi #362 merge/release and provider tracked qualification, preserved-state managed tracked deployment and broader lifecycle acceptance. G84 tracks DeepSeek catalog/harness follow-up; its default-path Mac OIDC deployment passes. Browser deployment, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |

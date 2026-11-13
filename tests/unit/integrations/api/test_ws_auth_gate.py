@@ -198,12 +198,10 @@ def _receive_bounded(client: TestClient, ws, timeout: float = 5.0):
     return json.loads(message["text"])
 
 
-def _seed_pending_approval(server, approval_id: str) -> str:
-    server._pending_tool_approvals[approval_id] = {
-        "tool_name": "edit",
-        "approved": False,
-        "resolved": False,
-    }
+def _seed_pending_approval(server, approval_id: str, owner: str | None = None) -> str:
+    """Seed via the typed registration API; on keyed servers tests must pass
+    the owning principal (ownerless entries are quarantined, HB-01)."""
+    server.register_pending_approval(approval_id, tool_name="edit", owner_client_id=owner)
     return approval_id
 
 
@@ -219,7 +217,7 @@ def test_protected_broadcast_withheld_from_unauthenticated_ws(monkeypatch, tmp_p
     server = _create_server(
         monkeypatch, tmp_path, _FakeOrchestrator(), api_keys={"sk-alice": "alice"}
     )
-    approval_id = _seed_pending_approval(server, "apr-vas05h")
+    approval_id = _seed_pending_approval(server, "apr-vas05h", owner="alice")
 
     with TestClient(server.app) as client:
         with client.websocket_connect("/ws") as ws_pending:
@@ -257,7 +255,7 @@ def test_protected_broadcast_still_reaches_authenticated_recipients(monkeypatch,
     server = _create_server(
         monkeypatch, tmp_path, _FakeOrchestrator(), api_keys={"sk-alice": "alice"}
     )
-    approval_id = _seed_pending_approval(server, "apr-positive")
+    approval_id = _seed_pending_approval(server, "apr-positive", owner="alice")
 
     with TestClient(server.app) as client:
         with client.websocket_connect("/ws") as ws_auth:
@@ -397,7 +395,7 @@ def test_cross_owner_broadcast_is_withheld(monkeypatch, tmp_path):
         _FakeOrchestrator(),
         api_keys={"sk-alice": "alice", "sk-bob": "bob"},
     )
-    approval_id = _seed_pending_approval(server, "apr-cross")
+    approval_id = _seed_pending_approval(server, "apr-cross", owner="bob")
 
     with TestClient(server.app) as client:
         with client.websocket_connect("/ws") as ws_alice:
@@ -435,7 +433,7 @@ def test_same_principal_multiple_sockets_receive_broadcast(monkeypatch, tmp_path
         _FakeOrchestrator(),
         api_keys={"sk-alice": "alice"},
     )
-    approval_id = _seed_pending_approval(server, "apr-same")
+    approval_id = _seed_pending_approval(server, "apr-same", owner="alice")
 
     with TestClient(server.app) as client:
         with client.websocket_connect("/ws") as ws_a:
@@ -485,3 +483,198 @@ def test_unbound_internal_broadcast_reaches_all_authenticated(monkeypatch, tmp_p
                     first = _receive_bounded(client, ws)
                     assert first["type"] == "agent_event", first
                     assert ws.receive_json()["type"] == "pong"
+
+
+# ---------------------------------------------------------------------------
+# HB-01: resource ownership authorized before read/mutation (VAS-05m)
+# ---------------------------------------------------------------------------
+
+
+def _keyed_two_principals(monkeypatch, tmp_path):
+    return _create_server(
+        monkeypatch,
+        tmp_path,
+        _FakeOrchestrator(),
+        api_keys={"sk-alice": "alice", "sk-bob": "bob"},
+    )
+
+
+def _headers(key):
+    return {"Authorization": f"Bearer {key}"}
+
+
+def test_cross_owner_approval_list_and_mutation_denied(monkeypatch, tmp_path):
+    """Bob must not list, approve or cancel Alice's pending approval; the
+    rejected calls leave the stored approval unchanged and emit nothing."""
+    server = _keyed_two_principals(monkeypatch, tmp_path)
+    server.register_pending_approval("apr-alice", tool_name="edit", owner_client_id="alice")
+
+    with TestClient(server.app) as client:
+        listed = client.get("/tools/pending", headers=_headers("sk-bob"))
+        assert listed.status_code == 200
+        assert listed.json()["pending"] == [], listed.json()
+
+        approved = client.post(
+            "/tools/approve",
+            json={"approval_id": "apr-alice", "approved": True},
+            headers=_headers("sk-bob"),
+        )
+        assert approved.status_code == 404
+
+        cancelled = client.post(
+            "/tools/cancel",
+            json={"tool_call_id": "apr-alice"},
+            headers=_headers("sk-bob"),
+        )
+        assert cancelled.json().get("cancelled") is False
+
+        entry = server._pending_tool_approvals.get("apr-alice")
+        assert entry is not None, "state must be unchanged after denial"
+        assert entry["approved"] is False and entry["resolved"] is False
+
+        # The owner's positive path still works and removes the entry.
+        ok = client.post(
+            "/tools/approve",
+            json={"approval_id": "apr-alice", "approved": True},
+            headers=_headers("sk-alice"),
+        )
+        assert ok.status_code == 200 and ok.json()["success"] is True
+        assert "apr-alice" not in server._pending_tool_approvals
+
+
+def test_ownerless_approval_quarantined_on_keyed_server(monkeypatch, tmp_path):
+    """Unknown ownership is not a shared-resource grant: a legacy/ownerless
+    entry is invisible in listings and unmanageable under a keyed server."""
+    server = _keyed_two_principals(monkeypatch, tmp_path)
+    server._pending_tool_approvals["apr-legacy"] = {
+        "tool_name": "edit",
+        "approved": False,
+        "resolved": False,
+    }
+
+    with TestClient(server.app) as client:
+        listed = client.get("/tools/pending", headers=_headers("sk-alice"))
+        assert listed.json()["pending"] == []
+        approved = client.post(
+            "/tools/approve",
+            json={"approval_id": "apr-legacy", "approved": True},
+            headers=_headers("sk-alice"),
+        )
+        assert approved.status_code == 404
+        assert server._pending_tool_approvals["apr-legacy"]["resolved"] is False
+
+
+def test_spoofed_body_owner_cannot_grant_authority(monkeypatch, tmp_path):
+    """A caller-controlled owner field in the request body grants nothing:
+    the stored owner drives authorization."""
+    server = _keyed_two_principals(monkeypatch, tmp_path)
+    server.register_pending_approval("apr-alice", tool_name="edit", owner_client_id="alice")
+
+    with TestClient(server.app) as client:
+        approved = client.post(
+            "/tools/approve",
+            json={
+                "approval_id": "apr-alice",
+                "approved": True,
+                "owner_client_id": "alice",
+            },
+            headers=_headers("sk-bob"),
+        )
+    assert approved.status_code == 404
+    assert server._pending_tool_approvals["apr-alice"]["resolved"] is False
+
+
+def test_tool_approval_full_access_on_keyless_server(monkeypatch, tmp_path):
+    """Explicit keyless single-user mode keeps the historical behavior."""
+    server = _create_server(monkeypatch, tmp_path, _FakeOrchestrator())
+    server.register_pending_approval("apr-solo", tool_name="edit")
+
+    with TestClient(server.app) as client:
+        listed = client.get("/tools/pending")
+        assert listed.json()["count"] == 1
+        approved = client.post("/tools/approve", json={"approval_id": "apr-solo", "approved": True})
+    assert approved.status_code == 200
+
+
+def test_cross_owner_workflow_read_and_cancel_denied(monkeypatch, tmp_path):
+    """Workflow executions are readable/cancellable only by their stored
+    owner; a guessed ID returns the same not-found shape without confirming
+    existence, and rejected cancels leave state unchanged."""
+    server = _keyed_two_principals(monkeypatch, tmp_path)
+    server._workflow_executions["wf-alice"] = {
+        "id": "wf-alice",
+        "workflow_id": "t",
+        "owner_client_id": "alice",
+        "status": "running",
+    }
+
+    with TestClient(server.app) as client:
+        read = client.get("/workflows/executions/wf-alice", headers=_headers("sk-bob"))
+        assert read.status_code == 404
+        assert read.json() == {"error": "Execution not found"}
+
+        listed = client.get("/workflows/executions", headers=_headers("sk-bob"))
+        assert listed.json()["executions"] == []
+
+        cancelled = client.post("/workflows/executions/wf-alice/cancel", headers=_headers("sk-bob"))
+        assert cancelled.status_code == 404
+        assert server._workflow_executions["wf-alice"]["status"] == "running"
+
+        # Owner read and cancel succeed.
+        assert (
+            client.get("/workflows/executions/wf-alice", headers=_headers("sk-alice")).status_code
+            == 200
+        )
+        cancelled = client.post(
+            "/workflows/executions/wf-alice/cancel", headers=_headers("sk-alice")
+        )
+        assert cancelled.status_code == 200
+        assert server._workflow_executions["wf-alice"]["status"] == "cancelled"
+
+
+def test_cross_owner_background_agent_read_and_cancel_denied(monkeypatch, tmp_path):
+    """Background agents started by Alice are invisible to Bob: list is
+    server-side filtered, get/cancel return not-found, and Bob's cancel
+    leaves Alice's agent untouched."""
+    from unittest.mock import MagicMock
+
+    from victor.agent.background_agent import BackgroundAgentManager
+
+    server = _keyed_two_principals(monkeypatch, tmp_path)
+    manager = BackgroundAgentManager(
+        orchestrator=MagicMock(), chat_service=MagicMock(), max_concurrent=2
+    )
+    monkeypatch.setattr("victor.agent.background_agent.get_agent_manager", lambda: manager)
+
+    with TestClient(server.app) as client:
+        started = client.post(
+            "/agents/start",
+            json={"task": "alice task"},
+            headers=_headers("sk-alice"),
+        )
+        assert started.status_code == 200, started.text
+        agent_id = started.json()["agent_id"]
+        assert manager.get_agent(agent_id).owner_client_id == "alice"
+
+        listed = client.get("/agents", headers=_headers("sk-bob"))
+        assert listed.status_code == 200
+        assert listed.json()["agents"] == []
+
+        got = client.get(f"/agents/{agent_id}", headers=_headers("sk-bob"))
+        assert got.status_code == 404
+
+        cancelled = client.post(f"/agents/{agent_id}/cancel", headers=_headers("sk-bob"))
+        assert cancelled.status_code == 404
+        assert manager.get_agent(agent_id)._cancelled is False
+
+        # The owner still sees and can cancel the agent. (The fake
+        # orchestrator errors the run immediately; restore a running state
+        # so cancellation itself is exercisable.)
+        from victor.agent.background_agent import AgentStatus
+
+        manager.get_agent(agent_id).status = AgentStatus.RUNNING
+        got = client.get(f"/agents/{agent_id}", headers=_headers("sk-alice"))
+        assert got.status_code == 200
+        cancelled = client.post(f"/agents/{agent_id}/cancel", headers=_headers("sk-alice"))
+        assert cancelled.status_code == 200
+        assert manager.get_agent(agent_id)._cancelled is True
