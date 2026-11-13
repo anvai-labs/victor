@@ -23,10 +23,12 @@ wraps a command's argv with a platform launcher:
 * :class:`NoneSandbox` — passthrough (no isolation).
 
 :func:`resolve_sandbox_backend` selects a backend from :class:`SandboxSettings`.
-It is **fail-open**: if the requested backend's binary is missing or the
-platform is unsupported, it logs a one-time warning and returns
-:class:`NoneSandbox` so tools keep working (the feature is opt-in and off by
-default).
+With the ``preferred`` policy it is **fail-open**: if the requested backend's
+binary is missing or the platform is unsupported, it logs a one-time warning
+and returns :class:`NoneSandbox` so tools keep working (the feature is opt-in
+and off by default). With the ``required`` policy it is **fail-closed**: an
+unavailable backend raises :class:`SandboxRequiredUnavailableError` and the
+caller must refuse dispatch (zero execution).
 
 Cross-learning from Omnigent (``../omnigent/omnigent/inner/bwrap_sandbox.py``
 and ``seatbelt_sandbox.py``). This is an MVP: the seatbelt profile uses an
@@ -201,18 +203,64 @@ def _warn_once(message: str) -> None:
         _warned_unavailable = True
 
 
+class SandboxRequiredUnavailableError(RuntimeError):
+    """No backend can enforce a ``required`` containment policy.
+
+    Raised by :func:`resolve_sandbox_backend` when the policy is mandatory
+    but the platform is unsupported or the backend binary is missing.
+    Callers must treat this as a dispatch refusal (zero execution), never
+    as permission to run unsandboxed.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        """Record a stable reason code alongside the human message."""
+        super().__init__(message)
+        self.reason = reason
+
+
+def effective_sandbox_policy(sandbox_settings: Any) -> str:
+    """Resolve the effective policy from settings.
+
+    An explicit (non-``None``) ``sandbox_policy`` wins; ``None``/absent
+    derives from the legacy ``sandbox_enabled`` bool, which maps to
+    ``preferred`` when true (its historical fail-open semantics). Missing
+    settings mean disabled.
+    """
+    if sandbox_settings is None:
+        return "disabled"
+    policy = getattr(sandbox_settings, "sandbox_policy", None)
+    if policy in ("disabled", "preferred", "required"):
+        return policy
+    if bool(getattr(sandbox_settings, "sandbox_enabled", False)):
+        return "preferred"
+    return "disabled"
+
+
 def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
-    """Select a sandbox backend from settings (fail-open to :class:`NoneSandbox`).
+    """Select a sandbox backend from settings.
+
+    Policy semantics:
+
+    * ``disabled`` — :class:`NoneSandbox`, silently (historical default).
+    * ``preferred`` — fail-open: unavailable backend/platform degrades to
+      :class:`NoneSandbox` with a one-time DEGRADED warning.
+    * ``required`` — fail-closed: raises
+      :class:`SandboxRequiredUnavailableError`; dispatch must refuse to
+      execute rather than run unsandboxed.
 
     Args:
         sandbox_settings: A ``SandboxSettings``-like object (or None).
 
     Returns:
-        A platform-appropriate backend when enabled and available; otherwise
-        :class:`NoneSandbox` (with a one-time warning if a sandbox was requested
-        but is unavailable).
+        A platform-appropriate backend when isolation is requested and
+        enforceable; otherwise :class:`NoneSandbox`.
+
+    Raises:
+        SandboxRequiredUnavailableError: policy is ``required`` and no
+            backend can enforce it.
     """
-    if sandbox_settings is None or not getattr(sandbox_settings, "sandbox_enabled", False):
+    policy = effective_sandbox_policy(sandbox_settings)
+    if policy == "disabled":
         return NoneSandbox()
 
     workspace_only = getattr(sandbox_settings, "sandbox_filesystem_mode", "workspace-only") == (
@@ -236,17 +284,30 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
             network_isolation=network_isolation,
         )
     else:
+        if policy == "required":
+            raise SandboxRequiredUnavailableError(
+                "unsupported_platform",
+                f"Sandbox policy is 'required' but platform '{system}' has no "
+                "enforcing backend; refusing execution (fail-closed).",
+            )
         _warn_once(
             f"Sandbox enabled but unsupported platform '{system}'; "
-            "running tools UNSANDBOXED (fail-open)."
+            "running tools UNSANDBOXED (fail-open). [DEGRADED]"
         )
         return NoneSandbox()
 
     if not backend.available():
+        if policy == "required":
+            raise SandboxRequiredUnavailableError(
+                "binary_missing",
+                f"Sandbox policy is 'required' but the '{backend.type_name}' backend is "
+                f"unavailable (binary missing on {system}); refusing execution "
+                "(fail-closed). Install the sandbox binary to enable isolation.",
+            )
         _warn_once(
             f"Sandbox enabled but the '{backend.type_name}' backend is unavailable "
             f"(binary missing on {system}); running tools UNSANDBOXED (fail-open). "
-            "Install the sandbox binary to enable isolation."
+            "Install the sandbox binary to enable isolation. [DEGRADED]"
         )
         return NoneSandbox()
 
@@ -258,5 +319,7 @@ __all__ = [
     "NoneSandbox",
     "BubblewrapSandbox",
     "SeatbeltSandbox",
+    "SandboxRequiredUnavailableError",
+    "effective_sandbox_policy",
     "resolve_sandbox_backend",
 ]
