@@ -990,6 +990,12 @@ RELATED_TESTS = {
         "tests/unit/integrations/api/test_fastapi_chat_wire_stream.py",
         "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
     ),
+    # /ws route: connection registration, message-auth gate, bounded auth
+    # handshake and broadcast recipient admission are pinned by the WS auth
+    # gate suite (no per-route mirror file).
+    "victor/integrations/api/routes/websocket_routes.py": (
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",
         "tests/unit/protocols/test_protocol_adapters.py",
