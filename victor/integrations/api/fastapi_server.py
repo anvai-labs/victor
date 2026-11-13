@@ -503,6 +503,9 @@ class VictorFastAPIServer:
         self._orchestrator = None
         self._victor_client = None
         self._ws_clients: List[WebSocket] = []
+        # Seconds a /ws socket may sit unauthenticated on a keyed server
+        # before the route closes it (VAS-05h bounded handshake).
+        self._ws_auth_deadline: float = 30.0
         self._pending_tool_approvals: Dict[str, Dict[str, Any]] = {}
         self._hitl_store = None
         self._event_bridge: Optional[EventBridge] = None
@@ -1056,8 +1059,17 @@ class VictorFastAPIServer:
             await ws.send_json({"type": "subscribed", "channel": channel})
 
     async def _broadcast_ws(self, message: Dict[str, Any]) -> None:
-        """Broadcast a message to all connected WebSocket clients."""
+        """Broadcast a message to connected WebSocket clients.
+
+        Recipient admission: ``/ws`` registers sockets before message-level
+        authentication, so on a keyed server a socket that has not completed
+        the ``auth`` handshake is excluded from protected-event delivery
+        (VAS-05h). Keyless servers (explicit allow_unauthenticated=True)
+        treat every connected socket as authorized, as before.
+        """
         for ws in self._ws_clients:
+            if self.api_keys and not getattr(getattr(ws, "state", None), "authenticated", False):
+                continue
             try:
                 await ws.send_json(message)
             except Exception:

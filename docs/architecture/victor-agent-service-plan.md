@@ -67,6 +67,28 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **VAS-05h — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+  PR [#1773](https://github.com/anvai-labs/victor/pull/1773)
+  (`fix/ws-broadcast-auth`), baseline `17a8b197f`. Stop outbound protected-event
+  delivery before `/ws` message authentication. RED reproduced through the real
+  route: on a keyed server an unauthenticated `/ws` socket received the
+  `tool_approval_resolved` broadcast triggered by `POST /tools/approve` as its
+  first message while the authenticated socket received it correctly.
+  Repair in the existing WS recipient admission/delivery owner, no parallel
+  engine: `_broadcast_ws` now excludes sockets that have not completed the
+  `auth` handshake on keyed servers (keyless explicit-opt-in servers
+  unchanged), and `/ws` enforces a bounded handshake — a total window from
+  accept (`_ws_auth_deadline`, default 30s) so frame dripping cannot keep a
+  pending socket in the recipient set; expired sockets close with code 1008.
+  Owner `tests/unit/integrations/api/test_ws_auth_gate.py`: 13/13 GREEN
+  (3× repeat stable), including authorized-delivery, keyless-compat,
+  survives-past-deadline and drip-bypass negative cases; affected
+  `tests/unit/integrations/api/` + `tests/unit/api/` 272 passed/5 skipped;
+  black/ruff/mypy clean; collect check 40,374 clean. Compatibility verified in
+  `vscode-victor/src/victorClient.ts` (auth sent as first frame). Scoped
+  subscription/ownership records remain VAS-05c/VAS-06; this repair does not
+  claim per-resource authorization. Next: green CI, then merge.
+
 - **PATCH-0281 — ACCEPTED** (2026-11-12), owner: release co-design session;
   final handoff branch `docs/release-0281-handoff`, baseline
   `e9a93e0abad0c6e418bfcf01099de70bc6430c44`. Source fixes #1765/#1766/#1768
@@ -3140,6 +3162,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05e | Victor/Sandhi identity propagation and delegation contract | VAS-05a | TODO | Co-design separate initiator/actor/provider identity; verify Kanidm exchange capability, scoped delegation, audience and revocation; shared workload attribution is intermediate only |
 | VAS-05f | Implement immutable per-run gateway credential binding and delegation | VAS-05c, VAS-05e, VAS-06 | TODO | Two-user concurrency, no shared credential mutation, grant/model denial, rotation/revocation and actual identity/accounting joins |
 | VAS-05g | Repair existing EventBridge credential and connection ownership | VAS-04a | ✅ MERGED | [#1267](https://github.com/anvai-labs/victor/pull/1267), `07b076726`; clean exact-commit review and all 39 applicable CI checks including Vertical Py3.12; 113 Vitest, 1,012 actual host, 41 API/auth/HTTP tests, 34,030 collected. Header-only key, owned rotation/cleanup and no redirect/anonymous downgrade; server-side live revocation remains G81 |
+| VAS-05h | Stop outbound protected-event delivery before /ws authentication | VAS-05g | 🔍 IN REVIEW | [#1773](https://github.com/anvai-labs/victor/pull/1773), `fix/ws-broadcast-auth`, baseline `17a8b197f`. Real-route RED: unauthenticated /ws socket received tool-approval broadcasts on a keyed server. `_broadcast_ws` recipient admission (auth-handshake required on keyed servers; keyless unchanged) + bounded total handshake window closing pending sockets (1008). Owner 13/13 GREEN incl. authorized delivery, keyless compat, drip-bypass negative; affected API suites 272 passed; lint/type/collect clean. Scoped subscription ownership remains VAS-05c/VAS-06 |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
