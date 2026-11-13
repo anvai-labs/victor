@@ -51,7 +51,6 @@ def _resolve_git_launch():
     """Resolve the canonical required-launch decision for git spawns."""
     from victor.tools.sandbox import resolve_required_launch
 
-
     try:
         from victor.config.settings import get_settings
 
