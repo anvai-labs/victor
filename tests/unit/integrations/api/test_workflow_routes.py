@@ -54,7 +54,7 @@ async def test_execution_reports_result_and_pause_without_attribute_errors(monke
     )
     finished = asyncio.Event()
 
-    async def broadcast(event):
+    async def broadcast(event, **kwargs):
         if event["event"] != "workflow_started":
             finished.set()
 

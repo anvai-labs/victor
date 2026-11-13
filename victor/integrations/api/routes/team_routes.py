@@ -42,6 +42,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     @router.post("/teams")
     async def create_team(request: Request) -> JSONResponse:
         """Create a new agent team."""
+        owner_client_id = getattr(request.state, "client_id", None)
         try:
             data = await request.json()
             name = data.get("name", "Unnamed Team")
@@ -80,6 +81,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 "name": name,
                 "goal": goal,
                 "formation": formation,
+                "owner_client_id": owner_client_id,
                 "status": "draft",
                 "members": team_members,
                 "total_tool_budget": total_tool_budget,
@@ -98,7 +100,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     "event": "team_created",
                     "data": _teams[team_id],
                     "timestamp": time.time(),
-                }
+                },
+                owner_client_id=owner_client_id,
             )
 
             return JSONResponse(
@@ -156,7 +159,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 "event": "team_started",
                 "data": team,
                 "timestamp": time.time(),
-            }
+            },
+            owner_client_id=team.get("owner_client_id"),
         )
 
         async def execute_team():
@@ -240,7 +244,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                             "event": ("team_completed" if result.success else "team_failed"),
                             "data": team,
                             "timestamp": time.time(),
-                        }
+                        },
+                        owner_client_id=team.get("owner_client_id"),
                     )
 
             except Exception as e:
@@ -256,7 +261,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                             "event": "team_failed",
                             "data": team,
                             "timestamp": time.time(),
-                        }
+                        },
+                        owner_client_id=team.get("owner_client_id"),
                     )
 
         asyncio.create_task(execute_team())
@@ -290,7 +296,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 "event": "team_cancelled",
                 "data": team,
                 "timestamp": time.time(),
-            }
+            },
+            owner_client_id=team.get("owner_client_id"),
         )
 
         return JSONResponse(

@@ -67,8 +67,33 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **VAS-05i — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
-  PR (branch `feat/sandbox-required-policy`), baseline `adcc6e1ff`. Enforce a
+- **VAS-05j — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+  PR (branch `feat/owner-scoped-broadcast`), baseline `927b568ff`. Owner-scoped
+  broadcast delivery: bind protected-event delivery to the triggering
+  principal (delivery-time ownership check, first slice of SEC-02 on top of
+  VAS-05h). RED: with two authenticated principals, a tool approval resolved
+  by bob was delivered to alice's authenticated `/ws` socket. Repair in the
+  existing auth dependency and broadcast owner: `_enforce_api_auth` records
+  the resolved principal on `request.state.client_id`; `_broadcast_ws` /
+  `_broadcast_agent_event` accept an explicit `owner_client_id` and, on keyed
+  servers, deliver owner-bound events only to sockets authenticated as that
+  principal (same principal via multiple keys still receives; keyless
+  servers unchanged); tool/workflow/team routes bind it from the request
+  principal, workflow/team execution state records the owner at start and
+  lifecycle events deliver to that owner. Unbound internal broadcasts (e.g.
+  BackgroundAgentManager) keep all-authenticated delivery, pinned by a guard
+  test; binding them requires threading principal through the manager and is
+  recorded as a follow-up. Owner `tests/unit/integrations/api/` +
+  `tests/unit/api/`: 275 passed/5 skipped including cross-owner denial,
+  same-principal multi-socket and unbound-broadcast cases; black/ruff/mypy
+  clean; collect check clean. Cross-owner READ authorization (GET routes)
+  and scoped subscription records remain VAS-05c/VAS-06. Next: green CI,
+  then merge.
+
+- **VAS-05i — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1774](https://github.com/anvai-labs/victor/pull/1774)
+  (`feat/sandbox-required-policy`), baseline `adcc6e1ff`; merged as squash
+  `927b568ff` with all checks green. Enforce a
   required sandbox policy at canonical tool dispatch (fail-closed containment
   ahead of VAS-05c per-resource authorization). RED reproduced the gap: with
   `sandbox_enabled=True` and a missing backend binary the child process was
@@ -91,7 +116,6 @@ edit. A mock test is not live provider or C5 evidence.
   `subprocess_executor` (terminal/git/search routes, MCP, filesystem tools)
   still need convergence to the same decision, and
   `workflows/isolation.py` `apply_settings` does not yet honor `required`.
-  Next: green CI, then merge.
 
 - **VAS-05h — MERGED** (2026-11-13), owner: framework-review delivery session;
   PR [#1773](https://github.com/anvai-labs/victor/pull/1773)
@@ -3191,7 +3215,8 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05f | Implement immutable per-run gateway credential binding and delegation | VAS-05c, VAS-05e, VAS-06 | TODO | Two-user concurrency, no shared credential mutation, grant/model denial, rotation/revocation and actual identity/accounting joins |
 | VAS-05g | Repair existing EventBridge credential and connection ownership | VAS-04a | ✅ MERGED | [#1267](https://github.com/anvai-labs/victor/pull/1267), `07b076726`; clean exact-commit review and all 39 applicable CI checks including Vertical Py3.12; 113 Vitest, 1,012 actual host, 41 API/auth/HTTP tests, 34,030 collected. Header-only key, owned rotation/cleanup and no redirect/anonymous downgrade; server-side live revocation remains G81 |
 | VAS-05h | Stop outbound protected-event delivery before /ws authentication | VAS-05g | 🔍 IN REVIEW | [#1773](https://github.com/anvai-labs/victor/pull/1773), `fix/ws-broadcast-auth`, baseline `17a8b197f`. Real-route RED: unauthenticated /ws socket received tool-approval broadcasts on a keyed server. `_broadcast_ws` recipient admission (auth-handshake required on keyed servers; keyless unchanged) + bounded total handshake window closing pending sockets (1008). Owner 13/13 GREEN incl. authorized delivery, keyless compat, drip-bypass negative; affected API suites 272 passed; lint/type/collect clean. Scoped subscription ownership remains VAS-05c/VAS-06 |
-| VAS-05i | Enforce required sandbox policy at canonical tool dispatch | VAS-05h | 🔍 IN REVIEW | Branch `feat/sandbox-required-policy`, baseline `adcc6e1ff`. RED: enabled-but-unavailable sandbox still spawned the child (fail-open). `SandboxPolicy` disabled/preferred/required in `SandboxSettings` (legacy bool → preferred); `resolve_sandbox_backend` raises typed `SandboxRequiredUnavailableError` under required; `run_command`/`run_command_async`/`bash.shell` refuse with structured `SANDBOX_REQUIRED` result, zero spawns. Owner 31 passed; tools 3,702 + workflows 1,380 + core mirror 39 passed; lint/type/collect clean. Direct-spawn convergence and `workflows/isolation.py` policy awareness recorded as follow-ups |
+| VAS-05i | Enforce required sandbox policy at canonical tool dispatch | VAS-05h | ✅ MERGED | [#1774](https://github.com/anvai-labs/victor/pull/1774), `927b568ff`; Branch `feat/sandbox-required-policy`, baseline `adcc6e1ff`. RED: enabled-but-unavailable sandbox still spawned the child (fail-open). `SandboxPolicy` disabled/preferred/required in `SandboxSettings` (legacy bool → preferred); `resolve_sandbox_backend` raises typed `SandboxRequiredUnavailableError` under required; `run_command`/`run_command_async`/`bash.shell` refuse with structured `SANDBOX_REQUIRED` result, zero spawns. Owner 31 passed; tools 3,702 + workflows 1,380 + core mirror 39 passed; lint/type/collect clean. Direct-spawn convergence and `workflows/isolation.py` policy awareness recorded as follow-ups |
+| VAS-05j | Owner-scoped broadcast delivery (cross-owner denial) | VAS-05i | 🔍 IN REVIEW | Branch `feat/owner-scoped-broadcast`, baseline `927b568ff`. RED: bob's tool-approval event delivered to alice's authenticated socket. Auth dep records `request.state.client_id`; `_broadcast_ws`/`_broadcast_agent_event` take explicit `owner_client_id`; tool/workflow/team routes bind it; execution state records owner at start; unbound internal broadcasts keep all-authenticated (guard test). API surface 275 passed; lint/type/collect clean. BackgroundAgentManager principal threading, cross-owner READ and scoped subscriptions remain open |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
