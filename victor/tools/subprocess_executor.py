@@ -377,23 +377,19 @@ def _resolve_default_sandbox() -> "SandboxBackend":
         # degradation applies. A KNOWN required policy never takes this path.
         return NoneSandbox()
 
+    from victor.tools.sandbox import resolve_required_launch
+
+    decision = resolve_required_launch(sandbox_settings)
+    if decision.refuse:
+        # HB-02: a resolver/configuration error must not convert a required
+        # policy into disabled isolation.
+        raise SandboxRequiredUnavailableError("resolver_error", decision.reason)
+    if decision.required_active:
+        return decision.backend
     try:
         return resolve_sandbox_backend(sandbox_settings)
-    except SandboxRequiredUnavailableError:
-        raise
-    except Exception as exc:
-        # HB-02: a resolver/configuration error must not convert a required
-        # policy into disabled isolation. Only genuinely non-required
-        # policies degrade open.
-        from victor.tools.sandbox import effective_sandbox_policy
-
-        if effective_sandbox_policy(sandbox_settings) == "required":
-            raise SandboxRequiredUnavailableError(
-                "resolver_error",
-                "Sandbox policy is 'required' but backend resolution failed "
-                f"({exc}); refusing execution (fail-closed).",
-            ) from exc
-        return NoneSandbox()  # pragma: no cover - defensive: preferred path
+    except Exception:  # pragma: no cover - defensive: preferred fail-open
+        return NoneSandbox()
 
 
 def _sandbox_refusal_result(

@@ -120,3 +120,81 @@ def test_sibling_prefix_working_dir_rejected(monkeypatch, tmp_path):
     body = response.json()
     assert body["status"] == "failed"
     assert "within workspace" in body.get("output", "")
+
+
+# ---------------------------------------------------------------------------
+# Direct-spawn convergence: /terminal/execute follows the required policy
+# ---------------------------------------------------------------------------
+
+
+def _install_required(monkeypatch, backend_available: bool) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    if backend_available:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: "/usr/bin/bwrap")
+    else:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: None)
+
+
+def _trap_terminal_spawn(monkeypatch, launched: list) -> None:
+    import victor.integrations.api.routes.terminal_routes as tr
+
+    async def _trap(*args, **kwargs):
+        launched.append([str(a) for a in args])
+        raise RuntimeError("synthetic spawn trap")
+
+    monkeypatch.setattr(tr.asyncio, "create_subprocess_exec", _trap)
+
+
+def test_required_policy_wraps_terminal_launch(monkeypatch, tmp_path):
+    """Under required policy with an enforcing backend, the terminal route's
+    actual launch carries the backend wrapper, not the raw argv."""
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    _install_required(monkeypatch, backend_available=True)
+    launched: list = []
+    _trap_terminal_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    response = _execute(client, "echo hi")
+    assert launched, "expected a spawn attempt to inspect"
+    assert launched[0][0] == "bwrap", f"raw argv launched: {launched[0]}"
+    assert "synthetic-command" not in launched[0]
+
+
+def test_required_policy_refuses_terminal_launch_when_unenforceable(monkeypatch, tmp_path):
+    """Under required policy with no enforcing backend, the terminal route
+    refuses before any spawn."""
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    _install_required(monkeypatch, backend_available=False)
+    launched: list = []
+    _trap_terminal_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    response = _execute(client, "echo hi")
+    body = response.json()
+    assert launched == [], "no spawn may be attempted under unenforceable required"
+    assert body["status"] == "failed"
+    assert "required" in body.get("output", "").lower()
+
+
+def test_disabled_policy_keeps_terminal_launch_raw(monkeypatch, tmp_path):
+    """Default (no sandbox configured) keeps the historical raw exec."""
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    launched: list = []
+    _trap_terminal_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    response = _execute(client, "echo hi")
+    assert launched and launched[0][0] != "bwrap"
