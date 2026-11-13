@@ -1012,6 +1012,12 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/team_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
     ),
+    # /agents route: owner-scoped background-agent event delivery is pinned
+    # by the background agent manager owner (no per-route mirror file).
+    "victor/integrations/api/routes/agent_routes.py": (
+        "tests/unit/agent/test_background_agent.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",
         "tests/unit/protocols/test_protocol_adapters.py",

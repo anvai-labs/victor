@@ -20,7 +20,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import JSONResponse
 from victor.runtime.chat_runtime import resolve_chat_service, resolve_chat_runtime
 
@@ -36,6 +36,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.post("/agents/start")
     async def start_agent(
+        http_request: Request,
         task: str = Body(..., description="Task for the agent to execute"),
         mode: str = Body("build", description="Agent mode: build, plan, explore"),
         name: Optional[str] = Body(None, description="Display name for the agent"),
@@ -58,7 +59,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     chat_service=chat_service,
                     max_concurrent=4,
                     event_callback=lambda t, d: asyncio.create_task(
-                        server._broadcast_agent_event(t, d)
+                        server._broadcast_agent_event(
+                            t, d, owner_client_id=d.get("owner_client_id")
+                        )
                     ),
                 )
 
@@ -66,6 +69,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 task=task,
                 mode=mode,
                 name=name,
+                owner_client_id=getattr(http_request.state, "client_id", None),
             )
 
             return JSONResponse(

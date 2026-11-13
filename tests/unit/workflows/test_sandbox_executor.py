@@ -64,3 +64,109 @@ async def test_workflow_process_is_reaped_after_communication_failure(failure):
     backend.communicate.assert_awaited_once_with(process, "text")
     backend.terminate.assert_awaited_once_with(process)
     assert caller_env == {"CUSTOM": "value"}
+
+
+# ---------------------------------------------------------------------------
+# Required sandbox policy convergence (VAS-05i follow-up)
+# ---------------------------------------------------------------------------
+
+
+def _install_required(monkeypatch, backend_available: bool) -> None:
+    """Point default settings at a required policy; arm spawn traps."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    if backend_available:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: "/usr/bin/bwrap")
+    else:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: None)
+
+    import victor.workflows.sandbox_executor as se
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child process spawned despite required sandbox policy")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _no_spawn)
+
+
+async def test_required_policy_unavailable_refuses_inline_with_zero_spawn(monkeypatch):
+    """sandbox_type='none' (inline) must refuse under a required policy whose
+    backend is unavailable — no child process, structured failure."""
+    executor = SandboxedExecutor(docker_available=False)
+    _install_required(monkeypatch, backend_available=False)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="none"),
+    )
+    assert not result.success
+    assert "required" in result.error.lower()
+    assert result.exit_code == -1
+
+
+async def test_required_policy_available_still_refuses_unenforced_inline(monkeypatch):
+    """Even with an enforcing backend present, an explicit sandbox_type='none'
+    request is unenforced execution and must refuse under required policy."""
+    executor = SandboxedExecutor(docker_available=False)
+    _install_required(monkeypatch, backend_available=True)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="none"),
+    )
+    assert not result.success
+    assert "sandbox policy is 'required'" in result.error.lower()
+
+
+async def test_required_policy_blocks_docker_to_process_fallback(monkeypatch):
+    """Under required policy, docker-unavailable must not silently fall back
+    to the weaker process isolation."""
+    executor = SandboxedExecutor(docker_available=False)
+    _install_required(monkeypatch, backend_available=False)
+    started = []
+
+    class _FakeSandbox:
+        def __init__(self, config):
+            started.append(self)
+
+        async def start(self, **kwargs):
+            started.append("started")
+            raise AssertionError("fallback spawn attempted under required policy")
+
+    import victor.integrations.mcp.sandbox as mcp_sandbox
+
+    monkeypatch.setattr(mcp_sandbox, "SandboxedProcess", _FakeSandbox)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="docker"),
+    )
+    assert not result.success
+    assert "sandbox policy is 'required'" in result.error.lower()
+    assert not started
+
+
+async def test_preferred_policy_keeps_existing_behavior(monkeypatch):
+    """preferred (and legacy bool) keeps today's fail-open behavior: inline
+    executes unsandboxed with a degradation warning path, no refusal."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="preferred")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('ok')"],
+        IsolationConfig(sandbox_type="none"),
+    )
+    assert result.success, result.error
+    assert "ok" in result.output

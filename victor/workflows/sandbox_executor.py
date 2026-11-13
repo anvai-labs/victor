@@ -51,6 +51,15 @@ from victor.workflows.isolation import IsolationConfig, ResourceLimits
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _PolicyDecision:
+    """Outcome of the sandbox policy check for one workflow execution."""
+
+    refuse: bool = False
+    required_active: bool = False
+    reason: str = ""
+
+
 @dataclass
 class SandboxExecutionResult:
     """Result of sandboxed execution.
@@ -185,6 +194,37 @@ class SandboxedExecutor:
         if docker_available is None:
             self._docker_available = self._check_docker()
 
+    def _resolve_policy_decision(self) -> "_PolicyDecision":
+        """Resolve the global sandbox policy for this execution.
+
+        Reuses the canonical resolver (victor.tools.sandbox). A required
+        policy whose backend cannot enforce it yields refuse=True; any other
+        settings/resolution failure degrades to disabled, matching the
+        canonical executor's fail-open-for-resolution-bugs behavior.
+        """
+        from victor.tools.sandbox import (
+            SandboxRequiredUnavailableError,
+            effective_sandbox_policy,
+            resolve_sandbox_backend,
+        )
+
+        try:
+            from victor.config.settings import get_settings
+
+            sandbox_settings = getattr(get_settings(), "sandbox", None)
+        except Exception:
+            return _PolicyDecision()
+        try:
+            policy = effective_sandbox_policy(sandbox_settings)
+            if policy != "required":
+                return _PolicyDecision()
+            resolve_sandbox_backend(sandbox_settings)  # raises when unenforceable
+            return _PolicyDecision(required_active=True)
+        except SandboxRequiredUnavailableError as exc:
+            return _PolicyDecision(refuse=True, reason=str(exc))
+        except Exception:
+            return _PolicyDecision()
+
     def _check_docker(self) -> bool:
         """Check if Docker is available."""
         try:
@@ -222,10 +262,50 @@ class SandboxedExecutor:
 
         start_time = time.time()
 
+        # Required-policy convergence (VAS-05i follow-up): workflow compute
+        # execution consults the same sandbox policy decision as the
+        # canonical subprocess executor. Under a required policy that no
+        # backend can enforce, every branch refuses before any spawn; with a
+        # backend present, an explicit sandbox_type="none" request is still
+        # unenforced execution and refuses. preferred/disabled keep the
+        # historical behavior (including the docker -> process fallback).
+        policy_decision = self._resolve_policy_decision()
+        if policy_decision.refuse:
+            return SandboxExecutionResult(
+                success=False,
+                output="",
+                error=policy_decision.reason,
+                exit_code=-1,
+                sandbox_type="none",
+            )
+        if policy_decision.required_active and isolation.sandbox_type == "none":
+            return SandboxExecutionResult(
+                success=False,
+                output="",
+                error=(
+                    "Sandbox policy is 'required': sandbox_type='none' is unenforced "
+                    "execution and was refused (fail-closed)."
+                ),
+                exit_code=-1,
+                sandbox_type="none",
+            )
+
         if isolation.sandbox_type == "docker":
             if self._docker_available:
                 result = await self._execute_docker(
                     command, isolation, working_dir, env, input_data
+                )
+            elif policy_decision.required_active:
+                return SandboxExecutionResult(
+                    success=False,
+                    output="",
+                    error=(
+                        "Sandbox policy is 'required': docker isolation is unavailable "
+                        "and falling back to weaker process isolation was refused "
+                        "(fail-closed)."
+                    ),
+                    exit_code=-1,
+                    sandbox_type="none",
                 )
             else:
                 logger.warning("Docker not available, falling back to process isolation")

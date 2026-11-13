@@ -430,3 +430,51 @@ class TestGlobalFunctions:
         )
 
         assert manager._event_callback is callback
+
+
+# ---------------------------------------------------------------------------
+# Owner-scoped background agent events (VAS-05j follow-up)
+# ---------------------------------------------------------------------------
+
+
+async def test_start_agent_records_owner_in_events():
+    """A principal starting a background agent gets its lifecycle events
+    tagged with the owner so broadcast delivery can scope them."""
+    manager = BackgroundAgentManager(
+        orchestrator=MagicMock(),
+        chat_service=MagicMock(),
+        max_concurrent=2,
+    )
+    events = []
+    manager.set_event_callback(lambda t, d: events.append((t, d)))
+
+    agent_id = await manager.start_agent(
+        "do the thing",
+        owner_client_id="alice",
+    )
+    agent = manager.get_agent(agent_id)
+    assert agent.owner_client_id == "alice"
+
+    await asyncio.sleep(0.05)  # let the started event flush
+    started = [d for t, d in events if t == "agent_started"]
+    assert started and started[0].get("owner_client_id") == "alice"
+    assert manager._agents[agent_id]._task is not None
+    agent._task.cancel()
+
+
+async def test_agent_without_owner_has_no_owner_tag():
+    manager = BackgroundAgentManager(
+        orchestrator=MagicMock(),
+        chat_service=MagicMock(),
+        max_concurrent=2,
+    )
+    events = []
+    manager.set_event_callback(lambda t, d: events.append((t, d)))
+
+    agent_id = await manager.start_agent("untagged task")
+    agent = manager.get_agent(agent_id)
+    assert agent.owner_client_id is None
+    assert "owner_client_id" not in agent.to_dict() or (
+        agent.to_dict().get("owner_client_id") is None
+    )
+    agent._task.cancel()
