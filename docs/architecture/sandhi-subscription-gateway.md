@@ -594,9 +594,18 @@ host UID/GID, a read-only binary and CA, and a private writable state directory.
 Hostname and TLS verification stay enabled. Containers and the disposable IDM
 database are removed on exit. No live identity service or global DNS is changed.
 
-A local source-candidate pass is separate from independent review, merged code,
-publication and deployment. The corrective Sandhi 0.17.1 release remains a
-separate train. After publication, qualify a clean installation of its published
-wheel and update Victor's consumed pin through the normal reviewed owner; retain
-this resource-audience feature's separate server-candidate provenance. The local
-co-design does not publish Victor or establish live development-service support.
+The released Sandhi 0.17.1 wheel and Victor's exact consumed pin have completed
+[separate published-artifact qualification](../reviews/sandhi-published-0.17.1-consumer-2026-11-13.md).
+The resource-audience server feature belongs to the unreleased Sandhi 0.18 source
+candidate. The local fixture records the actual server binary, IDM source and
+installed SDK hashes independently; a published SDK does not make those server
+candidates released or deployed. Local acceptance, independent review, merged
+code and live deployment remain separate gates. This co-design does not publish
+Victor or establish live development-service support.
+
+The [final local acceptance](../reviews/sandhi-idm-final-source-acceptance-2026-11-13.md)
+reran the actual three-component loop using the official 0.17.1 SDK, the combined
+0.18 server source and the remote-aligned IDM candidate. All three integration
+and oracle tests passed, including two joined 14-token settlements and six
+refusal controls. The dated record retains each component's distinct release
+and deployment state.
