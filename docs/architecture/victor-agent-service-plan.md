@@ -67,6 +67,31 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **PROMOTION-026 — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+  promotion PR develop → main at develop `787a26eb3` (VERSION 0.29.0,
+  pyproject synced). Banks two verified batches with no source changes
+  beyond this ledger entry: (1) Sandhi 0.17.1 identity/gateway adoption
+  (#1770/#1771 lineage, CI-green on develop), (2) the framework-review
+  security/bounded-concurrency program #1773–#1785 — outbound WS
+  broadcast auth + bounded handshake (VAS-05h), required sandbox policy
+  fail-closed dispatch (VAS-05i), owner-scoped broadcast delivery
+  (VAS-05j), bounded Send fan-out admission + worker/task admission +
+  budgets (VAS-16a/b/c), git-route and terminal direct-spawn gates +
+  Docker network floor (VAS-05n/o/p), resource-owner authorization
+  (VAS-05m). Adversarial review: each constituent PR reviewed at its
+  exact head pre-merge (findings fixed in-PR, e.g. #1783's
+  IsolationConfig field-drop caught pre-merge); this promotion diff adds
+  no code beyond the ledger entry, so the reviewed heads are the banked
+  content. Local preflight: full CI Success + Vertical Py3.12 green on
+  every constituent develop PR; main-targeted battery runs in CI.
+  Merging banks source in main; no PyPI/GitHub release, installed wheel
+  or live acceptance is claimed by this promotion. Explicitly open
+  (queued NEXT-01 and later): run-policy snapshot for unreadable
+  settings, scoped sessions/subscriptions and slow-client queues,
+  result-byte budgets + representative measurements, scheduler FEP
+  reconciliation, VAS-11c feasibility, remaining spawn-site decisions.
+  Next: green main battery, then merge; main→develop sync follows.
+
 - **VAS-05p — MERGED** (2026-11-13), owner: framework-review delivery session;
   PR [#1783](https://github.com/anvai-labs/victor/pull/1783)
   (`feat/docker-policy-composition`), baseline `69719f04d`; merged as
