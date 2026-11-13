@@ -208,3 +208,112 @@ async def test_production_shell_tool_required_policy_blocks_execution(monkeypatc
     assert result["success"] is False
     assert "required" in result["error"].lower()
     assert result["stdout"] == "" and result["stderr"] == ""
+
+
+# ---------------------------------------------------------------------------
+# HB-02: required-policy resolver failures must refuse, never degrade
+# ---------------------------------------------------------------------------
+
+
+def _install_required_settings(monkeypatch) -> None:
+    """Load a required policy without availability patching (bwrap presence
+    on the host must not matter for resolver-failure tests)."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def test_resolver_exception_under_required_raises(monkeypatch):
+    """A generic resolver exception under a required policy must surface as a
+    typed refusal, never silently degrade to NoneSandbox."""
+    import victor.tools.sandbox as vs
+
+    _install_required_settings(monkeypatch)
+    monkeypatch.setattr(vs, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+    from victor.tools.subprocess_executor import _resolve_default_sandbox
+
+    with pytest.raises(vs.SandboxRequiredUnavailableError) as excinfo:
+        _resolve_default_sandbox()
+    assert excinfo.value.reason == "resolver_error"
+
+
+def _raise_runtime_error(settings):  # pragma: no cover - helper
+    raise RuntimeError("synthetic resolver failure")
+
+
+def test_run_command_required_resolver_failure_refuses_execution(monkeypatch):
+    """run_command under required policy with a broken resolver returns the
+    structured refusal and never spawns (sync, shell path)."""
+    import subprocess
+
+    import victor.tools.sandbox as vs
+
+    _install_required_settings(monkeypatch)
+    monkeypatch.setattr(vs, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+
+    def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned despite required-policy resolver failure")
+
+    monkeypatch.setattr(subprocess, "run", _no_spawn)
+    result = run_command("echo hi", shell=True)
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+    assert "resolver" in result.error_message.lower()
+
+
+async def test_run_command_async_required_resolver_failure_refuses_execution(
+    monkeypatch,
+):
+    import victor.tools.sandbox as vs
+
+    _install_required_settings(monkeypatch)
+    monkeypatch.setattr(vs, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+
+    import victor.tools.subprocess_executor as se
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned despite required-policy resolver failure")
+
+    monkeypatch.setattr(se, "run_managed_process", _no_spawn)
+    result = await run_command_async("echo hi")
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+
+
+def test_explicit_none_sandbox_cannot_weaken_required_policy(monkeypatch):
+    """A caller-supplied NoneSandbox must not bypass a required policy: the
+    execution is refused instead of running unwrapped."""
+    import subprocess
+
+    _install_required_settings(monkeypatch)
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb_mod.shutil, "which", lambda name: "/usr/bin/bwrap")
+
+    def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("unwrapped child spawned under required policy")
+
+    monkeypatch.setattr(subprocess, "run", _no_spawn)
+    result = run_command("echo hi", shell=True, sandbox=NoneSandbox())
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+
+
+def test_policy_unreadable_degrades_open_only_without_required(monkeypatch):
+    """If settings cannot be loaded the policy is unknowable — historical
+    degradation applies (documented; distinct from a known-required
+    resolution failure)."""
+    import victor.config.settings as cs
+    import victor.tools.subprocess_executor as se
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+    assert se._resolve_default_sandbox().type_name == "none"

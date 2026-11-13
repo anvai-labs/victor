@@ -372,11 +372,61 @@ def _resolve_default_sandbox() -> "SandboxBackend":
         from victor.config.settings import get_settings
 
         sandbox_settings = getattr(get_settings(), "sandbox", None)
+    except Exception:
+        # Policy unreadable: required-ness is unknowable, so the historical
+        # degradation applies. A KNOWN required policy never takes this path.
+        return NoneSandbox()
+
+    try:
         return resolve_sandbox_backend(sandbox_settings)
     except SandboxRequiredUnavailableError:
         raise
-    except Exception:  # pragma: no cover - defensive: never break execution
-        return NoneSandbox()
+    except Exception as exc:
+        # HB-02: a resolver/configuration error must not convert a required
+        # policy into disabled isolation. Only genuinely non-required
+        # policies degrade open.
+        from victor.tools.sandbox import effective_sandbox_policy
+
+        if effective_sandbox_policy(sandbox_settings) == "required":
+            raise SandboxRequiredUnavailableError(
+                "resolver_error",
+                "Sandbox policy is 'required' but backend resolution failed "
+                f"({exc}); refusing execution (fail-closed).",
+            ) from exc
+        return NoneSandbox()  # pragma: no cover - defensive: preferred path
+
+
+def _sandbox_refusal_result(
+    error_message: str,
+    command: Union[str, List[str]],
+    working_dir: Optional[Union[str, Path]] = None,
+) -> CommandResult:
+    """Structured required-policy dispatch refusal (no execution occurred)."""
+    return CommandResult(
+        success=False,
+        stdout="",
+        stderr="",
+        return_code=-1,
+        error_type=CommandErrorType.SANDBOX_REQUIRED,
+        error_message=error_message,
+        command=command,
+        working_dir=str(working_dir) if working_dir else None,
+    )
+
+
+def _required_policy_active() -> bool:
+    """Whether the effective sandbox policy is ``required`` (best effort).
+
+    Unreadable settings mean unknowable policy and return False; callers
+    treat that as the historical non-required path.
+    """
+    try:
+        from victor.config.settings import get_settings
+        from victor.tools.sandbox import effective_sandbox_policy
+
+        return effective_sandbox_policy(getattr(get_settings(), "sandbox", None)) == "required"
+    except Exception:
+        return False
 
 
 def _apply_sandbox(
@@ -469,20 +519,21 @@ def run_command(
     # child process is spawned (fail-closed, zero execution).
     from victor.tools.sandbox import SandboxRequiredUnavailableError
 
+    # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
+    # required policy — unwrapped execution is refused.
+    if sandbox is not None and sandbox.type_name == "none" and _required_policy_active():
+        refusal = (
+            "Sandbox policy is 'required': an explicit no-sandbox backend "
+            "cannot bypass enforcement (fail-closed)."
+        )
+        logger.error("Refusing command execution: %s", refusal)
+        return _sandbox_refusal_result(refusal, cmd_str, working_dir)
+
     try:
         exec_args, exec_shell = _apply_sandbox(sandbox, args, shell, working_dir)
     except SandboxRequiredUnavailableError as exc:
         logger.error("Refusing command execution: %s", exc)
-        return CommandResult(
-            success=False,
-            stdout="",
-            stderr="",
-            return_code=-1,
-            error_type=CommandErrorType.SANDBOX_REQUIRED,
-            error_message=str(exc),
-            command=cmd_str,
-            working_dir=str(working_dir) if working_dir else None,
-        )
+        return _sandbox_refusal_result(str(exc), cmd_str, working_dir)
 
     try:
         result = subprocess.run(
@@ -802,20 +853,21 @@ async def run_command_async(
     # child process is spawned (fail-closed, zero execution).
     from victor.tools.sandbox import SandboxRequiredUnavailableError
 
+    # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
+    # required policy — unwrapped execution is refused.
+    if sandbox is not None and sandbox.type_name == "none" and _required_policy_active():
+        refusal = (
+            "Sandbox policy is 'required': an explicit no-sandbox backend "
+            "cannot bypass enforcement (fail-closed)."
+        )
+        logger.error("Refusing command execution: %s", refusal)
+        return _sandbox_refusal_result(refusal, command, working_dir)
+
     try:
         backend = sandbox if sandbox is not None else _resolve_default_sandbox()
     except SandboxRequiredUnavailableError as exc:
         logger.error("Refusing command execution: %s", exc)
-        return CommandResult(
-            success=False,
-            stdout="",
-            stderr="",
-            return_code=-1,
-            error_type=CommandErrorType.SANDBOX_REQUIRED,
-            error_message=str(exc),
-            command=command,
-            working_dir=str(working_dir) if working_dir else None,
-        )
+        return _sandbox_refusal_result(str(exc), command, working_dir)
 
     try:
         run_kwargs: Dict[str, Any] = {
