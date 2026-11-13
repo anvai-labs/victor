@@ -215,6 +215,20 @@ if TYPE_CHECKING:
     from victor.framework.graph_checkpoint import CheckpointerProtocol
 
 
+def _validate_count(name: str, value: Any, allow_none: bool = False) -> None:
+    """Strict runtime validation for count-budget fields (R2-04).
+
+    Annotations do not enforce this boundary: ``True`` is an ``int``, and
+    ``NaN``/``inf`` floats defeat magnitude comparisons (NaN makes every
+    comparison False, silently disabling a cap). Only actual positive
+    finite integers pass; ``None`` is allowed only where documented.
+    """
+    if allow_none and value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive integer, got {value!r}")
+
+
 @dataclass
 class ExecutionConfig:
     """Controls execution limits for graph execution.
@@ -248,14 +262,8 @@ class ExecutionConfig:
             raise ValueError(f"timeout must be >= 0.1, got {self.timeout}")
         if self.recursion_limit < 1:
             raise ValueError(f"recursion_limit must be >= 1, got {self.recursion_limit}")
-        if self.max_parallel_branches < 1:
-            raise ValueError(
-                f"max_parallel_branches must be >= 1, got {self.max_parallel_branches}"
-            )
-        if self.max_fanout_branches is not None and self.max_fanout_branches < 1:
-            raise ValueError(
-                f"max_fanout_branches must be >= 1 or None, got {self.max_fanout_branches}"
-            )
+        _validate_count("max_parallel_branches", self.max_parallel_branches)
+        _validate_count("max_fanout_branches", self.max_fanout_branches, allow_none=True)
 
 
 @dataclass

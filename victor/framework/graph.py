@@ -539,6 +539,13 @@ class CompiledGraph(Generic[StateType]):
         parallel_bound = max(1, min(self._config.execution.max_parallel_branches, len(sends)))
         results: List[Any] = [None] * len(sends)
         branch_iter = iter(range(len(sends)))
+        # R2-03: workers are owned tasks with explicit failure lifecycle.
+        # gather() does NOT cancel siblings when one child raises, so an
+        # unexpected error (deepcopy, conversion, observer) previously let
+        # surviving workers drain queued branches after the caller saw the
+        # failure. Admission stops via the flag; cancellation lands at the
+        # workers' next await; already observed results are preserved.
+        admitting = True
 
         async def _run_branch(index: int) -> None:
             send = sends[index]
@@ -552,14 +559,22 @@ class CompiledGraph(Generic[StateType]):
             results[index] = (send.node, success, error, state_dict)
 
         async def _worker() -> None:
-            while True:
+            while admitting:
                 try:
                     index = next(branch_iter)
                 except StopIteration:
                     return
                 await _run_branch(index)
 
-        await asyncio.gather(*[_worker() for _ in range(parallel_bound)])
+        workers = [asyncio.create_task(_worker()) for _ in range(parallel_bound)]
+        try:
+            await asyncio.gather(*workers)
+        except BaseException:
+            admitting = False
+            for worker in workers:
+                worker.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+            raise
         branch_results = results
 
         failures = [
