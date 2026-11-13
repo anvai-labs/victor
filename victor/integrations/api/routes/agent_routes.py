@@ -168,9 +168,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             if manager is None:
                 return JSONResponse({"error": "No agents running"}, status_code=404)
             if agent is None:
-                return JSONResponse(
-                    {"error": "Agent not found or not running"}, status_code=404
-                )
+                return JSONResponse({"error": "Agent not found or not running"}, status_code=404)
 
             cancelled = await manager.cancel_agent(agent_id)
             if cancelled:

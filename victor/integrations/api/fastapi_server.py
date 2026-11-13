@@ -1086,9 +1086,7 @@ class VictorFastAPIServer:
         it (HB-01); ``None`` otherwise, so callers return an identical
         not-found shape without confirming another owner's existence."""
         entry = store.get(resource_id)
-        if entry is None or not self._owner_authorized(
-            entry.get("owner_client_id"), principal
-        ):
+        if entry is None or not self._owner_authorized(entry.get("owner_client_id"), principal):
             return None
         return entry
 
