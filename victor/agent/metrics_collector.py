@@ -270,8 +270,13 @@ class MetricsCollector(AdhocMetricsMixin):
 
         # Record actual token usage from provider API if available
         # This enables accurate token counts instead of estimates
-        if usage_data:
-            self._current_stream_metrics.record_usage(usage_data)
+        diagnostics = provider_diagnostics or {}
+        self._current_stream_metrics.record_usage(
+            usage_data,
+            # Partial diagnostics cannot replace a complete per-call fold:
+            # native-only calls need not carry Sandhi typed metadata at all.
+            usage_basis=diagnostics.get("usage_basis", "compatibility"),
+        )
 
         if provider_diagnostics:
             self._current_stream_metrics.metadata["sandhi_usage"] = dict(provider_diagnostics)

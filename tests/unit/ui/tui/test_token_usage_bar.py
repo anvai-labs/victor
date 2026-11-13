@@ -223,3 +223,13 @@ def test_cache_hit_rate_is_fraction_scale() -> None:
     bar.set_usage(prompt_tokens=1000, cached_tokens=900, cache_hit_rate=0.9)
     content = str(bar.render())
     assert "hit 90%" in content
+
+
+def test_unknown_source_pricing_hides_last_turn_and_session_subtotals() -> None:
+    bar = TokenUsageBar()
+    bar.set_usage(cost_usd=1.0, session_cost_usd=2.0)
+    bar.set_usage(total_tokens=17, pricing_available=False)
+    content = str(bar.render())
+    assert "cost unavailable" in content
+    assert "$" not in content
+    assert "17" in content

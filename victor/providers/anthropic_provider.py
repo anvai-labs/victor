@@ -130,7 +130,15 @@ class AnthropicProvider(BaseProvider):
         self._auth_mode = auth_mode
         self._sandhi_auth_scheme = "bearer" if auth_mode == "oauth" else "api_key"
 
-        if auth_mode == "oauth":
+        from victor.providers.gateway_contract import gateway_virtual_key
+
+        gateway_key = gateway_virtual_key(kwargs.get("gateway"))
+        if gateway_key is not None:
+            self._api_key = gateway_key
+            self._auth_mode = "gateway"
+            self._sandhi_auth_scheme = "bearer"
+            max_retries = 0
+        elif auth_mode == "oauth":
             self._oauth_manager = OAuthTokenManager("anthropic", token_source=oauth_source)
             cached = self._oauth_manager._load_cached()
             if cached is not None and not cached.is_expired:

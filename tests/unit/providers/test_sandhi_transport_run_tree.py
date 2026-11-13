@@ -25,15 +25,10 @@ Contract:
 - gateway mode without a bound session -> no header (nothing to attribute);
 - existing wire headers are preserved; an explicit caller-set run id wins.
 
-The per-call headers also carry an ``Idempotency-Key`` — the LOGICAL-call
-identity (sandhi TD-0021 P4 sender half): its preferred source is the ``call_id``
-correlation var bound by the retry owner (ResilientProvider.chat — streams bind
-nothing by design: an async generator cannot ContextVar-bind safely), so every
-Python-level retry AND fallback of one logical CHAT call shares one key and the
-gateway's meter counts the call once; with no binding (bare provider, or the
-stream path), a fresh key per invocation; direct mode -> never sent (no gateway
-ledger to dedup against). The Rust-internal retry reuse is pinned sandhi-side
-(resilience.rs re-sends the same HeaderMap), not here.
+Gateway calls do not send ``Idempotency-Key``, whether generated from local
+logical-call context or supplied as a custom header. Each gateway invocation keeps
+its own execution identity; no logical-meter dedup key can authorize replay. Run,
+session and step attribution remain independent of that execution identity.
 """
 
 from __future__ import annotations
@@ -199,13 +194,6 @@ async def test_session_affinity_rides_neutral_metadata_in_both_modes(monkeypatch
     assert headers["x-sandhi-session"] == bound_session
 
 
-def _is_idempotency_key(value: object) -> bool:
-    """A per-logical-call key as minted by ``_wire_call_headers``: uuid4().hex."""
-    return (
-        isinstance(value, str) and len(value) == 32 and all(c in "0123456789abcdef" for c in value)
-    )
-
-
 @pytest.fixture
 def bound_turn():
     import victor.core.context as ctx
@@ -229,7 +217,7 @@ async def test_gateway_mode_stamps_step_id_per_call(monkeypatch, bound_turn):
 
     (headers,) = (json.loads(h) for h in runtime.handle.wire_headers)
     assert headers["x-sandhi-step-id"] == bound_turn
-    assert _is_idempotency_key(headers["Idempotency-Key"])
+    assert "idempotency-key" not in {name.lower() for name in headers}
 
 
 @pytest.mark.asyncio
@@ -253,8 +241,7 @@ async def test_step_id_changes_per_turn_without_handle_rebuild(monkeypatch):
     first, second = (json.loads(h) for h in runtime.handle.wire_headers)
     assert first["x-sandhi-step-id"] == "turn-1"
     assert second["x-sandhi-step-id"] == "turn-2"
-    # The idempotency key is minted per LOGICAL call — the two turns are two calls.
-    assert first["Idempotency-Key"] != second["Idempotency-Key"]
+    assert "idempotency-key" not in {name.lower() for name in first | second}
 
 
 @pytest.mark.asyncio
@@ -273,7 +260,7 @@ async def test_stream_path_stamps_step_id_per_call(monkeypatch, bound_turn):
     await collect()
     headers = json.loads(runtime.handle.wire_headers[0])
     assert headers["x-sandhi-step-id"] == bound_turn
-    assert _is_idempotency_key(headers["Idempotency-Key"])
+    assert "idempotency-key" not in {name.lower() for name in headers}
 
     # Second turn: header changes, handle still reused.
     token = ctx.turn_id.set("turn-bbb-222")
@@ -283,13 +270,13 @@ async def test_stream_path_stamps_step_id_per_call(monkeypatch, bound_turn):
         ctx.turn_id.reset(token)
     headers_b = json.loads(runtime.handle.wire_headers[-1])
     assert headers_b["x-sandhi-step-id"] == "turn-bbb-222"
-    assert headers_b["Idempotency-Key"] != headers["Idempotency-Key"]
+    assert "idempotency-key" not in {name.lower() for name in headers_b}
 
 
 @pytest.mark.asyncio
 async def test_direct_mode_sends_no_step_header(monkeypatch, bound_turn):
     """Direct (non-gateway) mode stays byte-identical: no per-call headers at all —
-    neither the step id nor the idempotency key (no gateway ledger to dedup against)."""
+    no gateway attribution headers are added."""
     runtime = install_runtime(monkeypatch)
     provider = DeepSeekProvider(api_key="k", base_url="https://api.deepseek.com/v1")
 
@@ -299,10 +286,7 @@ async def test_direct_mode_sends_no_step_header(monkeypatch, bound_turn):
 
 
 @pytest.mark.asyncio
-async def test_gateway_mode_mints_fresh_idempotency_key_per_logical_call(monkeypatch, bound_turn):
-    """With no retry owner binding a call id (a bare provider used directly), each
-    invocation is its own logical call and mints a fresh key — two invocations
-    under the SAME turn must not share one."""
+async def test_repeated_gateway_calls_preserve_step_without_idempotency(monkeypatch, bound_turn):
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
 
@@ -310,49 +294,39 @@ async def test_gateway_mode_mints_fresh_idempotency_key_per_logical_call(monkeyp
     await provider.chat([Message(role="user", content="b")], model="deepseek-chat")
 
     first, second = (json.loads(h) for h in runtime.handle.wire_headers)
-    assert first["x-sandhi-step-id"] == second["x-sandhi-step-id"] == bound_turn
-    assert _is_idempotency_key(first["Idempotency-Key"])
-    assert _is_idempotency_key(second["Idempotency-Key"])
-    assert first["Idempotency-Key"] != second["Idempotency-Key"]
+    assert first == second == {"x-sandhi-step-id": bound_turn}
+    assert len(runtime.handle.requests) == 2
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0][1]["max_retries"] == 0
 
 
 @pytest.mark.asyncio
-async def test_bound_call_id_pins_the_idempotency_key_across_retries(monkeypatch, bound_turn):
-    """TD-0021 P4 sender half: when the retry owner (ResilientProvider) has bound a
-    call id, EVERY re-entry into the transport under that binding — a Python-level
-    retry or fallback of one logical call — carries the SAME Idempotency-Key, so
-    the gateway's meter counts the logical call once (meter counts logical;
-    enforcement counts physical). This is exactly what a resilience retry does:
-    re-invoke provider.chat inside one chat() boundary."""
-    import victor.core.context as ctx
-
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_bound_call_id_stays_local_on_gateway_calls(monkeypatch, bound_turn, streaming):
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
 
     token = ctx.set_call_id("call-xyz-1")
     try:
-        # Two transport invocations under one logical call (attempt + retry).
-        await provider.chat([Message(role="user", content="a")], model="deepseek-chat")
-        await provider.chat([Message(role="user", content="a")], model="deepseek-chat")
+        await _invoke_provider(provider, streaming)
+        assert ctx.get_call_id() == "call-xyz-1"
     finally:
         ctx.call_id.reset(token)
 
-    first, second = (json.loads(h) for h in runtime.handle.wire_headers)
-    assert first["Idempotency-Key"] == second["Idempotency-Key"] == "call-xyz-1"
+    assert json.loads(runtime.handle.wire_headers[0]) == {"x-sandhi-step-id": bound_turn}
+    assert len(runtime.handle.requests) == 1
+    assert runtime.calls[0][1]["max_retries"] == 0
 
 
 @pytest.mark.asyncio
 async def test_gateway_without_bound_turn_sends_no_step_header(monkeypatch):
-    """No turn -> no step header, but the idempotency key still rides: dedup is
-    transport-retry protection, orthogonal to turn attribution."""
+    """Without a bound turn, no per-call wire headers are needed."""
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
 
     await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
 
-    headers = json.loads(runtime.handle.wire_headers[0])
-    assert "x-sandhi-step-id" not in headers
-    assert _is_idempotency_key(headers["Idempotency-Key"])
+    assert runtime.handle.wire_headers[0] is None
 
 
 @pytest.mark.asyncio
@@ -397,21 +371,70 @@ async def test_gateway_mode_explicit_run_header_wins(monkeypatch, bound_session)
     assert headers["x-sandhi-run-id"] == "explicit-run"
 
 
+async def _invoke_provider(provider, streaming):
+    messages = [Message(role="user", content="hi")]
+    if streaming:
+        async for _ in provider.stream(messages, model="deepseek-chat"):
+            pass
+    else:
+        await provider.chat(messages, model="deepseek-chat")
+
+
 @pytest.mark.asyncio
-async def test_per_call_idempotency_key_overrides_a_static_one(monkeypatch, bound_turn):
-    """The deliberate precedence asymmetry with x-sandhi-run-id: a STATIC
-    caller-set Idempotency-Key is overridden by the per-call key — a static key
-    would dedup every call of the dedup window into one metered event. Pinned so
-    the asymmetry is a decision, not an accident."""
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("header", ["Idempotency-Key", "idempotency-key", "IDEMPOTENCY-KEY"])
+async def test_gateway_filters_custom_idempotency_headers(
+    monkeypatch, bound_turn, bound_session, streaming, header
+):
     runtime = install_runtime(monkeypatch)
     provider = make_gateway_provider()
-    provider._wire_headers = {"Idempotency-Key": "caller-static-key"}
+    custom = {header: "caller-static-key", "traceparent": "caller-trace"}
+    provider._wire_headers = custom
 
-    await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+    await _invoke_provider(provider, streaming)
 
-    headers = json.loads(runtime.handle.wire_headers[0])
-    assert headers["Idempotency-Key"] != "caller-static-key"
-    assert _is_idempotency_key(headers["Idempotency-Key"])
+    static = json.loads(runtime.calls[0][1]["headers_json"])
+    assert static == {
+        "traceparent": "caller-trace",
+        "x-sandhi-run-id": bound_session,
+        "x-sandhi-session": bound_session,
+    }
+    assert json.loads(runtime.handle.wire_headers[0]) == {"x-sandhi-step-id": bound_turn}
+    assert provider._wire_headers == custom, "filtering must not mutate caller configuration"
+    assert len(runtime.handle.requests) == 1
+    assert runtime.calls[0][1]["max_retries"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_gateway_filters_idempotency_at_the_per_call_boundary(monkeypatch, streaming):
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+    monkeypatch.setattr(
+        st,
+        "_wire_call_headers",
+        lambda: {"iDeMpOtEnCy-KeY": "obsolete-key", "x-sandhi-step-id": "step"},
+    )
+
+    await _invoke_provider(provider, streaming)
+
+    assert json.loads(runtime.handle.wire_headers[0]) == {"x-sandhi-step-id": "step"}
+    assert len(runtime.handle.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_direct_mode_preserves_custom_idempotency_header(monkeypatch, bound_turn, streaming):
+    runtime = install_runtime(monkeypatch)
+    provider = DeepSeekProvider(api_key="k", base_url="https://api.deepseek.com/v1")
+    provider._wire_headers = {"iDeMpOtEnCy-KeY": "provider-owned-key"}
+
+    await _invoke_provider(provider, streaming)
+
+    assert json.loads(runtime.calls[0][1]["headers_json"]) == provider._wire_headers
+    assert runtime.handle.wire_headers[0] is None
+    assert len(runtime.handle.requests) == 1
+    assert runtime.calls[0][1]["max_retries"] == 0
 
 
 @pytest.mark.asyncio

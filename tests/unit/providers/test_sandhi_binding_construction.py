@@ -55,3 +55,15 @@ def test_gateway_mode_handle_constructs_on_real_binding(name, native_cls, model)
     provider = _construct(name, native_cls, {"gateway": dict(GATEWAY)})
     handle = provider._typed_provider(model)
     assert handle is not None
+
+
+@pytest.mark.parametrize(
+    "protocol", ["chat_completions", "anthropic_messages", "responses", "gemini_generate_content"]
+)
+@pytest.mark.parametrize("name,native_cls,model", CASES, ids=[c[0] for c in CASES])
+def test_gateway_explicit_client_dialect_is_independent_of_provider_family(
+    name, native_cls, model, protocol
+):
+    provider = _construct(name, native_cls, {"gateway": {**GATEWAY, "protocol": protocol}})
+    provider._sandhi_endpoint_profile = "openai_chat_terminal"
+    assert provider._typed_provider(model) is not None

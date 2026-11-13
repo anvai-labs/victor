@@ -547,7 +547,15 @@ class VictorTUIApp(App[None]):
         # Extract cost. Accumulation lives HERE (once per turn) — never in the
         # usage bar, which refreshes on every stream event.
         cost = report.get("total_cost_usd")
-        self._last_cost = float(cost) if isinstance(cost, (int, float)) else None
+        prices_unknown = (
+            int(
+                ((report.get("metadata") or {}).get("pricing_coverage") or {}).get("unavailable", 0)
+            )
+            > 0
+        )
+        self._last_cost = (
+            float(cost) if isinstance(cost, (int, float)) and not prices_unknown else None
+        )
         if self._last_cost is not None:
             self._session_cost_usd += self._last_cost
 
@@ -639,6 +647,12 @@ class VictorTUIApp(App[None]):
             cost_usd=self._last_cost,
             # Authoritative session figure wins; fall back to the once-per-turn
             # accumulator so pre-session_cost_usd transports still show a total.
+            pricing_available=not (
+                "session_cost_usd" in report and report["session_cost_usd"] is None
+            )
+            and not int(
+                ((report.get("metadata") or {}).get("pricing_coverage") or {}).get("unavailable", 0)
+            ),
             session_cost_usd=(
                 report.get("session_cost_usd") or (round(self._session_cost_usd, 6) or None)
             ),

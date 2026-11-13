@@ -746,3 +746,37 @@ async def test_stream_message_events_forwards_caller_run_context_object() -> Non
 
     assert captured["kwargs"]["caller_run_context"] is caller_ctx
     assert captured["kwargs"]["runtime_context_overrides"] == {"iteration_budget": 32}
+
+
+def test_gateway_unknown_price_survives_framework_metadata_without_fallback_to_native_cost():
+    from victor.framework.message_execution import _build_task_result_metadata
+
+    report = {"total_cost_usd": None, "metadata": {"pricing_coverage": {"unavailable": 1}}}
+    orchestrator = SimpleNamespace(get_last_task_report=lambda: report)
+    response = CompletionResponse(
+        content="reply",
+        role="assistant",
+        usage={"prompt_tokens": 8, "completion_tokens": 4, "cost_in_usd_ticks": 999},
+    )
+    metadata = _build_task_result_metadata(orchestrator, response)
+    assert metadata["cost_usd_micros"] is None
+    assert metadata["pricing_status"] == "unavailable"
+    assert metadata["task_report"] == report
+
+
+@pytest.mark.parametrize("vendor_cost", [None, 999])
+def test_gateway_response_without_task_report_retains_unavailable_price(vendor_cost):
+    from victor.framework.message_execution import _build_task_result_metadata
+
+    usage = {"prompt_tokens": 2, "completion_tokens": 1}
+    if vendor_cost is not None:
+        usage["cost_in_usd_ticks"] = vendor_cost
+    response = CompletionResponse(
+        content="reply",
+        role="assistant",
+        usage=usage,
+        metadata={"sandhi_usage": {"usage_basis": "gateway_client_projection"}},
+    )
+    metadata = _build_task_result_metadata(SimpleNamespace(), response)
+    assert metadata["cost_usd_micros"] is None
+    assert metadata["pricing_status"] == "unavailable"

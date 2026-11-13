@@ -131,6 +131,7 @@ class TokenUsageBar(Static):
         # money + requests
         cost_usd: Optional[float] = None,
         session_cost_usd: Optional[float] = None,
+        pricing_available: bool = True,
         model: Optional[str] = None,
     ) -> None:
         """Update the token usage display.
@@ -152,6 +153,7 @@ class TokenUsageBar(Static):
             so accumulating here would multiply the last turn's cost across the
             whole turn. Callers own the accumulation (once per turn) or pass the
             authoritative session figure.
+            pricing_available: False hides monetary subtotals when any source rate is unknown.
             model: Current model label.
         """
         if session_cost_usd is not None:
@@ -171,7 +173,11 @@ class TokenUsageBar(Static):
             cost_usd,
         )
 
-        line3 = self._render_line3(cost=cost_usd)
+        line3 = (
+            self._render_line3(cost=cost_usd)
+            if pricing_available
+            else "[dim]cost unavailable: source rates unknown[/]"
+        )
         if not line1 and not line2 and not line3:
             self.update("[dim italic]No usage data yet[/]")
         else:

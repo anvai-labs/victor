@@ -121,7 +121,10 @@ def test_gateway_rejects_competing_credentials():
 
 
 @pytest.mark.asyncio
-async def test_gateway_oidc_private_file_rotation_and_identity_pinning(monkeypatch, tmp_path):
+@pytest.mark.parametrize("audience", ["sandhi", "https://sandhi.local/resource"])
+async def test_gateway_oidc_private_file_rotation_and_identity_pinning(
+    monkeypatch, tmp_path, audience
+):
     import json
     import time
 
@@ -130,7 +133,7 @@ async def test_gateway_oidc_private_file_rotation_and_identity_pinning(monkeypat
     config = {
         "token_file": str(token_file),
         "issuer": "https://sso.example.test/oauth2/openid/sandhi",
-        "audience": "sandhi",
+        "audience": audience,
         "subject": "user-one",
     }
     payload = {
@@ -155,6 +158,17 @@ async def test_gateway_oidc_private_file_rotation_and_identity_pinning(monkeypat
         await provider._ensure_valid_token()
         provider._typed_provider("model")
         assert runtime.calls[-1][0][2] == "oidc-rotated"
+        # Expiry and origin-client substitution cannot trigger upstream fallback.
+        payload["expires_on"] = time.time() - 1
+        write()
+        with pytest.raises(Exception, match="gateway credential unavailable"):
+            await provider._ensure_valid_token()
+        payload["expires_on"] = time.time() + 600
+        payload["audience"] = "victor-local"
+        write()
+        with pytest.raises(Exception, match="gateway credential unavailable"):
+            await provider._ensure_valid_token()
+        payload["audience"] = audience
         payload["subject"] = "different-user"
         write()
         with pytest.raises(Exception, match="gateway credential unavailable"):

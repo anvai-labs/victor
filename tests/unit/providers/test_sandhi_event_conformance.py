@@ -256,6 +256,7 @@ async def test_cache_observation_does_not_replace_numeric_usage(
             },
         }
     )
+    events.append({"event": "finish", "reason": "stop"})
     final = (await _collect(events))[-1]
     if prior_completeness is None:
         assert final.usage is None
@@ -294,6 +295,7 @@ async def test_explicit_zero_numeric_usage_after_observation_is_measured():
                         "cache_read_observation": observation,
                     },
                 },
+                {"event": "finish", "reason": "stop"},
             ]
         )
     )[-1]

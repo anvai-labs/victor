@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Prepared package version: **0.29.0**. This version is not yet released.
+
+### Changed
+
+- Pin the published corrective `sandhi-gateway==0.17.1` for the coordinated
+  Sandhi execution-contract migration. Both direct and gateway Sandhi handles disable hidden retries;
+  the logical-call owner decides whether another attempt is authorized.
+- A Sandhi stream ending without a validated finish now raises a terminal
+  provider error instead of fabricating a successful final result. Unsupported
+  portable output must be refused explicitly. Qualify with the official PyPI
+  0.17.1 wheel; Victor release and live deployment remain separate gates.
+  Victor Contracts and CodeGraph keep independent versions.
+- Provider invocation deadlines are terminal for retry/fallback decisions once
+  an invocation has started. Both primary and fallback deadlines retain an
+  unknown dispatch outcome; a timeout cannot authorize replay. Reported transient
+  provider rejections still use the logical-call retry policy.
+
 ## [0.28.1] - 2026-11-12
 
 ### Fixed

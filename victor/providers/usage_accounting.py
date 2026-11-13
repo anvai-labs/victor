@@ -40,3 +40,9 @@ def accumulate_usage(total: MutableMapping[str, int], usage: Mapping[str, Any]) 
         "billable_completion_tokens", 0
     ) + billable_completion_tokens(usage)
     total["total_tokens"] = total.get("total_tokens", 0) + usage_total_tokens(usage)
+    # The per-invocation metrics owner supplies disjoint fresh input when known.
+    # Native-only calls retain their compatibility prompt basis. Fold every call
+    # here so a partial typed diagnostic aggregate cannot erase untyped calls.
+    total["fresh_input_tokens"] = total.get("fresh_input_tokens", 0) + usage.get(
+        "fresh_input_tokens", usage.get("prompt_tokens", 0)
+    )

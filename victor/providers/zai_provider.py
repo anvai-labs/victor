@@ -30,6 +30,7 @@ class ZAIProvider(SandhiOpenAICompatPolicy):
         coding_plan: bool = False,
         endpoint: Optional[str] = None,
         model: Optional[str] = None,
+        endpoint_profile: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         suffix_endpoint: Optional[str] = None
@@ -58,6 +59,7 @@ class ZAIProvider(SandhiOpenAICompatPolicy):
             timeout=timeout,
             max_retries=max_retries,
             non_interactive=non_interactive,
+            endpoint_profile=endpoint_profile or "openai_terminal_chunk_usage",
             **kwargs,
         )
 

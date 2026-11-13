@@ -61,6 +61,11 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/providers/gateway_contract.py": (
+        "tests/unit/providers/test_sandhi_gateway_peer.py",
+        "tests/unit/providers/test_subscription_gateway.py",
+        "tests/unit/config/test_gateway_resolution_boundary.py",
+    ),
     "scripts/benchmark_scip_scope.py": ("tests/unit/scripts/test_benchmark_scip_scope.py",),
     **dict.fromkeys(
         (

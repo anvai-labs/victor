@@ -71,7 +71,7 @@ from victor.core.circuit_breaker import (
     CircuitBreakerError as CanonicalCircuitBreakerError,
 )
 from victor.core.context import bind_call_id_once, call_id
-from victor.core.errors import ProviderPolicyError
+from victor.core.errors import ProviderError, ProviderPolicyError, ProviderTimeoutError
 
 # Import the canonical CircuitBreaker for composition
 from victor.providers import failure_taxonomy
@@ -514,7 +514,7 @@ class ProviderRetryStrategy:
         Returns:
             True if error should be retried
         """
-        if isinstance(error, ProviderPolicyError):
+        if isinstance(error, ProviderPolicyError) or _terminal_provider_error(error):
             return False
         if self._is_hard_rate_limit(error):
             return False
@@ -654,6 +654,18 @@ class ProviderUnavailableError(Exception):
         super().__init__(f"All providers failed. {'; '.join(errors_summary)}")
 
 
+def _terminal_provider_error(error: BaseException) -> bool:
+    """Honor an explicit provider refusal before retry/fallback heuristics."""
+    seen: set[int] = set()
+    current: Optional[BaseException] = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ProviderError) and current.recoverable is False:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _uses_gateway(provider: Any) -> bool:
     from victor.providers.gateway_boundary import uses_gateway
 
@@ -778,13 +790,11 @@ class ResilientProvider:
     ) -> Any:
         """Execute chat with resilience features.
 
-        One invocation of this method is ONE logical call for gateway metering
-        (sandhi TD-0021 P4): the logical-call id is bound here — outermost
-        binding wins — so every retry and every fallback of this call carries
-        the same ``Idempotency-Key`` and the gateway's meter counts the call
-        once (enforcement still counts every physical settlement). Only a
-        plain coroutine gets this treatment — see ``stream`` for why an async
-        generator cannot.
+        Bind local logical-call correlation once; an outer binding wins. Direct
+        provider retries and fallbacks retain that correlation. Gateway calls do
+        not retry or fall back here and send no Idempotency-Key; durable gateway
+        execution owns its own identity. Only this coroutine binds context; see
+        ``stream`` for why an async generator cannot.
 
         Args:
             messages: List of messages
@@ -818,10 +828,7 @@ class ResilientProvider:
         primary_retry_events: List[Dict[str, Any]] = []
 
         async def _execute_primary():
-            return await asyncio.wait_for(
-                self.provider.chat(messages, model=model, **kwargs),
-                timeout=self.request_timeout,
-            )
+            return await self._invoke_with_deadline(self.provider, messages, model, kwargs)
 
         # Try primary provider with circuit breaker and retry
         try:
@@ -852,7 +859,7 @@ class ResilientProvider:
             logger.warning(f"Primary provider circuit open: {e}")
             primary_error = e
         except Exception as e:
-            if _uses_gateway(self.provider):
+            if _uses_gateway(self.provider) or _terminal_provider_error(e):
                 raise
             self._stats["retry_attempts"] += len(primary_retry_events)
             logger.warning(f"Primary provider failed: {e}")
@@ -869,10 +876,7 @@ class ResilientProvider:
                 logger.info(f"Trying fallback provider: {fb_name}")
 
                 async def _execute_fallback(fb=fallback):
-                    return await asyncio.wait_for(
-                        fb.chat(messages, model=model, **kwargs),
-                        timeout=self.request_timeout,
-                    )
+                    return await self._invoke_with_deadline(fb, messages, model, kwargs)
 
                 if fb_circuit:
                     result = await fb_circuit.execute(_execute_fallback)
@@ -905,7 +909,11 @@ class ResilientProvider:
                 logger.warning(f"Fallback '{fb_name}' circuit open: {e}")
                 fallback_errors.append(e)
             except Exception as e:
-                if _uses_gateway(fallback) or isinstance(e, ProviderPolicyError):
+                if (
+                    _uses_gateway(fallback)
+                    or isinstance(e, ProviderPolicyError)
+                    or _terminal_provider_error(e)
+                ):
                     raise
                 logger.warning(f"Fallback provider '{fb_name}' failed: {e}")
                 fallback_errors.append(e)
@@ -924,6 +932,22 @@ class ResilientProvider:
                 },
             )
         raise ProviderUnavailableError(primary_error, fallback_errors)
+
+    async def _invoke_with_deadline(
+        self, provider: Any, messages: List[Any], model: str, kwargs: Dict[str, Any]
+    ) -> Any:
+        """An owner deadline cannot prove that a started provider call was unbilled."""
+        try:
+            return await asyncio.wait_for(
+                provider.chat(messages, model=model, **kwargs), timeout=self.request_timeout
+            )
+        except TimeoutError as error:
+            raise ProviderTimeoutError(
+                "Provider invocation deadline expired; dispatch outcome is unknown",
+                provider=getattr(provider, "name", "unknown"),
+                timeout=self.request_timeout,
+                recoverable=False,
+            ) from error
 
     @staticmethod
     def _attach_provider_retry_diagnostics(
@@ -966,16 +990,11 @@ class ResilientProvider:
     ):
         """Stream chat with resilience features.
 
-        Deliberately does NOT bind the logical-call id, unlike ``chat``: this is
-        an async GENERATOR, and a ``ContextVar.set()`` in a generator frame
-        executes in the resumer's context — an early consumer break without
-        ``aclosing`` would leak the binding into the caller's context (every
-        later logical call in that task reusing a stale ``Idempotency-Key`` and
-        being dropped by the gateway's dedup = silent under-metering), and the
-        asyncgen finalizer resets the token from a different context
-        (``ValueError``). The transport therefore mints a per-invocation key on
-        the stream path; stream-setup retries are counted per attempt — the
-        fail-toward-counting direction sandhi specifies (ADR-0005 D3).
+        Deliberately does not bind logical-call context. A ContextVar.set() in
+        an async generator runs in the resumer's context, so an early break can
+        leak the binding and finalization may try to reset it in a different
+        context. Gateway streams do not retry or fall back here and send no
+        Idempotency-Key. Direct provider resilience remains independent.
 
         Note: Streaming has limited retry capability. If the stream fails
         midway, it cannot be resumed.
@@ -1016,7 +1035,11 @@ class ResilientProvider:
             self._stats["primary_successes"] += 1
 
         except (CircuitOpenError, Exception) as primary_err:
-            if _uses_gateway(self.provider) or isinstance(primary_err, ProviderPolicyError):
+            if (
+                _uses_gateway(self.provider)
+                or isinstance(primary_err, ProviderPolicyError)
+                or _terminal_provider_error(primary_err)
+            ):
                 raise
             # Build augmented messages for fallback with partial content
             fallback_messages = list(messages)
@@ -1057,7 +1080,11 @@ class ResilientProvider:
                         )
                     return
                 except Exception as e:
-                    if _uses_gateway(fallback) or isinstance(e, ProviderPolicyError):
+                    if (
+                        _uses_gateway(fallback)
+                        or isinstance(e, ProviderPolicyError)
+                        or _terminal_provider_error(e)
+                    ):
                         raise
                     logger.warning(f"Fallback stream '{fb_name}' failed: {e}")
                     continue

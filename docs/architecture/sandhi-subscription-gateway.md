@@ -1,5 +1,143 @@
 # OpenAI subscription gateway: Victor / sandhi co-design
 
+## Coordinated execution-contract migration
+
+Victor **0.29.0** is prepared against the published corrective
+`sandhi-gateway==0.17.1`. Sandhi 0.17.1 is published; Victor 0.29.0 remains
+unreleased, and this consumer pin does not imply a service upgrade.
+The user authorized a coordinated migration because Victor is the sole client;
+there is no requirement to retain a permissive Sandhi legacy mode.
+
+Both direct FFI and gateway handles set `max_retries=0`. Victor's logical-call
+owner decides whether another attempt is authorized. A binding failure never
+falls back to another transport. `output_projection_error` and `invalid_response`
+are terminal even when their HTTP status is 502. Iterator EOF without a validated
+finish is a terminal error; it cannot manufacture a successful final result.
+The resilience owner's primary and fallback invocation deadlines follow that
+same rule. Their cancellation cannot prove that the backend did not accept the
+request, so they surface a terminal timeout with an unknown dispatch outcome.
+An explicit transient provider rejection can still use the logical-call retry
+policy and keeps the same call identity across authorized attempts.
+
+Sandhi's four admitted typed streaming source families share source validation
+and actual token observation across embedded and accounted calls. Published 0.17.1
+includes the qualified buffered boundary and explicit gateway-peer contract. HTTP
+generation requires Sandhi's original file-backed durable ledger and paired accounting;
+Victor's embedded observation does not replace that server-owned execution contract.
+Portable/native delivery are separate contracts: meaningful native state must survive compatible native
+delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
+are evidence; cache policy and provider price schedules remain separate concerns.
+An embedded observation is not a gateway ledger receipt.
+
+Qualify the official published Sandhi wheel with this Victor source, including tools,
+cache splits, interrupted streams and refusal/no-replay paths. Keep Contracts and
+CodeGraph on their independent release lines. The corrective Sandhi artifacts are
+published; the matching Victor consumer remains subject to independent review,
+public-hosted CI and its own release gate. Deployment is a separate decision.
+
+The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
+pin. The mandatory dependency now resolves from the official PyPI 0.17.1
+release. Current published-artifact consumer qualification is recorded separately
+from the dated 0.17.0 candidate snapshots below; historical local-wheel results
+do not establish published 0.17.1 acceptance. See the [published 0.17.1 consumer
+qualification](../reviews/sandhi-published-0.17.1-consumer-2026-11-13.md) for current
+artifact provenance and local test scope.
+
+### Explicit endpoint usage conventions
+
+OpenAI-compatible policy providers accept the constructor option
+`endpoint_profile`; other Sandhi-backed providers can carry it in their extra
+configuration. It participates in persistent handle identity and is never a model
+parameter. Per-call overrides fail before credential refresh or transport. Direct
+Z.AI Chat declares `openai_terminal_chunk_usage`; explicitly qualified custom
+endpoints can select `standard`. Compatible Messages sources can explicitly select
+`anthropic_implicit_cache`. Sandhi validates each profile against the actual wire
+family, independently of the provider label or key contents.
+
+Historical 0.17.0 candidate evidence: 1,932 provider and adjacent resilience tests
+passed with five skips against the candidate wheel; full collection found 40,170 tests. Black/Ruff
+and typing for the three changed provider modules passed. This qualifies the
+implemented constructor/streaming scope, not ordinary buffered qualification or
+the complete packaging matrix.
+
+The profile describes a direct HTTP source. Gateway mode never forwards it. Instead,
+Victor constructs an explicit `peer_role="sandhi_gateway_v1"` handle with one client
+dialect, zero hidden retries and only the virtual credential. The gateway declares
+its actual emitted usage convention in bounded response metadata; the Sandhi peer
+validates that convention before decoding. Backend endpoint profiles, credentials,
+account headers and cache capabilities remain server owned.
+
+### Independent gateway client dialect
+
+`gateway.protocol` accepts `chat_completions`, `anthropic_messages`, `responses`, or
+`gemini_generate_content`. It overrides the provider's direct protocol hint. With no
+explicit override, Victor normalizes a subscription/Codex hint to ordinary
+`responses`; otherwise the provider family supplies the client default. Local
+Ollama/Cohere providers use portable Chat Completions ingress. The provider label
+and requested model alias do not select or authorize a backend.
+
+```yaml
+gateway:
+  url: https://gateway.example.test
+  virtual_key: <private virtual credential>
+  protocol: responses
+```
+
+The transport derives `/v1`, root Messages, or `/v1beta` from that dialect. It never
+loads or refreshes local upstream OAuth/API credentials in gateway mode. Supported
+OpenAI gateway OIDC credential refresh remains a separate gateway authentication
+path. Direct-provider auth and endpoint profiles keep their existing behavior.
+
+```mermaid
+flowchart LR
+  V[Victor: canonical messages/tools + cache intent] --> C[Explicit client dialect]
+  C --> G[Sandhi: virtual-key admission + selected backend]
+  G --> P[One cache compiler using declared capabilities]
+  P --> U[Upstream inference: one physical attempt]
+  U --> L[Source disjoint usage + durable receipt]
+  L --> W[Client wire projection + convention metadata]
+  W --> T[Victor: observed units + qualified pricing]
+```
+
+Pass `cache_intent={"mode": "auto_stable_prefix", "lifetime": "5m"}` as a call
+option to request placement. Victor forwards it once and generates no automatic
+Anthropic markers or compiled plan. Omitting intent leaves the server's declared
+default active. The server refuses unsupported lifetimes/capabilities rather than
+inventing support; a stable-prefix intent requires a system/tool prefix. Native
+options that cannot survive the selected client dialect fail explicitly before
+dispatch. Common canonical messages, tools, thinking and reasoning remain typed.
+
+### Token units and monetary qualification
+
+The selected client dialect determines Victor's compatibility `prompt_tokens`
+shape: Messages is fresh-only; other client views include cache reads. These
+compatibility prompt totals exclude cache writes. Bounded `sandhi_usage.typed_usage`
+retains disjoint fresh/read/write/output units, optional zero versus absence,
+reasoning inclusion and cache-read availability. `usage_basis` identifies a direct
+source or a `gateway_client_projection`. Neither client view is the server's
+frozen source receipt. In particular Gemini cannot carry a separate cache-write
+category, and reasoning can be folded into inclusive output during translation.
+
+The actual session metrics owner prices known direct sources using typed fresh
+input, cache read/write and reasoning folded once. A gateway label/model alias
+supplies no trusted source rate context. Gateway monetary cost is therefore
+`unavailable`: request/JSON/CSV/task reports preserve units and qualification,
+export null/blank monetary values and display “cost unavailable”. Mixed sessions
+retain only a clearly named known estimate subtotal; unknown calls do not become
+priced zero. Configured direct rates remain estimates, not gateway frozen charges.
+Framework TaskResult metadata preserves unavailable pricing explicitly. Older
+benchmark/evaluation and conversation exports retain numeric compatibility fields
+where zero means unavailable; those sums are known subtotals and cannot establish
+a complete gateway monetary total. Their schema migration is a separate follow-on.
+
+Synthetic candidate coverage includes 32 real two-hop calls (four provider labels
+× four client dialects × buffered/stream), one source POST and one server marker
+each, unsupported TTL refusal before source dispatch, and durable source receipts.
+Missing-usage terminal responses are also tested through Victor's default
+resilience: one source POST, no successful final event, no retry/fallback and no
+settlement receipt. This is local paired qualification, not vendor cache-hit,
+subscription entitlement or published-wheel evidence.
+
 Status: implemented on the subscription-gateway branches; release promotion remains gated.
 
 ## Ownership and request path
@@ -15,9 +153,14 @@ Codex login owner --> access-only lease publisher --> OS credential vault
 A gateway configuration is a complete authentication mode in Victor. It takes
 precedence over `auth_mode=oauth`, explicit upstream keys, environment keys and
 local credential resolution. Victor neither reads nor refreshes an OpenAI grant
-in this mode. It sends ordinary Chat Completions with its virtual key to the
+in this mode. It sends the selected ordinary client dialect with its virtual key to the
 configured HTTPS or literal/localhost loopback HTTP gateway. There is no direct
 upstream fallback. Invalid/missing gateway credentials fail before discovery.
+The settings entrypoint validates provider/profile/environment gateway configuration
+before consulting AccountManager or any direct-provider strategy. An unrelated
+named upstream account cannot block gateway authentication; its keys and endpoint
+are not resolved. Gateway OIDC identity/grant and explicit profile policy (including
+timeouts, token limits and client dialect) remain attached to the selected gateway.
 
 Sandhi's `openai` vault entry with `scheme=oauth` contains a strict JSON envelope:
 `access_token`, `account_id`, `expires_at` (Unix seconds). Unknown fields,
@@ -73,6 +216,12 @@ subscription requests are not priced as ordinary Platform API-key requests.
 Errors must not expose tokens, cache contents or upstream response bodies.
 Subscription upstream transport retries are disabled in this route; callers
 must distinguish pre-dispatch failure from ambiguous inference completion.
+The prepared consumer also omits `Idempotency-Key` on gateway calls, filtering
+caller-provided variants case-insensitively. Run/session/step attribution remains;
+local logical-call IDs are correlation, not replay or settlement authority.
+The explicit peer follow-on adds counts/cache qualification; mandatory accounting
+remains a separate server migration. Direct
+provider custom headers retain their separate behavior.
 Agent/tool side effects require their own approval and idempotency ledger.
 
 ## Provisioning and client configuration
@@ -398,3 +547,65 @@ This route uses Responses upstream, including when Victor supplies tools.
 TDD reproduced dropped profile values, omitted streaming defaults, missing
 GPT-6 capability recognition and unvalidated labels. Regression coverage also
 checks unsupported providers and per-request overrides (including `None`).
+
+## Resource-audience co-design: local candidate acceptance
+
+The existing `GatewayTokenFileCredential` already supports an exact resource URI
+as its audience. Its private six-field broker envelope remains unchanged:
+`access_token`, `token_type`, `expires_on`, `issuer`, `audience`, and `subject`.
+It rereads and pins that envelope per request, retires handles on token rotation,
+and refuses expired or misbound credentials without upstream fallback or replay.
+It does not validate JWT claims, acquire a login, or substitute UserInfo/ID tokens.
+
+The paired local IDM candidate uses browser login, consent and PKCE followed by
+its existing single-hop exchange to issue a resource access JWT for
+`https://sandhi.local/resource`. The originating `victor-local` client differs
+from Sandhi's confidential `sandhi-local` introspection consumer. Sandhi's additive
+`access_token_audience` selects the resource audience; its OAuth/Basic `client_id`
+keeps identifying the consumer. Issuer-side purpose, hashed issuance receipts
+and current revocation checks remain IDM's authority.
+
+The opt-in integration owner runs actual IDM and Sandhi candidates and a public
+Victor Agent read-tool loop against a synthetic Messages backend. It checks
+private-file rotation, exact issuance-hash/source-request/usage joins, conserved
+source counters, and no backend dispatch for ID/UserInfo substitution, a valid
+other-resource token, expiry, or logout. A bounded test-only recorder hashes the
+actual FFI HTTP bearer, forwards the unchanged bearer/body exactly once, and
+captures the returned Sandhi request ID.
+Those wire observations join the durable request correlation and IDM receipt;
+Python credential configuration alone is not a wire-provenance oracle. The
+synthetic backend refuses READY unless the second request contains the matching
+successful read tool result with actual fixture contents. The test does not
+replace the reader or mock introspection. Credentials remain in
+private files or memory, and evidence contains hashes and sanitized receipts.
+
+```bash
+IDM_GATEWAY_FIXTURE=/absolute/idm/tests/integration_gateway_introspection.py \
+IDM_TEST_BINARY=/absolute/frozen/idm \
+SANDHI_OIDC_TEST_BINARY=/absolute/frozen/sandhi-proxy \
+VICTOR_IDM_EVIDENCE_FILE=/private/local-demo-evidence.json \
+python -m pytest tests/integration/providers/test_sandhi_idm_gateway_session.py -q --no-cov
+```
+
+This requires the paired fixture, built binaries, Docker, and the fixture's cached
+PostgreSQL image plus cached `ubuntu:24.04`. An owned Sandhi container uses host
+networking with a private `id.localhost` mapping, loopback-only listeners, the
+host UID/GID, a read-only binary and CA, and a private writable state directory.
+Hostname and TLS verification stay enabled. Containers and the disposable IDM
+database are removed on exit. No live identity service or global DNS is changed.
+
+The released Sandhi 0.17.1 wheel and Victor's exact consumed pin have completed
+[separate published-artifact qualification](../reviews/sandhi-published-0.17.1-consumer-2026-11-13.md).
+The resource-audience server feature belongs to the unreleased Sandhi 0.18 source
+candidate. The local fixture records the actual server binary, IDM source and
+installed SDK hashes independently; a published SDK does not make those server
+candidates released or deployed. Local acceptance, independent review, merged
+code and live deployment remain separate gates. This co-design does not publish
+Victor or establish live development-service support.
+
+The [final local acceptance](../reviews/sandhi-idm-final-source-acceptance-2026-11-13.md)
+reran the actual three-component loop using the official 0.17.1 SDK, the combined
+0.18 server source and the remote-aligned IDM candidate. All three integration
+and oracle tests passed, including two joined 14-token settlements and six
+refusal controls. The dated record retains each component's distinct release
+and deployment state.

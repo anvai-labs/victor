@@ -116,6 +116,95 @@ def make_provider() -> DeepSeekProvider:
     return DeepSeekProvider(api_key="k", base_url="https://api.deepseek.com/v1")
 
 
+def test_direct_binding_handle_is_retry_free_even_with_provider_retry_setting(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    provider.max_retries = 5
+
+    provider._typed_provider("deepseek-chat")
+
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0][1]["max_retries"] == 0
+
+
+def test_endpoint_profile_is_a_handle_property_and_participates_in_handle_reuse(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    provider.extra_config["endpoint_profile"] = "standard"
+    provider._typed_provider("deepseek-chat")
+    provider._typed_provider("deepseek-chat")
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0][1]["endpoint_profile"] == "standard"
+    provider.extra_config["endpoint_profile"] = "openai_terminal_chunk_usage"
+    provider._typed_provider("deepseek-chat")
+    assert len(runtime.calls) == 2
+    assert runtime.calls[1][1]["endpoint_profile"] == "openai_terminal_chunk_usage"
+
+
+def test_zai_declares_terminal_totals_profile_for_its_direct_coding_endpoint(monkeypatch):
+    from victor.providers.zai_provider import ZAIProvider
+
+    runtime = install_runtime(monkeypatch)
+    provider = ZAIProvider(api_key="synthetic", coding_plan=True)
+    provider._typed_provider("glm-4.6")
+    assert runtime.calls[0][1]["endpoint_profile"] == "openai_terminal_chunk_usage"
+    assert runtime.calls[0][1]["base_url"] == "https://api.z.ai/api/coding/paas/v4"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_profile_cannot_be_a_model_call_option(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    with pytest.raises(ValueError, match="constructor-only"):
+        await provider.chat(
+            [Message(role="user", content="hello")],
+            model="deepseek-chat",
+            endpoint_profile="openai_terminal_chunk_usage",
+        )
+    assert not runtime.calls
+    assert not runtime.handle.requests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fallback_position", [False, True])
+async def test_owner_deadline_after_binding_entry_never_retries_or_falls_back(
+    monkeypatch, fallback_position
+):
+    import asyncio
+    from victor.providers.resilience import CircuitOpenError, ProviderRetryConfig, ResilientProvider
+
+    entered = 0
+
+    class SlowBinding(FakeTypedProvider):
+        async def complete_json(self, request_json, wire_headers_json=None):
+            nonlocal entered
+            entered += 1
+            await asyncio.sleep(30)
+
+    install_runtime(monkeypatch, SlowBinding())
+    direct = make_provider()
+    last = SimpleNamespace(name="last", chat=AsyncMock(return_value="replayed"))
+    if fallback_position:
+        primary = SimpleNamespace(
+            name="closed", chat=AsyncMock(side_effect=CircuitOpenError("closed"))
+        )
+        fallbacks = [direct, last]
+    else:
+        primary, fallbacks = direct, [last]
+    provider = ResilientProvider(
+        primary,
+        fallback_providers=fallbacks,
+        request_timeout=0.01,
+        retry_config=ProviderRetryConfig(max_retries=1, base_delay_seconds=0, jitter_factor=0),
+    )
+
+    with pytest.raises(st.ProviderTimeoutError) as raised:
+        await provider.chat([Message(role="user", content="hello")], model="deepseek-chat")
+    assert raised.value.recoverable is False
+    assert entered == 1
+    last.chat.assert_not_awaited()
+
+
 def test_resolver_always_uses_sandhi_for_admitted_provider(monkeypatch):
     install_runtime(monkeypatch)
     assert st.resolve_transport_class("deepseek", DeepSeekProvider, {}) is DeepSeekProvider
@@ -185,6 +274,7 @@ async def test_openai_oauth_explicitly_selects_responses_and_refreshes_before_ha
     args, kwargs = runtime.calls[0]
     assert args[:3] == ("openai", "o3", "fresh-oauth")
     assert kwargs["protocol"] == "chatgpt_responses"
+    assert "peer_role" not in kwargs
     assert kwargs["base_url"] == "https://chatgpt.com/backend-api/codex"
     assert json.loads(kwargs["headers_json"])["originator"] == "victor"
     assert json.loads(kwargs["headers_json"])["ChatGPT-Account-ID"] == "workspace_123"
@@ -312,6 +402,16 @@ async def test_stream_receipt_distinguishes_observed_finish_from_iterator_eof(
 
     install_runtime(monkeypatch, ReceiptProvider())
     provider = make_provider()
+    if not with_finish:
+        observed = []
+        with pytest.raises(st.ProviderError, match="without a validated finish") as failure:
+            async for chunk in provider.stream(
+                [Message(role="user", content="hi")], model="requested-alias"
+            ):
+                observed.append(chunk)
+        assert failure.value.recoverable is False
+        assert not any(chunk.is_final for chunk in observed)
+        return
     chunks = [
         chunk
         async for chunk in provider.stream(
@@ -331,6 +431,7 @@ async def test_stream_receipt_distinguishes_observed_finish_from_iterator_eof(
     [
         ("rate_limited", True, 429, ProviderRateLimitError),
         ("invalid_response", False, 502, st.ProviderError),
+        ("output_projection_error", False, 502, st.ProviderError),
     ],
 )
 async def test_binding_failure_is_mapped_and_never_replayed(
@@ -886,7 +987,8 @@ async def test_gateway_mode_preserves_protocol_alongside_overrides(monkeypatch):
     await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
 
     _, kwargs = runtime.calls[0]
-    assert kwargs["protocol"] == "chatgpt_responses"
+    assert kwargs["protocol"] == "responses"
+    assert kwargs["peer_role"] == "sandhi_gateway_v1"
     assert kwargs["base_url"] == "http://localhost:8600/v1"
     assert kwargs["auth_scheme"] == "bearer"
 
@@ -923,14 +1025,12 @@ async def test_gateway_mode_missing_virtual_key_fails_closed(monkeypatch):
     install_runtime(monkeypatch)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_DEEPSEEK", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
-    provider = DeepSeekProvider(
-        api_key="real-upstream-key",
-        base_url="https://api.deepseek.com/v1",
-        gateway={"url": "http://localhost:8600"},
-    )
-
-    with pytest.raises(ProviderConnectionError, match="virtual_key"):
-        await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+    with pytest.raises(ValueError, match="virtual key"):
+        DeepSeekProvider(
+            api_key="real-upstream-key",
+            base_url="https://api.deepseek.com/v1",
+            gateway={"url": "http://localhost:8600"},
+        )
 
 
 @pytest.mark.asyncio
@@ -1129,8 +1229,9 @@ def test_extensions_absent_is_behavior_identical(monkeypatch, reasoning):
         "total_tokens": 15,
         "cache_read_input_tokens": 4,
     }
-    expected_metadata = {"reasoning_content": reasoning} if reasoning is not None else None
-    assert without_native.metadata == with_native.metadata == expected_metadata
+    assert without_native.metadata == with_native.metadata
+    assert without_native.metadata.get("reasoning_content") == reasoning
+    assert without_native.metadata["sandhi_usage"]["typed_usage"]["tokens_in"] == 6
     assert without_native.content == "hello"
     # Debug fallback: with no native body, raw_response is the typed document.
     assert without_native.raw_response["schema_version"] == "1"
@@ -1158,7 +1259,8 @@ def test_typed_reasoning_precedes_legacy_sources(
     payload = _typed_payload(extensions=extensions)
     payload["output"]["reasoning"] = typed
     response = make_provider()._completion_from_typed(payload, "deepseek-chat")
-    assert response.metadata == ({"reasoning_content": expected} if expected is not None else None)
+    assert response.metadata.get("reasoning_content") == expected
+    assert response.metadata["sandhi_usage"]["usage_basis"] == "direct_provider"
     assert response.content == "hello"
 
 
@@ -1199,10 +1301,9 @@ def test_native_only_usage_fields_surface_as_diagnostics(monkeypatch):
         "deepseek-chat",
     )
 
-    assert response.metadata["sandhi_usage"] == {
-        "cache_miss_tokens": 7,
-        "cost_in_usd_ticks": 123,
-    }
+    assert response.metadata["sandhi_usage"]["cache_miss_tokens"] == 7
+    assert response.metadata["sandhi_usage"]["cost_in_usd_ticks"] == 123
+    assert response.metadata["sandhi_usage"]["typed_usage"]["cache_creation_tokens"] == 0
 
 
 def test_native_only_extractor_ignores_junk():
@@ -1500,7 +1601,7 @@ class _Probe:
 def test_gateway_family_base_derivation(slug, root, expected):
     from victor.providers.sandhi_transport import _gateway_family_base
 
-    assert _gateway_family_base(root, slug) == expected
+    assert _gateway_family_base(root, st.client_protocol(slug)) == expected
 
 
 def test_gateway_root_normalization_strips_v1_and_v1beta():
@@ -1518,32 +1619,32 @@ def test_gateway_root_normalization_strips_v1_and_v1beta():
 def test_resolve_provider_gateway_uses_url_env_fallback(monkeypatch):
     from victor.config.provider_config_registry import resolve_provider_gateway
 
-    monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://env-gw:8600")
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_ACME", raising=False)
     settings: dict = {"gateway": {"virtual_key": "vk_x"}}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"]["url"] == "http://env-gw:8600"
+    assert settings["gateway"]["url"] == "https://env-gw:8600"
 
 
 def test_resolve_provider_gateway_canonicalizes_v1_suffix(monkeypatch):
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
-    settings: dict = {"gateway": {"url": "http://gw:8600/v1/", "virtual_key": "vk_x"}}
+    settings: dict = {"gateway": {"url": "https://gw:8600/v1/", "virtual_key": "vk_x"}}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"]["url"] == "http://gw:8600"
+    assert settings["gateway"]["url"] == "https://gw:8600"
 
 
 def test_env_only_gateway_config_materializes_a_block(monkeypatch):
     """SANDHI_GATEWAY_URL + virtual key, no per-provider YAML block at all."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
-    monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://env-gw:8600")
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
     monkeypatch.setenv("SANDHI_GATEWAY_VIRTUAL_KEY", "vk_env")
     settings: dict = {}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"] == {"url": "http://env-gw:8600", "virtual_key": "vk_env"}
+    assert settings["gateway"] == {"url": "https://env-gw:8600", "virtual_key": "vk_env"}
 
 
 def test_no_gateway_anywhere_leaves_settings_untouched(monkeypatch):

@@ -796,3 +796,11 @@ def test_similarity_corpus_sources_and_labels_have_runtime_test_owners(path):
         "tests/unit/core/graph_rag/test_similarity_pair_scoring.py",
         "tests/unit/scripts/test_evaluate_graph_similarity.py",
     } <= set(select([path]))
+
+
+def test_gateway_contract_selects_existing_configuration_and_auth_owners():
+    assert {
+        "tests/unit/providers/test_sandhi_gateway_peer.py",
+        "tests/unit/providers/test_subscription_gateway.py",
+        "tests/unit/config/test_gateway_resolution_boundary.py",
+    } <= set(select(["victor/providers/gateway_contract.py"]))

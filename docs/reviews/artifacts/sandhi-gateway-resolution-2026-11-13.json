@@ -1,0 +1,19 @@
+{
+  "base": "5aee2643387afe3c7e196139aa510d1a0f4f1cb9",
+  "cumulative_base": "8912e69c7ac3df7d856909dc744f2900a6386dbe",
+  "patch_sha256": "b4e4b3ff0b1fb94738cbf01767022969f93ee9854ba4619e0c6ae3609f1e3b9a",
+  "provider_config_passed": 2563,
+  "skipped": 5,
+  "seconds": 43.68,
+  "agent_cases_passed": 8,
+  "agent_seconds": 38.35,
+  "tests_collected": 40362,
+  "collection_seconds": 39.99,
+  "wheel_sha256": "4e049eb7f876cd387c5c3343b88efd073e879d09adb9cb6cf3d962af5274c7bb",
+  "gateway_binary_sha256": "b43a641becc32535fcece302c94a0a8016bc68a1c5a9e14b950f3632810561fd",
+  "evidence_sha256": {
+    "victor-gateway-final-integrated.log": "041d1e892ac35ebcfbf3b1083828186451b36c53482a576154f35b0c95268d0a",
+    "victor-gateway-final-agent-loop.log": "d1b4cb7e2b788eca1a023aff1dd2907ee6e549a271625b9e4dc399a0ec1b334e",
+    "victor-gateway-final-collection.log": "d1b0667b5b0c28b4dec03616333a64ace993b0e89cb3d414e32effe235ac9f2f"
+  }
+}

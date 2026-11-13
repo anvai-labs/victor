@@ -65,6 +65,7 @@ def test_mixed_calls_accumulate_folded_output_without_reapplying_heuristic():
     )
     assert total == {
         "prompt_tokens": 12,
+        "fresh_input_tokens": 12,
         "completion_tokens": 30,
         "reasoning_tokens": 7,
         "cache_read_input_tokens": 2,

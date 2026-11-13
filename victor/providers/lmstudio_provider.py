@@ -127,7 +127,12 @@ class LMStudioProvider(BaseProvider):
         """
         # Initialize structured logger
         self._provider_logger = ProviderLogger("lmstudio", __name__)
-        if _skip_discovery:
+        if kwargs.get("gateway") is not None:
+            from victor.providers.gateway_contract import gateway_virtual_key
+
+            api_key = gateway_virtual_key(kwargs["gateway"])
+            chosen_base = kwargs["gateway"]["url"]
+        elif _skip_discovery:
             # Used by async factory, base_url is already resolved
             chosen_base = (
                 base_url
