@@ -361,6 +361,12 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_classification_backend.py",
         "tests/unit/architecture/test_layering_facades.py",
     ),
+    # Sandbox settings model: policy field and resolver semantics are pinned
+    # by the sandbox owners (no config-local mirror file).
+    "victor/config/sandbox_settings.py": (
+        "tests/unit/tools/sandbox/test_backends.py",
+        "tests/unit/tools/sandbox/test_executor_integration.py",
+    ),
     "victor/storage/embeddings/intent_classifier.py": (
         "tests/unit/agent/test_continuation_loop_fix.py",
         "tests/unit/architecture/test_layering_facades.py",

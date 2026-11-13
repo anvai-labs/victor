@@ -26,7 +26,11 @@ import pytest
 
 from victor.tools.sandbox import NoneSandbox
 from victor.tools.sandbox.backends import SandboxBackend
-from victor.tools.subprocess_executor import run_command, run_command_async
+from victor.tools.subprocess_executor import (
+    CommandErrorType,
+    run_command,
+    run_command_async,
+)
 
 
 class _RecordingBackend(SandboxBackend):
@@ -119,3 +123,88 @@ async def test_e2e_real_platform_sandbox(tmp_path):
     result = await run_command_async("echo hello", sandbox=backend, working_dir=str(tmp_path))
     assert result.success, result.stderr
     assert "hello" in result.stdout
+
+
+# -- required-policy enforcement (fail closed, zero execution) ---------------
+
+
+def _install_required_unavailable(monkeypatch):
+    """Point default settings at a required policy whose backend is missing,
+    and arm execution traps that fail the test if any child is spawned."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    import subprocess
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb_mod.shutil, "which", lambda name: None)
+
+    def _no_execution(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child process spawned despite required sandbox policy")
+
+    monkeypatch.setattr(subprocess, "run", _no_execution)
+
+    async def _no_execution_async(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child process spawned despite required sandbox policy")
+
+    import victor.tools.subprocess_executor as se
+
+    monkeypatch.setattr(se, "run_managed_process", _no_execution_async)
+
+
+def test_run_command_required_policy_blocks_execution(monkeypatch):
+    _install_required_unavailable(monkeypatch)
+    result = run_command("echo hi", shell=True)
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+    assert result.stdout == "" and result.stderr == ""
+    assert "required" in (result.error_message or "").lower()
+
+
+async def test_run_command_async_required_policy_blocks_execution(monkeypatch):
+    _install_required_unavailable(monkeypatch)
+    result = await run_command_async("echo hi")
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+    assert result.stdout == "" and result.stderr == ""
+
+
+def test_run_command_disabled_policy_still_executes(monkeypatch):
+    # Legacy default: sandbox off, no policy — behavior unchanged.
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_enabled=False))
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    result = run_command("echo hi", shell=True)
+    assert result.success
+    assert result.stdout.strip() == "hi"
+
+
+def test_run_command_explicit_backend_bypasses_policy_resolution():
+    # An explicit backend is the caller's explicit choice; resolution policy
+    # applies only to the settings-driven default path.
+    fake = _RecordingBackend()
+    result = run_command("echo hi", shell=True, sandbox=fake)
+    assert result.success
+
+
+async def test_production_shell_tool_required_policy_blocks_execution(monkeypatch, tmp_path):
+    """The production shell tool (victor.tools.bash.shell) resolves the same
+    default sandbox; a required-unavailable policy must refuse it with zero
+    process spawns and a structured failure."""
+    _install_required_unavailable(monkeypatch)
+    from victor.tools.bash import shell
+
+    result = await shell("echo hi", cwd=str(tmp_path), action="exec")
+    assert result["success"] is False
+    assert "required" in result["error"].lower()
+    assert result["stdout"] == "" and result["stderr"] == ""

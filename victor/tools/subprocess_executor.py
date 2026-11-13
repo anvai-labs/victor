@@ -60,6 +60,9 @@ class CommandErrorType(Enum):
     PERMISSION_DENIED = "permission_denied"
     WORKING_DIR_NOT_FOUND = "working_dir_not_found"
     DANGEROUS_COMMAND = "dangerous_command"
+    #: A ``required`` sandbox policy could not be enforced; the command was
+    #: NOT executed (fail-closed dispatch refusal).
+    SANDBOX_REQUIRED = "sandbox_required_unavailable"
     EXECUTION_ERROR = "execution_error"
     UNKNOWN = "unknown"
 
@@ -353,16 +356,25 @@ def check_pip_available() -> bool:
 def _resolve_default_sandbox() -> "SandboxBackend":
     """Resolve the sandbox backend from global settings (fail-open to none).
 
-    Reads ``settings.sandbox`` (off by default). Any failure degrades to no
-    sandbox so subprocess execution is never broken by sandbox resolution.
+    Reads ``settings.sandbox`` (off by default). A ``required`` policy that
+    cannot be enforced raises :class:`SandboxRequiredUnavailableError` —
+    that refusal is the security boundary and is never swallowed. Any other
+    resolution failure degrades to no sandbox so subprocess execution is
+    never broken by a sandbox bug.
     """
-    from victor.tools.sandbox import NoneSandbox, resolve_sandbox_backend
+    from victor.tools.sandbox import (
+        NoneSandbox,
+        SandboxRequiredUnavailableError,
+        resolve_sandbox_backend,
+    )
 
     try:
         from victor.config.settings import get_settings
 
         sandbox_settings = getattr(get_settings(), "sandbox", None)
         return resolve_sandbox_backend(sandbox_settings)
+    except SandboxRequiredUnavailableError:
+        raise
     except Exception:  # pragma: no cover - defensive: never break execution
         return NoneSandbox()
 
@@ -453,7 +465,24 @@ def run_command(
             )
 
     # Apply OS sandbox if active (no-op when disabled; default off).
-    exec_args, exec_shell = _apply_sandbox(sandbox, args, shell, working_dir)
+    # A required policy that cannot be enforced refuses dispatch BEFORE any
+    # child process is spawned (fail-closed, zero execution).
+    from victor.tools.sandbox import SandboxRequiredUnavailableError
+
+    try:
+        exec_args, exec_shell = _apply_sandbox(sandbox, args, shell, working_dir)
+    except SandboxRequiredUnavailableError as exc:
+        logger.error("Refusing command execution: %s", exc)
+        return CommandResult(
+            success=False,
+            stdout="",
+            stderr="",
+            return_code=-1,
+            error_type=CommandErrorType.SANDBOX_REQUIRED,
+            error_message=str(exc),
+            command=cmd_str,
+            working_dir=str(working_dir) if working_dir else None,
+        )
 
     try:
         result = subprocess.run(
@@ -769,7 +798,24 @@ async def run_command_async(
             )
 
     # Apply OS sandbox if active (no-op when disabled; default off).
-    backend = sandbox if sandbox is not None else _resolve_default_sandbox()
+    # A required policy that cannot be enforced refuses dispatch BEFORE any
+    # child process is spawned (fail-closed, zero execution).
+    from victor.tools.sandbox import SandboxRequiredUnavailableError
+
+    try:
+        backend = sandbox if sandbox is not None else _resolve_default_sandbox()
+    except SandboxRequiredUnavailableError as exc:
+        logger.error("Refusing command execution: %s", exc)
+        return CommandResult(
+            success=False,
+            stdout="",
+            stderr="",
+            return_code=-1,
+            error_type=CommandErrorType.SANDBOX_REQUIRED,
+            error_message=str(exc),
+            command=command,
+            working_dir=str(working_dir) if working_dir else None,
+        )
 
     try:
         run_kwargs: Dict[str, Any] = {

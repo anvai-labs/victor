@@ -67,7 +67,33 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **VAS-05h — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+- **VAS-05i — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+  PR (branch `feat/sandbox-required-policy`), baseline `adcc6e1ff`. Enforce a
+  required sandbox policy at canonical tool dispatch (fail-closed containment
+  ahead of VAS-05c per-resource authorization). RED reproduced the gap: with
+  `sandbox_enabled=True` and a missing backend binary the child process was
+  still spawned (fail-open). Repair in the existing sandbox resolver and
+  subprocess executor owners, no parallel engine: `SandboxSettings` gains
+  `sandbox_policy` (`disabled`/`preferred`/`required`; `None` derives from the
+  legacy `sandbox_enabled` bool, which keeps its historical preferred
+  fail-open semantics; explicit policy wins); `resolve_sandbox_backend`
+  raises `SandboxRequiredUnavailableError` (typed reason: `binary_missing` /
+  `unsupported_platform`) under `required`, while `preferred` keeps fail-open
+  with an explicit DEGRADED record; `run_command`, `run_command_async` and
+  the production shell tool (`victor.tools.bash.shell`, which resolves the
+  same default) refuse dispatch with a structured `SANDBOX_REQUIRED` result
+  and zero child process spawns, proven by execution traps.
+  `tests/unit/tools/sandbox/` 31 passed/1 opt-in skip; affected
+  `tests/unit/tools/` 3,702 passed, `tests/unit/workflows/` 1,380 passed,
+  core mirror 39 passed; black/ruff/mypy clean; collect check 40,386 clean;
+  selector mapping for `victor/config/sandbox_settings.py` added in the same
+  PR. Follow-ups recorded, not claimed here: direct-spawn sites outside
+  `subprocess_executor` (terminal/git/search routes, MCP, filesystem tools)
+  still need convergence to the same decision, and
+  `workflows/isolation.py` `apply_settings` does not yet honor `required`.
+  Next: green CI, then merge.
+
+- **VAS-05h — MERGED** (2026-11-13), owner: framework-review delivery session;
   PR [#1773](https://github.com/anvai-labs/victor/pull/1773)
   (`fix/ws-broadcast-auth`), baseline `17a8b197f`. Stop outbound protected-event
   delivery before `/ws` message authentication. RED reproduced through the real
@@ -87,7 +113,9 @@ edit. A mock test is not live provider or C5 evidence.
   black/ruff/mypy clean; collect check 40,374 clean. Compatibility verified in
   `vscode-victor/src/victorClient.ts` (auth sent as first frame). Scoped
   subscription/ownership records remain VAS-05c/VAS-06; this repair does not
-  claim per-resource authorization. Next: green CI, then merge.
+  claim per-resource authorization. Merged to develop as squash `adcc6e1ff`
+  (#1773) with all checks green after a related-tests selector mapping fix
+  (`websocket_routes.py` → `test_ws_auth_gate.py`) in the same PR.
 
 - **PATCH-0281 — ACCEPTED** (2026-11-12), owner: release co-design session;
   final handoff branch `docs/release-0281-handoff`, baseline
@@ -3163,6 +3191,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05f | Implement immutable per-run gateway credential binding and delegation | VAS-05c, VAS-05e, VAS-06 | TODO | Two-user concurrency, no shared credential mutation, grant/model denial, rotation/revocation and actual identity/accounting joins |
 | VAS-05g | Repair existing EventBridge credential and connection ownership | VAS-04a | ✅ MERGED | [#1267](https://github.com/anvai-labs/victor/pull/1267), `07b076726`; clean exact-commit review and all 39 applicable CI checks including Vertical Py3.12; 113 Vitest, 1,012 actual host, 41 API/auth/HTTP tests, 34,030 collected. Header-only key, owned rotation/cleanup and no redirect/anonymous downgrade; server-side live revocation remains G81 |
 | VAS-05h | Stop outbound protected-event delivery before /ws authentication | VAS-05g | 🔍 IN REVIEW | [#1773](https://github.com/anvai-labs/victor/pull/1773), `fix/ws-broadcast-auth`, baseline `17a8b197f`. Real-route RED: unauthenticated /ws socket received tool-approval broadcasts on a keyed server. `_broadcast_ws` recipient admission (auth-handshake required on keyed servers; keyless unchanged) + bounded total handshake window closing pending sockets (1008). Owner 13/13 GREEN incl. authorized delivery, keyless compat, drip-bypass negative; affected API suites 272 passed; lint/type/collect clean. Scoped subscription ownership remains VAS-05c/VAS-06 |
+| VAS-05i | Enforce required sandbox policy at canonical tool dispatch | VAS-05h | 🔍 IN REVIEW | Branch `feat/sandbox-required-policy`, baseline `adcc6e1ff`. RED: enabled-but-unavailable sandbox still spawned the child (fail-open). `SandboxPolicy` disabled/preferred/required in `SandboxSettings` (legacy bool → preferred); `resolve_sandbox_backend` raises typed `SandboxRequiredUnavailableError` under required; `run_command`/`run_command_async`/`bash.shell` refuse with structured `SANDBOX_REQUIRED` result, zero spawns. Owner 31 passed; tools 3,702 + workflows 1,380 + core mirror 39 passed; lint/type/collect clean. Direct-spawn convergence and `workflows/isolation.py` policy awareness recorded as follow-ups |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
