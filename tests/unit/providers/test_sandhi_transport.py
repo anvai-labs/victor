@@ -828,6 +828,8 @@ Q8DdskD5L69EkmDFx9mfIFg=
         assert diagnosis is not None
         assert "update-ca-certificates" in diagnosis
         assert "add-trusted-cert" not in diagnosis
+        assert "SSL_CERT_FILE with a trusted CA bundle" in diagnosis
+        assert "does not read SSL_CERT_FILE" not in diagnosis
 
     def test_probe_returns_none_for_trusted_handshake(self):
         # Runtime-generated SAN=IP certificate: the probe must complete a REAL

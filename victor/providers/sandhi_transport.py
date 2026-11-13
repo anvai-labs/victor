@@ -381,10 +381,11 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
             except ssl.SSLCertVerificationError:
                 return (
                     "the endpoint's TLS certificate is not trusted by this "
-                    "machine's trust store (private/self-signed CA). Import "
-                    f"the issuing CA into the system trust store ({_tls_trust_remediation()}) "
-                    "or serve a publicly-trusted certificate; the sandhi "
-                    "binding does not read SSL_CERT_FILE"
+                    "machine's trust store (private/self-signed CA). Configure "
+                    "SSL_CERT_FILE with a trusted CA bundle for the SDK process "
+                    "(verify support on the installed SDK/platform), import "
+                    f"the issuing CA into the system trust store ({_tls_trust_remediation()}), "
+                    "or serve a publicly-trusted certificate"
                 )
             except OSError:
                 return None
