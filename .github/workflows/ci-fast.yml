@@ -974,7 +974,8 @@ jobs:
           workspaces: rust
 
       - name: Install pinned Rust coverage tool
-        run: cargo install cargo-llvm-cov --locked --version 0.6.22
+        # Recognizes Cargo's v2 build layout; the measured 68% gate stays below.
+        run: cargo install cargo-llvm-cov --locked --version 0.9.1
 
       - name: Check formatting, tests, and measured coverage
         working-directory: rust
