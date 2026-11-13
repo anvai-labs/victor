@@ -182,6 +182,43 @@ def build_docker_run_flags(
     return flags
 
 
+def _compose_global_network_floor(isolation: IsolationConfig) -> IsolationConfig:
+    """Tighten workflow Docker isolation by the global sandbox network floor.
+
+    When a global sandbox policy is active (preferred or required) with
+    network isolation configured, node/workflow config may tighten but never
+    silently loosen it (R2-02): the composed config keeps
+    ``network_allowed`` only if BOTH the global setting and the node config
+    allow networking. Unreadable settings leave the config untouched.
+    """
+    try:
+        from victor.config.settings import get_settings
+        from victor.tools.sandbox import effective_sandbox_policy
+
+        sandbox_settings = getattr(get_settings(), "sandbox", None)
+    except Exception:
+        return isolation
+    try:
+        if effective_sandbox_policy(sandbox_settings) == "disabled":
+            return isolation
+        global_network_isolation = bool(
+            getattr(sandbox_settings, "sandbox_network_isolation", False)
+        )
+    except Exception:
+        return isolation
+    if global_network_isolation and isolation.network_allowed:
+        return IsolationConfig(
+            sandbox_type=isolation.sandbox_type,
+            network_allowed=False,
+            filesystem_readonly=isolation.filesystem_readonly,
+            environment=isolation.environment,
+            docker_image=isolation.docker_image,
+            resource_limits=isolation.resource_limits,
+            working_directory=isolation.working_directory,
+        )
+    return isolation
+
+
 class SandboxedExecutor:
     """Execute commands with configurable isolation.
 
@@ -500,6 +537,9 @@ class SandboxedExecutor:
     ) -> SandboxExecutionResult:
         """Execute command in Docker container.
 
+        The global sandbox network floor composes first: node config may
+        tighten, never silently loosen, an active global restriction (R2-02).
+
         Args:
             command: Command to execute
             isolation: Isolation config with Docker settings
@@ -510,6 +550,8 @@ class SandboxedExecutor:
         Returns:
             SandboxExecutionResult
         """
+        # Global sandbox network floor composes before flag assembly (R2-02).
+        isolation = _compose_global_network_floor(isolation)
         limits = isolation.resource_limits or ResourceLimits()
         image = isolation.docker_image or self._default_image
 

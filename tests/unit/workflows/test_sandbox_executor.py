@@ -279,3 +279,92 @@ async def test_required_docker_qualified_on_own_capabilities(monkeypatch):
     assert launched, "docker branch should have attempted container execution"
     assert launched[0] and launched[0][0] == "docker", launched[0]
     assert "sandbox policy is 'required'" not in result.error.lower()
+
+
+# ---------------------------------------------------------------------------
+# R2-02: global required restrictions compose as a floor across backends
+# ---------------------------------------------------------------------------
+
+
+def _install_global_sandbox(monkeypatch, policy: str, network_isolation: bool) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(
+            sandbox_enabled=True,
+            sandbox_policy=policy,
+            sandbox_network_isolation=network_isolation,
+        )
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def _trap_docker_launch(monkeypatch, launched: list) -> None:
+    import victor.workflows.sandbox_executor as se
+
+    async def _trap(program, *args, **kwargs):
+        launched.append([str(program), *[str(a) for a in args]])
+        raise RuntimeError("synthetic docker launch trap")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _trap)
+
+
+async def test_required_docker_global_network_floor_beats_node_config(monkeypatch):
+    """Global required network isolation is a floor: a workflow Docker
+    isolation that allows networking must still launch with --network none."""
+    _install_global_sandbox(monkeypatch, policy="required", network_isolation=True)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=True),
+    )
+    assert launched, "expected a docker launch attempt to inspect"
+    argv = launched[0]
+    assert "--network" in argv and "none" in argv, f"loosened network config: {argv}"
+
+
+async def test_preferred_docker_global_network_floor_applies(monkeypatch):
+    """The floor applies whenever the global sandbox is active, not only
+    under required policy."""
+    _install_global_sandbox(monkeypatch, policy="preferred", network_isolation=True)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=True),
+    )
+    assert launched
+    argv = launched[0]
+    assert "--network" in argv and "none" in argv, f"loosened network config: {argv}"
+
+
+async def test_disabled_policy_keeps_node_network_config(monkeypatch):
+    """No global sandbox configured: node network config is authoritative
+    (historical behavior)."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_enabled=False))
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=True),
+    )
+    assert launched
+    argv = launched[0]
+    assert (
+        "--network" not in argv
+        or "none" not in argv[argv.index("--network") + 1 : argv.index("--network") + 2]
+    )
