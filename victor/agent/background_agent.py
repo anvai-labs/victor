@@ -105,6 +105,8 @@ class BackgroundAgent:
     tool_calls: List[ToolCallRecord] = field(default_factory=list)
     output: Optional[str] = None
     error: Optional[str] = None
+    #: Resolved principal that started this agent (owner-scoped delivery).
+    owner_client_id: Optional[str] = None
 
     # Internal state
     _task: Optional[asyncio.Task] = field(default=None, repr=False)
@@ -136,6 +138,7 @@ class BackgroundAgent:
             ],
             "output": self.output[:500] if self.output else None,
             "error": self.error,
+            "owner_client_id": self.owner_client_id,
         }
 
 
@@ -245,6 +248,7 @@ class BackgroundAgentManager:
         name: Optional[str] = None,
         description: Optional[str] = None,
         config: Optional[Any] = None,
+        owner_client_id: Optional[str] = None,
     ) -> str:
         """Start a new background agent.
 
@@ -312,6 +316,7 @@ class BackgroundAgentManager:
                         if hasattr(agent_wrapper, "_orchestrator")
                         else self._orchestrator
                     ),
+                    owner_client_id=owner_client_id,
                 )
             else:
                 # Legacy path: direct BackgroundAgent instantiation
@@ -322,6 +327,7 @@ class BackgroundAgentManager:
                     task=task,
                     mode=mode,
                     orchestrator=self._orchestrator,
+                    owner_client_id=owner_client_id,
                 )
 
             self._agents[agent_id] = agent
@@ -526,9 +532,15 @@ class BackgroundAgentManager:
                 self._running_tasks.discard(agent.id)
 
     def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Emit an event via the callback."""
+        """Emit an event via the callback.
+
+        Events for a known agent are tagged with that agent's owner so
+        broadcast delivery can scope them to the owning principal."""
         if self._event_callback:
             try:
+                agent = self._agents.get(data.get("agent_id"))
+                if agent is not None and agent.owner_client_id is not None:
+                    data.setdefault("owner_client_id", agent.owner_client_id)
                 self._event_callback(event_type, data)
             except Exception as e:
                 logger.warning(f"Event callback error: {e}")
