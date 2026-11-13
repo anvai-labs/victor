@@ -67,6 +67,27 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **VAS-05p — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+  PR (branch `feat/docker-policy-composition`), baseline `69719f04d`.
+  Global-restriction composition (R2-02): under an active global sandbox
+  policy (preferred or required) with `sandbox_network_isolation=True`, a
+  workflow Docker isolation allowing networking launched `docker run`
+  WITHOUT `--network none` — node config silently loosened the global
+  restriction (RED: probe asserted the actual argv, which had no network
+  flags). `_execute_docker` now composes a global network floor before
+  flag assembly (`_compose_global_network_floor`): node config may tighten,
+  never loosen; disabled policy keeps node config authoritative (pinned).
+  Scoped deliberately: the eval-container path reuses `build_docker_run_flags`
+  directly and keeps its own semantics (composition there is a separate
+  decision); the process branch already enforces via backend flags; the
+  inline branch cannot enforce and remains subject to the required-policy
+  refusal; mount/readonly floor composition is a recorded follow-up
+  (requires mount-model design, not a flag tweak). Owners: 15 workflow
+  sandbox tests GREEN (2 RED-first, actual-argv asserted); workflows +
+  evaluation suites 2,144 passed; ratchet at baseline; lint/type clean.
+  Queued: R2-03 worker failure ownership, R2-04 count validation. Next:
+  green CI, then merge.
+
 - **VAS-16b — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
   PR (branch `feat/bounded-fanout-admission`), baseline `64778c5a0`.
   Bounded task/state admission for Send fan-out (HB-04, order 4; TD-03
@@ -3379,6 +3400,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-16a | Bounded Send fan-out admission (SCALE-03 slice) | VAS-16 | ✅ MERGED | [#1776](https://github.com/anvai-labs/victor/pull/1776) squash `fbd9765aa`, branch `feat/bound-send-fanout`, baseline `927b568ff`. RED: `ExecutionConfig.max_parallel_branches` (default 16) bounds in-flight Send branches via semaphore in `_execute_parallel`; all admitted branches queue and complete (64-branch/bound-4 preservation test). RED: 8 branches ran 8-wide before the fix. Baseline: 256 branches 2.13ms (bound 16) vs 2.23ms (bound 4); no wall-time regression. Owners + collect (40,389) clean. Remaining SCALE-03/04 surfaces open under VAS-16/10 |
 | VAS-05k | Required-policy + owner-scope convergence residuals | VAS-05j | ✅ MERGED | [#1777](https://github.com/anvai-labs/victor/pull/1777) squash `bcab05d71`, branch `feat/required-policy-convergence`, baseline `fbd9765aa`. `SandboxedExecutor` consults the canonical policy: required-unavailable refuses all branches pre-spawn (no docker->process fallback); required+backend refuses unenforced inline; preferred unchanged (RED trap-proven). Background agents owner-scoped end-to-end (`start_agent(owner_client_id=...)`, events tagged, route binds principal). `IsolationMapper.apply_settings` confirmed dormant (zero callers). Owners 9+33 pass; suites 1,692 passed; lint/type/collect clean. Direct-spawn sites (terminal/git/search routes, MCP stdio, filesystem/shell-cached helpers) still outside the gate — recorded for future bounded convergence |
 | VAS-05l | Required enforcement follows the actual launch (HB-02/HB-03) | VAS-05k | ✅ MERGED | [#1778](https://github.com/anvai-labs/victor/pull/1778) squash `0ed5536a7`, branch `feat/required-policy-enforcement`, baseline `bcab05d71`. RED: required-policy resolver exception returned NoneSandbox (sync/async/shell); workflow process branch launched raw argv with bwrap available. `_resolve_default_sandbox` + workflow decision convert resolver errors to typed `resolver_error` refusals; caller NoneSandbox cannot weaken required; `_execute_process` wraps launch argv with the resolved backend (Popen-trap asserted); docker qualified on own capabilities, not bwrap. Owners 16+12 GREEN (7 RED-first); suites 5,132 passed; lint/type/collect clean. HB-01 authorization, direct-spawn routes, HB-04 bounded admission remain open in delivery order |
+| VAS-05p | Docker global network floor composition (R2-02) | VAS-05o | 🔍 IN REVIEW | Branch `feat/docker-policy-composition`, baseline `69719f04d`. RED: docker run argv had no network flags under required + global network isolation + node network_allowed=True. `_compose_global_network_floor` tightens workflow Docker isolation before flag assembly (preferred or required; node tightens only; disabled keeps node config); eval-container path and mount/readonly composition recorded as follow-ups. Owners 15 GREEN (2 RED-first, actual argv); suites 2,144 passed; ratchet at baseline; lint/type clean. Queued: R2-03 worker ownership, R2-04 count validation |
 | VAS-05m | Resource-owner authorization before read/mutation (HB-01) | VAS-05l | 🔍 IN REVIEW | Branch `feat/resource-owner-auth`, baseline `bcab05d71`. RED: Bob listed and approved Alice's approval via real routes (200, entry removed). Tool approvals list/approve/cancel + workflow list/read/status/cancel + agent list/get/cancel authorize against the STORED owner; denied calls keep state and emit nothing; not-found shape without existence confirmation; ownerless entries quarantined on keyed servers; spoofed body owner grants nothing; keyless unchanged. Ownership stamped via new `register_pending_approval` (store had no producer; FEP-0029 paused-run store is the durable approval path). Ratchet consolidated to baseline. Owners 60 GREEN (6 RED-first); suites 318 passed; lint/type/collect clean. Paused-run/subscription scoping (VAS-06) and shared session scoping remain open |
 | VAS-05n | Direct-spawn convergence: terminal route gate (order 3 slice) | VAS-05l | 🔍 IN REVIEW | Branch `feat/direct-spawn-gate`, baseline `0ed5536a7`. RED: terminal route launched raw argv under required+available backend; spawned under unenforceable required. Shared `resolve_required_launch` in the sandbox owner; terminal launch wraps argv or refuses; `_resolve_default_sandbox` re-expressed on the same decision. Classified inventory recorded: git/search = trusted fixed-argv control reads; MCP stdio = control plane; per-site decisions pending for the remaining fixed-binary tools. Owners 94 GREEN (2 RED-first); lint/type/collect clean; ratchet at baseline. Remaining inventory sites are follow-up increments |
 | VAS-16b | Bounded fan-out task/state admission (HB-04, order 4) | VAS-16a | 🔍 IN REVIEW | Branch `feat/bounded-fanout-admission`, baseline `64778c5a0`. RED event-ordering probe: 32 states copied before the first execution under bound=1. `_execute_parallel` runs min(bound, fanout) worker tasks pulling from a shared iterator; deepcopy after admission; results by index (merge order/failure semantics unchanged); cancellation stops new admission; `ExecutionConfig.max_fanout_branches` (None default) rejects oversized expansion pre-effect with typed `FanoutBudgetExceeded`. Result-byte budgets recorded as contract-review follow-up (VAS-16/22). Owners 172 GREEN (2 RED-first); collect 40,418 clean; ratchet at baseline |
