@@ -48,7 +48,24 @@ def _client(server) -> TestClient:
 
 @pytest.fixture
 def server():
-    return SimpleNamespace(
+    """Keyless single-user fixture: keyless servers authorize every caller
+    (HB-01), so these route-contract tests need no principal."""
+
+    class _KeylessServer(SimpleNamespace):
+        def _owner_authorized(self, resource_owner, principal):
+            return True
+
+        def _owned_entry(self, store, resource_id, principal):
+            entry = store.get(resource_id)
+            return (
+                entry
+                if self._owner_authorized(
+                    entry.get("owner_client_id") if entry else None, principal
+                )
+                else None
+            )
+
+    return _KeylessServer(
         _pending_tool_approvals={},
         _broadcast_ws=AsyncMock(),
         _get_orchestrator=AsyncMock(),

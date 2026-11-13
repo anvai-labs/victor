@@ -88,10 +88,11 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.get("/agents")
     async def list_agents(
+        http_request: Request,
         status: Optional[str] = Query(None, description="Filter by status"),
         limit: int = Query(20, ge=1, le=100),
     ) -> JSONResponse:
-        """List background agents."""
+        """List the caller's background agents (server-side owner filter)."""
         try:
             from victor.agent.background_agent import (
                 get_agent_manager,
@@ -109,7 +110,12 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 except ValueError:
                     pass
 
-            agents = manager.list_agents(status=status_filter, limit=limit)
+            principal = getattr(http_request.state, "client_id", None)
+            agents = [
+                a
+                for a in manager.list_agents(status=status_filter, limit=limit)
+                if server._owner_authorized(a.get("owner_client_id"), principal)
+            ]
             return JSONResponse(
                 {
                     "agents": agents,
@@ -121,35 +127,50 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             logger.exception("Failed to list agents")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
 
-    @router.get("/agents/{agent_id}")
-    async def get_agent(agent_id: str) -> JSONResponse:
-        """Get a specific agent's status."""
-        try:
-            from victor.agent.background_agent import get_agent_manager
+    def _authorized_agent_request(agent_id: str, http_request: Request):
+        """(manager, agent) when the caller's principal owns the agent
+        (HB-01); ``(None, None)`` when no manager exists, or a present
+        manager with ``None`` agent for missing/unowned agents."""
+        from victor.agent.background_agent import get_agent_manager
 
-            manager = get_agent_manager()
+        manager = get_agent_manager()
+        if manager is None:
+            return None, None
+        agent = manager.get_agent(agent_id)
+        if agent is None or not server._owner_authorized(
+            agent.owner_client_id, getattr(http_request.state, "client_id", None)
+        ):
+            return manager, None
+        return manager, agent
+
+    @router.get("/agents/{agent_id}")
+    async def get_agent(agent_id: str, http_request: Request) -> JSONResponse:
+        """Get a specific agent's status (stored-owner authorized)."""
+        try:
+            manager, agent = _authorized_agent_request(agent_id, http_request)
             if manager is None:
                 return JSONResponse({"error": "No agents running"}, status_code=404)
-
-            agent_data = manager.get_agent_status(agent_id)
-            if agent_data is None:
+            if agent is None:
                 return JSONResponse({"error": "Agent not found"}, status_code=404)
 
-            return JSONResponse(agent_data)
+            return JSONResponse(manager.get_agent_status(agent_id))
 
         except Exception:
             logger.exception("Failed to get agent")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
 
     @router.post("/agents/{agent_id}/cancel")
-    async def cancel_agent(agent_id: str) -> JSONResponse:
-        """Cancel a running agent."""
+    async def cancel_agent(agent_id: str, http_request: Request) -> JSONResponse:
+        """Cancel a running agent (stored-owner authorized; denied cancels
+        leave the agent untouched)."""
         try:
-            from victor.agent.background_agent import get_agent_manager
-
-            manager = get_agent_manager()
+            manager, agent = _authorized_agent_request(agent_id, http_request)
             if manager is None:
                 return JSONResponse({"error": "No agents running"}, status_code=404)
+            if agent is None:
+                return JSONResponse(
+                    {"error": "Agent not found or not running"}, status_code=404
+                )
 
             cancelled = await manager.cancel_agent(agent_id)
             if cancelled:
