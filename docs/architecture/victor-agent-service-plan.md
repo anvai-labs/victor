@@ -67,7 +67,9 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PROMOTION-026 — IN REVIEW** (2026-11-13), owner: framework-review delivery session;
+- **PROMOTION-026 — BLOCKED** (2026-11-13), owner: framework-review delivery session;
+  blocking owner: Sandhi gateway/provider session (G83/G84 usage-qualification
+domain);
   promotion PR develop → main at develop `787a26eb3` (VERSION 0.29.0,
   pyproject synced). Banks two verified batches with no source changes
   beyond this ledger entry: (1) Sandhi 0.17.1 identity/gateway adoption
@@ -90,7 +92,25 @@ edit. A mock test is not live provider or C5 evidence.
   settings, scoped sessions/subscriptions and slow-client queues,
   result-byte budgets + representative measurements, scheduler FEP
   reconciliation, VAS-11c feasibility, remaining spawn-site decisions.
-  Next: green main battery, then merge; main→develop sync follows.
+  Promotion PR [#1786](https://github.com/anvai-labs/victor/pull/1786)
+  (head `32e790613`) is BLOCKED on the main-targeted battery: 32 failures,
+  ALL in the live Sandhi transport parity suite
+  (tests/integration/providers/sandhi_transport/test_parity_openai_compat.py
+  ×30, test_parity_anthropic.py ×2) with `SandhiProviderError`
+  output-projection refusals — "upstream stream evidence is unqualified
+  (…InvalidUsage(NonFinalUsage))" (inferflux/deepseek/zai) and "missing or
+  invalid gateway usage convention" (deepseek). Zero failures in any other
+  integration file (ollama/lmstudio/vllm/model-switching/agent-loop/gateway
+  sessions all passed). The parity suite exercises the deployed gateway and
+  is exercised only by the promotion battery (develop's ci-fast does not
+  run tests/integration/providers), so these failures are pre-existing on
+  develop from the Sandhi 0.17.1 batch's scope (G83/G84) and are untouched
+  by the security/bounded-concurrency batch (no diffs in victor/providers/
+  or tests/integration/providers). Do not merge until the owning
+  workstream qualifies the provider parity failures; auto-merge remains
+  armed, which by construction only fires on a genuinely green battery.
+  Next action: owning workstream fixes/qualifies parity tests, then
+  re-run the failed jobs; main→develop sync follows merge.
 
 - **VAS-05p — MERGED** (2026-11-13), owner: framework-review delivery session;
   PR [#1783](https://github.com/anvai-labs/victor/pull/1783)
