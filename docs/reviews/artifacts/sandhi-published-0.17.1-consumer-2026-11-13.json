@@ -1,0 +1,45 @@
+{
+  "qualified_on": "2026-11-13",
+  "victor_base": "956bf2aafc0c6620f50f0c559a90a9c9d2478aec",
+  "victor_prepared_version": "0.29.0",
+  "sandhi_version": "0.17.1",
+  "wheel": {
+    "metadata_url": "https://pypi.org/pypi/sandhi-gateway/0.17.1/json",
+    "filename": "sandhi_gateway-0.17.1-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "download_url": "https://files.pythonhosted.org/packages/17/d3/c5bebd9d1df9fabc66d83871bc80f36abdf32ec163a789ee4cd2a2508648/sandhi_gateway-0.17.1-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "sha256": "58e9efca8a4de62166a51a0c998393f9454cd5e3f22a420a2a4d3ce5e70c0b8d",
+    "upload_time_iso_8601": "2026-11-13T08:37:01.898045Z",
+    "yanked": false,
+    "size": 3485307
+  },
+  "native_module_sha256": "55a22940c7acc4920c7f4abc5695b7337f2718a0b383b86783304a64896d9d84",
+  "gateway": {
+    "release_url": "https://github.com/anvai-labs/sandhi/releases/tag/v0.17.1",
+    "asset_url": "https://github.com/anvai-labs/sandhi/releases/download/v0.17.1/sandhi-proxy-v0.17.1-x86_64-unknown-linux-gnu.tar.gz",
+    "asset_sha256": "62664ff202bf7fed70a54dfc64727f86955ed3f904ffb2456c056cbb01226c54",
+    "github_asset_digest": "sha256:62664ff202bf7fed70a54dfc64727f86955ed3f904ffb2456c056cbb01226c54",
+    "extracted_files_sha256": {
+      "sandhi": "fad5fcf151f8b83e45014562acf7143c7fb71087444b42a3a7b07bce99862de4",
+      "sandhi-proxy": "a62eb88e5510064c5265db37ac6dd4b34232131274da73b781dc10f9ddcc156f",
+      "scripts/sensitive_policy.py": "4375ae12c7b9e1010551ee8d5a4e7db64f56115fddba91aa3dd51c5b0c50e7b5",
+      "crates/sandhi-proxy/assets/sensitive-text-v1/model-card.json": "357fe0516b059b5a390e01d3809c829724d8431fb79502942a654df611fc8297",
+      "crates/sandhi-proxy/assets/sensitive-text-v1/preprocessing.json": "4dbd658f9f3a4b76440b6ce2ce570073e17fb136ee4cc3c2de894bdd8be21d61",
+      "crates/sandhi-proxy/assets/sensitive-text-v1/model.onnx": "e38c06661d741a17990ec51d88671da5978a25ab0c5aa4857b64734a646689a8",
+      "crates/sandhi-proxy/assets/sensitive-text-v1/policy.json": "a711a42af3955f99d31fda7bc95c97e158558a799887ec7781dc81e6e811956a",
+      "crates/sandhi-proxy/assets/sensitive-text-v1/bundle.json": "d64c4d82b0c1223e7ee2d2ae5e697cb94151617ad0250e46ef06065643182c50",
+      "crates/sandhi-proxy/assets/sensitive-text-v1/golden.json": "ce398b61fa0e35ed1fb9eb1c3ccfda86f62b81e1d5d08d9b81ec41aff4b140f8",
+      "docs/operator/sensitive-policy.md": "c950875ddc2a5b910fb2878cc98c88903374f8412004f346c11d0f3ec13f27a7"
+    }
+  },
+  "checks": {
+    "pip_check": "No broken requirements found",
+    "provider_config_sandhi_consumers_passed": 2593,
+    "existing_skips": 5,
+    "tls_or_oidc_name_exclusions": false,
+    "actual_agent_tool_loop_passed": 8,
+    "full_collection_tests": 40162,
+    "full_collection_exit": 0,
+    "full_collection_scope": "Complete tests/ discovery in this clean environment; optional-package-dependent collection differs from prior system-site candidate environment."
+  },
+  "scope": "Local Linux/Python3.12 published-artifact consumer qualification. Victor not published; no live IDM/provider calls or deployed configuration changes. Separate three-component co-design proof remains SDK0.17.0 and local source candidates."
+}

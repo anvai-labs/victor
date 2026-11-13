@@ -2,8 +2,9 @@
 
 ## Coordinated execution-contract migration
 
-Victor **0.29.0** is prepared against `sandhi-gateway==0.17.0`. These source
-versions do not imply that packages have been published or a service upgraded.
+Victor **0.29.0** is prepared against the published corrective
+`sandhi-gateway==0.17.1`. Sandhi 0.17.1 is published; Victor 0.29.0 remains
+unreleased, and this consumer pin does not imply a service upgrade.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
 
@@ -19,25 +20,28 @@ An explicit transient provider rejection can still use the logical-call retry
 policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
-and actual token observation across embedded and accounted calls. The paired candidate
-adds the same qualified buffered boundary and explicit gateway-peer contract; the
-mandatory gateway accounting-default migration remains separate. Portable/native delivery
-are separate contracts: meaningful native state must survive compatible native
+and actual token observation across embedded and accounted calls. Published 0.17.1
+includes the qualified buffered boundary and explicit gateway-peer contract. HTTP
+generation requires Sandhi's original file-backed durable ledger and paired accounting;
+Victor's embedded observation does not replace that server-owned execution contract.
+Portable/native delivery are separate contracts: meaningful native state must survive compatible native
 delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
 are evidence; cache policy and provider price schedules remain separate concerns.
 An embedded observation is not a gateway ledger receipt.
 
-Qualify the exact Sandhi candidate wheel with this Victor source, including tools,
+Qualify the official published Sandhi wheel with this Victor source, including tools,
 cache splits, interrupted streams and refusal/no-replay paths. Keep Contracts and
-CodeGraph on their independent release lines. Publish the qualified Sandhi artifacts
-before making the matching Victor release installable from registries. Source
-review, public-hosted CI, release and deployment are distinct gates.
+CodeGraph on their independent release lines. The corrective Sandhi artifacts are
+published; the matching Victor consumer remains subject to independent review,
+public-hosted CI and its own release gate. Deployment is a separate decision.
 
 The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
-pin. Until 0.17.0 is published, registry-only CI/install jobs cannot resolve that
-pin. Local paired qualification installs the reviewed candidate wheel explicitly;
-it is not evidence of a published dependency. Keep the consumer preparation
-unmerged until the dependency's publication/qualification gate is met.
+pin. The mandatory dependency now resolves from the official PyPI 0.17.1
+release. Current published-artifact consumer qualification is recorded separately
+from the dated 0.17.0 candidate snapshots below; historical local-wheel results
+do not establish published 0.17.1 acceptance. See the [published 0.17.1 consumer
+qualification](../reviews/sandhi-published-0.17.1-consumer-2026-11-13.md) for current
+artifact provenance and local test scope.
 
 ### Explicit endpoint usage conventions
 
@@ -50,8 +54,8 @@ endpoints can select `standard`. Compatible Messages sources can explicitly sele
 `anthropic_implicit_cache`. Sandhi validates each profile against the actual wire
 family, independently of the provider label or key contents.
 
-Candidate evidence: 1,932 provider and adjacent resilience tests passed with five
-skips against the candidate wheel; full collection found 40,170 tests. Black/Ruff
+Historical 0.17.0 candidate evidence: 1,932 provider and adjacent resilience tests
+passed with five skips against the candidate wheel; full collection found 40,170 tests. Black/Ruff
 and typing for the three changed provider modules passed. This qualifies the
 implemented constructor/streaming scope, not ordinary buffered qualification or
 the complete packaging matrix.
