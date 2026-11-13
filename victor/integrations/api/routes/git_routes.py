@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -36,6 +37,49 @@ if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
 logger = logging.getLogger(__name__)
+
+
+class GitPolicyRefusal(RuntimeError):
+    """A required sandbox policy cannot enforce containment for a git launch.
+
+    Callers must return a structured refusal without spawning; this is the
+    fail-closed boundary (R2-01), distinct from ordinary git failures.
+    """
+
+
+def _resolve_git_launch():
+    """Resolve the canonical required-launch decision for git spawns."""
+    from victor.tools.sandbox import resolve_required_launch
+
+    try:
+        from victor.config.settings import get_settings
+
+        sandbox_settings = getattr(get_settings(), "sandbox", None)
+    except Exception:
+        sandbox_settings = None
+    return resolve_required_launch(sandbox_settings)
+
+
+def _git_spawn(server: "VictorFastAPIServer", argv: list, **kwargs):
+    """Run a git argv through the canonical required-launch decision.
+
+    Under a required policy with an enforcing backend the argv is wrapped by
+    the backend launcher (the actual launch carries containment); an
+    unenforceable required policy raises :class:`GitPolicyRefusal` before any
+    spawn. Other policies keep the historical raw exec. Read helpers are
+    gated too: a fixed argv is not proof of containment (``git diff`` can
+    execute repo-configured drivers).
+    """
+    from pathlib import Path
+
+    decision = _resolve_git_launch()
+    if decision.refuse:
+        raise GitPolicyRefusal(decision.reason)
+    if decision.required_active and decision.backend is not None:
+        argv = decision.backend.wrap_argv(list(argv), Path(server.workspace_root))
+    import subprocess
+
+    return subprocess.run(argv, **kwargs)
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:
@@ -64,9 +108,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def git_status() -> JSONResponse:
         """Get git status for the workspace."""
         try:
-            import subprocess
-
-            result = subprocess.run(
+            result = _git_spawn(
+                server,
                 ["git", "status", "--porcelain", "-b"],
                 cwd=server.workspace_root,
                 capture_output=True,
@@ -120,6 +163,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 }
             )
 
+        except GitPolicyRefusal as exc:
+            return JSONResponse({"error": str(exc)})
         except subprocess.TimeoutExpired:
             return JSONResponse({"error": "Git command timed out"}, status_code=500)
         except FileNotFoundError:
@@ -132,11 +177,10 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def git_commit(request: GitCommitRequest) -> JSONResponse:
         """Create a git commit."""
         try:
-            import subprocess
-
             if request.files:
                 for f in request.files:
-                    subprocess.run(
+                    _git_spawn(
+                        server,
                         ["git", "add", f],
                         cwd=server.workspace_root,
                         capture_output=True,
@@ -145,7 +189,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
             message = request.message
             if request.use_ai and not message:
-                diff_result = subprocess.run(
+                diff_result = _git_spawn(
+                    server,
                     ["git", "diff", "--cached", "--stat"],
                     cwd=server.workspace_root,
                     capture_output=True,
@@ -165,7 +210,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             if not message:
                 raise HTTPException(status_code=400, detail="Commit message required")
 
-            result = subprocess.run(
+            result = _git_spawn(
+                server,
                 ["git", "commit", "-m", message],
                 cwd=server.workspace_root,
                 capture_output=True,
@@ -180,6 +226,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
         except HTTPException:
             raise
+        except GitPolicyRefusal as exc:
+            # Refusal happens before any spawn: no `git add`, no commit.
+            return JSONResponse({"success": False, "error": str(exc)})
         except Exception:
             logger.exception("Git commit error")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
@@ -188,9 +237,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def git_log(limit: int = Query(20, ge=1, le=100)) -> JSONResponse:
         """Get git commit log."""
         try:
-            import subprocess
-
-            result = subprocess.run(
+            result = _git_spawn(
+                server,
                 [
                     "git",
                     "log",
@@ -223,6 +271,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
             return JSONResponse({"commits": commits})
 
+        except GitPolicyRefusal as exc:
+            return JSONResponse({"error": str(exc)})
         except Exception:
             logger.exception("Git log error")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
@@ -234,8 +284,6 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     ) -> JSONResponse:
         """Get git diff."""
         try:
-            import subprocess
-
             cmd = ["git", "diff"]
             if staged:
                 cmd.append("--cached")
@@ -243,7 +291,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 cmd.append("--")
                 cmd.append(file)
 
-            result = subprocess.run(
+            result = _git_spawn(
+                server,
                 cmd,
                 cwd=server.workspace_root,
                 capture_output=True,
@@ -258,6 +307,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 }
             )
 
+        except GitPolicyRefusal as exc:
+            return JSONResponse({"error": str(exc)})
         except Exception:
             logger.exception("Git diff error")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
