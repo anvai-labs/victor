@@ -565,8 +565,14 @@ The opt-in integration owner runs actual IDM and Sandhi candidates and a public
 Victor Agent read-tool loop against a synthetic Messages backend. It checks
 private-file rotation, exact issuance-hash/source-request/usage joins, conserved
 source counters, and no backend dispatch for ID/UserInfo substitution, a valid
-other-resource token, expiry, or logout. The test observes credential hashes;
-it does not replace the reader or mock introspection. Credentials remain in
+other-resource token, expiry, or logout. A bounded test-only recorder hashes the
+actual FFI HTTP bearer, forwards the unchanged bearer/body exactly once, and
+captures the returned Sandhi request ID.
+Those wire observations join the durable request correlation and IDM receipt;
+Python credential configuration alone is not a wire-provenance oracle. The
+synthetic backend refuses READY unless the second request contains the matching
+successful read tool result with actual fixture contents. The test does not
+replace the reader or mock introspection. Credentials remain in
 private files or memory, and evidence contains hashes and sanitized receipts.
 
 ```bash

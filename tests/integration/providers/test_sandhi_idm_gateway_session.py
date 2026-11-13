@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 import hashlib
+import http.client
 import importlib.metadata
 import importlib.util
 import json
@@ -26,8 +27,9 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -61,6 +63,109 @@ def _http(root: str, path: str, token: str, body: Any = None) -> tuple[int, Any]
     except urllib.error.HTTPError as error:
         # Never echo credentials or an upstream body into a pytest traceback.
         return error.code, None
+
+
+@contextmanager
+def _wire_recorder(target: str, observations: list[dict[str, Any]]):
+    """Observe real FFI HTTP bytes, forward once, and retain no raw credentials."""
+    destination = urlsplit(target)
+    if destination.scheme != "http" or destination.hostname != "127.0.0.1":
+        raise ValueError("wire recorder requires the owned loopback gateway")
+    failures: list[str] = []
+    bound = 1_048_576
+
+    class Recorder(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):  # noqa: N802
+            connection = http.client.HTTPConnection(
+                destination.hostname, destination.port, timeout=15
+            )
+            try:
+                length = int(self.headers["Content-Length"])
+                if not 0 <= length <= bound:
+                    raise ValueError("bounded request framing")
+                body = self.rfile.read(length)
+                if len(body) != length:
+                    raise ValueError("incomplete request")
+                authorization = self.headers.get("Authorization", "")
+                bearer_hash = (
+                    hashlib.sha256(authorization[7:].encode()).hexdigest()
+                    if authorization.startswith("Bearer ")
+                    else None
+                )
+                connection.putrequest("POST", self.path, skip_host=True, skip_accept_encoding=True)
+                # Preserve every received header, including the exact bearer.
+                for name, value in self.headers.raw_items():
+                    connection.putheader(name, value)
+                connection.endheaders(body)
+                response = connection.getresponse()
+                payload = response.read(bound + 1)
+                if len(payload) > bound:
+                    raise ValueError("bounded response")
+                observations.append(
+                    {
+                        "bearer_sha256": bearer_hash,
+                        "status": response.status,
+                        "request_id": response.getheader("x-sandhi-request-id"),
+                    }
+                )
+                self.send_response(response.status)
+                for name, value in response.getheaders():
+                    if name.lower() not in {"content-length", "transfer-encoding", "connection"}:
+                        self.send_header(name, value)
+                # Only HTTP framing changes; the response payload remains byte-exact.
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(payload)
+            except Exception as error:
+                failures.append(type(error).__name__)
+                self.send_error(502, "local recorder transport failed")
+            finally:
+                connection.close()
+
+    server = HTTPServer(("127.0.0.1", 0), Recorder)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert not failures, "local recorder transport failure"
+
+
+def _read_transcript(records: list[dict[str, Any]], target: Path) -> bool:
+    if len(records) != 2:
+        return False
+    calls = [
+        block
+        for message in records[1]["messages"]
+        if message["role"] == "assistant"
+        for block in message.get("content", [])
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    ]
+    results = [
+        block
+        for message in records[1]["messages"]
+        if message["role"] == "user"
+        for block in message.get("content", [])
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+    return (
+        len(calls) == len(results) == 1
+        and calls[0].get("id") == "read-once"
+        and calls[0].get("name") == "read"
+        and isinstance(calls[0].get("input"), dict)
+        and calls[0]["input"].get("path") == str(target)
+        and results[0].get("tool_use_id") == "read-once"
+        and results[0].get("is_error", False) is False
+        and "fixture-content" in json.dumps(results[0].get("content"))
+    )
 
 
 def _fixture_module(path: Path) -> Any:
@@ -220,13 +325,16 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
         "published_sdk_0171_qualification": "pending publication and clean wheel installation",
     }
     issued: list[dict[str, Any]] = []
-    admitted_hashes: list[str] = []
+    wire_observations: list[dict[str, Any]] = []
     records: list[dict[str, Any]] = []
     with module.local_gateway_identity(tmp_path / "identity") as identity:
         assert identity.resource_uri == RESOURCE
         assert identity.consumer_client_id != identity.source_client_id
         bootstrap = identity.issue_resource()
-        with _sandhi(binary, identity, tmp_path / "sandhi") as (endpoint, database, upstream_key):
+        with (
+            _sandhi(binary, identity, tmp_path / "sandhi") as (endpoint, database, upstream_key),
+            _wire_recorder(endpoint, wire_observations) as recorded_endpoint,
+        ):
             target = tmp_path / "input.txt"
             target.write_text("fixture-content\n")
 
@@ -242,14 +350,14 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
                         raise AssertionError("gateway sent unexpected upstream credentials")
                     body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                     records.append(body)
-                    # Hash-only observation of the actual provider credential at dispatch;
-                    # neither authentication nor the token-file reader is replaced.
-                    admitted_hashes.append(hashlib.sha256(provider._api_key.encode()).hexdigest())
                     first = len(records) == 1
                     if first:
                         rotated = identity.issue_resource()
                         issued.append(rotated)
                         _publish(token_file, rotated)
+                    if not first and not _read_transcript(records, target):
+                        self.send_error(422, "actual read transcript required")
+                        return
                     value = {
                         "id": f"fixture-{len(records)}",
                         "type": "message",
@@ -328,7 +436,7 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
                 issued.append(fresh)
                 _publish(token_file, fresh)
                 gateway = {
-                    "url": endpoint,
+                    "url": recorded_endpoint,
                     "grant": "demo",
                     "oidc": {
                         "token_file": str(token_file),
@@ -365,7 +473,9 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
                     hashlib.sha256(item["access_token"].encode()).hexdigest() for item in issued
                 ]
                 assert hashes[0] != hashes[1]
-                assert admitted_hashes == hashes
+                successful_wire = [item for item in wire_observations if item["status"] == 200]
+                assert [item["bearer_sha256"] for item in successful_wire] == hashes
+                assert _read_transcript(records, target)
                 receipts = [identity.receipt(digest) for digest in hashes]
                 assert all(len(receipt) == 1 for receipt in receipts)
                 probe = SandhiOpenAIProvider(gateway=gateway)
@@ -411,7 +521,10 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
                         endpoint,
                         "/v1/chat/completions",
                         baseline["access_token"],
-                        {"model": "fixture", "messages": [{"role": "user", "content": "expired"}]},
+                        {
+                            "model": "fixture",
+                            "messages": [{"role": "user", "content": "expired"}],
+                        },
                     )
                     assert status == 401
                     await denied(baseline, local_expiry=True)
@@ -459,6 +572,7 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
                         if json.loads(row[2]).get("upstream_request_id") == origin_id
                     ]
                     assert len(matching) == 1
+                    assert matching[0][1] == successful_wire[index]["request_id"]
                     joins.append(
                         {
                             "token_sha256": digest,
@@ -477,7 +591,9 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
                         "idm_receipts": receipts,
                         "source_observations": observations,
                         "issuance_usage_joins": joins,
-                        "join_basis": "actual provider credential hash at each origin dispatch, origin request-id, Sandhi durable correlation and exact IDM issuance-hash receipt",
+                        "wire_observations": wire_observations,
+                        "read_tool_transcript_verified": True,
+                        "join_basis": "actual FFI Authorization bearer hash and returned Sandhi request ID, matched to durable request correlation and exact IDM issuance receipt",
                         "usage_events": events,
                         "charged_tokens": [14, 14],
                         "physical_attempts": attempts,
@@ -498,3 +614,112 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
     output = Path(os.environ.get("VICTOR_IDM_EVIDENCE_FILE", tmp_path / "evidence.json"))
     output.write_text(json.dumps(evidence, indent=2) + "\n")
     output.chmod(0o600)
+
+
+def test_read_transcript_oracle_requires_matching_tool_and_real_contents(tmp_path):
+    import copy
+
+    target = tmp_path / "input.txt"
+    transcript = [
+        {},
+        {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "read-once",
+                            "name": "read",
+                            "input": {"path": str(target)},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "read-once",
+                            "content": "fixture-content\\n",
+                        }
+                    ],
+                },
+            ]
+        },
+    ]
+    assert _read_transcript(transcript, target)
+    for fault in ["missing_tool", "wrong_id", "wrong_path", "error", "wrong_content"]:
+        bad = copy.deepcopy(transcript)
+        if fault == "missing_tool":
+            bad[1]["messages"].pop(0)
+        elif fault == "wrong_id":
+            bad[1]["messages"][1]["content"][0]["tool_use_id"] = "another-call"
+        elif fault == "wrong_path":
+            bad[1]["messages"][0]["content"][0]["input"]["path"] = "another-file"
+        elif fault == "error":
+            bad[1]["messages"][1]["content"][0]["is_error"] = True
+        else:
+            bad[1]["messages"][1]["content"][0]["content"] = "READY without a read"
+        assert not _read_transcript(bad, target), fault
+
+
+def test_wire_recorder_observes_actual_bearer_and_response_id_without_replay():
+    received = []
+    body = b'{ "payload" : [1, 2] }'
+    reply = b"byte-exact reply\x00"
+
+    class Receiver(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):  # noqa: N802
+            received.append(
+                {
+                    "hash": hashlib.sha256(self.headers["Authorization"][7:].encode()).hexdigest(),
+                    "body": self.rfile.read(int(self.headers["Content-Length"])),
+                }
+            )
+            self.send_response(200)
+            self.send_header("x-sandhi-request-id", f"actual-response-{len(received)}")
+            self.send_header("Content-Length", str(len(reply)))
+            self.end_headers()
+            self.wfile.write(reply)
+
+    receiver = HTTPServer(("127.0.0.1", 0), Receiver)
+    thread = threading.Thread(target=receiver.serve_forever, daemon=True)
+    thread.start()
+    observations = []
+    expected = []
+    try:
+        with _wire_recorder(f"http://127.0.0.1:{receiver.server_port}", observations) as root:
+            endpoint = urlsplit(root)
+            for index in range(2):
+                token = secrets.token_urlsafe(32)
+                digest = hashlib.sha256(token.encode()).hexdigest()
+                expected.append(
+                    {
+                        "bearer_sha256": digest,
+                        "status": 200,
+                        "request_id": f"actual-response-{index+1}",
+                    }
+                )
+                connection = http.client.HTTPConnection(endpoint.hostname, endpoint.port, timeout=3)
+                try:
+                    connection.request(
+                        "POST",
+                        "/v1/chat/completions",
+                        body=body,
+                        headers={"Authorization": "Bearer " + token},
+                    )
+                    response = connection.getresponse()
+                    assert response.read() == reply
+                finally:
+                    connection.close()
+        assert observations == expected
+        assert [item["hash"] for item in received] == [item["bearer_sha256"] for item in expected]
+        assert [item["body"] for item in received] == [body, body]
+    finally:
+        receiver.shutdown()
+        receiver.server_close()
+        thread.join(timeout=5)
