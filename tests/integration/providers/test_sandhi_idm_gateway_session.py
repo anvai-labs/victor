@@ -316,13 +316,13 @@ async def test_actual_resource_session_agent_usage_rotation_and_live_denials(tmp
         for path in module_root.glob("*.so")
     }
     evidence: dict[str, Any] = {
-        "scope": "local candidates only; no deployment or published-wheel release claim",
+        "scope": "owned local integration acceptance; no deployment or publication claim",
         "idm_binary_sha256": hashlib.sha256(
             Path(os.environ["IDM_TEST_BINARY"]).read_bytes()
         ).hexdigest(),
         "idm_fixture_sha256": hashlib.sha256(Path(helper).read_bytes()).hexdigest(),
         "sdk_native_modules_sha256": native_hashes,
-        "published_sdk_0171_qualification": "pending publication and clean wheel installation",
+        "sdk_artifact_provenance": "join native module hashes to the external artifact qualification manifest; version alone is not provenance",
     }
     issued: list[dict[str, Any]] = []
     wire_observations: list[dict[str, Any]] = []
