@@ -389,8 +389,9 @@ async def test_network_floor_preserves_other_isolation_fields(monkeypatch):
 
     deployment = DeploymentConfig(target="eks", cluster_name="c1")
     volumes = ["/data:/data:ro"]
-    executor = SandboxedExecutor(docker_available=True)
-    composed = executor._compose_global_network_floor(
+    import victor.workflows.sandbox_executor as se
+
+    composed = se._compose_global_network_floor(
         IsolationConfig(
             sandbox_type="docker",
             network_allowed=True,
