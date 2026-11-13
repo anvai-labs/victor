@@ -170,3 +170,112 @@ async def test_preferred_policy_keeps_existing_behavior(monkeypatch):
     )
     assert result.success, result.error
     assert "ok" in result.output
+
+
+# ---------------------------------------------------------------------------
+# HB-03: required policy must apply the enforcing backend at actual launch
+# ---------------------------------------------------------------------------
+
+
+def _install_required_settings(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def _patch_backend_available(monkeypatch, available: bool) -> None:
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    if available:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: "/usr/bin/bwrap")
+    else:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: None)
+
+
+def _patch_popen_trap(monkeypatch, launched: list) -> None:
+    import victor.integrations.mcp.sandbox as mcp_sandbox
+
+    def _trap(argv, *args, **kwargs):
+        launched.append(list(argv))
+        raise RuntimeError("synthetic spawn trap")
+
+    monkeypatch.setattr(mcp_sandbox.subprocess, "Popen", _trap)
+
+
+async def test_required_process_launch_wraps_argv_with_enforcing_backend(monkeypatch):
+    """Under a required policy with an enforcing backend available, the
+    workflow process branch must launch through the backend wrapper: the
+    spawned argv carries the launcher, not the raw command."""
+    _install_required_settings(monkeypatch)
+    _patch_backend_available(monkeypatch, available=True)
+    launched: list = []
+    _patch_popen_trap(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        ["synthetic-command", "--flag"],
+        IsolationConfig(sandbox_type="process", network_allowed=True),
+    )
+    assert launched, "expected a spawn attempt to inspect"
+    assert launched[0][0] == "bwrap", f"raw argv launched: {launched[0]}"
+    assert "synthetic-command" in launched[0]
+    assert not result.success
+
+
+async def test_required_resolver_failure_refuses_workflow_process(monkeypatch):
+    """A generic resolver exception under required policy refuses the
+    workflow process branch; no launch is attempted."""
+    import victor.tools.sandbox as vs
+
+    _install_required_settings(monkeypatch)
+    _patch_backend_available(monkeypatch, available=True)
+
+    def _boom(settings):
+        raise RuntimeError("synthetic resolver failure")
+
+    monkeypatch.setattr(vs, "resolve_sandbox_backend", _boom, raising=False)
+    launched: list = []
+    _patch_popen_trap(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="process", network_allowed=True),
+    )
+    assert launched == [], "no spawn may be attempted on resolver failure"
+    assert not result.success
+    assert "required" in result.error.lower()
+
+
+async def test_required_docker_qualified_on_own_capabilities(monkeypatch):
+    """Docker under required policy is qualified by its own availability and
+    configuration — the platform backend binary is neither necessary nor
+    sufficient, so a missing bwrap must not refuse a docker branch."""
+    _install_required_settings(monkeypatch)
+    _patch_backend_available(monkeypatch, available=False)  # no bwrap
+
+    launched: list = []
+
+    import victor.workflows.sandbox_executor as se
+
+    async def _docker_trap(program, *args, **kwargs):
+        launched.append([program, *list(args)])
+        raise RuntimeError("synthetic docker trap")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _docker_trap)
+    # _execute_docker launches `docker ...` via asyncio.create_subprocess_exec.
+
+    executor = SandboxedExecutor(docker_available=True)
+    result = await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=False),
+    )
+    assert launched, "docker branch should have attempted container execution"
+    assert launched[0] and launched[0][0] == "docker", launched[0]
+    assert "sandbox policy is 'required'" not in result.error.lower()

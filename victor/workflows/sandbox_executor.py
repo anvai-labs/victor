@@ -44,7 +44,11 @@ import logging
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from victor.tools.sandbox.backends import SandboxBackend
 
 from victor.workflows.isolation import IsolationConfig, ResourceLimits
 
@@ -53,11 +57,17 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _PolicyDecision:
-    """Outcome of the sandbox policy check for one workflow execution."""
+    """Outcome of the sandbox policy check for one workflow execution.
+
+    ``backend`` carries the resolved enforcing backend for non-docker
+    branches under a required policy (HB-03): availability alone never
+    substitutes for applying the wrapper at the actual launch.
+    """
 
     refuse: bool = False
     required_active: bool = False
     reason: str = ""
+    backend: Optional["SandboxBackend"] = None
 
 
 @dataclass
@@ -194,13 +204,18 @@ class SandboxedExecutor:
         if docker_available is None:
             self._docker_available = self._check_docker()
 
-    def _resolve_policy_decision(self) -> "_PolicyDecision":
-        """Resolve the global sandbox policy for this execution.
+    def _resolve_policy_decision(self, sandbox_type: str) -> "_PolicyDecision":
+        """Resolve the sandbox policy for one workflow execution (HB-02/03).
 
-        Reuses the canonical resolver (victor.tools.sandbox). A required
-        policy whose backend cannot enforce it yields refuse=True; any other
-        settings/resolution failure degrades to disabled, matching the
-        canonical executor's fail-open-for-resolution-bugs behavior.
+        A required policy must reach its actual launch with an enforcing
+        decision: generic resolver/configuration errors are converted to
+        refusals (never disabled mode), and the resolved backend is carried
+        so the selected branch applies it. Docker is qualified by its own
+        availability and enforced mount/network configuration — the platform
+        backend binary is neither necessary nor sufficient for a container
+        branch, so it is not consulted there. Settings that cannot be loaded
+        leave the policy unknowable; the historical degradation applies only
+        in that case.
         """
         from victor.tools.sandbox import (
             SandboxRequiredUnavailableError,
@@ -216,14 +231,25 @@ class SandboxedExecutor:
             return _PolicyDecision()
         try:
             policy = effective_sandbox_policy(sandbox_settings)
-            if policy != "required":
-                return _PolicyDecision()
-            resolve_sandbox_backend(sandbox_settings)  # raises when unenforceable
-            return _PolicyDecision(required_active=True)
-        except SandboxRequiredUnavailableError as exc:
-            return _PolicyDecision(refuse=True, reason=str(exc))
         except Exception:
             return _PolicyDecision()
+        if policy != "required":
+            return _PolicyDecision()
+        if sandbox_type == "docker":
+            return _PolicyDecision(required_active=True)
+        try:
+            backend: SandboxBackend = resolve_sandbox_backend(sandbox_settings)
+        except SandboxRequiredUnavailableError as exc:
+            return _PolicyDecision(refuse=True, reason=str(exc))
+        except Exception as exc:
+            return _PolicyDecision(
+                refuse=True,
+                reason=(
+                    "Sandbox policy is 'required' but backend resolution failed "
+                    f"({exc}); refusing execution (fail-closed)."
+                ),
+            )
+        return _PolicyDecision(required_active=True, backend=backend)
 
     def _check_docker(self) -> bool:
         """Check if Docker is available."""
@@ -269,7 +295,7 @@ class SandboxedExecutor:
         # backend present, an explicit sandbox_type="none" request is still
         # unenforced execution and refuses. preferred/disabled keep the
         # historical behavior (including the docker -> process fallback).
-        policy_decision = self._resolve_policy_decision()
+        policy_decision = self._resolve_policy_decision(isolation.sandbox_type)
         if policy_decision.refuse:
             return SandboxExecutionResult(
                 success=False,
@@ -313,7 +339,14 @@ class SandboxedExecutor:
                     command, isolation, working_dir, env, input_data
                 )
         elif isolation.sandbox_type == "process":
-            result = await self._execute_process(command, isolation, working_dir, env, input_data)
+            result = await self._execute_process(
+                command,
+                isolation,
+                working_dir,
+                env,
+                input_data,
+                backend=policy_decision.backend,
+            )
         else:
             result = await self._execute_inline(command, isolation, working_dir, env, input_data)
 
@@ -387,6 +420,7 @@ class SandboxedExecutor:
         working_dir: Optional[str],
         env: Optional[Dict[str, str]],
         input_data: Optional[str],
+        backend: Optional["SandboxBackend"] = None,
     ) -> SandboxExecutionResult:
         """Execute command in sandboxed subprocess with rlimit.
 
@@ -396,11 +430,18 @@ class SandboxedExecutor:
             working_dir: Working directory
             env: Environment variables
             input_data: Stdin data
+            backend: Optional enforcing backend; when provided (required
+                policy), the command argv is wrapped by the backend launcher
+                so the actual launch carries OS containment, not just
+                resource limits (HB-03).
 
         Returns:
             SandboxExecutionResult
         """
         from victor.integrations.mcp.sandbox import SandboxConfig, SandboxedProcess
+
+        if backend is not None:
+            command = backend.wrap_argv(list(command), Path(working_dir) if working_dir else None)
 
         # Convert isolation config to sandbox config
         limits = isolation.resource_limits or ResourceLimits()

@@ -372,11 +372,43 @@ def _resolve_default_sandbox() -> "SandboxBackend":
         from victor.config.settings import get_settings
 
         sandbox_settings = getattr(get_settings(), "sandbox", None)
+    except Exception:
+        # Policy unreadable: required-ness is unknowable, so the historical
+        # degradation applies. A KNOWN required policy never takes this path.
+        return NoneSandbox()
+
+    try:
         return resolve_sandbox_backend(sandbox_settings)
     except SandboxRequiredUnavailableError:
         raise
-    except Exception:  # pragma: no cover - defensive: never break execution
-        return NoneSandbox()
+    except Exception as exc:
+        # HB-02: a resolver/configuration error must not convert a required
+        # policy into disabled isolation. Only genuinely non-required
+        # policies degrade open.
+        from victor.tools.sandbox import effective_sandbox_policy
+
+        if effective_sandbox_policy(sandbox_settings) == "required":
+            raise SandboxRequiredUnavailableError(
+                "resolver_error",
+                "Sandbox policy is 'required' but backend resolution failed "
+                f"({exc}); refusing execution (fail-closed).",
+            ) from exc
+        return NoneSandbox()  # pragma: no cover - defensive: preferred path
+
+
+def _required_policy_active() -> bool:
+    """Whether the effective sandbox policy is ``required`` (best effort).
+
+    Unreadable settings mean unknowable policy and return False; callers
+    treat that as the historical non-required path.
+    """
+    try:
+        from victor.config.settings import get_settings
+        from victor.tools.sandbox import effective_sandbox_policy
+
+        return effective_sandbox_policy(getattr(get_settings(), "sandbox", None)) == "required"
+    except Exception:
+        return False
 
 
 def _apply_sandbox(
@@ -468,6 +500,25 @@ def run_command(
     # A required policy that cannot be enforced refuses dispatch BEFORE any
     # child process is spawned (fail-closed, zero execution).
     from victor.tools.sandbox import SandboxRequiredUnavailableError
+
+    # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
+    # required policy — unwrapped execution is refused.
+    if sandbox is not None and sandbox.type_name == "none" and _required_policy_active():
+        refusal = (
+            "Sandbox policy is 'required': an explicit no-sandbox backend "
+            "cannot bypass enforcement (fail-closed)."
+        )
+        logger.error("Refusing command execution: %s", refusal)
+        return CommandResult(
+            success=False,
+            stdout="",
+            stderr="",
+            return_code=-1,
+            error_type=CommandErrorType.SANDBOX_REQUIRED,
+            error_message=refusal,
+            command=cmd_str,
+            working_dir=str(working_dir) if working_dir else None,
+        )
 
     try:
         exec_args, exec_shell = _apply_sandbox(sandbox, args, shell, working_dir)
@@ -801,6 +852,25 @@ async def run_command_async(
     # A required policy that cannot be enforced refuses dispatch BEFORE any
     # child process is spawned (fail-closed, zero execution).
     from victor.tools.sandbox import SandboxRequiredUnavailableError
+
+    # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
+    # required policy — unwrapped execution is refused.
+    if sandbox is not None and sandbox.type_name == "none" and _required_policy_active():
+        refusal = (
+            "Sandbox policy is 'required': an explicit no-sandbox backend "
+            "cannot bypass enforcement (fail-closed)."
+        )
+        logger.error("Refusing command execution: %s", refusal)
+        return CommandResult(
+            success=False,
+            stdout="",
+            stderr="",
+            return_code=-1,
+            error_type=CommandErrorType.SANDBOX_REQUIRED,
+            error_message=refusal,
+            command=command,
+            working_dir=str(working_dir) if working_dir else None,
+        )
 
     try:
         backend = sandbox if sandbox is not None else _resolve_default_sandbox()
