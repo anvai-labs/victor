@@ -2,6 +2,7 @@
 # Independent surfaces run in parallel; required CI Success joins their results.
 
 name: CI - Fast Checks
+# (branch touched to re-trigger path-filtered runs after a tests-only push)
 
 on:
   push:
