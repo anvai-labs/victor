@@ -1655,6 +1655,55 @@ async def test_execute_turn_deduplicates_repeated_recovery_guidance():
     ]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome_kind, success, expected",
+    [
+        # Runtime refused every call: counts toward the shared blocked-batch limit
+        # even though the pipeline treats the recovery payload as informative.
+        ("repeated_failure", False, True),
+        ("permission_denied", False, True),
+        # Informative redirects are not rejections.
+        ("duplicate_read", False, False),
+        ("redundant_call", True, False),
+    ],
+)
+async def test_execute_turn_flags_batches_the_runtime_rejected(outcome_kind, success, expected):
+    """LOOP-04: buffered uses the same rejected-batch rule as streaming."""
+    executor = _make_executor()
+    executor._provider_context.provider = SimpleNamespace(
+        supports_tools=MagicMock(return_value=True)
+    )
+    executor._provider_context.thinking = False
+    executor._tool_context.tool_calls_used = 0
+    executor._tool_context.tool_budget = 8
+    executor._tool_context._tool_pipeline = SimpleNamespace(last_batch_effectively_blocked=False)
+    executor._select_tools_for_turn = AsyncMock(return_value=[{"name": "read"}])
+    executor._check_context_compaction = AsyncMock()
+    executor._execute_model_turn = AsyncMock(
+        return_value=CompletionResponse(
+            content="",
+            role="assistant",
+            tool_calls=[{"name": "read", "arguments": {"path": "missing.py"}}],
+        )
+    )
+    executor._execute_tool_calls = AsyncMock(
+        return_value=[
+            {
+                "name": "read",
+                "success": success,
+                "error": "read(missing.py) already failed earlier in this session",
+                "skipped": True,
+                "outcome_kind": outcome_kind,
+            }
+        ]
+    )
+
+    result = await executor.execute_turn("inspect missing.py")
+
+    assert result.all_tools_blocked is expected
+
+
 # ---------------------------------------------------------------------------
 # Regression: _summarize_deterministic_tool_results multi-read path
 # ---------------------------------------------------------------------------

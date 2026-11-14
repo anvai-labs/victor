@@ -73,9 +73,10 @@ edit. A mock test is not live provider or C5 evidence.
   (#1793), Apple-Silicon-only native release support (#1795), strict
   promotion-gate alignment (#1802), and background-policy test isolation
   (#1805) address the known blockers and the Python 3.12/3.13 shard leak.
-  This promotion branch carries verified develop `4691dae`; a fresh complete
-  main-target battery is required before merge. No Victor publication or live
-  deployment is claimed here.
+  This promotion branch carries develop `750d575`, including the LOOP-04
+  repeated-rejected-tool bound; a fresh complete main-target battery is
+  required before merge. No Victor publication or live deployment is claimed
+  here.
 
 - **VAS-05w — IN REVIEW** (2026-11-14), owner: Codex framework-review
   continuation; PR [#1803](https://github.com/anvai-labs/victor/pull/1803)
@@ -4815,7 +4816,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
 | LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication ✅ #1344; terminal post-loop recovery admission ✅ #1345; executor configuration ✅ #1346; team/forced adapter routing and StateGraph parity remain open |
-| LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
+| LOOP-04 / G98 | PARTIAL: shared rejected-batch rule (branch `fix/loop04-recovery-attempt-ledger`, baseline `dbe5c7eb0`) | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges. Slice 1: streaming now feeds the shared SpinDetector the same "every call rejected" flag as buffered (`tool_progress.batch_all_rejected`, incl. dropped id-less skips), so both stop at `max_consecutive_all_blocked`; nudge no longer claims a duplicate cause or invites working around a denial. Open: cycles of informative dedup/redirect skips (bounded only by the iteration cap), `duplicate_in_batch` copies of rejected calls, streaming tracker `tool_blocked` ledger still separate, blocked count not reset by no-tool turns, per-kind nudge text |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
 
