@@ -35,13 +35,13 @@ def _post(root, path, body):
         return json.load(response)
 
 
-@pytest.fixture
-def agent_gateway(tmp_path):
+@pytest.fixture(params=["tokens", "none"])
+def agent_gateway(tmp_path, request):
     binary = os.environ.get("SANDHI_PEER_TEST_BINARY")
     if not binary:
         pytest.skip("set SANDHI_PEER_TEST_BINARY to the paired Sandhi candidate")
     records = []
-    control = {"missing_usage": False, "paths": []}
+    control = {"missing_usage": False, "paths": [], "auth_mode": request.param}
     for turn in (1, 2):
         for speed in ("slow", "fast"):
             path = tmp_path / f"round-{turn}-{speed}.txt"
@@ -184,8 +184,9 @@ def agent_gateway(tmp_path):
     env = {
         "PATH": "/usr/bin:/bin",
         "LANG": "C.UTF-8",
-        "SANDHI_AUTH_MODE": "tokens",
         "SANDHI_BIND": f"127.0.0.1:{port}",
+        # Owned synthetic same-host fixture; authenticated network listeners still require TLS.
+        "SANDHI_ALLOW_LOOPBACK_HTTP": "1",
         "SANDHI_LOG": "warn",
         "SANDHI_STORE": str(database),
         "SANDHI_ADMIN_TOKEN": "synthetic-admin",
@@ -193,6 +194,12 @@ def agent_gateway(tmp_path):
         "SANDHI_CREDENTIALS_DIR": str(vault),
         "SANDHI_CONFIG": str(config),
     }
+    if request.param == "tokens":
+        env["SANDHI_AUTH_MODE"] = "tokens"
+    else:
+        # Exercise the server's actual zero-auth default, while keeping routing
+        # server-owned and the admin API separately authenticated.
+        env["SANDHI_STARTER_UPSTREAM"] = "route/agent-loop"
     with (tmp_path / "stderr.log").open("wb") as log:
         process = subprocess.Popen(
             [str(Path(binary).resolve())], env=env, stdout=subprocess.DEVNULL, stderr=log
@@ -254,12 +261,14 @@ def agent_gateway(tmp_path):
                     }
                 },
             )
-            key = _post(
-                root,
-                "/admin/keys/share",
-                {"upstream": "route/agent-loop", "models": ["gpt-4o-mini"]},
-            )["virtual_key"]
-            yield {"url": root, "virtual_key": key}, records, control, database
+            gateway = {"url": root}
+            if request.param == "tokens":
+                gateway["virtual_key"] = _post(
+                    root,
+                    "/admin/keys/share",
+                    {"upstream": "route/agent-loop", "models": ["gpt-4o-mini"]},
+                )["virtual_key"]
+            yield gateway, records, control, database
         finally:
             process.terminate()
             try:
@@ -302,16 +311,37 @@ async def test_public_agent_real_services_parallel_tool_loop_conserves_source_re
         parallel_tool_execution=True,
         chat_max_iterations=5,
     )
-    provider = resolve_transport_class("openai", OpenAIProvider, {})(
-        api_key="synthetic", gateway={**config, "protocol": protocol}
-    )
-    orch = AgentOrchestrator(
-        settings=settings,
-        provider=provider,
-        model="gpt-4o-mini",
-        max_tokens=64,
-        provider_name="openai",
-    )
+    if control["auth_mode"] == "none":
+        from victor.config.settings import ProviderConfig, ProviderGatewayConfig
+
+        for name in ("SANDHI_GATEWAY_VIRTUAL_KEY", "SANDHI_GATEWAY_VIRTUAL_KEY_OPENAI"):
+            monkeypatch.delenv(name, raising=False)
+        provider_config = ProviderConfig(gateway=ProviderGatewayConfig(**config, protocol=protocol))
+        # Inject only settings loading; public Agent creation, configuration
+        # resolution, provider factory and real dispatch remain exercised.
+        monkeypatch.setattr("victor.config.settings.load_settings", lambda **_: settings)
+        monkeypatch.setattr(settings, "load_provider_config", lambda _: provider_config)
+        agent = await Agent.create(
+            provider="openai",
+            model="gpt-4o-mini",
+            max_tokens=64,
+            tools=["read"],
+            enable_observability=False,
+            workspace=str(tmp_path),
+        )
+        orch = agent._orchestrator
+    else:
+        provider = resolve_transport_class("openai", OpenAIProvider, {})(
+            gateway={**config, "protocol": protocol}
+        )
+        orch = AgentOrchestrator(
+            settings=settings,
+            provider=provider,
+            model="gpt-4o-mini",
+            max_tokens=64,
+            provider_name="openai",
+        )
+        agent = Agent.from_orchestrator(orch)
     orch.set_enabled_tools({"read"})
     assert type(orch._chat_service).__name__ == "ChatService"
     assert type(orch._tool_service).__name__ == "ToolService"
@@ -337,7 +367,6 @@ async def test_public_agent_real_services_parallel_tool_loop_conserves_source_re
         return result
 
     monkeypatch.setattr(read, "execute", monitored)
-    agent = Agent.from_orchestrator(orch)
     try:
         prompt = "Read the four requested files in two rounds, using each pair of read tool calls, then report READY."
         overrides = {"max_iterations": 5, "tool_budget": 8}
@@ -372,6 +401,7 @@ async def test_public_agent_real_services_parallel_tool_loop_conserves_source_re
             json.dumps(
                 {
                     "protocol": protocol,
+                    "auth_mode": control["auth_mode"],
                     "streaming": streaming,
                     "real_services": [
                         type(orch._chat_service).__name__,
@@ -412,6 +442,14 @@ async def test_public_agent_real_services_parallel_tool_loop_conserves_source_re
     for block in results:
         assert block["tool_use_id"] + "-content" in json.dumps(block["content"])
     with sqlite3.connect(database) as connection:
+        if control["auth_mode"] == "none":
+            assert connection.execute(
+                "SELECT DISTINCT virtual_key_id,subject_id,group_id FROM usage_events"
+            ).fetchall() == [("starter_shared_v1", "builtin_starter", "builtin_starter")]
+            assert {
+                row[0]
+                for row in connection.execute("SELECT DISTINCT scope FROM budget_reservation")
+            } == {"starter:shared:v1", "upstream:anthropic"}
         assert connection.execute("SELECT count(*) FROM budget_physical_attempt").fetchone() == (3,)
         assert (
             connection.execute("SELECT charged_tokens FROM budget_settlement_outbox").fetchall()

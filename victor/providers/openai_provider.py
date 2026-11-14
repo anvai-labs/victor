@@ -86,12 +86,18 @@ class OpenAIProvider(BaseProvider):
         self._gateway_audience = ""
         gateway = kwargs.get("gateway")
         if gateway is not None:
-            from victor.providers.gateway_contract import validate_gateway_auth
+            from victor.providers.gateway_contract import (
+                GATEWAY_NO_AUTH_PLACEHOLDER,
+                gateway_auth_mode,
+                validate_gateway_auth,
+            )
 
             validate_gateway_auth(gateway, "openai")
             if auth_mode == "oauth":
                 self._sandhi_protocol = "responses"
             key = gateway.get("virtual_key")
+            if gateway_auth_mode(gateway) == "none":
+                key = GATEWAY_NO_AUTH_PLACEHOLDER
             if hasattr(key, "get_secret_value"):
                 key = key.get_secret_value()
             oidc = gateway.get("oidc")
@@ -267,7 +273,9 @@ class OpenAIProvider(BaseProvider):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                raise ProviderError("gateway credential unavailable", provider="openai") from None
+                raise ProviderError(
+                    "gateway credential unavailable", provider="openai", recoverable=False
+                ) from None
             if token.token != self._api_key:
                 self._api_key = token.token
                 self.client.api_key = token.token

@@ -27,7 +27,15 @@ logger = logging.getLogger(__name__)
 
 import yaml
 
-from pydantic import BaseModel, Field, SecretStr, computed_field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from victor.config.agentic_loop_settings import AgenticLoopSettings
 from victor.config.model_capabilities import _load_tool_capable_patterns_from_yaml
@@ -435,13 +443,15 @@ class GatewayOidcConfig(BaseModel):
 class ProviderGatewayConfig(BaseModel):
     """Per-provider Sandhi gateway mode (TD-0003 P3).
 
-    When set, the provider's Sandhi FFI handle is pointed at the Sandhi proxy and
-    presents the virtual key as a bearer token, so traffic is centrally attributed
-    and budget-enforced. An optional client protocol selects the wire dialect
+    When set, the provider's Sandhi FFI handle points at the Sandhi proxy. URL-only
+    selects its starter realm; a configured key or OIDC identity opts into protected
+    access. Server policy owns attribution and budgets. An optional client protocol selects the wire dialect
     independently of the provider label; server policy selects the
     vault-resolved upstream. Opt-in and default-off: an unset ``gateway`` leaves the
     provider in direct FFI mode (unchanged behavior).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     url: str = Field(
         default="",
@@ -460,6 +470,32 @@ class ProviderGatewayConfig(BaseModel):
             "or SANDHI_GATEWAY_VIRTUAL_KEY)."
         ),
     )
+    auth_mode: Optional[Literal["none", "tokens", "oidc"]] = Field(
+        default=None,
+        description=(
+            "Gateway authentication: infer none for URL-only, tokens for a virtual key, "
+            "or oidc for renewable credentials. Explicit none rejects credentials."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_supplied_gateway_auth(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            from victor.providers.gateway_contract import gateway_auth_mode
+
+            auth = dict(value)
+            if hasattr(auth.get("oidc"), "model_dump"):
+                auth["oidc"] = auth["oidc"].model_dump()
+            if not any(name in auth for name in ("virtual_key", "oidc", "credential")) and auth.get(
+                "auth_mode"
+            ) in ("tokens", "oidc"):
+                # This model precedes environment resolution. Validate supplied
+                # values now; the resolver still requires the declared mode's
+                # matching credentials before any provider/account discovery.
+                auth.pop("auth_mode")
+            gateway_auth_mode(auth)
+        return value
 
     protocol: Optional[
         Literal["chat_completions", "anthropic_messages", "responses", "gemini_generate_content"]

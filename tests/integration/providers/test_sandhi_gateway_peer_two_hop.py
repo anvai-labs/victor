@@ -139,13 +139,14 @@ def gateway(tmp_path):
         "LANG": "C.UTF-8",
         "SANDHI_AUTH_MODE": "tokens",
         "SANDHI_BIND": f"127.0.0.1:{port}",
+        # Owned synthetic same-host fixture; authenticated network listeners still require TLS.
+        "SANDHI_ALLOW_LOOPBACK_HTTP": "1",
         "SANDHI_LOG": "warn",
         "SANDHI_STORE": str(database),
         "SANDHI_ADMIN_TOKEN": "synthetic-admin",
         "SANDHI_VAULT_BACKEND": "credstore",
         "SANDHI_CREDENTIALS_DIR": str(vault),
         "SANDHI_CONFIG": str(config),
-        "SANDHI_BUFFERED_ACCOUNTING": "tracked",
     }
     with (tmp_path / "stderr.log").open("wb") as log:
         process = subprocess.Popen(
