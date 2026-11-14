@@ -67,6 +67,22 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **PROMOTION-026 — MERGED** (2026-11-14), owner: framework-review delivery
+  session; PR [#1786](https://github.com/anvai-labs/victor/pull/1786) merged
+  as `955f1c99c` after the complete main-target battery and post-merge main
+  workflows passed. The immutable `v0.29.0` release tag points to that merge;
+  its release build completed artifacts, but Trivy correctly withheld
+  publication on the two high-severity Soup Sieve advisories. No Victor
+  publication or live deployment is claimed for 0.29.0.
+
+- **PROMOTION-027 — RETRYING** (2026-11-14), owner: framework-review delivery
+  session. PR [#1809](https://github.com/anvai-labs/victor/pull/1809) merged
+  as `f45298ec9` with every applicable develop gate green. It resolves
+  `soupsieve==4.1` across core, API and embeddings deployment locks and
+  synchronizes AI/native version `0.29.1`; a fresh complete main-target
+  battery is required before merge. No Victor publication or live deployment
+  is claimed here.
+
 - **VAS-05x — MERGED** (2026-11-14), owner: Codex external-delegation
   continuation; PR [#1806](https://github.com/anvai-labs/victor/pull/1806)
   (`docs/vas-05x-external-delegation`), baseline `96a3ad610`; merged as
