@@ -8,6 +8,7 @@ import pytest
 
 from victor.workflows.isolation import IsolationConfig
 from victor.workflows.sandbox_executor import SandboxedExecutor
+from victor.runtime.policy_snapshot import run_policy_context
 
 
 async def test_process_workflow_round_trips_text_through_real_backend():
@@ -427,3 +428,124 @@ async def test_workflow_refuses_when_policy_unreadable(monkeypatch):
     )
     assert not result.success
     assert "policy" in result.error.lower()
+
+
+# ---------------------------------------------------------------------------
+# FEP-0044 Phase 2: workflow launches consume admitted immutable policy
+# ---------------------------------------------------------------------------
+
+
+def _run_policy_snapshot(policy: str, *, network_isolation: bool = False):
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    return RunPolicySnapshot.from_settings(
+        SimpleNamespace(
+            sandbox=SandboxSettings(
+                sandbox_enabled=True,
+                sandbox_policy=policy,
+                sandbox_network_isolation=network_isolation,
+            )
+        )
+    )
+
+
+def _install_reloaded_globals(monkeypatch, policy: str, *, network_isolation=False) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(
+            sandbox_enabled=True,
+            sandbox_policy=policy,
+            sandbox_network_isolation=network_isolation,
+        )
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+class _RecordingBackend:
+    type_name = "fake"
+
+    def __init__(self):
+        self.calls = []
+
+    def wrap_argv(self, argv, cwd=None):
+        self.calls.append((list(argv), cwd))
+        return ["policy-wrapper", *argv]
+
+
+async def test_admitted_required_workflow_process_beats_reloaded_disabled(monkeypatch):
+    """A settings reload cannot weaken an already admitted workflow policy."""
+    _install_reloaded_globals(monkeypatch, "disabled")
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_sandbox_backend",
+        lambda settings: backend,
+    )
+    launched: list = []
+    _patch_popen_trap(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=False)
+    with run_policy_context(_run_policy_snapshot("required")):
+        result = await executor.execute(
+            ["synthetic-command"],
+            IsolationConfig(sandbox_type="process", network_allowed=True),
+        )
+
+    assert backend.calls == [(["synthetic-command"], None)]
+    assert launched == [["policy-wrapper", "synthetic-command"]]
+    assert not result.success  # The synthetic trap stops after proving the launch argv.
+
+
+async def test_admitted_disabled_workflow_is_not_tightened_by_reloaded_required(monkeypatch):
+    _install_reloaded_globals(monkeypatch, "required")
+    _patch_backend_available(monkeypatch, available=False)
+    executor = SandboxedExecutor(docker_available=False)
+    with run_policy_context(_run_policy_snapshot("disabled")):
+        result = await executor.execute(
+            [sys.executable, "-c", "print('admitted-disabled')"],
+            IsolationConfig(sandbox_type="none"),
+        )
+
+    assert result.success, result.error
+    assert "admitted-disabled" in result.output
+
+
+async def test_admitted_required_network_floor_beats_reloaded_disabled(monkeypatch):
+    _install_reloaded_globals(monkeypatch, "disabled")
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    with run_policy_context(_run_policy_snapshot("required", network_isolation=True)):
+        await executor.execute(
+            ["synthetic-command"],
+            IsolationConfig(sandbox_type="docker", network_allowed=True),
+        )
+
+    assert launched
+    argv = launched[0]
+    assert "--network" in argv and "none" in argv, f"admitted floor lost: {argv}"
+
+
+async def test_admitted_disabled_network_floor_is_not_tightened_by_reloaded_preferred(
+    monkeypatch,
+):
+    _install_reloaded_globals(monkeypatch, "preferred", network_isolation=True)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    with run_policy_context(_run_policy_snapshot("disabled", network_isolation=False)):
+        await executor.execute(
+            ["synthetic-command"],
+            IsolationConfig(sandbox_type="docker", network_allowed=True),
+        )
+
+    assert launched
+    argv = launched[0]
+    assert "--network" not in argv, f"admitted policy tightened: {argv}"
