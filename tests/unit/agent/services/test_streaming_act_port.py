@@ -261,7 +261,27 @@ def test_build_streaming_turn_result_maps_fields(is_qa):
     assert turn.has_tool_calls is True
     assert turn.tool_calls_count == 1
     assert turn.tool_results == []
+    assert turn.all_tools_blocked is False
     assert turn.response.tool_calls == [{"name": "a", "arguments": {}}]
+
+
+@pytest.mark.parametrize(
+    "results, expected",
+    [
+        ([{"skipped": True, "success": False, "outcome_kind": "invalid_tool_name"}], True),
+        ([{"skipped": True, "success": False, "outcome_kind": "duplicate_read"}], False),
+        ([{"success": True, "tool_name": "read"}], False),
+    ],
+)
+def test_build_streaming_turn_result_flags_rejected_batches(results, expected):
+    """LOOP-04: streaming feeds the SpinDetector the same blocked flag as buffered."""
+    turn = StreamingChatExecutor._build_streaming_turn_result(
+        SimpleNamespace(is_qa_task=False),
+        full_content="",
+        tool_calls=[{"name": "nope", "arguments": {}}],
+        tool_exec_result=ToolExecutionResult(tool_results=results),
+    )
+    assert turn.all_tools_blocked is expected
 
 
 def test_build_streaming_turn_result_empty_content_is_safe():

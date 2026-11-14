@@ -44,6 +44,7 @@ from victor.core.completion_markers import (
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.core.errors import ProviderPolicyError
 from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
+from victor.agent.services.tool_progress import batch_all_rejected
 from victor.providers.usage_accounting import accumulate_usage
 from victor.core.provider_messages import CompletionResponse, StreamChunk
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
@@ -1322,6 +1323,7 @@ class StreamingChatExecutor:
             and bool(full_content)
             and not tool_calls,
             disposition=disposition,
+            all_tools_blocked=batch_all_rejected(tool_results),
         )
 
     async def _run_boundary_compaction_check(
