@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
@@ -34,6 +36,50 @@ if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
 logger = logging.getLogger(__name__)
+
+
+class SearchPolicyRefusal(RuntimeError):
+    """A required sandbox policy cannot enforce a search launch.
+
+    The route must return a structured refusal without spawning. This is the
+    same fail-closed direct-launch boundary used by terminal and git routes.
+    """
+
+
+def _admit_search_policy():
+    """Return the enclosing admitted policy or copy current settings once."""
+    from victor.runtime.policy_snapshot import (
+        RunPolicySnapshot,
+        current_run_policy_snapshot,
+    )
+
+    admitted_policy = current_run_policy_snapshot()
+    if admitted_policy is not None:
+        return admitted_policy
+    try:
+        from victor.config.settings import get_settings
+
+        return RunPolicySnapshot.from_settings(get_settings())
+    except Exception as exc:
+        raise SearchPolicyRefusal(
+            f"Sandbox policy could not be established ({exc}); refusing execution (fail-closed)."
+        ) from exc
+
+
+def _search_spawn(server: "VictorFastAPIServer", argv: list[str], **kwargs):
+    """Run a search argv through the canonical required-launch decision."""
+    from victor.runtime.policy_snapshot import run_policy_context
+    from victor.tools.sandbox import resolve_required_launch
+
+    admitted_policy = _admit_search_policy()
+    decision = resolve_required_launch(admitted_policy.to_sandbox_settings())
+    if decision.refuse:
+        raise SearchPolicyRefusal(decision.reason)
+    if decision.required_active and decision.backend is not None:
+        argv = decision.backend.wrap_argv(list(argv), Path(server.workspace_root))
+
+    with run_policy_context(admitted_policy):
+        return subprocess.run(argv, **kwargs)
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:
@@ -81,8 +127,6 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             return SearchResponse(results=[])
 
         try:
-            import subprocess
-
             cmd = ["rg", "--json", "-n"]
             if not request.case_sensitive:
                 cmd.append("-i")
@@ -92,7 +136,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 cmd.extend(["-g", request.file_pattern])
             cmd.extend(["-e", request.query, "--", server.workspace_root])
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = _search_spawn(
+                server,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
             code_results = []
             for line in result.stdout.splitlines():
@@ -114,6 +164,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             results = [APISearchResult.from_code_result(r) for r in code_results[:50]]
             return SearchResponse(results=results)
 
+        except SearchPolicyRefusal as exc:
+            return SearchResponse(results=[], error=str(exc))
         except Exception as e:
             logger.exception("Code search error")
             return SearchResponse(results=[], error=str(e))
