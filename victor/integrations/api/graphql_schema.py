@@ -32,10 +32,14 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 import strawberry
 from strawberry.scalars import JSON
 
+from victor.integrations.api.event_bridge import DeliveryEngine
+
 if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
 logger = logging.getLogger(__name__)
+
+GRAPHQL_SUBSCRIPTION_QUEUE_SIZE = DeliveryEngine.MAX_QUEUE_SIZE
 
 
 # =============================================================================
@@ -311,20 +315,37 @@ def _make_subscription(server: VictorFastAPIServer) -> type:
     class Subscription:
         @strawberry.subscription
         async def agent_events(self) -> AsyncGenerator[AgentEventType, None]:
-            queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+            queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+                maxsize=GRAPHQL_SUBSCRIPTION_QUEUE_SIZE
+            )
             client_id = f"graphql-sub-{id(queue)}"
+            broadcaster = server._event_bridge._broadcaster if server._event_bridge else None
 
             async def enqueue(message: str) -> None:
                 import json
 
                 try:
                     data = json.loads(message)
-                    await queue.put(data)
                 except Exception:
-                    pass
+                    return
 
-            if server._event_bridge:
-                server._event_bridge._broadcaster.add_client(client_id, enqueue)
+                try:
+                    queue.put_nowait(data)
+                except asyncio.QueueFull:
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        queue.put_nowait(data)
+                    except asyncio.QueueFull:
+                        pass
+                    if broadcaster is not None:
+                        broadcaster.record_queue_drop()
+                    logger.warning("GraphQL subscriber queue full; dropped oldest event")
+
+            if broadcaster is not None:
+                broadcaster.add_client(client_id, enqueue)
 
             try:
                 while True:
@@ -337,8 +358,8 @@ def _make_subscription(server: VictorFastAPIServer) -> type:
                         timestamp=data.get("timestamp", time.time()),
                     )
             finally:
-                if server._event_bridge:
-                    server._event_bridge._broadcaster.remove_client(client_id)
+                if broadcaster is not None:
+                    broadcaster.remove_client(client_id)
 
     return Subscription
 

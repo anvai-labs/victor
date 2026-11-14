@@ -67,6 +67,20 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **VAS-10a — IN REVIEW** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1808](https://github.com/anvai-labs/victor/pull/1808)
+  (`feat/event-subscriber-queue-bounds`), final baseline `f45298ec9`. Next
+  action: green CI, exact-head review, squash merge, then exact SHA
+  reconciliation. RED is retained: two real GraphQL subscriptions were driven
+  through the engine's per-client delivery boundary; the fast subscriber
+  received `two/three/four`, while the stalled subscriber's next result was
+  still `two` and `queue_dropped_events` remained zero. GREEN bounds the
+  resolver-local queue at the EventBridge retention limit with drop-oldest
+  overflow recorded through `queue_dropped_events`; the fast subscriber remains
+  isolated and both resolver registrations clean up. No public GraphQL payload
+  changed. Evidence: GraphQL/event-bridge owners 63 passed; changed-file
+  selector 2 owners passed; 40,628 tests collect clean; Black/Ruff/mypy/diff
+  clean.
 - **VAS-05x — MERGED** (2026-11-14), owner: Codex external-delegation
   continuation; PR [#1806](https://github.com/anvai-labs/victor/pull/1806)
   (`docs/vas-05x-external-delegation`), baseline `96a3ad610`; merged as
@@ -3605,6 +3619,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |
 | VAS-10 | Unified run events, bounded parsing and replay | VAS-07, VAS-09 | TODO | UTF-8/SSE framing, IDs/cursors, explicit retention gaps, durable terminal state, bounded slow-client handling |
+| VAS-10a | GraphQL subscriber slow-client queue bound (SCALE-04 slice) | VAS-10 | IN REVIEW | PR [#1808](https://github.com/anvai-labs/victor/pull/1808), branch `feat/event-subscriber-queue-bounds`, final baseline `f45298ec9`. RED: the fast subscriber received `two/three/four`, the stalled subscriber next received `two`, and `queue_dropped_events` stayed zero because the GraphQL resolver's second queue was unbounded. GREEN: resolver queue is bounded with drop-oldest overflow, metrics are observable, fast subscriber stays isolated, and both subscriptions unregister. GraphQL/event-bridge owners 63 passed; selector 2 owners passed; 40,628 collect clean; Black/Ruff/mypy/diff clean. CI/merge evidence pending |
 | VAS-11 | Exact approval and verified action reconciliation through existing framework owners | VAS-00, VAS-02 | TODO | G61/G62/G70: bind owner/payload/version/expiry; backend commit then response loss; receipt lookup or safe same-key guarantee; unknown blocks replay |
 | VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | ✅ MERGED | [#1253](https://github.com/anvai-labs/victor/pull/1253), `ec41c97b4bf6b62e31168cbba0153d850d133ae3`; clean exact-head review and 39 successful checks including Vertical Py3.12; no receipt verification or claim reopening |
 | VAS-11b | Bound receipt provenance and local transaction reconciliation | VAS-11a | ✅ MERGED | [#1255](https://github.com/anvai-labs/victor/pull/1255), `76384b0e455bcaea29c4046a15ff0092cfe6df1d`; exact-head review clean, 40 applicable checks passed including Vertical Py3.12; readonly backend lookup and immutable local receipt, no tool replay/result publication/member continuation; production adapters remain VAS-11c |
