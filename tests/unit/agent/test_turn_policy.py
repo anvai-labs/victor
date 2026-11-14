@@ -170,8 +170,12 @@ class TestNudgePolicy:
         decision = policy.evaluate(detector)
         assert decision.nudge_type == NudgeType.DIFFERENT_TOOLS
         assert decision.should_inject is True
-        assert "blocked" in decision.message.lower()
+        assert "rejected" in decision.message.lower()
         assert decision.role == "user"
+        # LOOP-04: the same nudge now follows denials and unknown tools in both loops,
+        # so it must not claim a duplicate-call cause or invite a workaround.
+        assert "same arguments" not in decision.message
+        assert "do not work around a denial" in decision.message.lower()
 
     def test_code_search_nudge_on_read_only(self):
         policy = NudgePolicy()

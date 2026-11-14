@@ -55,6 +55,7 @@ from dataclasses import dataclass, field, replace
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.services import post_loop_recovery
+from victor.agent.services.tool_progress import batch_all_rejected
 from victor.agent.services.post_loop_recovery import RECOVERY_USAGE_KEY
 from victor.providers.usage_accounting import accumulate_usage
 from victor.agent.response_completer import ToolFailureContext
@@ -848,7 +849,9 @@ class TurnExecutor:
                 if _pipeline is None:
                     if _orch:
                         _pipeline = getattr(_orch, "_tool_pipeline", None)
-                all_blocked = bool(
+                # Shared LOOP-04 rule (same as streaming), plus the pipeline's own
+                # signal for skips that never reach the processed results.
+                all_blocked = batch_all_rejected(tool_results) or bool(
                     _pipeline
                     and getattr(
                         _pipeline,

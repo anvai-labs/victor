@@ -507,6 +507,68 @@ class TestTurnResultEvaluation:
         executor.execute_turn.assert_awaited_once()
         assert loop.spin_detector.total_tool_calls == 0
 
+    @pytest.mark.parametrize("mode", ["buffered", "streaming"])
+    async def test_repeated_rejected_tool_calls_stop_before_the_iteration_cap(self, mode):
+        """LOOP-04: a model that keeps calling an unknown tool (fresh arguments each turn,
+        so signature repetition never fires) is stopped by the shared blocked-batch limit
+        in both loop drivers instead of running to max_iterations.
+
+        Both drivers consume TurnResults from the streaming builder here, so this pins the
+        loop side and the streaming flag. The buffered executor's flag is pinned by
+        ``test_execute_turn_flags_batches_the_runtime_rejected``."""
+        from types import SimpleNamespace
+
+        from victor.agent.services.chat_stream_executor import StreamingChatExecutor
+        from victor.agent.streaming.tool_execution import ToolExecutionResult
+        from victor.providers.base import StreamChunk
+
+        calls = {"n": 0}
+
+        async def execute_turn(*_args, **_kwargs):
+            calls["n"] += 1
+            call = {"id": f"c{calls['n']}", "name": "nope", "arguments": {"i": calls["n"]}}
+            rejected = {
+                "tool_name": "nope",
+                "success": False,
+                "skipped": True,
+                "outcome_kind": "invalid_tool_name",
+                "error": "Unknown tool 'nope'. Use one of the available tools.",
+            }
+            return StreamingChatExecutor._build_streaming_turn_result(
+                SimpleNamespace(is_qa_task=False),
+                full_content="",
+                tool_calls=[call],
+                tool_exec_result=ToolExecutionResult(
+                    tool_results=[rejected], tool_calls_executed=1
+                ),
+            )
+
+        executor = MagicMock(spec=["execute_turn"])
+        executor.execute_turn = AsyncMock(side_effect=execute_turn)
+        loop = AgenticLoop(
+            orchestrator=MagicMock(spec=[]),
+            turn_executor=executor,
+            enable_fulfillment_check=False,
+            enable_adaptive_iterations=False,
+            max_iterations=20,
+        )
+        loop._analyze_turn = AsyncMock(return_value=self._make_perception())
+        loop._plan = AsyncMock(return_value={})
+
+        class Port:
+            async def stream_turn_act(self, **kwargs):
+                kwargs["outcome"].turn_result = await executor.execute_turn()
+                yield StreamChunk(content="")
+
+        if mode == "buffered":
+            result = await loop.run("fix the bug")
+            assert result.success is False
+        else:
+            loop.streaming_act_port = Port()
+            chunks = [chunk async for chunk in loop.run_streaming("fix the bug")]
+            assert chunks[-1].metadata["agentic_loop_success"] is False
+        assert calls["n"] == loop.spin_detector.config.max_consecutive_all_blocked
+
     async def test_spin_detection_fails(self):
         """4+ consecutive all-blocked turns should fail."""
         from victor.agent.services.turn_execution_runtime import TurnResult

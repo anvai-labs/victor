@@ -304,10 +304,11 @@ class NudgePolicy:
             return NudgeDecision(
                 nudge_type=NudgeType.DIFFERENT_TOOLS,
                 message=(
-                    "Your last tool calls were blocked because you already "
-                    "called them with the same arguments. Try a DIFFERENT "
-                    "permitted tool or different arguments within the original request. "
-                    "If the task is complete, provide your final answer."
+                    "Your last tool calls were all rejected (repeated, already failed, "
+                    "unavailable, or not permitted). Do not retry them, and do not work "
+                    "around a denial or a declined approval. Continue only with a "
+                    "permitted step inside the original request, or give your final "
+                    "answer and explain what blocked you."
                 ),
                 role="user",
             )
