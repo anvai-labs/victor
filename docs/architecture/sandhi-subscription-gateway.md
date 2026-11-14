@@ -2,9 +2,9 @@
 
 ## Coordinated execution-contract migration
 
-Victor **0.29.0** is prepared against the published corrective
-`sandhi-gateway==0.17.1`. Sandhi 0.17.1 is published; Victor 0.29.0 remains
-unreleased, and this consumer pin does not imply a service upgrade.
+Victor **0.29.0** is prepared against published `sandhi-gateway==0.18.0`.
+Victor 0.29.0 remains unreleased, and this consumer pin does not imply a service
+upgrade.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
 
@@ -20,8 +20,9 @@ An explicit transient provider rejection can still use the logical-call retry
 policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
-and actual token observation across embedded and accounted calls. Published 0.17.1
-includes the qualified buffered boundary and explicit gateway-peer contract. HTTP
+and actual token observation across embedded and accounted calls. Published 0.18.0
+includes the durable HTTP execution boundary, explicit gateway-peer contract and
+optional authentication profiles. HTTP
 generation requires Sandhi's original file-backed durable ledger and paired accounting;
 Victor's embedded observation does not replace that server-owned execution contract.
 Portable/native delivery are separate contracts: meaningful native state must survive compatible native
@@ -29,19 +30,18 @@ delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
 are evidence; cache policy and provider price schedules remain separate concerns.
 An embedded observation is not a gateway ledger receipt.
 
-Qualify the official published Sandhi wheel with this Victor source, including tools,
-cache splits, interrupted streams and refusal/no-replay paths. Keep Contracts and
-CodeGraph on their independent release lines. The corrective Sandhi artifacts are
-published; the matching Victor consumer remains subject to independent review,
-public-hosted CI and its own release gate. Deployment is a separate decision.
+The official published Sandhi 0.18.0 wheel is qualified with this Victor source,
+including tools, cache splits, interrupted streams and refusal/no-replay paths.
+Keep Contracts and CodeGraph on their independent release lines. The matching
+Victor consumer remains subject to independent review, public-hosted CI and its
+own release gate. Deployment is a separate decision.
 
 The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
-pin. The mandatory dependency now resolves from the official PyPI 0.17.1
-release. Current published-artifact consumer qualification is recorded separately
-from the dated 0.17.0 candidate snapshots below; historical local-wheel results
-do not establish published 0.17.1 acceptance. See the [published 0.17.1 consumer
-qualification](../reviews/sandhi-published-0.17.1-consumer-2026-11-13.md) for current
-artifact provenance and local test scope.
+pin. The mandatory dependency resolves from the official PyPI 0.18.0 release.
+See the [published 0.18.0 consumer
+qualification](../reviews/sandhi-published-0.18.0-consumer-2026-11-13.md) for the
+wheel, native module, release binary and integration evidence. Earlier 0.17.x
+records remain historical and do not substitute for this acceptance.
 
 ### Explicit endpoint usage conventions
 
@@ -69,7 +69,7 @@ account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
 
-The coordinated 0.29 Victor / 0.18 Sandhi source candidates support a local
+The Victor 0.29 candidate and published Sandhi 0.18.0 support a local
 starter with no client credential. A gateway URL deliberately selects that
 gateway before upstream account or API-key discovery:
 
@@ -100,8 +100,7 @@ Users do not create a fake key. The current binding requires a non-empty bearer,
 so Victor internally sends the fixed public `Bearer not-needed` marker in starter
 mode. It carries no identity or authority; a None-mode server ignores it and
 creates its own fixed principal. A protected server refuses it. Published Sandhi
-0.17.1 does not provide the 0.18 server's default starter mode; source preparation
-and later published-wheel qualification remain separate release gates.
+0.18.0 provides the starter server mode.
 
 `gateway.protocol` accepts `chat_completions`, `anthropic_messages`, `responses`, or
 `gemini_generate_content`. It overrides the provider's direct protocol hint. With no
@@ -628,14 +627,12 @@ host UID/GID, a read-only binary and CA, and a private writable state directory.
 Hostname and TLS verification stay enabled. Containers and the disposable IDM
 database are removed on exit. No live identity service or global DNS is changed.
 
-The released Sandhi 0.17.1 wheel and Victor's exact consumed pin have completed
-[separate published-artifact qualification](../reviews/sandhi-published-0.17.1-consumer-2026-11-13.md).
-The resource-audience server feature belongs to the unreleased Sandhi 0.18 source
-candidate. The local fixture records the actual server binary, IDM source and
-installed SDK hashes independently; a published SDK does not make those server
-candidates released or deployed. Local acceptance, independent review, merged
-code and live deployment remain separate gates. This co-design does not publish
-Victor or establish live development-service support.
+The released Sandhi 0.18.0 wheel and Victor's exact consumed pin have completed
+[separate published-artifact qualification](../reviews/sandhi-published-0.18.0-consumer-2026-11-13.md).
+The local fixture records the actual release binary, IDM source and installed SDK
+hashes independently. Local acceptance, independent review, merged code and live
+deployment remain separate gates. This co-design does not publish Victor or
+establish live development-service support.
 
 The [final local acceptance](../reviews/sandhi-idm-final-source-acceptance-2026-11-13.md)
 reran the actual three-component loop using the official 0.17.1 SDK, the combined

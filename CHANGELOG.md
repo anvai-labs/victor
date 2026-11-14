@@ -14,13 +14,15 @@ Prepared package version: **0.29.0**. This version is not yet released.
   malformed supplied credentials and protected-server authentication failures
   remain terminal. The starter uses the Sandhi 0.18 server's fixed shared
   identity and retains its durable budgets, cache policy and accounting.
-- Pin the published corrective `sandhi-gateway==0.17.1` for the coordinated
-  Sandhi execution-contract migration. Both direct and gateway Sandhi handles disable hidden retries;
-  the logical-call owner decides whether another attempt is authorized.
+- Pin the published `sandhi-gateway==0.18.0` for the coordinated optional-auth
+  and execution-contract migration. Both direct and gateway Sandhi handles disable
+  hidden retries; the logical-call owner decides whether another attempt is
+  authorized. Official wheel, native-module, release-binary and integration
+  provenance are recorded separately.
 - A Sandhi stream ending without a validated finish now raises a terminal
   provider error instead of fabricating a successful final result. Unsupported
-  portable output must be refused explicitly. Qualify with the official PyPI
-  0.17.1 wheel; Victor release and live deployment remain separate gates.
+  portable output must be refused explicitly. Qualification uses the official PyPI
+  0.18.0 wheel; Victor release and live deployment remain separate gates.
   Victor Contracts and CodeGraph keep independent versions.
 - Provider invocation deadlines are terminal for retry/fallback decisions once
   an invocation has started. Both primary and fallback deadlines retain an

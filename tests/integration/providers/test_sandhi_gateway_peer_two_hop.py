@@ -147,7 +147,6 @@ def gateway(tmp_path):
         "SANDHI_VAULT_BACKEND": "credstore",
         "SANDHI_CREDENTIALS_DIR": str(vault),
         "SANDHI_CONFIG": str(config),
-        "SANDHI_BUFFERED_ACCOUNTING": "tracked",
     }
     with (tmp_path / "stderr.log").open("wb") as log:
         process = subprocess.Popen(
