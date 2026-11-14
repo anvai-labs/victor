@@ -14,6 +14,8 @@
 
 """Unit tests for the delegation module."""
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -27,6 +29,13 @@ from victor.agent.delegation import (
 )
 from victor.agent.delegation.handler import ROLE_MAPPING
 from victor.agent.subagents import SubAgentRole
+from victor.agent.subagents.base import SubAgentResult
+from victor.runtime.policy_snapshot import (
+    PolicySnapshotError,
+    RunPolicySnapshot,
+    current_run_policy_snapshot,
+    run_policy_context,
+)
 
 
 class TestDelegationPriority:
@@ -133,6 +142,36 @@ class TestDelegationRequest:
         assert request.suggested_role == "researcher"
         assert request.priority == DelegationPriority.HIGH
         assert request.tool_budget == 20
+
+    def test_run_policy_round_trips_through_json(self):
+        from types import SimpleNamespace
+
+        from victor.config.sandbox_settings import SandboxSettings
+
+        snapshot = RunPolicySnapshot.from_settings(
+            SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+        )
+        request = DelegationRequest(task="Serialized task", run_policy=snapshot.to_metadata())
+
+        wire = json.loads(json.dumps(request.to_dict()))
+        restored = DelegationRequest.from_dict(wire)
+
+        assert restored.run_policy == snapshot.to_metadata()
+        assert RunPolicySnapshot.from_metadata(restored.run_policy) == snapshot
+
+    def test_tampered_run_policy_refuses_request(self):
+        from types import SimpleNamespace
+
+        from victor.config.sandbox_settings import SandboxSettings
+
+        snapshot = RunPolicySnapshot.from_settings(
+            SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+        )
+        metadata = snapshot.to_metadata()
+        metadata["effective_policy"] = "disabled"
+
+        with pytest.raises(PolicySnapshotError):
+            DelegationRequest(task="Tampered task", run_policy=metadata)
 
 
 class TestDelegationResponse:
@@ -389,6 +428,105 @@ class TestDelegateTool:
         assert result.success is True
         assert "Found 5 endpoints" in result.output
         assert result.metadata["delegation_id"] == "test123"
+
+    @pytest.mark.asyncio
+    async def test_execute_copies_parent_policy_into_request(self):
+        from types import SimpleNamespace
+
+        from victor.config.sandbox_settings import SandboxSettings
+
+        handler = MagicMock()
+        handler.handle = AsyncMock(
+            return_value=DelegationResponse(
+                delegation_id="test123",
+                accepted=True,
+                status=DelegationStatus.COMPLETED,
+                delegate_id="delegate_abc",
+            )
+        )
+        tool = DelegateTool(handler)
+        snapshot = RunPolicySnapshot.from_settings(
+            SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+        )
+
+        with run_policy_context(snapshot):
+            await tool.execute(task="Delegate task")
+
+        request = handler.handle.await_args.args[0]
+        assert request.run_policy == snapshot.to_metadata()
+
+    @pytest.mark.asyncio
+    async def test_fire_and_forget_delegation_binds_restored_policy(self):
+        from types import SimpleNamespace
+
+        from victor.config.sandbox_settings import SandboxSettings
+
+        snapshot = RunPolicySnapshot.from_settings(
+            SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+        )
+        captured = {}
+
+        async def spawn(**kwargs):
+            captured["policy"] = current_run_policy_snapshot()
+            return SubAgentResult(
+                success=True,
+                summary="done",
+                details={},
+                tool_calls_used=0,
+                context_size=0,
+                duration_seconds=0.0,
+            )
+
+        handler = DelegationHandler(
+            MagicMock(), sub_agent_orchestrator=SimpleNamespace(spawn=spawn)
+        )
+        request = DelegationRequest(
+            task="Background delegate",
+            await_result=False,
+            run_policy=snapshot.to_metadata(),
+        )
+
+        response = await handler.handle(request)
+        delegation = handler._active.get(request.delegation_id)
+        assert delegation is not None and delegation.task is not None
+        await delegation.task
+
+        assert response.accepted
+        assert captured["policy"] == snapshot
+
+    @pytest.mark.asyncio
+    async def test_direct_handler_copies_parent_context_into_request(self):
+        from types import SimpleNamespace
+
+        from victor.config.sandbox_settings import SandboxSettings
+
+        snapshot = RunPolicySnapshot.from_settings(
+            SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled"))
+        )
+        captured = {}
+
+        async def spawn(**kwargs):
+            captured["policy"] = current_run_policy_snapshot()
+            return SubAgentResult(
+                success=True,
+                summary="done",
+                details={},
+                tool_calls_used=0,
+                context_size=0,
+                duration_seconds=0.0,
+            )
+
+        handler = DelegationHandler(
+            MagicMock(), sub_agent_orchestrator=SimpleNamespace(spawn=spawn)
+        )
+        request = DelegationRequest(task="Direct delegate")
+
+        with run_policy_context(snapshot):
+            response = await handler.handle(request)
+
+        assert response.accepted
+        assert request.run_policy == snapshot.to_metadata()
+        assert captured["policy"] == snapshot
 
     @pytest.mark.asyncio
     async def test_execute_rejection(self):

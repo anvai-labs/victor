@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from victor.runtime.policy_snapshot import RunPolicySnapshot
+
 
 class DelegationPriority(Enum):
     """Priority level for delegated tasks.
@@ -86,6 +88,8 @@ class DelegationRequest:
         await_result: Whether to wait for completion
         parent_goal: Optional context about the parent agent's goal
         delegation_id: Unique identifier for this delegation
+        run_policy: Digest-validated immutable policy metadata inherited from
+            the parent run for transport across delegation boundaries
 
     Example:
         request = DelegationRequest(
@@ -107,6 +111,7 @@ class DelegationRequest:
     await_result: bool = True
     parent_goal: Optional[str] = None
     delegation_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    run_policy: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         """Validate request parameters."""
@@ -116,6 +121,10 @@ class DelegationRequest:
             raise ValueError("Tool budget must be at least 1")
         if self.deadline_seconds is not None and self.deadline_seconds <= 0:
             raise ValueError("Deadline must be positive")
+        if self.run_policy is not None:
+            # Reject malformed or tampered metadata before it can cross a
+            # delegation boundary or reach a detached child task.
+            RunPolicySnapshot.from_metadata(self.run_policy)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -131,6 +140,7 @@ class DelegationRequest:
             "deadline_seconds": self.deadline_seconds,
             "await_result": self.await_result,
             "parent_goal": self.parent_goal,
+            "run_policy": self.run_policy,
         }
 
     @classmethod
@@ -150,6 +160,7 @@ class DelegationRequest:
             await_result=data.get("await_result", True),
             parent_goal=data.get("parent_goal"),
             delegation_id=data.get("delegation_id", uuid.uuid4().hex[:12]),
+            run_policy=data.get("run_policy"),
         )
 
 
