@@ -3,7 +3,7 @@ plan_id: VAS-2026-10
 status: active
 updated: 2026-10-18
 baseline_develop: e46740bff
-next_task: DATA-04b qualify publication contention before pipeline integration
+next_task: VAS-06b internal session scope and admission contract
 ---
 
 # Victor shared agent-service implementation plan and tracker
@@ -248,6 +248,13 @@ edit. A mock test is not live provider or C5 evidence.
   owner; 40,634 tests collect clean; Black/Ruff/mypy/repo-hygiene/diff clean.
   Isolated adversarial exact-head review returned CLEAN, with no bypass,
   reload-race, argv, exception, test-realism, or tracker-scope finding.
+- **VAS-06b — ACTIVE** (2026-11-14), owner: Codex framework-review continuation;
+  branch `feat/session-store-scope-admission`, baseline `b86737ea0`. Next:
+  add RED-first cases to `tests/unit/web/test_session_store.py` for typed
+  server-owned scope, exact-scope denial, reservation-before-initialization
+  bounds, principal/global admission, connection bounds, one-turn leases,
+  revocation and restart epoch; implement only the internal store contract with
+  no wire-route changes.
 
 - **PROMOTION-026 — MERGED** (2026-11-14), owner: framework-review delivery
   session; PR [#1786](https://github.com/anvai-labs/victor/pull/1786) merged
@@ -3853,6 +3860,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05j | Owner-scoped broadcast delivery (cross-owner denial) | VAS-05i | ✅ MERGED | [#1775](https://github.com/anvai-labs/victor/pull/1775), `5017f3511`. Branch `feat/owner-scoped-broadcast`, baseline `927b568ff`. RED: bob's tool-approval event delivered to alice's authenticated socket. Auth dep records `request.state.client_id`; `_broadcast_ws`/`_broadcast_agent_event` take explicit `owner_client_id`; tool/workflow/team routes bind it; execution state records owner at start; unbound internal broadcasts keep all-authenticated (guard test). API surface 275 passed; lint/type/collect clean. BackgroundAgentManager principal threading, cross-owner READ and scoped subscriptions remain open |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-06a | Session ownership and bounded admission design gate | VAS-06 | ✅ MERGED | [#1814](https://github.com/anvai-labs/victor/pull/1814) squash `d6497ecb6`, baseline `af820b177`. Proposed ADR-034 defines immutable server-owned principal/workspace/session scope, scoped versioned tokens and store epoch, exact-scope acquisition, reservation-before-initialization, per-principal/global limits, bounded connections, one active turn, revocation and restart invalidation, plus VAS-06b–06d implementation gates and test matrix. Repo hygiene/diff/selector pass; all applicable CI green. No runtime/public-contract change or ADR acceptance claimed |
+| VAS-06b | Internal session scope and bounded admission contract | VAS-06a | ACTIVE | Owner: Codex framework-review continuation; branch `feat/session-store-scope-admission`, baseline `b86737ea0`. RED-first `tests/unit/web/test_session_store.py` work must cover exact-scope lookup/denial, atomic reservation admission, per-principal/global limits, lease release, connection limits, turn conflicts, revocation and restart epoch. No wire-route changes |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |
