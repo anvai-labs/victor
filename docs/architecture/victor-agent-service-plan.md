@@ -67,20 +67,80 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PROMOTION-026 — RETRYING** (2026-11-14), owner: framework-review delivery
-  session. The historical blocked battery and exact failure inventory are
-  preserved at promotion-head `faeb18ff3`. Published Sandhi 0.18.0 adoption
-  (#1793), Apple-Silicon-only native release support (#1795), strict
-  promotion-gate alignment (#1802), and background-policy test isolation
-  (#1805) address the known blockers and the Python 3.12/3.13 shard leak.
-  This promotion branch carries develop `750d575`, including the LOOP-04
-  repeated-rejected-tool bound; a fresh complete main-target battery is
-  required before merge. No Victor publication or live deployment is claimed
-  here.
+- **PROMOTION-026 — MERGED** (2026-11-14), owner: framework-review delivery
+  session; PR [#1786](https://github.com/anvai-labs/victor/pull/1786) merged
+  as `955f1c99c` after the complete main-target battery and post-merge main
+  workflows passed. The immutable `v0.29.0` release tag points to that merge;
+  its release build completed artifacts, but Trivy correctly withheld
+  publication on the two high-severity Soup Sieve advisories. No Victor
+  publication or live deployment is claimed for 0.29.0.
 
-- **VAS-05w — IN REVIEW** (2026-11-14), owner: Codex framework-review
+- **PROMOTION-027 — RETRYING** (2026-11-14), owner: framework-review delivery
+  session. PR [#1809](https://github.com/anvai-labs/victor/pull/1809) merged
+  as `f45298ec9`, followed by bounded GraphQL subscriber queues (#1808) and
+  the fanout result-retention design (#1810) at develop `89aa278e2`; every
+  applicable develop gate is green. The security patch resolves
+  `soupsieve==4.1` across core, API and embeddings deployment locks and
+  synchronizes AI/native version `0.29.1`; a fresh complete main-target
+  battery is required before merge. No Victor publication or live deployment
+  is claimed here.
+
+- **VAS-16d — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1810](https://github.com/anvai-labs/victor/pull/1810)
+  (`docs/vas-16d-result-budget-design`), final baseline `0069377c9`; merged
+  as merge `89aa278e2` with every applicable CI check green, including
+  Vertical Py3.12. Exact-head review confirmed the draft remains design-only
+  and makes no implementation or release claim.
+  Local representative tracing on this WSL2/Py3.12 host (unique 64 KiB branch
+  payloads, `max_parallel_branches=16`, tracing after warm-up) measured peak
+  allocations of 8.1 MiB at 128 branches, 16.2 at 256, 32.3 at 512, and 64.6
+  at 1024, closely matching the retained payload totals; retained memory fell
+  to 0.0–0.1 MiB after a merger that discards payloads. This is local design
+  evidence only, not a release performance claim. Draft
+  [FEP-0045](../feps/fep-0045-fanout-result-retention-budget.md) keeps the
+  default retain-all contract, defines logical retained-byte accounting, and
+  chooses typed fail-closed overflow over truncation or durable spill. FEP
+  validation and diff checks pass.
+
+- **VAS-10a — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1808](https://github.com/anvai-labs/victor/pull/1808)
+  (`feat/event-subscriber-queue-bounds`), final baseline `f45298ec9`; merged
+  as squash `0069377c9` with every applicable CI check green, including
+  Vertical Py3.12. RED is retained: two real GraphQL subscriptions were driven
+  through the engine's per-client delivery boundary; the fast subscriber
+  received `two/three/four`, while the stalled subscriber's next result was
+  still `two` and `queue_dropped_events` remained zero. GREEN bounds the
+  resolver-local queue at the EventBridge retention limit with drop-oldest
+  overflow recorded through `queue_dropped_events`; the fast subscriber remains
+  isolated and both resolver registrations clean up. No public GraphQL payload
+  changed. Evidence: GraphQL/event-bridge owners 63 passed; changed-file
+  selector 2 owners passed; 40,628 tests collect clean; Black/Ruff/mypy/diff
+  clean. Exact-head review confirmed the public subscription payload and
+  ownership/auth behavior remain unchanged.
+- **VAS-05x — MERGED** (2026-11-14), owner: Codex external-delegation
+  continuation; PR [#1806](https://github.com/anvai-labs/victor/pull/1806)
+  (`docs/vas-05x-external-delegation`), baseline `96a3ad610`; merged as
+  squash `516e25699` with every applicable CI check green, including Vertical
+  Py3.12. Local audit:
+  production delegation enters
+  `DelegateTool`/`DelegationHandler` and `SubAgentOrchestrator.spawn`, which
+  constructs and awaits an in-process `SubAgent`; production
+  `DelegationRequest.from_dict` callers are absent, and `DelegateTool` has no
+  production registration/route caller. FEP-0044 now defines the first external
+  transport gate: authenticated ownership precedes policy interpretation, a
+  versioned envelope requires non-legacy `run_policy`, the child reconstructs
+  and binds the digest-validated snapshot before delegate/model/tool work, and
+  durable replay repeats those checks with zero effect on failure. The design
+  explicitly forbids treating snapshot digest as authentication or activating a
+  dormant tool as proof of a process boundary. `git diff --check`, FEP
+  validation and repo hygiene pass. Exact-head review confirmed the dormant
+  production boundary and that no transport implementation or cross-process
+  acceptance is claimed.
+
+- **VAS-05w — MERGED** (2026-11-14), owner: Codex framework-review
   continuation; PR [#1803](https://github.com/anvai-labs/victor/pull/1803)
-  (`feat/delegation-policy-snapshot`), head `4a6eede19`, baseline `dfacb748c`.
+  (`feat/delegation-policy-snapshot`), final baseline `8a724a2c8` after rebase;
+  merged as squash `ed9aeba7c` with every applicable CI check green.
   RED (four intended failures): serialized `DelegationRequest` had no policy field;
   tampered policy metadata was not rejected; `DelegateTool` dropped its parent
   context; and fire-and-forget delegation had no explicit restored-policy binding.
@@ -92,8 +152,7 @@ edit. A mock test is not live provider or C5 evidence.
   the serialized protocol and current in-process handler; no external process
   transport is claimed. Evidence: delegation owner 54 passed (5 policy cases);
   repository selector 11 modules/256 passed; 40,591 tests collect clean;
-  Black/Ruff/mypy/diff clean. Next: full CI green, exact-head review, squash merge, then exact SHA
-  reconciliation.
+  Black/Ruff/mypy/diff clean. Exact-head review confirmed policy is captured at both delegation entry surfaces and rebound around detached spawn. External process transport remains separate.
 
 - **VAS-05v — MERGED** (2026-11-14), owner: Codex framework-review
   continuation; PR [#1800](https://github.com/anvai-labs/victor/pull/1800)
@@ -3596,6 +3655,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |
 | VAS-10 | Unified run events, bounded parsing and replay | VAS-07, VAS-09 | TODO | UTF-8/SSE framing, IDs/cursors, explicit retention gaps, durable terminal state, bounded slow-client handling |
+| VAS-10a | GraphQL subscriber slow-client queue bound (SCALE-04 slice) | VAS-10 | ✅ MERGED | [#1808](https://github.com/anvai-labs/victor/pull/1808) squash `0069377c9`, final baseline `f45298ec9`. RED: the fast subscriber received `two/three/four`, the stalled subscriber next received `two`, and `queue_dropped_events` stayed zero because the GraphQL resolver's second queue was unbounded. GREEN: resolver queue is bounded with drop-oldest overflow, metrics are observable, fast subscriber stays isolated, and both subscriptions unregister. GraphQL/event-bridge owners 63 passed; selector 2 owners passed; 40,628 collect clean; Black/Ruff/mypy/diff clean. All applicable CI green; no public payload/auth contract change |
 | VAS-11 | Exact approval and verified action reconciliation through existing framework owners | VAS-00, VAS-02 | TODO | G61/G62/G70: bind owner/payload/version/expiry; backend commit then response loss; receipt lookup or safe same-key guarantee; unknown blocks replay |
 | VAS-11a | Keep durable approval admission off the async event loop | VAS-00, VAS-02 | ✅ MERGED | [#1253](https://github.com/anvai-labs/victor/pull/1253), `ec41c97b4bf6b62e31168cbba0153d850d133ae3`; clean exact-head review and 39 successful checks including Vertical Py3.12; no receipt verification or claim reopening |
 | VAS-11b | Bound receipt provenance and local transaction reconciliation | VAS-11a | ✅ MERGED | [#1255](https://github.com/anvai-labs/victor/pull/1255), `76384b0e455bcaea29c4046a15ff0092cfe6df1d`; exact-head review clean, 40 applicable checks passed including Vertical Py3.12; readonly backend lookup and immutable local receipt, no tool replay/result publication/member continuation; production adapters remain VAS-11c |
@@ -3617,6 +3677,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
 | VAS-16a | Bounded Send fan-out admission (SCALE-03 slice) | VAS-16 | ✅ MERGED | [#1776](https://github.com/anvai-labs/victor/pull/1776) squash `fbd9765aa`, branch `feat/bound-send-fanout`, baseline `927b568ff`. RED: `ExecutionConfig.max_parallel_branches` (default 16) bounds in-flight Send branches via semaphore in `_execute_parallel`; all admitted branches queue and complete (64-branch/bound-4 preservation test). RED: 8 branches ran 8-wide before the fix. Baseline: 256 branches 2.13ms (bound 16) vs 2.23ms (bound 4); no wall-time regression. Owners + collect (40,389) clean. Remaining SCALE-03/04 surfaces open under VAS-16/10 |
+| VAS-16d | Send result-byte retention contract design and measurement (SCALE-04 prerequisite) | VAS-16b | ✅ MERGED | PR [#1810](https://github.com/anvai-labs/victor/pull/1810), merge `89aa278e2`, final baseline `0069377c9`. Current `_execute_parallel` retains every `(node, success, error, state_dict)` result until merge. Representative local tracing with unique 64 KiB payloads measured 8.1/16.2/32.3/64.6 MiB peaks for 128/256/512/1024 branches. Draft FEP-0045 defines opt-in logical-byte accounting, fail-closed overflow/cancellation, unmeasurable-value refusal, observability, compatibility and migration while preserving the retain-all default. FEP validation, exact-head review and all 43 applicable checks passed, including Vertical Py3.12; implementation remains separate |
 | VAS-05k | Required-policy + owner-scope convergence residuals | VAS-05j | ✅ MERGED | [#1777](https://github.com/anvai-labs/victor/pull/1777) squash `bcab05d71`, branch `feat/required-policy-convergence`, baseline `fbd9765aa`. `SandboxedExecutor` consults the canonical policy: required-unavailable refuses all branches pre-spawn (no docker->process fallback); required+backend refuses unenforced inline; preferred unchanged (RED trap-proven). Background agents owner-scoped end-to-end (`start_agent(owner_client_id=...)`, events tagged, route binds principal). `IsolationMapper.apply_settings` confirmed dormant (zero callers). Owners 9+33 pass; suites 1,692 passed; lint/type/collect clean. Direct-spawn sites (terminal/git/search routes, MCP stdio, filesystem/shell-cached helpers) still outside the gate — recorded for future bounded convergence |
 | VAS-05l | Required enforcement follows the actual launch (HB-02/HB-03) | VAS-05k | ✅ MERGED | [#1778](https://github.com/anvai-labs/victor/pull/1778) squash `0ed5536a7`, branch `feat/required-policy-enforcement`, baseline `bcab05d71`. RED: required-policy resolver exception returned NoneSandbox (sync/async/shell); workflow process branch launched raw argv with bwrap available. `_resolve_default_sandbox` + workflow decision convert resolver errors to typed `resolver_error` refusals; caller NoneSandbox cannot weaken required; `_execute_process` wraps launch argv with the resolved backend (Popen-trap asserted); docker qualified on own capabilities, not bwrap. Owners 16+12 GREEN (7 RED-first); suites 5,132 passed; lint/type/collect clean. HB-01 authorization, direct-spawn routes, HB-04 bounded admission remain open in delivery order |
 | VAS-05p | Docker global network floor composition (R2-02) | VAS-05o | ✅ MERGED | [#1783](https://github.com/anvai-labs/victor/pull/1783), branch `feat/docker-policy-composition`, baseline `69719f04d`. RED: docker run argv had no network flags under required + global network isolation + node network_allowed=True. `_compose_global_network_floor` tightens workflow Docker isolation before flag assembly (preferred or required; node tightens only; disabled keeps node config); eval-container path and mount/readonly composition recorded as follow-ups. Owners 15 GREEN (2 RED-first, actual argv); suites 2,144 passed; ratchet at baseline; lint/type clean. Queued: R2-03 worker ownership, R2-04 count validation |
@@ -3626,7 +3687,8 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05t | Workflow executor consumes admitted run-policy snapshot (FEP-0044 Phase 2 slice 2) | VAS-05s | ✅ MERGED | [#1794](https://github.com/anvai-labs/victor/pull/1794) squash `c396fcd15`, baseline `12fc116dc`. RED proved four mutable-settings reload races. `_resolve_policy_decision` and the Docker network floor now consume the admitted snapshot; no-snapshot callers retain globals. Owner 21 and workflows 1,396 pass; 40,464 tests collect clean; lint/type clean. All applicable CI green; terminal/git routes and delegation remain separate |
 | VAS-05u | Terminal/git direct routes consume request-scoped policy snapshots (FEP-0044 Phase 2 slice 3) | VAS-05t | ✅ MERGED | [#1797](https://github.com/anvai-labs/victor/pull/1797) squash `1e3ceb2fd`, final baseline `55968fab0`. RED proved real terminal/git launches reread mutable globals despite admitted policy. Terminal now resolves one request policy; git binds one request policy across every child and AI turn. Owners 19 pass, selector passes, 40,583 tests collect clean, lint/type clean. All applicable CI green; delegation/background propagation remains separate |
 | VAS-05v | Background agents inherit admitted policy snapshots (FEP-0044 Phase 2 slice 4) | VAS-05u | ✅ MERGED | [#1800](https://github.com/anvai-labs/victor/pull/1800) squash `9f8609b5a`, baseline `dfacb748c`. RED proved detached `/agents/start` work lacked admitted policy. API start now copies server settings once, manager stores the immutable snapshot, and the detached run binds it end-to-end. Owners 58 pass; 40,586 tests collect clean; lint/type clean. All applicable CI green; serialized cross-process delegation remains separate |
-| VAS-05w | Serialized delegation requests carry admitted policy snapshots (FEP-0044 Phase 2 slice 5) | VAS-05v | IN REVIEW | PR [#1803](https://github.com/anvai-labs/victor/pull/1803), head `4a6eede19`, baseline `dfacb748c`. Owner Codex framework-review continuation; branch `feat/delegation-policy-snapshot`, baseline `dfacb748c`. RED proved protocol/tool/detached-task policy loss. Requests now round-trip digest-validated metadata, reject tampering, capture parent policy at tool/direct-handler boundaries, and bind restored policy around spawn. Owner 54 and selector 256 pass; 40,591 tests collect clean; lint/type clean. PR/CI/merge evidence pending; external process transport remains separate |
+| VAS-05x | External delegation transport boundary and policy admission design (FEP-0044 Phase 3) | VAS-05w | ✅ MERGED | [#1806](https://github.com/anvai-labs/victor/pull/1806) squash `516e25699`, baseline `96a3ad610`. Local audit proved `DelegateTool`/`DelegationHandler` execute through in-process `SubAgentOrchestrator`; production `DelegationRequest.from_dict` callers are absent. FEP-0044 gates the first real transport on authenticated ownership, a versioned non-legacy policy envelope, child digest restoration/binding before effects, equal-or-stricter enforcement, and typed restart replay. Evidence: `git diff --check` clean, FEP validation, repo hygiene and the full CI matrix green. No runtime transport or cross-process acceptance is claimed |
+| VAS-05w | Serialized delegation requests carry admitted policy snapshots (FEP-0044 Phase 2 slice 5) | VAS-05v | ✅ MERGED | [#1803](https://github.com/anvai-labs/victor/pull/1803) squash `ed9aeba7c`, final baseline `8a724a2c8`. RED proved protocol/tool/detached-task policy loss. Requests now round-trip digest-validated metadata, reject tampering, capture parent policy at tool/direct-handler boundaries, and bind restored policy around spawn. Owner 54 and selector 256 pass; 40,591 tests collect clean; lint/type clean. All applicable CI green; external process transport remains separate |
 | VAS-05m | Resource-owner authorization before read/mutation (HB-01) | VAS-05l | ✅ MERGED | [#1779](https://github.com/anvai-labs/victor/pull/1779) squash `64778c5a0`, branch `feat/resource-owner-auth`, baseline `bcab05d71`. RED: RED: Bob listed and approved Alice's approval via real routes (200, entry removed). Tool approvals list/approve/cancel + workflow list/read/status/cancel + agent list/get/cancel authorize against the STORED owner; denied calls keep state and emit nothing; not-found shape without existence confirmation; ownerless entries quarantined on keyed servers; spoofed body owner grants nothing; keyless unchanged. Ownership stamped via new `register_pending_approval` (store had no producer; FEP-0029 paused-run store is the durable approval path). Ratchet consolidated to baseline. Owners 60 GREEN (6 RED-first); suites 318 passed; lint/type/collect clean. Paused-run/subscription scoping (VAS-06) and shared session scoping remain open |
 | VAS-05n | Direct-spawn convergence: terminal route gate (order 3 slice) | VAS-05l | ✅ MERGED | [#1780](https://github.com/anvai-labs/victor/pull/1780) squash `ee1d306c61`, branch `feat/direct-spawn-gate`, baseline `0ed5536a7`. RED: terminal route launched raw argv under required+available backend; spawned under unenforceable required. Shared `resolve_required_launch` in the sandbox owner; terminal launch wraps argv or refuses; `_resolve_default_sandbox` re-expressed on the same decision. Classified inventory recorded: git/search = trusted fixed-argv control reads; MCP stdio = control plane; per-site decisions pending for the remaining fixed-binary tools. Owners 94 GREEN (2 RED-first); lint/type/collect clean; ratchet at baseline. Remaining inventory sites are follow-up increments |
 | VAS-16b | Bounded fan-out task/state admission (HB-04, order 4) | VAS-16a | ✅ MERGED | [#1781](https://github.com/anvai-labs/victor/pull/1781) squash `69719f04d8`, branch `feat/bounded-fanout-admission`, baseline `64778c5a0`. RED event-ordering probe: 32 states copied before the first execution under bound=1. `_execute_parallel` runs min(bound, fanout) worker tasks pulling from a shared iterator; deepcopy after admission; results by index (merge order/failure semantics unchanged); cancellation stops new admission; `ExecutionConfig.max_fanout_branches` (None default) rejects oversized expansion pre-effect with typed `FanoutBudgetExceeded`. Result-byte budgets recorded as contract-review follow-up (VAS-16/22). Owners 172 GREEN (2 RED-first); collect 40,418 clean; ratchet at baseline |

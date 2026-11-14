@@ -4,7 +4,7 @@ title: "Immutable run-policy snapshots across pause, resume and delegation"
 type: Standards Track
 status: Draft
 created: 2026-11-13
-modified: 2026-11-13
+modified: 2026-11-14
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -112,6 +112,58 @@ fails closed rather than spawning. Detailed background-agent and team-member
 propagation is a separate implementation phase because their constructors and
 recovery paths require their own real-boundary tests.
 
+### External delegation transport gate
+
+VAS-05w makes `DelegationRequest.run_policy` digest-validated and serializable,
+but it does not create an external delegation transport. In the audited runtime,
+`DelegateTool` and `DelegationHandler` reach `SubAgentOrchestrator.spawn`, which
+constructs and awaits an in-process `SubAgent`; there is no production
+`DelegationRequest.from_dict` caller and no child process to qualify. A claim of
+cross-process propagation therefore requires a new, named transport owner and
+tests through its actual bytes and process boundary.
+
+The semantic boundary is durable run dispatch: a server process admits and
+persists the typed work record, then a separate worker process claims it before
+delegate construction. FEP-0039/VAS-07 owns the concrete durable-run and
+dispatch adapter; HTTP, queue and supervised-local-process choices are
+implementations of that boundary, not separate policy precedences. Until a real
+durable dispatch owner exists, this section is a design gate rather than an
+implementation claim.
+
+The first external transport must meet this admission contract before any model,
+tool or subprocess effect:
+
+1. A server-resolved principal and the stored resource owner authorize the
+   delegation. The snapshot digest is integrity evidence, not authentication: a
+   malicious peer can mint an internally consistent weaker snapshot, so it never
+   substitutes for transport authentication or ownership checks.
+2. The parent serializes the request and its admitted `run_policy` metadata in
+   one versioned, server-owned envelope. The envelope identifies the transport
+   schema, `delegation_id` and the canonical parent-run/request identity; a
+   public caller cannot set, replace or omit `run_policy`. Missing policy
+   metadata is rejected for this new transport instead of being interpreted as
+   legacy compatibility.
+3. The child deserializes through `DelegationRequest.from_dict`, reconstructs
+   `RunPolicySnapshot.from_metadata`, and binds that value with
+   `run_policy_context` before constructing or invoking the delegate.
+4. Child globals, caller fields and child profiles cannot replace the admitted
+   value. They may compose only an equal-or-stricter enforceable backend, and a
+   required policy with no enforceable backend refuses before spawn.
+5. Durable or restartable transports retain the exact envelope and typed
+   validation outcome by `delegation_id`. Recovery replays only after the same
+   digest and ownership checks pass and the run owner proves either that no
+   external effect occurred or that its receipt contract is idempotent. A
+   missing, malformed, changed or unauthenticated envelope is a terminal
+   admission failure with no external effect.
+
+The first implementation PR must exercise the real parent serializer, wire,
+child process deserializer and governed launch. It must include negatives for a
+dropped policy field, changed metadata, a valid-but-unauthenticated snapshot,
+conflicting child globals, required-unavailable enforcement and restart
+recovery before admission, plus a redelivery case after a possible effect that
+stops at the outcome/receipt owner. An in-process fake worker is useful
+regression coverage but is not cross-process acceptance evidence.
+
 ### Reload and revocation
 
 This proposal defines run-level immutability, not operator-level emergency
@@ -160,8 +212,11 @@ continue.
   reload and terminate, or terminate only when the next governed launch observes
   the difference? Phase 2 must choose this per owned lifecycle boundary.
 - What structured event/error names should each transport expose after FEP review?
-- How should delegation represent a snapshot in serialized cross-process work
-  units without reintroducing mutable settings objects?
+- Which concrete transport (HTTP worker, queue, or supervised local process)
+  becomes the first external delegation owner, and what envelope size and
+  response-retention limits accompany it? The policy admission sequence above is
+  transport-independent; the owner proposal must add the measured lifecycle and
+  recovery design rather than redefining policy precedence.
 
 ## Implementation Plan
 
@@ -175,6 +230,10 @@ continue.
    attached snapshot, one real-boundary PR per owner family.
 5. Propagate to background agents, team members and durable delegation; add
    reload observations and explicit termination semantics.
+6. Propose the first named external delegation transport only when that owner is
+   ready to implement its authenticated envelope, child admission sequence and
+   process-boundary tests. Do not activate the currently unused `DelegateTool`
+   merely to manufacture a transport.
 
 Each launch-family migration must first write a RED test through its real route,
 tool dispatch or workflow executor, including a zero-spawn negative when the
@@ -196,8 +255,10 @@ the exact head submitted for review.
 ## Migration Path
 
 No caller action is required. New paused records include the metadata field.
-Old paused records remain valid and retain their current-policy checks. No
-wire contract changes in Phase 1.
+Old paused records remain valid and retain their current-policy checks. Existing
+in-process delegation and background paths retain their current contracts. The
+external transport gate is forward-looking: it adds no transport, public wire
+field or SDK method until its owner-specific FEP review accepts the envelope.
 
 ## Compatibility
 
@@ -224,3 +285,6 @@ defect repair; later public-contract additions require FEP acceptance.
 - Each migrated launch owner proves zero-spawn refusal and inherited behavior
   through its real execution boundary.
 - Delegation and background execution cannot substitute a different policy.
+- A future external delegation transport proves policy restoration through real
+  serialized bytes and a child process; serialized protocol support alone is not
+  cross-process acceptance.

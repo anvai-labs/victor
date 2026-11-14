@@ -1,5 +1,8 @@
 """Tests for GraphQL schema integration."""
 
+import asyncio
+import time
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from victor import __version__
@@ -14,6 +17,8 @@ from victor.integrations.api.graphql_schema import (
     HealthType,
     create_graphql_schema,
 )
+from victor.integrations.api.event_bridge import BridgeEvent, BridgeEventType, EventBroadcaster
+import victor.integrations.api.graphql_schema as graphql_schema_module
 
 
 @pytest.fixture
@@ -232,3 +237,86 @@ class TestGraphQLTypes:
         r = ChatResponseType(role="assistant", content="hi", tool_calls=None)
         assert r.role == "assistant"
         assert r.tool_calls is None
+
+
+class TestGraphQLSubscriptionQueueBounds:
+    """Prove a stalled GraphQL consumer cannot retain events without limit."""
+
+    async def test_slow_subscriber_drops_oldest_without_blocking_fast_subscriber(
+        self, mock_server, monkeypatch
+    ):
+        monkeypatch.setattr(graphql_schema_module, "GRAPHQL_SUBSCRIPTION_QUEUE_SIZE", 2)
+        EventBroadcaster.reset_instance()
+        broadcaster = EventBroadcaster()
+        mock_server._event_bridge = MagicMock()
+        mock_server._event_bridge._broadcaster = broadcaster
+        schema = create_graphql_schema(mock_server)
+        query = """
+            subscription {
+              agentEvents { type content error timestamp }
+            }
+        """
+
+        slow_iterator = await schema.subscribe(query)
+        fast_iterator = await schema.subscribe(query)
+        slow_first = asyncio.create_task(slow_iterator.__anext__())
+        fast_first = asyncio.create_task(fast_iterator.__anext__())
+        for _ in range(1000):
+            if broadcaster.client_count == 2:
+                break
+            await asyncio.sleep(0)
+        assert broadcaster.client_count == 2
+
+        async def receive(iterator, count):
+            values = []
+            for _ in range(count):
+                result = await asyncio.wait_for(iterator.__anext__(), timeout=2)
+                assert result.errors is None
+                values.append(result.data["agentEvents"]["content"])
+            return values
+
+        class PayloadEvent(BridgeEvent):
+            def to_dict(self) -> dict[str, Any]:
+                return {
+                    "id": self.id,
+                    "type": self.type.value,
+                    **self.data,
+                    "timestamp": self.timestamp,
+                }
+
+        await broadcaster._delivery._send_to_clients(
+            PayloadEvent(
+                type=BridgeEventType.NOTIFICATION,
+                data={"content": "one", "timestamp": time.time()},
+            )
+        )
+        for first in (slow_first, fast_first):
+            first_result = await asyncio.wait_for(first, timeout=2)
+            assert first_result.errors is None
+            assert first_result.data["agentEvents"]["content"] == "one"
+
+        fast_receiver = asyncio.create_task(receive(fast_iterator, 3))
+
+        # This is the same per-client delivery boundary used by the engine after
+        # its bounded sender queue. The resolver-local queue is the final
+        # slow-consumer retention point and must therefore also be bounded.
+        for value in ("two", "three", "four"):
+            await broadcaster._delivery._send_to_clients(
+                PayloadEvent(
+                    type=BridgeEventType.NOTIFICATION,
+                    data={"content": value, "timestamp": time.time()},
+                )
+            )
+            # Let the actively consuming fast subscriber drain its queue; the
+            # stalled slow subscriber remains the only retention pressure point.
+            await asyncio.sleep(0)
+
+        assert await fast_receiver == ["two", "three", "four"]
+        slow_next = await asyncio.wait_for(slow_iterator.__anext__(), timeout=2)
+        assert slow_next.errors is None
+        assert slow_next.data["agentEvents"]["content"] == "three"
+        assert broadcaster.get_reliability_dashboard()["queue_dropped_events"] >= 1
+
+        await slow_iterator.aclose()
+        await fast_iterator.aclose()
+        assert broadcaster.client_count == 0
