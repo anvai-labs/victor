@@ -153,12 +153,19 @@ Respond with just the command to run."""
         # Direct-spawn convergence (HB-02/03): the terminal launch follows
         # the canonical required-policy decision — refuse when unenforceable,
         # wrap the actual argv with the resolved backend when enforceable.
+        from victor.runtime.policy_snapshot import (
+            RunPolicySnapshot,
+            current_run_policy_snapshot,
+        )
         from victor.tools.sandbox import resolve_required_launch
 
         try:
-            from victor.config.settings import get_settings
+            admitted_policy = current_run_policy_snapshot()
+            if admitted_policy is None:
+                from victor.config.settings import get_settings
 
-            sandbox_settings = getattr(get_settings(), "sandbox", None)
+                admitted_policy = RunPolicySnapshot.from_settings(get_settings())
+            sandbox_settings = admitted_policy.to_sandbox_settings()
         except Exception as exc:
             # NEXT-01: unknowable policy refuses governed execution.
             return TerminalCommandResponse(

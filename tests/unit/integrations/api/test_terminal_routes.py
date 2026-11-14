@@ -219,3 +219,67 @@ def test_terminal_refuses_when_policy_unreadable(monkeypatch, tmp_path):
     body = response.json()
     assert body["status"] == "failed"
     assert "policy" in body.get("output", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# FEP-0044: direct terminal launches consume request-admitted policy
+# ---------------------------------------------------------------------------
+
+
+def _install_globals(monkeypatch, policy: str) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_policy=policy))
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def _admitted_snapshot(policy: str):
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    return RunPolicySnapshot.from_settings(_install_snapshot_settings(policy))
+
+
+def _install_snapshot_settings(policy: str):
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    return SimpleNamespace(sandbox=SandboxSettings(sandbox_policy=policy))
+
+
+def test_admitted_required_terminal_beats_reloaded_disabled(monkeypatch, tmp_path):
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    _install_required(monkeypatch, backend_available=True)
+    _install_globals(monkeypatch, "disabled")
+    monkeypatch.setattr(
+        "victor.runtime.policy_snapshot.current_run_policy_snapshot",
+        lambda: _admitted_snapshot("required"),
+    )
+    launched: list = []
+    _trap_terminal_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    _execute(client, "echo hi")
+
+    assert launched and launched[0][0] == "bwrap", f"admitted policy lost: {launched}"
+
+
+def test_admitted_disabled_terminal_is_not_tightened_by_reloaded_required(monkeypatch, tmp_path):
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    _install_globals(monkeypatch, "required")
+    _install_required(monkeypatch, backend_available=False)
+    monkeypatch.setattr(
+        "victor.runtime.policy_snapshot.current_run_policy_snapshot",
+        lambda: _admitted_snapshot("disabled"),
+    )
+    launched: list = []
+    _trap_terminal_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    _execute(client, "echo hi")
+
+    assert launched and launched[0][0] != "bwrap", f"admitted policy tightened: {launched}"
