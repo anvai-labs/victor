@@ -43,6 +43,22 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     ) -> JSONResponse:
         """Start a new background agent."""
         try:
+            from victor.runtime.policy_snapshot import (
+                PolicySnapshotError,
+                RunPolicySnapshot,
+                current_run_policy_snapshot,
+            )
+
+            try:
+                admitted_policy = current_run_policy_snapshot()
+                if admitted_policy is None:
+                    admitted_policy = RunPolicySnapshot.from_settings(server._settings)
+            except PolicySnapshotError as exc:
+                logger.error("Refusing background agent start: %s", exc)
+                return JSONResponse(
+                    {"error": "Sandbox policy could not be established"}, status_code=500
+                )
+
             from victor.agent.background_agent import (
                 get_agent_manager,
                 init_agent_manager,
@@ -70,6 +86,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 mode=mode,
                 name=name,
                 owner_client_id=getattr(http_request.state, "client_id", None),
+                run_policy_snapshot=admitted_policy,
             )
 
             return JSONResponse(
