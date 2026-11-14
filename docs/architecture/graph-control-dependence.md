@@ -66,7 +66,8 @@ The local portable release wheel and the native/reference differential suites
 are separate from cross-platform acceptance. The affected-change workflow
 `native-ccg-qualification.yml` builds release wheels with generic CPU settings and
 installs them without core/optional extras for Python 3.12 and 3.13 on Linux x64
-and ARM64, macOS Intel and ARM64, and Windows x64. Its standalone checker verifies
+and ARM64, macOS ARM64, and Windows x64. macOS support is Apple Silicon only;
+Intel macOS is not a release platform. Its standalone checker verifies
 distribution/version/schema identity, byte-span identities, Unicode previews and
 the raw CCG contract. All applicable PR checks must pass before merging; this
 conditional workflow is additional to the required `CI Success` aggregate.

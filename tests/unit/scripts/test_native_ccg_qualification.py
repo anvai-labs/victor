@@ -11,7 +11,6 @@ TARGETS = {
     "ubuntu-24.04": "x86_64-unknown-linux-gnu",
     "ubuntu-24.04-arm": "aarch64-unknown-linux-gnu",
     "macos-15": "aarch64-apple-darwin",
-    "macos-15-intel": "x86_64-apple-darwin",
     "windows-2025": "x86_64-pc-windows-msvc",
 }
 
@@ -29,6 +28,8 @@ def assert_contract(qualification, release):
     job = qualification["jobs"]["wheel"]
     matrix = job["strategy"]["matrix"]
     assert set(matrix["os"]) == set(TARGETS)
+    assert "macos-15-intel" not in matrix["os"]
+    assert all(row["target"] != "x86_64-apple-darwin" for row in matrix["include"])
     assert set(matrix["python"]) == {"3.12", "3.13"}
     assert {row["os"]: row["target"] for row in matrix["include"]} == TARGETS
     assert job["env"]["RUSTFLAGS"] == "-C target-cpu=generic"
@@ -72,7 +73,7 @@ def test_packaging_guard_rejects_incomplete_or_unqualified_wheels(bypass):
     if bypass == "interpreter":
         job["strategy"]["matrix"]["python"].remove("3.13")
     elif bypass == "platform":
-        job["strategy"]["matrix"]["os"].remove("macos-15-intel")
+        job["strategy"]["matrix"]["os"].remove("windows-2025")
     elif bypass == "advisory":
         job["continue-on-error"] = True
     elif bypass == "skipped-probe":
