@@ -54,6 +54,7 @@ def mock_orchestrator():
     orchestrator.provider.name = "test_provider"
     orchestrator.model = "test-model"
     orchestrator.messages = []
+    orchestrator.settings = SimpleNamespace(sandbox=None)
     orchestrator.reset_conversation = MagicMock()
 
     # NEW: Add chat method for direct sync execution (Phase 2 refactoring)

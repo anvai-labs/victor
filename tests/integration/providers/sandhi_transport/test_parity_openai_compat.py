@@ -79,8 +79,9 @@ STREAM_SSE = (
     'data: {"id":"c","object":"chat.completion.chunk","model":"deepseek-chat",'
     '"choices":[{"index":0,"delta":{"content":", world"},"finish_reason":null}],"usage":null}\n\n'
     'data: {"id":"c","object":"chat.completion.chunk","model":"deepseek-chat",'
-    '"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],'
-    '"usage":{"prompt_tokens":1000,"completion_tokens":250,"total_tokens":1250,'
+    '"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}\n\n'
+    'data: {"id":"c","object":"chat.completion.chunk","model":"deepseek-chat",'
+    '"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":250,"total_tokens":1250,'
     '"prompt_tokens_details":{"cached_tokens":800}}}\n\n'
     "data: [DONE]\n\n"
 ).encode()
@@ -104,8 +105,17 @@ async def test_direct_codex_subscription_uses_real_responses_binding(fixture_ser
         {
             "type": "response.completed",
             "response": {
+                "id": "resp_1",
+                "model": "gpt-test",
                 "status": "completed",
-                "output": [],
+                "output": [
+                    {
+                        "type": "message",
+                        "id": "msg_1",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "ok"}],
+                    }
+                ],
                 "usage": {"input_tokens": 5, "output_tokens": 2},
             },
         },
@@ -282,7 +292,7 @@ class TestCompletionParity:
 
 
 class TestStreamParity:
-    async def test_stream_without_numeric_usage_does_not_invent_zero(
+    async def test_stream_without_terminal_usage_refuses_instead_of_inventing_zero(
         self, fixture_server, make_pair
     ):
         body = (
@@ -291,11 +301,8 @@ class TestStreamParity:
         )
         srv = fixture_server(body=body, content_type="text/event-stream")
         _, provider = make_pair(srv.url)
-        chunks = await run_stream(provider)
-        assert "".join(c.content for c in chunks) == "Hello"
-        assert chunks[-1].usage is None
-        assert chunks[-1].metadata["sandhi_usage"]["completeness"] == "unavailable"
-        assert chunks[-1].metadata["sandhi_usage"]["cache_read_observation"]["status"] == "absent"
+        with pytest.raises(ProviderError, match="output projection refused"):
+            await run_stream(provider)
         assert len(srv.requests) == 1
 
     async def test_stream_chunk_sequence_parity(self, fixture_server, make_pair):
