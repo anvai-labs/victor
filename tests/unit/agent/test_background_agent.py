@@ -478,3 +478,61 @@ async def test_agent_without_owner_has_no_owner_tag():
         agent.to_dict().get("owner_client_id") is None
     )
     agent._task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_start_agent_stores_and_binds_explicit_policy_snapshot():
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import (
+        RunPolicySnapshot,
+        current_run_policy_snapshot,
+    )
+
+    admitted = RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    )
+    captured = {}
+
+    async def stream_chat(task):
+        captured["policy"] = current_run_policy_snapshot()
+        yield {"type": "content", "content": "done"}
+
+    manager = BackgroundAgentManager(
+        orchestrator=MagicMock(),
+        chat_service=SimpleNamespace(stream_chat=stream_chat),
+        max_concurrent=1,
+    )
+    agent_id = await manager.start_agent(
+        task="background task",
+        run_policy_snapshot=admitted,
+    )
+    agent = manager.get_agent(agent_id)
+
+    assert agent.run_policy_snapshot is admitted
+    await asyncio.wait_for(agent._task, timeout=1)
+    assert captured["policy"] is admitted
+
+
+@pytest.mark.asyncio
+async def test_start_agent_copies_parent_context_policy():
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot, run_policy_context
+
+    admitted = RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled"))
+    )
+    manager = BackgroundAgentManager(
+        orchestrator=MagicMock(),
+        chat_service=MagicMock(),
+        max_concurrent=1,
+    )
+    with run_policy_context(admitted):
+        agent_id = await manager.start_agent(task="background task")
+
+    agent = manager.get_agent(agent_id)
+    assert agent.run_policy_snapshot is admitted
+    agent._task.cancel()
