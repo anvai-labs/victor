@@ -29,6 +29,8 @@ def test_every_rejected_kind_counts(kind):
         [_skip("redundant_call", success=True)],
         [_skip("broad_code_read")],
         [_skip("result_withheld")],
+        # The streaming tracker's own ledger owns ``tool_blocked``.
+        [_skip("tool_blocked")],
         # A rejected kind that nevertheless reports success, or is not a skip.
         [_skip("permission_denied", success=True)],
         [{"tool_name": "read", "success": False, "outcome_kind": "permission_denied"}],
@@ -44,3 +46,10 @@ def test_batches_with_progress_or_information_do_not_count(results):
 
 def test_accepts_a_generator():
     assert batch_all_rejected(_skip("tool_unavailable") for _ in range(2)) is True
+
+
+def test_dispatched_calls_with_no_processed_results_were_all_dropped_skips():
+    assert batch_all_rejected([], dispatched=2) is True
+    assert batch_all_rejected([], dispatched=0) is False
+    # Results present: the dispatched count does not override them.
+    assert batch_all_rejected([{"tool_name": "read", "success": True}], dispatched=3) is False

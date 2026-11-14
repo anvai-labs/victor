@@ -284,6 +284,19 @@ def test_build_streaming_turn_result_flags_rejected_batches(results, expected):
     assert turn.all_tools_blocked is expected
 
 
+@pytest.mark.parametrize("executed, expected", [(1, True), (0, False)])
+def test_build_streaming_turn_result_counts_dropped_idless_skips(executed, expected):
+    """A rejected call without a provider id is dropped before it becomes a result;
+    the turn still counts as rejected because a call was dispatched."""
+    turn = StreamingChatExecutor._build_streaming_turn_result(
+        SimpleNamespace(is_qa_task=False),
+        full_content="",
+        tool_calls=[{"name": "disabled_tool", "arguments": {}}],
+        tool_exec_result=ToolExecutionResult(tool_results=[], tool_calls_executed=executed),
+    )
+    assert turn.all_tools_blocked is expected
+
+
 def test_build_streaming_turn_result_empty_content_is_safe():
     turn = StreamingChatExecutor._build_streaming_turn_result(
         SimpleNamespace(),

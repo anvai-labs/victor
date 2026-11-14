@@ -1323,7 +1323,12 @@ class StreamingChatExecutor:
             and bool(full_content)
             and not tool_calls,
             disposition=disposition,
-            all_tools_blocked=batch_all_rejected(tool_results),
+            all_tools_blocked=batch_all_rejected(
+                tool_results,
+                dispatched=(
+                    tool_exec_result.tool_calls_executed if tool_exec_result is not None else 0
+                ),
+            ),
         )
 
     async def _run_boundary_compaction_check(

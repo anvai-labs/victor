@@ -14,7 +14,6 @@ import pytest
 
 from victor.agent.action_authorizer import ActionIntent
 from victor.agent.decisions.schemas import DecisionType
-from victor.agent.services.turn_execution_runtime import TurnDisposition
 from victor.agent.turn_policy import SpinState
 from victor.framework.agentic_loop import AgenticLoop, LoopResult
 from victor.framework.evaluation_nodes import (
@@ -512,10 +511,15 @@ class TestTurnResultEvaluation:
     async def test_repeated_rejected_tool_calls_stop_before_the_iteration_cap(self, mode):
         """LOOP-04: a model that keeps calling an unknown tool (fresh arguments each turn,
         so signature repetition never fires) is stopped by the shared blocked-batch limit
-        in both modes instead of running to max_iterations."""
+        in both loop drivers instead of running to max_iterations.
+
+        Both drivers consume TurnResults from the streaming builder here, so this pins the
+        loop side and the streaming flag. The buffered executor's flag is pinned by
+        ``test_execute_turn_flags_batches_the_runtime_rejected``."""
         from types import SimpleNamespace
 
         from victor.agent.services.chat_stream_executor import StreamingChatExecutor
+        from victor.agent.streaming.tool_execution import ToolExecutionResult
         from victor.providers.base import StreamChunk
 
         calls = {"n": 0}
@@ -534,8 +538,8 @@ class TestTurnResultEvaluation:
                 SimpleNamespace(is_qa_task=False),
                 full_content="",
                 tool_calls=[call],
-                tool_exec_result=SimpleNamespace(
-                    disposition=TurnDisposition.CONTINUE, tool_results=[rejected]
+                tool_exec_result=ToolExecutionResult(
+                    tool_results=[rejected], tool_calls_executed=1
                 ),
             )
 

@@ -25,7 +25,15 @@ mode.
 
 Only outcomes where the runtime refused the call before it could do any work
 count. Redirects that hand back cached or narrowed content (duplicate reads,
-redundant calls, broad reads) are informative and do not.
+redundant calls, broad reads) are informative and do not. The streaming-only
+``tool_blocked`` outcome is excluded: its tracker keeps its own consecutive and
+total limits and forces a final answer, and counting it here as well would end
+the run in the same turn, before the model could give that answer.
+
+A skipped call that has no provider call id never becomes a processed result
+(it is dropped so history holds no orphan tool message). When calls were
+dispatched but nothing came back, every one of them was such a skip, so the
+batch counts as rejected.
 """
 
 from __future__ import annotations
@@ -42,7 +50,6 @@ REJECTED_OUTCOME_KINDS = frozenset(
         "missing_tool_name",
         "permission_denied",
         "repeated_failure",
-        "tool_blocked",
         "tool_unavailable",
     }
 )
@@ -58,7 +65,15 @@ def _rejected(result: Any) -> bool:
     )
 
 
-def batch_all_rejected(tool_results: Iterable[Any]) -> bool:
-    """True when the batch is non-empty and the runtime refused every call in it."""
+def batch_all_rejected(tool_results: Iterable[Any], *, dispatched: int = 0) -> bool:
+    """True when the runtime refused every call in the batch.
+
+    Args:
+        tool_results: Processed result dicts for the batch.
+        dispatched: Number of calls handed to tool execution. When it is positive
+            and no results came back, all of them were dropped id-less skips.
+    """
     results = list(tool_results or ())
-    return bool(results) and all(_rejected(result) for result in results)
+    if not results:
+        return dispatched > 0
+    return all(_rejected(result) for result in results)
